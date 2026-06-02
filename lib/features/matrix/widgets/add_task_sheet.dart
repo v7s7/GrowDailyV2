@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/theme/game_theme.dart';
 import '../models/matrix_task.dart';
 
@@ -19,6 +21,7 @@ class AddTaskSheet extends StatefulWidget {
 class _AddTaskSheetState extends State<AddTaskSheet> {
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
+  bool _hasText = false;
 
   Color get _color => switch (widget.quadrant) {
         MatrixQuadrant.doFirst => GameColors.error,
@@ -30,6 +33,10 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
   @override
   void initState() {
     super.initState();
+    _ctrl.addListener(() {
+      final has = _ctrl.text.trim().isNotEmpty;
+      if (has != _hasText) setState(() => _hasText = has);
+    });
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _focus.requestFocus());
   }
@@ -43,6 +50,7 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
 
   void _submit() {
     if (_ctrl.text.trim().isEmpty) return;
+    HapticFeedback.mediumImpact();
     widget.onAdd(_ctrl.text.trim());
     Navigator.pop(context);
   }
@@ -53,7 +61,6 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
-        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: GameColors.surfaceElevated,
           borderRadius: BorderRadius.circular(20),
@@ -61,74 +68,116 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration:
-                      BoxDecoration(color: _color, shape: BoxShape.circle),
+            // Drag handle
+            Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 4),
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: GameColors.border,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  widget.quadrant.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: _color,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  widget.quadrant.subtitle,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: GameColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _ctrl,
-              focusNode: _focus,
-              onSubmitted: (_) => _submit(),
-              textCapitalization: TextCapitalization.sentences,
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w500,
-                color: GameColors.textPrimary,
               ),
-              decoration: const InputDecoration(
-                hintText: 'What needs to be done?',
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                filled: false,
-                contentPadding: EdgeInsets.zero,
+            ),
+            // Quadrant badge
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration:
+                        BoxDecoration(color: _color, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.quadrant.label,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: _color,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.quadrant.subtitle,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: GameColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            // Text field
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: TextField(
+                controller: _ctrl,
+                focusNode: _focus,
+                onSubmitted: (_) => _submit(),
+                textCapitalization: TextCapitalization.sentences,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                  color: GameColors.textPrimary,
+                  height: 1.4,
+                ),
+                maxLines: 3,
+                minLines: 1,
+                decoration: InputDecoration(
+                  hintText: 'What needs to be done?',
+                  hintStyle: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w400,
+                    color: GameColors.textTertiary.withOpacity(0.7),
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
+                  contentPadding: EdgeInsets.zero,
+                ),
               ),
             ),
             const SizedBox(height: 20),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(double.infinity, 48),
-              ),
-              onPressed: _submit,
-              child: const Text(
-                'ADD TASK',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
+            // Add button
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    backgroundColor:
+                        _hasText ? _color : GameColors.surfaceHighlight,
+                    foregroundColor:
+                        _hasText ? Colors.black : GameColors.textTertiary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: _hasText ? _submit : null,
+                  child: const Text(
+                    'ADD TASK',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.4,
+                    ),
+                  ),
                 ),
-              ),
+              ).animate(delay: 80.ms).fadeIn(duration: 250.ms).slideY(begin: 0.05),
             ),
           ],
         ),
-      ),
+      ).animate().slideY(begin: 0.08, duration: 280.ms, curve: Curves.easeOutCubic).fadeIn(duration: 200.ms),
     );
   }
 }
