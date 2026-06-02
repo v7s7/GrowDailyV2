@@ -8,15 +8,14 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/game_theme.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
+import 'features/matrix/screens/matrix_screen.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   if (!kIsWeb) {
     await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
-
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -24,11 +23,9 @@ Future<void> main() async {
     systemNavigationBarColor: GameColors.background,
     systemNavigationBarIconBrightness: Brightness.light,
   ));
-
   await Hive.initFlutter();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();
-
   runApp(const ProviderScope(child: GrowDailyApp()));
 }
 
@@ -41,7 +38,11 @@ class GrowDailyApp extends StatelessWidget {
       title: 'GrowDaily',
       debugShowCheckedModeBanner: false,
       theme: GameTheme.dark,
-      home: const DashboardScreen(),
+      initialRoute: '/',
+      routes: {
+        '/': (_) => const DashboardScreen(),
+        '/matrix': (_) => const MatrixScreen(),
+      },
     );
   }
 }

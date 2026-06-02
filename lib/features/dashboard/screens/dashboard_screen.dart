@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/game_theme.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
+import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
 import '../../../shared/widgets/stat_chip.dart';
 import '../../../shared/widgets/xp_bar.dart';
@@ -20,20 +22,27 @@ class DashboardScreen extends ConsumerWidget {
       for (final entry in next.completions.entries) {
         if ((prev.completions[entry.key] ?? 0) < entry.value) {
           final t = IslamicHabitCatalog.findById(entry.key);
-          if (t != null) _showDone(context, t.name, t.xpReward, t.goldReward);
+          if (t != null) {
+            HapticFeedback.mediumImpact();
+            _showDone(context, t.name, t.xpReward, t.goldReward);
+          }
         }
       }
-      if (next.didJustLevelUp) _showLevelUp(context, next.level);
+      if (next.didJustLevelUp) {
+        HapticFeedback.heavyImpact();
+        _showLevelUp(context, next.level);
+      }
     });
 
     final state = ref.watch(dashboardProvider);
     final habits = IslamicHabitCatalog.templates;
 
     return Scaffold(
+      backgroundColor: GameColors.background,
+      bottomNavigationBar: const GameNavBar(currentIndex: 0),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
-          // App bar
           SliverAppBar(
             pinned: true,
             backgroundColor: GameColors.background,
@@ -48,19 +57,14 @@ class DashboardScreen extends ConsumerWidget {
                 letterSpacing: -0.3,
               ),
             ),
-            actions: [
+            actions: const [
               Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Icon(
-                  Icons.person_rounded,
-                  color: GameColors.textSecondary,
-                  size: 22,
-                ),
+                padding: EdgeInsets.only(right: 16),
+                child: Icon(Icons.person_rounded,
+                    color: GameColors.textSecondary, size: 22),
               ),
             ],
           ),
-
-          // Stats card
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -70,8 +74,6 @@ class DashboardScreen extends ConsumerWidget {
                   .slideY(begin: -0.04, curve: Curves.easeOut),
             ),
           ),
-
-          // Section label
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
@@ -99,8 +101,6 @@ class DashboardScreen extends ConsumerWidget {
               ),
             ),
           ),
-
-          // Habit list
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             sliver: SliverList.builder(
@@ -132,7 +132,6 @@ class DashboardScreen extends ConsumerWidget {
               },
             ),
           ),
-
           const SliverToBoxAdapter(child: SizedBox(height: 110)),
         ],
       ),
@@ -154,8 +153,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  void _showDone(
-      BuildContext context, String name, int xp, int gold) {
+  void _showDone(BuildContext context, String name, int xp, int gold) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -168,22 +166,16 @@ class DashboardScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: GameColors.textPrimary,
-                    ),
-                  ),
-                  Text(
-                    '+$xp XP  ·  +$gold Gold',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: GameColors.gold,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  Text(name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: GameColors.textPrimary)),
+                  Text('+$xp XP  ·  +$gold Gold',
+                      style: const TextStyle(
+                          fontSize: 11,
+                          color: GameColors.gold,
+                          fontWeight: FontWeight.w600)),
                 ],
               ),
             ),
@@ -210,15 +202,12 @@ class DashboardScreen extends ConsumerWidget {
             const Icon(Icons.arrow_upward_rounded,
                 color: GameColors.gold, size: 18),
             const SizedBox(width: 8),
-            Text(
-              'LEVEL UP  —  LVL $level',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: GameColors.gold,
-                letterSpacing: 1,
-              ),
-            ),
+            Text('LEVEL UP  —  LVL $level',
+                style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: GameColors.gold,
+                    letterSpacing: 1)),
           ],
         ),
         backgroundColor: GameColors.surface,
@@ -253,7 +242,6 @@ class _StatsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Date
           Text(
             today.toUpperCase(),
             style: const TextStyle(
@@ -264,22 +252,18 @@ class _StatsCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          // Level row
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'LEVEL',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: GameColors.textSecondary,
-                      letterSpacing: 2,
-                    ),
-                  ),
+                  const Text('LEVEL',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: GameColors.textSecondary,
+                          letterSpacing: 2)),
                   Text(
                     '${state.level}',
                     style: const TextStyle(
@@ -299,19 +283,17 @@ class _StatsCard extends StatelessWidget {
                   Text(
                     '${state.currentLevelXp} / ${state.xpToNext} XP',
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: GameColors.textSecondary,
-                    ),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: GameColors.textSecondary),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     '${state.cumulativeXp} TOTAL XP',
                     style: const TextStyle(
-                      fontSize: 10,
-                      color: GameColors.textTertiary,
-                      letterSpacing: 0.5,
-                    ),
+                        fontSize: 10,
+                        color: GameColors.textTertiary,
+                        letterSpacing: 0.5),
                   ),
                 ],
               ),
