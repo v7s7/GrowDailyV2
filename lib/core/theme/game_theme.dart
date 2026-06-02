@@ -202,7 +202,7 @@ abstract final class GameTheme {
         iconTheme: IconThemeData(color: GameColors.textPrimary),
         actionsIconTheme: IconThemeData(color: GameColors.gold),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: GameColors.surface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
@@ -249,7 +249,7 @@ abstract final class GameTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: GameColors.surface,
         surfaceTintColor: Colors.transparent,
-        indicatorColor: Color(0x26F5C533), // gold @ 15% opacity
+        indicatorColor: const Color(0x26F5C533),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return const IconThemeData(color: GameColors.gold, size: 24);
@@ -278,7 +278,7 @@ abstract final class GameTheme {
         space: 1,
         thickness: 0.5,
       ),
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: GameColors.surfaceElevated,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
