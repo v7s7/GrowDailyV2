@@ -50,8 +50,8 @@ class QuadrantCard extends StatelessWidget {
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
               decoration: BoxDecoration(
                 color: _color.withOpacity(0.1),
-                borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(13)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(13)),
                 border: Border(
                   bottom: BorderSide(
                       color: _color.withOpacity(0.15), width: 0.5),
@@ -62,8 +62,8 @@ class QuadrantCard extends StatelessWidget {
                   Container(
                     width: 6,
                     height: 6,
-                    decoration: BoxDecoration(
-                        color: _color, shape: BoxShape.circle),
+                    decoration:
+                        BoxDecoration(color: _color, shape: BoxShape.circle),
                   ),
                   const SizedBox(width: 6),
                   Expanded(
@@ -78,7 +78,8 @@ class QuadrantCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (_pending > 0) ...[const SizedBox(width: 4),
+                  if (_pending > 0) ...[
+                    const SizedBox(width: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 5, vertical: 1),
@@ -105,11 +106,20 @@ class QuadrantCard extends StatelessWidget {
           // Tasks
           Expanded(
             child: tasks.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Tap + to add',
-                      style: TextStyle(
-                          fontSize: 11, color: GameColors.textTertiary),
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_circle_outline_rounded,
+                            size: 20, color: GameColors.textTertiary),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Tap + to add',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: GameColors.textTertiary),
+                        ),
+                      ],
                     ),
                   )
                 : ListView.separated(
@@ -124,6 +134,7 @@ class QuadrantCard extends StatelessWidget {
                     itemBuilder: (ctx, i) {
                       final t = tasks[i];
                       return _TaskTile(
+                        key: ValueKey(t.id),
                         task: t,
                         accentColor: _color,
                         onToggle: () => onToggle(t.id),
@@ -144,7 +155,7 @@ class QuadrantCard extends StatelessWidget {
 
 // ─── Task Tile ───────────────────────────────────────────────────────────────
 
-class _TaskTile extends StatelessWidget {
+class _TaskTile extends StatefulWidget {
   final MatrixTask task;
   final Color accentColor;
   final VoidCallback onToggle;
@@ -152,6 +163,7 @@ class _TaskTile extends StatelessWidget {
   final void Function(MatrixQuadrant) onMove;
 
   const _TaskTile({
+    super.key,
     required this.task,
     required this.accentColor,
     required this.onToggle,
@@ -160,65 +172,141 @@ class _TaskTile extends StatelessWidget {
   });
 
   @override
+  State<_TaskTile> createState() => _TaskTileState();
+}
+
+class _TaskTileState extends State<_TaskTile>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _spring;
+  late final Animation<double> _scale;
+  bool _pressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _spring = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(
+          tween: Tween(begin: 1.0, end: 1.35)
+              .chain(CurveTween(curve: Curves.easeOut)),
+          weight: 30),
+      TweenSequenceItem(
+          tween: Tween(begin: 1.35, end: 0.88)
+              .chain(CurveTween(curve: Curves.easeIn)),
+          weight: 20),
+      TweenSequenceItem(
+          tween: Tween(begin: 0.88, end: 1.0)
+              .chain(CurveTween(curve: Curves.elasticOut)),
+          weight: 50),
+    ]).animate(_spring);
+  }
+
+  @override
+  void dispose() {
+    _spring.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    _spring.forward(from: 0.0);
+    widget.onToggle();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Dismissible(
-      key: ValueKey(task.id),
+      key: ValueKey('dismiss-${widget.task.id}'),
       direction: DismissDirection.endToStart,
-      onDismissed: (_) => onDelete(),
+      onDismissed: (_) => widget.onDelete(),
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 14),
-        color: GameColors.error.withOpacity(0.12),
+        decoration: BoxDecoration(
+          color: GameColors.error.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: const Icon(Icons.delete_outline_rounded,
             color: GameColors.error, size: 16),
       ),
-      child: InkWell(
-        onTap: onToggle,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) {
+          setState(() => _pressed = false);
+          _handleTap();
+        },
+        onTapCancel: () => setState(() => _pressed = false),
         onLongPress: () => _showMoveMenu(context),
-        splashColor: Colors.transparent,
-        highlightColor: GameColors.surfaceElevated.withOpacity(0.5),
-        child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          color: _pressed
+              ? GameColors.surfaceElevated.withOpacity(0.6)
+              : Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: 16,
-                height: 16,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color:
-                      task.isDone ? accentColor : Colors.transparent,
-                  border: Border.all(
-                    color:
-                        task.isDone ? accentColor : GameColors.border,
-                    width: 1.5,
+              // Spring-bounce checkbox
+              AnimatedBuilder(
+                animation: _scale,
+                builder: (_, __) => Transform.scale(
+                  scale: _spring.isAnimating ? _scale.value : 1.0,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    width: 17,
+                    height: 17,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: widget.task.isDone
+                          ? widget.accentColor
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: widget.task.isDone
+                            ? widget.accentColor
+                            : GameColors.border,
+                        width: 1.5,
+                      ),
+                      boxShadow: widget.task.isDone
+                          ? [
+                              BoxShadow(
+                                color: widget.accentColor.withOpacity(0.35),
+                                blurRadius: 6,
+                                spreadRadius: 0,
+                              )
+                            ]
+                          : null,
+                    ),
+                    child: widget.task.isDone
+                        ? const Icon(Icons.check_rounded,
+                            size: 10, color: Colors.black)
+                        : null,
                   ),
                 ),
-                child: task.isDone
-                    ? const Icon(Icons.check_rounded,
-                        size: 9, color: Colors.black)
-                    : null,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 9),
               Expanded(
-                child: Text(
-                  task.title,
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 200),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     height: 1.35,
-                    color: task.isDone
+                    color: widget.task.isDone
                         ? GameColors.textTertiary
                         : GameColors.textPrimary,
-                    decoration: task.isDone
+                    decoration: widget.task.isDone
                         ? TextDecoration.lineThrough
-                        : null,
+                        : TextDecoration.none,
                     decorationColor: GameColors.textTertiary,
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                  child: Text(
+                    widget.task.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],
@@ -230,7 +318,7 @@ class _TaskTile extends StatelessWidget {
 
   void _showMoveMenu(BuildContext context) {
     final others =
-        MatrixQuadrant.values.where((q) => q != task.quadrant).toList();
+        MatrixQuadrant.values.where((q) => q != widget.task.quadrant).toList();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -264,8 +352,7 @@ class _TaskTile extends StatelessWidget {
                       width: 8,
                       height: 8,
                       decoration: BoxDecoration(
-                          color: _colorFor(q),
-                          shape: BoxShape.circle),
+                          color: _colorFor(q), shape: BoxShape.circle),
                     ),
                     title: Text(
                       q.label,
@@ -284,7 +371,7 @@ class _TaskTile extends StatelessWidget {
                     ),
                     onTap: () {
                       Navigator.pop(context);
-                      onMove(q);
+                      widget.onMove(q);
                     },
                   )),
               const SizedBox(height: 8),
