@@ -48,8 +48,8 @@ dev_dependencies:
   hive_generator: ^2.0.1
   json_serializable: ^6.8.0
   riverpod_generator: ^2.4.3
-  custom_lint: ^0.6.7
-  riverpod_lint: ^2.3.13
+  # custom_lint and riverpod_lint removed — incompatible with current Dart SDK _macros
+  # re-add when upgrading to latest Flutter: custom_lint ^0.7.x, riverpod_lint ^2.4.x
 
 flutter:
   uses-material-design: true
