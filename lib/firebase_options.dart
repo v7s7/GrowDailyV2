@@ -13,7 +13,7 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError('Web is not supported in GrowDaily V2.');
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.iOS:
@@ -27,22 +27,34 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // TODO: replace placeholder values after running `flutterfire configure`
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'YOUR_IOS_API_KEY',
-    appId: 'YOUR_IOS_APP_ID',
-    messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_PROJECT_ID.firebasestorage.app',
-    iosClientId: 'YOUR_IOS_CLIENT_ID',
+    apiKey: 'AIzaSyB2dC_6ddlr2YRha5Y85GPNd3KpIlHFaqQ',
+    appId: '1:508215311979:ios:885d52f65de4c31e1fbb2e',
+    messagingSenderId: '508215311979',
+    projectId: 'grow-daily-339ef',
+    storageBucket: 'grow-daily-339ef.firebasestorage.app',
+    iosClientId: '508215311979-qrr5nrjcl6til44peg3k3jmdv0smub7e.apps.googleusercontent.com',
     iosBundleId: 'com.growdaily.v2',
   );
 
+  // TODO: replace placeholder values after running `flutterfire configure`
+
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'YOUR_ANDROID_API_KEY',
-    appId: 'YOUR_ANDROID_APP_ID',
-    messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_PROJECT_ID.firebasestorage.app',
+    apiKey: 'AIzaSyA5x-guZJ4BGXpa-IUN9iV7Wj45ww4lBQk',
+    appId: '1:508215311979:android:ccb9c6e15496fac81fbb2e',
+    messagingSenderId: '508215311979',
+    projectId: 'grow-daily-339ef',
+    storageBucket: 'grow-daily-339ef.firebasestorage.app',
   );
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyDPRsJ600XqWwWxpq4a6YQPoY1PM80v0iE',
+    appId: '1:508215311979:web:76e5b77a301b7e931fbb2e',
+    messagingSenderId: '508215311979',
+    projectId: 'grow-daily-339ef',
+    authDomain: 'grow-daily-339ef.firebaseapp.com',
+    storageBucket: 'grow-daily-339ef.firebasestorage.app',
+    measurementId: 'G-K4LLS0RY6B',
+  );
+
 }
