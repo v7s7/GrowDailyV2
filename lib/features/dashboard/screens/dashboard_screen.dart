@@ -416,7 +416,7 @@ class _ComebackSheet extends StatelessWidget {
             ).animate().scale(curve: Curves.elasticOut, duration: 650.ms),
             const SizedBox(height: 18),
             Text(
-              'YOU'RE BACK',
+              "YOU\'RE BACK",
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
@@ -559,7 +559,7 @@ class _TodayIntentionCard extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    hasPlan ? 'Today's intention' : 'Pick one tiny win',
+                    hasPlan ? "Today's intention" : 'Pick one tiny win',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,

@@ -13,8 +13,10 @@ class LocalStoreService {
   static Future<Box<dynamic>> dailyBox() => _open(GameConstants.boxDailyLogs);
   static Future<Box<dynamic>> habitsBox() => _open(GameConstants.boxHabits);
 
-  static Future<Box<dynamic>> _open(String name) async =>
-      Hive.isBoxOpen(name) ? Hive.box<dynamic>(name) : Hive.openBox<dynamic>(name);
+  static Future<Box<dynamic>> _open(String name) async {
+    if (Hive.isBoxOpen(name)) return Hive.box<dynamic>(name);
+    return Hive.openBox<dynamic>(name);
+  }
 
   static String dateKey(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
