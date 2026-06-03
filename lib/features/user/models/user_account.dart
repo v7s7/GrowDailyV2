@@ -19,7 +19,9 @@ class UserAccount {
   // ── Streaks ──────────────────────────────────────────────────
   final int currentStreak; // consecutive active days
   final int longestStreak;
+  final int streakFreezes;
   final DateTime? lastActiveDate;
+  final String? lastRecoveryDate;
 
   // ── Unlocks ──────────────────────────────────────────────────
   final List<String> unlockedAchievements; // achievement IDs
@@ -37,7 +39,9 @@ class UserAccount {
     required this.gold,
     required this.currentStreak,
     required this.longestStreak,
+    this.streakFreezes = 1,
     this.lastActiveDate,
+    this.lastRecoveryDate,
     required this.unlockedAchievements,
     required this.equippedHabitIds,
     required this.createdAt,
@@ -63,6 +67,7 @@ class UserAccount {
         gold: 0,
         currentStreak: 0,
         longestStreak: 0,
+        streakFreezes: 1,
         unlockedAchievements: const [],
         equippedHabitIds: const [],
         createdAt: DateTime.now(),
@@ -82,8 +87,10 @@ class UserAccount {
       gold: d['gold'] as int? ?? 0,
       currentStreak: d['currentStreak'] as int? ?? 0,
       longestStreak: d['longestStreak'] as int? ?? 0,
+      streakFreezes: d['streakFreezes'] as int? ?? 1,
       lastActiveDate:
           (d['lastActiveDate'] as Timestamp?)?.toDate(),
+      lastRecoveryDate: d['lastRecoveryDate'] as String?,
       unlockedAchievements:
           List<String>.from(d['unlockedAchievements'] as List? ?? []),
       equippedHabitIds:
@@ -102,8 +109,10 @@ class UserAccount {
         'gold': gold,
         'currentStreak': currentStreak,
         'longestStreak': longestStreak,
+        'streakFreezes': streakFreezes,
         if (lastActiveDate != null)
           'lastActiveDate': Timestamp.fromDate(lastActiveDate!),
+        if (lastRecoveryDate != null) 'lastRecoveryDate': lastRecoveryDate,
         'unlockedAchievements': unlockedAchievements,
         'equippedHabitIds': equippedHabitIds,
         'createdAt': Timestamp.fromDate(createdAt),
@@ -118,7 +127,9 @@ class UserAccount {
     int? gold,
     int? currentStreak,
     int? longestStreak,
+    int? streakFreezes,
     DateTime? lastActiveDate,
+    String? lastRecoveryDate,
     List<String>? unlockedAchievements,
     List<String>? equippedHabitIds,
   }) =>
@@ -132,7 +143,9 @@ class UserAccount {
         gold: gold ?? this.gold,
         currentStreak: currentStreak ?? this.currentStreak,
         longestStreak: longestStreak ?? this.longestStreak,
+        streakFreezes: streakFreezes ?? this.streakFreezes,
         lastActiveDate: lastActiveDate ?? this.lastActiveDate,
+        lastRecoveryDate: lastRecoveryDate ?? this.lastRecoveryDate,
         unlockedAchievements:
             unlockedAchievements ?? this.unlockedAchievements,
         equippedHabitIds: equippedHabitIds ?? this.equippedHabitIds,

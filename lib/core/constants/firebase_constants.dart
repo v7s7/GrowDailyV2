@@ -22,7 +22,9 @@ abstract final class FirebaseConstants {
   static const String fGold = 'gold';
   static const String fCurrentStreak = 'currentStreak';
   static const String fLongestStreak = 'longestStreak';
+  static const String fStreakFreezes = 'streakFreezes';
   static const String fLastActiveDate = 'lastActiveDate';
+  static const String fLastRecoveryDate = 'lastRecoveryDate';
   static const String fUnlockedAchievements = 'unlockedAchievements';
   static const String fEquippedHabitIds = 'equippedHabitIds';
   static const String fCreatedAt = 'createdAt';
