@@ -9,6 +9,7 @@ class IslamicHabitTemplate {
   final String id;
   final String name;
   final String description;
+  final String? cueAfter;
   final String iconEmoji;
   final HabitCategory category;
   final HabitFrequencyType frequencyType;
@@ -22,6 +23,7 @@ class IslamicHabitTemplate {
     required this.id,
     required this.name,
     required this.description,
+    this.cueAfter,
     required this.iconEmoji,
     required this.category,
     required this.frequencyType,
@@ -37,6 +39,7 @@ class IslamicHabitTemplate {
         uid: uid,
         name: name,
         description: description,
+        cueAfter: cueAfter,
         iconEmoji: iconEmoji,
         category: category,
         frequencyType: frequencyType,
@@ -53,6 +56,7 @@ class IslamicHabitTemplate {
   Map<String, dynamic> toFirestore() => {
         'name': name,
         'description': description,
+        if (cueAfter != null) 'cueAfter': cueAfter,
         'iconEmoji': iconEmoji,
         'category': category.toJson(),
         'frequencyType': frequencyType.toJson(),
@@ -72,6 +76,7 @@ class IslamicHabitTemplate {
       id: doc.id,
       name: d['name'] as String,
       description: d['description'] as String? ?? '',
+      cueAfter: d['cueAfter'] as String?,
       iconEmoji: d['iconEmoji'] as String? ?? '',
       category:
           HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
@@ -93,6 +98,7 @@ abstract final class IslamicHabitCatalog {
       id: 'quran_daily_page',
       name: 'Quran Daily Page',
       description: 'Read at least one page of the Quran every day',
+      cueAfter: 'Fajr',
       iconEmoji: '',
       category: HabitCategory.quran,
       frequencyType: HabitFrequencyType.daily,
@@ -106,6 +112,7 @@ abstract final class IslamicHabitCatalog {
       id: 'quran_memorization',
       name: 'Quran Memorization',
       description: 'Memorize and review verses of the Quran',
+      cueAfter: 'your quiet study block',
       iconEmoji: '',
       category: HabitCategory.quran,
       frequencyType: HabitFrequencyType.daily,
@@ -119,6 +126,7 @@ abstract final class IslamicHabitCatalog {
       id: 'morning_athkar',
       name: 'Morning Athkar',
       description: 'Recite the morning remembrances after Fajr',
+      cueAfter: 'Fajr',
       iconEmoji: '',
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.daily,
@@ -131,6 +139,7 @@ abstract final class IslamicHabitCatalog {
       id: 'evening_athkar',
       name: 'Evening Athkar',
       description: 'Recite the evening remembrances after Asr',
+      cueAfter: 'Asr',
       iconEmoji: '',
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.daily,
@@ -143,6 +152,7 @@ abstract final class IslamicHabitCatalog {
       id: 'tahajjud',
       name: 'Tahajjud Prayer',
       description: 'Rise before Fajr for the voluntary night prayer',
+      cueAfter: 'waking before Fajr',
       iconEmoji: '',
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.weekly,

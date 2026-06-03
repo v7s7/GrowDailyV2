@@ -11,6 +11,7 @@ import 'core/theme/game_theme.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
+import 'features/focus/screens/focus_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
@@ -46,6 +47,7 @@ class GrowDailyApp extends ConsumerWidget {
       routes: {
         '/': (_) => const _AuthGate(),
         '/dashboard': (_) => const DashboardScreen(),
+        '/focus': (_) => const FocusScreen(),
         '/matrix': (_) => const MatrixScreen(),
         '/profile': (_) => const ProfileScreen(),
         '/auth': (_) => const AuthScreen(),
@@ -59,6 +61,8 @@ class _AuthGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isGuest = ref.watch(guestModeProvider);
+    if (isGuest) return const DashboardScreen();
     final auth = ref.watch(authStateProvider);
     return auth.when(
       data: (user) =>

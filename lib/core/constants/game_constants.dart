@@ -5,8 +5,11 @@ abstract final class GameConstants {
 
   // Streak milestone bonuses (XP awarded at threshold)
   static const Map<int, int> streakBonuses = {
+    3: 25,
     7: 50,
+    14: 100,
     30: 200,
+    60: 500,
     100: 1000,
   };
 

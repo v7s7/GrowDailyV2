@@ -16,6 +16,7 @@ class AddHabitSheet extends ConsumerStatefulWidget {
 
 class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   final _nameCtrl = TextEditingController();
+  final _cueCtrl = TextEditingController();
   final _focus = FocusNode();
   HabitCategory _category = HabitCategory.custom;
   HabitFrequencyType _freqType = HabitFrequencyType.daily;
@@ -36,6 +37,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _cueCtrl.dispose();
     _focus.dispose();
     super.dispose();
   }
@@ -46,6 +48,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     ref.read(customHabitsProvider.notifier).add(
           name: _nameCtrl.text.trim(),
           category: _category,
+          cueAfter: _cueCtrl.text.trim(),
           frequencyType: _freqType,
           frequencyTarget: _freqTarget,
         );
@@ -118,6 +121,21 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   focusedBorder: InputBorder.none,
                   filled: false,
                   contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: TextField(
+                controller: _cueCtrl,
+                textCapitalization: TextCapitalization.sentences,
+                textInputAction: TextInputAction.next,
+                style: TextStyle(fontSize: 14, color: gp.textPrimary),
+                decoration: InputDecoration(
+                  labelText: 'After what routine? (optional)',
+                  hintText: 'Fajr, Maghrib, before sleep...',
+                  prefixIcon: Icon(Icons.place_rounded, size: 18, color: gp.textSec),
                 ),
               ),
             ),

@@ -35,6 +35,7 @@ class CustomHabitsNotifier
   void add({
     required String name,
     required HabitCategory category,
+    String? cueAfter,
     required HabitFrequencyType frequencyType,
     required int frequencyTarget,
   }) {
@@ -42,7 +43,10 @@ class CustomHabitsNotifier
     final template = IslamicHabitTemplate(
       id: const Uuid().v4(),
       name: name,
-      description: '',
+      description: cueAfter == null || cueAfter.trim().isEmpty
+          ? ''
+          : 'After ${cueAfter.trim()}, I will $name.',
+      cueAfter: cueAfter?.trim().isEmpty == true ? null : cueAfter?.trim(),
       iconEmoji: '',
       category: category,
       frequencyType: frequencyType,

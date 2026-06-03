@@ -21,7 +21,8 @@ class GameNavBar extends StatelessWidget {
             context,
             switch (i) {
               0 => '/dashboard',
-              1 => '/matrix',
+              1 => '/focus',
+              2 => '/matrix',
               _ => '/profile',
             },
           );
@@ -30,7 +31,9 @@ class GameNavBar extends StatelessWidget {
           NavigationDestination(
               icon: Icon(Icons.home_rounded), label: 'Dashboard'),
           NavigationDestination(
-              icon: Icon(Icons.grid_view_rounded), label: 'Matrix'),
+              icon: Icon(Icons.center_focus_strong_rounded), label: 'Focus'),
+          NavigationDestination(
+              icon: Icon(Icons.grid_view_rounded), label: 'Goals'),
           NavigationDestination(
               icon: Icon(Icons.person_rounded), label: 'Profile'),
         ],

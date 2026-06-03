@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
+import '../../../features/focus/notifiers/focus_plan_notifier.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/habits/widgets/add_habit_sheet.dart';
@@ -35,6 +37,19 @@ class DashboardScreen extends ConsumerWidget {
           HapticFeedback.mediumImpact();
           _showDone(context, t.name, t.xpReward, t.goldReward);
         }
+      }
+      if (next.didUseStreakFreeze && !prev.didUseStreakFreeze) {
+        HapticFeedback.mediumImpact();
+        _showFreezeProtected(context, next.streakFreezes);
+      }
+      if (next.showRecoveryPrompt && !prev.showRecoveryPrompt) {
+        HapticFeedback.mediumImpact();
+        _showComeback(context, ref);
+      }
+      if (next.streakMilestone != null &&
+          next.streakMilestone != prev.streakMilestone) {
+        HapticFeedback.heavyImpact();
+        _showStreakMilestone(context, next.streakMilestone!);
       }
       if (next.didJustLevelUp) {
         HapticFeedback.heavyImpact();
@@ -121,6 +136,15 @@ class DashboardScreen extends ConsumerWidget {
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    child: const _TodayIntentionCard()
+                        .animate(delay: 120.ms)
+                        .fadeIn(duration: 400.ms)
+                        .slideY(begin: 0.08),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
                     padding:
                         const EdgeInsets.fromLTRB(16, 28, 16, 12),
                     child: Row(
@@ -195,6 +219,60 @@ class DashboardScreen extends ConsumerWidget {
               letterSpacing: 1.2),
         ),
       ).animate().fadeIn(delay: 700.ms).slideY(begin: 0.4),
+    );
+  }
+
+  void _showFreezeProtected(BuildContext context, int remaining) {
+    final gp = context.gp;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(children: [
+          const Icon(Icons.ac_unit_rounded, color: GameColors.xpBlue, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Streak Freeze protected you. $remaining left.',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: gp.textPrimary,
+              ),
+            ),
+          ),
+        ]),
+        backgroundColor: gp.surfaceHigh,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  void _showComeback(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ComebackSheet(
+        onClaim: () {
+          ref.read(dashboardProvider.notifier).claimComebackBonus();
+          Navigator.pop(context);
+        },
+        onDismiss: () {
+          ref.read(dashboardProvider.notifier).dismissRecoveryPrompt();
+          Navigator.pop(context);
+        },
+      ),
+    );
+  }
+
+  void _showStreakMilestone(BuildContext context, int streak) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _StreakMilestoneSheet(streak: streak),
     );
   }
 
@@ -295,6 +373,219 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
+// ─── Compassionate Comeback / Streak Milestones ───────────────────────────
+
+class _ComebackSheet extends StatelessWidget {
+  final VoidCallback onClaim;
+  final VoidCallback onDismiss;
+  const _ComebackSheet({required this.onClaim, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: GameColors.success.withOpacity(0.35)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: gp.border,
+                borderRadius: BorderRadius.circular(100),
+              ),
+            ),
+            const SizedBox(height: 26),
+            Container(
+              width: 78,
+              height: 78,
+              decoration: BoxDecoration(
+                color: GameColors.success.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.favorite_rounded,
+                  size: 34, color: GameColors.success),
+            ).animate().scale(curve: Curves.elasticOut, duration: 650.ms),
+            const SizedBox(height: 18),
+            Text(
+              'YOU'RE BACK',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: GameColors.success,
+                letterSpacing: 2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No guilt. Just restart.',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                color: gp.textPrimary,
+                letterSpacing: -0.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Missing a day is normal. Take a comeback bonus and complete one tiny habit today.',
+              style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.35),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 22),
+            FilledButton.icon(
+              onPressed: onClaim,
+              icon: const Icon(Icons.bolt_rounded, size: 18),
+              label: const Text('Claim +50 XP comeback'),
+            ),
+            TextButton(
+              onPressed: onDismiss,
+              child: const Text('Not now'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StreakMilestoneSheet extends StatelessWidget {
+  final int streak;
+  const _StreakMilestoneSheet({required this.streak});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final bonus = XpCalculator.streakMilestoneBonus(streak);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: GameColors.streakOrange.withOpacity(0.4)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.local_fire_department_rounded,
+                size: 72, color: GameColors.streakOrange),
+            const SizedBox(height: 14),
+            Text(
+              '$streak-DAY WARRIOR',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: GameColors.streakOrange,
+                letterSpacing: 2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your consistency is becoming identity.',
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w900,
+                color: gp.textPrimary,
+                letterSpacing: -0.3,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              bonus > 0 ? '+$bonus bonus XP awarded' : 'Milestone reached',
+              style: const TextStyle(
+                fontSize: 13,
+                color: GameColors.gold,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 22),
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Keep growing'),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.12);
+  }
+}
+
+// ─── Today Intention Card ─────────────────────────────────────────────────
+
+class _TodayIntentionCard extends ConsumerWidget {
+  const _TodayIntentionCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final plan = ref.watch(focusPlanProvider).plan;
+    final hasPlan = plan.topTask.trim().isNotEmpty;
+    return InkWell(
+      onTap: () => Navigator.pushReplacementNamed(context, '/focus'),
+      borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: GameColors.xpBlue.withOpacity(0.22)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: GameColors.xpBlue.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.flag_rounded, color: GameColors.xpBlue),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasPlan ? 'Today's intention' : 'Pick one tiny win',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    hasPlan
+                        ? plan.topTask
+                        : 'Choose one goal for your deen, work, or health.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: gp.textSec),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: GameColors.xpBlue),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Stats Card ───────────────────────────────────────────────────────────
 
 class _StatsCard extends StatelessWidget {
@@ -381,6 +672,13 @@ class _StatsCard extends StatelessWidget {
               value: state.streak,
               label: 'STREAK',
               color: GameColors.streakOrange,
+            ),
+            const SizedBox(width: 10),
+            StatChip(
+              icon: Icons.ac_unit_rounded,
+              value: state.streakFreezes,
+              label: 'FREEZE',
+              color: GameColors.xpBlue,
             ),
             const SizedBox(width: 10),
             StatChip(
