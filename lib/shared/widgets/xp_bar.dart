@@ -8,19 +8,18 @@ class XpBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final trackColor = context.gp.surfaceHigh;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final fillWidth =
-            (constraints.maxWidth * progress.clamp(0.0, 1.0));
+        final fillWidth = constraints.maxWidth * progress.clamp(0.0, 1.0);
         return ClipRRect(
           borderRadius: BorderRadius.circular(100),
           child: Stack(
             children: [
               Container(
-                height: 6,
-                width: constraints.maxWidth,
-                color: GameColors.surfaceElevated,
-              ),
+                  height: 6,
+                  width: constraints.maxWidth,
+                  color: trackColor),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 700),
                 curve: Curves.easeOutCubic,

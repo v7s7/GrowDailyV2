@@ -32,16 +32,16 @@ class QuadrantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gp = context.gp;
     return Container(
       decoration: BoxDecoration(
-        color: GameColors.surface,
+        color: gp.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: GameColors.border, width: 0.5),
+        border: Border.all(color: gp.border, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Tappable header
           GestureDetector(
             onTap: onAddTapped,
             behavior: HitTestBehavior.opaque,
@@ -53,33 +53,29 @@ class QuadrantCard extends StatelessWidget {
                 borderRadius:
                     const BorderRadius.vertical(top: Radius.circular(13)),
                 border: Border(
-                  bottom: BorderSide(
-                      color: _color.withOpacity(0.15), width: 0.5),
-                ),
+                    bottom: BorderSide(
+                        color: _color.withOpacity(0.15), width: 0.5)),
               ),
               child: Row(
                 children: [
                   Container(
-                    width: 6,
-                    height: 6,
-                    decoration:
-                        BoxDecoration(color: _color, shape: BoxShape.circle),
-                  ),
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                          color: _color, shape: BoxShape.circle)),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       quadrant.label,
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: _color,
-                        letterSpacing: 0.8,
-                      ),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: _color,
+                          letterSpacing: 0.8),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (_pending > 0) ...[
-                    const SizedBox(width: 4),
+                  if (_pending > 0) ...[const SizedBox(width: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 5, vertical: 1),
@@ -87,14 +83,11 @@ class QuadrantCard extends StatelessWidget {
                         color: _color.withOpacity(0.18),
                         borderRadius: BorderRadius.circular(100),
                       ),
-                      child: Text(
-                        '$_pending',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: _color,
-                        ),
-                      ),
+                      child: Text('$_pending',
+                          style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: _color)),
                     ),
                     const SizedBox(width: 4),
                   ],
@@ -103,7 +96,6 @@ class QuadrantCard extends StatelessWidget {
               ),
             ),
           ),
-          // Tasks
           Expanded(
             child: tasks.isEmpty
                 ? Center(
@@ -111,26 +103,19 @@ class QuadrantCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.add_circle_outline_rounded,
-                            size: 20, color: GameColors.textTertiary),
+                            size: 20, color: gp.textTert),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Tap + to add',
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: GameColors.textTertiary),
-                        ),
+                        Text('Tap + to add',
+                            style: TextStyle(
+                                fontSize: 11, color: gp.textTert)),
                       ],
                     ),
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     itemCount: tasks.length,
-                    separatorBuilder: (_, __) => Divider(
-                      height: 1,
-                      color: GameColors.divider,
-                      indent: 10,
-                      endIndent: 10,
-                    ),
+                    separatorBuilder: (_, __) =>
+                        Divider(height: 1, color: gp.divider, indent: 10, endIndent: 10),
                     itemBuilder: (ctx, i) {
                       final t = tasks[i];
                       return _TaskTile(
@@ -185,9 +170,7 @@ class _TaskTileState extends State<_TaskTile>
   void initState() {
     super.initState();
     _spring = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 380),
-    );
+        vsync: this, duration: const Duration(milliseconds: 380));
     _scale = TweenSequence<double>([
       TweenSequenceItem(
           tween: Tween(begin: 1.0, end: 1.35)
@@ -217,6 +200,7 @@ class _TaskTileState extends State<_TaskTile>
 
   @override
   Widget build(BuildContext context) {
+    final gp = context.gp;
     return Dismissible(
       key: ValueKey('dismiss-${widget.task.id}'),
       direction: DismissDirection.endToStart,
@@ -242,13 +226,11 @@ class _TaskTileState extends State<_TaskTile>
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
-          color: _pressed
-              ? GameColors.surfaceElevated.withOpacity(0.6)
-              : Colors.transparent,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          color: _pressed ? gp.surfaceHL.withOpacity(0.7) : Colors.transparent,
+          padding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
-              // Spring-bounce checkbox
               AnimatedBuilder(
                 animation: _scale,
                 builder: (_, __) => Transform.scale(
@@ -266,16 +248,15 @@ class _TaskTileState extends State<_TaskTile>
                       border: Border.all(
                         color: widget.task.isDone
                             ? widget.accentColor
-                            : GameColors.border,
+                            : gp.border,
                         width: 1.5,
                       ),
                       boxShadow: widget.task.isDone
                           ? [
                               BoxShadow(
-                                color: widget.accentColor.withOpacity(0.35),
-                                blurRadius: 6,
-                                spreadRadius: 0,
-                              )
+                                  color:
+                                      widget.accentColor.withOpacity(0.35),
+                                  blurRadius: 6)
                             ]
                           : null,
                     ),
@@ -294,19 +275,14 @@ class _TaskTileState extends State<_TaskTile>
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     height: 1.35,
-                    color: widget.task.isDone
-                        ? GameColors.textTertiary
-                        : GameColors.textPrimary,
+                    color: widget.task.isDone ? gp.textTert : gp.textPrimary,
                     decoration: widget.task.isDone
                         ? TextDecoration.lineThrough
                         : TextDecoration.none,
-                    decorationColor: GameColors.textTertiary,
+                    decorationColor: gp.textTert,
                   ),
-                  child: Text(
-                    widget.task.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: Text(widget.task.title,
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
                 ),
               ),
             ],
@@ -322,63 +298,59 @@ class _TaskTileState extends State<_TaskTile>
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: GameColors.surfaceElevated,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: GameColors.border, width: 0.5),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 14, 16, 8),
-                child: Text(
-                  'MOVE TO QUADRANT',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: GameColors.textSecondary,
-                    letterSpacing: 1.2,
+      builder: (ctx) {
+        final mgp = ctx.gp;
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: mgp.surfaceHigh,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: mgp.border, width: 0.5),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                  child: Text(
+                    'MOVE TO QUADRANT',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: mgp.textSec,
+                      letterSpacing: 1.2,
+                    ),
                   ),
                 ),
-              ),
-              const Divider(height: 1),
-              ...others.map((q) => ListTile(
-                    dense: true,
-                    leading: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                          color: _colorFor(q), shape: BoxShape.circle),
-                    ),
-                    title: Text(
-                      q.label,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: GameColors.textPrimary,
-                      ),
-                    ),
-                    subtitle: Text(
-                      q.subtitle,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: GameColors.textSecondary,
-                      ),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      widget.onMove(q);
-                    },
-                  )),
-              const SizedBox(height: 8),
-            ],
+                Divider(height: 1, color: mgp.divider),
+                ...others.map((q) => ListTile(
+                      dense: true,
+                      leading: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                              color: _colorFor(q),
+                              shape: BoxShape.circle)),
+                      title: Text(q.label,
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: mgp.textPrimary)),
+                      subtitle: Text(q.subtitle,
+                          style: TextStyle(
+                              fontSize: 11, color: mgp.textSec)),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onMove(q);
+                      },
+                    )),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

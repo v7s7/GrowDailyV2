@@ -61,16 +61,15 @@ class _HabitCardState extends State<HabitCard> {
 
   @override
   Widget build(BuildContext context) {
+    final gp = context.gp;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
       decoration: BoxDecoration(
-        color: GameColors.surface,
+        color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(
-          color: widget.isDone
-              ? GameColors.gold.withOpacity(0.4)
-              : GameColors.border,
+          color: widget.isDone ? GameColors.gold.withOpacity(0.4) : gp.border,
           width: widget.isDone ? 1.0 : 0.5,
         ),
         boxShadow: widget.isDone
@@ -87,7 +86,6 @@ class _HabitCardState extends State<HabitCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header row
             Row(
               children: [
                 AnimatedContainer(
@@ -97,15 +95,13 @@ class _HabitCardState extends State<HabitCard> {
                   decoration: BoxDecoration(
                     color: widget.isDone
                         ? GameColors.gold.withOpacity(0.12)
-                        : GameColors.surfaceElevated,
+                        : gp.surfaceHigh,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     _icon,
                     size: 20,
-                    color: widget.isDone
-                        ? GameColors.gold
-                        : GameColors.textSecondary,
+                    color: widget.isDone ? GameColors.gold : gp.textSec,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -119,17 +115,15 @@ class _HabitCardState extends State<HabitCard> {
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.5,
-                          color: widget.isDone
-                              ? GameColors.gold
-                              : GameColors.textPrimary,
+                          color: widget.isDone ? GameColors.gold : gp.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         _subtitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
-                          color: GameColors.textSecondary,
+                          color: gp.textSec,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -144,9 +138,8 @@ class _HabitCardState extends State<HabitCard> {
               ],
             ),
             const SizedBox(height: 14),
-            Container(height: 0.5, color: GameColors.border),
+            Container(height: 0.5, color: gp.border),
             const SizedBox(height: 14),
-            // Footer row
             Row(
               children: [
                 _RewardTag(
@@ -162,8 +155,9 @@ class _HabitCardState extends State<HabitCard> {
                 ),
                 const Spacer(),
                 GestureDetector(
-                  onTapDown:
-                      widget.isDone ? null : (_) => setState(() => _pressed = true),
+                  onTapDown: widget.isDone
+                      ? null
+                      : (_) => setState(() => _pressed = true),
                   onTapUp: widget.isDone
                       ? null
                       : (_) {
@@ -188,8 +182,7 @@ class _HabitCardState extends State<HabitCard> {
                         border: widget.isDone
                             ? Border.all(
                                 color: GameColors.gold.withOpacity(0.35),
-                                width: 0.5,
-                              )
+                                width: 0.5)
                             : null,
                       ),
                       child: Row(
@@ -202,7 +195,7 @@ class _HabitCardState extends State<HabitCard> {
                             size: 13,
                             color: widget.isDone
                                 ? GameColors.gold
-                                : GameColors.background,
+                                : Colors.black,
                           ),
                           const SizedBox(width: 5),
                           Text(
@@ -213,7 +206,7 @@ class _HabitCardState extends State<HabitCard> {
                               letterSpacing: 0.8,
                               color: widget.isDone
                                   ? GameColors.gold
-                                  : GameColors.background,
+                                  : Colors.black,
                             ),
                           ),
                         ],
@@ -241,6 +234,7 @@ class _CompletionDots extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gp = context.gp;
     return Row(
       children: List.generate(total > 7 ? 7 : total, (i) {
         final active = i < filled;
@@ -253,9 +247,7 @@ class _CompletionDots extends StatelessWidget {
             shape: BoxShape.circle,
             color: active ? GameColors.gold : Colors.transparent,
             border: Border.all(
-              color: active
-                  ? GameColors.gold
-                  : GameColors.surfaceHighlight,
+              color: active ? GameColors.gold : gp.surfaceHL,
               width: 1,
             ),
           ),

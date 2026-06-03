@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/game_theme.dart';
+import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
@@ -17,6 +18,8 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+
     ref.listen<DashboardState>(dashboardProvider, (prev, next) {
       if (prev == null) return;
       for (final entry in next.completions.entries) {
@@ -38,31 +41,61 @@ class DashboardScreen extends ConsumerWidget {
     final habits = IslamicHabitCatalog.templates;
 
     return Scaffold(
-      backgroundColor: GameColors.background,
+      backgroundColor: gp.bg,
       bottomNavigationBar: const GameNavBar(currentIndex: 0),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
           SliverAppBar(
             pinned: true,
-            backgroundColor: GameColors.background,
+            backgroundColor: gp.bg,
             surfaceTintColor: Colors.transparent,
             scrolledUnderElevation: 0,
-            title: const Text(
+            title: Text(
               'GrowDaily',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w800,
-                color: GameColors.textPrimary,
+                color: gp.textPrimary,
                 letterSpacing: -0.3,
               ),
             ),
-            actions: const [
-              Padding(
-                padding: EdgeInsets.only(right: 16),
-                child: Icon(Icons.person_rounded,
-                    color: GameColors.textSecondary, size: 22),
+            actions: [
+              PopupMenuButton<String>(
+                icon: Icon(Icons.person_rounded, color: gp.textSec, size: 22),
+                color: gp.surfaceHigh,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                elevation: 2,
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'signout',
+                    child: Row(
+                      children: [
+                        Icon(Icons.logout_rounded,
+                            size: 18, color: gp.textSec),
+                        const SizedBox(width: 10),
+                        Text('Sign Out',
+                            style: TextStyle(
+                                color: gp.textPrimary,
+                                fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ),
+                ],
+                onSelected: (v) async {
+                  if (v == 'signout') {
+                    await ref
+                        .read(authNotifierProvider.notifier)
+                        .signOut();
+                    if (context.mounted) {
+                      Navigator.pushNamedAndRemoveUntil(
+                          context, '/', (_) => false);
+                    }
+                  }
+                },
               ),
+              const SizedBox(width: 4),
             ],
           ),
           SliverToBoxAdapter(
@@ -79,21 +112,21 @@ class DashboardScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
               child: Row(
                 children: [
-                  const Text(
+                  Text(
                     "TODAY'S HABITS",
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: GameColors.textSecondary,
+                      color: gp.textSec,
                       letterSpacing: 2,
                     ),
                   ),
                   const Spacer(),
                   Text(
                     '${habits.length} active',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
-                      color: GameColors.textTertiary,
+                      color: gp.textTert,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -138,22 +171,21 @@ class DashboardScreen extends ConsumerWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {},
         backgroundColor: GameColors.gold,
-        foregroundColor: GameColors.background,
+        foregroundColor: Colors.black,
         elevation: 0,
         icon: const Icon(Icons.add_rounded, size: 20),
         label: const Text(
           'ADD HABIT',
           style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.2,
-          ),
+              fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.2),
         ),
       ).animate().fadeIn(delay: 700.ms).slideY(begin: 0.4),
     );
   }
 
-  void _showDone(BuildContext context, String name, int xp, int gold) {
+  void _showDone(
+      BuildContext context, String name, int xp, int gold) {
+    final gp = context.gp;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -167,10 +199,10 @@ class DashboardScreen extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(name,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
-                          color: GameColors.textPrimary)),
+                          color: gp.textPrimary)),
                   Text('+$xp XP  ·  +$gold Gold',
                       style: const TextStyle(
                           fontSize: 11,
@@ -181,7 +213,7 @@ class DashboardScreen extends ConsumerWidget {
             ),
           ],
         ),
-        backgroundColor: GameColors.surfaceElevated,
+        backgroundColor: gp.surfaceHigh,
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -194,6 +226,7 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   void _showLevelUp(BuildContext context, int level) {
+    final gp = context.gp;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -210,7 +243,7 @@ class DashboardScreen extends ConsumerWidget {
                     letterSpacing: 1)),
           ],
         ),
-        backgroundColor: GameColors.surface,
+        backgroundColor: gp.surface,
         duration: const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -223,7 +256,7 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
-// ─── Stats Card ───────────────────────────────────────────────────────────────
+// ─── Stats Card ────────────────────────────────────────────────────────────
 
 class _StatsCard extends StatelessWidget {
   final DashboardState state;
@@ -231,23 +264,24 @@ class _StatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gp = context.gp;
     final today = DateFormat('EEEE, MMMM d').format(DateTime.now());
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: GameColors.surface,
+        color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: GameColors.border, width: 0.5),
+        border: Border.all(color: gp.border, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             today.toUpperCase(),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w600,
-              color: GameColors.textTertiary,
+              color: gp.textTert,
               letterSpacing: 1.5,
             ),
           ),
@@ -258,11 +292,11 @@ class _StatsCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('LEVEL',
+                  Text('LEVEL',
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
-                          color: GameColors.textSecondary,
+                          color: gp.textSec,
                           letterSpacing: 2)),
                   Text(
                     '${state.level}',
@@ -282,17 +316,17 @@ class _StatsCard extends StatelessWidget {
                 children: [
                   Text(
                     '${state.currentLevelXp} / ${state.xpToNext} XP',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: GameColors.textSecondary),
+                        color: gp.textSec),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     '${state.cumulativeXp} TOTAL XP',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10,
-                        color: GameColors.textTertiary,
+                        color: gp.textTert,
                         letterSpacing: 0.5),
                   ),
                 ],
@@ -302,7 +336,7 @@ class _StatsCard extends StatelessWidget {
           const SizedBox(height: 10),
           XpBar(progress: state.levelProgress),
           const SizedBox(height: 18),
-          Container(height: 0.5, color: GameColors.border),
+          Container(height: 0.5, color: gp.border),
           const SizedBox(height: 16),
           Row(
             children: [

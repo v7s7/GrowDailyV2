@@ -19,10 +19,10 @@ class StatChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gp = context.gp;
     return Expanded(
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           color: color.withOpacity(0.08),
           borderRadius: BorderRadius.circular(10),
@@ -48,10 +48,10 @@ class StatChip extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.w600,
-                    color: GameColors.textTertiary,
+                    color: gp.textTert,
                     letterSpacing: 1.2,
                   ),
                 ),
@@ -62,7 +62,11 @@ class StatChip extends StatelessWidget {
       )
           .animate(key: ValueKey('$label-$value'))
           .fadeIn(duration: 250.ms)
-          .scaleXY(begin: 0.94, end: 1, duration: 300.ms, curve: Curves.easeOut),
+          .scaleXY(
+              begin: 0.94,
+              end: 1,
+              duration: 300.ms,
+              curve: Curves.easeOut),
     );
   }
 }

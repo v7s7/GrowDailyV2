@@ -57,64 +57,52 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final gp = context.gp;
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
         decoration: BoxDecoration(
-          color: GameColors.surfaceElevated,
+          color: gp.surfaceHigh,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: GameColors.border, width: 0.5),
+          border: Border.all(color: gp.border, width: 0.5),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Drag handle
             Padding(
               padding: const EdgeInsets.only(top: 10, bottom: 4),
               child: Container(
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: GameColors.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+                    color: gp.border,
+                    borderRadius: BorderRadius.circular(2)),
               ),
             ),
-            // Quadrant badge
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
               child: Row(
                 children: [
                   Container(
-                    width: 8,
-                    height: 8,
-                    decoration:
-                        BoxDecoration(color: _color, shape: BoxShape.circle),
-                  ),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                          color: _color, shape: BoxShape.circle)),
                   const SizedBox(width: 8),
-                  Text(
-                    widget.quadrant.label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: _color,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
+                  Text(widget.quadrant.label,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: _color,
+                          letterSpacing: 1.2)),
                   const SizedBox(width: 8),
-                  Text(
-                    widget.quadrant.subtitle,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: GameColors.textSecondary,
-                    ),
-                  ),
+                  Text(widget.quadrant.subtitle,
+                      style: TextStyle(fontSize: 11, color: gp.textSec)),
                 ],
               ),
             ),
             const SizedBox(height: 14),
-            // Text field
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: TextField(
@@ -122,21 +110,19 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                 focusNode: _focus,
                 onSubmitted: (_) => _submit(),
                 textCapitalization: TextCapitalization.sentences,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                  color: GameColors.textPrimary,
-                  height: 1.4,
-                ),
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: gp.textPrimary,
+                    height: 1.4),
                 maxLines: 3,
                 minLines: 1,
                 decoration: InputDecoration(
                   hintText: 'What needs to be done?',
                   hintStyle: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w400,
-                    color: GameColors.textTertiary.withOpacity(0.7),
-                  ),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w400,
+                      color: gp.textTert.withOpacity(0.7)),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
@@ -146,38 +132,33 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
               ),
             ),
             const SizedBox(height: 20),
-            // Add button
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutCubic,
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    backgroundColor:
-                        _hasText ? _color : GameColors.surfaceHighlight,
-                    foregroundColor:
-                        _hasText ? Colors.black : GameColors.textTertiary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  onPressed: _hasText ? _submit : null,
-                  child: const Text(
-                    'ADD TASK',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.4,
-                    ),
-                  ),
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  backgroundColor: _hasText ? _color : gp.surfaceHL,
+                  foregroundColor: _hasText ? Colors.black : gp.textTert,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
                 ),
-              ).animate(delay: 80.ms).fadeIn(duration: 250.ms).slideY(begin: 0.05),
+                onPressed: _hasText ? _submit : null,
+                child: const Text('ADD TASK',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.4)),
+              )
+                  .animate(delay: 80.ms)
+                  .fadeIn(duration: 250.ms)
+                  .slideY(begin: 0.05),
             ),
           ],
         ),
-      ).animate().slideY(begin: 0.08, duration: 280.ms, curve: Curves.easeOutCubic).fadeIn(duration: 200.ms),
+      ).animate().slideY(
+          begin: 0.08,
+          duration: 280.ms,
+          curve: Curves.easeOutCubic).fadeIn(duration: 200.ms),
     );
   }
 }
