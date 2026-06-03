@@ -83,6 +83,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     }
   }
 
+  void _continueAsGuest() {
+    HapticFeedback.mediumImpact();
+    ref.read(guestModeProvider.notifier).state = true;
+  }
+
   void _switchMode(bool isSignIn) {
     HapticFeedback.selectionClick();
     setState(() {
@@ -136,7 +141,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Build better habits. Level up daily.',
+                      'Goals, deen, and tiny daily wins.',
                       style: TextStyle(
                           fontSize: 14,
                           color: gp.textSec,
@@ -301,6 +306,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             letterSpacing: 1.2),
                       ),
               ).animate(delay: 230.ms).fadeIn(duration: 350.ms).slideY(begin: 0.06),
+
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: isLoading ? null : _continueAsGuest,
+                icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                label: const Text('TRY 3 HABITS AS GUEST'),
+              ).animate(delay: 280.ms).fadeIn(duration: 350.ms).slideY(begin: 0.06),
+              const SizedBox(height: 8),
+              Text(
+                'No account needed. Complete your first Quran, athkar, or focus win now.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: gp.textTert, height: 1.35),
+              ),
 
               const SizedBox(height: 48),
             ],

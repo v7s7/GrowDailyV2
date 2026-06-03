@@ -52,11 +52,13 @@ class _HabitCardState extends State<HabitCard> {
     final freq = widget.template.frequencyType == HabitFrequencyType.daily
         ? 'Daily'
         : '${widget.template.frequencyTarget}x / week';
+    final cue = widget.template.cueAfter;
+    final cueText = cue == null || cue.isEmpty ? '' : '  ·  After $cue';
     if (widget.template.hasTimer) {
       final mins = (widget.template.timerDurationSeconds ?? 0) ~/ 60;
-      return '$freq  ·  ${mins}min';
+      return '$freq  ·  ${mins}min$cueText';
     }
-    return freq;
+    return '$freq$cueText';
   }
 
   @override

@@ -2,9 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/analytics_service.dart';
+
 final authStateProvider = StreamProvider<User?>((ref) {
   return FirebaseAuth.instance.authStateChanges();
 });
+
+final guestModeProvider = StateProvider<bool>((ref) => false);
 
 class AuthNotifier extends StateNotifier<AsyncValue<void>> {
   AuthNotifier() : super(const AsyncData(null));
@@ -18,6 +22,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       );
       // Ensure user document exists (handles v1 migrations)
       await _ensureUserDoc(cred.user!.uid, email);
+      AnalyticsService.instance.track('auth_signed_in');
     });
   }
 
@@ -31,11 +36,13 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       );
       // Create Firestore profile on first registration
       await _createUserDoc(cred.user!.uid, email);
+      AnalyticsService.instance.track('auth_registered');
     });
   }
 
   Future<void> signOut() async {
     await FirebaseAuth.instance.signOut();
+    AnalyticsService.instance.track('auth_signed_out');
     state = const AsyncData(null);
   }
 
@@ -53,6 +60,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       'gold': 0,
       'currentStreak': 0,
       'longestStreak': 0,
+      'streakFreezes': 1,
       'unlockedAchievements': <String>[],
       'equippedHabitIds': <String>[],
       'createdAt': FieldValue.serverTimestamp(),

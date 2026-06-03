@@ -20,7 +20,7 @@ class MatrixScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 1),
+      bottomNavigationBar: const GameNavBar(currentIndex: 2),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -31,7 +31,7 @@ class MatrixScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Eisenhower Matrix',
+                    'Goals Matrix',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
@@ -41,7 +41,7 @@ class MatrixScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Prioritise ruthlessly. Do what matters.',
+                    'Sort your goals so deen and priorities stay clear.',
                     style: TextStyle(
                       fontSize: 12,
                       color: gp.textSec,

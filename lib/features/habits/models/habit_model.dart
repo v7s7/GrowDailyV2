@@ -55,6 +55,7 @@ class HabitModel {
   final String uid;
   final String name;
   final String? description;
+  final String? cueAfter;
   final String iconEmoji;
   final HabitCategory category;
 
@@ -87,6 +88,7 @@ class HabitModel {
     required this.uid,
     required this.name,
     this.description,
+    this.cueAfter,
     required this.iconEmoji,
     required this.category,
     required this.frequencyType,
@@ -116,6 +118,7 @@ class HabitModel {
       uid: d['uid'] as String,
       name: d['name'] as String,
       description: d['description'] as String?,
+      cueAfter: d['cueAfter'] as String?,
       iconEmoji: d['iconEmoji'] as String? ?? '⭐',
       category: HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
       frequencyType: HabitFrequencyType.fromJson(
@@ -141,6 +144,7 @@ class HabitModel {
         'uid': uid,
         'name': name,
         if (description != null) 'description': description,
+        if (cueAfter != null) 'cueAfter': cueAfter,
         'iconEmoji': iconEmoji,
         'category': category.toJson(),
         'frequencyType': frequencyType.toJson(),
@@ -162,6 +166,7 @@ class HabitModel {
   HabitModel copyWith({
     String? name,
     String? description,
+    String? cueAfter,
     String? iconEmoji,
     HabitCategory? category,
     HabitFrequencyType? frequencyType,
@@ -180,6 +185,7 @@ class HabitModel {
         uid: uid,
         name: name ?? this.name,
         description: description ?? this.description,
+        cueAfter: cueAfter ?? this.cueAfter,
         iconEmoji: iconEmoji ?? this.iconEmoji,
         category: category ?? this.category,
         frequencyType: frequencyType ?? this.frequencyType,
