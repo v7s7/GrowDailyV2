@@ -7,6 +7,8 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
+import '../../../features/habits/notifiers/custom_habits_notifier.dart';
+import '../../../features/habits/widgets/add_habit_sheet.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
 import '../../../shared/widgets/stat_chip.dart';
@@ -24,11 +26,13 @@ class DashboardScreen extends ConsumerWidget {
       if (prev == null) return;
       for (final entry in next.completions.entries) {
         if ((prev.completions[entry.key] ?? 0) < entry.value) {
-          final t = IslamicHabitCatalog.findById(entry.key);
-          if (t != null) {
-            HapticFeedback.mediumImpact();
-            _showDone(context, t.name, t.xpReward, t.goldReward);
-          }
+          final t = IslamicHabitCatalog.findById(entry.key) ??
+              ref
+                  .read(customHabitsProvider)
+                  .firstWhere((h) => h.id == entry.key,
+                      orElse: () => IslamicHabitCatalog.templates.first);
+          HapticFeedback.mediumImpact();
+          _showDone(context, t.name, t.xpReward, t.goldReward);
         }
       }
       if (next.didJustLevelUp) {
@@ -38,138 +42,155 @@ class DashboardScreen extends ConsumerWidget {
     });
 
     final state = ref.watch(dashboardProvider);
-    final habits = IslamicHabitCatalog.templates;
+    final habits = ref.watch(habitListProvider);
 
     return Scaffold(
       backgroundColor: gp.bg,
       bottomNavigationBar: const GameNavBar(currentIndex: 0),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          SliverAppBar(
-            pinned: true,
-            backgroundColor: gp.bg,
-            surfaceTintColor: Colors.transparent,
-            scrolledUnderElevation: 0,
-            title: Text(
-              'GrowDaily',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: gp.textPrimary,
-                letterSpacing: -0.3,
-              ),
-            ),
-            actions: [
-              PopupMenuButton<String>(
-                icon: Icon(Icons.person_rounded, color: gp.textSec, size: 22),
-                color: gp.surfaceHigh,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                    value: 'signout',
+      body: state.isLoading
+          ? Center(
+              child: CircularProgressIndicator(
+                  color: GameColors.gold,
+                  strokeWidth: 2))
+          : CustomScrollView(
+              physics: const BouncingScrollPhysics(),
+              slivers: [
+                SliverAppBar(
+                  pinned: true,
+                  backgroundColor: gp.bg,
+                  surfaceTintColor: Colors.transparent,
+                  scrolledUnderElevation: 0,
+                  title: Text(
+                    'GrowDaily',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  actions: [
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.person_rounded,
+                          color: gp.textSec, size: 22),
+                      color: gp.surfaceHigh,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 2,
+                      itemBuilder: (_) => [
+                        PopupMenuItem(
+                          value: 'signout',
+                          child: Row(
+                            children: [
+                              Icon(Icons.logout_rounded,
+                                  size: 18, color: gp.textSec),
+                              const SizedBox(width: 10),
+                              Text('Sign Out',
+                                  style: TextStyle(
+                                      color: gp.textPrimary,
+                                      fontWeight:
+                                          FontWeight.w500)),
+                            ],
+                          ),
+                        ),
+                      ],
+                      onSelected: (v) async {
+                        if (v == 'signout') {
+                          await ref
+                              .read(authNotifierProvider.notifier)
+                              .signOut();
+                          if (context.mounted) {
+                            Navigator.pushNamedAndRemoveUntil(
+                                context, '/', (_) => false);
+                          }
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: _StatsCard(state: state)
+                        .animate()
+                        .fadeIn(duration: 500.ms)
+                        .slideY(
+                            begin: -0.04, curve: Curves.easeOut),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(16, 28, 16, 12),
                     child: Row(
                       children: [
-                        Icon(Icons.logout_rounded,
-                            size: 18, color: gp.textSec),
-                        const SizedBox(width: 10),
-                        Text('Sign Out',
-                            style: TextStyle(
-                                color: gp.textPrimary,
-                                fontWeight: FontWeight.w500)),
+                        Text(
+                          "TODAY'S HABITS",
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: gp.textSec,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${habits.length} active',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: gp.textTert,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ],
-                onSelected: (v) async {
-                  if (v == 'signout') {
-                    await ref
-                        .read(authNotifierProvider.notifier)
-                        .signOut();
-                    if (context.mounted) {
-                      Navigator.pushNamedAndRemoveUntil(
-                          context, '/', (_) => false);
-                    }
-                  }
-                },
-              ),
-              const SizedBox(width: 4),
-            ],
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: _StatsCard(state: state)
-                  .animate()
-                  .fadeIn(duration: 500.ms)
-                  .slideY(begin: -0.04, curve: Curves.easeOut),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
-              child: Row(
-                children: [
-                  Text(
-                    "TODAY'S HABITS",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: gp.textSec,
-                      letterSpacing: 2,
-                    ),
+                ),
+                SliverPadding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16),
+                  sliver: SliverList.builder(
+                    itemCount: habits.length,
+                    itemBuilder: (context, i) {
+                      final t = habits[i];
+                      final done =
+                          state.isCompleted(t.id, t.frequencyTarget);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: HabitCard(
+                          template: t,
+                          completions:
+                              state.completions[t.id] ?? 0,
+                          isDone: done,
+                          onComplete: done
+                              ? null
+                              : () => ref
+                                  .read(
+                                      dashboardProvider.notifier)
+                                  .completeHabit(
+                                    habitId: t.id,
+                                    xpReward: t.xpReward,
+                                    goldReward: t.goldReward,
+                                    frequencyTarget:
+                                        t.frequencyTarget,
+                                  ),
+                        ),
+                      )
+                          .animate(delay: (i * 55).ms)
+                          .fadeIn(duration: 400.ms)
+                          .slideY(
+                              begin: 0.12, curve: Curves.easeOut);
+                    },
                   ),
-                  const Spacer(),
-                  Text(
-                    '${habits.length} active',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: gp.textTert,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                const SliverToBoxAdapter(
+                    child: SizedBox(height: 110)),
+              ],
             ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverList.builder(
-              itemCount: habits.length,
-              itemBuilder: (context, i) {
-                final t = habits[i];
-                final done = state.isCompleted(t.id, t.frequencyTarget);
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: HabitCard(
-                    template: t,
-                    completions: state.completions[t.id] ?? 0,
-                    isDone: done,
-                    onComplete: done
-                        ? null
-                        : () => ref
-                            .read(dashboardProvider.notifier)
-                            .completeHabit(
-                              habitId: t.id,
-                              xpReward: t.xpReward,
-                              goldReward: t.goldReward,
-                              frequencyTarget: t.frequencyTarget,
-                            ),
-                  ),
-                )
-                    .animate(delay: (i * 55).ms)
-                    .fadeIn(duration: 400.ms)
-                    .slideY(begin: 0.12, curve: Curves.easeOut);
-              },
-            ),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 110)),
-        ],
-      ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {},
+        onPressed: () => _showAddHabit(context),
         backgroundColor: GameColors.gold,
         foregroundColor: Colors.black,
         elevation: 0,
@@ -177,9 +198,21 @@ class DashboardScreen extends ConsumerWidget {
         label: const Text(
           'ADD HABIT',
           style: TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.2),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2),
         ),
       ).animate().fadeIn(delay: 700.ms).slideY(begin: 0.4),
+    );
+  }
+
+  void _showAddHabit(BuildContext context) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const AddHabitSheet(),
     );
   }
 
@@ -219,7 +252,8 @@ class DashboardScreen extends ConsumerWidget {
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: GameColors.gold, width: 0.5),
+          side: const BorderSide(
+              color: GameColors.gold, width: 0.5),
         ),
       ),
     );
@@ -249,14 +283,15 @@ class DashboardScreen extends ConsumerWidget {
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: GameColors.gold, width: 1),
+          side:
+              const BorderSide(color: GameColors.gold, width: 1),
         ),
       ),
     );
   }
 }
 
-// ─── Stats Card ────────────────────────────────────────────────────────────
+// ─── Stats Card ───────────────────────────────────────────────────────────
 
 class _StatsCard extends StatelessWidget {
   final DashboardState state;
