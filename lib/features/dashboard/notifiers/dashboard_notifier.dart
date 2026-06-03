@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/analytics_service.dart';
+import '../../../core/services/local_store_service.dart';
 import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
@@ -123,7 +124,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     if (_uid != null) {
       _loadToday();
     } else {
-      state = DashboardState.initial().copyWith(isLoading: false);
+      _loadGuestToday();
     }
   }
 
@@ -149,6 +150,108 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       _userRef.collection('daily').doc(_todayKey);
 
   // ── Load ─────────────────────────────────────────────────────
+
+
+  Future<void> _loadGuestToday() async {
+    try {
+      final saved = await LocalStoreService.getSettingsMap(
+        LocalStoreService.guestDashboardKey,
+      );
+      final daily = await LocalStoreService.getDailyMap(_todayKey);
+      final rawCompletions =
+          (daily['habitCompletions'] as Map?)?.cast<String, dynamic>() ?? {};
+      final completions = rawCompletions.map(
+        (key, value) => MapEntry(key, (value as num).toInt()),
+      );
+
+      int streak = (saved['currentStreak'] as int?) ?? 0;
+      int streakFreezes = (saved['streakFreezes'] as int?) ?? 1;
+      bool didUseStreakFreeze = false;
+      bool showRecoveryPrompt = false;
+      final lastActive = DateTime.tryParse(saved['lastActiveDate'] as String? ?? '');
+      final lastRecoveryDate = saved['lastRecoveryDate'] as String?;
+
+      if (lastActive != null) {
+        final today = _dateOnly(DateTime.now());
+        final lastDay = _dateOnly(lastActive);
+        final yesterday = today.subtract(const Duration(days: 1));
+        final gapDays = today.difference(lastDay).inDays;
+        if (gapDays > 1) {
+          if (gapDays == 2 && streak > 0 && streakFreezes > 0) {
+            streakFreezes -= 1;
+            didUseStreakFreeze = true;
+            saved['streakFreezes'] = streakFreezes;
+            saved['lastActiveDate'] = yesterday.toIso8601String();
+            await LocalStoreService.putSettingsMap(
+              LocalStoreService.guestDashboardKey,
+              saved,
+            );
+          } else {
+            showRecoveryPrompt = streak > 0 && lastRecoveryDate != _todayKey;
+            streak = 0;
+            saved['currentStreak'] = 0;
+            await LocalStoreService.putSettingsMap(
+              LocalStoreService.guestDashboardKey,
+              saved,
+            );
+          }
+        }
+      }
+
+      if (!mounted) return;
+      state = DashboardState(
+        level: (saved['level'] as int?) ?? 1,
+        currentLevelXp: (saved['currentLevelXp'] as int?) ?? 0,
+        cumulativeXp: (saved['cumulativeXp'] as int?) ?? 0,
+        gold: (saved['gold'] as int?) ?? 0,
+        streak: streak,
+        longestStreak: (saved['longestStreak'] as int?) ?? 0,
+        totalCompletions: (saved['totalHabitCompletions'] as int?) ?? 0,
+        streakFreezes: streakFreezes,
+        completions: completions,
+        unlockedAchievements:
+            List<String>.from(saved['unlockedAchievements'] as List? ?? []),
+        didUseStreakFreeze: didUseStreakFreeze,
+        showRecoveryPrompt: showRecoveryPrompt,
+        isLoading: false,
+      );
+    } catch (_) {
+      if (mounted) state = DashboardState.initial().copyWith(isLoading: false);
+    }
+  }
+
+  Future<void> _saveGuestState({DateTime? lastActiveDate}) async {
+    final saved = await LocalStoreService.getSettingsMap(
+      LocalStoreService.guestDashboardKey,
+    );
+    await LocalStoreService.putSettingsMap(
+      LocalStoreService.guestDashboardKey,
+      {
+        ...saved,
+        'level': state.level,
+        'currentLevelXp': state.currentLevelXp,
+        'cumulativeXp': state.cumulativeXp,
+        'gold': state.gold,
+        'currentStreak': state.streak,
+        'longestStreak': state.longestStreak,
+        'totalHabitCompletions': state.totalCompletions,
+        'streakFreezes': state.streakFreezes,
+        'unlockedAchievements': state.unlockedAchievements,
+        if (lastActiveDate != null)
+          'lastActiveDate': lastActiveDate.toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> _saveGuestDaily(Map<String, int> completions) async {
+    await LocalStoreService.putDailyMap(
+      _todayKey,
+      {
+        'habitCompletions': completions,
+        'date': DateTime.now().toIso8601String(),
+      },
+    );
+  }
 
   Future<void> _loadToday() async {
     if (_uid == null) return;
@@ -342,7 +445,11 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       lastCompletedId: habitId,
     );
 
-    if (_uid == null) return;
+    if (_uid == null) {
+      await _saveGuestDaily(newCompletions);
+      await _saveGuestState(lastActiveDate: DateTime.now());
+      return;
+    }
 
     try {
       final now = DateTime.now();
@@ -383,7 +490,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     final newFreezes = state.streakFreezes + 1;
     AnalyticsService.instance.track('streak_freeze_bought');
     state = state.copyWith(gold: newGold, streakFreezes: newFreezes);
-    if (_uid == null) return true;
+    if (_uid == null) {
+      await _saveGuestState();
+      return true;
+    }
     try {
       await _userRef.set({
         'gold': newGold,
@@ -410,7 +520,18 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       showRecoveryPrompt: false,
       comebackClaimed: true,
     );
-    if (_uid == null) return;
+    if (_uid == null) {
+      final saved = await LocalStoreService.getSettingsMap(
+        LocalStoreService.guestDashboardKey,
+      );
+      saved['lastRecoveryDate'] = _todayKey;
+      await LocalStoreService.putSettingsMap(
+        LocalStoreService.guestDashboardKey,
+        saved,
+      );
+      await _saveGuestState();
+      return;
+    }
     try {
       await _userRef.set({
         'level': result.newLevel,
@@ -424,7 +545,17 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   void dismissRecoveryPrompt() {
     if (!state.showRecoveryPrompt) return;
     state = state.copyWith(showRecoveryPrompt: false);
-    if (_uid == null) return;
+    if (_uid == null) {
+      LocalStoreService.getSettingsMap(LocalStoreService.guestDashboardKey)
+          .then((saved) {
+        saved['lastRecoveryDate'] = _todayKey;
+        return LocalStoreService.putSettingsMap(
+          LocalStoreService.guestDashboardKey,
+          saved,
+        );
+      }).ignore();
+      return;
+    }
     _userRef.set({'lastRecoveryDate': _todayKey}, SetOptions(merge: true)).ignore();
   }
 

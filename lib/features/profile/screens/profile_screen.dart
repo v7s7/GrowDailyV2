@@ -7,6 +7,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/theme_provider.dart';
+import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
@@ -23,13 +24,25 @@ class ProgressPoint {
 
 final progressReportProvider = FutureProvider<List<ProgressPoint>>((ref) async {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
-  if (uid == null) return const [];
 
   final today = DateTime.now();
   final days = List.generate(14, (i) {
     final d = today.subtract(Duration(days: 13 - i));
     return DateTime(d.year, d.month, d.day);
   });
+  if (uid == null) {
+    final logs = await Future.wait(
+      days.map((d) => LocalStoreService.getDailyMap(_dateKey(d))),
+    );
+    return [
+      for (var i = 0; i < days.length; i++)
+        ProgressPoint(
+          date: days[i],
+          completions: _completionCount(logs[i]),
+        ),
+    ];
+  }
+
   final col = FirebaseFirestore.instance
       .collection('users')
       .doc(uid)

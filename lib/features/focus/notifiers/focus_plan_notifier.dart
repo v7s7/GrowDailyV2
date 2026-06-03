@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/analytics_service.dart';
+import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/daily_focus_plan.dart';
 
@@ -29,7 +30,11 @@ class FocusPlanNotifier extends StateNotifier<FocusPlanState> {
             isLoading: _uid != null,
           ),
         ) {
-    if (_uid != null) _load();
+    if (_uid != null) {
+      _load();
+    } else {
+      _loadGuest();
+    }
   }
 
   DocumentReference<Map<String, dynamic>> get _doc => FirebaseFirestore.instance
@@ -37,6 +42,20 @@ class FocusPlanNotifier extends StateNotifier<FocusPlanState> {
       .doc(_uid)
       .collection('focus_plans')
       .doc(state.plan.dateKey);
+
+  Future<void> _loadGuest() async {
+    final dateKey = state.plan.dateKey;
+    final box = await LocalStoreService.settingsBox();
+    final raw = LocalStoreService.asStringMap(
+      box.get('${LocalStoreService.guestFocusPrefix}$dateKey'),
+    );
+    if (!mounted) return;
+    state = FocusPlanState(
+      plan: raw.isEmpty
+          ? DailyFocusPlan.empty(dateKey)
+          : DailyFocusPlan.fromLocal(dateKey, raw),
+    );
+  }
 
   Future<void> _load() async {
     if (_uid == null) return;
@@ -97,7 +116,12 @@ class FocusPlanNotifier extends StateNotifier<FocusPlanState> {
 
   void _setPlan(DailyFocusPlan plan) {
     state = state.copyWith(plan: plan, isLoading: false);
-    if (_uid == null) return;
+    if (_uid == null) {
+      LocalStoreService.settingsBox().then((box) => box
+          .put('${LocalStoreService.guestFocusPrefix}${plan.dateKey}', plan.toLocal())
+          .ignore());
+      return;
+    }
     _doc.set(plan.toFirestore(), SetOptions(merge: true)).ignore();
   }
 }

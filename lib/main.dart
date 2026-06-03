@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import 'core/constants/game_constants.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/game_theme.dart';
@@ -25,6 +26,11 @@ Future<void> main() async {
   SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
   await Hive.initFlutter();
+  await Future.wait([
+    Hive.openBox(GameConstants.boxSettings),
+    Hive.openBox(GameConstants.boxDailyLogs),
+    Hive.openBox(GameConstants.boxHabits),
+  ]);
   await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();

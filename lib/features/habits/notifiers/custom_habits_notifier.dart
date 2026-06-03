@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
@@ -11,7 +12,11 @@ class CustomHabitsNotifier
   final String? _uid;
 
   CustomHabitsNotifier(this._uid) : super([]) {
-    if (_uid != null) _load();
+    if (_uid != null) {
+      _load();
+    } else {
+      _loadGuest();
+    }
   }
 
   CollectionReference<Map<String, dynamic>> get _col =>
@@ -19,6 +24,28 @@ class CustomHabitsNotifier
           .collection('users')
           .doc(_uid)
           .collection('custom_habits');
+
+  Future<void> _loadGuest() async {
+    final box = await LocalStoreService.habitsBox();
+    final raw = LocalStoreService.asMapList(
+      box.get(LocalStoreService.guestCustomHabitsKey),
+    );
+    if (!mounted) return;
+    state = raw
+        .map((item) => IslamicHabitTemplate.fromMap(
+              item['id'] as String? ?? const Uuid().v4(),
+              item,
+            ))
+        .toList();
+  }
+
+  Future<void> _saveGuest() async {
+    final box = await LocalStoreService.habitsBox();
+    await box.put(
+      LocalStoreService.guestCustomHabitsKey,
+      state.map((habit) => {'id': habit.id, ...habit.toFirestore()}).toList(),
+    );
+  }
 
   Future<void> _load() async {
     if (_uid == null) return;
@@ -61,12 +88,18 @@ class CustomHabitsNotifier
           .doc(template.id)
           .set(template.toFirestore())
           .ignore();
+    } else {
+      _saveGuest().ignore();
     }
   }
 
   void remove(String id) {
     state = state.where((h) => h.id != id).toList();
-    if (_uid != null) _col.doc(id).delete().ignore();
+    if (_uid != null) {
+      _col.doc(id).delete().ignore();
+    } else {
+      _saveGuest().ignore();
+    }
   }
 
   static (int, int) _rewards(HabitCategory c) => switch (c) {

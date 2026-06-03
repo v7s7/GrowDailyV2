@@ -68,28 +68,28 @@ class IslamicHabitTemplate {
         'goldReward': goldReward,
       };
 
+  factory IslamicHabitTemplate.fromMap(String id, Map<String, dynamic> d) =>
+      IslamicHabitTemplate(
+        id: id,
+        name: d['name'] as String? ?? 'Custom Habit',
+        description: d['description'] as String? ?? '',
+        cueAfter: d['cueAfter'] as String?,
+        iconEmoji: d['iconEmoji'] as String? ?? '',
+        category: HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
+        frequencyType: HabitFrequencyType.fromJson(
+          d['frequencyType'] as String? ?? 'daily',
+        ),
+        frequencyTarget: d['frequencyTarget'] as int? ?? 1,
+        hasTimer: d['hasTimer'] as bool? ?? false,
+        timerDurationSeconds: d['timerDurationSeconds'] as int?,
+        xpReward: d['xpReward'] as int? ?? 20,
+        goldReward: d['goldReward'] as int? ?? 8,
+      );
+
   factory IslamicHabitTemplate.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    final d = doc.data()!;
-    return IslamicHabitTemplate(
-      id: doc.id,
-      name: d['name'] as String,
-      description: d['description'] as String? ?? '',
-      cueAfter: d['cueAfter'] as String?,
-      iconEmoji: d['iconEmoji'] as String? ?? '',
-      category:
-          HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
-      frequencyType: HabitFrequencyType.fromJson(
-        d['frequencyType'] as String? ?? 'daily',
-      ),
-      frequencyTarget: d['frequencyTarget'] as int? ?? 1,
-      hasTimer: d['hasTimer'] as bool? ?? false,
-      timerDurationSeconds: d['timerDurationSeconds'] as int?,
-      xpReward: d['xpReward'] as int? ?? 20,
-      goldReward: d['goldReward'] as int? ?? 8,
-    );
-  }
+  ) =>
+      IslamicHabitTemplate.fromMap(doc.id, doc.data()!);
 }
 
 abstract final class IslamicHabitCatalog {

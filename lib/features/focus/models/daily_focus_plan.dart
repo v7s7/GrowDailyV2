@@ -28,6 +28,32 @@ class DailyFocusPlan {
         updatedAt: DateTime.now(),
       );
 
+
+  factory DailyFocusPlan.fromLocal(String dateKey, Map<String, dynamic> data) =>
+      DailyFocusPlan(
+        dateKey: dateKey,
+        topTask: data['topTask'] as String? ?? '',
+        cue: data['cue'] as String? ?? '',
+        action: data['action'] as String? ?? '',
+        planDone: data['planDone'] as bool? ?? false,
+        sprintDone: data['sprintDone'] as bool? ?? false,
+        reviewDone: data['reviewDone'] as bool? ?? false,
+        focusSessions: data['focusSessions'] as int? ?? 0,
+        updatedAt: DateTime.tryParse(data['updatedAt'] as String? ?? '') ??
+            DateTime.now(),
+      );
+
+  Map<String, dynamic> toLocal() => {
+        'topTask': topTask,
+        'cue': cue,
+        'action': action,
+        'planDone': planDone,
+        'sprintDone': sprintDone,
+        'reviewDone': reviewDone,
+        'focusSessions': focusSessions,
+        'updatedAt': updatedAt.toIso8601String(),
+      };
+
   factory DailyFocusPlan.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
