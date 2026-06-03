@@ -130,6 +130,23 @@ class S {
       ? '$current/$max جاهز · المستوى 5+ يُعيد الشحن أسبوعياً'
       : '$current/$max ready · Level 5+ refills weekly';
 
+  // ── Plan Picker ──────────────────────────────────────────────────────────
+  String get choosePlan => isAr ? 'اختر خطتك' : 'Choose Your Plan';
+  String get choosePlanSubtitle => isAr
+      ? 'حزمة عادات جاهزة بنقرة واحدة.'
+      : 'Start with a ready-made habit bundle.';
+  String get startPlan => isAr ? 'ابدأ الخطة' : 'Start Plan';
+  String get deactivatePlan => isAr ? 'إيقاف الخطة' : 'Deactivate';
+  String get browsePlans => isAr ? 'استعرض الخطط' : 'Browse Plans';
+  String get dailyReminder => isAr ? 'تذكير يومي' : 'Daily Reminder';
+  String get tapToSetReminder => isAr ? 'اضغط لتعيين وقت التذكير' : 'Tap to set reminder time';
+
+  // ── Empty state ───────────────────────────────────────────────────────────
+  String get noHabitsYet => isAr ? 'لا عادات بعد' : 'No habits yet';
+  String get noHabitsDesc => isAr
+      ? 'ابدأ بخطة جاهزة أو أنشئ عادتك الخاصة.'
+      : 'Start with a ready plan or create your own habit.';
+
   // ── Add Habit Sheet ──────────────────────────────────────────────────────
   String get newHabit => isAr ? 'عادة جديدة' : 'NEW HABIT';
   String get habitNameHint => isAr ? 'ما العادة التي تريد بناءها؟' : 'What habit do you want to build?';

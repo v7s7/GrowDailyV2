@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
 
@@ -120,8 +121,12 @@ final customHabitsProvider =
   return CustomHabitsNotifier(uid);
 });
 
-/// Combined list: Islamic catalog + user custom habits
+/// Combined list: user-activated catalog habits + user custom habits
 final habitListProvider = Provider<List<IslamicHabitTemplate>>((ref) {
+  final activeIds = ref.watch(activeCatalogProvider);
   final custom = ref.watch(customHabitsProvider);
-  return [...IslamicHabitCatalog.templates, ...custom];
+  final activeTemplates = IslamicHabitCatalog.templates
+      .where((t) => activeIds.contains(t.id))
+      .toList();
+  return [...activeTemplates, ...custom];
 });

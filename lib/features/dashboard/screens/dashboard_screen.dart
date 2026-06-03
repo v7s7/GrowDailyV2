@@ -13,6 +13,7 @@ import '../../../features/focus/notifiers/focus_plan_notifier.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/habits/widgets/add_habit_sheet.dart';
+import '../../../features/habits/widgets/plan_picker_sheet.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
 import '../../../shared/widgets/stat_chip.dart';
@@ -203,24 +204,53 @@ class DashboardScreen extends ConsumerWidget {
                     },
                   ),
                 ),
-                const SliverToBoxAdapter(
-                    child: SizedBox(height: 110)),
+                // Empty state when no habits
+                if (habits.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _EmptyHabitsState(
+                      onBrowsePlans: () => _showPlanPicker(context),
+                      onAddCustom: () => _showAddHabit(context),
+                    ),
+                  ),
+                const SliverToBoxAdapter(child: SizedBox(height: 110)),
               ],
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddHabit(context),
-        backgroundColor: GameColors.gold,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        icon: const Icon(Icons.add_rounded, size: 20),
-        label: Text(
-          s.addHabit,
-          style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.0),
-        ),
-      ).animate().fadeIn(delay: 700.ms).slideY(begin: 0.4),
+      floatingActionButton: habits.isEmpty
+          ? null
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Plans button
+                FloatingActionButton.small(
+                  heroTag: 'plans',
+                  onPressed: () => _showPlanPicker(context),
+                  backgroundColor: gp.surfaceHigh,
+                  foregroundColor: gp.textPrimary,
+                  elevation: 0,
+                  child: const Icon(Icons.auto_awesome_rounded,
+                      size: 18, color: GameColors.gold),
+                ).animate(delay: 600.ms).fadeIn().slideY(begin: 0.4),
+                const SizedBox(height: 10),
+                // Add habit button
+                FloatingActionButton.extended(
+                  heroTag: 'add',
+                  onPressed: () => _showAddHabit(context),
+                  backgroundColor: GameColors.gold,
+                  foregroundColor: Colors.black,
+                  elevation: 0,
+                  icon: const Icon(Icons.add_rounded, size: 20),
+                  label: Text(
+                    s.addHabit,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.0),
+                  ),
+                ).animate(delay: 700.ms).fadeIn().slideY(begin: 0.4),
+              ],
+            ),
     );
   }
 
@@ -286,6 +316,17 @@ class DashboardScreen extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const AddHabitSheet(),
+    );
+  }
+
+  void _showPlanPicker(BuildContext context) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (_) => const PlanPickerSheet(),
     );
   }
 
@@ -539,6 +580,82 @@ class _StreakMilestoneSheet extends StatelessWidget {
         ),
       ),
     ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.12);
+  }
+}
+
+// ─── Empty Habits State ───────────────────────────────────────────────────
+
+class _EmptyHabitsState extends StatelessWidget {
+  final VoidCallback onBrowsePlans;
+  final VoidCallback onAddCustom;
+  const _EmptyHabitsState(
+      {required this.onBrowsePlans, required this.onAddCustom});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: GameColors.gold.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.auto_awesome_rounded,
+                  size: 36, color: GameColors.gold),
+            )
+                .animate()
+                .scale(curve: Curves.elasticOut, duration: 700.ms)
+                .fadeIn(duration: 300.ms),
+            const SizedBox(height: 20),
+            Text(
+              s.noHabitsYet,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+                letterSpacing: -0.3,
+              ),
+              textAlign: TextAlign.center,
+            ).animate(delay: 150.ms).fadeIn().slideY(begin: 0.2),
+            const SizedBox(height: 8),
+            Text(
+              s.noHabitsDesc,
+              style: TextStyle(
+                  fontSize: 14, color: gp.textSec, height: 1.4),
+              textAlign: TextAlign.center,
+            ).animate(delay: 200.ms).fadeIn(),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: onBrowsePlans,
+                icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                label: Text(s.browsePlans),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: onAddCustom,
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: Text(s.addHabit),
+            ).animate(delay: 380.ms).fadeIn(),
+          ],
+        ),
+      ),
+    );
   }
 }
 
