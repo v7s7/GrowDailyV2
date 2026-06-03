@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
@@ -72,6 +73,7 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
+    final s = S.of(context);
     final state = ref.watch(dashboardProvider);
     final user = FirebaseAuth.instance.currentUser;
     final displayName = user?.email?.split('@').first ?? 'Warrior';
@@ -92,7 +94,7 @@ class ProfileScreen extends ConsumerWidget {
             backgroundColor: gp.bg,
             surfaceTintColor: Colors.transparent,
             scrolledUnderElevation: 0,
-            title: Text('Profile',
+            title: Text(s.profile,
                 style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -146,12 +148,12 @@ class ProfileScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 14),
               child: Row(
                 children: [
-                  Text('ACHIEVEMENTS',
+                  Text(s.achievements,
                       style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           color: gp.textSec,
-                          letterSpacing: 2)),
+                          letterSpacing: 1.5)),
                   const Spacer(),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -244,12 +246,12 @@ class _HeroHeader extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'LEVEL',
+                      S.of(context).level,
                       style: TextStyle(
                         fontSize: 8,
                         fontWeight: FontWeight.w700,
                         color: gp.textTert,
-                        letterSpacing: 2,
+                        letterSpacing: 1.5,
                       ),
                     ),
                   ],
@@ -269,7 +271,7 @@ class _HeroHeader extends StatelessWidget {
           ),
           const SizedBox(height: 5),
           Text(
-            '${state.currentLevelXp} / ${state.xpToNext} XP to Level ${state.level + 1}',
+            S.of(context).xpProgress(state.currentLevelXp, state.xpToNext, state.level + 1),
             style: TextStyle(
                 fontSize: 12,
                 color: gp.textTert,
@@ -288,7 +290,7 @@ class _HeroHeader extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '${state.cumulativeXp} cumulative XP',
+            '${state.cumulativeXp} ${S.of(context).cumulativeXp}',
             style: TextStyle(
                 fontSize: 11,
                 color: gp.textTert,
@@ -350,31 +352,32 @@ class _StatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     return Row(
       children: [
         _StatCell(
             icon: Icons.local_fire_department_rounded,
             color: GameColors.streakOrange,
             value: '${state.streak}',
-            label: 'STREAK'),
+            label: s.streak),
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.emoji_events_rounded,
             color: GameColors.gold,
             value: '${state.longestStreak}',
-            label: 'BEST'),
+            label: s.best),
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.check_circle_rounded,
             color: GameColors.xpBlue,
             value: '${state.totalCompletions}',
-            label: 'TOTAL'),
+            label: s.total),
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.toll_rounded,
             color: GameColors.gold,
             value: '${state.gold}',
-            label: 'GOLD'),
+            label: s.gold),
       ],
     );
   }
@@ -492,6 +495,7 @@ class _ProgressReportBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     final total = points.fold<int>(0, (sum, p) => sum + p.completions);
     final best = points.fold<int>(
         0, (best, p) => p.completions > best ? p.completions : best);
@@ -528,7 +532,7 @@ class _ProgressReportBody extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '14-day progress',
+                      s.fourteenDayProgress,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
@@ -538,10 +542,10 @@ class _ProgressReportBody extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       isLoading
-                          ? 'Loading your consistency report...'
+                          ? s.loadingReport
                           : trendUp
-                              ? 'Your recent week is holding strong.'
-                              : 'Tiny wins still count. Start again today.',
+                              ? s.holdingStrong
+                              : s.startAgain,
                       style: TextStyle(fontSize: 12, color: gp.textSec),
                     ),
                   ],
@@ -566,11 +570,11 @@ class _ProgressReportBody extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              _MiniReportStat(label: 'TOTAL', value: '$total'),
+              _MiniReportStat(label: s.total, value: '$total'),
               const SizedBox(width: 8),
-              _MiniReportStat(label: 'ACTIVE DAYS', value: '$activeDays/14'),
+              _MiniReportStat(label: s.activeDays, value: '$activeDays/14'),
               const SizedBox(width: 8),
-              _MiniReportStat(label: 'BEST DAY', value: '$best'),
+              _MiniReportStat(label: s.bestDay, value: '$best'),
             ],
           ),
         ],
@@ -717,6 +721,7 @@ class _StreakFreezeCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
+    final s = S.of(context);
     final canBuy = state.gold >= DashboardNotifier.streakFreezeCost &&
         state.streakFreezes < DashboardNotifier.maxStreakFreezes;
     return Container(
@@ -743,7 +748,7 @@ class _StreakFreezeCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Streak Freeze',
+                  s.streakFreeze,
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
@@ -752,7 +757,7 @@ class _StreakFreezeCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '${state.streakFreezes}/${DashboardNotifier.maxStreakFreezes} ready · Level 5+ refills weekly',
+                  s.streakFreezeStatus(state.streakFreezes, DashboardNotifier.maxStreakFreezes),
                   style: TextStyle(fontSize: 12, color: gp.textSec),
                 ),
               ],
@@ -769,11 +774,12 @@ class _StreakFreezeCard extends ConsumerWidget {
                           .read(dashboardProvider.notifier)
                           .buyStreakFreeze();
                       if (context.mounted) {
+                        final s2 = S.of(context);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(ok
-                                ? 'Streak Freeze added.'
-                                : 'Need ${DashboardNotifier.streakFreezeCost} Gold.'),
+                                ? s2.streakFreeze
+                                : 'Need ${DashboardNotifier.streakFreezeCost} ${s2.gold}'),
                             duration: const Duration(seconds: 2),
                           ),
                         );
@@ -956,45 +962,44 @@ class _SettingsSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
-    final isDark =
-        Theme.of(context).brightness == Brightness.dark;
+    final s = S.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final locale = ref.watch(localeProvider);
+    final isAr = locale.languageCode == 'ar';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('SETTINGS',
+          Text(s.settings,
               style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   color: gp.textSec,
-                  letterSpacing: 2)),
+                  letterSpacing: 1.5)),
           const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(
               color: gp.surface,
-              borderRadius:
-                  BorderRadius.circular(GameSpacing.cardRadius),
+              borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
               border: Border.all(color: gp.border, width: 0.5),
             ),
             child: Column(
               children: [
+                // Dark Mode toggle
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Row(
                     children: [
                       Icon(
-                        isDark
-                            ? Icons.dark_mode_rounded
-                            : Icons.light_mode_rounded,
+                        isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
                         size: 20,
                         color: gp.textSec,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text('Dark Mode',
+                        child: Text(s.darkMode,
                             style: TextStyle(
                                 fontSize: 15,
                                 color: gp.textPrimary,
@@ -1004,32 +1009,68 @@ class _SettingsSection extends ConsumerWidget {
                         value: isDark,
                         onChanged: (_) {
                           HapticFeedback.selectionClick();
-                          ref
-                              .read(themeModeProvider.notifier)
-                              .toggle();
+                          ref.read(themeModeProvider.notifier).toggle();
                         },
                       ),
                     ],
                   ),
                 ),
                 Container(height: 0.5, color: gp.divider),
+                // Language toggle
+                InkWell(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    ref.read(localeProvider.notifier).toggle();
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    child: Row(
+                      children: [
+                        Icon(Icons.language_rounded, size: 20, color: gp.textSec),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(s.language,
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  color: gp.textPrimary,
+                                  fontWeight: FontWeight.w500)),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: GameColors.gold.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(100),
+                            border: Border.all(
+                                color: GameColors.gold.withOpacity(0.3), width: 0.5),
+                          ),
+                          child: Text(
+                            isAr ? 'العربية' : 'English',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: GameColors.gold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(height: 0.5, color: gp.divider),
+                // Sign Out
                 InkWell(
                   onTap: () async {
                     HapticFeedback.mediumImpact();
                     ref.read(guestModeProvider.notifier).state = false;
-                    await ref
-                        .read(authNotifierProvider.notifier)
-                        .signOut();
+                    await ref.read(authNotifierProvider.notifier).signOut();
                     if (context.mounted) {
                       Navigator.pushNamedAndRemoveUntil(
                           context, '/', (_) => false);
                     }
                   },
                   borderRadius: const BorderRadius.only(
-                    bottomLeft:
-                        Radius.circular(GameSpacing.cardRadius),
-                    bottomRight:
-                        Radius.circular(GameSpacing.cardRadius),
+                    bottomLeft: Radius.circular(GameSpacing.cardRadius),
+                    bottomRight: Radius.circular(GameSpacing.cardRadius),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -1038,8 +1079,8 @@ class _SettingsSection extends ConsumerWidget {
                         const Icon(Icons.logout_rounded,
                             size: 20, color: GameColors.error),
                         const SizedBox(width: 12),
-                        const Text('Sign Out',
-                            style: TextStyle(
+                        Text(s.signOut,
+                            style: const TextStyle(
                                 fontSize: 15,
                                 color: GameColors.error,
                                 fontWeight: FontWeight.w600)),

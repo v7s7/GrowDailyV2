@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../notifiers/auth_notifier.dart';
 
@@ -29,20 +30,21 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     ref.listenManual<AsyncValue<void>>(authNotifierProvider, (_, next) {
       next.whenOrNull(
         error: (e, _) {
-          String msg = 'Something went wrong. Try again.';
+          if (!mounted) return;
+          final s = S.of(context);
+          String msg = s.errGeneric;
           if (e is FirebaseAuthException) {
             msg = switch (e.code) {
               'user-not-found' || 'wrong-password' || 'invalid-credential' =>
-                'Invalid email or password',
-              'email-already-in-use' =>
-                'An account with this email already exists',
-              'invalid-email' => 'Invalid email address',
-              'weak-password' => 'Password is too weak (min 6 characters)',
-              'network-request-failed' => 'Check your internet connection',
-              _ => 'Something went wrong. Try again.',
+                s.errInvalidCredential,
+              'email-already-in-use' => s.errEmailInUse,
+              'invalid-email' => s.errInvalidEmail,
+              'weak-password' => s.errWeakPassword,
+              'network-request-failed' => s.errNetwork,
+              _ => s.errGeneric,
             };
           }
-          if (mounted) setState(() => _errorMessage = msg);
+          setState(() => _errorMessage = msg);
         },
       );
     });
@@ -57,20 +59,21 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    final s = S.of(context);
     final email = _emailCtrl.text.trim();
     final pass = _passCtrl.text;
     setState(() => _errorMessage = null);
 
     if (email.isEmpty || pass.isEmpty) {
-      setState(() => _errorMessage = 'Please fill in all fields');
+      setState(() => _errorMessage = s.errFillAll);
       return;
     }
     if (!_isSignIn && pass != _confirmCtrl.text) {
-      setState(() => _errorMessage = 'Passwords do not match');
+      setState(() => _errorMessage = s.errPasswordsMismatch);
       return;
     }
     if (!_isSignIn && pass.length < 6) {
-      setState(() => _errorMessage = 'Password must be at least 6 characters');
+      setState(() => _errorMessage = s.errPasswordTooShort);
       return;
     }
 
@@ -99,6 +102,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     final isLoading = ref.watch(authNotifierProvider).isLoading;
 
     return Scaffold(
@@ -141,11 +145,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Goals, deen, and tiny daily wins.',
+                      s.tagline,
                       style: TextStyle(
                           fontSize: 14,
                           color: gp.textSec,
                           fontWeight: FontWeight.w400),
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
@@ -168,12 +173,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 child: Row(
                   children: [
                     _TabBtn(
-                      label: 'Sign In',
+                      label: s.signIn,
                       active: _isSignIn,
                       onTap: () => _switchMode(true),
                     ),
                     _TabBtn(
-                      label: 'Create Account',
+                      label: s.createAccount,
                       active: !_isSignIn,
                       onTap: () => _switchMode(false),
                     ),
@@ -191,7 +196,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 autocorrect: false,
                 style: TextStyle(fontSize: 16, color: gp.textPrimary),
                 decoration: InputDecoration(
-                  labelText: 'Email',
+                  labelText: s.email,
                   prefixIcon: Icon(Icons.mail_outline_rounded,
                       size: 20, color: gp.textSec),
                 ),
@@ -208,7 +213,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 onSubmitted: _isSignIn ? (_) => _submit() : null,
                 style: TextStyle(fontSize: 16, color: gp.textPrimary),
                 decoration: InputDecoration(
-                  labelText: 'Password',
+                  labelText: s.password,
                   prefixIcon: Icon(Icons.lock_outline_rounded,
                       size: 20, color: gp.textSec),
                   suffixIcon: IconButton(
@@ -238,9 +243,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           obscureText: _obscureConfirm,
                           textInputAction: TextInputAction.done,
                           onSubmitted: (_) => _submit(),
-                          style: TextStyle(fontSize: 16, color: gp.textPrimary),
+                          style:
+                              TextStyle(fontSize: 16, color: gp.textPrimary),
                           decoration: InputDecoration(
-                            labelText: 'Confirm Password',
+                            labelText: s.confirmPassword,
                             prefixIcon: Icon(Icons.lock_outline_rounded,
                                 size: 20, color: gp.textSec),
                             suffixIcon: IconButton(
@@ -299,11 +305,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             strokeWidth: 2, color: Colors.black),
                       )
                     : Text(
-                        _isSignIn ? 'SIGN IN' : 'CREATE ACCOUNT',
+                        _isSignIn ? s.signInAction : s.createAccountAction,
                         style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2),
+                            letterSpacing: 1.0),
                       ),
               ).animate(delay: 230.ms).fadeIn(duration: 350.ms).slideY(begin: 0.06),
 
@@ -311,11 +317,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
               OutlinedButton.icon(
                 onPressed: isLoading ? null : _continueAsGuest,
                 icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                label: const Text('TRY 3 HABITS AS GUEST'),
+                label: Text(s.tryAsGuest),
               ).animate(delay: 280.ms).fadeIn(duration: 350.ms).slideY(begin: 0.06),
               const SizedBox(height: 8),
               Text(
-                'No account needed. Complete your first Quran, athkar, or focus win now.',
+                s.guestDescription,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: gp.textTert, height: 1.35),
               ),

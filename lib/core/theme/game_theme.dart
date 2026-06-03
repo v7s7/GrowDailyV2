@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 // ─── Gamification Colors (theme-invariant) ────────────────────────────────────
 
@@ -56,21 +57,21 @@ extension BuildContextGameTheme on BuildContext {
 // ─── Typography ──────────────────────────────────────────────────────────────
 
 abstract final class GameTextStyles {
-  static const TextStyle displayLarge = TextStyle(fontSize: 34, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.5);
-  static const TextStyle displayMedium = TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.3);
-  static const TextStyle headlineLarge = TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.2);
-  static const TextStyle headlineMedium = TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: GameColors.textPrimary);
-  static const TextStyle titleLarge = TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: GameColors.textPrimary);
-  static const TextStyle titleMedium = TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: GameColors.textPrimary);
-  static const TextStyle bodyLarge = TextStyle(fontSize: 17, fontWeight: FontWeight.w400, color: GameColors.textPrimary);
-  static const TextStyle bodyMedium = TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: GameColors.textPrimary);
-  static const TextStyle bodySmall = TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary);
-  static const TextStyle labelLarge = TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: GameColors.textPrimary, letterSpacing: 0.1);
-  static const TextStyle labelSmall = TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: GameColors.textSecondary, letterSpacing: 0.5);
-  static const TextStyle xpLabel = TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.xpBlue, letterSpacing: 0.5);
-  static const TextStyle goldLabel = TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, letterSpacing: 0.5);
-  static const TextStyle levelDisplay = TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0);
-  static const TextStyle streakDisplay = TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8);
+  static TextStyle get displayLarge => GoogleFonts.cairo(fontSize: 34, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.5);
+  static TextStyle get displayMedium => GoogleFonts.cairo(fontSize: 28, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.3);
+  static TextStyle get headlineLarge => GoogleFonts.cairo(fontSize: 22, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.2);
+  static TextStyle get headlineMedium => GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w600, color: GameColors.textPrimary);
+  static TextStyle get titleLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w600, color: GameColors.textPrimary);
+  static TextStyle get titleMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w600, color: GameColors.textPrimary);
+  static TextStyle get bodyLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w400, color: GameColors.textPrimary);
+  static TextStyle get bodyMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w400, color: GameColors.textPrimary);
+  static TextStyle get bodySmall => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary);
+  static TextStyle get labelLarge => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w600, color: GameColors.textPrimary, letterSpacing: 0.1);
+  static TextStyle get labelSmall => GoogleFonts.cairo(fontSize: 11, fontWeight: FontWeight.w500, color: GameColors.textSecondary, letterSpacing: 0.5);
+  static TextStyle get xpLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.xpBlue, letterSpacing: 0.5);
+  static TextStyle get goldLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, letterSpacing: 0.5);
+  static TextStyle get levelDisplay => GoogleFonts.cairo(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0);
+  static TextStyle get streakDisplay => GoogleFonts.cairo(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8);
 }
 
 // ─── Spacing & Radii ─────────────────────────────────────────────────────────
@@ -136,19 +137,19 @@ abstract final class GameTheme {
         error: GameColors.error,
         onError: GameColors.textPrimary,
       ),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: GameColors.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        systemOverlayStyle: SystemUiOverlayStyle(
+        systemOverlayStyle: const SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: Brightness.light,
           statusBarBrightness: Brightness.dark,
         ),
         titleTextStyle: GameTextStyles.titleLarge,
-        iconTheme: IconThemeData(color: GameColors.textPrimary),
-        actionsIconTheme: IconThemeData(color: GameColors.gold),
+        iconTheme: const IconThemeData(color: GameColors.textPrimary),
+        actionsIconTheme: const IconThemeData(color: GameColors.gold),
       ),
       cardTheme: CardThemeData(
         color: GameColors.surface,
@@ -228,18 +229,20 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : GameColors.surfaceElevated),
       ),
       inputDecorationTheme: _inputTheme(true),
-      textTheme: const TextTheme(
-        displayLarge: GameTextStyles.displayLarge,
-        displayMedium: GameTextStyles.displayMedium,
-        headlineLarge: GameTextStyles.headlineLarge,
-        headlineMedium: GameTextStyles.headlineMedium,
-        titleLarge: GameTextStyles.titleLarge,
-        titleMedium: GameTextStyles.titleMedium,
-        bodyLarge: GameTextStyles.bodyLarge,
-        bodyMedium: GameTextStyles.bodyMedium,
-        bodySmall: GameTextStyles.bodySmall,
-        labelLarge: GameTextStyles.labelLarge,
-        labelSmall: GameTextStyles.labelSmall,
+      textTheme: GoogleFonts.cairoTextTheme(
+        TextTheme(
+          displayLarge: GameTextStyles.displayLarge,
+          displayMedium: GameTextStyles.displayMedium,
+          headlineLarge: GameTextStyles.headlineLarge,
+          headlineMedium: GameTextStyles.headlineMedium,
+          titleLarge: GameTextStyles.titleLarge,
+          titleMedium: GameTextStyles.titleMedium,
+          bodyLarge: GameTextStyles.bodyLarge,
+          bodyMedium: GameTextStyles.bodyMedium,
+          bodySmall: GameTextStyles.bodySmall,
+          labelLarge: GameTextStyles.labelLarge,
+          labelSmall: GameTextStyles.labelSmall,
+        ),
       ),
     );
   }
@@ -368,18 +371,20 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : lHL),
       ),
       inputDecorationTheme: _inputTheme(false),
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(fontSize: 34, fontWeight: FontWeight.w700, color: lTp, letterSpacing: -0.5),
-        displayMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: lTp, letterSpacing: -0.3),
-        headlineLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: lTp, letterSpacing: -0.2),
-        headlineMedium: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: lTp),
-        titleLarge: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: lTp),
-        titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: lTp),
-        bodyLarge: TextStyle(fontSize: 17, fontWeight: FontWeight.w400, color: lTp),
-        bodyMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: lTp),
-        bodySmall: TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: lTs),
-        labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: lTp, letterSpacing: 0.1),
-        labelSmall: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: lTs, letterSpacing: 0.5),
+      textTheme: GoogleFonts.cairoTextTheme(
+        const TextTheme(
+          displayLarge: TextStyle(fontSize: 34, fontWeight: FontWeight.w700, color: lTp, letterSpacing: -0.5),
+          displayMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: lTp, letterSpacing: -0.3),
+          headlineLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: lTp, letterSpacing: -0.2),
+          headlineMedium: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: lTp),
+          titleLarge: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: lTp),
+          titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: lTp),
+          bodyLarge: TextStyle(fontSize: 17, fontWeight: FontWeight.w400, color: lTp),
+          bodyMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: lTp),
+          bodySmall: TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: lTs),
+          labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: lTp, letterSpacing: 0.1),
+          labelSmall: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: lTs, letterSpacing: 0.5),
+        ),
       ),
     );
   }

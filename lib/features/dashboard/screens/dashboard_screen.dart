@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
@@ -24,6 +25,7 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
+    final s = S.of(context);
 
     ref.listen<DashboardState>(dashboardProvider, (prev, next) {
       if (prev == null) return;
@@ -103,7 +105,7 @@ class DashboardScreen extends ConsumerWidget {
                             Icon(Icons.logout_rounded,
                                 size: 18, color: gp.textSec),
                             const SizedBox(width: 10),
-                            Text('Sign Out',
+                            Text(s.signOut,
                                 style: TextStyle(
                                     color: gp.textPrimary,
                                     fontWeight: FontWeight.w500)),
@@ -150,16 +152,16 @@ class DashboardScreen extends ConsumerWidget {
                     child: Row(
                       children: [
                         Text(
-                          "TODAY'S HABITS",
+                          s.todaysHabits,
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               color: gp.textSec,
-                              letterSpacing: 2),
+                              letterSpacing: 1.5),
                         ),
                         const Spacer(),
                         Text(
-                          '${habits.length} active',
+                          s.activeCount(habits.length),
                           style: TextStyle(
                               fontSize: 11,
                               color: gp.textTert,
@@ -211,12 +213,12 @@ class DashboardScreen extends ConsumerWidget {
         foregroundColor: Colors.black,
         elevation: 0,
         icon: const Icon(Icons.add_rounded, size: 20),
-        label: const Text(
-          'ADD HABIT',
-          style: TextStyle(
+        label: Text(
+          s.addHabit,
+          style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
-              letterSpacing: 1.2),
+              letterSpacing: 1.0),
         ),
       ).animate().fadeIn(delay: 700.ms).slideY(begin: 0.4),
     );
@@ -224,6 +226,7 @@ class DashboardScreen extends ConsumerWidget {
 
   void _showFreezeProtected(BuildContext context, int remaining) {
     final gp = context.gp;
+    final s = S.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(children: [
@@ -231,7 +234,7 @@ class DashboardScreen extends ConsumerWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Streak Freeze protected you. $remaining left.',
+              s.streakFreezeProtected(remaining),
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
@@ -344,6 +347,7 @@ class DashboardScreen extends ConsumerWidget {
 
   void _showLevelUp(BuildContext context, int level) {
     final gp = context.gp;
+    final s = S.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -352,7 +356,7 @@ class DashboardScreen extends ConsumerWidget {
             const Icon(Icons.arrow_upward_rounded,
                 color: GameColors.gold, size: 18),
             const SizedBox(width: 8),
-            Text('LEVEL UP  —  LVL $level',
+            Text('${s.levelUpMsg}  —  LVL $level',
                 style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
@@ -415,42 +419,50 @@ class _ComebackSheet extends StatelessWidget {
                   size: 34, color: GameColors.success),
             ).animate().scale(curve: Curves.elasticOut, duration: 650.ms),
             const SizedBox(height: 18),
-            Text(
-              'YOU'RE BACK',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: GameColors.success,
-                letterSpacing: 2,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'No guilt. Just restart.',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-                color: gp.textPrimary,
-                letterSpacing: -0.4,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Missing a day is normal. Take a comeback bonus and complete one tiny habit today.',
-              style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.35),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 22),
-            FilledButton.icon(
-              onPressed: onClaim,
-              icon: const Icon(Icons.bolt_rounded, size: 18),
-              label: const Text('Claim +50 XP comeback'),
-            ),
-            TextButton(
-              onPressed: onDismiss,
-              child: const Text('Not now'),
-            ),
+            Builder(builder: (context) {
+              final s = S.of(context);
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    s.youreBack,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: GameColors.success,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    s.noGuilt,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      color: gp.textPrimary,
+                      letterSpacing: -0.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    s.comebackBody,
+                    style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.35),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 22),
+                  FilledButton.icon(
+                    onPressed: onClaim,
+                    icon: const Icon(Icons.bolt_rounded, size: 18),
+                    label: Text(s.claimComeback),
+                  ),
+                  TextButton(
+                    onPressed: onDismiss,
+                    child: Text(s.notNow),
+                  ),
+                ],
+              );
+            }),
           ],
         ),
       ),
@@ -481,40 +493,48 @@ class _StreakMilestoneSheet extends StatelessWidget {
             const Icon(Icons.local_fire_department_rounded,
                 size: 72, color: GameColors.streakOrange),
             const SizedBox(height: 14),
-            Text(
-              '$streak-DAY WARRIOR',
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: GameColors.streakOrange,
-                letterSpacing: 2,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Your consistency is becoming identity.',
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w900,
-                color: gp.textPrimary,
-                letterSpacing: -0.3,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              bonus > 0 ? '+$bonus bonus XP awarded' : 'Milestone reached',
-              style: const TextStyle(
-                fontSize: 13,
-                color: GameColors.gold,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 22),
-            FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Keep growing'),
-            ),
+            Builder(builder: (context) {
+              final s = S.of(context);
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    s.streakWarrior(streak),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: GameColors.streakOrange,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    s.consistencyIdentity,
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                      color: gp.textPrimary,
+                      letterSpacing: -0.3,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    bonus > 0 ? '+$bonus bonus XP' : '',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: GameColors.gold,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(s.keepGrowing),
+                  ),
+                ],
+              );
+            }),
           ],
         ),
       ),
@@ -530,6 +550,7 @@ class _TodayIntentionCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
+    final s = S.of(context);
     final plan = ref.watch(focusPlanProvider).plan;
     final hasPlan = plan.topTask.trim().isNotEmpty;
     return InkWell(
@@ -559,7 +580,7 @@ class _TodayIntentionCard extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    hasPlan ? 'Today's intention' : 'Pick one tiny win',
+                    hasPlan ? s.todaysIntention : s.pickTinyWin,
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
@@ -568,9 +589,7 @@ class _TodayIntentionCard extends ConsumerWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    hasPlan
-                        ? plan.topTask
-                        : 'Choose one goal for your deen, work, or health.',
+                    hasPlan ? plan.topTask : s.pickOneGoal,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 12, color: gp.textSec),
@@ -595,7 +614,9 @@ class _StatsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final today = DateFormat('EEEE, MMMM d').format(DateTime.now());
+    final s = S.of(context);
+    final locale = Localizations.localeOf(context).languageCode;
+    final today = DateFormat('EEEE, MMMM d', locale).format(DateTime.now());
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -621,12 +642,12 @@ class _StatsCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('LEVEL',
+                  Text(s.level,
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                           color: gp.textSec,
-                          letterSpacing: 2)),
+                          letterSpacing: 1.5)),
                   Text(
                     '${state.level}',
                     style: const TextStyle(
@@ -651,7 +672,7 @@ class _StatsCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '${state.cumulativeXp} TOTAL XP',
+                    '${state.cumulativeXp} ${s.totalXp}',
                     style: TextStyle(
                         fontSize: 10,
                         color: gp.textTert,
@@ -670,21 +691,21 @@ class _StatsCard extends StatelessWidget {
             StatChip(
               icon: Icons.local_fire_department_rounded,
               value: state.streak,
-              label: 'STREAK',
+              label: s.streak,
               color: GameColors.streakOrange,
             ),
             const SizedBox(width: 10),
             StatChip(
               icon: Icons.ac_unit_rounded,
               value: state.streakFreezes,
-              label: 'FREEZE',
+              label: s.freeze,
               color: GameColors.xpBlue,
             ),
             const SizedBox(width: 10),
             StatChip(
               icon: Icons.stars_rounded,
               value: state.gold,
-              label: 'GOLD',
+              label: s.gold,
               color: GameColors.gold,
             ),
           ]),
@@ -765,14 +786,14 @@ class _AchievementUnlockSheet extends StatelessWidget {
                     duration: 700.ms)
                 .fadeIn(duration: 300.ms),
             const SizedBox(height: 18),
-            Text(
-              'ACHIEVEMENT UNLOCKED',
+            Builder(builder: (ctx) => Text(
+              S.of(ctx).achievementUnlocked,
               style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                   color: c,
                   letterSpacing: 2),
-            ).animate(delay: 200.ms).fadeIn(),
+            )).animate(delay: 200.ms).fadeIn(),
             const SizedBox(height: 8),
             Text(
               achievement.name,
@@ -812,12 +833,14 @@ class _AchievementUnlockSheet extends StatelessWidget {
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  HapticFeedback.lightImpact();
-                  Navigator.pop(context);
-                },
-                child: const Text('CLAIM REWARD'),
+              child: Builder(
+                builder: (ctx) => FilledButton(
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.pop(ctx);
+                  },
+                  child: Text(S.of(ctx).claimReward),
+                ),
               ),
             ).animate(delay: 460.ms).fadeIn().slideY(begin: 0.2),
           ],

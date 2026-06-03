@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../models/matrix_task.dart';
@@ -16,6 +17,7 @@ class MatrixScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
+    final s = S.of(context);
     final tasks = ref.watch(matrixProvider);
 
     return Scaffold(
@@ -31,7 +33,7 @@ class MatrixScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Goals Matrix',
+                    s.goalsMatrix,
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
@@ -41,7 +43,7 @@ class MatrixScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Sort your goals so deen and priorities stay clear.',
+                    s.matrixSubtitle,
                     style: TextStyle(
                       fontSize: 12,
                       color: gp.textSec,
