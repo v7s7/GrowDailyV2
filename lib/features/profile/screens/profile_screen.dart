@@ -1,0 +1,635 @@
+import 'dart:math' show pi;
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/providers/theme_provider.dart';
+import '../../../core/theme/game_theme.dart';
+import '../../../features/achievements/models/achievement_model.dart';
+import '../../../features/auth/notifiers/auth_notifier.dart';
+import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
+import '../../../shared/widgets/game_nav_bar.dart';
+
+class ProfileScreen extends ConsumerWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final state = ref.watch(dashboardProvider);
+    final user = FirebaseAuth.instance.currentUser;
+    final displayName = user?.email?.split('@').first ?? 'Warrior';
+    final unlockedIds = state.unlockedAchievements;
+    final sorted = [
+      ...AchievementCatalog.all.where((a) => unlockedIds.contains(a.id)),
+      ...AchievementCatalog.all.where((a) => !unlockedIds.contains(a.id)),
+    ];
+
+    return Scaffold(
+      backgroundColor: gp.bg,
+      bottomNavigationBar: const GameNavBar(currentIndex: 2),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          SliverAppBar(
+            pinned: true,
+            backgroundColor: gp.bg,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            title: Text('Profile',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary,
+                    letterSpacing: -0.3)),
+            actions: [
+              IconButton(
+                icon: Icon(
+                  Theme.of(context).brightness == Brightness.dark
+                      ? Icons.light_mode_rounded
+                      : Icons.dark_mode_rounded,
+                  size: 22,
+                  color: gp.textSec,
+                ),
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  ref.read(themeModeProvider.notifier).toggle();
+                },
+              ),
+            ],
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: _HeroHeader(state: state, displayName: displayName),
+            )
+                .animate()
+                .fadeIn(duration: 500.ms)
+                .slideY(begin: -0.04, curve: Curves.easeOut),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: _StatsRow(state: state),
+            ).animate(delay: 100.ms).fadeIn(duration: 400.ms),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 28, 16, 14),
+              child: Row(
+                children: [
+                  Text('ACHIEVEMENTS',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: gp.textSec,
+                          letterSpacing: 2)),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: GameColors.gold.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: Text(
+                      '${unlockedIds.length} / ${AchievementCatalog.all.length}',
+                      style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: GameColors.gold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: SliverGrid.count(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 0.78,
+              children: sorted
+                  .asMap()
+                  .entries
+                  .map((e) => _AchievementCard(
+                        achievement: e.value,
+                        isUnlocked: unlockedIds.contains(e.value.id),
+                        state: state,
+                      )
+                          .animate(delay: (e.key * 45).ms)
+                          .fadeIn(duration: 350.ms)
+                          .slideY(begin: 0.1))
+                  .toList(),
+            ),
+          ),
+          const SliverToBoxAdapter(child: _SettingsSection()),
+          const SliverToBoxAdapter(child: SizedBox(height: 110)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Hero Header ─────────────────────────────────────────────────────────────
+
+class _HeroHeader extends StatelessWidget {
+  final DashboardState state;
+  final String displayName;
+  const _HeroHeader({required this.state, required this.displayName});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            width: 108,
+            height: 108,
+            child: CustomPaint(
+              painter: _RingPainter(
+                progress: state.levelProgress,
+                trackColor: gp.border,
+                arcColor: GameColors.gold,
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${state.level}',
+                      style: const TextStyle(
+                        fontSize: 38,
+                        fontWeight: FontWeight.w900,
+                        color: GameColors.gold,
+                        height: 1,
+                        letterSpacing: -1.5,
+                      ),
+                    ),
+                    Text(
+                      'LEVEL',
+                      style: TextStyle(
+                        fontSize: 8,
+                        fontWeight: FontWeight.w700,
+                        color: gp.textTert,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            displayName,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: gp.textPrimary,
+              letterSpacing: -0.4,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '${state.currentLevelXp} / ${state.xpToNext} XP to Level ${state.level + 1}',
+            style: TextStyle(
+                fontSize: 12,
+                color: gp.textTert,
+                fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(100),
+            child: LinearProgressIndicator(
+              value: state.levelProgress,
+              backgroundColor: gp.border,
+              valueColor:
+                  const AlwaysStoppedAnimation(GameColors.gold),
+              minHeight: 5,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${state.cumulativeXp} cumulative XP',
+            style: TextStyle(
+                fontSize: 11,
+                color: gp.textTert,
+                fontWeight: FontWeight.w400),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Ring Painter ─────────────────────────────────────────────────────────────
+
+class _RingPainter extends CustomPainter {
+  final double progress;
+  final Color trackColor;
+  final Color arcColor;
+  const _RingPainter(
+      {required this.progress,
+      required this.trackColor,
+      required this.arcColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 7;
+    final track = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round;
+    final arc = Paint()
+      ..color = arcColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, radius, track);
+    if (progress > 0) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -pi / 2,
+        progress * 2 * pi,
+        false,
+        arc,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) =>
+      old.progress != progress || old.arcColor != arcColor;
+}
+
+// ─── Stats Row ────────────────────────────────────────────────────────────────
+
+class _StatsRow extends StatelessWidget {
+  final DashboardState state;
+  const _StatsRow({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _StatCell(
+            icon: Icons.local_fire_department_rounded,
+            color: GameColors.streakOrange,
+            value: '${state.streak}',
+            label: 'STREAK'),
+        const SizedBox(width: 8),
+        _StatCell(
+            icon: Icons.emoji_events_rounded,
+            color: GameColors.gold,
+            value: '${state.longestStreak}',
+            label: 'BEST'),
+        const SizedBox(width: 8),
+        _StatCell(
+            icon: Icons.check_circle_rounded,
+            color: GameColors.xpBlue,
+            value: '${state.totalCompletions}',
+            label: 'TOTAL'),
+        const SizedBox(width: 8),
+        _StatCell(
+            icon: Icons.toll_rounded,
+            color: GameColors.gold,
+            value: '${state.gold}',
+            label: 'GOLD'),
+      ],
+    );
+  }
+}
+
+class _StatCell extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String value;
+  final String label;
+  const _StatCell(
+      {required this.icon,
+      required this.color,
+      required this.value,
+      required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: gp.textPrimary,
+                  height: 1,
+                  letterSpacing: -0.5),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w600,
+                  color: gp.textTert,
+                  letterSpacing: 1.2),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Achievement Card ─────────────────────────────────────────────────────────
+
+class _AchievementCard extends StatelessWidget {
+  final AchievementModel achievement;
+  final bool isUnlocked;
+  final DashboardState state;
+  const _AchievementCard(
+      {required this.achievement,
+      required this.isUnlocked,
+      required this.state});
+
+  Color get _color => switch (achievement.rarity) {
+        AchievementRarity.common => GameColors.rarityCommon,
+        AchievementRarity.uncommon => GameColors.rarityUncommon,
+        AchievementRarity.rare => GameColors.rarityRare,
+        AchievementRarity.epic => GameColors.rarityEpic,
+        AchievementRarity.legendary => GameColors.rarityLegendary,
+      };
+
+  IconData get _icon => switch (achievement.trigger) {
+        AchievementTrigger.streak =>
+          Icons.local_fire_department_rounded,
+        AchievementTrigger.level => Icons.bolt_rounded,
+        AchievementTrigger.totalCompletions =>
+          Icons.check_circle_rounded,
+        AchievementTrigger.habitMastery => Icons.menu_book_rounded,
+        _ => Icons.stars_rounded,
+      };
+
+  double get _progress => switch (achievement.trigger) {
+        AchievementTrigger.streak =>
+          (state.streak / achievement.threshold).clamp(0.0, 1.0),
+        AchievementTrigger.level =>
+          (state.level / achievement.threshold).clamp(0.0, 1.0),
+        AchievementTrigger.totalCompletions =>
+          (state.totalCompletions / achievement.threshold)
+              .clamp(0.0, 1.0),
+        _ => 0.0,
+      };
+
+  int get _current => switch (achievement.trigger) {
+        AchievementTrigger.streak => state.streak,
+        AchievementTrigger.level => state.level,
+        AchievementTrigger.totalCompletions => state.totalCompletions,
+        _ => 0,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final c = _color;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(
+          color: isUnlocked ? c.withOpacity(0.5) : gp.border,
+          width: isUnlocked ? 1 : 0.5,
+        ),
+      ),
+      child: Opacity(
+        opacity: isUnlocked ? 1.0 : 0.55,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: (isUnlocked ? c : gp.textTert)
+                        .withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(_icon,
+                      size: 18,
+                      color: isUnlocked ? c : gp.textTert),
+                ),
+                const Spacer(),
+                if (isUnlocked)
+                  Icon(Icons.verified_rounded, size: 16, color: c),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              achievement.name,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textPrimary,
+                  height: 1.25),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              achievement.rarity.displayName.toUpperCase(),
+              style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: c,
+                  letterSpacing: 1.2),
+            ),
+            const SizedBox(height: 10),
+            if (isUnlocked)
+              Row(children: [
+                if (achievement.xpReward > 0) ...[  
+                  const Icon(Icons.bolt_rounded,
+                      size: 11, color: GameColors.xpBlue),
+                  const SizedBox(width: 2),
+                  Text('+${achievement.xpReward}',
+                      style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: GameColors.xpBlue)),
+                  const SizedBox(width: 8),
+                ],
+                if (achievement.goldReward > 0) ...[  
+                  const Icon(Icons.toll_rounded,
+                      size: 11, color: GameColors.gold),
+                  const SizedBox(width: 2),
+                  Text('+${achievement.goldReward}',
+                      style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: GameColors.gold)),
+                ],
+              ])
+            else ...[  
+              ClipRRect(
+                borderRadius: BorderRadius.circular(100),
+                child: LinearProgressIndicator(
+                  value: _progress,
+                  backgroundColor: gp.border,
+                  valueColor:
+                      AlwaysStoppedAnimation(c.withOpacity(0.5)),
+                  minHeight: 3,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                '$_current / ${achievement.threshold}',
+                style: TextStyle(
+                    fontSize: 10,
+                    color: gp.textTert,
+                    fontWeight: FontWeight.w500),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
+class _SettingsSection extends ConsumerWidget {
+  const _SettingsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final isDark =
+        Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('SETTINGS',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textSec,
+                  letterSpacing: 2)),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: gp.surface,
+              borderRadius:
+                  BorderRadius.circular(GameSpacing.cardRadius),
+              border: Border.all(color: gp.border, width: 0.5),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isDark
+                            ? Icons.dark_mode_rounded
+                            : Icons.light_mode_rounded,
+                        size: 20,
+                        color: gp.textSec,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text('Dark Mode',
+                            style: TextStyle(
+                                fontSize: 15,
+                                color: gp.textPrimary,
+                                fontWeight: FontWeight.w500)),
+                      ),
+                      Switch(
+                        value: isDark,
+                        onChanged: (_) {
+                          HapticFeedback.selectionClick();
+                          ref
+                              .read(themeModeProvider.notifier)
+                              .toggle();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                Container(height: 0.5, color: gp.divider),
+                InkWell(
+                  onTap: () async {
+                    HapticFeedback.mediumImpact();
+                    await ref
+                        .read(authNotifierProvider.notifier)
+                        .signOut();
+                    if (context.mounted) {
+                      Navigator.pushNamedAndRemoveUntil(
+                          context, '/', (_) => false);
+                    }
+                  },
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft:
+                        Radius.circular(GameSpacing.cardRadius),
+                    bottomRight:
+                        Radius.circular(GameSpacing.cardRadius),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.logout_rounded,
+                            size: 20, color: GameColors.error),
+                        const SizedBox(width: 12),
+                        const Text('Sign Out',
+                            style: TextStyle(
+                                fontSize: 15,
+                                color: GameColors.error,
+                                fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        Icon(Icons.arrow_forward_ios_rounded,
+                            size: 14, color: gp.textTert),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

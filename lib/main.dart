@@ -12,18 +12,20 @@ import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
+import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb) {
-    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    await SystemChrome.setPreferredOrientations(
+        [DeviceOrientation.portraitUp]);
   }
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
   await Hive.initFlutter();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();
   runApp(const ProviderScope(child: GrowDailyApp()));
 }
@@ -45,6 +47,7 @@ class GrowDailyApp extends ConsumerWidget {
         '/': (_) => const _AuthGate(),
         '/dashboard': (_) => const DashboardScreen(),
         '/matrix': (_) => const MatrixScreen(),
+        '/profile': (_) => const ProfileScreen(),
         '/auth': (_) => const AuthScreen(),
       },
     );

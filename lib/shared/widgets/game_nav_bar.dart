@@ -18,17 +18,21 @@ class GameNavBar extends StatelessWidget {
         onDestinationSelected: (i) {
           if (i == currentIndex) return;
           Navigator.pushReplacementNamed(
-              context, i == 0 ? '/dashboard' : '/matrix');
+            context,
+            switch (i) {
+              0 => '/dashboard',
+              1 => '/matrix',
+              _ => '/profile',
+            },
+          );
         },
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.home_rounded),
-            label: 'Dashboard',
-          ),
+              icon: Icon(Icons.home_rounded), label: 'Dashboard'),
           NavigationDestination(
-            icon: Icon(Icons.grid_view_rounded),
-            label: 'Matrix',
-          ),
+              icon: Icon(Icons.grid_view_rounded), label: 'Matrix'),
+          NavigationDestination(
+              icon: Icon(Icons.person_rounded), label: 'Profile'),
         ],
       ),
     );
