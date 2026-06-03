@@ -5,12 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import 'core/constants/game_constants.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/game_theme.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
+import 'features/focus/screens/focus_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
@@ -24,6 +26,11 @@ Future<void> main() async {
   SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
   await Hive.initFlutter();
+  await Future.wait([
+    Hive.openBox(GameConstants.boxSettings),
+    Hive.openBox(GameConstants.boxDailyLogs),
+    Hive.openBox(GameConstants.boxHabits),
+  ]);
   await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();
@@ -46,6 +53,7 @@ class GrowDailyApp extends ConsumerWidget {
       routes: {
         '/': (_) => const _AuthGate(),
         '/dashboard': (_) => const DashboardScreen(),
+        '/focus': (_) => const FocusScreen(),
         '/matrix': (_) => const MatrixScreen(),
         '/profile': (_) => const ProfileScreen(),
         '/auth': (_) => const AuthScreen(),
@@ -59,6 +67,8 @@ class _AuthGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isGuest = ref.watch(guestModeProvider);
+    if (isGuest) return const DashboardScreen();
     final auth = ref.watch(authStateProvider);
     return auth.when(
       data: (user) =>
