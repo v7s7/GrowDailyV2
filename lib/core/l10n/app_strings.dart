@@ -181,6 +181,53 @@ class S {
   // ── Focus ────────────────────────────────────────────────────────────────
   String get focus => isAr ? 'التركيز' : 'Focus';
   String get focusTitle => isAr ? 'وقت التركيز' : 'Focus Time';
+  String get focusDailyTitle => isAr ? 'تركيز اليوم' : 'Daily Focus';
+  String get focusTagline => isAr ? 'خطة واضحة. انتصار نظيف.' : 'One clear plan. One clean win.';
+  String focusRitualProgress(int done) => isAr ? '$done/3 خطوة مكتملة' : '$done/3 ritual steps complete';
+  String get focusMostImportantTask => isAr ? 'أهم مهمة' : 'Most important task';
+  String get focusMitSubtitle => isAr ? 'اختر النتيجة التي تجعل يومك منتجاً.' : 'Pick the one outcome that makes today productive.';
+  String get focusIfThenPlan => isAr ? 'خطة إذا / سأفعل' : 'IF / THEN PLAN';
+  String get focusTopTaskHint => isAr ? 'مثال: أنهِ تدفق الإدخال' : 'Example: Finish the onboarding flow';
+  String get focusTopTaskLabel => isAr ? 'أهم مهمة' : 'Top task';
+  String get focusCuePrefix => isAr ? 'إذا ' : 'If ';
+  String get focusCueHint => isAr ? 'الساعة 9 على مكتبي' : 'it is 9:00 at my desk';
+  String get focusCueLabel => isAr ? 'الإشارة: متى وأين' : 'Cue: when and where';
+  String get focusActionPrefix => isAr ? 'سأفعل ' : 'I will ';
+  String get focusActionHint => isAr ? 'ابدأ سبرنت تركيز 25 دقيقة' : 'start a 25-minute focus sprint';
+  String get focusActionLabel => isAr ? 'الفعل: الخطوة التالية الدقيقة' : 'Action: exact next move';
+  String get focusSavePlan => isAr ? 'احفظ خطة اليوم' : "Save today's plan";
+  String get focusPlanSaved => isAr ? 'تم حفظ خطة التركيز لليوم.' : 'Focus plan saved for today.';
+  String focusSprintCompleted(int mins) => isAr ? 'اكتمل سبرنت $mins دقيقة.' : '$mins-minute focus sprint completed.';
+  String get focusTimerTitle => isAr ? 'مؤقت التركيز' : 'Focus timer';
+  String get focusTimerSubtitle => isAr ? 'ابقَ في التطبيق بدلاً من التنقل.' : 'Stay inside GrowDaily instead of switching apps.';
+  String get focusPauseSprint => isAr ? 'إيقاف السبرنت' : 'Pause sprint';
+  String get focusStartSprint => isAr ? 'ابدأ السبرنت' : 'Start sprint';
+  String get focusResetTimer => isAr ? 'إعادة المؤقت' : 'Reset timer';
+  String get focusRitualTitle => isAr ? 'طقوس اليوم النظيفة' : 'Clean daily ritual';
+  String get focusRitualSubtitle => isAr ? 'صغيرة للتكرار، منظمة للعمل.' : 'Small enough to repeat, structured enough to work.';
+  String get focusRitualPlanWin => isAr ? 'خطط للانتصار الواحد' : 'Plan the one win';
+  String get focusRitualChooseTask => isAr ? 'اختر مهمتك الأهم' : 'Choose your top task';
+  String get focusRitualRunSprint => isAr ? 'قم بسبرنت تركيز' : 'Run a focus sprint';
+  String focusRitualSprintsLogged(int n) => isAr ? '$n سبرنت مسجل اليوم' : '$n sprint${n == 1 ? '' : 's'} logged today';
+  String get focusRitualReview => isAr ? 'مراجعة وإغلاق الحلقة' : 'Review and close the loop';
+  String get focusRitualReviewSubtitle => isAr ? 'سجّل ما نجح حتى يبدأ الغد أخف' : 'Mark what worked so tomorrow starts lighter';
+  String get focusLogSprint => isAr ? 'سجّل سبرنت 25 دقيقة' : 'Log 25-min sprint';
+  String get focusResetToday => isAr ? 'إعادة اليوم' : 'Reset today';
+  String get focusWhyTitle => isAr ? 'لماذا هذا موجود' : 'Why this is here';
+  String get focusWhySubtitle => isAr ? 'مستوحى من أنماط مثبتة دون فوضى.' : 'Inspired by proven patterns in top planners without adding clutter.';
+  String get focusIfThenCueTitle => isAr ? 'إشارة إذا / سأفعل' : 'If / then cue';
+  String get focusIfThenCueBody => isAr ? 'يحوّل الأهداف المبهمة إلى خطوة محددة بالمكان والوقت.' : 'Turns vague goals into a specific when-and-where action.';
+  String get focusOneTaskTitle => isAr ? 'مهمة واحدة فقط' : 'One top task';
+  String get focusOneTaskBody => isAr ? 'يتجنب التخطيط المفرط ويوضح الانتصار التالي.' : 'Avoids over-planning and makes the next win obvious.';
+  String get focusSprintTitle => isAr ? 'سبرنت تركيز قصير' : 'Short focus sprint';
+  String get focusSprintBody => isAr ? 'حلقة خفيفة كما تستخدمها تطبيقات الإنتاجية الكبرى.' : 'A light Pomodoro-style loop like leading productivity apps use.';
+
+  // ── Habit card ───────────────────────────────────────────────────────────
+  String get habitDaily => isAr ? 'يومياً' : 'Daily';
+  String habitWeeklyTimes(int n) => isAr ? '${n}x / أسبوع' : '${n}x / week';
+  String habitAfterCue(String cue) => isAr ? '  ·  بعد $cue' : '  ·  After $cue';
+  String get habitDone => isAr ? 'تم' : 'DONE';
+  String get habitComplete => isAr ? 'أتمم' : 'COMPLETE';
 
   // ── Goals Matrix ─────────────────────────────────────────────────────────
   String get goals => isAr ? 'الأهداف' : 'Goals';
@@ -188,6 +235,14 @@ class S {
   String get matrixSubtitle =>
       isAr ? 'رتّب أهدافك لتحافظ على وضوح الأولويات.'
            : 'Sort your goals so deen and priorities stay clear.';
+  String get matrixUrgent => isAr ? 'عاجل' : 'URGENT';
+  String get matrixNotUrgent => isAr ? 'غير عاجل' : 'NOT URGENT';
+  String get matrixImportant => isAr ? 'مهم' : 'IMPORTANT';
+  String get matrixNotImportant => isAr ? 'غير مهم' : 'NOT IMPORTANT';
+  String get matrixTapToAdd => isAr ? 'اضغط + للإضافة' : 'Tap + to add';
+  String get matrixAddTask => isAr ? 'أضف مهمة' : 'ADD TASK';
+  String get matrixWhatToDo => isAr ? 'ما الذي يجب فعله؟' : 'What needs to be done?';
+  String get matrixMoveToQuadrant => isAr ? 'انقل إلى ربع' : 'MOVE TO QUADRANT';
 
   // ── Navigation ───────────────────────────────────────────────────────────
   String get navDashboard => isAr ? 'الرئيسية' : 'Dashboard';

@@ -20,6 +20,24 @@ enum MatrixQuadrant {
         MatrixQuadrant.delegate => 'Urgent, not important',
         MatrixQuadrant.eliminate => 'Neither',
       };
+
+  String localLabel(bool isAr) => isAr
+      ? switch (this) {
+          MatrixQuadrant.doFirst => 'أولاً',
+          MatrixQuadrant.schedule => 'جدول',
+          MatrixQuadrant.delegate => 'فوّض',
+          MatrixQuadrant.eliminate => 'احذف',
+        }
+      : label;
+
+  String localSubtitle(bool isAr) => isAr
+      ? switch (this) {
+          MatrixQuadrant.doFirst => 'عاجل · مهم',
+          MatrixQuadrant.schedule => 'مهم، غير عاجل',
+          MatrixQuadrant.delegate => 'عاجل، غير مهم',
+          MatrixQuadrant.eliminate => 'لا عاجل ولا مهم',
+        }
+      : subtitle;
 }
 
 class MatrixTask {

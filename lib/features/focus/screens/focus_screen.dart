@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../models/daily_focus_plan.dart';
@@ -166,7 +167,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('$_focusMinutes-minute focus sprint completed.'),
+              content: Text(S.of(context).focusSprintCompleted(_focusMinutes)),
               duration: const Duration(seconds: 2),
             ),
           );
@@ -202,7 +203,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
     FocusScope.of(context).unfocus();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Focus plan saved for today.'),
+        content: Text(S.of(context).focusPlanSaved),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -240,7 +241,7 @@ class _Header extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Daily Focus',
+                    S.of(context).focusDailyTitle,
                     style: TextStyle(
                       fontSize: 23,
                       fontWeight: FontWeight.w800,
@@ -250,7 +251,7 @@ class _Header extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'One clear plan. One clean win.',
+                    S.of(context).focusTagline,
                     style: TextStyle(fontSize: 12, color: gp.textSec),
                   ),
                 ],
@@ -270,7 +271,7 @@ class _Header extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          '${plan.completedSteps}/3 ritual steps complete',
+          S.of(context).focusRitualProgress(plan.completedSteps),
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
@@ -301,28 +302,29 @@ class _FocusCaptureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return _CardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle(
             icon: Icons.flag_rounded,
-            title: 'Most important task',
-            subtitle: 'Pick the one outcome that makes today productive.',
+            title: s.focusMostImportantTask,
+            subtitle: s.focusMitSubtitle,
             color: GameColors.gold,
           ),
           const SizedBox(height: 14),
           TextField(
             controller: topTaskController,
             textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              hintText: 'Example: Finish the onboarding flow',
-              labelText: 'Top task',
+            decoration: InputDecoration(
+              hintText: s.focusTopTaskHint,
+              labelText: s.focusTopTaskLabel,
             ),
           ),
           const SizedBox(height: 18),
           Text(
-            'IF / THEN PLAN',
+            s.focusIfThenPlan,
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w800,
@@ -334,10 +336,10 @@ class _FocusCaptureCard extends StatelessWidget {
           TextField(
             controller: cueController,
             textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              prefixText: 'If ',
-              hintText: 'it is 9:00 at my desk',
-              labelText: 'Cue: when and where',
+            decoration: InputDecoration(
+              prefixText: s.focusCuePrefix,
+              hintText: s.focusCueHint,
+              labelText: s.focusCueLabel,
             ),
           ),
           const SizedBox(height: 10),
@@ -345,10 +347,10 @@ class _FocusCaptureCard extends StatelessWidget {
             controller: actionController,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => onSave(),
-            decoration: const InputDecoration(
-              prefixText: 'I will ',
-              hintText: 'start a 25-minute focus sprint',
-              labelText: 'Action: exact next move',
+            decoration: InputDecoration(
+              prefixText: s.focusActionPrefix,
+              hintText: s.focusActionHint,
+              labelText: s.focusActionLabel,
             ),
           ),
           if (plan.hasImplementationIntention) ...[
@@ -362,7 +364,7 @@ class _FocusCaptureCard extends StatelessWidget {
                 border: Border.all(color: GameColors.xpBlue.withOpacity(0.18)),
               ),
               child: Text(
-                'If ${plan.cue}, I will ${plan.action}.',
+                '${s.focusCuePrefix}${plan.cue}, ${s.focusActionPrefix}${plan.action}.',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -375,7 +377,7 @@ class _FocusCaptureCard extends StatelessWidget {
           FilledButton.icon(
             onPressed: onSave,
             icon: const Icon(Icons.check_rounded, size: 18),
-            label: const Text('Save today\'s plan'),
+            label: Text(s.focusSavePlan),
           ),
         ],
       ),
@@ -405,14 +407,15 @@ class _FocusTimerCard extends StatelessWidget {
     final gp = context.gp;
     final mm = (remainingSeconds ~/ 60).toString().padLeft(2, '0');
     final ss = (remainingSeconds % 60).toString().padLeft(2, '0');
+    final s = S.of(context);
     return _CardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.timer_rounded,
-            title: 'Focus timer',
-            subtitle: 'Stay inside GrowDaily instead of switching apps.',
+            title: s.focusTimerTitle,
+            subtitle: s.focusTimerSubtitle,
             color: GameColors.xpBlue,
           ),
           const SizedBox(height: 16),
@@ -454,14 +457,14 @@ class _FocusTimerCard extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: onStartPause,
                   icon: Icon(isRunning ? Icons.pause_rounded : Icons.play_arrow_rounded),
-                  label: Text(isRunning ? 'Pause sprint' : 'Start sprint'),
+                  label: Text(isRunning ? s.focusPauseSprint : s.focusStartSprint),
                 ),
               ),
               const SizedBox(width: 10),
               IconButton.filledTonal(
                 onPressed: onReset,
                 icon: const Icon(Icons.refresh_rounded),
-                tooltip: 'Reset timer',
+                tooltip: s.focusResetTimer,
               ),
             ],
           ),
@@ -477,32 +480,33 @@ class _DailyRitualCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final s = S.of(context);
     return _CardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.auto_awesome_rounded,
-            title: 'Clean daily ritual',
-            subtitle: 'Small enough to repeat, structured enough to work.',
+            title: s.focusRitualTitle,
+            subtitle: s.focusRitualSubtitle,
             color: GameColors.success,
           ),
           const SizedBox(height: 14),
           _RitualTile(
-            title: 'Plan the one win',
-            subtitle: plan.topTask.isEmpty ? 'Choose your top task' : plan.topTask,
+            title: s.focusRitualPlanWin,
+            subtitle: plan.topTask.isEmpty ? s.focusRitualChooseTask : plan.topTask,
             isDone: plan.planDone,
             onTap: () => ref.read(focusPlanProvider.notifier).togglePlan(),
           ),
           _RitualTile(
-            title: 'Run a focus sprint',
-            subtitle: '${plan.focusSessions} sprint${plan.focusSessions == 1 ? '' : 's'} logged today',
+            title: s.focusRitualRunSprint,
+            subtitle: s.focusRitualSprintsLogged(plan.focusSessions),
             isDone: plan.sprintDone,
             onTap: () => ref.read(focusPlanProvider.notifier).toggleSprint(),
           ),
           _RitualTile(
-            title: 'Review and close the loop',
-            subtitle: 'Mark what worked so tomorrow starts lighter',
+            title: s.focusRitualReview,
+            subtitle: s.focusRitualReviewSubtitle,
             isDone: plan.reviewDone,
             onTap: () => ref.read(focusPlanProvider.notifier).toggleReview(),
           ),
@@ -516,7 +520,7 @@ class _DailyRitualCard extends ConsumerWidget {
                     ref.read(focusPlanProvider.notifier).addFocusSession();
                   },
                   icon: const Icon(Icons.timer_rounded, size: 18),
-                  label: const Text('Log 25-min sprint'),
+                  label: Text(s.focusLogSprint),
                 ),
               ),
               const SizedBox(width: 10),
@@ -526,7 +530,7 @@ class _DailyRitualCard extends ConsumerWidget {
                   ref.read(focusPlanProvider.notifier).resetToday();
                 },
                 icon: const Icon(Icons.refresh_rounded),
-                tooltip: 'Reset today',
+                tooltip: s.focusResetToday,
               ),
             ],
           ),
@@ -539,32 +543,32 @@ class _DailyRitualCard extends ConsumerWidget {
 class _EvidenceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return const _CardShell(
+    final s = S.of(context);
+    return _CardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle(
             icon: Icons.psychology_rounded,
-            title: 'Why this is here',
-            subtitle:
-                'Inspired by proven patterns in top planners without adding clutter.',
+            title: s.focusWhyTitle,
+            subtitle: s.focusWhySubtitle,
             color: GameColors.xpBlue,
           ),
-          SizedBox(height: 14),
+          const SizedBox(height: 14),
           _EvidenceChip(
             icon: Icons.place_rounded,
-            title: 'If / then cue',
-            body: 'Turns vague goals into a specific when-and-where action.',
+            title: s.focusIfThenCueTitle,
+            body: s.focusIfThenCueBody,
           ),
           _EvidenceChip(
             icon: Icons.looks_one_rounded,
-            title: 'One top task',
-            body: 'Avoids over-planning and makes the next win obvious.',
+            title: s.focusOneTaskTitle,
+            body: s.focusOneTaskBody,
           ),
           _EvidenceChip(
             icon: Icons.timer_rounded,
-            title: 'Short focus sprint',
-            body: 'A light Pomodoro-style loop like leading productivity apps use.',
+            title: s.focusSprintTitle,
+            body: s.focusSprintBody,
           ),
         ],
       ),

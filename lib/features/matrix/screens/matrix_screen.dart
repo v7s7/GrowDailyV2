@@ -61,11 +61,11 @@ class MatrixScreen extends ConsumerWidget {
                   const SizedBox(width: 16),
                   Expanded(
                       child: _AxisLabel(
-                          label: 'URGENT', icon: Icons.bolt_rounded)),
+                          label: s.matrixUrgent, icon: Icons.bolt_rounded)),
                   const SizedBox(width: 8),
                   Expanded(
                       child: _AxisLabel(
-                          label: 'NOT URGENT',
+                          label: s.matrixNotUrgent,
                           icon: Icons.schedule_rounded)),
                 ],
               ).animate(delay: 100.ms).fadeIn(duration: 300.ms),
@@ -80,11 +80,11 @@ class MatrixScreen extends ConsumerWidget {
                     Column(
                       children: [
                         Expanded(
-                            child: _RotatedAxisLabel(label: 'IMPORTANT')),
+                            child: _RotatedAxisLabel(label: s.matrixImportant)),
                         const SizedBox(height: 8),
                         Expanded(
                             child:
-                                _RotatedAxisLabel(label: 'NOT IMPORTANT')),
+                                _RotatedAxisLabel(label: s.matrixNotImportant)),
                       ],
                     ),
                     const SizedBox(width: 6),
