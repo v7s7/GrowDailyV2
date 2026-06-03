@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/utils/xp_calculator.dart';
+import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 
 class DashboardState {
@@ -11,7 +12,10 @@ class DashboardState {
   final int gold;
   final int streak;
   final int longestStreak;
+  final int totalCompletions;
   final Map<String, int> completions;
+  final List<String> unlockedAchievements;
+  final List<AchievementModel> newlyUnlocked;
   final bool didJustLevelUp;
   final String? lastCompletedId;
   final bool isLoading;
@@ -23,7 +27,10 @@ class DashboardState {
     required this.gold,
     required this.streak,
     this.longestStreak = 0,
+    this.totalCompletions = 0,
     required this.completions,
+    this.unlockedAchievements = const [],
+    this.newlyUnlocked = const [],
     this.didJustLevelUp = false,
     this.lastCompletedId,
     this.isLoading = false,
@@ -36,7 +43,10 @@ class DashboardState {
         gold: 0,
         streak: 0,
         longestStreak: 0,
+        totalCompletions: 0,
         completions: {},
+        unlockedAchievements: [],
+        newlyUnlocked: [],
         isLoading: true,
       );
 
@@ -53,7 +63,10 @@ class DashboardState {
     int? gold,
     int? streak,
     int? longestStreak,
+    int? totalCompletions,
     Map<String, int>? completions,
+    List<String>? unlockedAchievements,
+    List<AchievementModel>? newlyUnlocked,
     bool didJustLevelUp = false,
     String? lastCompletedId,
     bool? isLoading,
@@ -65,7 +78,11 @@ class DashboardState {
         gold: gold ?? this.gold,
         streak: streak ?? this.streak,
         longestStreak: longestStreak ?? this.longestStreak,
+        totalCompletions: totalCompletions ?? this.totalCompletions,
         completions: completions ?? this.completions,
+        unlockedAchievements:
+            unlockedAchievements ?? this.unlockedAchievements,
+        newlyUnlocked: newlyUnlocked ?? this.newlyUnlocked,
         didJustLevelUp: didJustLevelUp,
         lastCompletedId: lastCompletedId ?? this.lastCompletedId,
         isLoading: isLoading ?? this.isLoading,
@@ -112,7 +129,9 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           cumulativeXp = 0,
           gold = 0,
           streak = 0,
-          longestStreak = 0;
+          longestStreak = 0,
+          totalCompletions = 0;
+      List<String> unlockedAchievements = [];
       Map<String, int> completions = {};
 
       if (userSnap.exists) {
@@ -123,8 +142,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         gold = (d['gold'] as int?) ?? 0;
         streak = (d['currentStreak'] as int?) ?? 0;
         longestStreak = (d['longestStreak'] as int?) ?? 0;
+        totalCompletions = (d['totalHabitCompletions'] as int?) ?? 0;
+        unlockedAchievements =
+            List<String>.from(d['unlockedAchievements'] as List? ?? []);
 
-        // Reset streak if last active day was before yesterday
         final lastActiveTs = d['lastActiveDate'] as Timestamp?;
         if (lastActiveTs != null) {
           final lastDay = _dateOnly(lastActiveTs.toDate());
@@ -132,7 +153,6 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
               DateTime.now().subtract(const Duration(days: 1)));
           if (lastDay.isBefore(yesterday)) {
             streak = 0;
-            // Write reset back so it's correct next open
             _userRef
                 .set({'currentStreak': 0}, SetOptions(merge: true))
                 .ignore();
@@ -156,7 +176,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           gold: gold,
           streak: streak,
           longestStreak: longestStreak,
+          totalCompletions: totalCompletions,
           completions: completions,
+          unlockedAchievements: unlockedAchievements,
+          newlyUnlocked: const [],
           isLoading: false,
         );
       }
@@ -186,23 +209,59 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       xpGained: xpReward,
     );
 
-    // First completion of today increments streak
     final isFirstToday = state.completions.isEmpty;
     final newStreak = isFirstToday ? state.streak + 1 : state.streak;
-    final newLongest = newStreak > state.longestStreak
-        ? newStreak
-        : state.longestStreak;
+    final newLongest =
+        newStreak > state.longestStreak ? newStreak : state.longestStreak;
     final newGold = state.gold + goldReward;
+    final newTotal = state.totalCompletions + 1;
+
+    // ── Achievement check ────────────────────────────────────
+    final newly = AchievementCatalog.locked(state.unlockedAchievements)
+        .where((a) => switch (a.trigger) {
+              AchievementTrigger.streak => newStreak >= a.threshold,
+              AchievementTrigger.level =>
+                result.newLevel >= a.threshold,
+              AchievementTrigger.totalCompletions =>
+                newTotal >= a.threshold,
+              _ => false,
+            })
+        .toList();
+
+    final newUnlockedIds = [
+      ...state.unlockedAchievements,
+      ...newly.map((a) => a.id),
+    ];
+
+    // XP + gold bonus from achievements
+    int bonusXp = newly.fold(0, (s, a) => s + a.xpReward);
+    int bonusGold = newly.fold(0, (s, a) => s + a.goldReward);
+    final bonusResult = bonusXp > 0
+        ? XpCalculator.applyXpGain(
+            currentLevel: result.newLevel,
+            currentLevelXp: result.newCurrentLevelXp,
+            cumulativeXp: result.newCumulativeXp,
+            xpGained: bonusXp,
+          )
+        : (
+            newLevel: result.newLevel,
+            newCurrentLevelXp: result.newCurrentLevelXp,
+            newCumulativeXp: result.newCumulativeXp,
+          );
 
     state = state.copyWith(
-      level: result.newLevel,
-      currentLevelXp: result.newCurrentLevelXp,
-      cumulativeXp: result.newCumulativeXp,
-      gold: newGold,
+      level: bonusResult.newLevel,
+      currentLevelXp: bonusResult.newCurrentLevelXp,
+      cumulativeXp: bonusResult.newCumulativeXp,
+      gold: newGold + bonusGold,
       streak: newStreak,
       longestStreak: newLongest,
+      totalCompletions: newTotal,
       completions: newCompletions,
-      didJustLevelUp: result.newLevel > state.level,
+      unlockedAchievements: newUnlockedIds,
+      newlyUnlocked: newly,
+      didJustLevelUp:
+          bonusResult.newLevel > state.level,
       lastCompletedId: habitId,
     );
 
@@ -212,35 +271,35 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       final now = DateTime.now();
       final batch = FirebaseFirestore.instance.batch();
 
-      // Daily log (create or merge)
       batch.set(
         _dailyRef,
-        {
-          'habitCompletions': newCompletions,
-          'date': Timestamp.fromDate(now),
-        },
+        {'habitCompletions': newCompletions, 'date': Timestamp.fromDate(now)},
         SetOptions(merge: true),
       );
 
-      // User stats
       batch.set(
         _userRef,
         {
-          'level': result.newLevel,
-          'currentLevelXp': result.newCurrentLevelXp,
-          'cumulativeXp': result.newCumulativeXp,
-          'gold': newGold,
+          'level': bonusResult.newLevel,
+          'currentLevelXp': bonusResult.newCurrentLevelXp,
+          'cumulativeXp': bonusResult.newCumulativeXp,
+          'gold': newGold + bonusGold,
           'currentStreak': newStreak,
           'longestStreak': newLongest,
+          'totalHabitCompletions': newTotal,
+          'unlockedAchievements': newUnlockedIds,
           'lastActiveDate': Timestamp.fromDate(now),
         },
         SetOptions(merge: true),
       );
 
       await batch.commit();
-    } catch (_) {
-      // Local state already updated — silent fail keeps UX smooth
-    }
+    } catch (_) {}
+  }
+
+  void acknowledgeAchievements() {
+    if (state.newlyUnlocked.isEmpty) return;
+    state = state.copyWith(newlyUnlocked: []);
   }
 
   Future<void> refresh() => _loadToday();
@@ -248,7 +307,6 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
 final dashboardProvider =
     StateNotifierProvider<DashboardNotifier, DashboardState>((ref) {
-  // Recreates when auth state changes (sign-in / sign-out)
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
   return DashboardNotifier(uid);
 });
