@@ -5,8 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import 'core/providers/theme_provider.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/game_theme.dart';
+import 'features/auth/notifiers/auth_notifier.dart';
+import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'firebase_options.dart';
@@ -18,10 +21,6 @@ Future<void> main() async {
   }
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    statusBarBrightness: Brightness.dark,
-    systemNavigationBarColor: GameColors.background,
-    systemNavigationBarIconBrightness: Brightness.light,
   ));
   await Hive.initFlutter();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -29,20 +28,71 @@ Future<void> main() async {
   runApp(const ProviderScope(child: GrowDailyApp()));
 }
 
-class GrowDailyApp extends StatelessWidget {
+class GrowDailyApp extends ConsumerWidget {
   const GrowDailyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'GrowDaily',
       debugShowCheckedModeBanner: false,
-      theme: GameTheme.dark,
+      theme: GameTheme.light,
+      darkTheme: GameTheme.dark,
+      themeMode: themeMode,
       initialRoute: '/',
       routes: {
-        '/': (_) => const DashboardScreen(),
+        '/': (_) => const _AuthGate(),
+        '/dashboard': (_) => const DashboardScreen(),
         '/matrix': (_) => const MatrixScreen(),
+        '/auth': (_) => const AuthScreen(),
       },
+    );
+  }
+}
+
+class _AuthGate extends ConsumerWidget {
+  const _AuthGate();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authStateProvider);
+    return auth.when(
+      data: (user) =>
+          user != null ? const DashboardScreen() : const AuthScreen(),
+      loading: () => const _SplashScreen(),
+      error: (_, __) => const AuthScreen(),
+    );
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Scaffold(
+      backgroundColor: gp.bg,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.trending_up_rounded,
+                size: 48, color: GameColors.gold),
+            const SizedBox(height: 16),
+            Text(
+              'GrowDaily',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
