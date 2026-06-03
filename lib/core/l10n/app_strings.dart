@@ -146,6 +146,11 @@ class S {
   String get noHabitsDesc => isAr
       ? 'ابدأ بخطة جاهزة أو أنشئ عادتك الخاصة.'
       : 'Start with a ready plan or create your own habit.';
+  String get allDoneTitle => isAr ? 'أحسنت!' : 'ALL DONE!';
+  String get allDoneSubtitle => isAr
+      ? 'كل عادات اليوم مكتملة. استمر!'
+      : 'All habits complete for today. Keep it up!';
+  String get removeHabit => isAr ? 'إزالة العادة' : 'Remove habit';
 
   // ── Add Habit Sheet ──────────────────────────────────────────────────────
   String get newHabit => isAr ? 'عادة جديدة' : 'NEW HABIT';

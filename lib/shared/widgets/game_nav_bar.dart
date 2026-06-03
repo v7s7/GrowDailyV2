@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
@@ -19,6 +20,7 @@ class GameNavBar extends StatelessWidget {
         selectedIndex: currentIndex,
         onDestinationSelected: (i) {
           if (i == currentIndex) return;
+          HapticFeedback.selectionClick();
           Navigator.pushReplacementNamed(
             context,
             switch (i) {

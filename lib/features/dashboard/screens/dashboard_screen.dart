@@ -10,6 +10,7 @@ import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/focus/notifiers/focus_plan_notifier.dart';
+import '../../../features/habits/catalog/habit_plans.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/habits/widgets/add_habit_sheet.dart';
@@ -66,6 +67,10 @@ class DashboardScreen extends ConsumerWidget {
 
     final state = ref.watch(dashboardProvider);
     final habits = ref.watch(habitListProvider);
+    final customHabits = ref.watch(customHabitsProvider);
+    final customIds = customHabits.map((h) => h.id).toSet();
+    final allDone = habits.isNotEmpty &&
+        habits.every((t) => state.isCompleted(t.id, t.frequencyTarget));
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -75,7 +80,8 @@ class DashboardScreen extends ConsumerWidget {
               child: CircularProgressIndicator(
                   color: GameColors.gold, strokeWidth: 2))
           : CustomScrollView(
-              physics: const BouncingScrollPhysics(),
+              physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics()),
               slivers: [
                 SliverAppBar(
                   pinned: true,
@@ -172,6 +178,13 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+                if (allDone)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: _AllDoneBanner(),
+                    ),
+                  ),
                 SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   sliver: SliverList.builder(
@@ -182,7 +195,7 @@ class DashboardScreen extends ConsumerWidget {
                           state.isCompleted(t.id, t.frequencyTarget);
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: HabitCard(
+                        child: _SwipeableHabitRow(
                           template: t,
                           completions: state.completions[t.id] ?? 0,
                           isDone: done,
@@ -196,6 +209,17 @@ class DashboardScreen extends ConsumerWidget {
                                     goldReward: t.goldReward,
                                     frequencyTarget: t.frequencyTarget,
                                   ),
+                          onDelete: () {
+                            if (customIds.contains(t.id)) {
+                              ref
+                                  .read(customHabitsProvider.notifier)
+                                  .remove(t.id);
+                            } else {
+                              ref
+                                  .read(activeCatalogProvider.notifier)
+                                  .toggle(t.id);
+                            }
+                          },
                         ),
                       )
                           .animate(delay: (i * 55).ms)
@@ -995,6 +1019,260 @@ class _RewardChip extends StatelessWidget {
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: color)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── All Done Banner ──────────────────────────────────────────────────────────
+
+class _AllDoneBanner extends StatelessWidget {
+  const _AllDoneBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            GameColors.gold.withOpacity(0.14),
+            GameColors.success.withOpacity(0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: GameColors.gold.withOpacity(0.35), width: 1),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: GameColors.gold.withOpacity(0.14),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.auto_awesome_rounded,
+                color: GameColors.gold, size: 20),
+          )
+              .animate(onPlay: (c) => c.repeat(reverse: true))
+              .scaleXY(
+                  begin: 0.88,
+                  end: 1.0,
+                  duration: 1100.ms,
+                  curve: Curves.easeInOut),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.allDoneTitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: GameColors.gold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  s.allDoneSubtitle,
+                  style: TextStyle(fontSize: 12, color: gp.textSec),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    )
+        .animate()
+        .fadeIn(duration: 400.ms, delay: 150.ms)
+        .slideY(begin: 0.12, curve: Curves.easeOut);
+  }
+}
+
+// ─── Swipeable Habit Row ──────────────────────────────────────────────────────
+
+class _SwipeableHabitRow extends StatefulWidget {
+  final IslamicHabitTemplate template;
+  final int completions;
+  final bool isDone;
+  final VoidCallback? onComplete;
+  final VoidCallback? onDelete;
+
+  const _SwipeableHabitRow({
+    required this.template,
+    required this.completions,
+    required this.isDone,
+    this.onComplete,
+    this.onDelete,
+  });
+
+  @override
+  State<_SwipeableHabitRow> createState() => _SwipeableHabitRowState();
+}
+
+class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late Animation<double> _xAnim;
+  double _liveX = 0;
+  bool _dragging = false;
+  bool _triggered = false;
+
+  static const double _kThresh = 80;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 480),
+    )..addListener(() => setState(() {}));
+    _xAnim = const AlwaysStoppedAnimation(0);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  double get _x => _dragging ? _liveX : _xAnim.value;
+
+  void _onDragStart(DragStartDetails _) {
+    if (widget.isDone || widget.onComplete == null) return;
+    _ctrl.stop();
+    setState(() {
+      _dragging = true;
+      _liveX = 0;
+      _triggered = false;
+    });
+  }
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    if (!_dragging) return;
+    setState(() {
+      _liveX = (_liveX + d.delta.dx).clamp(0.0, _kThresh * 1.12);
+    });
+    if (_liveX >= _kThresh && !_triggered) {
+      _triggered = true;
+      HapticFeedback.mediumImpact();
+    }
+  }
+
+  void _onDragEnd(DragEndDetails _) {
+    if (!_dragging) return;
+    final startX = _liveX;
+    setState(() => _dragging = false);
+    if (_triggered) widget.onComplete?.call();
+    _triggered = false;
+    _xAnim = Tween<double>(begin: startX, end: 0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut),
+    );
+    _ctrl.forward(from: 0);
+  }
+
+  void _showDeleteMenu(BuildContext context) {
+    HapticFeedback.mediumImpact();
+    final s = S.of(context);
+    final gp = context.gp;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            12, 0, 12, 24 + MediaQuery.of(ctx).padding.bottom),
+        child: Container(
+          decoration: BoxDecoration(
+            color: gp.surfaceHigh,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: gp.border, width: 0.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+                child: Text(
+                  widget.template.name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              Divider(height: 1, color: gp.divider),
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded,
+                    color: GameColors.error),
+                title: Text(
+                  s.removeHabit,
+                  style: const TextStyle(
+                      color: GameColors.error, fontWeight: FontWeight.w600),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  HapticFeedback.mediumImpact();
+                  widget.onDelete?.call();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final x = _x;
+    final progress = (x / _kThresh).clamp(0.0, 1.0);
+
+    return GestureDetector(
+      onHorizontalDragStart: _onDragStart,
+      onHorizontalDragUpdate: _onDragUpdate,
+      onHorizontalDragEnd: _onDragEnd,
+      onLongPress: widget.onDelete != null ? () => _showDeleteMenu(context) : null,
+      child: Stack(
+        children: [
+          // Green reveal behind the card
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                color: GameColors.success.withOpacity(0.12 * progress),
+                borderRadius:
+                    BorderRadius.circular(GameSpacing.cardRadius),
+              ),
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: 18),
+              child: Opacity(
+                opacity: progress,
+                child: Transform.scale(
+                  scale: 0.5 + 0.5 * progress,
+                  child: const Icon(Icons.check_rounded,
+                      color: GameColors.success, size: 22),
+                ),
+              ),
+            ),
+          ),
+          // The card slides right
+          Transform.translate(
+            offset: Offset(x, 0),
+            child: HabitCard(
+              template: widget.template,
+              completions: widget.completions,
+              isDone: widget.isDone,
+              onComplete: widget.onComplete,
+            ),
+          ),
         ],
       ),
     );
