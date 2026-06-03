@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/game_theme.dart';
+import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
@@ -27,10 +28,10 @@ class DashboardScreen extends ConsumerWidget {
       for (final entry in next.completions.entries) {
         if ((prev.completions[entry.key] ?? 0) < entry.value) {
           final t = IslamicHabitCatalog.findById(entry.key) ??
-              ref
-                  .read(customHabitsProvider)
-                  .firstWhere((h) => h.id == entry.key,
-                      orElse: () => IslamicHabitCatalog.templates.first);
+              ref.read(customHabitsProvider).firstWhere(
+                    (h) => h.id == entry.key,
+                    orElse: () => IslamicHabitCatalog.templates.first,
+                  );
           HapticFeedback.mediumImpact();
           _showDone(context, t.name, t.xpReward, t.goldReward);
         }
@@ -38,6 +39,10 @@ class DashboardScreen extends ConsumerWidget {
       if (next.didJustLevelUp) {
         HapticFeedback.heavyImpact();
         _showLevelUp(context, next.level);
+      }
+      if (next.newlyUnlocked.isNotEmpty && prev.newlyUnlocked.isEmpty) {
+        _showAchievementUnlock(
+            context, next.newlyUnlocked.first, ref);
       }
     });
 
@@ -50,8 +55,7 @@ class DashboardScreen extends ConsumerWidget {
       body: state.isLoading
           ? Center(
               child: CircularProgressIndicator(
-                  color: GameColors.gold,
-                  strokeWidth: 2))
+                  color: GameColors.gold, strokeWidth: 2))
           : CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
@@ -80,18 +84,15 @@ class DashboardScreen extends ConsumerWidget {
                       itemBuilder: (_) => [
                         PopupMenuItem(
                           value: 'signout',
-                          child: Row(
-                            children: [
-                              Icon(Icons.logout_rounded,
-                                  size: 18, color: gp.textSec),
-                              const SizedBox(width: 10),
-                              Text('Sign Out',
-                                  style: TextStyle(
-                                      color: gp.textPrimary,
-                                      fontWeight:
-                                          FontWeight.w500)),
-                            ],
-                          ),
+                          child: Row(children: [
+                            Icon(Icons.logout_rounded,
+                                size: 18, color: gp.textSec),
+                            const SizedBox(width: 10),
+                            Text('Sign Out',
+                                style: TextStyle(
+                                    color: gp.textPrimary,
+                                    fontWeight: FontWeight.w500)),
+                          ]),
                         ),
                       ],
                       onSelected: (v) async {
@@ -111,13 +112,11 @@ class DashboardScreen extends ConsumerWidget {
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding:
-                        const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                     child: _StatsCard(state: state)
                         .animate()
                         .fadeIn(duration: 500.ms)
-                        .slideY(
-                            begin: -0.04, curve: Curves.easeOut),
+                        .slideY(begin: -0.04, curve: Curves.easeOut),
                   ),
                 ),
                 SliverToBoxAdapter(
@@ -129,28 +128,25 @@ class DashboardScreen extends ConsumerWidget {
                         Text(
                           "TODAY'S HABITS",
                           style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: gp.textSec,
-                            letterSpacing: 2,
-                          ),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: gp.textSec,
+                              letterSpacing: 2),
                         ),
                         const Spacer(),
                         Text(
                           '${habits.length} active',
                           style: TextStyle(
-                            fontSize: 11,
-                            color: gp.textTert,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              fontSize: 11,
+                              color: gp.textTert,
+                              fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
                   ),
                 ),
                 SliverPadding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   sliver: SliverList.builder(
                     itemCount: habits.length,
                     itemBuilder: (context, i) {
@@ -161,27 +157,23 @@ class DashboardScreen extends ConsumerWidget {
                         padding: const EdgeInsets.only(bottom: 10),
                         child: HabitCard(
                           template: t,
-                          completions:
-                              state.completions[t.id] ?? 0,
+                          completions: state.completions[t.id] ?? 0,
                           isDone: done,
                           onComplete: done
                               ? null
                               : () => ref
-                                  .read(
-                                      dashboardProvider.notifier)
+                                  .read(dashboardProvider.notifier)
                                   .completeHabit(
                                     habitId: t.id,
                                     xpReward: t.xpReward,
                                     goldReward: t.goldReward,
-                                    frequencyTarget:
-                                        t.frequencyTarget,
+                                    frequencyTarget: t.frequencyTarget,
                                   ),
                         ),
                       )
                           .animate(delay: (i * 55).ms)
                           .fadeIn(duration: 400.ms)
-                          .slideY(
-                              begin: 0.12, curve: Curves.easeOut);
+                          .slideY(begin: 0.12, curve: Curves.easeOut);
                     },
                   ),
                 ),
@@ -216,44 +208,57 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  void _showAchievementUnlock(
+      BuildContext context, AchievementModel a, WidgetRef ref) {
+    ref.read(dashboardProvider.notifier).acknowledgeAchievements();
+    HapticFeedback.heavyImpact();
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (context.mounted) {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => _AchievementUnlockSheet(achievement: a),
+        );
+      }
+    });
+  }
+
   void _showDone(
       BuildContext context, String name, int xp, int gold) {
     final gp = context.gp;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded,
-                color: GameColors.gold, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(name,
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                          color: gp.textPrimary)),
-                  Text('+$xp XP  ·  +$gold Gold',
-                      style: const TextStyle(
-                          fontSize: 11,
-                          color: GameColors.gold,
-                          fontWeight: FontWeight.w600)),
-                ],
-              ),
+        content: Row(children: [
+          const Icon(Icons.check_circle_rounded,
+              color: GameColors.gold, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(name,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: gp.textPrimary)),
+                Text('+$xp XP  ·  +$gold Gold',
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: GameColors.gold,
+                        fontWeight: FontWeight.w600)),
+              ],
             ),
-          ],
-        ),
+          ),
+        ]),
         backgroundColor: gp.surfaceHigh,
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(
-              color: GameColors.gold, width: 0.5),
+          side: const BorderSide(color: GameColors.gold, width: 0.5),
         ),
       ),
     );
@@ -283,8 +288,7 @@ class DashboardScreen extends ConsumerWidget {
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side:
-              const BorderSide(color: GameColors.gold, width: 1),
+          side: const BorderSide(color: GameColors.gold, width: 1),
         ),
       ),
     );
@@ -314,11 +318,10 @@ class _StatsCard extends StatelessWidget {
           Text(
             today.toUpperCase(),
             style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: gp.textTert,
-              letterSpacing: 1.5,
-            ),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: gp.textTert,
+                letterSpacing: 1.5),
           ),
           const SizedBox(height: 10),
           Row(
@@ -336,12 +339,11 @@ class _StatsCard extends StatelessWidget {
                   Text(
                     '${state.level}',
                     style: const TextStyle(
-                      fontSize: 52,
-                      fontWeight: FontWeight.w900,
-                      color: GameColors.gold,
-                      height: 1,
-                      letterSpacing: -2,
-                    ),
+                        fontSize: 52,
+                        fontWeight: FontWeight.w900,
+                        color: GameColors.gold,
+                        height: 1,
+                        letterSpacing: -2),
                   ),
                 ],
               ),
@@ -373,23 +375,188 @@ class _StatsCard extends StatelessWidget {
           const SizedBox(height: 18),
           Container(height: 0.5, color: gp.border),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              StatChip(
-                icon: Icons.local_fire_department_rounded,
-                value: state.streak,
-                label: 'STREAK',
-                color: GameColors.streakOrange,
+          Row(children: [
+            StatChip(
+              icon: Icons.local_fire_department_rounded,
+              value: state.streak,
+              label: 'STREAK',
+              color: GameColors.streakOrange,
+            ),
+            const SizedBox(width: 10),
+            StatChip(
+              icon: Icons.stars_rounded,
+              value: state.gold,
+              label: 'GOLD',
+              color: GameColors.gold,
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Achievement Unlock Sheet ──────────────────────────────────────────────
+
+class _AchievementUnlockSheet extends StatelessWidget {
+  final AchievementModel achievement;
+  const _AchievementUnlockSheet({required this.achievement});
+
+  Color get _color => switch (achievement.rarity) {
+        AchievementRarity.common => GameColors.rarityCommon,
+        AchievementRarity.uncommon => GameColors.rarityUncommon,
+        AchievementRarity.rare => GameColors.rarityRare,
+        AchievementRarity.epic => GameColors.rarityEpic,
+        AchievementRarity.legendary => GameColors.rarityLegendary,
+      };
+
+  IconData get _icon => switch (achievement.trigger) {
+        AchievementTrigger.streak =>
+          Icons.local_fire_department_rounded,
+        AchievementTrigger.level => Icons.bolt_rounded,
+        AchievementTrigger.totalCompletions =>
+          Icons.check_circle_rounded,
+        AchievementTrigger.habitMastery => Icons.menu_book_rounded,
+        _ => Icons.stars_rounded,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final c = _color;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: c.withOpacity(0.4), width: 1),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: gp.border,
+                borderRadius: BorderRadius.circular(100),
               ),
-              const SizedBox(width: 10),
-              StatChip(
-                icon: Icons.stars_rounded,
-                value: state.gold,
-                label: 'GOLD',
-                color: GameColors.gold,
+            ),
+            const SizedBox(height: 28),
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                color: c.withOpacity(0.14),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                      color: c.withOpacity(0.28),
+                      blurRadius: 28,
+                      spreadRadius: 4),
+                ],
               ),
-            ],
-          ),
+              child: Icon(_icon, size: 34, color: c),
+            )
+                .animate()
+                .scale(
+                    begin: const Offset(0.4, 0.4),
+                    curve: Curves.elasticOut,
+                    duration: 700.ms)
+                .fadeIn(duration: 300.ms),
+            const SizedBox(height: 18),
+            Text(
+              'ACHIEVEMENT UNLOCKED',
+              style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: c,
+                  letterSpacing: 2),
+            ).animate(delay: 200.ms).fadeIn(),
+            const SizedBox(height: 8),
+            Text(
+              achievement.name,
+              style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: gp.textPrimary,
+                  letterSpacing: -0.3),
+              textAlign: TextAlign.center,
+            ).animate(delay: 280.ms).fadeIn().slideY(begin: 0.2),
+            const SizedBox(height: 6),
+            Text(
+              achievement.description,
+              style: TextStyle(fontSize: 14, color: gp.textSec),
+              textAlign: TextAlign.center,
+            ).animate(delay: 320.ms).fadeIn(),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (achievement.xpReward > 0) ...[  
+                  _RewardChip(
+                    icon: Icons.bolt_rounded,
+                    label: '+${achievement.xpReward} XP',
+                    color: GameColors.xpBlue,
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                if (achievement.goldReward > 0)
+                  _RewardChip(
+                    icon: Icons.toll_rounded,
+                    label: '+${achievement.goldReward} Gold',
+                    color: GameColors.gold,
+                  ),
+              ],
+            ).animate(delay: 380.ms).fadeIn(),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  Navigator.pop(context);
+                },
+                child: const Text('CLAIM REWARD'),
+              ),
+            ).animate(delay: 460.ms).fadeIn().slideY(begin: 0.2),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RewardChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const _RewardChip(
+      {required this.icon, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(100),
+        border:
+            Border.all(color: color.withOpacity(0.3), width: 0.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color)),
         ],
       ),
     );
