@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/habit_model.dart';
@@ -48,6 +49,42 @@ class IslamicHabitTemplate {
         goldReward: goldReward,
         createdAt: DateTime.now(),
       );
+
+  Map<String, dynamic> toFirestore() => {
+        'name': name,
+        'description': description,
+        'iconEmoji': iconEmoji,
+        'category': category.toJson(),
+        'frequencyType': frequencyType.toJson(),
+        'frequencyTarget': frequencyTarget,
+        'hasTimer': hasTimer,
+        if (timerDurationSeconds != null)
+          'timerDurationSeconds': timerDurationSeconds,
+        'xpReward': xpReward,
+        'goldReward': goldReward,
+      };
+
+  factory IslamicHabitTemplate.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final d = doc.data()!;
+    return IslamicHabitTemplate(
+      id: doc.id,
+      name: d['name'] as String,
+      description: d['description'] as String? ?? '',
+      iconEmoji: d['iconEmoji'] as String? ?? '',
+      category:
+          HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
+      frequencyType: HabitFrequencyType.fromJson(
+        d['frequencyType'] as String? ?? 'daily',
+      ),
+      frequencyTarget: d['frequencyTarget'] as int? ?? 1,
+      hasTimer: d['hasTimer'] as bool? ?? false,
+      timerDurationSeconds: d['timerDurationSeconds'] as int?,
+      xpReward: d['xpReward'] as int? ?? 20,
+      goldReward: d['goldReward'] as int? ?? 8,
+    );
+  }
 }
 
 abstract final class IslamicHabitCatalog {
@@ -56,7 +93,7 @@ abstract final class IslamicHabitCatalog {
       id: 'quran_daily_page',
       name: 'Quran Daily Page',
       description: 'Read at least one page of the Quran every day',
-      iconEmoji: '📖',
+      iconEmoji: '',
       category: HabitCategory.quran,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -69,7 +106,7 @@ abstract final class IslamicHabitCatalog {
       id: 'quran_memorization',
       name: 'Quran Memorization',
       description: 'Memorize and review verses of the Quran',
-      iconEmoji: '🧠',
+      iconEmoji: '',
       category: HabitCategory.quran,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -82,7 +119,7 @@ abstract final class IslamicHabitCatalog {
       id: 'morning_athkar',
       name: 'Morning Athkar',
       description: 'Recite the morning remembrances after Fajr',
-      iconEmoji: '🌅',
+      iconEmoji: '',
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -94,7 +131,7 @@ abstract final class IslamicHabitCatalog {
       id: 'evening_athkar',
       name: 'Evening Athkar',
       description: 'Recite the evening remembrances after Asr',
-      iconEmoji: '🌆',
+      iconEmoji: '',
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -106,7 +143,7 @@ abstract final class IslamicHabitCatalog {
       id: 'tahajjud',
       name: 'Tahajjud Prayer',
       description: 'Rise before Fajr for the voluntary night prayer',
-      iconEmoji: '⭐',
+      iconEmoji: '',
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 3,
@@ -118,7 +155,7 @@ abstract final class IslamicHabitCatalog {
       id: 'gym_consistency',
       name: 'Gym Consistency',
       description: 'Maintain fitness — your body is an amanah',
-      iconEmoji: '🏋️',
+      iconEmoji: '',
       category: HabitCategory.fitness,
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 3,
@@ -130,7 +167,7 @@ abstract final class IslamicHabitCatalog {
       id: 'sunnah_fasting',
       name: 'Monday & Thursday Fast',
       description: 'Follow the sunnah of fasting on Mondays and Thursdays',
-      iconEmoji: '🌙',
+      iconEmoji: '',
       category: HabitCategory.fasting,
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 2,
@@ -142,7 +179,7 @@ abstract final class IslamicHabitCatalog {
       id: 'daily_sadaqah',
       name: 'Daily Sadaqah',
       description: 'Give in charity daily — even a smile counts',
-      iconEmoji: '🤲',
+      iconEmoji: '',
       category: HabitCategory.sadaqah,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -154,7 +191,7 @@ abstract final class IslamicHabitCatalog {
       id: 'sleep_schedule',
       name: 'Sleep Before Midnight',
       description: 'Protect your Fajr by sleeping before midnight',
-      iconEmoji: '😴',
+      iconEmoji: '',
       category: HabitCategory.sleep,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,

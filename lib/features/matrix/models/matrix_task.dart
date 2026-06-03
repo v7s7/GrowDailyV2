@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
 enum MatrixQuadrant {
@@ -44,6 +45,30 @@ class MatrixTask {
         isDone: false,
         createdAt: DateTime.now(),
       );
+
+  factory MatrixTask.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final d = doc.data()!;
+    return MatrixTask(
+      id: doc.id,
+      title: d['title'] as String,
+      quadrant: MatrixQuadrant.values.firstWhere(
+        (q) => q.name == (d['quadrant'] as String? ?? 'doFirst'),
+        orElse: () => MatrixQuadrant.doFirst,
+      ),
+      isDone: d['isDone'] as bool? ?? false,
+      createdAt:
+          (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toFirestore() => {
+        'title': title,
+        'quadrant': quadrant.name,
+        'isDone': isDone,
+        'createdAt': Timestamp.fromDate(createdAt),
+      };
 
   MatrixTask copyWith({
     String? title,
