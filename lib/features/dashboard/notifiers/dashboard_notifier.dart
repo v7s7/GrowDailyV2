@@ -7,6 +7,28 @@ import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 
+const List<int> kStreakMilestones = [3, 7, 14, 30, 60, 100];
+
+int milestoneXpBonus(int milestone) => switch (milestone) {
+      3 => 25,
+      7 => 75,
+      14 => 150,
+      30 => 300,
+      60 => 600,
+      100 => 1500,
+      _ => 0,
+    };
+
+String milestoneTitle(int milestone) => switch (milestone) {
+      3 => '3-Day Starter',
+      7 => '7-Day Warrior',
+      14 => '2-Week Champion',
+      30 => 'Month Master',
+      60 => '60-Day Devotee',
+      100 => 'Century Legend',
+      _ => 'Streak Milestone',
+    };
+
 class DashboardState {
   final int level;
   final int currentLevelXp;
@@ -26,6 +48,10 @@ class DashboardState {
   final int? streakMilestone;
   final String? lastCompletedId;
   final bool isLoading;
+  final bool showComebackBonus;
+  final int previousStreak;
+  final int? milestoneCelebration;
+  final bool intentionsSetToday;
 
   const DashboardState({
     required this.level,
@@ -46,6 +72,10 @@ class DashboardState {
     this.streakMilestone,
     this.lastCompletedId,
     this.isLoading = false,
+    this.showComebackBonus = false,
+    this.previousStreak = 0,
+    this.milestoneCelebration,
+    this.intentionsSetToday = false,
   });
 
   factory DashboardState.initial() => const DashboardState(
@@ -88,6 +118,11 @@ class DashboardState {
     int? streakMilestone,
     String? lastCompletedId,
     bool? isLoading,
+    bool? showComebackBonus,
+    int? previousStreak,
+    int? setMilestone,
+    bool clearMilestone = false,
+    bool? intentionsSetToday,
   }) =>
       DashboardState(
         level: level ?? this.level,
@@ -109,6 +144,11 @@ class DashboardState {
         streakMilestone: streakMilestone,
         lastCompletedId: lastCompletedId ?? this.lastCompletedId,
         isLoading: isLoading ?? this.isLoading,
+        showComebackBonus: showComebackBonus ?? this.showComebackBonus,
+        previousStreak: previousStreak ?? this.previousStreak,
+        milestoneCelebration:
+            clearMilestone ? null : (setMilestone ?? this.milestoneCelebration),
+        intentionsSetToday: intentionsSetToday ?? this.intentionsSetToday,
       );
 }
 
@@ -267,11 +307,14 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           streak = 0,
           longestStreak = 0,
           totalCompletions = 0,
-          streakFreezes = 1;
+          streakFreezes = 1,
+          previousStreak = 0;
       bool didUseStreakFreeze = false;
       bool showRecoveryPrompt = false;
       List<String> unlockedAchievements = [];
       Map<String, int> completions = {};
+      bool showComebackBonus = false;
+      bool intentionsSetToday = false;
 
       if (userSnap.exists) {
         final d = userSnap.data()!;
@@ -283,7 +326,6 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         longestStreak = (d['longestStreak'] as int?) ?? 0;
         totalCompletions = (d['totalHabitCompletions'] as int?) ?? 0;
         streakFreezes = (d['streakFreezes'] as int?) ?? 1;
-        final lastRecoveryDate = d['lastRecoveryDate'] as String?;
         final lastFreezeGrantWeek = d['lastFreezeGrantWeek'] as String?;
         unlockedAchievements =
             List<String>.from(d['unlockedAchievements'] as List? ?? []);
@@ -303,7 +345,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
                 'lastActiveDate': Timestamp.fromDate(yesterday),
               }, SetOptions(merge: true)).ignore();
             } else {
-              showRecoveryPrompt = streak > 0 && lastRecoveryDate != _todayKey;
+              if (streak > 0) {
+                previousStreak = streak;
+                showComebackBonus = true;
+              }
               streak = 0;
               _userRef
                   .set({'currentStreak': 0}, SetOptions(merge: true))
@@ -329,6 +374,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
             (d['habitCompletions'] as Map<String, dynamic>?) ?? {};
         completions =
             raw.map((k, v) => MapEntry(k, (v as num).toInt()));
+        intentionsSetToday = (d['intentionsSet'] as bool?) ?? false;
       }
 
       if (mounted) {
@@ -347,6 +393,9 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           didUseStreakFreeze: didUseStreakFreeze,
           showRecoveryPrompt: showRecoveryPrompt,
           isLoading: false,
+          showComebackBonus: showComebackBonus,
+          previousStreak: previousStreak,
+          intentionsSetToday: intentionsSetToday,
         );
       }
     } catch (_) {
@@ -372,12 +421,18 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     final newStreak = isFirstToday ? state.streak + 1 : state.streak;
     final newLongest =
         newStreak > state.longestStreak ? newStreak : state.longestStreak;
-    final milestone = isFirstToday && streakMilestones.contains(newStreak)
-        ? newStreak
-        : null;
-    final milestoneBonusXp = milestone == null
-        ? 0
-        : XpCalculator.streakMilestoneBonus(milestone);
+
+    // ── Streak milestone check ───────────────────────────────
+    int? newMilestone;
+    for (final m in kStreakMilestones) {
+      if (newStreak == m && state.streak < m) {
+        newMilestone = m;
+        break;
+      }
+    }
+    final milestoneBonusXp =
+        newMilestone != null ? milestoneXpBonus(newMilestone) : 0;
+
     final result = XpCalculator.applyXpGain(
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
@@ -424,7 +479,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       'habitId': habitId,
       'streak': newStreak,
       'isFirstToday': isFirstToday,
-      'milestone': milestone,
+      'milestone': newMilestone,
     });
 
     state = state.copyWith(
@@ -441,8 +496,9 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       didJustLevelUp:
           bonusResult.newLevel > state.level,
       showRecoveryPrompt: false,
-      streakMilestone: milestone,
+      streakMilestone: newMilestone,
       lastCompletedId: habitId,
+      setMilestone: newMilestone,
     );
 
     if (_uid == null) {
@@ -503,6 +559,32 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     return true;
   }
 
+  /// Spend a streak freeze to restore the streak that was lost on a missed day.
+  Future<void> useStreakFreeze() async {
+    if (state.streakFreezes <= 0 || state.previousStreak <= 0) return;
+    final newFreezes = state.streakFreezes - 1;
+    final restoredStreak = state.previousStreak;
+    final newLongest = restoredStreak > state.longestStreak
+        ? restoredStreak
+        : state.longestStreak;
+
+    state = state.copyWith(
+      streak: restoredStreak,
+      longestStreak: newLongest,
+      streakFreezes: newFreezes,
+      showComebackBonus: false,
+      previousStreak: 0,
+    );
+
+    if (_uid == null) return;
+    _userRef.set({
+      'currentStreak': restoredStreak,
+      'longestStreak': newLongest,
+      'streakFreezes': newFreezes,
+      'lastActiveDate': Timestamp.fromDate(DateTime.now()),
+    }, SetOptions(merge: true)).ignore();
+  }
+
   Future<void> claimComebackBonus() async {
     if (!state.showRecoveryPrompt) return;
     final result = XpCalculator.applyXpGain(
@@ -557,6 +639,74 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       return;
     }
     _userRef.set({'lastRecoveryDate': _todayKey}, SetOptions(merge: true)).ignore();
+  }
+
+  /// Dismiss the "you're back" card and grant the +50 XP comeback bonus.
+  Future<void> acknowledgeComeback() async {
+    if (!state.showComebackBonus) return;
+    final result = XpCalculator.applyXpGain(
+      currentLevel: state.level,
+      currentLevelXp: state.currentLevelXp,
+      cumulativeXp: state.cumulativeXp,
+      xpGained: 50,
+    );
+    state = state.copyWith(
+      showComebackBonus: false,
+      level: result.newLevel,
+      currentLevelXp: result.newCurrentLevelXp,
+      cumulativeXp: result.newCumulativeXp,
+      didJustLevelUp: result.newLevel > state.level,
+    );
+    if (_uid == null) return;
+    _userRef.set({
+      'level': result.newLevel,
+      'currentLevelXp': result.newCurrentLevelXp,
+      'cumulativeXp': result.newCumulativeXp,
+    }, SetOptions(merge: true)).ignore();
+  }
+
+  void acknowledgeMilestone() {
+    state = state.copyWith(clearMilestone: true);
+  }
+
+  Future<void> setIntentionsDone({
+    required List<String> priorities,
+    required String anchor,
+    required String intention,
+  }) async {
+    state = state.copyWith(intentionsSetToday: true);
+    if (_uid == null) return;
+    _dailyRef.set({
+      'intentionsSet': true,
+      'priorities': priorities,
+      'intentionAnchor': anchor,
+      'intentionAction': intention,
+    }, SetOptions(merge: true)).ignore();
+  }
+
+  /// Generic XP/Gold award used by Focus Timer sessions and Weekly Challenges.
+  Future<void> awardBonus({required int xp, required int gold}) async {
+    final result = XpCalculator.applyXpGain(
+      currentLevel: state.level,
+      currentLevelXp: state.currentLevelXp,
+      cumulativeXp: state.cumulativeXp,
+      xpGained: xp,
+    );
+    final newGold = state.gold + gold;
+    state = state.copyWith(
+      level: result.newLevel,
+      currentLevelXp: result.newCurrentLevelXp,
+      cumulativeXp: result.newCumulativeXp,
+      gold: newGold,
+      didJustLevelUp: result.newLevel > state.level,
+    );
+    if (_uid == null) return;
+    _userRef.set({
+      'level': result.newLevel,
+      'currentLevelXp': result.newCurrentLevelXp,
+      'cumulativeXp': result.newCumulativeXp,
+      'gold': newGold,
+    }, SetOptions(merge: true)).ignore();
   }
 
   void acknowledgeAchievements() {

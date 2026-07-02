@@ -905,7 +905,7 @@ class _AchievementCard extends StatelessWidget {
             const SizedBox(height: 10),
             if (isUnlocked)
               Row(children: [
-                if (achievement.xpReward > 0) ...[  
+                if (achievement.xpReward > 0) ...[
                   const Icon(Icons.bolt_rounded,
                       size: 11, color: GameColors.xpBlue),
                   const SizedBox(width: 2),
@@ -916,7 +916,7 @@ class _AchievementCard extends StatelessWidget {
                           color: GameColors.xpBlue)),
                   const SizedBox(width: 8),
                 ],
-                if (achievement.goldReward > 0) ...[  
+                if (achievement.goldReward > 0) ...[
                   const Icon(Icons.toll_rounded,
                       size: 11, color: GameColors.gold),
                   const SizedBox(width: 2),
@@ -927,7 +927,7 @@ class _AchievementCard extends StatelessWidget {
                           color: GameColors.gold)),
                 ],
               ])
-            else ...[  
+            else ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(100),
                 child: LinearProgressIndicator(

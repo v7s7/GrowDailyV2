@@ -207,6 +207,7 @@ class S {
   String get focusTimerSubtitle => isAr ? 'ابقَ في التطبيق بدلاً من التنقل.' : 'Stay inside GrowDaily instead of switching apps.';
   String get focusPauseSprint => isAr ? 'إيقاف السبرنت' : 'Pause sprint';
   String get focusStartSprint => isAr ? 'ابدأ السبرنت' : 'Start sprint';
+  String get focusTimerCta => isAr ? 'مؤقت بومودورو' : 'Pomodoro timer';
   String get focusResetTimer => isAr ? 'إعادة المؤقت' : 'Reset timer';
   String get focusRitualTitle => isAr ? 'طقوس اليوم النظيفة' : 'Clean daily ritual';
   String get focusRitualSubtitle => isAr ? 'صغيرة للتكرار، منظمة للعمل.' : 'Small enough to repeat, structured enough to work.';

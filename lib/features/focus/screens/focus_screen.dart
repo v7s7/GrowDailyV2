@@ -64,6 +64,11 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
     return Scaffold(
       backgroundColor: gp.bg,
       bottomNavigationBar: const GameNavBar(currentIndex: 1),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.pushNamed(context, '/focus-timer'),
+        icon: const Icon(Icons.timer_rounded),
+        label: Text(S.of(context).focusTimerCta),
+      ),
       body: SafeArea(
         child: state.isLoading
             ? const Center(
