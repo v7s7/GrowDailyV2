@@ -15,7 +15,6 @@ import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/focus/screens/focus_screen.dart';
-import 'features/focus/screens/focus_timer_screen.dart';
 import 'features/intention/screens/intention_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
@@ -66,7 +65,6 @@ class GrowDailyApp extends ConsumerWidget {
         '/': (_) => const _AuthGate(),
         '/dashboard': (_) => const DashboardScreen(),
         '/focus': (_) => const FocusScreen(),
-        '/focus-timer': (_) => const FocusTimerScreen(),
         '/matrix': (_) => const MatrixScreen(),
         '/intention': (_) => const IntentionScreen(),
         '/profile': (_) => const ProfileScreen(),

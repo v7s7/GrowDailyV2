@@ -7,7 +7,6 @@ import 'package:intl/intl.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/focus/notifiers/focus_plan_notifier.dart';
@@ -58,15 +57,6 @@ class DashboardScreen extends ConsumerWidget {
       if (next.didUseStreakFreeze && !prev.didUseStreakFreeze) {
         HapticFeedback.mediumImpact();
         _showFreezeProtected(context, next.streakFreezes);
-      }
-      if (next.showRecoveryPrompt && !prev.showRecoveryPrompt) {
-        HapticFeedback.mediumImpact();
-        _showComeback(context, ref);
-      }
-      if (next.streakMilestone != null &&
-          next.streakMilestone != prev.streakMilestone) {
-        HapticFeedback.heavyImpact();
-        _showStreakMilestone(context, next.streakMilestone!);
       }
       if (next.didJustLevelUp) {
         HapticFeedback.heavyImpact();
@@ -339,33 +329,6 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  void _showComeback(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ComebackSheet(
-        onClaim: () {
-          ref.read(dashboardProvider.notifier).claimComebackBonus();
-          Navigator.pop(context);
-        },
-        onDismiss: () {
-          ref.read(dashboardProvider.notifier).dismissRecoveryPrompt();
-          Navigator.pop(context);
-        },
-      ),
-    );
-  }
-
-  void _showStreakMilestone(BuildContext context, int streak) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _StreakMilestoneSheet(streak: streak),
-    );
-  }
-
   void _showAddHabit(BuildContext context) {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
@@ -492,171 +455,6 @@ class DashboardScreen extends ConsumerWidget {
         ),
       ),
     );
-  }
-}
-
-// ─── Compassionate Comeback / Streak Milestones ───────────────────────────
-
-class _ComebackSheet extends StatelessWidget {
-  final VoidCallback onClaim;
-  final VoidCallback onDismiss;
-  const _ComebackSheet({required this.onClaim, required this.onDismiss});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-        decoration: BoxDecoration(
-          color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-          border: Border.all(color: GameColors.success.withOpacity(0.35)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: gp.border,
-                borderRadius: BorderRadius.circular(100),
-              ),
-            ),
-            const SizedBox(height: 26),
-            Container(
-              width: 78,
-              height: 78,
-              decoration: BoxDecoration(
-                color: GameColors.success.withOpacity(0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.favorite_rounded,
-                  size: 34, color: GameColors.success),
-            ).animate().scale(curve: Curves.elasticOut, duration: 650.ms),
-            const SizedBox(height: 18),
-            Builder(builder: (context) {
-              final s = S.of(context);
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    s.youreBack,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: GameColors.success,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    s.noGuilt,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      color: gp.textPrimary,
-                      letterSpacing: -0.4,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    s.comebackBody,
-                    style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.35),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 22),
-                  FilledButton.icon(
-                    onPressed: onClaim,
-                    icon: const Icon(Icons.bolt_rounded, size: 18),
-                    label: Text(s.claimComeback),
-                  ),
-                  TextButton(
-                    onPressed: onDismiss,
-                    child: Text(s.notNow),
-                  ),
-                ],
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StreakMilestoneSheet extends StatelessWidget {
-  final int streak;
-  const _StreakMilestoneSheet({required this.streak});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final bonus = XpCalculator.streakMilestoneBonus(streak);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-        decoration: BoxDecoration(
-          color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-          border: Border.all(color: GameColors.streakOrange.withOpacity(0.4)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.local_fire_department_rounded,
-                size: 72, color: GameColors.streakOrange),
-            const SizedBox(height: 14),
-            Builder(builder: (context) {
-              final s = S.of(context);
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    s.streakWarrior(streak),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: GameColors.streakOrange,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    s.consistencyIdentity,
-                    style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w900,
-                      color: gp.textPrimary,
-                      letterSpacing: -0.3,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    bonus > 0 ? '+$bonus bonus XP' : '',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: GameColors.gold,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(s.keepGrowing),
-                  ),
-                ],
-              );
-            }),
-          ],
-        ),
-      ),
-    ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.12);
   }
 }
 
@@ -935,6 +733,7 @@ class _ComebackCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
+    final s = S.of(context);
     final user = FirebaseAuth.instance.currentUser;
     final name = user?.email?.split('@').first ?? 'Warrior';
 
@@ -965,14 +764,14 @@ class _ComebackCard extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Welcome back, $name',
+                    Text(s.welcomeBack(name),
                         style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
                             color: gp.textPrimary,
                             letterSpacing: -0.2)),
                     const SizedBox(height: 2),
-                    Text('A missed day doesn\'t erase your progress.',
+                    Text(s.comebackNoErase,
                         style: TextStyle(fontSize: 12.5, color: gp.textSec)),
                   ],
                 ),
@@ -988,11 +787,11 @@ class _ComebackCard extends ConsumerWidget {
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
-                SizedBox(width: 6),
-                Text('+50 XP comeback bonus when you continue',
-                    style: TextStyle(
+              children: [
+                const Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
+                const SizedBox(width: 6),
+                Text(s.comebackBonusHint,
+                    style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: GameColors.xpBlue)),
@@ -1002,7 +801,7 @@ class _ComebackCard extends ConsumerWidget {
           const SizedBox(height: 16),
           if (state.streakFreezes > 0 && state.previousStreak > 0) ...[
             Text(
-              'Use a streak freeze to restore your ${state.previousStreak}-day streak instead of starting over.',
+              s.restoreStreakOffer(state.previousStreak),
               style: TextStyle(fontSize: 12.5, color: gp.textSec, height: 1.4),
             ),
             const SizedBox(height: 12),
@@ -1015,7 +814,7 @@ class _ComebackCard extends ConsumerWidget {
                       ref.read(dashboardProvider.notifier).useStreakFreeze();
                     },
                     icon: const Icon(Icons.ac_unit_rounded, size: 16),
-                    label: Text('Restore Streak (${state.streakFreezes} left)'),
+                    label: Text(s.restoreStreakCta(state.streakFreezes)),
                     style: FilledButton.styleFrom(
                         backgroundColor: GameColors.xpBlue,
                         foregroundColor: Colors.white,
@@ -1032,7 +831,7 @@ class _ComebackCard extends ConsumerWidget {
                   HapticFeedback.lightImpact();
                   ref.read(dashboardProvider.notifier).acknowledgeComeback();
                 },
-                child: const Text('Start a fresh streak instead'),
+                child: Text(s.freshStreakInstead),
               ),
             ),
           ] else
@@ -1043,7 +842,7 @@ class _ComebackCard extends ConsumerWidget {
                   HapticFeedback.mediumImpact();
                   ref.read(dashboardProvider.notifier).acknowledgeComeback();
                 },
-                child: const Text('CONTINUE'),
+                child: Text(s.claimComeback),
               ),
             ),
         ],
@@ -1061,7 +860,7 @@ class _MilestoneCelebration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final gp = context.gp;
+    final s = S.of(context);
     final bonus = milestoneXpBonus(milestone);
     final title = milestoneTitle(milestone);
     return Scaffold(
@@ -1096,9 +895,9 @@ class _MilestoneCelebration extends StatelessWidget {
                       duration: 800.ms)
                   .fadeIn(duration: 300.ms),
               const SizedBox(height: 28),
-              const Text(
-                'STREAK MILESTONE',
-                style: TextStyle(
+              Text(
+                s.streakMilestoneLabel,
+                style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: GameColors.streakOrange,
@@ -1107,7 +906,7 @@ class _MilestoneCelebration extends StatelessWidget {
               ).animate(delay: 250.ms).fadeIn(),
               const SizedBox(height: 10),
               Text(
-                '$milestone Days',
+                s.daysCount(milestone),
                 style: const TextStyle(
                   fontSize: 44,
                   fontWeight: FontWeight.w900,
@@ -1118,7 +917,7 @@ class _MilestoneCelebration extends StatelessWidget {
               ).animate(delay: 320.ms).fadeIn().slideY(begin: 0.2),
               const SizedBox(height: 8),
               Text(
-                'You are now a $title.',
+                s.nowWarrior(title),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -1128,7 +927,7 @@ class _MilestoneCelebration extends StatelessWidget {
               ).animate(delay: 380.ms).fadeIn(),
               const SizedBox(height: 8),
               Text(
-                'Consistency builds character — keep showing up.',
+                s.consistencyBuildsCharacter,
                 style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.5)),
                 textAlign: TextAlign.center,
               ).animate(delay: 420.ms).fadeIn(),
@@ -1146,7 +945,7 @@ class _MilestoneCelebration extends StatelessWidget {
                     children: [
                       const Icon(Icons.bolt_rounded, size: 16, color: GameColors.xpBlue),
                       const SizedBox(width: 6),
-                      Text('+$bonus XP milestone bonus',
+                      Text(s.milestoneBonusXp(bonus),
                           style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
@@ -1160,9 +959,10 @@ class _MilestoneCelebration extends StatelessWidget {
                 child: FilledButton(
                   onPressed: () {
                     HapticFeedback.lightImpact();
+                    ref.read(dashboardProvider.notifier).acknowledgeMilestone();
                     Navigator.of(context).pop();
                   },
-                  child: const Text('KEEP GOING'),
+                  child: Text(s.keepGrowing),
                 ),
               ).animate(delay: 560.ms).fadeIn().slideY(begin: 0.2),
             ],

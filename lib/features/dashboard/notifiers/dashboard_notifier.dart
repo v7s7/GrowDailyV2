@@ -43,9 +43,6 @@ class DashboardState {
   final List<AchievementModel> newlyUnlocked;
   final bool didJustLevelUp;
   final bool didUseStreakFreeze;
-  final bool showRecoveryPrompt;
-  final bool comebackClaimed;
-  final int? streakMilestone;
   final String? lastCompletedId;
   final bool isLoading;
   final bool showComebackBonus;
@@ -67,9 +64,6 @@ class DashboardState {
     this.newlyUnlocked = const [],
     this.didJustLevelUp = false,
     this.didUseStreakFreeze = false,
-    this.showRecoveryPrompt = false,
-    this.comebackClaimed = false,
-    this.streakMilestone,
     this.lastCompletedId,
     this.isLoading = false,
     this.showComebackBonus = false,
@@ -113,9 +107,6 @@ class DashboardState {
     List<AchievementModel>? newlyUnlocked,
     bool didJustLevelUp = false,
     bool didUseStreakFreeze = false,
-    bool? showRecoveryPrompt,
-    bool comebackClaimed = false,
-    int? streakMilestone,
     String? lastCompletedId,
     bool? isLoading,
     bool? showComebackBonus,
@@ -139,9 +130,6 @@ class DashboardState {
         newlyUnlocked: newlyUnlocked ?? this.newlyUnlocked,
         didJustLevelUp: didJustLevelUp,
         didUseStreakFreeze: didUseStreakFreeze,
-        showRecoveryPrompt: showRecoveryPrompt ?? this.showRecoveryPrompt,
-        comebackClaimed: comebackClaimed,
-        streakMilestone: streakMilestone,
         lastCompletedId: lastCompletedId ?? this.lastCompletedId,
         isLoading: isLoading ?? this.isLoading,
         showComebackBonus: showComebackBonus ?? this.showComebackBonus,
@@ -206,10 +194,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
       int streak = (saved['currentStreak'] as int?) ?? 0;
       int streakFreezes = (saved['streakFreezes'] as int?) ?? 1;
+      int previousStreak = 0;
       bool didUseStreakFreeze = false;
-      bool showRecoveryPrompt = false;
+      bool showComebackBonus = false;
       final lastActive = DateTime.tryParse(saved['lastActiveDate'] as String? ?? '');
-      final lastRecoveryDate = saved['lastRecoveryDate'] as String?;
 
       if (lastActive != null) {
         final today = _dateOnly(DateTime.now());
@@ -227,7 +215,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
               saved,
             );
           } else {
-            showRecoveryPrompt = streak > 0 && lastRecoveryDate != _todayKey;
+            if (streak > 0) {
+              previousStreak = streak;
+              showComebackBonus = true;
+            }
             streak = 0;
             saved['currentStreak'] = 0;
             await LocalStoreService.putSettingsMap(
@@ -252,7 +243,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         unlockedAchievements:
             List<String>.from(saved['unlockedAchievements'] as List? ?? []),
         didUseStreakFreeze: didUseStreakFreeze,
-        showRecoveryPrompt: showRecoveryPrompt,
+        showComebackBonus: showComebackBonus,
+        previousStreak: previousStreak,
         isLoading: false,
       );
     } catch (_) {
@@ -310,7 +302,6 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           streakFreezes = 1,
           previousStreak = 0;
       bool didUseStreakFreeze = false;
-      bool showRecoveryPrompt = false;
       List<String> unlockedAchievements = [];
       Map<String, int> completions = {};
       bool showComebackBonus = false;
@@ -391,7 +382,6 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           unlockedAchievements: unlockedAchievements,
           newlyUnlocked: const [],
           didUseStreakFreeze: didUseStreakFreeze,
-          showRecoveryPrompt: showRecoveryPrompt,
           isLoading: false,
           showComebackBonus: showComebackBonus,
           previousStreak: previousStreak,
@@ -495,8 +485,6 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       newlyUnlocked: newly,
       didJustLevelUp:
           bonusResult.newLevel > state.level,
-      showRecoveryPrompt: false,
-      streakMilestone: newMilestone,
       lastCompletedId: habitId,
       setMilestone: newMilestone,
     );
@@ -585,8 +573,9 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     }, SetOptions(merge: true)).ignore();
   }
 
-  Future<void> claimComebackBonus() async {
-    if (!state.showRecoveryPrompt) return;
+  /// Dismiss the "you're back" card and grant the comeback XP bonus.
+  Future<void> acknowledgeComeback() async {
+    if (!state.showComebackBonus) return;
     final result = XpCalculator.applyXpGain(
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
@@ -595,22 +584,13 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     );
     AnalyticsService.instance.track('comeback_bonus_claimed');
     state = state.copyWith(
+      showComebackBonus: false,
       level: result.newLevel,
       currentLevelXp: result.newCurrentLevelXp,
       cumulativeXp: result.newCumulativeXp,
       didJustLevelUp: result.newLevel > state.level,
-      showRecoveryPrompt: false,
-      comebackClaimed: true,
     );
     if (_uid == null) {
-      final saved = await LocalStoreService.getSettingsMap(
-        LocalStoreService.guestDashboardKey,
-      );
-      saved['lastRecoveryDate'] = _todayKey;
-      await LocalStoreService.putSettingsMap(
-        LocalStoreService.guestDashboardKey,
-        saved,
-      );
       await _saveGuestState();
       return;
     }
@@ -619,50 +599,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'level': result.newLevel,
         'currentLevelXp': result.newCurrentLevelXp,
         'cumulativeXp': result.newCumulativeXp,
-        'lastRecoveryDate': _todayKey,
       }, SetOptions(merge: true));
     } catch (_) {}
-  }
-
-  void dismissRecoveryPrompt() {
-    if (!state.showRecoveryPrompt) return;
-    state = state.copyWith(showRecoveryPrompt: false);
-    if (_uid == null) {
-      LocalStoreService.getSettingsMap(LocalStoreService.guestDashboardKey)
-          .then((saved) {
-        saved['lastRecoveryDate'] = _todayKey;
-        return LocalStoreService.putSettingsMap(
-          LocalStoreService.guestDashboardKey,
-          saved,
-        );
-      }).ignore();
-      return;
-    }
-    _userRef.set({'lastRecoveryDate': _todayKey}, SetOptions(merge: true)).ignore();
-  }
-
-  /// Dismiss the "you're back" card and grant the +50 XP comeback bonus.
-  Future<void> acknowledgeComeback() async {
-    if (!state.showComebackBonus) return;
-    final result = XpCalculator.applyXpGain(
-      currentLevel: state.level,
-      currentLevelXp: state.currentLevelXp,
-      cumulativeXp: state.cumulativeXp,
-      xpGained: 50,
-    );
-    state = state.copyWith(
-      showComebackBonus: false,
-      level: result.newLevel,
-      currentLevelXp: result.newCurrentLevelXp,
-      cumulativeXp: result.newCumulativeXp,
-      didJustLevelUp: result.newLevel > state.level,
-    );
-    if (_uid == null) return;
-    _userRef.set({
-      'level': result.newLevel,
-      'currentLevelXp': result.newCurrentLevelXp,
-      'cumulativeXp': result.newCumulativeXp,
-    }, SetOptions(merge: true)).ignore();
   }
 
   void acknowledgeMilestone() {

@@ -84,18 +84,28 @@ class S {
   String streakFreezeProtected(int remaining) => isAr
       ? 'تجميد السلسلة حماك. متبقّي $remaining.'
       : 'Streak Freeze protected you. $remaining left.';
-  String get youreBack => isAr ? 'عُدت!' : "YOU'RE BACK";
-  String get noGuilt => isAr ? 'لا ذنب. فقط ابدأ من جديد.' : 'No guilt. Just restart.';
-  String get comebackBody =>
-      isAr ? 'التوقف طبيعي. خذ مكافأة العودة وأكمل عادة صغيرة اليوم.'
-           : 'Missing a day is normal. Take a comeback bonus and complete one tiny habit today.';
   String get claimComeback => isAr ? 'استلم +50 XP عودة' : 'Claim +50 XP comeback';
-  String get notNow => isAr ? 'ليس الآن' : 'Not now';
-  String streakWarrior(int n) => isAr ? 'محارب $n يوم' : '$n-DAY WARRIOR';
-  String get consistencyIdentity => isAr
-      ? 'اتساقك يتحول إلى هوية.'
-      : 'Your consistency is becoming identity.';
+  String welcomeBack(String name) => isAr ? 'مرحبًا بعودتك، $name' : 'Welcome back, $name';
+  String get comebackNoErase => isAr
+      ? 'اليوم الفائت لا يمحو تقدمك.'
+      : "A missed day doesn't erase your progress.";
+  String get comebackBonusHint =>
+      isAr ? '+50 XP مكافأة عودة عند المتابعة' : '+50 XP comeback bonus when you continue';
+  String restoreStreakOffer(int days) => isAr
+      ? 'استخدم تجميد السلسلة لاستعادة سلسلتك ذات $days يوم بدلاً من البدء من جديد.'
+      : "Use a streak freeze to restore your $days-day streak instead of starting over.";
+  String restoreStreakCta(int left) =>
+      isAr ? 'استعادة السلسلة ($left متبقّية)' : 'Restore streak ($left left)';
+  String get freshStreakInstead => isAr ? 'ابدأ سلسلة جديدة بدلاً من ذلك' : 'Start a fresh streak instead';
   String get keepGrowing => isAr ? 'واصل النمو' : 'Keep growing';
+  String get streakMilestoneLabel => isAr ? 'إنجاز السلسلة' : 'STREAK MILESTONE';
+  String daysCount(int n) => isAr ? '$n يوم' : '$n Days';
+  String nowWarrior(String title) => isAr ? 'أنت الآن $title.' : 'You are now a $title.';
+  String get consistencyBuildsCharacter => isAr
+      ? 'الاتساق يبني الشخصية — استمر بالحضور.'
+      : 'Consistency builds character — keep showing up.';
+  String milestoneBonusXp(int bonus) =>
+      isAr ? '+$bonus XP مكافأة الإنجاز' : '+$bonus XP milestone bonus';
   String get achievementUnlocked => isAr ? 'إنجاز مفتوح!' : 'ACHIEVEMENT UNLOCKED';
   String get claimReward => isAr ? 'استلم المكافأة' : 'CLAIM REWARD';
   String get levelUpMsg => isAr ? 'ارتقاء مستوى' : 'LEVEL UP';
@@ -202,13 +212,24 @@ class S {
   String get focusActionLabel => isAr ? 'الفعل: الخطوة التالية الدقيقة' : 'Action: exact next move';
   String get focusSavePlan => isAr ? 'احفظ خطة اليوم' : "Save today's plan";
   String get focusPlanSaved => isAr ? 'تم حفظ خطة التركيز لليوم.' : 'Focus plan saved for today.';
-  String focusSprintCompleted(int mins) => isAr ? 'اكتمل سبرنت $mins دقيقة.' : '$mins-minute focus sprint completed.';
   String get focusTimerTitle => isAr ? 'مؤقت التركيز' : 'Focus timer';
   String get focusTimerSubtitle => isAr ? 'ابقَ في التطبيق بدلاً من التنقل.' : 'Stay inside GrowDaily instead of switching apps.';
   String get focusPauseSprint => isAr ? 'إيقاف السبرنت' : 'Pause sprint';
   String get focusStartSprint => isAr ? 'ابدأ السبرنت' : 'Start sprint';
-  String get focusTimerCta => isAr ? 'مؤقت بومودورو' : 'Pomodoro timer';
   String get focusResetTimer => isAr ? 'إعادة المؤقت' : 'Reset timer';
+  String get focusReady => isAr ? 'جاهز' : 'READY';
+  String get focusFocusing => isAr ? 'أركّز الآن' : 'FOCUSING';
+  String get focusComplete => isAr ? 'مكتمل' : 'COMPLETE';
+  String focusMinutesLabel(int m) => isAr ? '$m د' : '$m min';
+  String focusXpOnCompletion(int xp) =>
+      isAr ? '+$xp XP عند الإكمال' : '+$xp XP on completion';
+  String get focusSessionCompleteTitle =>
+      isAr ? 'اكتملت جلسة التركيز' : 'FOCUS SESSION COMPLETE';
+  String get focusDeepWorkDone => isAr ? 'أنجزت عملاً عميقاً' : 'Deep Work Done';
+  String focusStayedFocused(String label) => isAr
+      ? 'ركّزت لمدة $label. الجلسات الصغيرة تبني عقلاً قويًا.'
+      : 'You stayed focused for $label. Small sessions build a strong mind.';
+  String get focusGreatWork => isAr ? 'عمل رائع' : 'GREAT WORK';
   String get focusRitualTitle => isAr ? 'طقوس اليوم النظيفة' : 'Clean daily ritual';
   String get focusRitualSubtitle => isAr ? 'صغيرة للتكرار، منظمة للعمل.' : 'Small enough to repeat, structured enough to work.';
   String get focusRitualPlanWin => isAr ? 'خطط للانتصار الواحد' : 'Plan the one win';
