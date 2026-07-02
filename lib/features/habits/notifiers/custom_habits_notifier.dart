@@ -165,3 +165,15 @@ final habitListProvider = Provider<List<IslamicHabitTemplate>>((ref) {
       .toList();
   return [...activeTemplates, ...custom];
 });
+
+/// Guests get a 3-habit trial before being asked to create an account.
+const int kGuestHabitLimit = 3;
+
+/// Whether a guest can add [additionalCount] more habits without hitting
+/// [kGuestHabitLimit]. Always true for signed-in users.
+bool canGuestAddHabits(WidgetRef ref, {int additionalCount = 1}) {
+  final isGuest = ref.read(guestModeProvider);
+  if (!isGuest) return true;
+  final current = ref.read(habitListProvider).length;
+  return current + additionalCount <= kGuestHabitLimit;
+}

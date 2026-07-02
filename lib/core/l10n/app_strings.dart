@@ -45,6 +45,12 @@ class S {
   String get tryAsGuest => isAr ? 'جرّب 3 عادات كضيف' : 'TRY 3 HABITS AS GUEST';
   String get guestDescription =>
       isAr ? 'لا حاجة لحساب. ابدأ أولى انتصاراتك الآن.' : 'No account needed. Complete your first Quran, athkar, or focus win now.';
+  String get guestLimitTitle => isAr ? 'وصلت لحد التجربة' : "You've hit the guest limit";
+  String get guestLimitBody => isAr
+      ? 'التجربة كضيف تسمح بـ 3 عادات. أنشئ حسابًا مجانيًا لإضافة عدد غير محدود ومزامنة تقدمك.'
+      : 'Guest mode is capped at 3 habits. Create a free account to add unlimited habits and keep your progress synced.';
+  String get guestLimitCta => isAr ? 'إنشاء حساب مجاني' : 'Create free account';
+  String get guestLimitMaybeLater => isAr ? 'ربما لاحقاً' : 'Maybe later';
 
   // Auth errors
   String get errFillAll => isAr ? 'يرجى ملء جميع الحقول' : 'Please fill in all fields';

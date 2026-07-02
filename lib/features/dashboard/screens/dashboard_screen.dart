@@ -17,6 +17,7 @@ import '../../../features/habits/widgets/add_habit_sheet.dart';
 import '../../../features/habits/widgets/plan_picker_sheet.dart';
 import '../../../features/challenges/widgets/weekly_challenge_card.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
+import '../../../shared/widgets/guest_limit_sheet.dart';
 import '../../../shared/widgets/habit_card.dart';
 import '../../../shared/widgets/stat_chip.dart';
 import '../../../shared/widgets/xp_bar.dart';
@@ -260,7 +261,7 @@ class DashboardScreen extends ConsumerWidget {
                     hasScrollBody: false,
                     child: _EmptyHabitsState(
                       onBrowsePlans: () => _showPlanPicker(context),
-                      onAddCustom: () => _showAddHabit(context),
+                      onAddCustom: () => _showAddHabit(context, ref),
                     ),
                   ),
                 const SliverToBoxAdapter(child: SizedBox(height: 110)),
@@ -286,7 +287,7 @@ class DashboardScreen extends ConsumerWidget {
                 // Add habit button
                 FloatingActionButton.extended(
                   heroTag: 'add',
-                  onPressed: () => _showAddHabit(context),
+                  onPressed: () => _showAddHabit(context, ref),
                   backgroundColor: GameColors.gold,
                   foregroundColor: Colors.black,
                   elevation: 0,
@@ -332,7 +333,11 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  void _showAddHabit(BuildContext context) {
+  void _showAddHabit(BuildContext context, WidgetRef ref) {
+    if (!canGuestAddHabits(ref)) {
+      showGuestLimitSheet(context, ref);
+      return;
+    }
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,

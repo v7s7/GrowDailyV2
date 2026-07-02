@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/guest_limit_sheet.dart';
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
+import '../notifiers/custom_habits_notifier.dart';
 
 class PlanPickerSheet extends ConsumerStatefulWidget {
   const PlanPickerSheet({super.key});
@@ -116,12 +118,19 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
                     });
                   },
                   onActivate: () {
-                    HapticFeedback.mediumImpact();
                     if (isActive) {
+                      HapticFeedback.mediumImpact();
                       ref.read(activeCatalogProvider.notifier).deactivatePlan(plan);
-                    } else {
-                      ref.read(activeCatalogProvider.notifier).activatePlan(plan);
+                      return;
                     }
+                    final newCount =
+                        plan.catalogIds.where((id) => !activeIds.contains(id)).length;
+                    if (!canGuestAddHabits(ref, additionalCount: newCount)) {
+                      showGuestLimitSheet(context, ref);
+                      return;
+                    }
+                    HapticFeedback.mediumImpact();
+                    ref.read(activeCatalogProvider.notifier).activatePlan(plan);
                   },
                 ).animate(delay: (i * 60).ms).fadeIn(duration: 350.ms).slideY(begin: 0.1);
               },

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/guest_limit_sheet.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
 import '../notifiers/custom_habits_notifier.dart';
@@ -70,8 +71,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   void _submit() {
     if (!_hasName) return;
-    HapticFeedback.mediumImpact();
     final existing = widget.existing;
+    if (existing == null && !canGuestAddHabits(ref)) {
+      Navigator.pop(context);
+      showGuestLimitSheet(context, ref);
+      return;
+    }
+    HapticFeedback.mediumImpact();
     if (existing != null) {
       ref.read(customHabitsProvider.notifier).update(
             id: existing.id,
