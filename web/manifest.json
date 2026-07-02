@@ -1,0 +1,12 @@
+{
+  "name": "GrowDaily",
+  "short_name": "GrowDaily",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#07100D",
+  "theme_color": "#E4B45F",
+  "description": "Goals, deen, and tiny daily wins.",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false,
+  "icons": []
+}
