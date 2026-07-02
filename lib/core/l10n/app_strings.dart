@@ -161,9 +161,12 @@ class S {
       ? 'كل عادات اليوم مكتملة. استمر!'
       : 'All habits complete for today. Keep it up!';
   String get removeHabit => isAr ? 'إزالة العادة' : 'Remove habit';
+  String get editHabitAction => isAr ? 'تعديل العادة' : 'Edit habit';
 
   // ── Add Habit Sheet ──────────────────────────────────────────────────────
   String get newHabit => isAr ? 'عادة جديدة' : 'NEW HABIT';
+  String get editHabit => isAr ? 'تعديل العادة' : 'EDIT HABIT';
+  String get saveChanges => isAr ? 'احفظ التغييرات' : 'SAVE CHANGES';
   String get habitNameHint => isAr ? 'ما العادة التي تريد بناءها؟' : 'What habit do you want to build?';
   String get afterWhatRoutine => isAr ? 'بعد أي روتين؟ (اختياري)' : 'After what routine? (optional)';
   String get routineHint => isAr ? 'الفجر، المغرب، قبل النوم...' : 'Fajr, Maghrib, before sleep...';

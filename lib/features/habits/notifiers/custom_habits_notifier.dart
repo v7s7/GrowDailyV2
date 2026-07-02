@@ -94,6 +94,41 @@ class CustomHabitsNotifier
     }
   }
 
+  void update({
+    required String id,
+    required String name,
+    required HabitCategory category,
+    String? cueAfter,
+    required HabitFrequencyType frequencyType,
+    required int frequencyTarget,
+  }) {
+    final existing = state.firstWhere((h) => h.id == id);
+    final rewards = _rewards(category);
+    final cue = cueAfter?.trim().isEmpty == true ? null : cueAfter?.trim();
+    final updated = IslamicHabitTemplate(
+      id: id,
+      name: name,
+      description: cue == null ? '' : 'After $cue, I will $name.',
+      cueAfter: cue,
+      iconEmoji: existing.iconEmoji,
+      category: category,
+      frequencyType: frequencyType,
+      frequencyTarget: frequencyTarget,
+      hasTimer: existing.hasTimer,
+      timerDurationSeconds: existing.timerDurationSeconds,
+      xpReward: rewards.$1,
+      goldReward: rewards.$2,
+    );
+    state = [
+      for (final h in state) h.id == id ? updated : h,
+    ];
+    if (_uid != null) {
+      _col.doc(id).set(updated.toFirestore()).ignore();
+    } else {
+      _saveGuest().ignore();
+    }
+  }
+
   void remove(String id) {
     state = state.where((h) => h.id != id).toList();
     if (_uid != null) {

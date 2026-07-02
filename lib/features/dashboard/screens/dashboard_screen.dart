@@ -243,6 +243,9 @@ class DashboardScreen extends ConsumerWidget {
                                   .toggle(t.id);
                             }
                           },
+                          onEdit: customIds.contains(t.id)
+                              ? () => _showEditHabit(context, t)
+                              : null,
                         ),
                       )
                           .animate(delay: (i * 55).ms)
@@ -336,6 +339,16 @@ class DashboardScreen extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const AddHabitSheet(),
+    );
+  }
+
+  void _showEditHabit(BuildContext context, IslamicHabitTemplate habit) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddHabitSheet(existing: habit),
     );
   }
 
@@ -1220,6 +1233,7 @@ class _SwipeableHabitRow extends StatefulWidget {
   final bool isDone;
   final VoidCallback? onComplete;
   final VoidCallback? onDelete;
+  final VoidCallback? onEdit;
 
   const _SwipeableHabitRow({
     required this.template,
@@ -1227,6 +1241,7 @@ class _SwipeableHabitRow extends StatefulWidget {
     required this.isDone,
     this.onComplete,
     this.onDelete,
+    this.onEdit,
   });
 
   @override
@@ -1326,6 +1341,20 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
                 ),
               ),
               Divider(height: 1, color: gp.divider),
+              if (widget.onEdit != null)
+                ListTile(
+                  leading: Icon(Icons.edit_outlined, color: gp.textSec),
+                  title: Text(
+                    s.editHabitAction,
+                    style: TextStyle(
+                        color: gp.textPrimary, fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    HapticFeedback.selectionClick();
+                    widget.onEdit?.call();
+                  },
+                ),
               ListTile(
                 leading: const Icon(Icons.delete_outline_rounded,
                     color: GameColors.error),

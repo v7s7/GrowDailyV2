@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
 import '../notifiers/custom_habits_notifier.dart';
 
 class AddHabitSheet extends ConsumerStatefulWidget {
-  const AddHabitSheet({super.key});
+  final IslamicHabitTemplate? existing;
+  const AddHabitSheet({super.key, this.existing});
 
   @override
   ConsumerState<AddHabitSheet> createState() => _AddHabitSheetState();
@@ -25,9 +27,21 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   bool _hasName = false;
   bool _didPickCategory = false;
 
+  bool get _isEditing => widget.existing != null;
+
   @override
   void initState() {
     super.initState();
+    final existing = widget.existing;
+    if (existing != null) {
+      _nameCtrl.text = existing.name;
+      _cueCtrl.text = existing.cueAfter ?? '';
+      _category = existing.category;
+      _freqType = existing.frequencyType;
+      _freqTarget = existing.frequencyTarget;
+      _hasName = true;
+      _didPickCategory = true;
+    }
     _nameCtrl.addListener(() {
       final text = _nameCtrl.text.trim();
       final has = text.isNotEmpty;
@@ -57,13 +71,33 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   void _submit() {
     if (!_hasName) return;
     HapticFeedback.mediumImpact();
-    ref.read(customHabitsProvider.notifier).add(
-          name: _nameCtrl.text.trim(),
-          category: _category,
-          cueAfter: _cueCtrl.text.trim(),
-          frequencyType: _freqType,
-          frequencyTarget: _freqTarget,
-        );
+    final existing = widget.existing;
+    if (existing != null) {
+      ref.read(customHabitsProvider.notifier).update(
+            id: existing.id,
+            name: _nameCtrl.text.trim(),
+            category: _category,
+            cueAfter: _cueCtrl.text.trim(),
+            frequencyType: _freqType,
+            frequencyTarget: _freqTarget,
+          );
+    } else {
+      ref.read(customHabitsProvider.notifier).add(
+            name: _nameCtrl.text.trim(),
+            category: _category,
+            cueAfter: _cueCtrl.text.trim(),
+            frequencyType: _freqType,
+            frequencyTarget: _freqTarget,
+          );
+    }
+    Navigator.pop(context);
+  }
+
+  void _deleteExisting() {
+    final existing = widget.existing;
+    if (existing == null) return;
+    HapticFeedback.mediumImpact();
+    ref.read(customHabitsProvider.notifier).remove(existing.id);
     Navigator.pop(context);
   }
 
@@ -101,7 +135,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
               child: Text(
-                s.newHabit,
+                _isEditing ? s.editHabit : s.newHabit,
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
@@ -111,8 +145,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ),
             ),
             const SizedBox(height: 14),
-            _SmartStarterRail(onPick: _applyStarter),
-            const SizedBox(height: 16),
+            if (!_isEditing) ...[
+              _SmartStarterRail(onPick: _applyStarter),
+              const SizedBox(height: 16),
+            ],
             // Name field
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -320,7 +356,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             const SizedBox(height: 24),
             // Submit
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              padding: EdgeInsets.fromLTRB(20, 0, 20, _isEditing ? 4 : 24),
               child: FilledButton(
                 onPressed: _hasName ? _submit : null,
                 style: FilledButton.styleFrom(
@@ -328,13 +364,25 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-                child: Text(s.createHabit,
+                child: Text(_isEditing ? s.saveChanges : s.createHabit,
                     style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 1.0)),
               ).animate(delay: 60.ms).fadeIn(duration: 250.ms),
             ),
+            if (_isEditing)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: TextButton(
+                  onPressed: _deleteExisting,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 44),
+                    foregroundColor: GameColors.error,
+                  ),
+                  child: Text(s.removeHabit),
+                ),
+              ),
           ],
         ),
       ).animate()
