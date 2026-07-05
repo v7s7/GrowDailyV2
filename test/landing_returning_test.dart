@@ -1,0 +1,34 @@
+import 'package:flutter_test/flutter_test.dart';
+
+import 'helpers/landing_harness.dart';
+
+/// A returning user (habits already equipped) starts the day with the
+/// morning intention prompt, then lands on their living grid.
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  final h = LandingHarness();
+
+  setUp(() => h.prepare(activeCatalogIds: ['morning_athkar']));
+  tearDown(h.dispose);
+
+  testWidgets('returning user: intention prompt, then the living grid',
+      (tester) async {
+    await h.pumpApp(tester);
+
+    // With habits equipped, the day opens with the intention prompt.
+    expect(find.text('Set your intention'), findsOneWidget);
+    await tester.tap(find.text('Skip'));
+    await h.settle(tester);
+
+    // The grid shows the habit row, summary, legend, and slogan.
+    expect(find.text('Morning Athkar'), findsOneWidget);
+    expect(find.text('Green squares'), findsOneWidget);
+    expect(find.text('Points'), findsOneWidget);
+    expect(find.text('Legend'), findsOneWidget);
+    expect(
+      find.text('Color your life, one square at a time.'),
+      findsOneWidget,
+    );
+  });
+}
