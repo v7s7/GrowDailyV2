@@ -25,7 +25,12 @@ void main() {
     expect(find.text('Morning Athkar'), findsOneWidget);
     expect(find.text('Green squares'), findsOneWidget);
     expect(find.text('Points'), findsOneWidget);
-    expect(find.text('Legend'), findsOneWidget);
+    expect(find.text('LEGEND'), findsOneWidget);
+    // The slogan sits at the bottom of the scroll — bring it into view.
+    await tester.scrollUntilVisible(
+      find.text('Color your life, one square at a time.'),
+      120,
+    );
     expect(
       find.text('Color your life, one square at a time.'),
       findsOneWidget,

@@ -25,21 +25,19 @@ void showVictoryBurst(
 
   late final OverlayEntry entry;
   entry = OverlayEntry(
-    builder: (_) => IgnorePointer(
-      child: _VictoryBurst(
-        center: globalCenter,
-        particleCount: particleCount,
-        spread: spread,
-        duration: duration,
-        colors: colors ??
-            const [
-              GameColors.emerald,
-              GameColors.gold,
-              GameColors.xpBlue,
-              Colors.white,
-            ],
-        onCompleted: () => entry.remove(),
-      ),
+    builder: (_) => _VictoryBurst(
+      center: globalCenter,
+      particleCount: particleCount,
+      spread: spread,
+      duration: duration,
+      colors: colors ??
+          const [
+            GameColors.emerald,
+            GameColors.gold,
+            GameColors.xpBlue,
+            Colors.white,
+          ],
+      onCompleted: () => entry.remove(),
     ),
   );
   overlay.insert(entry);
@@ -150,13 +148,17 @@ class _VictoryBurstState extends State<_VictoryBurst>
 
   @override
   Widget build(BuildContext context) {
+    // Positioned must sit directly under the Overlay's Stack; everything
+    // else (IgnorePointer, the painter) nests inside it.
     return Positioned.fill(
-      child: CustomPaint(
-        painter: _BurstPainter(
-          progress: _ctrl,
-          center: widget.center,
-          particles: _particles,
-          spread: widget.spread,
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _BurstPainter(
+            progress: _ctrl,
+            center: widget.center,
+            particles: _particles,
+            spread: widget.spread,
+          ),
         ),
       ),
     );

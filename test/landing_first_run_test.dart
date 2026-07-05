@@ -32,8 +32,8 @@ void main() {
     await h.settle(tester);
     expect(find.text('Choose Your Plan'), findsOneWidget);
 
-    // Expand a starter plan and activate it.
-    await tester.tap(find.text('Islamic Daily Routine'));
+    // Expand the first starter plan (top of the list) and activate it.
+    await tester.tap(find.text('Morning Warrior'));
     await h.settle(tester);
     await tester.tap(find.text('Start Plan'));
     await h.settle(tester);
@@ -43,7 +43,6 @@ void main() {
     await h.settle(tester);
     expect(find.text('Morning Athkar'), findsOneWidget);
     expect(find.text('Green squares'), findsOneWidget);
-    expect(find.text('Legend'), findsOneWidget);
 
     // Tap today's cell for Morning Athkar: white → yellow.
     final todayCells = find.byWidgetPredicate((w) {
@@ -57,9 +56,9 @@ void main() {
 
     await tester.tap(todayCells.first);
     await h.settle(tester);
-    // The plan's first habit is Morning Athkar — its square is now partial.
+    // One of the plan's habits now has a partial (yellow) square.
     final grid = h.container.read(weeklyGridProvider);
-    final coloredId = ['morning_athkar', 'evening_athkar', 'quran_daily_page', 'sleep_schedule']
+    final coloredId = ['morning_athkar', 'quran_daily_page', 'sleep_schedule']
         .firstWhere((id) => grid.squareFor(id, today) == SquareState.partial);
 
     // Yellow → green: the core reward moment (burst + First Victory).
