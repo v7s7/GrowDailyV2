@@ -34,6 +34,10 @@ void main() {
         authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
       ],
     );
+    // Resolve the auth stream BEFORE anything builds. Otherwise it emits a
+    // frame later and every dependent notifier is recreated inside the test's
+    // fake-async zone, where Hive IO can never complete — an eternal spinner.
+    await container.read(authStateProvider.future);
   });
 
   tearDown(() async {
@@ -57,12 +61,21 @@ void main() {
         ),
       );
 
+  /// Settle with a hard cap so animation leaks fail in seconds, not minutes.
+  Future<void> settle(WidgetTester tester) => tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 15),
+      );
+
   /// Pumps the app and lets real Hive IO complete before settling.
+  /// The 15s settle cap turns a would-be 10-minute hang into a fast,
+  /// diagnosable failure.
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.pumpWidget(app());
     await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 400)));
-    await tester.pumpAndSettle();
+    await settle(tester);
   }
 
   /// Seeds one active catalog habit and waits for the catalog notifier to
@@ -94,7 +107,7 @@ void main() {
 
     // Browsing plans opens the picker in place — no tab switch needed.
     await tester.tap(find.text('Browse Plans'));
-    await tester.pumpAndSettle();
+    await settle(tester);
     expect(find.text('Choose Your Plan'), findsOneWidget);
   });
 
@@ -109,7 +122,7 @@ void main() {
     await tester.tap(find.text('Skip'));
     await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 200)));
-    await tester.pumpAndSettle();
+    await settle(tester);
 
     // The grid shows the habit row, summary, legend, and slogan.
     expect(find.text('Morning Athkar'), findsOneWidget);
@@ -127,7 +140,7 @@ void main() {
     await seedHabit(tester);
     await pumpApp(tester);
     await tester.tap(find.text('Skip'));
-    await tester.pumpAndSettle();
+    await settle(tester);
 
     // Find today's cell in the row via its runtime fields.
     final todayCell = find.byWidgetPredicate((w) {
@@ -143,7 +156,7 @@ void main() {
     await tester.tap(todayCell);
     await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 100)));
-    await tester.pumpAndSettle();
+    await settle(tester);
     expect(
       container.read(weeklyGridProvider).squareFor('morning_athkar', today),
       SquareState.partial,
@@ -152,7 +165,7 @@ void main() {
     await tester.tap(todayCell);
     await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 100)));
-    await tester.pumpAndSettle();
+    await settle(tester);
     expect(
       container.read(weeklyGridProvider).squareFor('morning_athkar', today),
       SquareState.complete,
@@ -170,7 +183,7 @@ void main() {
     await pumpApp(tester);
 
     await tester.tap(find.byIcon(Icons.insights_rounded));
-    await tester.pumpAndSettle();
+    await settle(tester);
     expect(find.text('Progress Heatmap'), findsOneWidget);
   });
 }

@@ -99,10 +99,21 @@ void main() {
           authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
         ],
       );
-      // Let the guest notifiers finish their async loads.
-      container.read(dashboardProvider);
+      // Resolve auth first so dependent notifiers are created exactly once —
+      // otherwise the stream's async emission rebuilds them mid-test and
+      // mutations land on a notifier that's about to be discarded.
+      await container.read(authStateProvider.future);
+      // Wait until the guest notifiers actually finish loading — a fixed
+      // delay races the first (cold) Hive open and the late load result
+      // would clobber XP earned by the test's own mutations.
       container.read(weeklyGridProvider);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while ((container.read(dashboardProvider).isLoading ||
+              container.read(weeklyGridProvider).isLoading) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(container.read(dashboardProvider).isLoading, isFalse);
     });
 
     tearDown(() async {

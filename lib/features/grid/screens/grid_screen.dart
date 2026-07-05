@@ -8,8 +8,9 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
-import '../../../shared/widgets/guest_limit_sheet.dart';
+import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
+import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_model.dart';
@@ -77,6 +78,7 @@ class GridScreen extends ConsumerWidget {
                       .slideY(begin: -0.05, curve: Curves.easeOut),
                 ),
               ),
+              const SliverToBoxAdapter(child: _StreakAtRiskBanner()),
               const SliverToBoxAdapter(child: _NightReviewPromptCard()),
               SliverToBoxAdapter(
                 child: Padding(
@@ -517,6 +519,83 @@ class _MiniStat extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+// ─── Streak-at-risk nudge ──────────────────────────────────────────────────
+
+/// The retention loop's most important message: from 6pm, if the user has a
+/// live streak and hasn't colored anything green today, warn them warmly —
+/// one square keeps the streak alive. Disappears the moment they earn green.
+class _StreakAtRiskBanner extends ConsumerWidget {
+  const _StreakAtRiskBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dash = ref.watch(dashboardProvider);
+    final grid = ref.watch(weeklyGridProvider);
+    final habits = ref.watch(habitListProvider);
+
+    final isEvening = DateTime.now().hour >= 18;
+    if (!isEvening || dash.streak <= 0 || habits.isEmpty || grid.isLoading) {
+      return const SizedBox.shrink();
+    }
+    final today = DateTime.now();
+    final row = grid.states[today.toDateKey()];
+    final hasGreenToday = row != null &&
+        habits.any((h) => (row[h.id] ?? SquareState.none).isGreen);
+    if (hasGreenToday || dash.gridActivityToday || dash.completions.isNotEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final gp = context.gp;
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: GameColors.streakOrange.withOpacity(gp.dark ? 0.10 : 0.08),
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border:
+              Border.all(color: GameColors.streakOrange.withOpacity(0.4)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.local_fire_department_rounded,
+                    color: GameColors.streakOrange, size: 26)
+                .animate(onPlay: (c) => c.repeat(reverse: true))
+                .scaleXY(
+                  begin: 0.88,
+                  end: 1.05,
+                  duration: 900.ms,
+                  curve: Curves.easeInOut,
+                ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.streakAtRiskTitle(dash.streak),
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: GameColors.streakOrange,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    s.streakAtRiskBody,
+                    style: TextStyle(fontSize: 12, color: gp.textSec),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08);
   }
 }
 
@@ -1323,8 +1402,8 @@ class _GridEmptyState extends ConsumerWidget {
             const SizedBox(height: 10),
             TextButton.icon(
               onPressed: () {
-                if (!canGuestAddHabits(ref)) {
-                  showGuestLimitSheet(context, ref);
+                if (!canAddHabits(ref)) {
+                  showHabitLimitGate(context, ref);
                   return;
                 }
                 HapticFeedback.lightImpact();

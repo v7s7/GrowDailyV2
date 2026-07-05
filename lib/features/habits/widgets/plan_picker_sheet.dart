@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../shared/widgets/guest_limit_sheet.dart';
+import '../../../shared/widgets/habit_limit_gate.dart';
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/custom_habits_notifier.dart';
@@ -125,8 +125,8 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
                     }
                     final newCount =
                         plan.catalogIds.where((id) => !activeIds.contains(id)).length;
-                    if (!canGuestAddHabits(ref, additionalCount: newCount)) {
-                      showGuestLimitSheet(context, ref);
+                    if (!canAddHabits(ref, additionalCount: newCount)) {
+                      showHabitLimitGate(context, ref);
                       return;
                     }
                     HapticFeedback.mediumImpact();

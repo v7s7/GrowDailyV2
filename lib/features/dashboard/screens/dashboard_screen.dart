@@ -16,8 +16,8 @@ import '../../../features/habits/widgets/add_habit_sheet.dart';
 import '../../../features/habits/widgets/plan_picker_sheet.dart';
 import '../../../features/challenges/widgets/weekly_challenge_card.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
-import '../../../shared/widgets/guest_limit_sheet.dart';
 import '../../../shared/widgets/habit_card.dart';
+import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/stat_chip.dart';
 import '../../../shared/widgets/xp_bar.dart';
 import '../notifiers/dashboard_notifier.dart';
@@ -279,8 +279,8 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   void _showAddHabit(BuildContext context, WidgetRef ref) {
-    if (!canGuestAddHabits(ref)) {
-      showGuestLimitSheet(context, ref);
+    if (!canAddHabits(ref)) {
+      showHabitLimitGate(context, ref);
       return;
     }
     HapticFeedback.lightImpact();

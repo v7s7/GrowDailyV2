@@ -20,6 +20,7 @@ import 'features/grid/screens/monthly_heatmap_screen.dart';
 import 'features/intention/screens/intention_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'features/night_review/screens/night_review_screen.dart';
+import 'features/premium/screens/premium_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
 
@@ -73,6 +74,7 @@ class GrowDailyApp extends ConsumerWidget {
         '/matrix': (_) => const MatrixScreen(),
         '/intention': (_) => const IntentionScreen(),
         '/night-review': (_) => const NightReviewScreen(),
+        '/premium': (_) => const PremiumScreen(),
         '/profile': (_) => const ProfileScreen(),
         '/auth': (_) => const AuthScreen(),
       },

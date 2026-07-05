@@ -351,4 +351,60 @@ class S {
   String get nightReviewDoneBadge => isAr ? 'تمت المراجعة' : 'Reviewed';
   String get nightReviewEditedHint =>
       isAr ? 'يمكنك تعديل مراجعتك في أي وقت الليلة' : 'You can edit tonight\'s review anytime';
+
+  // ── Premium ──────────────────────────────────────────────────────────────
+  String get premiumTitle => isAr ? 'بريميوم' : 'GrowDaily Premium';
+  String get premiumHeadline =>
+      isAr ? 'املأ حياتك بالأخضر، بلا حدود' : 'Fill your life with green, without limits';
+  String get premiumSubhead => isAr
+      ? 'ادعم تطوير GrowDaily وافتح كل قوتها.'
+      : 'Support GrowDaily\'s development and unlock its full power.';
+  String get premiumBenefitHabitsTitle =>
+      isAr ? 'عادات غير محدودة' : 'Unlimited habits';
+  String get premiumBenefitHabitsDesc => isAr
+      ? 'تتبّع كل جوانب حياتك على شبكة واحدة، بلا سقف.'
+      : 'Track every corner of your life on one grid — no cap.';
+  String get premiumBenefitHistoryTitle =>
+      isAr ? 'إحصاءات متقدمة' : 'Advanced insights';
+  String get premiumBenefitHistoryDesc => isAr
+      ? 'سنوات من الخرائط الحرارية والاتجاهات بين مزاجك وعاداتك.'
+      : 'Years of heatmaps and trends between your mood and your habits.';
+  String get premiumBenefitFamilyTitle =>
+      isAr ? 'شبكات العائلة (قريبًا)' : 'Family grids (coming soon)';
+  String get premiumBenefitFamilyDesc => isAr
+      ? 'أهداف مشتركة وتحديات مع من تحب — أولوية الوصول للمشتركين.'
+      : 'Shared goals and challenges with the people you love — subscribers get first access.';
+  String get premiumBenefitSupportTitle =>
+      isAr ? 'ادعم صانعًا مستقلًا' : 'Support an independent maker';
+  String get premiumBenefitSupportDesc => isAr
+      ? 'لا إعلانات، لا بيع بيانات — اشتراكك هو ما يبقي التطبيق حيًا.'
+      : 'No ads, no data selling — your subscription is what keeps the app alive.';
+  String get premiumMonthly => isAr ? 'شهري' : 'MONTHLY';
+  String get premiumYearly => isAr ? 'سنوي' : 'YEARLY';
+  String get premiumPerMonth => isAr ? 'كل شهر' : 'per month';
+  String get premiumPerYear => isAr ? 'كل سنة' : 'per year';
+  String premiumSave(String pct) => isAr ? 'وفّر $pct' : 'SAVE $pct';
+  String get premiumCta => isAr ? 'ابدأ بريميوم' : 'START PREMIUM';
+  String get premiumRestore => isAr ? 'استعادة المشتريات' : 'Restore purchases';
+  String get premiumComingSoon => isAr
+      ? 'الاشتراكات تفتح مع الإطلاق — أنت على قائمة المؤسسين.'
+      : 'Purchases open at launch — you\'re on the founders list.';
+  String get premiumActive =>
+      isAr ? 'بريميوم مفعّل — شكرًا لدعمك!' : 'Premium is active — thank you for your support!';
+  String get premiumFinePrint => isAr
+      ? 'إلغاء في أي وقت. الأسعار النهائية تُعرض في المتجر.'
+      : 'Cancel anytime. Final prices are shown in the store.';
+  String get habitLimitTitle =>
+      isAr ? 'وصلت لحد الخطة المجانية' : 'You\'ve reached the free plan limit';
+  String habitLimitBody(int limit) => isAr
+      ? 'الخطة المجانية تشمل $limit عادات. افتح عادات غير محدودة مع بريميوم.'
+      : 'The free plan includes $limit habits. Unlock unlimited habits with Premium.';
+
+  // ── Streak nudge ─────────────────────────────────────────────────────────
+  String streakAtRiskTitle(int days) => isAr
+      ? 'سلسلة الـ$days يومًا على المحك'
+      : 'Your $days-day streak is on the line';
+  String get streakAtRiskBody => isAr
+      ? 'مربّع أخضر واحد الليلة يبقيها حيّة.'
+      : 'One green square tonight keeps it alive.';
 }

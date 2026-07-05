@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../../premium/notifiers/premium_notifier.dart';
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
@@ -169,11 +170,23 @@ final habitListProvider = Provider<List<IslamicHabitTemplate>>((ref) {
 /// Guests get a 3-habit trial before being asked to create an account.
 const int kGuestHabitLimit = 3;
 
-/// Whether a guest can add [additionalCount] more habits without hitting
-/// [kGuestHabitLimit]. Always true for signed-in users.
-bool canGuestAddHabits(WidgetRef ref, {int additionalCount = 1}) {
-  final isGuest = ref.read(guestModeProvider);
-  if (!isGuest) return true;
-  final current = ref.read(habitListProvider).length;
-  return current + additionalCount <= kGuestHabitLimit;
+/// The habit cap for a given tier: guests trial 3, free accounts get
+/// [kFreeHabitLimit], premium is uncapped (null). Pure so it's testable.
+int? habitLimitFor({required bool isGuest, required bool isPremium}) {
+  if (isPremium) return null;
+  return isGuest ? kGuestHabitLimit : kFreeHabitLimit;
 }
+
+/// Whether [additionalCount] more habits fit within the account's tier.
+/// This is the monetization seam: the free ceiling is where the Premium
+/// invitation appears.
+bool canAddHabits(WidgetRef ref, {int additionalCount = 1}) {
+  final limit = habitLimitFor(
+    isGuest: ref.read(guestModeProvider),
+    isPremium: ref.read(premiumProvider),
+  );
+  if (limit == null) return true;
+  final current = ref.read(habitListProvider).length;
+  return current + additionalCount <= limit;
+}
+
