@@ -166,6 +166,17 @@ abstract final class AchievementCatalog {
     ),
     // ── Victory Grid ────────────────────────────────────────────
     AchievementModel(
+      id: 'green_1',
+      name: 'First Victory',
+      description: 'Color your very first green square',
+      iconEmoji: '✅',
+      rarity: AchievementRarity.common,
+      trigger: AchievementTrigger.greenSquares,
+      threshold: 1,
+      xpReward: 25,
+      goldReward: 10,
+    ),
+    AchievementModel(
       id: 'green_100',
       name: 'Grid Painter',
       description: 'Color 100 green squares on your Victory Grid',

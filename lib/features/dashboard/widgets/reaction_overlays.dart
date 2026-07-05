@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../achievements/models/achievement_model.dart';
+import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../notifiers/dashboard_notifier.dart';
 
 /// The RPG feedback moments (level up, achievement unlock, streak milestone,
@@ -22,10 +23,13 @@ void registerDashboardReactions(
   ref.listen<DashboardState>(dashboardProvider, (prev, next) {
     if (prev == null) return;
 
+    // Brand-new users (no habits yet) skip the intention prompt — the empty
+    // grid with its "browse plans" call-to-action is the better first hello.
     if (routeToIntentionOnFirstLoad &&
         prev.isLoading &&
         !next.isLoading &&
-        !next.intentionsSetToday) {
+        !next.intentionsSetToday &&
+        ref.read(habitListProvider).isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (context.mounted) {
           Navigator.pushNamed(context, '/intention');

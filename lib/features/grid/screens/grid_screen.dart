@@ -8,9 +8,12 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
+import '../../../shared/widgets/guest_limit_sheet.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../habits/widgets/add_habit_sheet.dart';
+import '../../habits/widgets/plan_picker_sheet.dart';
 import '../../night_review/notifiers/night_review_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
@@ -338,10 +341,20 @@ class _SummaryCard extends StatelessWidget {
                 Text(
                   ratio >= 1.0
                       ? s.gridWeekFilled
-                      : (greensToday > 0
-                          ? s.gridGreensToday(greensToday)
-                          : s.gridTapHint),
-                  style: TextStyle(fontSize: 12, color: gp.textTert),
+                      : (greensToday >= habits.length && greensToday > 0
+                          ? s.gridPerfectDay
+                          : greensToday > 0
+                              ? s.gridGreensToday(greensToday)
+                              : s.gridTapHint),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: greensToday >= habits.length && greensToday > 0
+                        ? GameColors.emerald
+                        : gp.textTert,
+                    fontWeight: greensToday >= habits.length && greensToday > 0
+                        ? FontWeight.w700
+                        : FontWeight.w400,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -681,7 +694,14 @@ class _GridTable extends ConsumerWidget {
               square: state.squareFor(habit.id, day),
               hasNote: state.noteFor(habit.id, day).isNotEmpty,
               onTap: () {
-                HapticFeedback.selectionClick();
+                // A square turning green is the app's core reward moment —
+                // it gets a heavier thump than the intermediate colors.
+                final next = state.squareFor(habit.id, day).next;
+                if (next.isGreen) {
+                  HapticFeedback.mediumImpact();
+                } else {
+                  HapticFeedback.selectionClick();
+                }
                 ref
                     .read(weeklyGridProvider.notifier)
                     .cycleSquare(habit.id, day);
@@ -731,54 +751,67 @@ class _SquareCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = context.gp.dark;
+    // Keying the pulse on the square state replays it on every color change:
+    // marked cells get a satisfying pop, clearing back to white stays quiet.
+    Widget cell = AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: square.fill(dark),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(
+          color: isToday
+              ? GameColors.gold.withOpacity(0.9)
+              : square.border(dark),
+          width: isToday ? 1.4 : 0.8,
+        ),
+      ),
+      child: Stack(
+        children: [
+          if (square.icon != null)
+            Center(
+              child: Icon(
+                square.icon,
+                size: size * 0.5,
+                color: square.accent,
+              ),
+            ),
+          if (hasNote)
+            Positioned(
+              right: 3,
+              bottom: 3,
+              child: Container(
+                width: 4,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: square.isMarked
+                      ? square.accent
+                      : context.gp.textTert,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (square.isMarked) {
+      cell = cell
+          .animate(key: ValueKey(square))
+          .scale(
+            begin: const Offset(0.75, 0.75),
+            end: const Offset(1, 1),
+            duration: 260.ms,
+            curve: Curves.elasticOut,
+          );
+    }
     return GestureDetector(
       onTap: isFuture ? null : onTap,
       onLongPress: isFuture ? null : onLongPress,
       child: Opacity(
         opacity: isFuture ? 0.35 : 1,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: square.fill(dark),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(
-              color: isToday
-                  ? GameColors.gold.withOpacity(0.9)
-                  : square.border(dark),
-              width: isToday ? 1.4 : 0.8,
-            ),
-          ),
-          child: Stack(
-            children: [
-              if (square.icon != null)
-                Center(
-                  child: Icon(
-                    square.icon,
-                    size: size * 0.5,
-                    color: square.accent,
-                  ),
-                ),
-              if (hasNote)
-                Positioned(
-                  right: 3,
-                  bottom: 3,
-                  child: Container(
-                    width: 4,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: square.isMarked
-                          ? square.accent
-                          : context.gp.textTert,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
+        child: cell,
       ),
     );
   }
@@ -1111,11 +1144,11 @@ class _GridSkeleton extends StatelessWidget {
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
-class _GridEmptyState extends StatelessWidget {
+class _GridEmptyState extends ConsumerWidget {
   const _GridEmptyState();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
     return Center(
@@ -1151,16 +1184,45 @@ class _GridEmptyState extends StatelessWidget {
               style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.4),
             ),
             const SizedBox(height: 28),
-            FilledButton.icon(
-              onPressed: () =>
-                  Navigator.pushReplacementNamed(context, '/dashboard'),
-              icon: const Icon(Icons.home_rounded, size: 18),
-              label: Text(s.gridGoToDashboard),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(220, 50),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
+            SizedBox(
+              width: 260,
+              child: FilledButton.icon(
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    useSafeArea: true,
+                    builder: (_) => const PlanPickerSheet(),
+                  );
+                },
+                icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                label: Text(s.browsePlans),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
               ),
+            ),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: () {
+                if (!canGuestAddHabits(ref)) {
+                  showGuestLimitSheet(context, ref);
+                  return;
+                }
+                HapticFeedback.lightImpact();
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => const AddHabitSheet(),
+                );
+              },
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: Text(s.addHabit),
             ),
           ],
         ),

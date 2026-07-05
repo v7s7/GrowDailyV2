@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/local_store_service.dart';
-import '../../auth/notifiers/auth_notifier.dart';
 import 'islamic_habit_catalog.dart';
 
 // ─── Plan definitions ─────────────────────────────────────────────────────────

@@ -215,6 +215,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         (key, value) => MapEntry(key, (value as num).toInt()),
       );
       final gridActivityToday = (daily['gridActivityLogged'] as bool?) ?? false;
+      final intentionsSetToday = (daily['intentionsSet'] as bool?) ?? false;
       final rawGreenCounts =
           (saved['dailyGreenCounts'] as Map?)?.cast<String, dynamic>() ?? {};
       final dailyGreenCounts = rawGreenCounts.map(
@@ -275,6 +276,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         showComebackBonus: showComebackBonus,
         previousStreak: previousStreak,
         isLoading: false,
+        intentionsSetToday: intentionsSetToday,
         totalGreenSquares: (saved['totalGreenSquares'] as int?) ?? 0,
         gridActivityToday: gridActivityToday,
         dailyGreenCounts: dailyGreenCounts,
@@ -845,7 +847,20 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     required String intention,
   }) async {
     state = state.copyWith(intentionsSetToday: true);
-    if (_uid == null) return;
+    if (_uid == null) {
+      // Persist for guests too, so the prompt shows once per day — not on
+      // every cold start.
+      final existing = await LocalStoreService.getDailyMap(_todayKey);
+      await LocalStoreService.putDailyMap(_todayKey, {
+        ...existing,
+        'intentionsSet': true,
+        'priorities': priorities,
+        'intentionAnchor': anchor,
+        'intentionAction': intention,
+        'date': DateTime.now().toIso8601String(),
+      });
+      return;
+    }
     _dailyRef.set({
       'intentionsSet': true,
       'priorities': priorities,
