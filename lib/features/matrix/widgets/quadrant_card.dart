@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../models/matrix_task.dart';
 
@@ -33,6 +34,7 @@ class QuadrantCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final isAr = S.of(context).isAr;
     return Container(
       decoration: BoxDecoration(
         color: gp.surface,
@@ -66,7 +68,7 @@ class QuadrantCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      quadrant.label,
+                      quadrant.localLabel(isAr),
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
@@ -105,7 +107,7 @@ class QuadrantCard extends StatelessWidget {
                         Icon(Icons.add_circle_outline_rounded,
                             size: 20, color: gp.textTert),
                         const SizedBox(height: 4),
-                        Text('Tap + to add',
+                        Text(S.of(context).matrixTapToAdd,
                             style: TextStyle(
                                 fontSize: 11, color: gp.textTert)),
                       ],
@@ -314,7 +316,7 @@ class _TaskTileState extends State<_TaskTile>
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: Text(
-                    'MOVE TO QUADRANT',
+                    S.of(context).matrixMoveToQuadrant,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -324,7 +326,9 @@ class _TaskTileState extends State<_TaskTile>
                   ),
                 ),
                 Divider(height: 1, color: mgp.divider),
-                ...others.map((q) => ListTile(
+                ...others.map((q) {
+                      final isAr = S.of(context).isAr;
+                      return ListTile(
                       dense: true,
                       leading: Container(
                           width: 8,
@@ -332,19 +336,20 @@ class _TaskTileState extends State<_TaskTile>
                           decoration: BoxDecoration(
                               color: _colorFor(q),
                               shape: BoxShape.circle)),
-                      title: Text(q.label,
+                      title: Text(q.localLabel(isAr),
                           style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                               color: mgp.textPrimary)),
-                      subtitle: Text(q.subtitle,
+                      subtitle: Text(q.localSubtitle(isAr),
                           style: TextStyle(
                               fontSize: 11, color: mgp.textSec)),
                       onTap: () {
                         Navigator.pop(context);
                         widget.onMove(q);
                       },
-                    )),
+                    );
+                    }),
                 const SizedBox(height: 8),
               ],
             ),

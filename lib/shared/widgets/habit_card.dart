@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../features/habits/models/habit_model.dart';
@@ -48,12 +49,13 @@ class _HabitCardState extends State<HabitCard> {
         HabitCategory.custom => Icons.star_rounded,
       };
 
-  String get _subtitle {
+  String _subtitle(BuildContext context) {
+    final s = S.of(context);
     final freq = widget.template.frequencyType == HabitFrequencyType.daily
-        ? 'Daily'
-        : '${widget.template.frequencyTarget}x / week';
+        ? s.habitDaily
+        : s.habitWeeklyTimes(widget.template.frequencyTarget);
     final cue = widget.template.cueAfter;
-    final cueText = cue == null || cue.isEmpty ? '' : '  ·  After $cue';
+    final cueText = cue == null || cue.isEmpty ? '' : s.habitAfterCue(cue);
     if (widget.template.hasTimer) {
       final mins = (widget.template.timerDurationSeconds ?? 0) ~/ 60;
       return '$freq  ·  ${mins}min$cueText';
@@ -64,6 +66,7 @@ class _HabitCardState extends State<HabitCard> {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
@@ -122,7 +125,7 @@ class _HabitCardState extends State<HabitCard> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _subtitle,
+                        _subtitle(context),
                         style: TextStyle(
                           fontSize: 11,
                           color: gp.textSec,
@@ -201,7 +204,7 @@ class _HabitCardState extends State<HabitCard> {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            widget.isDone ? 'DONE' : 'COMPLETE',
+                            widget.isDone ? s.habitDone : s.habitComplete,
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w800,

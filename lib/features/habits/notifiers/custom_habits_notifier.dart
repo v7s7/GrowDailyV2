@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
 
@@ -93,6 +94,41 @@ class CustomHabitsNotifier
     }
   }
 
+  void update({
+    required String id,
+    required String name,
+    required HabitCategory category,
+    String? cueAfter,
+    required HabitFrequencyType frequencyType,
+    required int frequencyTarget,
+  }) {
+    final existing = state.firstWhere((h) => h.id == id);
+    final rewards = _rewards(category);
+    final cue = cueAfter?.trim().isEmpty == true ? null : cueAfter?.trim();
+    final updated = IslamicHabitTemplate(
+      id: id,
+      name: name,
+      description: cue == null ? '' : 'After $cue, I will $name.',
+      cueAfter: cue,
+      iconEmoji: existing.iconEmoji,
+      category: category,
+      frequencyType: frequencyType,
+      frequencyTarget: frequencyTarget,
+      hasTimer: existing.hasTimer,
+      timerDurationSeconds: existing.timerDurationSeconds,
+      xpReward: rewards.$1,
+      goldReward: rewards.$2,
+    );
+    state = [
+      for (final h in state) h.id == id ? updated : h,
+    ];
+    if (_uid != null) {
+      _col.doc(id).set(updated.toFirestore()).ignore();
+    } else {
+      _saveGuest().ignore();
+    }
+  }
+
   void remove(String id) {
     state = state.where((h) => h.id != id).toList();
     if (_uid != null) {
@@ -120,8 +156,24 @@ final customHabitsProvider =
   return CustomHabitsNotifier(uid);
 });
 
-/// Combined list: Islamic catalog + user custom habits
+/// Combined list: user-activated catalog habits + user custom habits
 final habitListProvider = Provider<List<IslamicHabitTemplate>>((ref) {
+  final activeIds = ref.watch(activeCatalogProvider);
   final custom = ref.watch(customHabitsProvider);
-  return [...IslamicHabitCatalog.templates, ...custom];
+  final activeTemplates = IslamicHabitCatalog.templates
+      .where((t) => activeIds.contains(t.id))
+      .toList();
+  return [...activeTemplates, ...custom];
 });
+
+/// Guests get a 3-habit trial before being asked to create an account.
+const int kGuestHabitLimit = 3;
+
+/// Whether a guest can add [additionalCount] more habits without hitting
+/// [kGuestHabitLimit]. Always true for signed-in users.
+bool canGuestAddHabits(WidgetRef ref, {int additionalCount = 1}) {
+  final isGuest = ref.read(guestModeProvider);
+  if (!isGuest) return true;
+  final current = ref.read(habitListProvider).length;
+  return current + additionalCount <= kGuestHabitLimit;
+}

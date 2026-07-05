@@ -3,12 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/guest_limit_sheet.dart';
+import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
 import '../notifiers/custom_habits_notifier.dart';
 
 class AddHabitSheet extends ConsumerStatefulWidget {
-  const AddHabitSheet({super.key});
+  final IslamicHabitTemplate? existing;
+  const AddHabitSheet({super.key, this.existing});
 
   @override
   ConsumerState<AddHabitSheet> createState() => _AddHabitSheetState();
@@ -24,9 +28,21 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   bool _hasName = false;
   bool _didPickCategory = false;
 
+  bool get _isEditing => widget.existing != null;
+
   @override
   void initState() {
     super.initState();
+    final existing = widget.existing;
+    if (existing != null) {
+      _nameCtrl.text = existing.name;
+      _cueCtrl.text = existing.cueAfter ?? '';
+      _category = existing.category;
+      _freqType = existing.frequencyType;
+      _freqTarget = existing.frequencyTarget;
+      _hasName = true;
+      _didPickCategory = true;
+    }
     _nameCtrl.addListener(() {
       final text = _nameCtrl.text.trim();
       final has = text.isNotEmpty;
@@ -55,20 +71,46 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   void _submit() {
     if (!_hasName) return;
+    final existing = widget.existing;
+    if (existing == null && !canGuestAddHabits(ref)) {
+      Navigator.pop(context);
+      showGuestLimitSheet(context, ref);
+      return;
+    }
     HapticFeedback.mediumImpact();
-    ref.read(customHabitsProvider.notifier).add(
-          name: _nameCtrl.text.trim(),
-          category: _category,
-          cueAfter: _cueCtrl.text.trim(),
-          frequencyType: _freqType,
-          frequencyTarget: _freqTarget,
-        );
+    if (existing != null) {
+      ref.read(customHabitsProvider.notifier).update(
+            id: existing.id,
+            name: _nameCtrl.text.trim(),
+            category: _category,
+            cueAfter: _cueCtrl.text.trim(),
+            frequencyType: _freqType,
+            frequencyTarget: _freqTarget,
+          );
+    } else {
+      ref.read(customHabitsProvider.notifier).add(
+            name: _nameCtrl.text.trim(),
+            category: _category,
+            cueAfter: _cueCtrl.text.trim(),
+            frequencyType: _freqType,
+            frequencyTarget: _freqTarget,
+          );
+    }
+    Navigator.pop(context);
+  }
+
+  void _deleteExisting() {
+    final existing = widget.existing;
+    if (existing == null) return;
+    HapticFeedback.mediumImpact();
+    ref.read(customHabitsProvider.notifier).remove(existing.id);
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
 
     return Padding(
@@ -99,8 +141,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
               child: Text(
-                'NEW HABIT',
-                style: TextStyle(
+                _isEditing ? s.editHabit : s.newHabit,
+                style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
                   color: GameColors.gold,
@@ -109,8 +151,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ),
             ),
             const SizedBox(height: 14),
-            _SmartStarterRail(onPick: _applyStarter),
-            const SizedBox(height: 16),
+            if (!_isEditing) ...[
+              _SmartStarterRail(onPick: _applyStarter),
+              const SizedBox(height: 16),
+            ],
             // Name field
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -125,7 +169,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     color: gp.textPrimary,
                     height: 1.4),
                 decoration: InputDecoration(
-                  hintText: 'What habit do you want to build?',
+                  hintText: s.habitNameHint,
                   hintStyle: TextStyle(
                       fontSize: 16,
                       color: gp.textTert.withOpacity(0.8)),
@@ -141,7 +185,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               const SizedBox(height: 10),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: _TinyHint(text: _tinyHint),
+                child: _TinyHint(text: _tinyHint(context)),
               ),
             ],
             const SizedBox(height: 12),
@@ -153,8 +197,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 textInputAction: TextInputAction.next,
                 style: TextStyle(fontSize: 14, color: gp.textPrimary),
                 decoration: InputDecoration(
-                  labelText: 'After what routine? (optional)',
-                  hintText: 'Fajr, Maghrib, before sleep...',
+                  labelText: s.afterWhatRoutine,
+                  hintText: s.routineHint,
                   prefixIcon: Icon(Icons.place_rounded, size: 18, color: gp.textSec),
                 ),
               ),
@@ -181,7 +225,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             // Category
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text('CATEGORY',
+              child: Text(s.category,
                   style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
@@ -256,7 +300,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             // Frequency
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text('FREQUENCY',
+              child: Text(s.frequency,
                   style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
@@ -269,7 +313,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               child: Row(
                 children: [
                   _FreqBtn(
-                    label: 'Daily',
+                    label: s.daily,
                     active: _freqType == HabitFrequencyType.daily,
                     onTap: () => setState(() {
                       _freqType = HabitFrequencyType.daily;
@@ -278,7 +322,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   ),
                   const SizedBox(width: 8),
                   _FreqBtn(
-                    label: 'Weekly',
+                    label: s.weekly,
                     active: _freqType == HabitFrequencyType.weekly,
                     onTap: () => setState(() {
                       _freqType = HabitFrequencyType.weekly;
@@ -288,7 +332,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   if (_freqType == HabitFrequencyType.weekly) ...
                     [
                       const SizedBox(width: 16),
-                      Text('Times:',
+                      Text(s.times,
                           style: TextStyle(
                               fontSize: 13, color: gp.textSec)),
                       const SizedBox(width: 8),
@@ -318,7 +362,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             const SizedBox(height: 24),
             // Submit
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              padding: EdgeInsets.fromLTRB(20, 0, 20, _isEditing ? 4 : 24),
               child: FilledButton(
                 onPressed: _hasName ? _submit : null,
                 style: FilledButton.styleFrom(
@@ -326,13 +370,25 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-                child: const Text('CREATE TINY HABIT',
-                    style: TextStyle(
+                child: Text(_isEditing ? s.saveChanges : s.createHabit,
+                    style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 1.2)),
+                        letterSpacing: 1.0)),
               ).animate(delay: 60.ms).fadeIn(duration: 250.ms),
             ),
+            if (_isEditing)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: TextButton(
+                  onPressed: _deleteExisting,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 44),
+                    foregroundColor: GameColors.error,
+                  ),
+                  child: Text(s.removeHabit),
+                ),
+              ),
           ],
         ),
       ).animate()
@@ -341,21 +397,22 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     );
   }
 
-  String get _tinyHint {
+  String _tinyHint(BuildContext context) {
+    final s = S.of(context);
     final name = _nameCtrl.text.trim().toLowerCase();
     if (name.contains('quran') || name.contains('ayat') || name.contains('page')) {
-      return 'Make it tiny: start with 3 ayat or one page after a prayer.';
+      return s.tinyHintQuran;
     }
     if (name.contains('athkar') || name.contains('dhikr')) {
-      return 'Make it tiny: begin with one short athkar set after prayer.';
+      return s.tinyHintAthkar;
     }
     if (name.contains('walk') || name.contains('run') || name.contains('gym')) {
-      return 'Make it tiny: 5–10 minutes is enough on low-energy days.';
+      return s.tinyHintFitness;
     }
     if (name.contains('sleep')) {
-      return 'Make it tiny: set a simple wind-down cue before sleep.';
+      return s.tinyHintSleep;
     }
-    return 'Make it tiny enough that you can do it even on a hard day.';
+    return s.tinyHintDefault;
   }
 
   void _applyStarter(_HabitStarter starter) {
@@ -467,7 +524,7 @@ class _SmartStarterRail extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Text(
-            'SMART STARTERS',
+            S.of(context).smartStarters,
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
@@ -586,7 +643,7 @@ class _PlanPreview extends StatelessWidget {
         border: Border.all(color: GameColors.xpBlue.withOpacity(0.18)),
       ),
       child: Text(
-        'After $cue, I will $habit.',
+        S.of(context).planPreview(cue, habit),
         style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w700,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../models/matrix_task.dart';
 
@@ -58,6 +59,8 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
+    final isAr = s.isAr;
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
@@ -90,14 +93,14 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                       decoration: BoxDecoration(
                           color: _color, shape: BoxShape.circle)),
                   const SizedBox(width: 8),
-                  Text(widget.quadrant.label,
+                  Text(widget.quadrant.localLabel(isAr),
                       style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           color: _color,
                           letterSpacing: 1.2)),
                   const SizedBox(width: 8),
-                  Text(widget.quadrant.subtitle,
+                  Text(widget.quadrant.localSubtitle(isAr),
                       style: TextStyle(fontSize: 11, color: gp.textSec)),
                 ],
               ),
@@ -118,7 +121,7 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                 maxLines: 3,
                 minLines: 1,
                 decoration: InputDecoration(
-                  hintText: 'What needs to be done?',
+                  hintText: s.matrixWhatToDo,
                   hintStyle: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w400,
@@ -143,8 +146,8 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                       borderRadius: BorderRadius.circular(14)),
                 ),
                 onPressed: _hasText ? _submit : null,
-                child: const Text('ADD TASK',
-                    style: TextStyle(
+                child: Text(s.matrixAddTask,
+                    style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 1.4)),

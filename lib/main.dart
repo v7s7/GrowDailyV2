@@ -2,10 +2,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import 'core/constants/game_constants.dart';
+import 'core/l10n/app_strings.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/game_theme.dart';
@@ -13,6 +15,7 @@ import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/focus/screens/focus_screen.dart';
+import 'features/intention/screens/intention_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
@@ -43,18 +46,27 @@ class GrowDailyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+    final locale = ref.watch(localeProvider);
     return MaterialApp(
       title: 'GrowDaily',
       debugShowCheckedModeBanner: false,
+      supportedLocales: const [Locale('en'), Locale('ar')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: GameTheme.light,
       darkTheme: GameTheme.dark,
       themeMode: themeMode,
+      locale: locale,
       initialRoute: '/',
       routes: {
         '/': (_) => const _AuthGate(),
         '/dashboard': (_) => const DashboardScreen(),
         '/focus': (_) => const FocusScreen(),
         '/matrix': (_) => const MatrixScreen(),
+        '/intention': (_) => const IntentionScreen(),
         '/profile': (_) => const ProfileScreen(),
         '/auth': (_) => const AuthScreen(),
       },
