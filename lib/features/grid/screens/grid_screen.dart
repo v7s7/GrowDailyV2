@@ -64,11 +64,29 @@ class GridScreen extends ConsumerWidget {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                  child: grid.isLoading
-                      ? const _GridSkeleton()
-                      : _GridTable(habits: habits, state: grid)
-                          .animate()
-                          .fadeIn(duration: 400.ms, delay: 60.ms),
+                  // Keyed on the visible week so navigating weeks slides the
+                  // whole board in, rather than snapping cell colors.
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 280),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeIn,
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: SlideTransition(
+                        position: Tween(
+                          begin: const Offset(0.04, 0),
+                          end: Offset.zero,
+                        ).animate(anim),
+                        child: child,
+                      ),
+                    ),
+                    child: grid.isLoading
+                        ? const _GridSkeleton()
+                        : KeyedSubtree(
+                            key: ValueKey(grid.weekStart),
+                            child: _GridTable(habits: habits, state: grid),
+                          ),
+                  ),
                 ),
               ),
               SliverToBoxAdapter(
@@ -178,13 +196,17 @@ class _GridHeader extends ConsumerWidget {
                         },
                   child: Column(
                     children: [
-                      Text(
-                        range,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: gp.textPrimary,
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        child: Text(
+                          range,
+                          key: ValueKey(range),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: gp.textPrimary,
+                          ),
                         ),
                       ),
                       if (!state.isCurrentWeek)
@@ -285,6 +307,7 @@ class _SummaryCard extends StatelessWidget {
           .where((id) => (row[id] ?? SquareState.none).isGreen)
           .length;
     }();
+    final perfectDay = habits.isNotEmpty && greensToday >= habits.length;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -299,7 +322,9 @@ class _SummaryCard extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(
-            color: GameColors.emerald.withOpacity(0.28), width: 0.8),
+          color: GameColors.emerald.withOpacity(perfectDay ? 0.6 : 0.28),
+          width: perfectDay ? 1.2 : 0.8,
+        ),
       ),
       child: Row(
         children: [
@@ -313,14 +338,21 @@ class _SummaryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text(
-                      '$greens',
-                      style: const TextStyle(
-                        fontSize: 40,
-                        fontWeight: FontWeight.w900,
-                        color: GameColors.emerald,
-                        height: 1,
-                        letterSpacing: -1.5,
+                    // Count up to the current total so each new green square
+                    // visibly ticks the score.
+                    TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: greens.toDouble()),
+                      duration: const Duration(milliseconds: 600),
+                      curve: Curves.easeOutCubic,
+                      builder: (_, v, __) => Text(
+                        '${v.round()}',
+                        style: const TextStyle(
+                          fontSize: 40,
+                          fontWeight: FontWeight.w900,
+                          color: GameColors.emerald,
+                          height: 1,
+                          letterSpacing: -1.5,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -338,22 +370,25 @@ class _SummaryCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  ratio >= 1.0
-                      ? s.gridWeekFilled
-                      : (greensToday >= habits.length && greensToday > 0
-                          ? s.gridPerfectDay
-                          : greensToday > 0
-                              ? s.gridGreensToday(greensToday)
-                              : s.gridTapHint),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: greensToday >= habits.length && greensToday > 0
-                        ? GameColors.emerald
-                        : gp.textTert,
-                    fontWeight: greensToday >= habits.length && greensToday > 0
-                        ? FontWeight.w700
-                        : FontWeight.w400,
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  child: Text(
+                    ratio >= 1.0
+                        ? s.gridWeekFilled
+                        : perfectDay
+                            ? s.gridPerfectDay
+                            : greensToday > 0
+                                ? s.gridGreensToday(greensToday)
+                                : s.gridTapHint,
+                    key: ValueKey(
+                      '$perfectDay-$greensToday-${ratio >= 1.0}',
+                    ),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: perfectDay ? GameColors.emerald : gp.textTert,
+                      fontWeight:
+                          perfectDay ? FontWeight.w700 : FontWeight.w400,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -379,7 +414,13 @@ class _SummaryCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    )
+        // A single celebratory sweep the moment today goes fully green.
+        .animate(target: perfectDay ? 1 : 0)
+        .shimmer(
+          duration: 900.ms,
+          color: GameColors.emerald.withOpacity(0.30),
+        );
   }
 }
 
@@ -588,8 +629,13 @@ class _GridTable extends ConsumerWidget {
       children: [
         _headerRow(context, days, cell),
         const SizedBox(height: 8),
+        // Rows cascade in on entrance; effects play once per screen visit
+        // (rebuilds on square taps reuse the same elements, so no replay).
         for (var i = 0; i < habits.length; i++) ...[
-          _habitRow(context, ref, habits[i], days, cell),
+          _habitRow(context, ref, habits[i], days, cell)
+              .animate(delay: (i * 45).ms)
+              .fadeIn(duration: 320.ms)
+              .slideX(begin: 0.04, curve: Curves.easeOut),
           if (i != habits.length - 1) const SizedBox(height: _gap),
         ],
       ],
@@ -796,14 +842,29 @@ class _SquareCell extends StatelessWidget {
         ],
       ),
     );
-    if (square.isMarked) {
+    if (square.isGreen) {
+      // Green is the reward moment: elastic pop + a quick light sweep.
       cell = cell
           .animate(key: ValueKey(square))
           .scale(
-            begin: const Offset(0.75, 0.75),
+            begin: const Offset(0.7, 0.7),
             end: const Offset(1, 1),
-            duration: 260.ms,
+            duration: 320.ms,
             curve: Curves.elasticOut,
+          )
+          .shimmer(
+            delay: 80.ms,
+            duration: 450.ms,
+            color: Colors.white.withOpacity(0.55),
+          );
+    } else if (square.isMarked) {
+      cell = cell
+          .animate(key: ValueKey(square))
+          .scale(
+            begin: const Offset(0.82, 0.82),
+            end: const Offset(1, 1),
+            duration: 220.ms,
+            curve: Curves.easeOutBack,
           );
     }
     return GestureDetector(
@@ -936,18 +997,24 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               spacing: 10,
               runSpacing: 10,
               children: [
-                for (final st in palette)
+                for (var i = 0; i < palette.length; i++)
                   _PaletteSwatch(
-                    state: st,
-                    selected: st == current,
-                    label: isAr ? st.labelAr : st.label,
+                    state: palette[i],
+                    selected: palette[i] == current,
+                    label: isAr ? palette[i].labelAr : palette[i].label,
                     onTap: () {
                       HapticFeedback.selectionClick();
                       ref
                           .read(weeklyGridProvider.notifier)
-                          .setSquare(widget.habit.id, widget.day, st);
+                          .setSquare(widget.habit.id, widget.day, palette[i]);
                     },
-                  ),
+                  )
+                      .animate(delay: (i * 35).ms)
+                      .fadeIn(duration: 220.ms)
+                      .scale(
+                        begin: const Offset(0.8, 0.8),
+                        curve: Curves.easeOutBack,
+                      ),
               ],
             ),
             const SizedBox(height: 20),
@@ -1166,7 +1233,10 @@ class _GridEmptyState extends ConsumerWidget {
               ),
               child: const Icon(Icons.grid_view_rounded,
                   size: 36, color: GameColors.emerald),
-            ),
+            )
+                .animate()
+                .scale(curve: Curves.elasticOut, duration: 700.ms)
+                .fadeIn(duration: 300.ms),
             const SizedBox(height: 20),
             Text(
               s.gridEmptyTitle,
@@ -1176,13 +1246,13 @@ class _GridEmptyState extends ConsumerWidget {
                 fontWeight: FontWeight.w800,
                 color: gp.textPrimary,
               ),
-            ),
+            ).animate(delay: 150.ms).fadeIn().slideY(begin: 0.2),
             const SizedBox(height: 8),
             Text(
               s.gridEmptyDesc,
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.4),
-            ),
+            ).animate(delay: 220.ms).fadeIn(),
             const SizedBox(height: 28),
             SizedBox(
               width: 260,
@@ -1205,7 +1275,7 @@ class _GridEmptyState extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(14)),
                 ),
               ),
-            ),
+            ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
             const SizedBox(height: 10),
             TextButton.icon(
               onPressed: () {
@@ -1223,7 +1293,7 @@ class _GridEmptyState extends ConsumerWidget {
               },
               icon: const Icon(Icons.add_rounded, size: 16),
               label: Text(s.addHabit),
-            ),
+            ).animate(delay: 380.ms).fadeIn(),
           ],
         ),
       ),

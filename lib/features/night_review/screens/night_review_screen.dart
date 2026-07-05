@@ -291,22 +291,27 @@ class _MoodButton extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              color: selected
-                  ? GameColors.gold.withOpacity(0.16)
-                  : gp.surface,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: selected ? GameColors.gold : gp.border,
-                width: selected ? 1.6 : 0.5,
+          AnimatedScale(
+            scale: selected ? 1.12 : 1.0,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutBack,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: selected
+                    ? GameColors.gold.withOpacity(0.16)
+                    : gp.surface,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: selected ? GameColors.gold : gp.border,
+                  width: selected ? 1.6 : 0.5,
+                ),
               ),
+              alignment: Alignment.center,
+              child: Text(mood.emoji, style: const TextStyle(fontSize: 26)),
             ),
-            alignment: Alignment.center,
-            child: Text(mood.emoji, style: const TextStyle(fontSize: 26)),
           ),
           const SizedBox(height: 6),
           Text(
