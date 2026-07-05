@@ -24,8 +24,8 @@ class GameNavBar extends StatelessWidget {
           Navigator.pushReplacementNamed(
             context,
             switch (i) {
-              0 => '/dashboard',
-              1 => '/grid',
+              0 => '/grid',
+              1 => '/dashboard',
               2 => '/focus',
               3 => '/matrix',
               _ => '/profile',
@@ -34,9 +34,9 @@ class GameNavBar extends StatelessWidget {
         },
         destinations: [
           NavigationDestination(
-              icon: const Icon(Icons.home_rounded), label: s.navDashboard),
-          NavigationDestination(
               icon: const Icon(Icons.grid_view_rounded), label: s.navGrid),
+          NavigationDestination(
+              icon: const Icon(Icons.home_rounded), label: s.navDashboard),
           NavigationDestination(
               icon: const Icon(Icons.center_focus_strong_rounded),
               label: s.navFocus),

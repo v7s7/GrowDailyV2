@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../models/square_state.dart';
 
 /// Returns the Saturday that starts the week containing [d].
@@ -100,8 +101,9 @@ class WeeklyGridState {
 
 class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   final String? _uid;
+  final Ref _ref;
 
-  WeeklyGridNotifier(this._uid) : super(WeeklyGridState.initial()) {
+  WeeklyGridNotifier(this._uid, this._ref) : super(WeeklyGridState.initial()) {
     _loadWeek();
   }
 
@@ -196,7 +198,15 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   }
 
   /// Set a square to an explicit state (used by the long-press palette).
+  ///
+  /// Every color change feeds the app's single progression system: the fixed
+  /// XP for the new color minus the XP the old color already banked, and —
+  /// only for a square newly turned green on *today* — the once-per-day
+  /// streak bump. This is delta-based so cycling a square back and forth
+  /// nets to exactly what a single direct change would have earned; nothing
+  /// to farm by tapping repeatedly.
   void setSquare(String habitId, DateTime day, SquareState value) {
+    final old = state.squareFor(habitId, day);
     final key = day.toDateKey();
     final states = {
       for (final e in state.states.entries) e.key: {...e.value},
@@ -204,6 +214,17 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     (states[key] ??= {})[habitId] = value;
     state = state.copyWith(states: states);
     _persistSquare(habitId, day, value);
+
+    final xpDelta = value.xpValue - old.xpValue;
+    final greenDelta = (value.isGreen ? 1 : 0) - (old.isGreen ? 1 : 0);
+    if (xpDelta != 0 || greenDelta != 0) {
+      _ref.read(dashboardProvider.notifier).applyGridSquareChange(
+            xpDelta: xpDelta,
+            greenDelta: greenDelta,
+            isToday: day.isToday,
+            dateKey: key,
+          );
+    }
   }
 
   /// Attach (or clear) a daily reflection note for a habit's square.
@@ -273,5 +294,5 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
 final weeklyGridProvider =
     StateNotifierProvider<WeeklyGridNotifier, WeeklyGridState>((ref) {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
-  return WeeklyGridNotifier(uid);
+  return WeeklyGridNotifier(uid, ref);
 });

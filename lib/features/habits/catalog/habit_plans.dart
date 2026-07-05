@@ -82,6 +82,53 @@ const habitPlans = <HabitPlan>[
       'sunnah_fasting', 'daily_sadaqah', 'gym_consistency', 'sleep_schedule',
     ],
   ),
+  // ── Starter templates ──────────────────────────────────────────────────
+  HabitPlan(
+    id: 'islamic_daily_routine',
+    nameEn: 'Islamic Daily Routine',
+    nameAr: 'الروتين الإسلامي اليومي',
+    descEn: 'Morning & evening athkar, daily Quran, and protecting your sleep.',
+    descAr: 'أذكار الصباح والمساء، قرآن يومي، وحماية نومك.',
+    color: Color(0xFF2ECF8F),
+    emoji: '🕌',
+    catalogIds: [
+      'morning_athkar', 'evening_athkar', 'quran_daily_page', 'sleep_schedule',
+    ],
+  ),
+  HabitPlan(
+    id: 'marriage_prep',
+    nameEn: 'Marriage Preparation',
+    nameAr: 'التحضير للزواج',
+    descEn: 'Small daily habits to build a stronger, more intentional marriage.',
+    descAr: 'عادات يومية صغيرة لبناء زواج أقوى وأكثر وعيًا.',
+    color: Color(0xFFFF6FA5),
+    emoji: '💞',
+    catalogIds: [
+      'marriage_dua', 'marriage_gratitude', 'marriage_read', 'marriage_checkin',
+    ],
+  ),
+  HabitPlan(
+    id: 'discipline_30',
+    nameEn: '30-Day Discipline Challenge',
+    nameAr: 'تحدي الانضباط 30 يومًا',
+    descEn: 'Cold showers, early mornings, and no sugar — one month to reset.',
+    descAr: 'دش بارد، استيقاظ مبكر، وبدون سكر — شهر واحد لإعادة الضبط.',
+    color: Color(0xFF4A9EFF),
+    emoji: '🔥',
+    catalogIds: ['cold_shower', 'wake_early', 'no_sugar', 'gym_consistency'],
+  ),
+  HabitPlan(
+    id: 'productivity_starter',
+    nameEn: 'Productivity Starter Pack',
+    nameAr: 'حزمة بداية الإنتاجية',
+    descEn: 'Deep work, inbox zero, and a distraction-free morning.',
+    descAr: 'عمل عميق، صندوق بريد فارغ، وصباح بلا تشتيت.',
+    color: Color(0xFFBF5AF2),
+    emoji: '⚙️',
+    catalogIds: [
+      'deep_work_block', 'inbox_zero', 'daily_planning', 'no_phone_morning',
+    ],
+  ),
 ];
 
 // ─── Active catalog provider ──────────────────────────────────────────────────

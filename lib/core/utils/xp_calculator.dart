@@ -33,6 +33,38 @@ abstract final class XpCalculator {
     );
   }
 
+  /// Applies an XP change that may be negative (e.g. a red "failed" square).
+  /// Gains delegate to [applyXpGain] for multi-level-up handling. Losses only
+  /// trim progress within the current level and never de-level the player or
+  /// push cumulative XP negative — losing a square should sting, not undo
+  /// genuine earned progress.
+  static ({
+    int newLevel,
+    int newCurrentLevelXp,
+    int newCumulativeXp,
+  }) applyXpDelta({
+    required int currentLevel,
+    required int currentLevelXp,
+    required int cumulativeXp,
+    required int xpDelta,
+  }) {
+    if (xpDelta >= 0) {
+      return applyXpGain(
+        currentLevel: currentLevel,
+        currentLevelXp: currentLevelXp,
+        cumulativeXp: cumulativeXp,
+        xpGained: xpDelta,
+      );
+    }
+    final trimmedLevelXp = currentLevelXp + xpDelta;
+    final trimmedCumulative = cumulativeXp + xpDelta;
+    return (
+      newLevel: currentLevel,
+      newCurrentLevelXp: trimmedLevelXp < 0 ? 0 : trimmedLevelXp,
+      newCumulativeXp: trimmedCumulative < 0 ? 0 : trimmedCumulative,
+    );
+  }
+
   /// One-time streak bonus XP at a milestone (returns 0 if not a milestone).
   static int streakMilestoneBonus(int streak) {
     return GameConstants.streakBonuses[streak] ?? 0;

@@ -8,8 +8,10 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
+import '../../dashboard/widgets/reaction_overlays.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../night_review/notifiers/night_review_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 
@@ -23,6 +25,8 @@ class GridScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    registerDashboardReactions(context, ref, routeToIntentionOnFirstLoad: true);
+
     final gp = context.gp;
     final s = S.of(context);
     final habits = ref.watch(habitListProvider);
@@ -30,7 +34,7 @@ class GridScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 1),
+      bottomNavigationBar: const GameNavBar(currentIndex: 0),
       body: SafeArea(
         bottom: false,
         child: CustomScrollView(
@@ -53,6 +57,7 @@ class GridScreen extends ConsumerWidget {
                       .slideY(begin: -0.05, curve: Curves.easeOut),
                 ),
               ),
+              const SliverToBoxAdapter(child: _NightReviewPromptCard()),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -119,14 +124,36 @@ class _GridHeader extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            s.gridTitle,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-              color: gp.textPrimary,
-              letterSpacing: -0.5,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  s.gridTitle,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: gp.textPrimary,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.insights_rounded, color: gp.textSec),
+                tooltip: s.heatmapTitle,
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pushNamed(context, '/heatmap');
+                },
+              ),
+              IconButton(
+                icon: Icon(Icons.nightlight_round, color: gp.textSec),
+                tooltip: s.nightReviewTitle,
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pushNamed(context, '/night-review');
+                },
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Row(
@@ -235,13 +262,14 @@ class _SummaryCard extends StatelessWidget {
     final possible = habits.length * 7;
     final ratio = possible == 0 ? 0.0 : greens / possible;
 
-    // Points = sum of each habit's base reward weighted by its square state.
-    double points = 0;
+    // Points this week = the same fixed per-color XP that feeds the RPG
+    // system (green +10, yellow +5, blue +15, red -3, white/gray 0).
+    var points = 0;
     for (final day in state.days) {
       final row = state.states[day.toDateKey()];
       if (row == null) continue;
       for (final h in habits) {
-        points += h.xpReward * (row[h.id] ?? SquareState.none).pointMultiplier;
+        points += (row[h.id] ?? SquareState.none).xpValue;
       }
     }
 
@@ -320,7 +348,7 @@ class _SummaryCard extends StatelessWidget {
                   children: [
                     _MiniStat(
                       icon: Icons.bolt_rounded,
-                      value: points.round().toString(),
+                      value: '$points',
                       label: s.gridPoints,
                       color: GameColors.gold,
                     ),
@@ -418,6 +446,83 @@ class _MiniStat extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+// ─── Night Review prompt ───────────────────────────────────────────────────
+
+/// A gentle evening nudge toward Night Review — visible any time after 6pm
+/// until tonight's check-in is saved. Dismissible via the Grid header's moon
+/// icon at any hour; this card just makes the invitation hard to miss when
+/// it matters most.
+class _NightReviewPromptCard extends ConsumerWidget {
+  const _NightReviewPromptCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final review = ref.watch(nightReviewProvider);
+    final isEvening = DateTime.now().hour >= 18;
+    if (review.isLoading || review.saved || !isEvening) {
+      return const SizedBox.shrink();
+    }
+    final gp = context.gp;
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          Navigator.pushNamed(context, '/night-review');
+        },
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: gp.surface,
+            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+            border: Border.all(color: GameColors.xpBlue.withOpacity(0.22)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: GameColors.xpBlue.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.nightlight_round,
+                    color: GameColors.xpBlue),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.nightReviewPromptTitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: gp.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      s.nightReviewPromptDesc,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: gp.textSec),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: GameColors.xpBlue),
+            ],
+          ),
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08);
   }
 }
 

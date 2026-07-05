@@ -32,7 +32,7 @@ class S {
   // ── App ──────────────────────────────────────────────────────────────────
   String get appTitle => isAr ? 'GrowDaily' : 'GrowDaily';
   String get tagline =>
-      isAr ? 'أهداف، دين، وانتصارات يومية صغيرة.' : 'Goals, deen, and tiny daily wins.';
+      isAr ? 'لوّن حياتك، مربّعًا كل يوم.' : 'Color your life, one square at a time.';
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   String get signIn => isAr ? 'تسجيل الدخول' : 'Sign In';
@@ -313,4 +313,40 @@ class S {
       isAr ? 'اكتب انعكاسًا قصيرًا…' : 'Write a short reflection…';
   String get gridSave => isAr ? 'حفظ' : 'Save';
   String get gridFutureDay => isAr ? 'يوم قادم' : 'Future day';
+
+  // ── Monthly Heatmap ──────────────────────────────────────────────────────
+  String get heatmapTitle => isAr ? 'خريطة التقدّم' : 'Progress Heatmap';
+  String get heatmapSubtitle => isAr
+      ? 'كثافة الإنجاز عبر الأشهر — كل مربّع يومٌ، وكل درجة لون كثافة انتصاراتك.'
+      : "Your completion density across months — every square is a day, every shade is how much you colored it.";
+  String get heatmapTotalGreen => isAr ? 'مربّعات خضراء' : 'Green squares';
+  String get heatmapActiveDays => isAr ? 'أيام نشطة' : 'Active days';
+  String get heatmapBestDay => isAr ? 'أفضل يوم' : 'Best day';
+  String get heatmapLess => isAr ? 'أقل' : 'Less';
+  String get heatmapMore => isAr ? 'أكثر' : 'More';
+
+  // ── Night Review ─────────────────────────────────────────────────────────
+  String get nightReviewTitle => isAr ? 'مراجعة الليل' : 'Night Review';
+  String get nightReviewPromptTitle =>
+      isAr ? 'كيف كان يومك؟' : 'How was your day?';
+  String get nightReviewPromptDesc => isAr
+      ? 'مراجعة مسائية قصيرة قبل النوم — مزاجك، انعكاسك، وانتصارات اليوم.'
+      : 'A short evening check-in before bed — your mood, a reflection, and today\'s wins.';
+  String get nightReviewMoodQuestion =>
+      isAr ? 'اختر مزاجك' : 'Select your mood';
+  String get nightReviewReflectionLabel =>
+      isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
+  String get nightReviewReflectionHint =>
+      isAr ? 'اكتب بضع كلمات عن يومك…' : 'Write a few words about your day…';
+  String get nightReviewSummaryTitle =>
+      isAr ? 'ملخّص اليوم' : "Today's summary";
+  String get nightReviewXpEarned => isAr ? 'نقاط الخبرة' : 'XP earned';
+  String get nightReviewGreenSquares =>
+      isAr ? 'مربّعات خضراء' : 'Green squares';
+  String get nightReviewStreak => isAr ? 'السلسلة' : 'Streak';
+  String get nightReviewSave => isAr ? 'حفظ المراجعة' : 'Save review';
+  String get nightReviewSaved => isAr ? 'تم حفظ مراجعتك الليلية' : 'Night review saved';
+  String get nightReviewDoneBadge => isAr ? 'تمت المراجعة' : 'Reviewed';
+  String get nightReviewEditedHint =>
+      isAr ? 'يمكنك تعديل مراجعتك في أي وقت الليلة' : 'You can edit tonight\'s review anytime';
 }

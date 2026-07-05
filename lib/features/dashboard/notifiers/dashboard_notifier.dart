@@ -50,6 +50,20 @@ class DashboardState {
   final int? milestoneCelebration;
   final bool intentionsSetToday;
 
+  /// Lifetime count of green (complete/bonus) squares ever colored on the
+  /// Victory Grid — the "100 green squares completed" style achievements.
+  final int totalGreenSquares;
+
+  /// Whether the day's streak has already been credited by grid activity
+  /// (kept alongside [completions].isEmpty so a habit-card completion and a
+  /// grid square never double-count the same day's streak).
+  final bool gridActivityToday;
+
+  /// dateKey ('YYYY-MM-DD') → green squares colored that day, across all
+  /// history. Kept as a flat rollup on the user doc so the monthly heatmap
+  /// loads instantly regardless of how many years of data exist.
+  final Map<String, int> dailyGreenCounts;
+
   const DashboardState({
     required this.level,
     required this.currentLevelXp,
@@ -70,6 +84,9 @@ class DashboardState {
     this.previousStreak = 0,
     this.milestoneCelebration,
     this.intentionsSetToday = false,
+    this.totalGreenSquares = 0,
+    this.gridActivityToday = false,
+    this.dailyGreenCounts = const {},
   });
 
   factory DashboardState.initial() => const DashboardState(
@@ -114,6 +131,9 @@ class DashboardState {
     int? setMilestone,
     bool clearMilestone = false,
     bool? intentionsSetToday,
+    int? totalGreenSquares,
+    bool? gridActivityToday,
+    Map<String, int>? dailyGreenCounts,
   }) =>
       DashboardState(
         level: level ?? this.level,
@@ -137,6 +157,9 @@ class DashboardState {
         milestoneCelebration:
             clearMilestone ? null : (setMilestone ?? this.milestoneCelebration),
         intentionsSetToday: intentionsSetToday ?? this.intentionsSetToday,
+        totalGreenSquares: totalGreenSquares ?? this.totalGreenSquares,
+        gridActivityToday: gridActivityToday ?? this.gridActivityToday,
+        dailyGreenCounts: dailyGreenCounts ?? this.dailyGreenCounts,
       );
 }
 
@@ -189,6 +212,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       final rawCompletions =
           (daily['habitCompletions'] as Map?)?.cast<String, dynamic>() ?? {};
       final completions = rawCompletions.map(
+        (key, value) => MapEntry(key, (value as num).toInt()),
+      );
+      final gridActivityToday = (daily['gridActivityLogged'] as bool?) ?? false;
+      final rawGreenCounts =
+          (saved['dailyGreenCounts'] as Map?)?.cast<String, dynamic>() ?? {};
+      final dailyGreenCounts = rawGreenCounts.map(
         (key, value) => MapEntry(key, (value as num).toInt()),
       );
 
@@ -246,6 +275,9 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         showComebackBonus: showComebackBonus,
         previousStreak: previousStreak,
         isLoading: false,
+        totalGreenSquares: (saved['totalGreenSquares'] as int?) ?? 0,
+        gridActivityToday: gridActivityToday,
+        dailyGreenCounts: dailyGreenCounts,
       );
     } catch (_) {
       if (mounted) state = DashboardState.initial().copyWith(isLoading: false);
@@ -269,6 +301,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'totalHabitCompletions': state.totalCompletions,
         'streakFreezes': state.streakFreezes,
         'unlockedAchievements': state.unlockedAchievements,
+        'totalGreenSquares': state.totalGreenSquares,
+        'dailyGreenCounts': state.dailyGreenCounts,
         if (lastActiveDate != null)
           'lastActiveDate': lastActiveDate.toIso8601String(),
       },
@@ -276,13 +310,24 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   }
 
   Future<void> _saveGuestDaily(Map<String, int> completions) async {
+    final existing = await LocalStoreService.getDailyMap(_todayKey);
     await LocalStoreService.putDailyMap(
       _todayKey,
       {
+        ...existing,
         'habitCompletions': completions,
         'date': DateTime.now().toIso8601String(),
       },
     );
+  }
+
+  Future<void> _markGuestGridActivityToday() async {
+    final existing = await LocalStoreService.getDailyMap(_todayKey);
+    await LocalStoreService.putDailyMap(_todayKey, {
+      ...existing,
+      'gridActivityLogged': true,
+      'date': DateTime.now().toIso8601String(),
+    });
   }
 
   Future<void> _loadToday() async {
@@ -306,6 +351,9 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       Map<String, int> completions = {};
       bool showComebackBonus = false;
       bool intentionsSetToday = false;
+      bool gridActivityToday = false;
+      int totalGreenSquares = 0;
+      Map<String, int> dailyGreenCounts = {};
 
       if (userSnap.exists) {
         final d = userSnap.data()!;
@@ -320,6 +368,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         final lastFreezeGrantWeek = d['lastFreezeGrantWeek'] as String?;
         unlockedAchievements =
             List<String>.from(d['unlockedAchievements'] as List? ?? []);
+        totalGreenSquares = (d['totalGreenSquares'] as int?) ?? 0;
+        final rawGreenCounts =
+            (d['dailyGreenCounts'] as Map?)?.cast<String, dynamic>() ?? {};
+        dailyGreenCounts = rawGreenCounts.map(
+          (key, value) => MapEntry(key, (value as num).toInt()),
+        );
 
         final lastActiveTs = d['lastActiveDate'] as Timestamp?;
         if (lastActiveTs != null) {
@@ -366,6 +420,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         completions =
             raw.map((k, v) => MapEntry(k, (v as num).toInt()));
         intentionsSetToday = (d['intentionsSet'] as bool?) ?? false;
+        gridActivityToday = (d['gridActivityLogged'] as bool?) ?? false;
       }
 
       if (mounted) {
@@ -386,11 +441,40 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           showComebackBonus: showComebackBonus,
           previousStreak: previousStreak,
           intentionsSetToday: intentionsSetToday,
+          totalGreenSquares: totalGreenSquares,
+          gridActivityToday: gridActivityToday,
+          dailyGreenCounts: dailyGreenCounts,
         );
       }
     } catch (_) {
       if (mounted) state = state.copyWith(isLoading: false);
     }
+  }
+
+  // ── Streak helper ────────────────────────────────────────────
+
+  /// Advances the day-streak by one and reports any milestone crossed.
+  /// Shared by [completeHabit] and [applyGridSquareChange] so both entry
+  /// points to "did something today" agree on milestone semantics.
+  ({int streak, int longestStreak, int? milestone, int milestoneBonusXp})
+      _computeStreakBump() {
+    final newStreak = state.streak + 1;
+    final newLongest =
+        newStreak > state.longestStreak ? newStreak : state.longestStreak;
+    int? newMilestone;
+    for (final m in kStreakMilestones) {
+      if (newStreak == m && state.streak < m) {
+        newMilestone = m;
+        break;
+      }
+    }
+    final bonus = newMilestone != null ? milestoneXpBonus(newMilestone) : 0;
+    return (
+      streak: newStreak,
+      longestStreak: newLongest,
+      milestone: newMilestone,
+      milestoneBonusXp: bonus,
+    );
   }
 
   // ── Actions ──────────────────────────────────────────────────
@@ -407,21 +491,19 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     final newCompletions = Map<String, int>.from(state.completions)
       ..[habitId] = current + 1;
 
-    final isFirstToday = state.completions.isEmpty;
-    final newStreak = isFirstToday ? state.streak + 1 : state.streak;
-    final newLongest =
-        newStreak > state.longestStreak ? newStreak : state.longestStreak;
-
-    // ── Streak milestone check ───────────────────────────────
-    int? newMilestone;
-    for (final m in kStreakMilestones) {
-      if (newStreak == m && state.streak < m) {
-        newMilestone = m;
-        break;
-      }
-    }
-    final milestoneBonusXp =
-        newMilestone != null ? milestoneXpBonus(newMilestone) : 0;
+    final isFirstToday = state.completions.isEmpty && !state.gridActivityToday;
+    final bump = isFirstToday
+        ? _computeStreakBump()
+        : (
+            streak: state.streak,
+            longestStreak: state.longestStreak,
+            milestone: null,
+            milestoneBonusXp: 0,
+          );
+    final newStreak = bump.streak;
+    final newLongest = bump.longestStreak;
+    final newMilestone = bump.milestone;
+    final milestoneBonusXp = bump.milestoneBonusXp;
 
     final result = XpCalculator.applyXpGain(
       currentLevel: state.level,
@@ -520,6 +602,156 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         },
         SetOptions(merge: true),
       );
+
+      await batch.commit();
+    } catch (_) {}
+  }
+
+  /// Applies the progression fallout of a single Victory Grid square
+  /// changing color: fixed XP per the color (see [SquareState.xpValue]),
+  /// a lifetime green-square counter that drives grid achievements, a daily
+  /// rollup for the monthly heatmap, and — only for a green mark logged on
+  /// *today* — the same once-per-day streak bump [completeHabit] uses.
+  Future<void> applyGridSquareChange({
+    required int xpDelta,
+    required int greenDelta,
+    required bool isToday,
+    required String dateKey,
+  }) async {
+    var newLevel = state.level;
+    var newCurrentLevelXp = state.currentLevelXp;
+    var newCumulativeXp = state.cumulativeXp;
+
+    if (xpDelta != 0) {
+      final result = XpCalculator.applyXpDelta(
+        currentLevel: state.level,
+        currentLevelXp: state.currentLevelXp,
+        cumulativeXp: state.cumulativeXp,
+        xpDelta: xpDelta,
+      );
+      newLevel = result.newLevel;
+      newCurrentLevelXp = result.newCurrentLevelXp;
+      newCumulativeXp = result.newCumulativeXp;
+    }
+
+    final rawTotalGreen = state.totalGreenSquares + greenDelta;
+    final newTotalGreen = rawTotalGreen < 0 ? 0 : rawTotalGreen;
+    final newDailyGreenCounts = {...state.dailyGreenCounts};
+    if (greenDelta != 0) {
+      final rawDay = (newDailyGreenCounts[dateKey] ?? 0) + greenDelta;
+      newDailyGreenCounts[dateKey] = rawDay < 0 ? 0 : rawDay;
+    }
+
+    var newStreak = state.streak;
+    var newLongest = state.longestStreak;
+    var newGridActivityToday = state.gridActivityToday;
+    int? newMilestone;
+
+    final earnsStreakToday = isToday &&
+        greenDelta > 0 &&
+        state.completions.isEmpty &&
+        !state.gridActivityToday;
+    if (earnsStreakToday) {
+      final bump = _computeStreakBump();
+      newStreak = bump.streak;
+      newLongest = bump.longestStreak;
+      newMilestone = bump.milestone;
+      newGridActivityToday = true;
+      if (bump.milestoneBonusXp > 0) {
+        final bumped = XpCalculator.applyXpGain(
+          currentLevel: newLevel,
+          currentLevelXp: newCurrentLevelXp,
+          cumulativeXp: newCumulativeXp,
+          xpGained: bump.milestoneBonusXp,
+        );
+        newLevel = bumped.newLevel;
+        newCurrentLevelXp = bumped.newCurrentLevelXp;
+        newCumulativeXp = bumped.newCumulativeXp;
+      }
+    }
+
+    // ── Achievement check ────────────────────────────────────
+    final newly = AchievementCatalog.locked(state.unlockedAchievements)
+        .where((a) => switch (a.trigger) {
+              AchievementTrigger.streak => newStreak >= a.threshold,
+              AchievementTrigger.level => newLevel >= a.threshold,
+              AchievementTrigger.greenSquares =>
+                newTotalGreen >= a.threshold,
+              _ => false,
+            })
+        .toList();
+
+    final newUnlockedIds = [
+      ...state.unlockedAchievements,
+      ...newly.map((a) => a.id),
+    ];
+
+    int bonusXp = newly.fold(0, (s, a) => s + a.xpReward);
+    int bonusGold = newly.fold(0, (s, a) => s + a.goldReward);
+    if (bonusXp > 0) {
+      final bonusResult = XpCalculator.applyXpGain(
+        currentLevel: newLevel,
+        currentLevelXp: newCurrentLevelXp,
+        cumulativeXp: newCumulativeXp,
+        xpGained: bonusXp,
+      );
+      newLevel = bonusResult.newLevel;
+      newCurrentLevelXp = bonusResult.newCurrentLevelXp;
+      newCumulativeXp = bonusResult.newCumulativeXp;
+    }
+    final newGold = state.gold + bonusGold;
+    final didLevelUp = newLevel > state.level;
+
+    state = state.copyWith(
+      level: newLevel,
+      currentLevelXp: newCurrentLevelXp,
+      cumulativeXp: newCumulativeXp,
+      gold: newGold,
+      streak: newStreak,
+      longestStreak: newLongest,
+      totalGreenSquares: newTotalGreen,
+      gridActivityToday: newGridActivityToday,
+      dailyGreenCounts: newDailyGreenCounts,
+      unlockedAchievements: newUnlockedIds,
+      newlyUnlocked: newly,
+      didJustLevelUp: didLevelUp,
+      setMilestone: newMilestone,
+    );
+
+    if (_uid == null) {
+      await _saveGuestState();
+      if (earnsStreakToday) await _markGuestGridActivityToday();
+      return;
+    }
+
+    try {
+      final now = DateTime.now();
+      final batch = FirebaseFirestore.instance.batch();
+
+      final userUpdate = <String, dynamic>{
+        'level': newLevel,
+        'currentLevelXp': newCurrentLevelXp,
+        'cumulativeXp': newCumulativeXp,
+        'gold': newGold,
+        'currentStreak': newStreak,
+        'longestStreak': newLongest,
+        'unlockedAchievements': newUnlockedIds,
+        'lastActiveDate': Timestamp.fromDate(now),
+      };
+      if (greenDelta != 0) {
+        userUpdate['totalGreenSquares'] = FieldValue.increment(greenDelta);
+        userUpdate['dailyGreenCounts.$dateKey'] =
+            FieldValue.increment(greenDelta);
+      }
+      batch.set(_userRef, userUpdate, SetOptions(merge: true));
+
+      if (earnsStreakToday) {
+        batch.set(
+          _dailyRef,
+          {'gridActivityLogged': true},
+          SetOptions(merge: true),
+        );
+      }
 
       await batch.commit();
     } catch (_) {}

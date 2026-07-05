@@ -822,6 +822,7 @@ class _AchievementCard extends StatelessWidget {
         AchievementTrigger.totalCompletions =>
           Icons.check_circle_rounded,
         AchievementTrigger.habitMastery => Icons.menu_book_rounded,
+        AchievementTrigger.greenSquares => Icons.grid_view_rounded,
         _ => Icons.stars_rounded,
       };
 
@@ -833,6 +834,8 @@ class _AchievementCard extends StatelessWidget {
         AchievementTrigger.totalCompletions =>
           (state.totalCompletions / achievement.threshold)
               .clamp(0.0, 1.0),
+        AchievementTrigger.greenSquares =>
+          (state.totalGreenSquares / achievement.threshold).clamp(0.0, 1.0),
         _ => 0.0,
       };
 
@@ -840,6 +843,7 @@ class _AchievementCard extends StatelessWidget {
         AchievementTrigger.streak => state.streak,
         AchievementTrigger.level => state.level,
         AchievementTrigger.totalCompletions => state.totalCompletions,
+        AchievementTrigger.greenSquares => state.totalGreenSquares,
         _ => 0,
       };
 

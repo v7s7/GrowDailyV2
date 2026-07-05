@@ -19,6 +19,7 @@ enum AchievementTrigger {
   level, // level reaches threshold
   totalCompletions, // total lifetime completions (any habit)
   habitMastery, // single habit totalCompletions reaches threshold
+  greenSquares, // lifetime green (complete/bonus) squares colored on the grid
   special; // manually awarded
 }
 
@@ -162,6 +163,40 @@ abstract final class AchievementCatalog {
       threshold: 100,
       xpReward: 750,
       goldReward: 200,
+    ),
+    // ── Victory Grid ────────────────────────────────────────────
+    AchievementModel(
+      id: 'green_100',
+      name: 'Grid Painter',
+      description: 'Color 100 green squares on your Victory Grid',
+      iconEmoji: '🟩',
+      rarity: AchievementRarity.uncommon,
+      trigger: AchievementTrigger.greenSquares,
+      threshold: 100,
+      xpReward: 200,
+      goldReward: 50,
+    ),
+    AchievementModel(
+      id: 'green_500',
+      name: 'Grid Master',
+      description: 'Color 500 green squares on your Victory Grid',
+      iconEmoji: '🟢',
+      rarity: AchievementRarity.rare,
+      trigger: AchievementTrigger.greenSquares,
+      threshold: 500,
+      xpReward: 600,
+      goldReward: 150,
+    ),
+    AchievementModel(
+      id: 'green_2000',
+      name: 'Living Canvas',
+      description: 'Color 2000 green squares on your Victory Grid',
+      iconEmoji: '🌈',
+      rarity: AchievementRarity.legendary,
+      trigger: AchievementTrigger.greenSquares,
+      threshold: 2000,
+      xpReward: 2500,
+      goldReward: 600,
     ),
   ];
 

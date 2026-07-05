@@ -48,13 +48,17 @@ enum SquareState {
   /// Whether this state represents any deliberate mark (not the empty default).
   bool get isMarked => this != none;
 
-  /// Points contribution as a multiple of the habit's base points.
-  /// Complete earns full points, a bonus earns extra, partial earns half.
-  double get pointMultiplier => switch (this) {
-        complete => 1.0,
-        bonus => 1.5,
-        partial => 0.5,
-        none || failed || skipped => 0.0,
+  /// Fixed XP contribution of this square color, independent of the habit.
+  /// This is the universal reward the whole progression system runs on:
+  /// green pays the most reliable reward, blue is the bonus-achievement
+  /// spike, yellow is half credit for partial effort, red is a small sting
+  /// for a logged failure, and white/gray contribute nothing ("ignored").
+  int get xpValue => switch (this) {
+        complete => 10,
+        bonus => 15,
+        partial => 5,
+        failed => -3,
+        none || skipped => 0,
       };
 
   String get label => switch (this) {
