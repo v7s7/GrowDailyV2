@@ -85,7 +85,7 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 3),
+      bottomNavigationBar: const GameNavBar(currentIndex: 4),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [

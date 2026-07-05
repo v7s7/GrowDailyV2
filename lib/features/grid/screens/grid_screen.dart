@@ -1,0 +1,1065 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import '../../../core/extensions/datetime_ext.dart';
+import '../../../core/l10n/app_strings.dart';
+import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/game_nav_bar.dart';
+import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../models/square_state.dart';
+import '../notifiers/weekly_grid_notifier.dart';
+
+/// The Weekly Victory Grid — the flagship "color your life" experience.
+///
+/// Rows are habits, columns are the seven days of the week (Sat → Fri).
+/// Tapping a square cycles white → yellow → green → white; a long-press opens
+/// the full palette plus a daily reflection note.
+class GridScreen extends ConsumerWidget {
+  const GridScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final habits = ref.watch(habitListProvider);
+    final grid = ref.watch(weeklyGridProvider);
+
+    return Scaffold(
+      backgroundColor: gp.bg,
+      bottomNavigationBar: const GameNavBar(currentIndex: 1),
+      body: SafeArea(
+        bottom: false,
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics()),
+          slivers: [
+            SliverToBoxAdapter(child: _GridHeader(state: grid)),
+            if (habits.isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: _GridEmptyState(),
+              )
+            else ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: _SummaryCard(habits: habits, state: grid)
+                      .animate()
+                      .fadeIn(duration: 400.ms)
+                      .slideY(begin: -0.05, curve: Curves.easeOut),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                  child: grid.isLoading
+                      ? const _GridSkeleton()
+                      : _GridTable(habits: habits, state: grid)
+                          .animate()
+                          .fadeIn(duration: 400.ms, delay: 60.ms),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: const _Legend()
+                      .animate()
+                      .fadeIn(duration: 400.ms, delay: 140.ms),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+                  child: Text(
+                    s.gridSlogan,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontStyle: FontStyle.italic,
+                      color: gp.textTert,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 120)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Header (title + week navigation) ─────────────────────────────────────────
+
+class _GridHeader extends ConsumerWidget {
+  final WeeklyGridState state;
+  const _GridHeader({required this.state});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final locale = Localizations.localeOf(context).languageCode;
+    final notifier = ref.read(weeklyGridProvider.notifier);
+    final start = state.weekStart;
+    final end = start.add(const Duration(days: 6));
+    final range = state.isCurrentWeek
+        ? s.gridThisWeek
+        : '${DateFormat('MMM d', locale).format(start)} – '
+            '${DateFormat('MMM d', locale).format(end)}';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            s.gridTitle,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              color: gp.textPrimary,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _NavArrow(
+                icon: Icons.chevron_left_rounded,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  notifier.previousWeek();
+                },
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: state.isCurrentWeek
+                      ? null
+                      : () {
+                          HapticFeedback.selectionClick();
+                          notifier.goToCurrentWeek();
+                        },
+                  child: Column(
+                    children: [
+                      Text(
+                        range,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: gp.textPrimary,
+                        ),
+                      ),
+                      if (!state.isCurrentWeek)
+                        Text(
+                          s.gridThisWeek,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: GameColors.gold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              _NavArrow(
+                icon: Icons.chevron_right_rounded,
+                enabled: state.canGoForward,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  notifier.nextWeek();
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavArrow extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool enabled;
+  const _NavArrow(
+      {required this.icon, required this.onTap, this.enabled = true});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Opacity(
+      opacity: enabled ? 1 : 0.3,
+      child: Material(
+        color: gp.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: gp.border, width: 0.5),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: enabled ? onTap : null,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(icon, color: gp.textSec, size: 24),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Summary card (green squares, points, completion) ─────────────────────────
+
+class _SummaryCard extends StatelessWidget {
+  final List<IslamicHabitTemplate> habits;
+  final WeeklyGridState state;
+  const _SummaryCard({required this.habits, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final habitIds = habits.map((h) => h.id).toList();
+    final greens = state.greenSquares(habitIds);
+    final possible = habits.length * 7;
+    final ratio = possible == 0 ? 0.0 : greens / possible;
+
+    // Points = sum of each habit's base reward weighted by its square state.
+    double points = 0;
+    for (final day in state.days) {
+      final row = state.states[day.toDateKey()];
+      if (row == null) continue;
+      for (final h in habits) {
+        points += h.xpReward * (row[h.id] ?? SquareState.none).pointMultiplier;
+      }
+    }
+
+    final greensToday = () {
+      final today = DateTime.now();
+      if (!state.days.any((d) => d.isSameDayAs(today))) return 0;
+      final row = state.states[today.toDateKey()];
+      if (row == null) return 0;
+      return habitIds
+          .where((id) => (row[id] ?? SquareState.none).isGreen)
+          .length;
+    }();
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            GameColors.emerald.withOpacity(gp.dark ? 0.14 : 0.10),
+            gp.surface,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(
+            color: GameColors.emerald.withOpacity(0.28), width: 0.8),
+      ),
+      child: Row(
+        children: [
+          _RingStat(ratio: ratio),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      '$greens',
+                      style: const TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.w900,
+                        color: GameColors.emerald,
+                        height: 1,
+                        letterSpacing: -1.5,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        s.gridGreenSquares,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: gp.textSec,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  ratio >= 1.0
+                      ? s.gridWeekFilled
+                      : (greensToday > 0
+                          ? s.gridGreensToday(greensToday)
+                          : s.gridTapHint),
+                  style: TextStyle(fontSize: 12, color: gp.textTert),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _MiniStat(
+                      icon: Icons.bolt_rounded,
+                      value: points.round().toString(),
+                      label: s.gridPoints,
+                      color: GameColors.gold,
+                    ),
+                    const SizedBox(width: 20),
+                    _MiniStat(
+                      icon: Icons.percent_rounded,
+                      value: '${(ratio * 100).round()}%',
+                      label: s.gridComplete,
+                      color: GameColors.xpBlue,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RingStat extends StatelessWidget {
+  final double ratio;
+  const _RingStat({required this.ratio});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return SizedBox(
+      width: 64,
+      height: 64,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 64,
+            height: 64,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: ratio.clamp(0.0, 1.0)),
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeOutCubic,
+              builder: (_, v, __) => CircularProgressIndicator(
+                value: v,
+                strokeWidth: 6,
+                backgroundColor: gp.surfaceHL,
+                valueColor:
+                    const AlwaysStoppedAnimation(GameColors.emerald),
+                strokeCap: StrokeCap.round,
+              ),
+            ),
+          ),
+          Icon(
+            ratio >= 1.0
+                ? Icons.emoji_events_rounded
+                : Icons.grid_view_rounded,
+            color: GameColors.emerald,
+            size: 24,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color color;
+  const _MiniStat(
+      {required this.icon,
+      required this.value,
+      required this.label,
+      required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 5),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: gp.textPrimary,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(fontSize: 11, color: gp.textTert),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── The grid table itself ────────────────────────────────────────────────────
+
+class _GridTable extends ConsumerWidget {
+  final List<IslamicHabitTemplate> habits;
+  final WeeklyGridState state;
+  const _GridTable({required this.habits, required this.state});
+
+  static const double _habitCol = 112;
+  static const double _gap = 6;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final avail = constraints.maxWidth;
+          double cell = (avail - _habitCol - 7 * _gap) / 7;
+          bool scroll = false;
+          if (cell < 32) {
+            cell = 32;
+            scroll = true;
+          } else {
+            cell = cell.clamp(32, 54);
+          }
+          final table = _buildTable(context, ref, cell);
+          if (!scroll) return table;
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: table,
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTable(BuildContext context, WidgetRef ref, double cell) {
+    final days = state.days;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _headerRow(context, days, cell),
+        const SizedBox(height: 8),
+        for (var i = 0; i < habits.length; i++) ...[
+          _habitRow(context, ref, habits[i], days, cell),
+          if (i != habits.length - 1) const SizedBox(height: _gap),
+        ],
+      ],
+    );
+  }
+
+  Widget _headerRow(BuildContext context, List<DateTime> days, double cell) {
+    final gp = context.gp;
+    final locale = Localizations.localeOf(context).languageCode;
+    return Row(
+      children: [
+        SizedBox(width: _habitCol),
+        for (final day in days)
+          Padding(
+            padding: const EdgeInsets.only(left: _gap),
+            child: SizedBox(
+              width: cell,
+              child: Column(
+                children: [
+                  Text(
+                    DateFormat('EEE', locale).format(day),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: day.isToday ? GameColors.gold : gp.textTert,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Container(
+                    width: 20,
+                    height: 20,
+                    alignment: Alignment.center,
+                    decoration: day.isToday
+                        ? BoxDecoration(
+                            color: GameColors.gold.withOpacity(0.16),
+                            shape: BoxShape.circle,
+                          )
+                        : null,
+                    child: Text(
+                      '${day.day}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight:
+                            day.isToday ? FontWeight.w800 : FontWeight.w600,
+                        color: day.isToday ? GameColors.gold : gp.textSec,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _habitRow(BuildContext context, WidgetRef ref,
+      IslamicHabitTemplate habit, List<DateTime> days, double cell) {
+    final gp = context.gp;
+    final today = DateTime.now();
+    return Row(
+      children: [
+        SizedBox(
+          width: _habitCol,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              children: [
+                Text(
+                  habit.iconEmoji.isNotEmpty
+                      ? habit.iconEmoji
+                      : habit.category.emoji,
+                  style: const TextStyle(fontSize: 15),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    habit.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: gp.textPrimary,
+                      height: 1.15,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        for (final day in days)
+          Padding(
+            padding: const EdgeInsets.only(left: _gap),
+            child: _SquareCell(
+              size: cell,
+              day: day,
+              isToday: day.isToday,
+              isFuture: day.startOfDay.isAfter(today.startOfDay),
+              square: state.squareFor(habit.id, day),
+              hasNote: state.noteFor(habit.id, day).isNotEmpty,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                ref
+                    .read(weeklyGridProvider.notifier)
+                    .cycleSquare(habit.id, day);
+              },
+              onLongPress: () {
+                HapticFeedback.mediumImpact();
+                _openEditor(context, ref, habit, day);
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _openEditor(BuildContext context, WidgetRef ref,
+      IslamicHabitTemplate habit, DateTime day) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CellEditorSheet(habit: habit, day: day),
+    );
+  }
+}
+
+class _SquareCell extends StatelessWidget {
+  final double size;
+  final DateTime day;
+  final bool isToday;
+  final bool isFuture;
+  final SquareState square;
+  final bool hasNote;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _SquareCell({
+    required this.size,
+    required this.day,
+    required this.isToday,
+    required this.isFuture,
+    required this.square,
+    required this.hasNote,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = context.gp.dark;
+    return GestureDetector(
+      onTap: isFuture ? null : onTap,
+      onLongPress: isFuture ? null : onLongPress,
+      child: Opacity(
+        opacity: isFuture ? 0.35 : 1,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: square.fill(dark),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: isToday
+                  ? GameColors.gold.withOpacity(0.9)
+                  : square.border(dark),
+              width: isToday ? 1.4 : 0.8,
+            ),
+          ),
+          child: Stack(
+            children: [
+              if (square.icon != null)
+                Center(
+                  child: Icon(
+                    square.icon,
+                    size: size * 0.5,
+                    color: square.accent,
+                  ),
+                ),
+              if (hasNote)
+                Positioned(
+                  right: 3,
+                  bottom: 3,
+                  child: Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: square.isMarked
+                          ? square.accent
+                          : context.gp.textTert,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Long-press cell editor (palette + reflection note) ───────────────────────
+
+class _CellEditorSheet extends ConsumerStatefulWidget {
+  final IslamicHabitTemplate habit;
+  final DateTime day;
+  const _CellEditorSheet({required this.habit, required this.day});
+
+  @override
+  ConsumerState<_CellEditorSheet> createState() => _CellEditorSheetState();
+}
+
+class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
+  late final TextEditingController _noteCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final note = ref
+        .read(weeklyGridProvider)
+        .noteFor(widget.habit.id, widget.day);
+    _noteCtrl = TextEditingController(text: note);
+  }
+
+  @override
+  void dispose() {
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final isAr = s.isAr;
+    final locale = Localizations.localeOf(context).languageCode;
+    final current =
+        ref.watch(weeklyGridProvider).squareFor(widget.habit.id, widget.day);
+    final palette = [
+      SquareState.complete,
+      SquareState.partial,
+      SquareState.bonus,
+      SquareState.failed,
+      SquareState.skipped,
+      SquareState.none,
+    ];
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Text(
+                  widget.habit.iconEmoji.isNotEmpty
+                      ? widget.habit.iconEmoji
+                      : widget.habit.category.emoji,
+                  style: const TextStyle(fontSize: 20),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.habit.name,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: gp.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        DateFormat('EEEE, MMM d', locale).format(widget.day),
+                        style: TextStyle(fontSize: 12, color: gp.textSec),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Text(
+              s.gridEditSquare.toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: gp.textTert,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final st in palette)
+                  _PaletteSwatch(
+                    state: st,
+                    selected: st == current,
+                    label: isAr ? st.labelAr : st.label,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      ref
+                          .read(weeklyGridProvider.notifier)
+                          .setSquare(widget.habit.id, widget.day, st);
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Text(
+              s.gridNoteLabel,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: gp.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _noteCtrl,
+              maxLines: 3,
+              minLines: 2,
+              textInputAction: TextInputAction.newline,
+              style: TextStyle(fontSize: 14, color: gp.textPrimary),
+              decoration: InputDecoration(hintText: s.gridNoteHint),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  ref.read(weeklyGridProvider.notifier).setNote(
+                        widget.habit.id,
+                        widget.day,
+                        _noteCtrl.text,
+                      );
+                  Navigator.pop(context);
+                },
+                child: Text(s.gridSave),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PaletteSwatch extends StatelessWidget {
+  final SquareState state;
+  final bool selected;
+  final String label;
+  final VoidCallback onTap;
+  const _PaletteSwatch({
+    required this.state,
+    required this.selected,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final dark = gp.dark;
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: state.fill(dark),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected ? state.accent : state.border(dark),
+                width: selected ? 2 : 0.8,
+              ),
+            ),
+            child: Icon(
+              state.icon ?? Icons.circle_outlined,
+              size: 20,
+              color: state == SquareState.none ? gp.textTert : state.accent,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+              color: selected ? state.accent : gp.textSec,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Legend ───────────────────────────────────────────────────────────────────
+
+class _Legend extends StatelessWidget {
+  const _Legend();
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final dark = gp.dark;
+    final items = [
+      SquareState.complete,
+      SquareState.partial,
+      SquareState.none,
+      SquareState.bonus,
+      SquareState.failed,
+      SquareState.skipped,
+    ];
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            s.gridLegend.toUpperCase(),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: gp.textTert,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 16,
+            runSpacing: 10,
+            children: [
+              for (final st in items)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        color: st.fill(dark),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: st.border(dark), width: 0.8),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      s.isAr ? st.labelAr : st.label,
+                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Loading skeleton ─────────────────────────────────────────────────────────
+
+class _GridSkeleton extends StatelessWidget {
+  const _GridSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Container(
+      height: 220,
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: const Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: GameColors.emerald),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Empty state ──────────────────────────────────────────────────────────────
+
+class _GridEmptyState extends StatelessWidget {
+  const _GridEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: GameColors.emerald.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.grid_view_rounded,
+                  size: 36, color: GameColors.emerald),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              s.gridEmptyTitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              s.gridEmptyDesc,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.4),
+            ),
+            const SizedBox(height: 28),
+            FilledButton.icon(
+              onPressed: () =>
+                  Navigator.pushReplacementNamed(context, '/dashboard'),
+              icon: const Icon(Icons.home_rounded, size: 18),
+              label: Text(s.gridGoToDashboard),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(220, 50),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

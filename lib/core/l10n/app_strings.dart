@@ -282,7 +282,35 @@ class S {
 
   // ── Navigation ───────────────────────────────────────────────────────────
   String get navDashboard => isAr ? 'الرئيسية' : 'Dashboard';
+  String get navGrid => isAr ? 'الشبكة' : 'Grid';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
   String get navProfile => isAr ? 'ملفي' : 'Profile';
+
+  // ── Victory Grid ─────────────────────────────────────────────────────────
+  String get gridTitle => isAr ? 'شبكة الانتصارات' : 'Victory Grid';
+  String get gridSlogan =>
+      isAr ? 'لوّن حياتك، مربّعًا كل يوم.' : 'Color your life, one square at a time.';
+  String get gridThisWeek => isAr ? 'هذا الأسبوع' : 'This week';
+  String get gridGreenSquares => isAr ? 'مربّعات خضراء' : 'Green squares';
+  String get gridPoints => isAr ? 'النقاط' : 'Points';
+  String get gridComplete => isAr ? 'الإكمال' : 'Complete';
+  String get gridWeekFilled => isAr ? 'اكتمل الأسبوع!' : 'Week filled!';
+  String gridGreensToday(int n) =>
+      isAr ? 'كسبت $n مربّعًا أخضر اليوم' : 'You earned $n green squares today';
+  String get gridTapHint => isAr
+      ? 'اضغط لتلوين المربّع · اضغط مطولاً للمزيد من الألوان'
+      : 'Tap to color · long-press for more colors';
+  String get gridLegend => isAr ? 'الألوان' : 'Legend';
+  String get gridEmptyTitle => isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
+  String get gridEmptyDesc => isAr
+      ? 'أضف عادات من الرئيسية لتبدأ بتلوين أسبوعك.'
+      : 'Add a few habits from the Dashboard to start coloring your week.';
+  String get gridGoToDashboard => isAr ? 'الذهاب للرئيسية' : 'Go to Dashboard';
+  String get gridEditSquare => isAr ? 'حدّد المربّع' : 'Set this square';
+  String get gridNoteLabel => isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
+  String get gridNoteHint =>
+      isAr ? 'اكتب انعكاسًا قصيرًا…' : 'Write a short reflection…';
+  String get gridSave => isAr ? 'حفظ' : 'Save';
+  String get gridFutureDay => isAr ? 'يوم قادم' : 'Future day';
 }

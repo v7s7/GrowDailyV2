@@ -77,7 +77,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 1),
+      bottomNavigationBar: const GameNavBar(currentIndex: 2),
       body: SafeArea(
         child: state.isLoading
             ? const Center(
