@@ -297,7 +297,7 @@ class S {
   String get gridComplete => isAr ? 'الإكمال' : 'Complete';
   String get gridWeekFilled => isAr ? 'اكتمل الأسبوع!' : 'Week filled!';
   String get gridPerfectDay =>
-      isAr ? '🎉 يوم مثالي — كل مربّعات اليوم خضراء!' : "🎉 Perfect day — every square is green!";
+      isAr ? 'يوم مثالي — كل مربّعات اليوم خضراء!' : 'Perfect day — every square is green!';
   String gridGreensToday(int n) =>
       isAr ? 'كسبت $n مربّعًا أخضر اليوم' : 'You earned $n green squares today';
   String get gridTapHint => isAr

@@ -9,14 +9,31 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/guest_limit_sheet.dart';
+import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
 import '../../habits/widgets/plan_picker_sheet.dart';
 import '../../night_review/notifiers/night_review_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
+
+/// Themed leading mark for a habit row — a tinted Material icon per
+/// category, keeping the grid surface icon-based rather than emoji-based.
+(IconData, Color) categoryVisual(HabitCategory category) => switch (category) {
+      HabitCategory.quran => (Icons.menu_book_rounded, GameColors.emerald),
+      HabitCategory.athkar =>
+        (Icons.self_improvement_rounded, GameColors.gold),
+      HabitCategory.fitness =>
+        (Icons.fitness_center_rounded, GameColors.streakOrange),
+      HabitCategory.fasting => (Icons.nights_stay_rounded, GameColors.xpBlue),
+      HabitCategory.sadaqah =>
+        (Icons.volunteer_activism_rounded, GameColors.warning),
+      HabitCategory.sleep => (Icons.bedtime_rounded, GameColors.rarityEpic),
+      HabitCategory.custom => (Icons.star_rounded, GameColors.gold),
+    };
 
 /// The Weekly Victory Grid — the flagship "color your life" experience.
 ///
@@ -705,12 +722,18 @@ class _GridTable extends ConsumerWidget {
             padding: const EdgeInsets.only(right: 8),
             child: Row(
               children: [
-                Text(
-                  habit.iconEmoji.isNotEmpty
-                      ? habit.iconEmoji
-                      : habit.category.emoji,
-                  style: const TextStyle(fontSize: 15),
-                ),
+                Builder(builder: (_) {
+                  final (icon, color) = categoryVisual(habit.category);
+                  return Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: Icon(icon, size: 13, color: color),
+                  );
+                }),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -868,7 +891,22 @@ class _SquareCell extends StatelessWidget {
           );
     }
     return GestureDetector(
-      onTap: isFuture ? null : onTap,
+      onTap: isFuture
+          ? null
+          : () {
+              // Confetti fires from the cell itself the instant the tap
+              // will turn it green — the market-standard completion moment.
+              if (square.next.isGreen) {
+                final box = context.findRenderObject() as RenderBox?;
+                if (box != null && box.attached) {
+                  showVictoryBurst(
+                    context,
+                    box.localToGlobal(box.size.center(Offset.zero)),
+                  );
+                }
+              }
+              onTap();
+            },
       onLongPress: isFuture ? null : onLongPress,
       child: Opacity(
         opacity: isFuture ? 0.35 : 1,
@@ -954,13 +992,19 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             const SizedBox(height: 18),
             Row(
               children: [
-                Text(
-                  widget.habit.iconEmoji.isNotEmpty
-                      ? widget.habit.iconEmoji
-                      : widget.habit.category.emoji,
-                  style: const TextStyle(fontSize: 20),
-                ),
-                const SizedBox(width: 8),
+                Builder(builder: (_) {
+                  final (icon, color) = categoryVisual(widget.habit.category);
+                  return Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(icon, size: 18, color: color),
+                  );
+                }),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

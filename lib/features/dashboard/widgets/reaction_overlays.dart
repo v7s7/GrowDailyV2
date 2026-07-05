@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/victory_burst.dart';
 import '../../achievements/models/achievement_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../notifiers/dashboard_notifier.dart';
@@ -327,27 +328,30 @@ class AchievementUnlockSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 28),
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: c.withOpacity(0.14),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                      color: c.withOpacity(0.28),
-                      blurRadius: 28,
-                      spreadRadius: 4),
-                ],
-              ),
-              child: Icon(_icon, size: 34, color: c),
-            )
-                .animate()
-                .scale(
-                    begin: const Offset(0.4, 0.4),
-                    curve: Curves.elasticOut,
-                    duration: 700.ms)
-                .fadeIn(duration: 300.ms),
+            VictoryBurstOnMount(
+              colors: [c, GameColors.gold, Colors.white],
+              child: Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  color: c.withOpacity(0.14),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                        color: c.withOpacity(0.28),
+                        blurRadius: 28,
+                        spreadRadius: 4),
+                  ],
+                ),
+                child: Icon(_icon, size: 34, color: c),
+              )
+                  .animate()
+                  .scale(
+                      begin: const Offset(0.4, 0.4),
+                      curve: Curves.elasticOut,
+                      duration: 700.ms)
+                  .fadeIn(duration: 300.ms),
+            ),
             const SizedBox(height: 18),
             Builder(builder: (ctx) => Text(
               S.of(ctx).achievementUnlocked,

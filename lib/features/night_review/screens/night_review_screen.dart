@@ -282,10 +282,23 @@ class _MoodButton extends StatelessWidget {
   const _MoodButton(
       {required this.mood, required this.selected, required this.onTap});
 
+  /// Each mood gets its own tinted Material face — icon-based, not emoji.
+  (IconData, Color) get _visual => switch (mood) {
+        Mood.great =>
+          (Icons.sentiment_very_satisfied_rounded, GameColors.emerald),
+        Mood.good => (Icons.sentiment_satisfied_rounded, GameColors.xpBlue),
+        Mood.neutral => (Icons.sentiment_neutral_rounded, GameColors.warning),
+        Mood.sad =>
+          (Icons.sentiment_dissatisfied_rounded, GameColors.streakOrange),
+        Mood.exhausted =>
+          (Icons.sentiment_very_dissatisfied_rounded, GameColors.error),
+      };
+
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    final (icon, color) = _visual;
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -300,17 +313,19 @@ class _MoodButton extends StatelessWidget {
               width: 54,
               height: 54,
               decoration: BoxDecoration(
-                color: selected
-                    ? GameColors.gold.withOpacity(0.16)
-                    : gp.surface,
+                color: selected ? color.withOpacity(0.16) : gp.surface,
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: selected ? GameColors.gold : gp.border,
+                  color: selected ? color : gp.border,
                   width: selected ? 1.6 : 0.5,
                 ),
               ),
               alignment: Alignment.center,
-              child: Text(mood.emoji, style: const TextStyle(fontSize: 26)),
+              child: Icon(
+                icon,
+                size: 30,
+                color: selected ? color : gp.textSec,
+              ),
             ),
           ),
           const SizedBox(height: 6),
@@ -319,7 +334,7 @@ class _MoodButton extends StatelessWidget {
             style: TextStyle(
               fontSize: 10,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-              color: selected ? GameColors.gold : gp.textTert,
+              color: selected ? color : gp.textTert,
             ),
           ),
         ],
