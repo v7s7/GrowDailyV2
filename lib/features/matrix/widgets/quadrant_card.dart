@@ -11,6 +11,7 @@ class QuadrantCard extends StatelessWidget {
   final void Function(String id) onDelete;
   final void Function(String id, MatrixQuadrant q) onMove;
   final VoidCallback onAddTapped;
+  final void Function(String title) onQuickAdd;
 
   const QuadrantCard({
     super.key,
@@ -20,6 +21,7 @@ class QuadrantCard extends StatelessWidget {
     required this.onDelete,
     required this.onMove,
     required this.onAddTapped,
+    required this.onQuickAdd,
   });
 
   Color get _color => switch (quadrant) {
@@ -36,6 +38,7 @@ class QuadrantCard extends StatelessWidget {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: gp.surface,
         borderRadius: BorderRadius.circular(14),
@@ -44,81 +47,79 @@ class QuadrantCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          GestureDetector(
-            onTap: onAddTapped,
-            behavior: HitTestBehavior.opaque,
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-              decoration: BoxDecoration(
-                color: _color.withOpacity(0.1),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(13)),
-                border: Border(
-                    bottom: BorderSide(
-                        color: _color.withOpacity(0.15), width: 0.5)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                          color: _color, shape: BoxShape.circle)),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      quadrant.localLabel(isAr),
-                      style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: _color,
-                          letterSpacing: 0.8),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (_pending > 0) ...[const SizedBox(width: 4),
+          Material(
+            color: _color.withOpacity(0.1),
+            child: InkWell(
+              onTap: onAddTapped,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                decoration: BoxDecoration(
+                  border: Border(
+                      bottom: BorderSide(
+                          color: _color.withOpacity(0.15), width: 0.5)),
+                ),
+                child: Row(
+                  children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: _color.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(100),
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                            color: _color, shape: BoxShape.circle)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        quadrant.localLabel(isAr),
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: _color,
+                            letterSpacing: 0.8),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      child: Text('$_pending',
-                          style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: _color)),
                     ),
-                    const SizedBox(width: 4),
+                    if (_pending > 0) ...[const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: _color.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        child: Text('$_pending',
+                            style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: _color)),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Icon(Icons.add_rounded, size: 14, color: _color),
                   ],
-                  Icon(Icons.add_rounded, size: 14, color: _color),
-                ],
+                ),
               ),
             ),
           ),
           Expanded(
             child: tasks.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_circle_outline_rounded,
-                            size: 20, color: gp.textTert),
-                        const SizedBox(height: 4),
-                        Text(S.of(context).matrixTapToAdd,
-                            style: TextStyle(
-                                fontSize: 11, color: gp.textTert)),
-                      ],
-                    ),
+                ? _EmptyQuadrantBody(
+                    quadrant: quadrant,
+                    color: _color,
+                    onTap: onAddTapped,
+                    onQuickAdd: onQuickAdd,
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(vertical: 4),
-                    itemCount: tasks.length,
+                    itemCount: tasks.length + 1,
                     separatorBuilder: (_, __) =>
                         Divider(height: 1, color: gp.divider, indent: 10, endIndent: 10),
                     itemBuilder: (ctx, i) {
+                      if (i == tasks.length) {
+                        return _AddAnotherRow(
+                          color: _color,
+                          onTap: onAddTapped,
+                        );
+                      }
                       final t = tasks[i];
                       return _TaskTile(
                         key: ValueKey(t.id),
@@ -135,6 +136,145 @@ class QuadrantCard extends StatelessWidget {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Empty quadrant body ──────────────────────────────────────────────────────
+
+/// The whole square is the tap target — not just the tiny + icon in the
+/// header — plus one-tap suggestion chips so a blank quadrant is never a
+/// blank page: tapping a suggestion adds it immediately, no typing needed.
+class _EmptyQuadrantBody extends StatelessWidget {
+  final MatrixQuadrant quadrant;
+  final Color color;
+  final VoidCallback onTap;
+  final void Function(String title) onQuickAdd;
+
+  const _EmptyQuadrantBody({
+    required this.quadrant,
+    required this.color,
+    required this.onTap,
+    required this.onQuickAdd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final suggestions = quadrant.quickSuggestions(s.isAr);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          // A quadrant is a tight box, and text-scale/small-phone widths
+          // vary — scroll rather than overflow if the content ever doesn't
+          // fit, instead of a hard render error.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.add_rounded, size: 16, color: color),
+                )
+                    .animate(onPlay: (c) => c.repeat(reverse: true))
+                    .scaleXY(
+                        begin: 0.9,
+                        end: 1.06,
+                        duration: 1100.ms,
+                        curve: Curves.easeInOut),
+                const SizedBox(height: 4),
+                Text(s.matrixTapToAdd,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: gp.textTert,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 5,
+                  runSpacing: 5,
+                  children: [
+                    for (final suggestion in suggestions)
+                      _SuggestionChip(
+                        label: suggestion,
+                        color: color,
+                        onTap: () => onQuickAdd(suggestion),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SuggestionChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _SuggestionChip(
+      {required this.label, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(100),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(100),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          child: Text(
+            label,
+            style: TextStyle(
+                fontSize: 10, fontWeight: FontWeight.w600, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Add-another row (populated quadrants) ────────────────────────────────────
+
+/// A persistent, generously-sized "add" affordance at the end of a
+/// populated quadrant's list, so adding a second or third goal never means
+/// hunting for the small + icon back up in the header.
+class _AddAnotherRow extends StatelessWidget {
+  final Color color;
+  final VoidCallback onTap;
+  const _AddAnotherRow({required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Text(
+            s.matrixAddAnother,
+            style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w700, color: color),
+          ),
+        ),
       ),
     );
   }

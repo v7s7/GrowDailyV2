@@ -8,6 +8,7 @@ class LocalStoreService {
   static const String guestDashboardKey = 'guest_dashboard_state';
   static const String guestFocusPrefix = 'guest_focus_plan_';
   static const String guestCustomHabitsKey = 'guest_custom_habits';
+  static const String guestMatrixTasksKey = 'guest_matrix_tasks';
 
   static Future<Box<dynamic>> settingsBox() => _open(GameConstants.boxSettings);
   static Future<Box<dynamic>> dailyBox() => _open(GameConstants.boxDailyLogs);

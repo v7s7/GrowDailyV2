@@ -38,6 +38,26 @@ enum MatrixQuadrant {
           MatrixQuadrant.eliminate => 'لا عاجل ولا مهم',
         }
       : subtitle;
+
+  /// One-tap starter goals per quadrant — the same "don't make me think of
+  /// an example" trick the habit picker uses, so a blank quadrant never
+  /// means a blank page. Tapping one adds it immediately, no typing.
+  /// Kept to two short chips per quadrant: a quadrant card is a tight box,
+  /// and long labels wrap onto extra lines that push the card past its
+  /// height budget on real phone widths.
+  List<String> quickSuggestions(bool isAr) => isAr
+      ? switch (this) {
+          MatrixQuadrant.doFirst => ['رد على رسالة', 'ادفع فاتورة'],
+          MatrixQuadrant.schedule => ['خطط للأسبوع', 'مارس الرياضة'],
+          MatrixQuadrant.delegate => ['اطلب مساعدة', 'فوّض اجتماعًا'],
+          MatrixQuadrant.eliminate => ['قلل التمرير', 'تخطَّ اجتماعًا'],
+        }
+      : switch (this) {
+          MatrixQuadrant.doFirst => ['Reply to an email', 'Pay a bill'],
+          MatrixQuadrant.schedule => ['Plan next week', 'Go for a workout'],
+          MatrixQuadrant.delegate => ['Ask for help', 'Hand off a meeting'],
+          MatrixQuadrant.eliminate => ['Cut down scrolling', 'Skip a meeting'],
+        };
 }
 
 class MatrixTask {
@@ -80,6 +100,28 @@ class MatrixTask {
           (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
+
+  /// Plain-map (de)serialization for the guest's local Hive store — no
+  /// Firestore Timestamp involved, so createdAt is a plain ISO-8601 string.
+  factory MatrixTask.fromMap(Map<String, dynamic> d) => MatrixTask(
+        id: d['id'] as String? ?? const Uuid().v4(),
+        title: d['title'] as String? ?? '',
+        quadrant: MatrixQuadrant.values.firstWhere(
+          (q) => q.name == (d['quadrant'] as String? ?? 'doFirst'),
+          orElse: () => MatrixQuadrant.doFirst,
+        ),
+        isDone: d['isDone'] as bool? ?? false,
+        createdAt: DateTime.tryParse(d['createdAt'] as String? ?? '') ??
+            DateTime.now(),
+      );
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'title': title,
+        'quadrant': quadrant.name,
+        'isDone': isDone,
+        'createdAt': createdAt.toIso8601String(),
+      };
 
   Map<String, dynamic> toFirestore() => {
         'title': title,

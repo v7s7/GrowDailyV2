@@ -292,7 +292,8 @@ class S {
   String get matrixNotUrgent => isAr ? 'غير عاجل' : 'NOT URGENT';
   String get matrixImportant => isAr ? 'مهم' : 'IMPORTANT';
   String get matrixNotImportant => isAr ? 'غير مهم' : 'NOT IMPORTANT';
-  String get matrixTapToAdd => isAr ? 'اضغط + للإضافة' : 'Tap + to add';
+  String get matrixTapToAdd => isAr ? 'اضغط في أي مكان للإضافة' : 'Tap anywhere to add a goal';
+  String get matrixAddAnother => isAr ? '+ أضف مهمة أخرى' : '+ Add another';
   String get matrixAddTask => isAr ? 'أضف مهمة' : 'ADD TASK';
   String get matrixWhatToDo => isAr ? 'ما الذي يجب فعله؟' : 'What needs to be done?';
   String get matrixMoveToQuadrant => isAr ? 'انقل إلى ربع' : 'MOVE TO QUADRANT';
