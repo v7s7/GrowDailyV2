@@ -344,6 +344,11 @@ class S {
   String get heatmapBestDay => isAr ? 'أفضل يوم' : 'Best day';
   String get heatmapLess => isAr ? 'أقل' : 'Less';
   String get heatmapMore => isAr ? 'أكثر' : 'More';
+  String get heatmapUpgradeTitle =>
+      isAr ? 'افتح سجلّك الكامل' : 'Unlock your full history';
+  String heatmapUpgradeBody(int freeWeeks) => isAr
+      ? 'الحساب المجاني يعرض آخر ${freeWeeks ~/ 4} أشهر تقريبًا. GrowDaily Premium يفتح سنة كاملة من خريطة تقدّمك.'
+      : "Free shows your last ~${freeWeeks ~/ 4} months. Premium unlocks a full rolling year of your heatmap.";
 
   // ── Night Review ─────────────────────────────────────────────────────────
   String get nightReviewTitle => isAr ? 'مراجعة الليل' : 'Night Review';

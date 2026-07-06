@@ -9,6 +9,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../premium/notifiers/premium_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 
@@ -17,10 +18,16 @@ import '../notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 /// already loaded with the rest of the dashboard — so this screen opens
 /// instantly regardless of how many years of history the account holds; no
 /// extra reads, no per-day document fetches.
+///
+/// Free accounts see the last [_freeWeeksToShow] weeks (~3 months) — plenty
+/// to see your recent pattern. Premium unlocks the full rolling year. The
+/// underlying data is already loaded either way (see the class doc above),
+/// so this is purely a display cap, not a data-access restriction.
 class MonthlyHeatmapScreen extends ConsumerWidget {
   const MonthlyHeatmapScreen({super.key});
 
-  static const int _weeksToShow = 52;
+  static const int _freeWeeksToShow = 12;
+  static const int _premiumWeeksToShow = 52;
   static const double _cell = 12;
   static const double _gap = 3;
 
@@ -29,6 +36,8 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final dark = gp.dark;
+    final isPremium = ref.watch(premiumProvider);
+    final weeksToShow = isPremium ? _premiumWeeksToShow : _freeWeeksToShow;
     final counts = ref.watch(dashboardProvider).dailyGreenCounts;
     // A day's green count only means something next to how many habits the
     // user actually tracks — 2 greens is a perfect day at 2 habits but a
@@ -39,9 +48,9 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
 
     final currentWeekStart = startOfGridWeek(DateTime.now());
     final firstWeekStart = currentWeekStart
-        .subtract(const Duration(days: 7 * (_weeksToShow - 1)));
+        .subtract(const Duration(days: 7 * (weeksToShow - 1)));
     final weekStarts = List.generate(
-      _weeksToShow,
+      weeksToShow,
       (i) => firstWeekStart.add(Duration(days: 7 * i)),
     );
 
@@ -118,6 +127,12 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
               ).animate(delay: 120.ms).fadeIn(duration: 400.ms),
               const SizedBox(height: 16),
               _HeatLegend(dark: dark),
+              if (!isPremium) ...[
+                const SizedBox(height: 18),
+                _UpgradeForFullHistoryCard(
+                  freeWeeks: _freeWeeksToShow,
+                ).animate(delay: 160.ms).fadeIn(duration: 350.ms),
+              ],
             ],
           ),
         ),
@@ -371,6 +386,72 @@ class _StatTile extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Upgrade card (free tier only) ─────────────────────────────────────────
+
+class _UpgradeForFullHistoryCard extends StatelessWidget {
+  final int freeWeeks;
+  const _UpgradeForFullHistoryCard({required this.freeWeeks});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.pushNamed(context, '/premium');
+      },
+      borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: GameColors.gold.withOpacity(gp.dark ? 0.10 : 0.08),
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: GameColors.gold.withOpacity(0.14),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.lock_clock_rounded,
+                  size: 20, color: GameColors.gold),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.heatmapUpgradeTitle,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    s.heatmapUpgradeBody(freeWeeks),
+                    style: TextStyle(
+                        fontSize: 12, color: gp.textSec, height: 1.35),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: gp.textTert),
           ],
         ),
       ),
