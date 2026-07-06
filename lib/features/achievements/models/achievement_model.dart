@@ -33,6 +33,10 @@ class AchievementModel {
   final int xpReward;
   final int goldReward;
 
+  /// Only used by [AchievementTrigger.habitMastery] — the habit-category
+  /// name (e.g. 'quran') whose lifetime completions must reach [threshold].
+  final String? targetCategory;
+
   const AchievementModel({
     required this.id,
     required this.name,
@@ -42,6 +46,7 @@ class AchievementModel {
     required this.threshold,
     required this.xpReward,
     required this.goldReward,
+    this.targetCategory,
   });
 }
 
@@ -151,6 +156,7 @@ abstract final class AchievementCatalog {
       threshold: 100,
       xpReward: 750,
       goldReward: 200,
+      targetCategory: 'quran',
     ),
     // ── Victory Grid ────────────────────────────────────────────
     AchievementModel(

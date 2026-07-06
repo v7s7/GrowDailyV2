@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/local_store_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
@@ -64,6 +65,10 @@ class DashboardState {
   /// loads instantly regardless of how many years of data exist.
   final Map<String, int> dailyGreenCounts;
 
+  /// Lifetime completions per habit category (e.g. 'quran' → 42), used to
+  /// evaluate [AchievementTrigger.habitMastery] achievements.
+  final Map<String, int> categoryCompletions;
+
   const DashboardState({
     required this.level,
     required this.currentLevelXp,
@@ -87,6 +92,7 @@ class DashboardState {
     this.totalGreenSquares = 0,
     this.gridActivityToday = false,
     this.dailyGreenCounts = const {},
+    this.categoryCompletions = const {},
   });
 
   factory DashboardState.initial() => const DashboardState(
@@ -134,6 +140,7 @@ class DashboardState {
     int? totalGreenSquares,
     bool? gridActivityToday,
     Map<String, int>? dailyGreenCounts,
+    Map<String, int>? categoryCompletions,
   }) =>
       DashboardState(
         level: level ?? this.level,
@@ -160,6 +167,7 @@ class DashboardState {
         totalGreenSquares: totalGreenSquares ?? this.totalGreenSquares,
         gridActivityToday: gridActivityToday ?? this.gridActivityToday,
         dailyGreenCounts: dailyGreenCounts ?? this.dailyGreenCounts,
+        categoryCompletions: categoryCompletions ?? this.categoryCompletions,
       );
 }
 
@@ -221,6 +229,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       final dailyGreenCounts = rawGreenCounts.map(
         (key, value) => MapEntry(key, (value as num).toInt()),
       );
+      final rawCategoryCompletions =
+          (saved['categoryCompletions'] as Map?)?.cast<String, dynamic>() ??
+              {};
+      final categoryCompletions = rawCategoryCompletions.map(
+        (key, value) => MapEntry(key, (value as num).toInt()),
+      );
 
       int streak = (saved['currentStreak'] as int?) ?? 0;
       int streakFreezes = (saved['streakFreezes'] as int?) ?? 1;
@@ -280,6 +294,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         totalGreenSquares: (saved['totalGreenSquares'] as int?) ?? 0,
         gridActivityToday: gridActivityToday,
         dailyGreenCounts: dailyGreenCounts,
+        categoryCompletions: categoryCompletions,
       );
     } catch (_) {
       if (mounted) state = DashboardState.initial().copyWith(isLoading: false);
@@ -305,6 +320,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'unlockedAchievements': state.unlockedAchievements,
         'totalGreenSquares': state.totalGreenSquares,
         'dailyGreenCounts': state.dailyGreenCounts,
+        'categoryCompletions': state.categoryCompletions,
         if (lastActiveDate != null)
           'lastActiveDate': lastActiveDate.toIso8601String(),
       },
@@ -356,6 +372,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       bool gridActivityToday = false;
       int totalGreenSquares = 0;
       Map<String, int> dailyGreenCounts = {};
+      Map<String, int> categoryCompletions = {};
 
       if (userSnap.exists) {
         final d = userSnap.data()!;
@@ -374,6 +391,11 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         final rawGreenCounts =
             (d['dailyGreenCounts'] as Map?)?.cast<String, dynamic>() ?? {};
         dailyGreenCounts = rawGreenCounts.map(
+          (key, value) => MapEntry(key, (value as num).toInt()),
+        );
+        final rawCategoryCompletions =
+            (d['categoryCompletions'] as Map?)?.cast<String, dynamic>() ?? {};
+        categoryCompletions = rawCategoryCompletions.map(
           (key, value) => MapEntry(key, (value as num).toInt()),
         );
 
@@ -446,6 +468,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           totalGreenSquares: totalGreenSquares,
           gridActivityToday: gridActivityToday,
           dailyGreenCounts: dailyGreenCounts,
+          categoryCompletions: categoryCompletions,
         );
       }
     } catch (_) {
@@ -486,6 +509,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     required int xpReward,
     required int goldReward,
     required int frequencyTarget,
+    String? category,
+    String? habitName,
   }) async {
     final current = state.completions[habitId] ?? 0;
     if (current >= frequencyTarget) return;
@@ -516,6 +541,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     final newGold = state.gold + goldReward;
     final newTotal = state.totalCompletions + 1;
 
+    final newCategoryCompletions = {...state.categoryCompletions};
+    if (category != null) {
+      newCategoryCompletions[category] =
+          (newCategoryCompletions[category] ?? 0) + 1;
+    }
+
     // ── Achievement check ────────────────────────────────────
     final newly = AchievementCatalog.locked(state.unlockedAchievements)
         .where((a) => switch (a.trigger) {
@@ -524,6 +555,9 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
                 result.newLevel >= a.threshold,
               AchievementTrigger.totalCompletions =>
                 newTotal >= a.threshold,
+              AchievementTrigger.habitMastery => a.targetCategory != null &&
+                  (newCategoryCompletions[a.targetCategory] ?? 0) >=
+                      a.threshold,
               _ => false,
             })
         .toList();
@@ -556,6 +590,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       'milestone': newMilestone,
     });
 
+    final didLevelUp = bonusResult.newLevel > state.level;
+
     state = state.copyWith(
       level: bonusResult.newLevel,
       currentLevelXp: bonusResult.newCurrentLevelXp,
@@ -567,10 +603,19 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       completions: newCompletions,
       unlockedAchievements: newUnlockedIds,
       newlyUnlocked: newly,
-      didJustLevelUp:
-          bonusResult.newLevel > state.level,
+      didJustLevelUp: didLevelUp,
       lastCompletedId: habitId,
       setMilestone: newMilestone,
+      categoryCompletions: newCategoryCompletions,
+    );
+
+    _fireCompletionNotifications(
+      habitId: habitName ?? habitId,
+      xpEarned: xpReward + milestoneBonusXp,
+      goldEarned: goldReward,
+      didLevelUp: didLevelUp,
+      newLevel: bonusResult.newLevel,
+      newlyUnlocked: newly,
     );
 
     if (_uid == null) {
@@ -600,6 +645,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           'longestStreak': newLongest,
           'totalHabitCompletions': newTotal,
           'unlockedAchievements': newUnlockedIds,
+          'categoryCompletions': newCategoryCompletions,
           'lastActiveDate': Timestamp.fromDate(now),
         },
         SetOptions(merge: true),
@@ -607,6 +653,32 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
       await batch.commit();
     } catch (_) {}
+  }
+
+  /// Fires local notifications for a habit completion — a habit-completed
+  /// ping, plus a level-up / achievement-unlocked ping if either happened in
+  /// the same action. These are on-device local notifications (no push
+  /// server), so they show even if the in-app celebration overlay was
+  /// dismissed or the app is backgrounded.
+  void _fireCompletionNotifications({
+    required String habitId,
+    required int xpEarned,
+    required int goldEarned,
+    required bool didLevelUp,
+    required int newLevel,
+    required List<AchievementModel> newlyUnlocked,
+  }) {
+    NotificationService.instance.showHabitCompleted(
+      habitName: habitId,
+      xpEarned: xpEarned,
+      goldEarned: goldEarned,
+    );
+    if (didLevelUp) {
+      NotificationService.instance.showLevelUp(newLevel);
+    }
+    for (final a in newlyUnlocked) {
+      NotificationService.instance.showAchievementUnlocked(a.name);
+    }
   }
 
   /// Applies the progression fallout of a single Victory Grid square
@@ -719,6 +791,11 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       didJustLevelUp: didLevelUp,
       setMilestone: newMilestone,
     );
+
+    if (didLevelUp) NotificationService.instance.showLevelUp(newLevel);
+    for (final a in newly) {
+      NotificationService.instance.showAchievementUnlocked(a.name);
+    }
 
     if (_uid == null) {
       await _saveGuestState();

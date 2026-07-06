@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/local_store_service.dart';
+import '../../../core/services/notification_service.dart';
 import 'islamic_habit_catalog.dart';
 
 // ─── Plan definitions ─────────────────────────────────────────────────────────
@@ -206,12 +207,16 @@ class ReminderTimeNotifier extends StateNotifier<TimeOfDay?> {
     state = time;
     final box = await LocalStoreService.settingsBox();
     await box.put(_kReminderKey, '${time.hour}:${time.minute}');
+    await NotificationService.instance.requestPermissions();
+    await NotificationService.instance
+        .scheduleDailyReminder(hour: time.hour, minute: time.minute);
   }
 
   Future<void> clear() async {
     state = null;
     final box = await LocalStoreService.settingsBox();
     await box.delete(_kReminderKey);
+    await NotificationService.instance.cancelDailyReminder();
   }
 }
 

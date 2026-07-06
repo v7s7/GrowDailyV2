@@ -205,6 +205,8 @@ class DashboardScreen extends ConsumerWidget {
                                     xpReward: t.xpReward,
                                     goldReward: t.goldReward,
                                     frequencyTarget: t.frequencyTarget,
+                                    category: t.category.name,
+                                    habitName: t.name,
                                   ),
                           onDelete: () {
                             if (customIds.contains(t.id)) {

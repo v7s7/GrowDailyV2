@@ -13,6 +13,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
+import '../../../features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../../../shared/widgets/game_nav_bar.dart';
 
 
@@ -836,6 +837,10 @@ class _AchievementCard extends StatelessWidget {
               .clamp(0.0, 1.0),
         AchievementTrigger.greenSquares =>
           (state.totalGreenSquares / achievement.threshold).clamp(0.0, 1.0),
+        AchievementTrigger.habitMastery =>
+          ((state.categoryCompletions[achievement.targetCategory] ?? 0) /
+                  achievement.threshold)
+              .clamp(0.0, 1.0),
         _ => 0.0,
       };
 
@@ -844,6 +849,8 @@ class _AchievementCard extends StatelessWidget {
         AchievementTrigger.level => state.level,
         AchievementTrigger.totalCompletions => state.totalCompletions,
         AchievementTrigger.greenSquares => state.totalGreenSquares,
+        AchievementTrigger.habitMastery =>
+          state.categoryCompletions[achievement.targetCategory] ?? 0,
         _ => 0,
       };
 
@@ -970,6 +977,7 @@ class _SettingsSection extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final locale = ref.watch(localeProvider);
     final isAr = locale.languageCode == 'ar';
+    final reminderTime = ref.watch(reminderTimeProvider);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
@@ -1085,6 +1093,57 @@ class _SettingsSection extends ConsumerWidget {
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                               color: GameColors.gold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(height: 0.5, color: gp.divider),
+                // Daily Reminder
+                InkWell(
+                  onTap: () async {
+                    HapticFeedback.selectionClick();
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: reminderTime ?? const TimeOfDay(hour: 20, minute: 0),
+                    );
+                    if (picked != null) {
+                      await ref.read(reminderTimeProvider.notifier).set(picked);
+                    }
+                  },
+                  onLongPress: reminderTime == null
+                      ? null
+                      : () async {
+                          HapticFeedback.mediumImpact();
+                          await ref.read(reminderTimeProvider.notifier).clear();
+                        },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    child: Row(
+                      children: [
+                        Icon(Icons.notifications_rounded, size: 20, color: gp.textSec),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(s.dailyReminder,
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  color: gp.textPrimary,
+                                  fontWeight: FontWeight.w500)),
+                        ),
+                        Flexible(
+                          child: Text(
+                            reminderTime != null
+                                ? reminderTime.format(context)
+                                : s.tapToSetReminder,
+                            textAlign: TextAlign.end,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: reminderTime != null ? GameColors.gold : gp.textTert,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),

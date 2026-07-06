@@ -14,6 +14,7 @@ import 'core/theme/game_theme.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
+import 'features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import 'features/focus/screens/focus_screen.dart';
 import 'features/grid/screens/grid_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
@@ -51,6 +52,17 @@ class GrowDailyApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
     final locale = ref.watch(localeProvider);
+
+    // Re-arm the daily reminder on cold start. Android clears exact-alarm
+    // schedules on device reboot, so this makes sure a previously-set
+    // reminder survives a restart even without a boot-completed receiver.
+    ref.listen(reminderTimeProvider, (previous, next) {
+      if (next != null) {
+        NotificationService.instance
+            .scheduleDailyReminder(hour: next.hour, minute: next.minute);
+      }
+    }, fireImmediately: true);
+
     return MaterialApp(
       title: 'GrowDaily',
       debugShowCheckedModeBanner: false,
