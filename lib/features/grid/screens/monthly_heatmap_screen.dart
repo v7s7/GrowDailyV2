@@ -8,6 +8,7 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 
@@ -29,6 +30,12 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
     final s = S.of(context);
     final dark = gp.dark;
     final counts = ref.watch(dashboardProvider).dailyGreenCounts;
+    // A day's green count only means something next to how many habits the
+    // user actually tracks — 2 greens is a perfect day at 2 habits but a
+    // quiet one at 8. Color by percentage of today's habit list, not the
+    // raw count, so a 100% day is always the deepest green regardless of
+    // how many habits someone keeps.
+    final totalHabits = ref.watch(habitListProvider).length;
 
     final currentWeekStart = startOfGridWeek(DateTime.now());
     final firstWeekStart = currentWeekStart
@@ -101,6 +108,7 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
                   child: _ContributionGraph(
                     weekStarts: weekStarts,
                     counts: counts,
+                    totalHabits: totalHabits,
                     dark: dark,
                     cell: _cell,
                     gap: _gap,
@@ -133,12 +141,25 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
   }
 }
 
-int heatLevel(int count) {
+/// Buckets a day's green count by what fraction of the user's current habit
+/// list it represents — 100% is always the deepest green, 80%+ the next
+/// shade down, and so on — rather than an absolute count that would never
+/// reach full green for someone tracking only 2-3 habits.
+int heatLevel(int count, int totalHabits) {
   if (count <= 0) return 0;
-  if (count <= 2) return 1;
-  if (count <= 4) return 2;
-  if (count <= 7) return 3;
-  return 4;
+  if (totalHabits <= 0) {
+    // No habits currently tracked (e.g. all archived) — fall back to a
+    // plain count scale so old green history still renders something.
+    if (count <= 2) return 1;
+    if (count <= 4) return 2;
+    if (count <= 7) return 3;
+    return 4;
+  }
+  final pct = count / totalHabits;
+  if (pct >= 1.0) return 4;
+  if (pct >= 0.8) return 3;
+  if (pct >= 0.5) return 2;
+  return 1;
 }
 
 Color heatColor(int level, bool dark) {
@@ -152,6 +173,7 @@ Color heatColor(int level, bool dark) {
 class _ContributionGraph extends StatelessWidget {
   final List<DateTime> weekStarts;
   final Map<String, int> counts;
+  final int totalHabits;
   final bool dark;
   final double cell;
   final double gap;
@@ -160,6 +182,7 @@ class _ContributionGraph extends StatelessWidget {
   const _ContributionGraph({
     required this.weekStarts,
     required this.counts,
+    required this.totalHabits,
     required this.dark,
     required this.cell,
     required this.gap,
@@ -213,6 +236,7 @@ class _ContributionGraph extends StatelessWidget {
                           count: counts[
                                   week.add(Duration(days: d)).toDateKey()] ??
                               0,
+                          totalHabits: totalHabits,
                           dark: dark,
                           size: cell,
                           onTap: onTapDay,
@@ -231,6 +255,7 @@ class _ContributionGraph extends StatelessWidget {
 class _HeatCell extends StatelessWidget {
   final DateTime day;
   final int count;
+  final int totalHabits;
   final bool dark;
   final double size;
   final void Function(DateTime day, int count) onTap;
@@ -238,6 +263,7 @@ class _HeatCell extends StatelessWidget {
   const _HeatCell({
     required this.day,
     required this.count,
+    required this.totalHabits,
     required this.dark,
     required this.size,
     required this.onTap,
@@ -246,7 +272,7 @@ class _HeatCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFuture = day.startOfDay.isAfter(DateTime.now().startOfDay);
-    final level = heatLevel(count);
+    final level = heatLevel(count, totalHabits);
     return GestureDetector(
       onTap: isFuture ? null : () => onTap(day, count),
       child: Opacity(
