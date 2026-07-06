@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/landing_harness.dart';
@@ -35,5 +36,13 @@ void main() {
       find.text('Color your life, one square at a time.'),
       findsOneWidget,
     );
+
+    // A user with habits already equipped must still be able to add more —
+    // the empty state's add-habit buttons are gone once habits exist, so
+    // the FAB is the only remaining way in.
+    expect(find.byType(FloatingActionButton), findsNWidgets(2));
+    await tester.tap(find.text('ADD HABIT'));
+    await h.settle(tester);
+    expect(find.text('NEW HABIT'), findsOneWidget);
   });
 }

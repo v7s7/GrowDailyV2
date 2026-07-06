@@ -21,6 +21,35 @@ import '../../night_review/notifiers/night_review_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 
+/// Opens the starter-plan picker. Shared by the empty state and the grid's
+/// floating action button so there's exactly one code path for it.
+void showPlanPickerSheet(BuildContext context) {
+  HapticFeedback.lightImpact();
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    useSafeArea: true,
+    builder: (_) => const PlanPickerSheet(),
+  );
+}
+
+/// Opens the add-habit sheet, gated by the account's habit limit. Shared by
+/// the empty state and the grid's floating action button.
+void showAddHabitSheet(BuildContext context, WidgetRef ref) {
+  if (!canAddHabits(ref)) {
+    showHabitLimitGate(context, ref);
+    return;
+  }
+  HapticFeedback.lightImpact();
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => const AddHabitSheet(),
+  );
+}
+
 /// Themed leading mark for a habit row — a tinted Material icon per
 /// category, keeping the grid surface icon-based rather than emoji-based.
 (IconData, Color) categoryVisual(HabitCategory category) => switch (category) {
@@ -136,6 +165,43 @@ class GridScreen extends ConsumerWidget {
           ],
         ),
       ),
+      // This is the ONLY way to add a habit once the grid isn't empty — the
+      // empty state's buttons disappear the moment the first habit lands,
+      // so without this FAB there is no way back into "add a habit" from
+      // the app's home screen.
+      floatingActionButton: habits.isEmpty
+          ? null
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'grid-plans',
+                  onPressed: () => showPlanPickerSheet(context),
+                  backgroundColor: gp.surfaceHigh,
+                  foregroundColor: gp.textPrimary,
+                  elevation: 0,
+                  child: const Icon(Icons.auto_awesome_rounded,
+                      size: 18, color: GameColors.gold),
+                ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.4),
+                const SizedBox(height: 10),
+                FloatingActionButton.extended(
+                  heroTag: 'grid-add',
+                  onPressed: () => showAddHabitSheet(context, ref),
+                  backgroundColor: GameColors.gold,
+                  foregroundColor: Colors.black,
+                  elevation: 0,
+                  icon: const Icon(Icons.add_rounded, size: 20),
+                  label: Text(
+                    s.addHabit,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.0),
+                  ),
+                ).animate(delay: 600.ms).fadeIn().slideY(begin: 0.4),
+              ],
+            ),
     );
   }
 }
@@ -1380,16 +1446,7 @@ class _GridEmptyState extends ConsumerWidget {
             SizedBox(
               width: 260,
               child: FilledButton.icon(
-                onPressed: () {
-                  HapticFeedback.lightImpact();
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    useSafeArea: true,
-                    builder: (_) => const PlanPickerSheet(),
-                  );
-                },
+                onPressed: () => showPlanPickerSheet(context),
                 icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                 label: Text(s.browsePlans),
                 style: FilledButton.styleFrom(
@@ -1401,19 +1458,7 @@ class _GridEmptyState extends ConsumerWidget {
             ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
             const SizedBox(height: 10),
             TextButton.icon(
-              onPressed: () {
-                if (!canAddHabits(ref)) {
-                  showHabitLimitGate(context, ref);
-                  return;
-                }
-                HapticFeedback.lightImpact();
-                showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (_) => const AddHabitSheet(),
-                );
-              },
+              onPressed: () => showAddHabitSheet(context, ref),
               icon: const Icon(Icons.add_rounded, size: 16),
               label: Text(s.addHabit),
             ).animate(delay: 380.ms).fadeIn(),

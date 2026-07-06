@@ -605,14 +605,56 @@ class _RoutineCueChips extends StatelessWidget {
 
   static const _cues = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Before sleep'];
 
+  /// Not every habit hangs off a prayer — some people just want "7:30 AM".
+  /// The current cue counts as a picked clock time when it's set but isn't
+  /// one of the named routine anchors above.
+  bool get _selectedIsCustomTime =>
+      selected.isNotEmpty && !_cues.contains(selected);
+
+  Future<void> _pickTime(BuildContext context) async {
+    HapticFeedback.selectionClick();
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+        child: child!,
+      ),
+    );
+    if (picked != null) onPick(_formatTime(picked));
+  }
+
+  static String _formatTime(TimeOfDay t) {
+    final hour = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final minute = t.minute.toString().padLeft(2, '0');
+    final period = t.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$hour:$minute $period';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
+    final timeSelected = _selectedIsCustomTime;
     return SizedBox(
       height: 34,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
         itemBuilder: (context, index) {
+          if (index == _cues.length) {
+            return ChoiceChip(
+              avatar: Icon(
+                timeSelected
+                    ? Icons.check_rounded
+                    : Icons.access_time_rounded,
+                size: 16,
+              ),
+              showCheckmark: false,
+              selected: timeSelected,
+              label: Text(timeSelected ? selected : s.pickATime),
+              onSelected: (_) => _pickTime(context),
+            );
+          }
           final cue = _cues[index];
           return ChoiceChip(
             selected: selected == cue,
@@ -621,7 +663,7 @@ class _RoutineCueChips extends StatelessWidget {
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: _cues.length,
+        itemCount: _cues.length + 1,
       ),
     );
   }

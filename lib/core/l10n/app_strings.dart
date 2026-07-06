@@ -178,6 +178,7 @@ class S {
   String get habitNameHint => isAr ? 'ما العادة التي تريد بناءها؟' : 'What habit do you want to build?';
   String get afterWhatRoutine => isAr ? 'بعد أي روتين؟ (اختياري)' : 'After what routine? (optional)';
   String get routineHint => isAr ? 'الفجر، المغرب، قبل النوم...' : 'Fajr, Maghrib, before sleep...';
+  String get pickATime => isAr ? 'اختر وقتًا' : 'Pick a time';
   String get category => isAr ? 'الفئة' : 'CATEGORY';
   String get frequency => isAr ? 'التكرار' : 'FREQUENCY';
   String get daily => isAr ? 'يومياً' : 'Daily';
