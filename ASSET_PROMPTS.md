@@ -2,6 +2,32 @@
 
 A shared style guide + a set of prompts for generating the app's visual assets (icon, splash, illustrations, badges). Written for a clean, flat, 2D "Apple-vibe" look — think App Store feature graphics, not skeuomorphic game art.
 
+## Status: first batch generated, cropped, and in `assets/images/`
+
+The 7 sheets generated from the prompts below have been split into 17 individual, ready-to-wire files:
+
+| File | Source prompt | Wire into |
+|---|---|---|
+| `icon_app.png` | #1 App icon | `flutter_launcher_icons` config → generates the full iOS/Android icon set |
+| `splash_background.png` | #2 Splash | Native splash screen background (e.g. `flutter_native_splash`) |
+| `onboarding_1_start_habit.png` | #3 Onboarding, panel 1 | Onboarding carousel, slide 1 |
+| `onboarding_2_track_progress.png` | #3 Onboarding, panel 2 | Onboarding carousel, slide 2 |
+| `onboarding_3_streak_momentum.png` | #3 Onboarding, panel 3 | Onboarding carousel, slide 3 |
+| `onboarding_4_celebrate_wins.png` | #3 Onboarding, panel 4 | Onboarding carousel, slide 4 |
+| `empty_state_no_habits.png` | #4 Empty states, panel 1 | Dashboard empty state ("no habits yet") |
+| `empty_state_all_done.png` | #4 Empty states, panel 2 | `_AllDoneBanner` on the dashboard |
+| `empty_state_no_achievements.png` | #4 Empty states, panel 3 | Profile achievements section, empty case |
+| `category_quran.png` | #6 Category icons | Quran/reading habit category |
+| `category_prayer.png` | #6 Category icons | Prayer habit category |
+| `category_focus.png` | #6 Category icons | Focus/deep-work habit category |
+| `category_sleep.png` | #6 Category icons | Sleep habit category |
+| `category_fitness.png` | #6 Category icons | Fitness/movement habit category |
+| `category_charity.png` | #6 Category icons | Charity/giving habit category |
+| `achievement_celebration_burst.png` | #7 Level-up burst | `AchievementUnlockSheet` / level-up overlay |
+| `premium_upgrade_hero.png` | #8 Premium hero | `PremiumScreen` hero banner |
+
+All corner artifacts and stray black frame edges from generation were cleaned up (background color extended into the corners, not just cropped) so every file is a clean rectangle ready to drop into an `Image.asset(...)`. Still outstanding from the prompt list: the 5-tier achievement badge set (#5) hasn't been generated yet.
+
 Use these with any image generator that supports multi-panel / sheet output (Midjourney, Ideogram, DALL·E 3, Stable Diffusion + ControlNet grid). Each prompt below is written as one single generation that yields several related assets at once — the "PANEL" divisions are the trick that gets a grid/sheet result instead of one blended image. If your generator only returns one image per panel description, just run each panel line as its own separate prompt.
 
 ---
