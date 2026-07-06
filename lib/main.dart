@@ -42,7 +42,14 @@ Future<void> main() async {
   await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();
-  runApp(const ProviderScope(child: GrowDailyApp()));
+  // Seed guestModeProvider from Hive so a returning guest with intact local
+  // data lands back on their grid instead of being bounced to the auth
+  // screen (the provider's own default is always `false` in memory).
+  final persistedGuestMode = await loadPersistedGuestMode();
+  runApp(ProviderScope(
+    overrides: [guestModeProvider.overrideWith((ref) => persistedGuestMode)],
+    child: const GrowDailyApp(),
+  ));
 }
 
 class GrowDailyApp extends ConsumerWidget {

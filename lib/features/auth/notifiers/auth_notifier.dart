@@ -3,12 +3,38 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/analytics_service.dart';
+import '../../../core/services/local_store_service.dart';
 
 final authStateProvider = StreamProvider<User?>((ref) {
   return FirebaseAuth.instance.authStateChanges();
 });
 
+const _kGuestModeKey = 'guest_mode_active_v1';
+
+/// Whether the app is being used in guest mode. Deliberately a bare
+/// [StateProvider] so every existing call site can keep doing
+/// `ref.read(guestModeProvider.notifier).state = value` — but reads its
+/// initial value from Hive at boot (seeded in main.dart) and every write
+/// should go through [setGuestMode] below so the flag survives a cold
+/// start. Before this, a returning guest with fully intact local data was
+/// bounced back to the auth screen on every relaunch, because this flag
+/// reset to `false` in memory while the underlying Hive data stayed put.
 final guestModeProvider = StateProvider<bool>((ref) => false);
+
+/// Sets guest mode and persists it. Use this instead of writing
+/// `guestModeProvider.notifier.state` directly.
+Future<void> setGuestMode(WidgetRef ref, bool value) async {
+  ref.read(guestModeProvider.notifier).state = value;
+  final box = await LocalStoreService.settingsBox();
+  await box.put(_kGuestModeKey, value);
+}
+
+/// Reads the persisted guest-mode flag. Called once at app boot (see
+/// main.dart) to seed [guestModeProvider]'s initial value.
+Future<bool> loadPersistedGuestMode() async {
+  final box = await LocalStoreService.settingsBox();
+  return (box.get(_kGuestModeKey) as bool?) ?? false;
+}
 
 class AuthNotifier extends StateNotifier<AsyncValue<void>> {
   AuthNotifier() : super(const AsyncData(null));
@@ -34,8 +60,18 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
         email: email.trim(),
         password: password,
       );
-      // Create Firestore profile on first registration
-      await _createUserDoc(cred.user!.uid, email);
+      try {
+        // Create Firestore profile on first registration
+        await _createUserDoc(cred.user!.uid, email);
+      } catch (_) {
+        // The Auth account exists but has no profile doc. _AuthGate routes
+        // on authStateChanges() alone, so leaving this account signed in
+        // would drop the user into a blank/broken GridScreen with no way
+        // to recover. Roll the Auth account back so registration is
+        // all-or-nothing and they can just try again.
+        await cred.user?.delete();
+        rethrow;
+      }
       AnalyticsService.instance.track('auth_registered');
     });
   }

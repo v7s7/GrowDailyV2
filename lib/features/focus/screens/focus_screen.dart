@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' show pi;
 
 import 'package:flutter/material.dart';
@@ -8,21 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../models/daily_focus_plan.dart';
+import '../models/focus_duration.dart';
 import '../notifiers/focus_plan_notifier.dart';
-
-enum FocusDuration {
-  short(25, 30),
-  medium(50, 60),
-  long(90, 100);
-
-  const FocusDuration(this.minutes, this.xpReward);
-  final int minutes;
-  final int xpReward;
-  int get seconds => minutes * 60;
-}
+import '../notifiers/focus_timer_notifier.dart';
 
 class FocusScreen extends ConsumerStatefulWidget {
   const FocusScreen({super.key});
@@ -35,11 +24,6 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
   late final TextEditingController _topTaskController;
   late final TextEditingController _cueController;
   late final TextEditingController _actionController;
-  Timer? _timer;
-  FocusDuration _selectedDuration = FocusDuration.short;
-  late int _remainingSeconds = _selectedDuration.seconds;
-  bool _timerRunning = false;
-  bool _timerDone = false;
 
   @override
   void initState() {
@@ -52,7 +36,6 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
 
   @override
   void dispose() {
-    _timer?.cancel();
     _topTaskController.dispose();
     _cueController.dispose();
     _actionController.dispose();
@@ -63,6 +46,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final state = ref.watch(focusPlanProvider);
+    final timer = ref.watch(focusTimerProvider);
 
     ref.listen<FocusPlanState>(focusPlanProvider, (prev, next) {
       final shouldSyncFields = prev == null ||
@@ -73,6 +57,22 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       _topTaskController.text = next.plan.topTask;
       _cueController.text = next.plan.cue;
       _actionController.text = next.plan.action;
+    });
+
+    // The XP/gold award and the session log happen inside FocusTimerNotifier
+    // itself (so they land even if this screen isn't open when a sprint
+    // finishes). This listener only handles the celebratory bottom sheet,
+    // shown when the transition to "done" happens while the user is here.
+    ref.listen<FocusTimerState>(focusTimerProvider, (prev, next) {
+      if (prev != null && !prev.isDone && next.isDone) {
+        HapticFeedback.heavyImpact();
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => _FocusCompleteSheet(duration: next.duration),
+        );
+      }
     });
 
     return Scaffold(
@@ -117,12 +117,13 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                       child: _FocusTimerCard(
-                        duration: _selectedDuration,
-                        remainingSeconds: _remainingSeconds,
-                        isRunning: _timerRunning,
-                        isDone: _timerDone,
+                        duration: timer.duration,
+                        remainingSeconds: timer.remainingSeconds(),
+                        isRunning: timer.isRunning,
+                        isDone: timer.isDone,
                         onSelectDuration: _selectDuration,
-                        onStartPause: _timerRunning ? _pauseTimer : _startTimer,
+                        onStartPause:
+                            timer.isRunning ? _pauseTimer : _startTimer,
                         onReset: _resetTimer,
                       )
                           .animate(delay: 120.ms)
@@ -156,63 +157,23 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
   }
 
   void _selectDuration(FocusDuration d) {
-    if (_timerRunning) return;
     HapticFeedback.selectionClick();
-    setState(() {
-      _selectedDuration = d;
-      _remainingSeconds = d.seconds;
-      _timerDone = false;
-    });
+    ref.read(focusTimerProvider.notifier).selectDuration(d);
   }
 
   void _startTimer() {
-    if (_timerDone) return;
     HapticFeedback.mediumImpact();
-    setState(() => _timerRunning = true);
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
-      if (_remainingSeconds <= 1) {
-        timer.cancel();
-        setState(() {
-          _remainingSeconds = 0;
-          _timerRunning = false;
-          _timerDone = true;
-        });
-        _onTimerComplete();
-        return;
-      }
-      setState(() => _remainingSeconds -= 1);
-    });
+    ref.read(focusTimerProvider.notifier).start();
   }
 
   void _pauseTimer() {
     HapticFeedback.lightImpact();
-    _timer?.cancel();
-    setState(() => _timerRunning = false);
+    ref.read(focusTimerProvider.notifier).pause();
   }
 
   void _resetTimer() {
     HapticFeedback.lightImpact();
-    _timer?.cancel();
-    setState(() {
-      _timerRunning = false;
-      _timerDone = false;
-      _remainingSeconds = _selectedDuration.seconds;
-    });
-  }
-
-  void _onTimerComplete() {
-    HapticFeedback.heavyImpact();
-    ref.read(focusPlanProvider.notifier).addFocusSession();
-    ref
-        .read(dashboardProvider.notifier)
-        .awardBonus(xp: _selectedDuration.xpReward, gold: 0);
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _FocusCompleteSheet(duration: _selectedDuration),
-    );
+    ref.read(focusTimerProvider.notifier).reset();
   }
 
   bool _allFieldsWereReset(DailyFocusPlan prev, DailyFocusPlan next) =>

@@ -962,13 +962,22 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       gold: newGold,
       didJustLevelUp: result.newLevel > state.level,
     );
-    if (_uid == null) return;
-    _userRef.set({
-      'level': result.newLevel,
-      'currentLevelXp': result.newCurrentLevelXp,
-      'cumulativeXp': result.newCumulativeXp,
-      'gold': newGold,
-    }, SetOptions(merge: true)).ignore();
+    if (_uid == null) {
+      // Guests reach this from the Focus timer and Weekly Challenges — it
+      // was returning here without persisting, so the XP/gold shown on
+      // screen silently vanished on next launch. Save it like every other
+      // guest-facing mutation does.
+      await _saveGuestState();
+      return;
+    }
+    try {
+      await _userRef.set({
+        'level': result.newLevel,
+        'currentLevelXp': result.newCurrentLevelXp,
+        'cumulativeXp': result.newCumulativeXp,
+        'gold': newGold,
+      }, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   void acknowledgeAchievements() {

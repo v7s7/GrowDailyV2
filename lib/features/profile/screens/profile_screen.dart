@@ -1182,7 +1182,7 @@ class _SettingsSection extends ConsumerWidget {
                 InkWell(
                   onTap: () async {
                     HapticFeedback.mediumImpact();
-                    ref.read(guestModeProvider.notifier).state = false;
+                    await setGuestMode(ref, false);
                     await ref.read(authNotifierProvider.notifier).signOut();
                     if (context.mounted) {
                       Navigator.pushNamedAndRemoveUntil(

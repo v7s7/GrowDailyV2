@@ -77,10 +77,11 @@ class _GuestLimitSheet extends ConsumerWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: () {
+                onPressed: () async {
                   HapticFeedback.mediumImpact();
                   Navigator.pop(context);
-                  ref.read(guestModeProvider.notifier).state = false;
+                  await setGuestMode(ref, false);
+                  if (!context.mounted) return;
                   Navigator.pushNamedAndRemoveUntil(
                       context, '/', (_) => false);
                 },

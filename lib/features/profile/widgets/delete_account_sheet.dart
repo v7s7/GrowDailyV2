@@ -68,7 +68,8 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
     }
 
     Navigator.of(context).pop();
-    ref.read(guestModeProvider.notifier).state = false;
+    await setGuestMode(ref, false);
+    if (!context.mounted) return;
     Navigator.of(context)
         .pushNamedAndRemoveUntil('/', (_) => false);
     ScaffoldMessenger.of(context).showSnackBar(

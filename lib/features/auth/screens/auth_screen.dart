@@ -86,9 +86,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     }
   }
 
-  void _continueAsGuest() {
+  Future<void> _continueAsGuest() async {
     HapticFeedback.mediumImpact();
-    ref.read(guestModeProvider.notifier).state = true;
+    await setGuestMode(ref, true);
   }
 
   void _switchMode(bool isSignIn) {
