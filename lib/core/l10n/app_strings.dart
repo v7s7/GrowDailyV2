@@ -74,6 +74,20 @@ class S {
   String get todaysHabits => isAr ? 'عادات اليوم' : "TODAY'S HABITS";
   String get addHabit => isAr ? 'إضافة عادة' : 'ADD HABIT';
   String get signOut => isAr ? 'تسجيل الخروج' : 'Sign Out';
+  String get deleteAccount => isAr ? 'حذف الحساب' : 'Delete Account';
+  String get deleteAccountWarningTitle =>
+      isAr ? 'حذف حسابك نهائيًا؟' : 'Permanently delete your account?';
+  String get deleteAccountWarningBody => isAr
+      ? 'سيؤدي هذا إلى حذف عاداتك، سلاسلك، إنجازاتك، وكل بياناتك نهائيًا. لا يمكن التراجع عن هذا الإجراء.'
+      : "This permanently deletes your habits, streaks, achievements, and all your data. This can't be undone.";
+  String get deleteAccountPasswordLabel =>
+      isAr ? 'أدخل كلمة المرور للتأكيد' : 'Enter your password to confirm';
+  String get deleteAccountConfirmCta =>
+      isAr ? 'حذف حسابي نهائيًا' : 'Delete my account';
+  String get deleteAccountWrongPassword =>
+      isAr ? 'كلمة مرور غير صحيحة.' : "That password doesn't match.";
+  String get deleteAccountSuccess =>
+      isAr ? 'تم حذف الحساب.' : 'Your account has been deleted.';
   String get level => isAr ? 'المستوى' : 'LEVEL';
   String get totalXp => isAr ? 'مجموع XP' : 'TOTAL XP';
   String get streak => isAr ? 'السلسلة' : 'STREAK';

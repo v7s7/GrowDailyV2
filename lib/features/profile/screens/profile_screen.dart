@@ -15,6 +15,7 @@ import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../../../shared/widgets/game_nav_bar.dart';
+import '../widgets/delete_account_sheet.dart';
 
 
 class ProgressPoint {
@@ -978,6 +979,9 @@ class _SettingsSection extends ConsumerWidget {
     final locale = ref.watch(localeProvider);
     final isAr = locale.languageCode == 'ar';
     final reminderTime = ref.watch(reminderTimeProvider);
+    final isGuest = ref.watch(guestModeProvider);
+    final currentUser = ref.watch(authStateProvider).asData?.value;
+    final canDeleteAccount = !isGuest && currentUser != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
@@ -1163,10 +1167,12 @@ class _SettingsSection extends ConsumerWidget {
                           context, '/', (_) => false);
                     }
                   },
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(GameSpacing.cardRadius),
-                    bottomRight: Radius.circular(GameSpacing.cardRadius),
-                  ),
+                  borderRadius: canDeleteAccount
+                      ? null
+                      : const BorderRadius.only(
+                          bottomLeft: Radius.circular(GameSpacing.cardRadius),
+                          bottomRight: Radius.circular(GameSpacing.cardRadius),
+                        ),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Row(
@@ -1186,6 +1192,37 @@ class _SettingsSection extends ConsumerWidget {
                     ),
                   ),
                 ),
+                if (canDeleteAccount) ...[
+                  Container(height: 0.5, color: gp.divider),
+                  // Delete Account — required by App Store review guideline
+                  // 5.1.1(v): account creation implies in-app account
+                  // deletion.
+                  InkWell(
+                    onTap: () => showDeleteAccountSheet(context, ref),
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(GameSpacing.cardRadius),
+                      bottomRight: Radius.circular(GameSpacing.cardRadius),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.delete_forever_rounded,
+                              size: 20, color: GameColors.error),
+                          const SizedBox(width: 12),
+                          Text(s.deleteAccount,
+                              style: const TextStyle(
+                                  fontSize: 15,
+                                  color: GameColors.error,
+                                  fontWeight: FontWeight.w600)),
+                          const Spacer(),
+                          Icon(Icons.arrow_forward_ios_rounded,
+                              size: 14, color: gp.textTert),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

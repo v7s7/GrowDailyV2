@@ -48,7 +48,10 @@ service cloud.firestore {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid) && !('premiumActive' in request.resource.data);
       allow update: if isOwner(uid) && premiumFieldOk();
-      allow delete: if false; // account deletion must go through auth (see below)
+      // Account deletion (AuthNotifier.deleteAccount) deletes this doc
+      // directly from the client after re-authenticating, so the owner
+      // needs delete access here too.
+      allow delete: if isOwner(uid);
 
       match /{subcollection}/{docId} {
         allow read, write: if isOwner(uid);
