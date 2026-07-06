@@ -28,6 +28,15 @@ The 7 sheets generated from the prompts below have been split into 17 individual
 
 All corner artifacts and stray black frame edges from generation were cleaned up (background color extended into the corners, not just cropped) so every file is a clean rectangle ready to drop into an `Image.asset(...)`. Still outstanding from the prompt list: the 5-tier achievement badge set (#5) hasn't been generated yet.
 
+### Light/dark mode: what's transparent and what isn't
+
+- **`category_*.png` (6 files)** — background removed, real alpha transparency. These are flat icons with a hard-edged pastel tile and no baked-in gradient effects, so a clean cutout was possible. Safe to drop onto any surface color in either theme.
+- **`icon_app.png`** — intentionally opaque (app icons must never have transparency; iOS/Android apply their own mask).
+- **`splash_background.png`** — intentionally opaque. It's the screen backdrop itself, not an overlay, so "transparent background" isn't a meaningful thing to ask of it.
+- **The other 9 illustrations** (`onboarding_*`, `empty_state_*`, `achievement_celebration_burst`, `premium_upgrade_hero`) — **tried and reverted.** They have soft radial glows/vignettes and long-shadow gradients baked into the art itself (not just a flat cream canvas), so a color-based cutout leaves a visible grainy halo once placed on a dark background — worse than keeping the cream backing. Two real options going forward:
+  1. Keep them opaque and always present them on a fixed light card (e.g. a cream-colored container) even when the rest of the screen is in dark mode — this is what they're currently saved as, and it's a legitimate, common pattern.
+  2. Regenerate this batch with an explicit prompt addition — *"flat solid background, no vignette, no radial glow, no gradient behind the subject"* — so a future pass cuts out cleanly. Worth doing before shipping if you want these fully theme-adaptive.
+
 Use these with any image generator that supports multi-panel / sheet output (Midjourney, Ideogram, DALL·E 3, Stable Diffusion + ControlNet grid). Each prompt below is written as one single generation that yields several related assets at once — the "PANEL" divisions are the trick that gets a grid/sheet result instead of one blended image. If your generator only returns one image per panel description, just run each panel line as its own separate prompt.
 
 ---
