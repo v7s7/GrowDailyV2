@@ -402,21 +402,28 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : lHL),
       ),
       inputDecorationTheme: _inputTheme(false),
-      textTheme: const TextTheme(
-        displayLarge: GameTextStyles.displayLarge,
-        displayMedium: GameTextStyles.displayMedium,
-        headlineLarge: GameTextStyles.headlineLarge,
-        headlineMedium: GameTextStyles.headlineMedium,
-        titleLarge: GameTextStyles.titleLarge,
-        titleMedium: GameTextStyles.titleMedium,
-        bodyLarge: GameTextStyles.bodyLarge,
-        bodyMedium: GameTextStyles.bodyMedium,
-        bodySmall: GameTextStyles.bodySmall,
-        labelLarge: GameTextStyles.labelLarge,
-        labelSmall: GameTextStyles.labelSmall,
-      ).apply(
-        bodyColor: lTp,
-        displayColor: lTp,
+      // Same Cairo wrapping as the dark theme (see below) — without it, light
+      // mode silently falls back to the platform default font while dark
+      // mode renders Cairo, so Arabic and English text look inconsistent
+      // depending on theme. Cairo is the standard pairing for bilingual
+      // Arabic/English UI and reads correctly on iOS.
+      textTheme: GoogleFonts.cairoTextTheme(
+        const TextTheme(
+          displayLarge: GameTextStyles.displayLarge,
+          displayMedium: GameTextStyles.displayMedium,
+          headlineLarge: GameTextStyles.headlineLarge,
+          headlineMedium: GameTextStyles.headlineMedium,
+          titleLarge: GameTextStyles.titleLarge,
+          titleMedium: GameTextStyles.titleMedium,
+          bodyLarge: GameTextStyles.bodyLarge,
+          bodyMedium: GameTextStyles.bodyMedium,
+          bodySmall: GameTextStyles.bodySmall,
+          labelLarge: GameTextStyles.labelLarge,
+          labelSmall: GameTextStyles.labelSmall,
+        ).apply(
+          bodyColor: lTp,
+          displayColor: lTp,
+        ),
       ),
     );
   }

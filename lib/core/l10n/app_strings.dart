@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../utils/intention_phrase.dart';
+
 // ─── Locale provider ──────────────────────────────────────────────────────────
 
 final localeProvider = StateNotifierProvider<_LocaleNotifier, Locale>(
@@ -183,9 +185,23 @@ class S {
   String get times => isAr ? 'مرات:' : 'Times:';
   String get createHabit => isAr ? 'أنشئ العادة' : 'CREATE TINY HABIT';
   String get smartStarters => isAr ? 'بدايات ذكية' : 'SMART STARTERS';
-  String planPreview(String cue, String habit) => isAr
-      ? 'بعد $cue، سأقوم بـ $habit.'
-      : 'After $cue, I will $habit.';
+  // A cue like "Fajr" reads naturally as "After Fajr, I will X." — but a
+  // cue that already carries its own preposition, like "Before sleep",
+  // would read as "After Before sleep, I will X." if we always prepended
+  // "After"/"بعد". Detect that case so the preview stays grammatical no
+  // matter which routine anchor the user picks or types.
+  String planPreview(String cue, String habit) {
+    final trimmedCue = cue.trim();
+    final selfContained = cueHasOwnPreposition(trimmedCue);
+    if (isAr) {
+      final clause = selfContained ? trimmedCue : 'بعد $trimmedCue';
+      return '$clause، سأقوم بـ $habit.';
+    }
+    final clause = selfContained
+        ? capitalizeFirst(trimmedCue)
+        : 'After $trimmedCue';
+    return '$clause, I will $habit.';
+  }
   String get tinyHintDefault => isAr
       ? 'اجعلها صغيرة لدرجة أنك تستطيع فعلها حتى في أصعب يوم.'
       : 'Make it tiny enough that you can do it even on a hard day.';

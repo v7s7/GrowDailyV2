@@ -199,7 +199,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 decoration: InputDecoration(
                   labelText: s.afterWhatRoutine,
                   hintText: s.routineHint,
-                  prefixIcon: Icon(Icons.place_rounded, size: 18, color: gp.textSec),
+                  prefixIcon:
+                      Icon(Icons.schedule_rounded, size: 18, color: gp.textSec),
                 ),
               ),
             ),

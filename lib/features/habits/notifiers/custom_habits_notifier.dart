@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/services/local_store_service.dart';
+import '../../../core/utils/intention_phrase.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../catalog/habit_plans.dart';
@@ -74,7 +75,7 @@ class CustomHabitsNotifier
       name: name,
       description: cueAfter == null || cueAfter.trim().isEmpty
           ? ''
-          : 'After ${cueAfter.trim()}, I will $name.',
+          : buildIntentionSentence(cueAfter, name),
       cueAfter: cueAfter?.trim().isEmpty == true ? null : cueAfter?.trim(),
       iconEmoji: '',
       category: category,
@@ -109,7 +110,7 @@ class CustomHabitsNotifier
     final updated = IslamicHabitTemplate(
       id: id,
       name: name,
-      description: cue == null ? '' : 'After $cue, I will $name.',
+      description: cue == null ? '' : buildIntentionSentence(cue, name),
       cueAfter: cue,
       iconEmoji: existing.iconEmoji,
       category: category,
