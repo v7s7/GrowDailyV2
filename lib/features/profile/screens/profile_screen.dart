@@ -85,7 +85,7 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 3),
+      bottomNavigationBar: const GameNavBar(currentIndex: 4),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
@@ -822,6 +822,7 @@ class _AchievementCard extends StatelessWidget {
         AchievementTrigger.totalCompletions =>
           Icons.check_circle_rounded,
         AchievementTrigger.habitMastery => Icons.menu_book_rounded,
+        AchievementTrigger.greenSquares => Icons.grid_view_rounded,
         _ => Icons.stars_rounded,
       };
 
@@ -833,6 +834,8 @@ class _AchievementCard extends StatelessWidget {
         AchievementTrigger.totalCompletions =>
           (state.totalCompletions / achievement.threshold)
               .clamp(0.0, 1.0),
+        AchievementTrigger.greenSquares =>
+          (state.totalGreenSquares / achievement.threshold).clamp(0.0, 1.0),
         _ => 0.0,
       };
 
@@ -840,6 +843,7 @@ class _AchievementCard extends StatelessWidget {
         AchievementTrigger.streak => state.streak,
         AchievementTrigger.level => state.level,
         AchievementTrigger.totalCompletions => state.totalCompletions,
+        AchievementTrigger.greenSquares => state.totalGreenSquares,
         _ => 0,
       };
 
@@ -987,6 +991,38 @@ class _SettingsSection extends ConsumerWidget {
             ),
             child: Column(
               children: [
+                // GrowDaily Premium
+                InkWell(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.pushNamed(context, '/premium');
+                  },
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(GameSpacing.cardRadius),
+                    topRight: Radius.circular(GameSpacing.cardRadius),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.workspace_premium_rounded,
+                            size: 20, color: GameColors.gold),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(s.premiumTitle,
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  color: gp.textPrimary,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                        Icon(Icons.arrow_forward_ios_rounded,
+                            size: 14, color: gp.textTert),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(height: 0.5, color: gp.divider),
                 // Dark Mode toggle
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),

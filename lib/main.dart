@@ -15,8 +15,12 @@ import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/focus/screens/focus_screen.dart';
+import 'features/grid/screens/grid_screen.dart';
+import 'features/grid/screens/monthly_heatmap_screen.dart';
 import 'features/intention/screens/intention_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
+import 'features/night_review/screens/night_review_screen.dart';
+import 'features/premium/screens/premium_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
 
@@ -64,9 +68,13 @@ class GrowDailyApp extends ConsumerWidget {
       routes: {
         '/': (_) => const _AuthGate(),
         '/dashboard': (_) => const DashboardScreen(),
+        '/grid': (_) => const GridScreen(),
+        '/heatmap': (_) => const MonthlyHeatmapScreen(),
         '/focus': (_) => const FocusScreen(),
         '/matrix': (_) => const MatrixScreen(),
         '/intention': (_) => const IntentionScreen(),
+        '/night-review': (_) => const NightReviewScreen(),
+        '/premium': (_) => const PremiumScreen(),
         '/profile': (_) => const ProfileScreen(),
         '/auth': (_) => const AuthScreen(),
       },
@@ -80,11 +88,10 @@ class _AuthGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isGuest = ref.watch(guestModeProvider);
-    if (isGuest) return const DashboardScreen();
+    if (isGuest) return const GridScreen();
     final auth = ref.watch(authStateProvider);
     return auth.when(
-      data: (user) =>
-          user != null ? const DashboardScreen() : const AuthScreen(),
+      data: (user) => user != null ? const GridScreen() : const AuthScreen(),
       loading: () => const _SplashScreen(),
       error: (_, __) => const AuthScreen(),
     );
@@ -97,13 +104,14 @@ class _SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return Scaffold(
       backgroundColor: gp.bg,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.trending_up_rounded,
+            const Icon(Icons.grid_view_rounded,
                 size: 48, color: GameColors.gold),
             const SizedBox(height: 16),
             Text(
@@ -113,6 +121,15 @@ class _SplashScreen extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 color: gp.textPrimary,
                 letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              s.tagline,
+              style: TextStyle(
+                fontSize: 13,
+                color: gp.textSec,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ],

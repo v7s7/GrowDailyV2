@@ -62,7 +62,9 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
     final s = S.of(context);
     final isAr = s.isAr;
     final bottom = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
         decoration: BoxDecoration(

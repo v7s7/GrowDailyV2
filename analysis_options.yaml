@@ -19,7 +19,6 @@ linter:
     - avoid_empty_else
     - avoid_print
     - avoid_redundant_argument_values
-    - avoid_returning_null_for_future
     - avoid_slow_async_io
     - avoid_unnecessary_containers
     - avoid_web_libraries_in_flutter

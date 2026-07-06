@@ -24,21 +24,24 @@ class GameNavBar extends StatelessWidget {
           Navigator.pushReplacementNamed(
             context,
             switch (i) {
-              0 => '/dashboard',
-              1 => '/focus',
-              2 => '/matrix',
+              0 => '/grid',
+              1 => '/dashboard',
+              2 => '/focus',
+              3 => '/matrix',
               _ => '/profile',
             },
           );
         },
         destinations: [
           NavigationDestination(
+              icon: const Icon(Icons.grid_view_rounded), label: s.navGrid),
+          NavigationDestination(
               icon: const Icon(Icons.home_rounded), label: s.navDashboard),
           NavigationDestination(
               icon: const Icon(Icons.center_focus_strong_rounded),
               label: s.navFocus),
           NavigationDestination(
-              icon: const Icon(Icons.grid_view_rounded), label: s.navGoals),
+              icon: const Icon(Icons.checklist_rounded), label: s.navGoals),
           NavigationDestination(
               icon: const Icon(Icons.person_rounded), label: s.navProfile),
         ],

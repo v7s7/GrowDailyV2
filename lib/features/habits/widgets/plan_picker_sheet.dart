@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../shared/widgets/guest_limit_sheet.dart';
+import '../../../shared/widgets/habit_limit_gate.dart';
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/custom_habits_notifier.dart';
@@ -125,8 +125,8 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
                     }
                     final newCount =
                         plan.catalogIds.where((id) => !activeIds.contains(id)).length;
-                    if (!canGuestAddHabits(ref, additionalCount: newCount)) {
-                      showGuestLimitSheet(context, ref);
+                    if (!canAddHabits(ref, additionalCount: newCount)) {
+                      showHabitLimitGate(context, ref);
                       return;
                     }
                     HapticFeedback.mediumImpact();
@@ -201,7 +201,7 @@ class _PlanCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top row: emoji + name + xp badge + active check
+            // Top row: icon + name + xp badge + active check
             Row(
               children: [
                 Container(
@@ -212,8 +212,7 @@ class _PlanCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Center(
-                    child: Text(plan.emoji,
-                        style: const TextStyle(fontSize: 22)),
+                    child: Icon(plan.icon, size: 22, color: c),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -336,8 +335,7 @@ class _PlanCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Center(
-                            child: Text(h.iconEmoji,
-                                style: const TextStyle(fontSize: 12)),
+                            child: Icon(h.category.icon, size: 13, color: c),
                           ),
                         ),
                       )),
@@ -391,7 +389,8 @@ class _HabitChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(habit.iconEmoji, style: const TextStyle(fontSize: 13)),
+          Icon(habit.category.icon,
+              size: 13, color: isActive ? planColor : gp.textSec),
           const SizedBox(width: 6),
           Text(
             habit.name,

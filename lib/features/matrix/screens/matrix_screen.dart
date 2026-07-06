@@ -22,7 +22,7 @@ class MatrixScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 2),
+      bottomNavigationBar: const GameNavBar(currentIndex: 3),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

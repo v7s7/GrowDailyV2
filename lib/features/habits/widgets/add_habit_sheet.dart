@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../shared/widgets/guest_limit_sheet.dart';
+import '../../../shared/widgets/habit_limit_gate.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
 import '../notifiers/custom_habits_notifier.dart';
@@ -72,9 +72,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   void _submit() {
     if (!_hasName) return;
     final existing = widget.existing;
-    if (existing == null && !canGuestAddHabits(ref)) {
+    if (existing == null && !canAddHabits(ref)) {
       Navigator.pop(context);
-      showGuestLimitSheet(context, ref);
+      showHabitLimitGate(context, ref);
       return;
     }
     HapticFeedback.mediumImpact();
@@ -113,7 +113,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     final s = S.of(context);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
 
-    return Padding(
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
         decoration: BoxDecoration(
@@ -199,7 +201,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 decoration: InputDecoration(
                   labelText: s.afterWhatRoutine,
                   hintText: s.routineHint,
-                  prefixIcon: Icon(Icons.place_rounded, size: 18, color: gp.textSec),
+                  prefixIcon:
+                      Icon(Icons.schedule_rounded, size: 18, color: gp.textSec),
                 ),
               ),
             ),
@@ -240,7 +243,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: HabitCategory.values.map((cat) {
                   final selected = _category == cat;
-                  final icon = _iconFor(cat);
+                  final icon = cat.icon;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
@@ -452,16 +455,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     }
     return _didPickCategory ? _category : HabitCategory.custom;
   }
-
-  IconData _iconFor(HabitCategory cat) => switch (cat) {
-        HabitCategory.quran => Icons.menu_book_rounded,
-        HabitCategory.athkar => Icons.self_improvement_rounded,
-        HabitCategory.fitness => Icons.fitness_center_rounded,
-        HabitCategory.fasting => Icons.nightlight_rounded,
-        HabitCategory.sadaqah => Icons.favorite_rounded,
-        HabitCategory.sleep => Icons.bedtime_rounded,
-        HabitCategory.custom => Icons.star_rounded,
-      };
 }
 
 
@@ -543,7 +536,7 @@ class _SmartStarterRail extends StatelessWidget {
               final starter = _starters[index];
               return ActionChip(
                 onPressed: () => onPick(starter),
-                avatar: Icon(_iconFor(starter.category), size: 16),
+                avatar: Icon(starter.category.icon, size: 16),
                 label: Text(starter.name),
               );
             },
@@ -554,16 +547,6 @@ class _SmartStarterRail extends StatelessWidget {
       ],
     );
   }
-
-  IconData _iconFor(HabitCategory cat) => switch (cat) {
-        HabitCategory.quran => Icons.menu_book_rounded,
-        HabitCategory.athkar => Icons.self_improvement_rounded,
-        HabitCategory.fitness => Icons.fitness_center_rounded,
-        HabitCategory.fasting => Icons.nightlight_rounded,
-        HabitCategory.sadaqah => Icons.favorite_rounded,
-        HabitCategory.sleep => Icons.bedtime_rounded,
-        HabitCategory.custom => Icons.star_rounded,
-      };
 }
 
 class _TinyHint extends StatelessWidget {
@@ -604,14 +587,56 @@ class _RoutineCueChips extends StatelessWidget {
 
   static const _cues = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Before sleep'];
 
+  /// Not every habit hangs off a prayer — some people just want "7:30 AM".
+  /// The current cue counts as a picked clock time when it's set but isn't
+  /// one of the named routine anchors above.
+  bool get _selectedIsCustomTime =>
+      selected.isNotEmpty && !_cues.contains(selected);
+
+  Future<void> _pickTime(BuildContext context) async {
+    HapticFeedback.selectionClick();
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+        child: child!,
+      ),
+    );
+    if (picked != null) onPick(_formatTime(picked));
+  }
+
+  static String _formatTime(TimeOfDay t) {
+    final hour = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final minute = t.minute.toString().padLeft(2, '0');
+    final period = t.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$hour:$minute $period';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
+    final timeSelected = _selectedIsCustomTime;
     return SizedBox(
       height: 34,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
         itemBuilder: (context, index) {
+          if (index == _cues.length) {
+            return ChoiceChip(
+              avatar: Icon(
+                timeSelected
+                    ? Icons.check_rounded
+                    : Icons.access_time_rounded,
+                size: 16,
+              ),
+              showCheckmark: false,
+              selected: timeSelected,
+              label: Text(timeSelected ? selected : s.pickATime),
+              onSelected: (_) => _pickTime(context),
+            );
+          }
           final cue = _cues[index];
           return ChoiceChip(
             selected: selected == cue,
@@ -620,7 +645,7 @@ class _RoutineCueChips extends StatelessWidget {
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: _cues.length,
+        itemCount: _cues.length + 1,
       ),
     );
   }

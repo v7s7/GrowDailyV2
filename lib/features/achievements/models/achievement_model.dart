@@ -19,6 +19,7 @@ enum AchievementTrigger {
   level, // level reaches threshold
   totalCompletions, // total lifetime completions (any habit)
   habitMastery, // single habit totalCompletions reaches threshold
+  greenSquares, // lifetime green (complete/bonus) squares colored on the grid
   special; // manually awarded
 }
 
@@ -26,7 +27,6 @@ class AchievementModel {
   final String id;
   final String name;
   final String description;
-  final String iconEmoji;
   final AchievementRarity rarity;
   final AchievementTrigger trigger;
   final int threshold;
@@ -37,7 +37,6 @@ class AchievementModel {
     required this.id,
     required this.name,
     required this.description,
-    required this.iconEmoji,
     required this.rarity,
     required this.trigger,
     required this.threshold,
@@ -54,7 +53,6 @@ abstract final class AchievementCatalog {
       id: 'streak_7',
       name: 'Seven Days Strong',
       description: 'Maintain a 7-day streak',
-      iconEmoji: '🔥',
       rarity: AchievementRarity.common,
       trigger: AchievementTrigger.streak,
       threshold: 7,
@@ -65,7 +63,6 @@ abstract final class AchievementCatalog {
       id: 'streak_30',
       name: 'Month of Mastery',
       description: 'Maintain a 30-day streak',
-      iconEmoji: '💪',
       rarity: AchievementRarity.uncommon,
       trigger: AchievementTrigger.streak,
       threshold: 30,
@@ -76,7 +73,6 @@ abstract final class AchievementCatalog {
       id: 'streak_100',
       name: 'Century Champion',
       description: 'Maintain a 100-day streak',
-      iconEmoji: '👑',
       rarity: AchievementRarity.legendary,
       trigger: AchievementTrigger.streak,
       threshold: 100,
@@ -88,7 +84,6 @@ abstract final class AchievementCatalog {
       id: 'level_10',
       name: 'Awakened',
       description: 'Reach Level 10',
-      iconEmoji: '⚡',
       rarity: AchievementRarity.common,
       trigger: AchievementTrigger.level,
       threshold: 10,
@@ -99,7 +94,6 @@ abstract final class AchievementCatalog {
       id: 'level_25',
       name: 'Ascendant',
       description: 'Reach Level 25',
-      iconEmoji: '🌟',
       rarity: AchievementRarity.rare,
       trigger: AchievementTrigger.level,
       threshold: 25,
@@ -110,7 +104,6 @@ abstract final class AchievementCatalog {
       id: 'level_50',
       name: 'Transcendent',
       description: 'Reach Level 50',
-      iconEmoji: '🔮',
       rarity: AchievementRarity.epic,
       trigger: AchievementTrigger.level,
       threshold: 50,
@@ -121,7 +114,6 @@ abstract final class AchievementCatalog {
       id: 'level_100',
       name: 'Enlightened',
       description: 'Reach the maximum Level 100',
-      iconEmoji: '✨',
       rarity: AchievementRarity.legendary,
       trigger: AchievementTrigger.level,
       threshold: 100,
@@ -133,7 +125,6 @@ abstract final class AchievementCatalog {
       id: 'completions_50',
       name: 'Consistent',
       description: 'Complete any habit 50 times total',
-      iconEmoji: '🎯',
       rarity: AchievementRarity.common,
       trigger: AchievementTrigger.totalCompletions,
       threshold: 50,
@@ -144,7 +135,6 @@ abstract final class AchievementCatalog {
       id: 'completions_500',
       name: 'Devoted',
       description: 'Complete habits 500 times total',
-      iconEmoji: '🏆',
       rarity: AchievementRarity.rare,
       trigger: AchievementTrigger.totalCompletions,
       threshold: 500,
@@ -156,12 +146,52 @@ abstract final class AchievementCatalog {
       id: 'quran_100',
       name: 'Keeper of the Word',
       description: 'Complete a Quran habit 100 times',
-      iconEmoji: '📖',
       rarity: AchievementRarity.rare,
       trigger: AchievementTrigger.habitMastery,
       threshold: 100,
       xpReward: 750,
       goldReward: 200,
+    ),
+    // ── Victory Grid ────────────────────────────────────────────
+    AchievementModel(
+      id: 'green_1',
+      name: 'First Victory',
+      description: 'Color your very first green square',
+      rarity: AchievementRarity.common,
+      trigger: AchievementTrigger.greenSquares,
+      threshold: 1,
+      xpReward: 25,
+      goldReward: 10,
+    ),
+    AchievementModel(
+      id: 'green_100',
+      name: 'Grid Painter',
+      description: 'Color 100 green squares on your Victory Grid',
+      rarity: AchievementRarity.uncommon,
+      trigger: AchievementTrigger.greenSquares,
+      threshold: 100,
+      xpReward: 200,
+      goldReward: 50,
+    ),
+    AchievementModel(
+      id: 'green_500',
+      name: 'Grid Master',
+      description: 'Color 500 green squares on your Victory Grid',
+      rarity: AchievementRarity.rare,
+      trigger: AchievementTrigger.greenSquares,
+      threshold: 500,
+      xpReward: 600,
+      goldReward: 150,
+    ),
+    AchievementModel(
+      id: 'green_2000',
+      name: 'Living Canvas',
+      description: 'Color 2000 green squares on your Victory Grid',
+      rarity: AchievementRarity.legendary,
+      trigger: AchievementTrigger.greenSquares,
+      threshold: 2000,
+      xpReward: 2500,
+      goldReward: 600,
     ),
   ];
 

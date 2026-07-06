@@ -81,6 +81,28 @@ class MatrixTask {
     );
   }
 
+  /// Plain-map (de)serialization for the guest's local Hive store — no
+  /// Firestore Timestamp involved, so createdAt is a plain ISO-8601 string.
+  factory MatrixTask.fromMap(Map<String, dynamic> d) => MatrixTask(
+        id: d['id'] as String? ?? const Uuid().v4(),
+        title: d['title'] as String? ?? '',
+        quadrant: MatrixQuadrant.values.firstWhere(
+          (q) => q.name == (d['quadrant'] as String? ?? 'doFirst'),
+          orElse: () => MatrixQuadrant.doFirst,
+        ),
+        isDone: d['isDone'] as bool? ?? false,
+        createdAt: DateTime.tryParse(d['createdAt'] as String? ?? '') ??
+            DateTime.now(),
+      );
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'title': title,
+        'quadrant': quadrant.name,
+        'isDone': isDone,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
   Map<String, dynamic> toFirestore() => {
         'title': title,
         'quadrant': quadrant.name,

@@ -1,5 +1,5 @@
 name: grow_daily_v2
-description: "GrowDaily V2 — Gamified Islamic habit tracker with RPG progression."
+description: "GrowDaily V2 — a visual life progress system. Color your life, one square at a time."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -36,7 +36,7 @@ dependencies:
 
   # ── Utilities ────────────────────────────────────────────────
   uuid: ^4.4.0
-  intl: ^0.20.2
+  intl: '>=0.19.0 <0.21.0'
   equatable: ^2.0.5
 
 dev_dependencies:

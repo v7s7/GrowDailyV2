@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../utils/intention_phrase.dart';
+
 // ─── Locale provider ──────────────────────────────────────────────────────────
 
 final localeProvider = StateNotifierProvider<_LocaleNotifier, Locale>(
@@ -32,7 +34,7 @@ class S {
   // ── App ──────────────────────────────────────────────────────────────────
   String get appTitle => isAr ? 'GrowDaily' : 'GrowDaily';
   String get tagline =>
-      isAr ? 'أهداف، دين، وانتصارات يومية صغيرة.' : 'Goals, deen, and tiny daily wins.';
+      isAr ? 'لوّن حياتك، مربّعًا كل يوم.' : 'Color your life, one square at a time.';
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   String get signIn => isAr ? 'تسجيل الدخول' : 'Sign In';
@@ -176,6 +178,7 @@ class S {
   String get habitNameHint => isAr ? 'ما العادة التي تريد بناءها؟' : 'What habit do you want to build?';
   String get afterWhatRoutine => isAr ? 'بعد أي روتين؟ (اختياري)' : 'After what routine? (optional)';
   String get routineHint => isAr ? 'الفجر، المغرب، قبل النوم...' : 'Fajr, Maghrib, before sleep...';
+  String get pickATime => isAr ? 'اختر وقتًا' : 'Pick a time';
   String get category => isAr ? 'الفئة' : 'CATEGORY';
   String get frequency => isAr ? 'التكرار' : 'FREQUENCY';
   String get daily => isAr ? 'يومياً' : 'Daily';
@@ -183,9 +186,23 @@ class S {
   String get times => isAr ? 'مرات:' : 'Times:';
   String get createHabit => isAr ? 'أنشئ العادة' : 'CREATE TINY HABIT';
   String get smartStarters => isAr ? 'بدايات ذكية' : 'SMART STARTERS';
-  String planPreview(String cue, String habit) => isAr
-      ? 'بعد $cue، سأقوم بـ $habit.'
-      : 'After $cue, I will $habit.';
+  // A cue like "Fajr" reads naturally as "After Fajr, I will X." — but a
+  // cue that already carries its own preposition, like "Before sleep",
+  // would read as "After Before sleep, I will X." if we always prepended
+  // "After"/"بعد". Detect that case so the preview stays grammatical no
+  // matter which routine anchor the user picks or types.
+  String planPreview(String cue, String habit) {
+    final trimmedCue = cue.trim();
+    final selfContained = cueHasOwnPreposition(trimmedCue);
+    if (isAr) {
+      final clause = selfContained ? trimmedCue : 'بعد $trimmedCue';
+      return '$clause، سأقوم بـ $habit.';
+    }
+    final clause = selfContained
+        ? capitalizeFirst(trimmedCue)
+        : 'After $trimmedCue';
+    return '$clause, I will $habit.';
+  }
   String get tinyHintDefault => isAr
       ? 'اجعلها صغيرة لدرجة أنك تستطيع فعلها حتى في أصعب يوم.'
       : 'Make it tiny enough that you can do it even on a hard day.';
@@ -275,14 +292,137 @@ class S {
   String get matrixNotUrgent => isAr ? 'غير عاجل' : 'NOT URGENT';
   String get matrixImportant => isAr ? 'مهم' : 'IMPORTANT';
   String get matrixNotImportant => isAr ? 'غير مهم' : 'NOT IMPORTANT';
-  String get matrixTapToAdd => isAr ? 'اضغط + للإضافة' : 'Tap + to add';
+  String get matrixTapToAdd => isAr ? 'اضغط في أي مكان للإضافة' : 'Tap anywhere to add a goal';
+  String get matrixAddAnother => isAr ? '+ أضف مهمة أخرى' : '+ Add another';
   String get matrixAddTask => isAr ? 'أضف مهمة' : 'ADD TASK';
   String get matrixWhatToDo => isAr ? 'ما الذي يجب فعله؟' : 'What needs to be done?';
   String get matrixMoveToQuadrant => isAr ? 'انقل إلى ربع' : 'MOVE TO QUADRANT';
 
   // ── Navigation ───────────────────────────────────────────────────────────
   String get navDashboard => isAr ? 'الرئيسية' : 'Dashboard';
+  String get navGrid => isAr ? 'الشبكة' : 'Grid';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
   String get navProfile => isAr ? 'ملفي' : 'Profile';
+
+  // ── Victory Grid ─────────────────────────────────────────────────────────
+  String get gridTitle => isAr ? 'شبكة الانتصارات' : 'Victory Grid';
+  String get gridSlogan =>
+      isAr ? 'لوّن حياتك، مربّعًا كل يوم.' : 'Color your life, one square at a time.';
+  String get gridThisWeek => isAr ? 'هذا الأسبوع' : 'This week';
+  String get gridGreenSquares => isAr ? 'مربّعات خضراء' : 'Green squares';
+  String get gridPoints => isAr ? 'النقاط' : 'Points';
+  String get gridComplete => isAr ? 'الإكمال' : 'Complete';
+  String get gridWeekFilled => isAr ? 'اكتمل الأسبوع!' : 'Week filled!';
+  String get gridPerfectDay =>
+      isAr ? 'يوم مثالي — كل مربّعات اليوم خضراء!' : 'Perfect day — every square is green!';
+  String gridGreensToday(int n) =>
+      isAr ? 'كسبت $n مربّعًا أخضر اليوم' : 'You earned $n green squares today';
+  String get gridTapHint => isAr
+      ? 'اضغط لتلوين المربّع · اضغط مطولاً للمزيد من الألوان'
+      : 'Tap to color · long-press for more colors';
+  String get gridLegend => isAr ? 'الألوان' : 'Legend';
+  String get gridEmptyTitle => isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
+  String get gridEmptyDesc => isAr
+      ? 'أضف عادات من الرئيسية لتبدأ بتلوين أسبوعك.'
+      : 'Add a few habits from the Dashboard to start coloring your week.';
+  String get gridGoToDashboard => isAr ? 'الذهاب للرئيسية' : 'Go to Dashboard';
+  String get gridEditSquare => isAr ? 'حدّد المربّع' : 'Set this square';
+  String get gridNoteLabel => isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
+  String get gridNoteHint =>
+      isAr ? 'اكتب انعكاسًا قصيرًا…' : 'Write a short reflection…';
+  String get gridSave => isAr ? 'حفظ' : 'Save';
+  String get gridFutureDay => isAr ? 'يوم قادم' : 'Future day';
+
+  // ── Monthly Heatmap ──────────────────────────────────────────────────────
+  String get heatmapTitle => isAr ? 'خريطة التقدّم' : 'Progress Heatmap';
+  String get heatmapSubtitle => isAr
+      ? 'كثافة الإنجاز عبر الأشهر — كل مربّع يومٌ، وكل درجة لون كثافة انتصاراتك.'
+      : "Your completion density across months — every square is a day, every shade is how much you colored it.";
+  String get heatmapTotalGreen => isAr ? 'مربّعات خضراء' : 'Green squares';
+  String get heatmapActiveDays => isAr ? 'أيام نشطة' : 'Active days';
+  String get heatmapBestDay => isAr ? 'أفضل يوم' : 'Best day';
+  String get heatmapLess => isAr ? 'أقل' : 'Less';
+  String get heatmapMore => isAr ? 'أكثر' : 'More';
+
+  // ── Night Review ─────────────────────────────────────────────────────────
+  String get nightReviewTitle => isAr ? 'مراجعة الليل' : 'Night Review';
+  String get nightReviewPromptTitle =>
+      isAr ? 'كيف كان يومك؟' : 'How was your day?';
+  String get nightReviewPromptDesc => isAr
+      ? 'مراجعة مسائية قصيرة قبل النوم — مزاجك، انعكاسك، وانتصارات اليوم.'
+      : 'A short evening check-in before bed — your mood, a reflection, and today\'s wins.';
+  String get nightReviewMoodQuestion =>
+      isAr ? 'اختر مزاجك' : 'Select your mood';
+  String get nightReviewReflectionLabel =>
+      isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
+  String get nightReviewReflectionHint =>
+      isAr ? 'اكتب بضع كلمات عن يومك…' : 'Write a few words about your day…';
+  String get nightReviewSummaryTitle =>
+      isAr ? 'ملخّص اليوم' : "Today's summary";
+  String get nightReviewXpEarned => isAr ? 'نقاط الخبرة' : 'XP earned';
+  String get nightReviewGreenSquares =>
+      isAr ? 'مربّعات خضراء' : 'Green squares';
+  String get nightReviewStreak => isAr ? 'السلسلة' : 'Streak';
+  String get nightReviewSave => isAr ? 'حفظ المراجعة' : 'Save review';
+  String get nightReviewSaved => isAr ? 'تم حفظ مراجعتك الليلية' : 'Night review saved';
+  String get nightReviewDoneBadge => isAr ? 'تمت المراجعة' : 'Reviewed';
+  String get nightReviewEditedHint =>
+      isAr ? 'يمكنك تعديل مراجعتك في أي وقت الليلة' : 'You can edit tonight\'s review anytime';
+
+  // ── Premium ──────────────────────────────────────────────────────────────
+  String get premiumTitle => isAr ? 'بريميوم' : 'GrowDaily Premium';
+  String get premiumHeadline =>
+      isAr ? 'املأ حياتك بالأخضر، بلا حدود' : 'Fill your life with green, without limits';
+  String get premiumSubhead => isAr
+      ? 'ادعم تطوير GrowDaily وافتح كل قوتها.'
+      : 'Support GrowDaily\'s development and unlock its full power.';
+  String get premiumBenefitHabitsTitle =>
+      isAr ? 'عادات غير محدودة' : 'Unlimited habits';
+  String get premiumBenefitHabitsDesc => isAr
+      ? 'تتبّع كل جوانب حياتك على شبكة واحدة، بلا سقف.'
+      : 'Track every corner of your life on one grid — no cap.';
+  String get premiumBenefitHistoryTitle =>
+      isAr ? 'إحصاءات متقدمة' : 'Advanced insights';
+  String get premiumBenefitHistoryDesc => isAr
+      ? 'سنوات من الخرائط الحرارية والاتجاهات بين مزاجك وعاداتك.'
+      : 'Years of heatmaps and trends between your mood and your habits.';
+  String get premiumBenefitFamilyTitle =>
+      isAr ? 'شبكات العائلة (قريبًا)' : 'Family grids (coming soon)';
+  String get premiumBenefitFamilyDesc => isAr
+      ? 'أهداف مشتركة وتحديات مع من تحب — أولوية الوصول للمشتركين.'
+      : 'Shared goals and challenges with the people you love — subscribers get first access.';
+  String get premiumBenefitSupportTitle =>
+      isAr ? 'ادعم صانعًا مستقلًا' : 'Support an independent maker';
+  String get premiumBenefitSupportDesc => isAr
+      ? 'لا إعلانات، لا بيع بيانات — اشتراكك هو ما يبقي التطبيق حيًا.'
+      : 'No ads, no data selling — your subscription is what keeps the app alive.';
+  String get premiumMonthly => isAr ? 'شهري' : 'MONTHLY';
+  String get premiumYearly => isAr ? 'سنوي' : 'YEARLY';
+  String get premiumPerMonth => isAr ? 'كل شهر' : 'per month';
+  String get premiumPerYear => isAr ? 'كل سنة' : 'per year';
+  String premiumSave(String pct) => isAr ? 'وفّر $pct' : 'SAVE $pct';
+  String get premiumCta => isAr ? 'ابدأ بريميوم' : 'START PREMIUM';
+  String get premiumRestore => isAr ? 'استعادة المشتريات' : 'Restore purchases';
+  String get premiumComingSoon => isAr
+      ? 'الاشتراكات تفتح مع الإطلاق — أنت على قائمة المؤسسين.'
+      : 'Purchases open at launch — you\'re on the founders list.';
+  String get premiumActive =>
+      isAr ? 'بريميوم مفعّل — شكرًا لدعمك!' : 'Premium is active — thank you for your support!';
+  String get premiumFinePrint => isAr
+      ? 'إلغاء في أي وقت. الأسعار النهائية تُعرض في المتجر.'
+      : 'Cancel anytime. Final prices are shown in the store.';
+  String get habitLimitTitle =>
+      isAr ? 'وصلت لحد الخطة المجانية' : 'You\'ve reached the free plan limit';
+  String habitLimitBody(int limit) => isAr
+      ? 'الخطة المجانية تشمل $limit عادات. افتح عادات غير محدودة مع بريميوم.'
+      : 'The free plan includes $limit habits. Unlock unlimited habits with Premium.';
+
+  // ── Streak nudge ─────────────────────────────────────────────────────────
+  String streakAtRiskTitle(int days) => isAr
+      ? 'سلسلة الـ$days يومًا على المحك'
+      : 'Your $days-day streak is on the line';
+  String get streakAtRiskBody => isAr
+      ? 'مربّع أخضر واحد الليلة يبقيها حيّة.'
+      : 'One green square tonight keeps it alive.';
 }
