@@ -29,14 +29,13 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyB2dC_6ddlr2YRha5Y85GPNd3KpIlHFaqQ',
-    appId: '1:508215311979:ios:885d52f65de4c31e1fbb2e',
+    appId: '1:508215311979:ios:1e5f8d525db5d9841fbb2e',
     messagingSenderId: '508215311979',
     projectId: 'grow-daily-339ef',
     storageBucket: 'grow-daily-339ef.firebasestorage.app',
-    iosClientId: '508215311979-qrr5nrjcl6til44peg3k3jmdv0smub7e.apps.googleusercontent.com',
-    iosBundleId: 'com.growdaily.v2',
+    iosClientId: '508215311979-mgcmcfoo34l3i8kbtckqh0qmi0oud9p2.apps.googleusercontent.com',
+    iosBundleId: 'com.example.growDailyV2',
   );
-
   // TODO: replace placeholder values after running `flutterfire configure`
 
   static const FirebaseOptions android = FirebaseOptions(
@@ -56,5 +55,4 @@ class DefaultFirebaseOptions {
     storageBucket: 'grow-daily-339ef.firebasestorage.app',
     measurementId: 'G-K4LLS0RY6B',
   );
-
 }

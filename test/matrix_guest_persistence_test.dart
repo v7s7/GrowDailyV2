@@ -64,12 +64,12 @@ void main() {
     // kicks off its guest load, so it must happen before waiting for it.
     second.read(matrixProvider);
     final loadDeadline = DateTime.now().add(const Duration(seconds: 5));
-    while (second.read(matrixProvider).isEmpty &&
+    while (second.read(matrixProvider).tasks.isEmpty &&
         DateTime.now().isBefore(loadDeadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
 
-    final tasks = second.read(matrixProvider);
+    final tasks = second.read(matrixProvider).tasks;
     expect(tasks, hasLength(1));
     expect(tasks.first.title, 'Reply to an email');
     expect(tasks.first.quadrant, MatrixQuadrant.doFirst);

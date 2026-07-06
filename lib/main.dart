@@ -52,23 +52,43 @@ Future<void> main() async {
   ));
 }
 
-class GrowDailyApp extends ConsumerWidget {
+class GrowDailyApp extends ConsumerStatefulWidget {
   const GrowDailyApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeModeProvider);
-    final locale = ref.watch(localeProvider);
+  ConsumerState<GrowDailyApp> createState() => _GrowDailyAppState();
+}
 
+class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
+  ProviderSubscription<TimeOfDay?>? _reminderSub;
+
+  @override
+  void initState() {
+    super.initState();
     // Re-arm the daily reminder on cold start. Android clears exact-alarm
     // schedules on device reboot, so this makes sure a previously-set
     // reminder survives a restart even without a boot-completed receiver.
-    ref.listen(reminderTimeProvider, (previous, next) {
+    // `fireImmediately` needs listenManual (not the build-scoped ref.listen),
+    // since it has to run once as soon as the persisted value loads, not
+    // only on a future change.
+    _reminderSub = ref.listenManual(reminderTimeProvider, (previous, next) {
       if (next != null) {
         NotificationService.instance
             .scheduleDailyReminder(hour: next.hour, minute: next.minute);
       }
     }, fireImmediately: true);
+  }
+
+  @override
+  void dispose() {
+    _reminderSub?.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeMode = ref.watch(themeModeProvider);
+    final locale = ref.watch(localeProvider);
 
     return MaterialApp(
       title: 'GrowDaily',

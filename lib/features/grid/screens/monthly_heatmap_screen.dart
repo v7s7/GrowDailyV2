@@ -48,7 +48,7 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
 
     final currentWeekStart = startOfGridWeek(DateTime.now());
     final firstWeekStart = currentWeekStart
-        .subtract(const Duration(days: 7 * (weeksToShow - 1)));
+        .subtract(Duration(days: 7 * (weeksToShow - 1)));
     final weekStarts = List.generate(
       weeksToShow,
       (i) => firstWeekStart.add(Duration(days: 7 * i)),

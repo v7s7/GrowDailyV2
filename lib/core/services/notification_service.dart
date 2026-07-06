@@ -34,7 +34,7 @@ class NotificationService {
     tz_data.initializeTimeZones();
     try {
       final currentTimeZone = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(currentTimeZone.identifier));
+      tz.setLocalLocation(tz.getLocation(currentTimeZone));
     } catch (_) {
       // Fall back to UTC if the plugin can't resolve the device's IANA
       // timezone name; schedules still fire, just anchored to UTC until
@@ -94,6 +94,8 @@ class NotificationService {
       _nextInstanceOf(hour, minute),
       _details,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,
     );
     debugPrint(
