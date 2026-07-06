@@ -836,17 +836,33 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     } catch (_) {}
   }
 
+  /// Spends gold for an extra streak freeze. Returns whether the purchase
+  /// actually persisted — previously this always returned `true` once the
+  /// affordability check passed, even if the Firestore write below failed,
+  /// which showed the player a success toast for a purchase that silently
+  /// never saved (they'd lose the gold and the freeze on next launch, with
+  /// no error and nothing to point to why). Now a failed write rolls the
+  /// optimistic gold/freeze deduction back and reports failure so the UI can
+  /// tell the user to retry instead of celebrating a purchase that didn't
+  /// happen.
   Future<bool> buyStreakFreeze() async {
     if (state.gold < streakFreezeCost ||
         state.streakFreezes >= maxStreakFreezes) {
       return false;
     }
-    final newGold = state.gold - streakFreezeCost;
-    final newFreezes = state.streakFreezes + 1;
-    AnalyticsService.instance.track('streak_freeze_bought');
+    final previousGold = state.gold;
+    final previousFreezes = state.streakFreezes;
+    final newGold = previousGold - streakFreezeCost;
+    final newFreezes = previousFreezes + 1;
     state = state.copyWith(gold: newGold, streakFreezes: newFreezes);
     if (_uid == null) {
-      await _saveGuestState();
+      try {
+        await _saveGuestState();
+      } catch (_) {
+        state = state.copyWith(gold: previousGold, streakFreezes: previousFreezes);
+        return false;
+      }
+      AnalyticsService.instance.track('streak_freeze_bought');
       return true;
     }
     try {
@@ -854,7 +870,11 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'gold': newGold,
         'streakFreezes': newFreezes,
       }, SetOptions(merge: true));
-    } catch (_) {}
+    } catch (_) {
+      state = state.copyWith(gold: previousGold, streakFreezes: previousFreezes);
+      return false;
+    }
+    AnalyticsService.instance.track('streak_freeze_bought');
     return true;
   }
 

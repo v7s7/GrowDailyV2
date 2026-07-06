@@ -35,14 +35,15 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _save() async {
     HapticFeedback.mediumImpact();
     ref.read(nightReviewProvider.notifier).setReflection(_reflectionCtrl.text);
-    ref.read(nightReviewProvider.notifier).save();
+    final ok = await ref.read(nightReviewProvider.notifier).save();
+    if (!context.mounted) return;
     final s = S.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(s.nightReviewSaved),
+        content: Text(ok ? s.nightReviewSaved : s.errGeneric),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),

@@ -83,8 +83,15 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
     state = state.copyWith(reflection: text, saved: false);
   }
 
-  Future<void> save() async {
-    if (state.mood == null) return;
+  /// Persists tonight's mood + reflection. Returns whether it actually
+  /// saved — this used to flip `state.saved` to `true` (driving a "Saved!"
+  /// checkmark in the UI) before the write below ran, and swallowed any
+  /// failure, so a dropped connection meant the user saw confirmation for a
+  /// reflection that was never written anywhere. Now a failed write rolls
+  /// `saved` back to `false` and reports failure so the screen can tell the
+  /// user to try again instead of lying to them.
+  Future<bool> save() async {
+    if (state.mood == null) return false;
     final data = {
       'mood': state.mood!.toJson(),
       'dailyReflection': state.reflection.trim(),
@@ -92,17 +99,26 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
     };
     state = state.copyWith(saved: true);
     if (_uid == null) {
-      final existing = await LocalStoreService.getDailyMap(_todayKey);
-      await LocalStoreService.putDailyMap(_todayKey, {
-        ...existing,
-        ...data,
-        'date': DateTime.now().toIso8601String(),
-      });
-      return;
+      try {
+        final existing = await LocalStoreService.getDailyMap(_todayKey);
+        await LocalStoreService.putDailyMap(_todayKey, {
+          ...existing,
+          ...data,
+          'date': DateTime.now().toIso8601String(),
+        });
+        return true;
+      } catch (_) {
+        if (mounted) state = state.copyWith(saved: false);
+        return false;
+      }
     }
     try {
       await _dailyRef.set(data, SetOptions(merge: true));
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      if (mounted) state = state.copyWith(saved: false);
+      return false;
+    }
   }
 }
 

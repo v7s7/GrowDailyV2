@@ -799,11 +799,15 @@ class _StreakFreezeCard extends ConsumerWidget {
                           .buyStreakFreeze();
                       if (context.mounted) {
                         final s2 = S.of(context);
+                        // `canBuy` already gated this button on having enough
+                        // gold and free slots, so a `false` result here means
+                        // the purchase failed to save (e.g. no network) —
+                        // not that funds were insufficient.
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(ok
                                 ? s2.streakFreeze
-                                : 'Need ${DashboardNotifier.streakFreezeCost} ${s2.gold}'),
+                                : s2.errGeneric),
                             duration: const Duration(seconds: 2),
                           ),
                         );
