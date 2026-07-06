@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>508215311979-mgcmcfoo34l3i8kbtckqh0qmi0oud9p2.apps.googleusercontent.com</string>
+	<string>508215311979-qrr5nrjcl6til44peg3k3jmdv0smub7e.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.508215311979-mgcmcfoo34l3i8kbtckqh0qmi0oud9p2</string>
+	<string>com.googleusercontent.apps.508215311979-qrr5nrjcl6til44peg3k3jmdv0smub7e</string>
 	<key>API_KEY</key>
 	<string>AIzaSyB2dC_6ddlr2YRha5Y85GPNd3KpIlHFaqQ</string>
 	<key>GCM_SENDER_ID</key>
@@ -13,7 +13,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.example.growDailyV2</string>
+	<string>com.growdaily.v2</string>
 	<key>PROJECT_ID</key>
 	<string>grow-daily-339ef</string>
 	<key>STORAGE_BUCKET</key>
@@ -29,6 +29,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:508215311979:ios:1e5f8d525db5d9841fbb2e</string>
+	<string>1:508215311979:ios:885d52f65de4c31e1fbb2e</string>
 </dict>
 </plist>
