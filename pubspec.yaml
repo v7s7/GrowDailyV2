@@ -69,7 +69,12 @@ flutter:
 flutter_launcher_icons:
   image_path: "assets/images/icon_app.png"
   ios: true
-  android: true
+  # Flip this back to true once `flutter create --platforms=android .` has
+  # been run — right now there's no android/ folder, and this package hard
+  # crashes (rather than skipping gracefully) if android: true with no
+  # AndroidManifest.xml to write into, which meant the run that included
+  # this config never even got to the iOS icons below it.
+  android: false
   remove_alpha_ios: true # iOS icons must not have transparency
   min_sdk_android: 21
 
