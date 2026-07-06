@@ -5,6 +5,7 @@ import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../features/habits/models/habit_model.dart';
+import 'category_icon.dart';
 
 class HabitCard extends StatefulWidget {
   final IslamicHabitTemplate template;
@@ -38,16 +39,6 @@ class _HabitCardState extends State<HabitCard> {
       });
     }
   }
-
-  IconData get _icon => switch (widget.template.category) {
-        HabitCategory.quran => Icons.menu_book_rounded,
-        HabitCategory.athkar => Icons.self_improvement_rounded,
-        HabitCategory.fitness => Icons.fitness_center_rounded,
-        HabitCategory.fasting => Icons.nightlight_rounded,
-        HabitCategory.sadaqah => Icons.favorite_rounded,
-        HabitCategory.sleep => Icons.bedtime_rounded,
-        HabitCategory.custom => Icons.star_rounded,
-      };
 
   String _subtitle(BuildContext context) {
     final s = S.of(context);
@@ -103,8 +94,8 @@ class _HabitCardState extends State<HabitCard> {
                         : gp.surfaceHigh,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(
-                    _icon,
+                  child: CategoryIcon(
+                    category: widget.template.category,
                     size: 20,
                     color: widget.isDone ? GameColors.gold : gp.textSec,
                   ),

@@ -42,6 +42,21 @@ enum HabitCategory {
         sleep => Icons.bedtime_rounded,
         custom => Icons.star_rounded,
       };
+
+  /// Custom-drawn glyph asset for this category, or null to fall back to
+  /// [icon] (Material icon). These are transparent-background PNGs meant to
+  /// be tinted via `Image.asset(..., color: x, colorBlendMode: BlendMode.srcIn)`
+  /// — see [CategoryIcon] — so they behave like a drop-in replacement for
+  /// `Icon(category.icon, color: x)` wherever it's used.
+  String? get iconAsset => switch (this) {
+        quran => 'assets/images/category_quran.png',
+        athkar => 'assets/images/category_prayer.png',
+        fitness => 'assets/images/category_fitness.png',
+        fasting => 'assets/images/category_focus.png',
+        sadaqah => 'assets/images/category_charity.png',
+        sleep => 'assets/images/category_sleep.png',
+        custom => null, // no custom art yet — keeps the Material star icon
+      };
 }
 
 /// Stored at: users/{uid}/habits/{habitId}

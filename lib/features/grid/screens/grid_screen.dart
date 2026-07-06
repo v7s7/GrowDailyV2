@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
@@ -50,8 +51,11 @@ void showAddHabitSheet(BuildContext context, WidgetRef ref) {
   );
 }
 
-/// Themed leading mark for a habit row — a tinted Material icon per
-/// category, keeping the grid surface icon-based rather than emoji-based.
+/// Themed tint color for a habit row's category chip. The IconData half of
+/// this tuple is legacy — actual rendering goes through [CategoryIcon],
+/// which prefers the custom glyph art and only falls back to a Material
+/// icon for categories without custom art. Kept here since callers still
+/// destructure the color.
 (IconData, Color) categoryVisual(HabitCategory category) => switch (category) {
       HabitCategory.quran => (Icons.menu_book_rounded, GameColors.emerald),
       HabitCategory.athkar =>
@@ -868,7 +872,7 @@ class _GridTable extends ConsumerWidget {
             child: Row(
               children: [
                 Builder(builder: (_) {
-                  final (icon, color) = categoryVisual(habit.category);
+                  final (_, color) = categoryVisual(habit.category);
                   return Container(
                     width: 22,
                     height: 22,
@@ -876,7 +880,11 @@ class _GridTable extends ConsumerWidget {
                       color: color.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(7),
                     ),
-                    child: Icon(icon, size: 13, color: color),
+                    child: CategoryIcon(
+                      category: habit.category,
+                      size: 13,
+                      color: color,
+                    ),
                   );
                 }),
                 const SizedBox(width: 6),
@@ -1140,7 +1148,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             Row(
               children: [
                 Builder(builder: (_) {
-                  final (icon, color) = categoryVisual(widget.habit.category);
+                  final (_, color) = categoryVisual(widget.habit.category);
                   return Container(
                     width: 34,
                     height: 34,
@@ -1148,7 +1156,11 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                       color: color.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(icon, size: 18, color: color),
+                    child: CategoryIcon(
+                      category: widget.habit.category,
+                      size: 18,
+                      color: color,
+                    ),
                   );
                 }),
                 const SizedBox(width: 10),

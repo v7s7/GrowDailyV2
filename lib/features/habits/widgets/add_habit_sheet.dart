@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
@@ -243,7 +244,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: HabitCategory.values.map((cat) {
                   final selected = _category == cat;
-                  final icon = cat.icon;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
@@ -273,11 +273,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(icon,
-                                size: 14,
-                                color: selected
-                                    ? GameColors.gold
-                                    : gp.textSec),
+                            CategoryIcon(
+                              category: cat,
+                              size: 14,
+                              color:
+                                  selected ? GameColors.gold : gp.textSec,
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               cat.displayName,

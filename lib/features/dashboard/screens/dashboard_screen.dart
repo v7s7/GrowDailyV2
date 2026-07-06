@@ -375,15 +375,17 @@ class _EmptyHabitsState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: GameColors.gold.withOpacity(0.1),
-                shape: BoxShape.circle,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+              child: Container(
+                width: 180,
+                height: 180,
+                color: const Color(0xFFFEFAF0),
+                child: Image.asset(
+                  'assets/images/empty_state_no_habits.png',
+                  fit: BoxFit.cover,
+                ),
               ),
-              child: const Icon(Icons.auto_awesome_rounded,
-                  size: 36, color: GameColors.gold),
             )
                 .animate()
                 .scale(curve: Curves.elasticOut, duration: 700.ms)
@@ -773,19 +775,21 @@ class _AllDoneBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: GameColors.gold.withOpacity(0.14),
-              shape: BoxShape.circle,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              width: 52,
+              height: 52,
+              color: const Color(0xFFFEFAF0),
+              child: Image.asset(
+                'assets/images/empty_state_all_done.png',
+                fit: BoxFit.cover,
+              ),
             ),
-            child: const Icon(Icons.auto_awesome_rounded,
-                color: GameColors.gold, size: 20),
           )
               .animate(onPlay: (c) => c.repeat(reverse: true))
               .scaleXY(
-                  begin: 0.88,
+                  begin: 0.92,
                   end: 1.0,
                   duration: 1100.ms,
                   curve: Curves.easeInOut),

@@ -148,29 +148,51 @@ class ProfileScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 14),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(s.achievements,
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: gp.textSec,
-                          letterSpacing: 1.5)),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: GameColors.gold.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(100),
+                  // Decorative banner — kept on its own fixed light card
+                  // (see premium_upgrade_hero for why) since the confetti
+                  // art has soft shading baked in for a cream backdrop.
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+                    child: Container(
+                      height: 130,
+                      width: double.infinity,
+                      color: const Color(0xFFFEFAF0),
+                      child: Image.asset(
+                        'assets/images/achievement_celebration_burst.png',
+                        fit: BoxFit.cover,
+                        alignment: Alignment.center,
+                      ),
                     ),
-                    child: Text(
-                      '${unlockedIds.length} / ${AchievementCatalog.all.length}',
-                      style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: GameColors.gold),
-                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Text(s.achievements,
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: gp.textSec,
+                              letterSpacing: 1.5)),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: GameColors.gold.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        child: Text(
+                          '${unlockedIds.length} / ${AchievementCatalog.all.length}',
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: GameColors.gold),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

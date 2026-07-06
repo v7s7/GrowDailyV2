@@ -53,6 +53,8 @@ dev_dependencies:
   # json_serializable) are omitted in Phase 1 — all models are pure handwritten
   # Dart and require no generation step. Re-add after `flutter upgrade`.
   # ────────────────────────────────────────────────────────────
+  flutter_launcher_icons: ^0.14.1
+  flutter_native_splash: ^2.4.1
 
 flutter:
   uses-material-design: true
@@ -60,3 +62,23 @@ flutter:
     - assets/lottie/
     - assets/images/
     - assets/icons/
+
+# ── App icon generation ──────────────────────────────────────────
+# Run once (and again any time icon_app.png changes):
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: "assets/images/icon_app.png"
+  ios: true
+  android: true
+  remove_alpha_ios: true # iOS icons must not have transparency
+  min_sdk_android: 21
+
+# ── Native splash screen ─────────────────────────────────────────
+# Run once (and again any time splash_background.png changes):
+#   dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#FEFAF0"
+  image: assets/images/splash_background.png
+  android_12:
+    color: "#FEFAF0"
+    image: assets/images/splash_background.png

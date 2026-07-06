@@ -2,40 +2,41 @@
 
 A shared style guide + a set of prompts for generating the app's visual assets (icon, splash, illustrations, badges). Written for a clean, flat, 2D "Apple-vibe" look — think App Store feature graphics, not skeuomorphic game art.
 
-## Status: first batch generated, cropped, and in `assets/images/`
+## Status: generated, cropped, and wired into the actual app
 
-The 7 sheets generated from the prompts below have been split into 17 individual, ready-to-wire files:
+The 7 sheets generated from the prompts below were split into 17 files, and 12 of them are now actually referenced from Dart code (not just sitting in `assets/images/` unused):
 
-| File | Source prompt | Wire into |
-|---|---|---|
-| `icon_app.png` | #1 App icon | `flutter_launcher_icons` config → generates the full iOS/Android icon set |
-| `splash_background.png` | #2 Splash | Native splash screen background (e.g. `flutter_native_splash`) |
-| `onboarding_1_start_habit.png` | #3 Onboarding, panel 1 | Onboarding carousel, slide 1 |
-| `onboarding_2_track_progress.png` | #3 Onboarding, panel 2 | Onboarding carousel, slide 2 |
-| `onboarding_3_streak_momentum.png` | #3 Onboarding, panel 3 | Onboarding carousel, slide 3 |
-| `onboarding_4_celebrate_wins.png` | #3 Onboarding, panel 4 | Onboarding carousel, slide 4 |
-| `empty_state_no_habits.png` | #4 Empty states, panel 1 | Dashboard empty state ("no habits yet") |
-| `empty_state_all_done.png` | #4 Empty states, panel 2 | `_AllDoneBanner` on the dashboard |
-| `empty_state_no_achievements.png` | #4 Empty states, panel 3 | Profile achievements section, empty case |
-| `category_quran.png` | #6 Category icons | Quran/reading habit category |
-| `category_prayer.png` | #6 Category icons | Prayer habit category |
-| `category_focus.png` | #6 Category icons | Focus/deep-work habit category |
-| `category_sleep.png` | #6 Category icons | Sleep habit category |
-| `category_fitness.png` | #6 Category icons | Fitness/movement habit category |
-| `category_charity.png` | #6 Category icons | Charity/giving habit category |
-| `achievement_celebration_burst.png` | #7 Level-up burst | `AchievementUnlockSheet` / level-up overlay |
-| `premium_upgrade_hero.png` | #8 Premium hero | `PremiumScreen` hero banner |
+| File | Source prompt | Wired into | Status |
+|---|---|---|---|
+| `icon_app.png` | #1 App icon | `flutter_launcher_icons` config in `pubspec.yaml` | ✅ configured — run `dart run flutter_launcher_icons` |
+| `splash_background.png` | #2 Splash | `flutter_native_splash` config in `pubspec.yaml` | ✅ configured — run `dart run flutter_native_splash:create` |
+| `category_quran.png` | #6 Category icons | `HabitCategory.iconAsset` + `CategoryIcon` widget, used in habit_card.dart, grid_screen.dart (x2), add_habit_sheet.dart | ✅ wired |
+| `category_prayer.png` | #6 Category icons | same as above, mapped to `athkar` | ✅ wired |
+| `category_focus.png` | #6 Category icons | same as above, mapped to `fasting` (repurposed — see note) | ✅ wired |
+| `category_sleep.png` | #6 Category icons | same as above, mapped to `sleep` | ✅ wired |
+| `category_fitness.png` | #6 Category icons | same as above, mapped to `fitness` | ✅ wired |
+| `category_charity.png` | #6 Category icons | same as above, mapped to `sadaqah` | ✅ wired |
+| `premium_upgrade_hero.png` | #8 Premium hero | `PremiumScreen` — illustration banner above the existing hero card | ✅ wired |
+| `achievement_celebration_burst.png` | #7 Level-up burst | Profile screen — decorative banner above the achievements header | ✅ wired |
+| `empty_state_no_habits.png` | #4 Empty states, panel 1 | `_EmptyHabitsState` on the dashboard | ✅ wired |
+| `empty_state_all_done.png` | #4 Empty states, panel 2 | `_AllDoneBanner` on the dashboard | ✅ wired |
+| `empty_state_no_achievements.png` | #4 Empty states, panel 3 | — | ⏳ not wired — no "zero achievements unlocked" empty state exists in the achievements grid today; would need new conditional UI, not just a drop-in image swap |
+| `onboarding_1_start_habit.png` … `_4_celebrate_wins.png` | #3 Onboarding | — | ⏳ not wired — **there is no onboarding carousel/flow in the app at all** (routes go straight from auth to the grid). These need a new screen built, not just wiring, so they're deliberately left for a follow-up |
+
+**Note on category mapping**: the app's real `HabitCategory` enum is `quran, athkar, fitness, fasting, sadaqah, sleep, custom` — not the `quran/prayer/focus/sleep/fitness/charity` names originally guessed when writing the prompts. Mapped `athkar→category_prayer` and `fasting→category_focus` (hourglass as a "counting down to iftar" metaphor) since those were the closest semantic fits among the 6 generated icons. `custom` has no custom art and still falls back to the original Material star icon — see `CategoryIcon` in `lib/shared/widgets/category_icon.dart`.
+
+Also generated but not part of the original list: `AchievementUnlockSheet`'s celebration already used a superior hand-built physics confetti animation (`VictoryBurstOnMount` in `victory_burst.dart`) — the static burst image would have been a downgrade there, so it was placed on the Profile screen instead, where nothing better already existed.
 
 All corner artifacts and stray black frame edges from generation were cleaned up (background color extended into the corners, not just cropped) so every file is a clean rectangle ready to drop into an `Image.asset(...)`. Still outstanding from the prompt list: the 5-tier achievement badge set (#5) hasn't been generated yet.
 
 ### Light/dark mode: what's transparent and what isn't
 
-- **`category_*.png` (6 files)** — background removed, real alpha transparency. These are flat icons with a hard-edged pastel tile and no baked-in gradient effects, so a clean cutout was possible. Safe to drop onto any surface color in either theme.
+- **`category_*.png` (6 files)** — fully transparent except the icon glyph itself (the pastel tile background was removed too, not just the outer canvas), so `CategoryIcon` can tint them with `colorBlendMode: BlendMode.srcIn` exactly like a Material `Icon`. Verified clean on both dark and light test backdrops.
 - **`icon_app.png`** — intentionally opaque (app icons must never have transparency; iOS/Android apply their own mask).
 - **`splash_background.png`** — intentionally opaque. It's the screen backdrop itself, not an overlay, so "transparent background" isn't a meaningful thing to ask of it.
-- **The other 9 illustrations** (`onboarding_*`, `empty_state_*`, `achievement_celebration_burst`, `premium_upgrade_hero`) — **tried and reverted.** They have soft radial glows/vignettes and long-shadow gradients baked into the art itself (not just a flat cream canvas), so a color-based cutout leaves a visible grainy halo once placed on a dark background — worse than keeping the cream backing. Two real options going forward:
-  1. Keep them opaque and always present them on a fixed light card (e.g. a cream-colored container) even when the rest of the screen is in dark mode — this is what they're currently saved as, and it's a legitimate, common pattern.
-  2. Regenerate this batch with an explicit prompt addition — *"flat solid background, no vignette, no radial glow, no gradient behind the subject"* — so a future pass cuts out cleanly. Worth doing before shipping if you want these fully theme-adaptive.
+- **The other 9 illustrations** (`onboarding_*`, `empty_state_*`, `achievement_celebration_burst`, `premium_upgrade_hero`) — **tried and reverted.** They have soft radial glows/vignettes and long-shadow gradients baked into the art itself (not just a flat cream canvas), so a color-based cutout leaves a visible grainy halo once placed on a dark background — worse than keeping the cream backing. Every place these are wired in now deliberately wraps them in a fixed cream-colored card (`Color(0xFFFEFAF0)`) regardless of app theme, so they always sit on the backdrop they were designed for. Two real options if you want them fully theme-adaptive later:
+  1. Keep the fixed-light-card treatment (what's shipped now) — a legitimate, common pattern.
+  2. Regenerate this batch with an explicit prompt addition — *"flat solid background, no vignette, no radial glow, no gradient behind the subject"* — so a future pass cuts out cleanly.
 
 Use these with any image generator that supports multi-panel / sheet output (Midjourney, Ideogram, DALL·E 3, Stable Diffusion + ControlNet grid). Each prompt below is written as one single generation that yields several related assets at once — the "PANEL" divisions are the trick that gets a grid/sheet result instead of one blended image. If your generator only returns one image per panel description, just run each panel line as its own separate prompt.
 

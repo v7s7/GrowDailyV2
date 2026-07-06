@@ -59,6 +59,21 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Illustration banner — kept on a fixed light card regardless
+              // of theme, since the art has soft gradients baked in that
+              // only read cleanly against its original cream backing.
+              ClipRRect(
+                borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+                child: Container(
+                  color: const Color(0xFFFEFAF0),
+                  child: Image.asset(
+                    'assets/images/premium_upgrade_hero.png',
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08),
+              const SizedBox(height: 16),
               // Hero
               Container(
                 padding: const EdgeInsets.all(24),
