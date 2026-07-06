@@ -18,7 +18,23 @@ class MatrixScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
-    final tasks = ref.watch(matrixProvider);
+    final matrixState = ref.watch(matrixProvider);
+    final tasks = matrixState.tasks;
+
+    if (matrixState.isLoading) {
+      return Scaffold(
+        backgroundColor: gp.bg,
+        bottomNavigationBar: const GameNavBar(currentIndex: 3),
+        body: const SafeArea(
+          child: Center(
+            child: CircularProgressIndicator(
+              color: GameColors.gold,
+              strokeWidth: 2,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: gp.bg,

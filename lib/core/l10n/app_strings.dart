@@ -172,6 +172,9 @@ class S {
   String get browsePlans => isAr ? 'استعرض الخطط' : 'Browse Plans';
   String get dailyReminder => isAr ? 'تذكير يومي' : 'Daily Reminder';
   String get tapToSetReminder => isAr ? 'اضغط لتعيين وقت التذكير' : 'Tap to set reminder time';
+  String get reminderPermissionDenied => isAr
+      ? 'تم حفظ الوقت، لكن الإشعارات معطّلة — فعّلها من إعدادات هاتفك ليعمل التذكير.'
+      : 'Time saved, but notifications are off — enable them in your phone\'s settings for the reminder to fire.';
 
   // ── Empty state ───────────────────────────────────────────────────────────
   String get noHabitsYet => isAr ? 'لا عادات بعد' : 'No habits yet';

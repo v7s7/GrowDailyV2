@@ -203,13 +203,21 @@ class ReminderTimeNotifier extends StateNotifier<TimeOfDay?> {
     }
   }
 
-  Future<void> set(TimeOfDay time) async {
+  /// Saves the reminder time and (re)schedules the local notification.
+  /// Returns whether notification permission was actually granted — the
+  /// time is saved either way (so it's ready to fire the moment the user
+  /// grants permission from system settings), but previously this discarded
+  /// [NotificationService.requestPermissions]'s result entirely, so a user
+  /// who denied the OS permission prompt saw the reminder time saved with
+  /// no indication their reminder would never actually fire.
+  Future<bool> set(TimeOfDay time) async {
     state = time;
     final box = await LocalStoreService.settingsBox();
     await box.put(_kReminderKey, '${time.hour}:${time.minute}');
-    await NotificationService.instance.requestPermissions();
+    final granted = await NotificationService.instance.requestPermissions();
     await NotificationService.instance
         .scheduleDailyReminder(hour: time.hour, minute: time.minute);
+    return granted;
   }
 
   Future<void> clear() async {

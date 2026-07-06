@@ -218,11 +218,18 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     final xpDelta = value.xpValue - old.xpValue;
     final greenDelta = (value.isGreen ? 1 : 0) - (old.isGreen ? 1 : 0);
     if (xpDelta != 0 || greenDelta != 0) {
+      // Whether any square is still green today after this change — lets
+      // the dashboard tell a "still earned it some other way today" edit
+      // apart from "the only green square today just got un-marked", which
+      // should give the once-per-day streak point back.
+      final stillGreenToday =
+          (states[key] ?? const {}).values.any((s) => s.isGreen);
       _ref.read(dashboardProvider.notifier).applyGridSquareChange(
             xpDelta: xpDelta,
             greenDelta: greenDelta,
             isToday: day.isToday,
             dateKey: key,
+            stillGreenToday: stillGreenToday,
           );
     }
   }

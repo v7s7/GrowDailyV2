@@ -144,7 +144,18 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
               reminderTime: reminderTime,
               isAr: isAr,
               s: s,
-              onSet: (time) => ref.read(reminderTimeProvider.notifier).set(time),
+              onSet: (time) async {
+                final granted =
+                    await ref.read(reminderTimeProvider.notifier).set(time);
+                if (!granted && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(s.reminderPermissionDenied),
+                      duration: const Duration(seconds: 4),
+                    ),
+                  );
+                }
+              },
               onClear: () => ref.read(reminderTimeProvider.notifier).clear(),
             ),
           ).animate(delay: 300.ms).fadeIn(duration: 300.ms),

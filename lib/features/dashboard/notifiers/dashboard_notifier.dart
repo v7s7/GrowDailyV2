@@ -339,11 +339,11 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     );
   }
 
-  Future<void> _markGuestGridActivityToday() async {
+  Future<void> _setGuestGridActivityLogged(bool value) async {
     final existing = await LocalStoreService.getDailyMap(_todayKey);
     await LocalStoreService.putDailyMap(_todayKey, {
       ...existing,
-      'gridActivityLogged': true,
+      'gridActivityLogged': value,
       'date': DateTime.now().toIso8601String(),
     });
   }
@@ -686,11 +686,20 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   /// a lifetime green-square counter that drives grid achievements, a daily
   /// rollup for the monthly heatmap, and — only for a green mark logged on
   /// *today* — the same once-per-day streak bump [completeHabit] uses.
+  ///
+  /// [stillGreenToday] tells us whether any square is still green today
+  /// *after* this change — needed to catch the inverse case: a user marks
+  /// today's only green square (streak bumps +1), then un-marks that same
+  /// square. Nothing here used to roll that streak point back, so tapping a
+  /// square and immediately un-tapping it was a free, repeatable +1 to the
+  /// streak with none of the actual daily activity it's supposed to
+  /// represent.
   Future<void> applyGridSquareChange({
     required int xpDelta,
     required int greenDelta,
     required bool isToday,
     required String dateKey,
+    bool stillGreenToday = true,
   }) async {
     var newLevel = state.level;
     var newCurrentLevelXp = state.currentLevelXp;
@@ -725,6 +734,16 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         greenDelta > 0 &&
         state.completions.isEmpty &&
         !state.gridActivityToday;
+    // The mirror image of earnsStreakToday: this grid action was the only
+    // reason today's streak point was earned (no habit-list completions
+    // today either), and after this change there's no green square left
+    // today to justify keeping it.
+    final losesStreakToday = isToday &&
+        greenDelta < 0 &&
+        !stillGreenToday &&
+        state.completions.isEmpty &&
+        state.gridActivityToday &&
+        state.streak > 0;
     if (earnsStreakToday) {
       final bump = _computeStreakBump();
       newStreak = bump.streak;
@@ -742,6 +761,16 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         newCurrentLevelXp = bumped.newCurrentLevelXp;
         newCumulativeXp = bumped.newCumulativeXp;
       }
+    } else if (losesStreakToday) {
+      newStreak = state.streak - 1;
+      // If the current streak was tied with the record, that record was
+      // set by the very point we're now taking back — pull it back too.
+      // Otherwise the record was earned on a previous, already-broken
+      // streak and stays put.
+      newLongest = state.longestStreak == state.streak
+          ? state.longestStreak - 1
+          : state.longestStreak;
+      newGridActivityToday = false;
     }
 
     // ── Achievement check ────────────────────────────────────
@@ -799,7 +828,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
     if (_uid == null) {
       await _saveGuestState();
-      if (earnsStreakToday) await _markGuestGridActivityToday();
+      if (earnsStreakToday) await _setGuestGridActivityLogged(true);
+      if (losesStreakToday) await _setGuestGridActivityLogged(false);
       return;
     }
 
@@ -828,6 +858,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         batch.set(
           _dailyRef,
           {'gridActivityLogged': true},
+          SetOptions(merge: true),
+        );
+      } else if (losesStreakToday) {
+        batch.set(
+          _dailyRef,
+          {'gridActivityLogged': false},
           SetOptions(merge: true),
         );
       }

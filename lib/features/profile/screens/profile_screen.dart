@@ -1140,7 +1140,17 @@ class _SettingsSection extends ConsumerWidget {
                       initialTime: reminderTime ?? const TimeOfDay(hour: 20, minute: 0),
                     );
                     if (picked != null) {
-                      await ref.read(reminderTimeProvider.notifier).set(picked);
+                      final granted = await ref
+                          .read(reminderTimeProvider.notifier)
+                          .set(picked);
+                      if (!granted && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(s.reminderPermissionDenied),
+                            duration: const Duration(seconds: 4),
+                          ),
+                        );
+                      }
                     }
                   },
                   onLongPress: reminderTime == null

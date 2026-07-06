@@ -5,7 +5,14 @@ import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 
-class MatrixNotifier extends StateNotifier<List<MatrixTask>> {
+class MatrixState {
+  final List<MatrixTask> tasks;
+  final bool isLoading;
+
+  const MatrixState({this.tasks = const [], this.isLoading = true});
+}
+
+class MatrixNotifier extends StateNotifier<MatrixState> {
   final String? _uid;
 
   // A guest can mutate (e.g. tap a one-tap suggestion) before the disk
@@ -14,7 +21,7 @@ class MatrixNotifier extends StateNotifier<List<MatrixTask>> {
   // silently wipes out the just-added task.
   bool _mutatedBeforeLoad = false;
 
-  MatrixNotifier(this._uid) : super([]) {
+  MatrixNotifier(this._uid) : super(const MatrixState()) {
     if (_uid != null) {
       _load();
     } else {
@@ -37,9 +44,13 @@ class MatrixNotifier extends StateNotifier<List<MatrixTask>> {
             .map((d) => MatrixTask.fromFirestore(d))
             .toList()
           ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-        state = tasks;
+        state = MatrixState(tasks: tasks, isLoading: false);
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted && !_mutatedBeforeLoad) {
+        state = MatrixState(tasks: state.tasks, isLoading: false);
+      }
+    }
   }
 
   Future<void> _loadGuest() async {
@@ -49,16 +60,21 @@ class MatrixNotifier extends StateNotifier<List<MatrixTask>> {
         box.get(LocalStoreService.guestMatrixTasksKey),
       );
       if (!mounted || _mutatedBeforeLoad) return;
-      state = raw.map(MatrixTask.fromMap).toList()
+      final tasks = raw.map(MatrixTask.fromMap).toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-    } catch (_) {}
+      state = MatrixState(tasks: tasks, isLoading: false);
+    } catch (_) {
+      if (mounted && !_mutatedBeforeLoad) {
+        state = MatrixState(tasks: state.tasks, isLoading: false);
+      }
+    }
   }
 
   Future<void> _saveGuest() async {
     final box = await LocalStoreService.settingsBox();
     await box.put(
       LocalStoreService.guestMatrixTasksKey,
-      state.map((t) => t.toMap()).toList(),
+      state.tasks.map((t) => t.toMap()).toList(),
     );
   }
 
@@ -66,24 +82,27 @@ class MatrixNotifier extends StateNotifier<List<MatrixTask>> {
     if (title.trim().isEmpty) return;
     _mutatedBeforeLoad = true;
     final task = MatrixTask.create(title, quadrant);
-    state = [...state, task];
+    state = MatrixState(tasks: [...state.tasks, task], isLoading: false);
     _persist(task);
   }
 
   void toggle(String id) {
     _mutatedBeforeLoad = true;
-    final tasks = state.toList();
+    final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
     final updated = tasks[idx].copyWith(isDone: !tasks[idx].isDone);
     tasks[idx] = updated;
-    state = tasks;
+    state = MatrixState(tasks: tasks, isLoading: false);
     _persist(updated);
   }
 
   void delete(String id) {
     _mutatedBeforeLoad = true;
-    state = state.where((t) => t.id != id).toList();
+    state = MatrixState(
+      tasks: state.tasks.where((t) => t.id != id).toList(),
+      isLoading: false,
+    );
     if (_uid != null) {
       _col.doc(id).delete().ignore();
     } else {
@@ -93,12 +112,12 @@ class MatrixNotifier extends StateNotifier<List<MatrixTask>> {
 
   void move(String id, MatrixQuadrant newQuadrant) {
     _mutatedBeforeLoad = true;
-    final tasks = state.toList();
+    final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
     final updated = tasks[idx].copyWith(quadrant: newQuadrant);
     tasks[idx] = updated;
-    state = tasks;
+    state = MatrixState(tasks: tasks, isLoading: false);
     _persist(updated);
   }
 
@@ -115,7 +134,7 @@ class MatrixNotifier extends StateNotifier<List<MatrixTask>> {
 }
 
 final matrixProvider =
-    StateNotifierProvider<MatrixNotifier, List<MatrixTask>>((ref) {
+    StateNotifierProvider<MatrixNotifier, MatrixState>((ref) {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
   return MatrixNotifier(uid);
 });
