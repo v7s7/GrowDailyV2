@@ -32,7 +32,10 @@ dependencies:
   lottie: ^3.1.3
 
   # ── Fonts ────────────────────────────────────────────────────
-  google_fonts: ^6.2.1
+  # Pinned >=7 — 6.x's const FontWeight-keyed map fails to const-evaluate
+  # against newer Flutter SDKs ("does not have a primitive operator '=='"),
+  # which is what broke the release archive build.
+  google_fonts: ^8.1.0
 
   # ── Utilities ────────────────────────────────────────────────
   uuid: ^4.4.0
