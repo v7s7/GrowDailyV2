@@ -13,7 +13,7 @@ class HabitPlan {
   final String descEn;
   final String descAr;
   final Color color;
-  final String emoji;
+  final IconData icon;
   final List<String> catalogIds;
 
   const HabitPlan({
@@ -23,7 +23,7 @@ class HabitPlan {
     required this.descEn,
     required this.descAr,
     required this.color,
-    required this.emoji,
+    required this.icon,
     required this.catalogIds,
   });
 
@@ -45,7 +45,7 @@ const habitPlans = <HabitPlan>[
     descEn: 'Quran + morning athkar at dawn. The best start.',
     descAr: 'قرآن وأذكار الصباح عند الفجر. أفضل بداية.',
     color: Color(0xFF4A9EFF),
-    emoji: '🌅',
+    icon: Icons.wb_twilight,
     catalogIds: ['morning_athkar', 'quran_daily_page', 'sleep_schedule'],
   ),
   HabitPlan(
@@ -55,7 +55,7 @@ const habitPlans = <HabitPlan>[
     descEn: 'Morning & evening athkar, daily Quran, sunnah fasting.',
     descAr: 'أذكار الصباح والمساء، قرآن يومي، صيام السنة.',
     color: Color(0xFF34C759),
-    emoji: '☪',
+    icon: Icons.mosque,
     catalogIds: ['morning_athkar', 'evening_athkar', 'quran_daily_page', 'sunnah_fasting'],
   ),
   HabitPlan(
@@ -65,7 +65,7 @@ const habitPlans = <HabitPlan>[
     descEn: 'Fitness, charity, and sleep — your body is an amanah.',
     descAr: 'رياضة، صدقة، ونوم — جسمك أمانة.',
     color: Color(0xFFFF6B35),
-    emoji: '💪',
+    icon: Icons.fitness_center_rounded,
     catalogIds: ['gym_consistency', 'sleep_schedule', 'daily_sadaqah'],
   ),
   HabitPlan(
@@ -75,7 +75,7 @@ const habitPlans = <HabitPlan>[
     descEn: 'All essentials for a complete, balanced Islamic life.',
     descAr: 'كل الأساسيات لحياة إسلامية متوازنة.',
     color: Color(0xFFBF5AF2),
-    emoji: '⭐',
+    icon: Icons.auto_awesome_rounded,
     catalogIds: [
       'morning_athkar', 'evening_athkar', 'quran_daily_page',
       'sunnah_fasting', 'daily_sadaqah', 'gym_consistency', 'sleep_schedule',
@@ -89,7 +89,7 @@ const habitPlans = <HabitPlan>[
     descEn: 'Morning & evening athkar, daily Quran, and protecting your sleep.',
     descAr: 'أذكار الصباح والمساء، قرآن يومي، وحماية نومك.',
     color: Color(0xFF2ECF8F),
-    emoji: '🕌',
+    icon: Icons.calendar_month_rounded,
     catalogIds: [
       'morning_athkar', 'evening_athkar', 'quran_daily_page', 'sleep_schedule',
     ],
@@ -101,7 +101,7 @@ const habitPlans = <HabitPlan>[
     descEn: 'Small daily habits to build a stronger, more intentional marriage.',
     descAr: 'عادات يومية صغيرة لبناء زواج أقوى وأكثر وعيًا.',
     color: Color(0xFFFF6FA5),
-    emoji: '💞',
+    icon: Icons.favorite_rounded,
     catalogIds: [
       'marriage_dua', 'marriage_gratitude', 'marriage_read', 'marriage_checkin',
     ],
@@ -113,7 +113,7 @@ const habitPlans = <HabitPlan>[
     descEn: 'Cold showers, early mornings, and no sugar — one month to reset.',
     descAr: 'دش بارد، استيقاظ مبكر، وبدون سكر — شهر واحد لإعادة الضبط.',
     color: Color(0xFF4A9EFF),
-    emoji: '🔥',
+    icon: Icons.local_fire_department_rounded,
     catalogIds: ['cold_shower', 'wake_early', 'no_sugar', 'gym_consistency'],
   ),
   HabitPlan(
@@ -123,7 +123,7 @@ const habitPlans = <HabitPlan>[
     descEn: 'Deep work, inbox zero, and a distraction-free morning.',
     descAr: 'عمل عميق، صندوق بريد فارغ، وصباح بلا تشتيت.',
     color: Color(0xFFBF5AF2),
-    emoji: '⚙️',
+    icon: Icons.rocket_launch_rounded,
     catalogIds: [
       'deep_work_block', 'inbox_zero', 'daily_planning', 'no_phone_morning',
     ],

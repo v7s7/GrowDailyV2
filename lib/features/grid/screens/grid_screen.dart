@@ -1107,7 +1107,9 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       SquareState.none,
     ];
 
-    return Padding(
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
       padding: EdgeInsets.only(
         left: 16,
         right: 16,

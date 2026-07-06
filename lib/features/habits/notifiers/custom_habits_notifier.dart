@@ -77,7 +77,6 @@ class CustomHabitsNotifier
           ? ''
           : buildIntentionSentence(cueAfter, name),
       cueAfter: cueAfter?.trim().isEmpty == true ? null : cueAfter?.trim(),
-      iconEmoji: '',
       category: category,
       frequencyType: frequencyType,
       frequencyTarget: frequencyTarget,
@@ -112,7 +111,6 @@ class CustomHabitsNotifier
       name: name,
       description: cue == null ? '' : buildIntentionSentence(cue, name),
       cueAfter: cue,
-      iconEmoji: existing.iconEmoji,
       category: category,
       frequencyType: frequencyType,
       frequencyTarget: frequencyTarget,

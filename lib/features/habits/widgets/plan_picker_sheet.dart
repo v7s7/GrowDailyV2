@@ -201,7 +201,7 @@ class _PlanCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top row: emoji + name + xp badge + active check
+            // Top row: icon + name + xp badge + active check
             Row(
               children: [
                 Container(
@@ -212,8 +212,7 @@ class _PlanCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Center(
-                    child: Text(plan.emoji,
-                        style: const TextStyle(fontSize: 22)),
+                    child: Icon(plan.icon, size: 22, color: c),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -336,8 +335,7 @@ class _PlanCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Center(
-                            child: Text(h.iconEmoji,
-                                style: const TextStyle(fontSize: 12)),
+                            child: Icon(h.category.icon, size: 13, color: c),
                           ),
                         ),
                       )),
@@ -391,7 +389,8 @@ class _HabitChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(habit.iconEmoji, style: const TextStyle(fontSize: 13)),
+          Icon(habit.category.icon,
+              size: 13, color: isActive ? planColor : gp.textSec),
           const SizedBox(width: 6),
           Text(
             habit.name,

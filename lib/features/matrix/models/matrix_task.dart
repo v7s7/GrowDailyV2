@@ -38,26 +38,6 @@ enum MatrixQuadrant {
           MatrixQuadrant.eliminate => 'لا عاجل ولا مهم',
         }
       : subtitle;
-
-  /// One-tap starter goals per quadrant — the same "don't make me think of
-  /// an example" trick the habit picker uses, so a blank quadrant never
-  /// means a blank page. Tapping one adds it immediately, no typing.
-  /// Kept to two short chips per quadrant: a quadrant card is a tight box,
-  /// and long labels wrap onto extra lines that push the card past its
-  /// height budget on real phone widths.
-  List<String> quickSuggestions(bool isAr) => isAr
-      ? switch (this) {
-          MatrixQuadrant.doFirst => ['رد على رسالة', 'ادفع فاتورة'],
-          MatrixQuadrant.schedule => ['خطط للأسبوع', 'مارس الرياضة'],
-          MatrixQuadrant.delegate => ['اطلب مساعدة', 'فوّض اجتماعًا'],
-          MatrixQuadrant.eliminate => ['قلل التمرير', 'تخطَّ اجتماعًا'],
-        }
-      : switch (this) {
-          MatrixQuadrant.doFirst => ['Reply to an email', 'Pay a bill'],
-          MatrixQuadrant.schedule => ['Plan next week', 'Go for a workout'],
-          MatrixQuadrant.delegate => ['Ask for help', 'Hand off a meeting'],
-          MatrixQuadrant.eliminate => ['Cut down scrolling', 'Skip a meeting'],
-        };
 }
 
 class MatrixTask {

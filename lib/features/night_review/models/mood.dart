@@ -17,14 +17,6 @@ enum Mood {
     return null;
   }
 
-  String get emoji => switch (this) {
-        great => '😀',
-        good => '🙂',
-        neutral => '😐',
-        sad => '😔',
-        exhausted => '😢',
-      };
-
   String label(bool isAr) => switch (this) {
         great => isAr ? 'رائع' : 'Great',
         good => isAr ? 'جيد' : 'Good',

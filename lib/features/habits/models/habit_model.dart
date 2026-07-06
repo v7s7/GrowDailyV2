@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
 enum HabitFrequencyType {
   daily, // must complete every day
@@ -32,14 +33,14 @@ enum HabitCategory {
         custom => 'Custom',
       };
 
-  String get emoji => switch (this) {
-        quran => '📖',
-        athkar => '🤲',
-        fitness => '🏋️',
-        fasting => '🌙',
-        sadaqah => '💛',
-        sleep => '😴',
-        custom => '⭐',
+  IconData get icon => switch (this) {
+        quran => Icons.menu_book_rounded,
+        athkar => Icons.self_improvement_rounded,
+        fitness => Icons.fitness_center_rounded,
+        fasting => Icons.nightlight_rounded,
+        sadaqah => Icons.favorite_rounded,
+        sleep => Icons.bedtime_rounded,
+        custom => Icons.star_rounded,
       };
 }
 
@@ -56,7 +57,6 @@ class HabitModel {
   final String name;
   final String? description;
   final String? cueAfter;
-  final String iconEmoji;
   final HabitCategory category;
 
   // ── Frequency ────────────────────────────────────────────────
@@ -89,7 +89,6 @@ class HabitModel {
     required this.name,
     this.description,
     this.cueAfter,
-    required this.iconEmoji,
     required this.category,
     required this.frequencyType,
     required this.frequencyTarget,
@@ -119,7 +118,6 @@ class HabitModel {
       name: d['name'] as String,
       description: d['description'] as String?,
       cueAfter: d['cueAfter'] as String?,
-      iconEmoji: d['iconEmoji'] as String? ?? '⭐',
       category: HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
       frequencyType: HabitFrequencyType.fromJson(
         d['frequencyType'] as String? ?? 'daily',
@@ -145,7 +143,6 @@ class HabitModel {
         'name': name,
         if (description != null) 'description': description,
         if (cueAfter != null) 'cueAfter': cueAfter,
-        'iconEmoji': iconEmoji,
         'category': category.toJson(),
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
@@ -167,7 +164,6 @@ class HabitModel {
     String? name,
     String? description,
     String? cueAfter,
-    String? iconEmoji,
     HabitCategory? category,
     HabitFrequencyType? frequencyType,
     int? frequencyTarget,
@@ -186,7 +182,6 @@ class HabitModel {
         name: name ?? this.name,
         description: description ?? this.description,
         cueAfter: cueAfter ?? this.cueAfter,
-        iconEmoji: iconEmoji ?? this.iconEmoji,
         category: category ?? this.category,
         frequencyType: frequencyType ?? this.frequencyType,
         frequencyTarget: frequencyTarget ?? this.frequencyTarget,

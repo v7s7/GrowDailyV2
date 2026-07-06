@@ -124,8 +124,6 @@ class MatrixScreen extends ConsumerWidget {
                                         context,
                                         ref,
                                         MatrixQuadrant.doFirst),
-                                    onQuickAdd: (title) => _quickAdd(
-                                        ref, title, MatrixQuadrant.doFirst),
                                   )
                                       .animate(delay: 150.ms)
                                       .fadeIn(duration: 350.ms)
@@ -165,8 +163,6 @@ class MatrixScreen extends ConsumerWidget {
                                         context,
                                         ref,
                                         MatrixQuadrant.schedule),
-                                    onQuickAdd: (title) => _quickAdd(
-                                        ref, title, MatrixQuadrant.schedule),
                                   )
                                       .animate(delay: 200.ms)
                                       .fadeIn(duration: 350.ms)
@@ -212,8 +208,6 @@ class MatrixScreen extends ConsumerWidget {
                                         context,
                                         ref,
                                         MatrixQuadrant.delegate),
-                                    onQuickAdd: (title) => _quickAdd(
-                                        ref, title, MatrixQuadrant.delegate),
                                   )
                                       .animate(delay: 250.ms)
                                       .fadeIn(duration: 350.ms)
@@ -253,8 +247,6 @@ class MatrixScreen extends ConsumerWidget {
                                         context,
                                         ref,
                                         MatrixQuadrant.eliminate),
-                                    onQuickAdd: (title) => _quickAdd(
-                                        ref, title, MatrixQuadrant.eliminate),
                                   )
                                       .animate(delay: 300.ms)
                                       .fadeIn(duration: 350.ms)
@@ -293,12 +285,6 @@ class MatrixScreen extends ConsumerWidget {
         },
       ),
     );
-  }
-
-  /// Tapping a suggestion chip adds it immediately — no sheet, no typing.
-  void _quickAdd(WidgetRef ref, String title, MatrixQuadrant quadrant) {
-    HapticFeedback.mediumImpact();
-    ref.read(matrixProvider.notifier).add(title, quadrant);
   }
 }
 

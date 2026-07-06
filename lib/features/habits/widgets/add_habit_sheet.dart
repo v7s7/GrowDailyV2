@@ -113,7 +113,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     final s = S.of(context);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
 
-    return Padding(
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
         decoration: BoxDecoration(
@@ -241,7 +243,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: HabitCategory.values.map((cat) {
                   final selected = _category == cat;
-                  final icon = _iconFor(cat);
+                  final icon = cat.icon;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
@@ -453,16 +455,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     }
     return _didPickCategory ? _category : HabitCategory.custom;
   }
-
-  IconData _iconFor(HabitCategory cat) => switch (cat) {
-        HabitCategory.quran => Icons.menu_book_rounded,
-        HabitCategory.athkar => Icons.self_improvement_rounded,
-        HabitCategory.fitness => Icons.fitness_center_rounded,
-        HabitCategory.fasting => Icons.nightlight_rounded,
-        HabitCategory.sadaqah => Icons.favorite_rounded,
-        HabitCategory.sleep => Icons.bedtime_rounded,
-        HabitCategory.custom => Icons.star_rounded,
-      };
 }
 
 
@@ -544,7 +536,7 @@ class _SmartStarterRail extends StatelessWidget {
               final starter = _starters[index];
               return ActionChip(
                 onPressed: () => onPick(starter),
-                avatar: Icon(_iconFor(starter.category), size: 16),
+                avatar: Icon(starter.category.icon, size: 16),
                 label: Text(starter.name),
               );
             },
@@ -555,16 +547,6 @@ class _SmartStarterRail extends StatelessWidget {
       ],
     );
   }
-
-  IconData _iconFor(HabitCategory cat) => switch (cat) {
-        HabitCategory.quran => Icons.menu_book_rounded,
-        HabitCategory.athkar => Icons.self_improvement_rounded,
-        HabitCategory.fitness => Icons.fitness_center_rounded,
-        HabitCategory.fasting => Icons.nightlight_rounded,
-        HabitCategory.sadaqah => Icons.favorite_rounded,
-        HabitCategory.sleep => Icons.bedtime_rounded,
-        HabitCategory.custom => Icons.star_rounded,
-      };
 }
 
 class _TinyHint extends StatelessWidget {

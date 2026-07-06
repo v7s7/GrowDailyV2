@@ -12,8 +12,8 @@ import 'package:grow_daily_v2/features/matrix/screens/matrix_screen.dart';
 import 'package:hive/hive.dart';
 
 /// The Goals Matrix should never require precision-tapping a tiny + icon:
-/// the whole empty square is a tap target, and a one-tap suggestion chip
-/// adds a goal instantly with no typing at all.
+/// the whole empty square is a tap target, and a persistent add row stays
+/// visible once a quadrant is populated.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -73,31 +73,14 @@ void main() {
     expect(find.text('What needs to be done?'), findsOneWidget);
   });
 
-  testWidgets('a one-tap suggestion adds a goal with no typing', (tester) async {
-    await pumpMatrix(tester);
-
-    final suggestion = MatrixQuadrant.doFirst.quickSuggestions(false).first;
-    await tester.tap(find.text(suggestion).first);
-    await settle(tester);
-
-    // No sheet opened, and the task landed straight in Do First.
-    expect(find.text('What needs to be done?'), findsNothing);
-    final tasks = container.read(matrixProvider);
-    expect(tasks, hasLength(1));
-    expect(tasks.first.title, suggestion);
-    expect(tasks.first.quadrant, MatrixQuadrant.doFirst);
-    expect(find.text(suggestion), findsOneWidget); // now shown as a task row
-  });
-
   testWidgets('a populated quadrant keeps a persistent, generous add row',
       (tester) async {
     await pumpMatrix(tester);
     container.read(matrixProvider.notifier).add('First goal', MatrixQuadrant.doFirst);
     await settle(tester);
 
-    // The empty-state suggestions are gone, replaced by a full-width
-    // "+ Add another" row — never just the small header icon. (Only this
-    // one quadrant is populated; the other three still show suggestions.)
+    // Never just the small header icon. (Only this one quadrant is
+    // populated; the other three still show the empty-state hint.)
     expect(find.text('+ Add another'), findsOneWidget);
     await tester.tap(find.text('+ Add another').first);
     await settle(tester);
