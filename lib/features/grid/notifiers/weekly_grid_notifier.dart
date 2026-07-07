@@ -234,6 +234,26 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     }
   }
 
+  /// Mirrors a habit completion already rewarded by
+  /// `DashboardNotifier.completeHabit` onto today's Grid square —
+  /// visual/state only. Deliberately does **not** go through [setSquare]'s
+  /// delta math or call `applyGridSquareChange`: the reward for this
+  /// habit-day was already granted by `completeHabit`, so also awarding
+  /// Grid's flat per-square XP here would double-count the same
+  /// completion. Safe to call even if the square is already `complete`
+  /// (e.g. repairing the mirror after `completeHabit` succeeded) — it's a
+  /// no-op in that case.
+  void markCompleteFromHabit(String habitId, DateTime day) {
+    if (state.squareFor(habitId, day) == SquareState.complete) return;
+    final key = day.toDateKey();
+    final states = {
+      for (final e in state.states.entries) e.key: {...e.value},
+    };
+    (states[key] ??= {})[habitId] = SquareState.complete;
+    state = state.copyWith(states: states);
+    _persistSquare(habitId, day, SquareState.complete);
+  }
+
   /// Attach (or clear) a daily reflection note for a habit's square.
   void setNote(String habitId, DateTime day, String note) {
     final key = day.toDateKey();

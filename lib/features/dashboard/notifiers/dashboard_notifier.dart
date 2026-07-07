@@ -504,7 +504,21 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
   // ── Actions ──────────────────────────────────────────────────
 
-  Future<void> completeHabit({
+  /// Completes a habit for today — the single canonical reward path for
+  /// "a habit was done today", called from both Today's habit list and
+  /// Grid's square tap (see [markCompleteFromHabit] on `WeeklyGridNotifier`
+  /// for the visual-only mirror the other screen uses).
+  ///
+  /// Returns whether this call just finished a *single-tap*
+  /// (`frequencyTarget == 1`) habit — the signal callers use to decide
+  /// whether to mirror today's Grid square to green. Multi-tap
+  /// (`frequencyTarget > 1`, e.g. "3x this week") habits intentionally
+  /// return `false` here even on their final completing tap: a single
+  /// day's Grid square can't cleanly represent "2 of 3 this week" yet, so
+  /// Grid/Today sync is deferred for those and this always reports
+  /// "nothing to mirror". Returns `false` if the habit was already done
+  /// today (no new completion registered at all).
+  Future<bool> completeHabit({
     required String habitId,
     required int xpReward,
     required int goldReward,
@@ -513,10 +527,14 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     String? habitName,
   }) async {
     final current = state.completions[habitId] ?? 0;
-    if (current >= frequencyTarget) return;
+    if (current >= frequencyTarget) return false;
 
     final newCompletions = Map<String, int>.from(state.completions)
       ..[habitId] = current + 1;
+
+    // Only single-tap habits are synced with the Grid in this phase — see
+    // the doc comment above.
+    final isGridSyncable = frequencyTarget == 1;
 
     final isFirstToday = state.completions.isEmpty && !state.gridActivityToday;
     final bump = isFirstToday
@@ -547,6 +565,21 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           (newCategoryCompletions[category] ?? 0) + 1;
     }
 
+    // A synced single-tap completion counts exactly like Grid's own green
+    // square, using the same existing fields Grid already writes — no new
+    // schema. Forward-only: this only ever touches today's dateKey, never
+    // rewrites or backfills earlier days. The guard above (`current >=
+    // frequencyTarget`) already makes this at most a one-time bump per
+    // habit per day, same as everything else in this method.
+    final newTotalGreenSquares = isGridSyncable
+        ? state.totalGreenSquares + 1
+        : state.totalGreenSquares;
+    final newDailyGreenCounts = {...state.dailyGreenCounts};
+    if (isGridSyncable) {
+      newDailyGreenCounts[_todayKey] =
+          (newDailyGreenCounts[_todayKey] ?? 0) + 1;
+    }
+
     // ── Achievement check ────────────────────────────────────
     final newly = AchievementCatalog.locked(state.unlockedAchievements)
         .where((a) => switch (a.trigger) {
@@ -558,6 +591,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
               AchievementTrigger.habitMastery => a.targetCategory != null &&
                   (newCategoryCompletions[a.targetCategory] ?? 0) >=
                       a.threshold,
+              AchievementTrigger.greenSquares =>
+                newTotalGreenSquares >= a.threshold,
               _ => false,
             })
         .toList();
@@ -607,6 +642,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       lastCompletedId: habitId,
       setMilestone: newMilestone,
       categoryCompletions: newCategoryCompletions,
+      totalGreenSquares: newTotalGreenSquares,
+      dailyGreenCounts: newDailyGreenCounts,
     );
 
     _fireCompletionNotifications(
@@ -621,7 +658,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     if (_uid == null) {
       await _saveGuestDaily(newCompletions);
       await _saveGuestState(lastActiveDate: DateTime.now());
-      return;
+      return isGridSyncable;
     }
 
     try {
@@ -647,12 +684,18 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           'unlockedAchievements': newUnlockedIds,
           'categoryCompletions': newCategoryCompletions,
           'lastActiveDate': Timestamp.fromDate(now),
+          // Same fields Grid's own applyGridSquareChange writes — no new
+          // schema, just a second (mutually-exclusive, see isGridSyncable
+          // above) writer for the synced single-tap case.
+          if (isGridSyncable) 'totalGreenSquares': FieldValue.increment(1),
+          if (isGridSyncable) 'dailyGreenCounts.$_todayKey': FieldValue.increment(1),
         },
         SetOptions(merge: true),
       );
 
       await batch.commit();
     } catch (_) {}
+    return isGridSyncable;
   }
 
   /// Fires local notifications for a habit completion — a habit-completed

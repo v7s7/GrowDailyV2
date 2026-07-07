@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
+import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/habits/catalog/habit_plans.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
@@ -16,6 +17,7 @@ import '../../../features/quick_wins/widgets/quick_wins_card.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../../../shared/widgets/victory_burst.dart';
 import '../notifiers/dashboard_notifier.dart';
 import '../widgets/reaction_overlays.dart';
 
@@ -174,18 +176,8 @@ class DashboardScreen extends ConsumerWidget {
                           template: t,
                           completions: state.completions[t.id] ?? 0,
                           isDone: done,
-                          onComplete: done
-                              ? null
-                              : () => ref
-                                  .read(dashboardProvider.notifier)
-                                  .completeHabit(
-                                    habitId: t.id,
-                                    xpReward: t.xpReward,
-                                    goldReward: t.goldReward,
-                                    frequencyTarget: t.frequencyTarget,
-                                    category: t.category.name,
-                                    habitName: t.name,
-                                  ),
+                          onComplete:
+                              done ? null : () => _completeHabit(ref, t),
                           onDelete: () {
                             if (customIds.contains(t.id)) {
                               ref
@@ -256,6 +248,29 @@ class DashboardScreen extends ConsumerWidget {
               ],
             ),
     );
+  }
+
+  /// Completes a habit from Today, then — if that just finished a
+  /// single-tap habit — mirrors today's Grid square to green. The mirror
+  /// is visual/state only (`markCompleteFromHabit`), never a second
+  /// reward: `completeHabit` already granted the one canonical reward for
+  /// this habit-day. Multi-tap habits report `false` here and are left
+  /// exactly as they behave today (see `completeHabit`'s doc comment).
+  Future<void> _completeHabit(WidgetRef ref, IslamicHabitTemplate t) async {
+    final justFinishedSingleTap =
+        await ref.read(dashboardProvider.notifier).completeHabit(
+              habitId: t.id,
+              xpReward: t.xpReward,
+              goldReward: t.goldReward,
+              frequencyTarget: t.frequencyTarget,
+              category: t.category.name,
+              habitName: t.name,
+            );
+    if (justFinishedSingleTap) {
+      ref
+          .read(weeklyGridProvider.notifier)
+          .markCompleteFromHabit(t.id, DateTime.now());
+    }
   }
 
   void _showAddHabit(BuildContext context, WidgetRef ref) {
@@ -659,6 +674,25 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
   void dispose() {
     _ctrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_SwipeableHabitRow old) {
+    super.didUpdateWidget(old);
+    // Fires for either completion path (tap the button inside HabitCard,
+    // or swipe the row) since both land here as the same isDone flip —
+    // reuses the app's existing "reward moment" language (the same burst
+    // Grid fires on a square turning green) instead of building a second
+    // celebration effect just for Today.
+    if (!old.isDone && widget.isDone) {
+      final box = context.findRenderObject() as RenderBox?;
+      if (box != null && box.attached) {
+        showVictoryBurst(
+          context,
+          box.localToGlobal(box.size.center(Offset.zero)),
+        );
+      }
+    }
   }
 
   double get _x => _dragging ? _liveX : _xAnim.value;

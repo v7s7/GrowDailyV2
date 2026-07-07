@@ -915,19 +915,7 @@ class _GridTable extends ConsumerWidget {
               isFuture: day.startOfDay.isAfter(today.startOfDay),
               square: state.squareFor(habit.id, day),
               hasNote: state.noteFor(habit.id, day).isNotEmpty,
-              onTap: () {
-                // A square turning green is the app's core reward moment —
-                // it gets a heavier thump than the intermediate colors.
-                final next = state.squareFor(habit.id, day).next;
-                if (next.isGreen) {
-                  HapticFeedback.mediumImpact();
-                } else {
-                  HapticFeedback.selectionClick();
-                }
-                ref
-                    .read(weeklyGridProvider.notifier)
-                    .cycleSquare(habit.id, day);
-              },
+              onTap: () => _handleSquareTap(ref, habit, day),
               onLongPress: () {
                 HapticFeedback.mediumImpact();
                 _openEditor(context, ref, habit, day);
@@ -936,6 +924,66 @@ class _GridTable extends ConsumerWidget {
           ),
       ],
     );
+  }
+
+  /// Handles a plain tap on a habit's square.
+  ///
+  /// Today's square reaching "complete" for a real single-tap habit is
+  /// special-cased to route through the exact same canonical reward path
+  /// Today's own "Done" button uses (`DashboardNotifier.completeHabit`),
+  /// instead of Grid's own flat per-square XP — one reward, ever, for a
+  /// given habit-day, regardless of which screen it's completed from.
+  /// Everything else (other days, other colors, multi-tap habits) falls
+  /// through to the original flat-rate tap-cycle, unchanged.
+  void _handleSquareTap(
+      WidgetRef ref, IslamicHabitTemplate habit, DateTime day) {
+    final current = state.squareFor(habit.id, day);
+    final next = current.next;
+    final isSyncable = day.isToday && habit.frequencyTarget == 1;
+
+    if (isSyncable && next == SquareState.complete) {
+      final alreadyDoneToday = ref
+          .read(dashboardProvider)
+          .isCompleted(habit.id, habit.frequencyTarget);
+      HapticFeedback.mediumImpact();
+      // Visual mirror first, then the reward — reward success isn't
+      // required for the square to at least look right, but we only ever
+      // grant the reward once per habit-day (completeHabit's own guard
+      // plus this alreadyDoneToday check make that double-safe).
+      ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
+      if (!alreadyDoneToday) {
+        ref.read(dashboardProvider.notifier).completeHabit(
+              habitId: habit.id,
+              xpReward: habit.xpReward,
+              goldReward: habit.goldReward,
+              frequencyTarget: habit.frequencyTarget,
+              category: habit.category.name,
+              habitName: habit.name,
+            );
+      }
+      return;
+    }
+
+    if (isSyncable &&
+        current == SquareState.complete &&
+        ref.read(dashboardProvider).isCompleted(habit.id, habit.frequencyTarget)) {
+      // Reward-locked: a synced completion can't be un-tapped today,
+      // matching Today's own "Done" button (also non-interactive once
+      // done). Pre-existing green squares from before this sync shipped
+      // (never recorded in `completions`) aren't caught by this check and
+      // keep behaving via the flat-rate cycle below, unaffected.
+      HapticFeedback.selectionClick();
+      return;
+    }
+
+    // A square turning green is the app's core reward moment — it gets a
+    // heavier thump than the intermediate colors.
+    if (next.isGreen) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
+    ref.read(weeklyGridProvider.notifier).cycleSquare(habit.id, day);
   }
 
   void _openEditor(BuildContext context, WidgetRef ref,
@@ -1106,6 +1154,17 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     final locale = Localizations.localeOf(context).languageCode;
     final current =
         ref.watch(weeklyGridProvider).squareFor(widget.habit.id, widget.day);
+    // A synced completion (rewarded via the canonical completeHabit path)
+    // is reward-locked for the rest of the day — no re-coloring, so the
+    // palette can't accidentally re-trigger or appear to undo a reward
+    // that was already granted. Pre-existing green squares from before
+    // this sync existed are unaffected (never recorded in `completions`).
+    final isLocked = widget.day.isToday &&
+        widget.habit.frequencyTarget == 1 &&
+        current == SquareState.complete &&
+        ref
+            .watch(dashboardProvider)
+            .isCompleted(widget.habit.id, widget.habit.frequencyTarget);
     final palette = [
       SquareState.complete,
       SquareState.partial,
@@ -1186,40 +1245,56 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               ],
             ),
             const SizedBox(height: 18),
-            Text(
-              s.gridEditSquare.toUpperCase(),
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: gp.textTert,
-                letterSpacing: 1.2,
+            if (isLocked) ...[
+              Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded,
+                      color: GameColors.success, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      s.gridSquareLocked,
+                      style: TextStyle(fontSize: 12, color: gp.textSec),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (var i = 0; i < palette.length; i++)
-                  _PaletteSwatch(
-                    state: palette[i],
-                    selected: palette[i] == current,
-                    label: isAr ? palette[i].labelAr : palette[i].label,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      ref
-                          .read(weeklyGridProvider.notifier)
-                          .setSquare(widget.habit.id, widget.day, palette[i]);
-                    },
-                  )
-                      .animate(delay: (i * 35).ms)
-                      .fadeIn(duration: 220.ms)
-                      .scale(
-                        begin: const Offset(0.8, 0.8),
-                        curve: Curves.easeOutBack,
-                      ),
-              ],
-            ),
+            ] else ...[
+              Text(
+                s.gridEditSquare.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textTert,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (var i = 0; i < palette.length; i++)
+                    _PaletteSwatch(
+                      state: palette[i],
+                      selected: palette[i] == current,
+                      label: isAr ? palette[i].labelAr : palette[i].label,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        ref
+                            .read(weeklyGridProvider.notifier)
+                            .setSquare(widget.habit.id, widget.day, palette[i]);
+                      },
+                    )
+                        .animate(delay: (i * 35).ms)
+                        .fadeIn(duration: 220.ms)
+                        .scale(
+                          begin: const Offset(0.8, 0.8),
+                          curve: Curves.easeOutBack,
+                        ),
+                ],
+              ),
+            ],
             const SizedBox(height: 20),
             Text(
               s.gridNoteLabel,
