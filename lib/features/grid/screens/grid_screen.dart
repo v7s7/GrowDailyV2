@@ -935,8 +935,8 @@ class _GridTable extends ConsumerWidget {
   /// given habit-day, regardless of which screen it's completed from.
   /// Everything else (other days, other colors, multi-tap habits) falls
   /// through to the original flat-rate tap-cycle, unchanged.
-  void _handleSquareTap(
-      WidgetRef ref, IslamicHabitTemplate habit, DateTime day) {
+  Future<void> _handleSquareTap(
+      WidgetRef ref, IslamicHabitTemplate habit, DateTime day) async {
     final current = state.squareFor(habit.id, day);
     final next = current.next;
     final isSyncable = day.isToday && habit.frequencyTarget == 1;
@@ -946,20 +946,29 @@ class _GridTable extends ConsumerWidget {
           .read(dashboardProvider)
           .isCompleted(habit.id, habit.frequencyTarget);
       HapticFeedback.mediumImpact();
-      // Visual mirror first, then the reward — reward success isn't
-      // required for the square to at least look right, but we only ever
-      // grant the reward once per habit-day (completeHabit's own guard
-      // plus this alreadyDoneToday check make that double-safe).
-      ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
-      if (!alreadyDoneToday) {
-        ref.read(dashboardProvider.notifier).completeHabit(
-              habitId: habit.id,
-              xpReward: habit.xpReward,
-              goldReward: habit.goldReward,
-              frequencyTarget: habit.frequencyTarget,
-              category: habit.category.name,
-              habitName: habit.name,
-            );
+      if (alreadyDoneToday) {
+        // Already rewarded (e.g. completed from Today and the mirror
+        // hasn't caught up) — just repair the visual state, no reward call.
+        ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
+      } else {
+        // Canonical reward first. Only mirror the square if it actually
+        // succeeded — a failed or no-op completeHabit call must never
+        // leave the Grid square green while Today/rewards/streak didn't
+        // update.
+        final justCompleted =
+            await ref.read(dashboardProvider.notifier).completeHabit(
+                  habitId: habit.id,
+                  xpReward: habit.xpReward,
+                  goldReward: habit.goldReward,
+                  frequencyTarget: habit.frequencyTarget,
+                  category: habit.category.name,
+                  habitName: habit.name,
+                );
+        if (justCompleted) {
+          ref
+              .read(weeklyGridProvider.notifier)
+              .markCompleteFromHabit(habit.id, day);
+        }
       }
       return;
     }
