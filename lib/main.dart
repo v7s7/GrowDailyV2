@@ -111,9 +111,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
         '/night-review': (_) => const NightReviewScreen(),
         '/premium': (_) => const PremiumScreen(),
         '/auth': (_) => const AuthScreen(),
+        // Matrix is a secondary screen reached from Focus, not a bottom-nav
+        // peer tab, so it belongs here with the normal push transition
+        // rather than in the instant-switch onGenerateRoute block below.
+        '/matrix': (_) => const MatrixScreen(),
       },
       onGenerateRoute: (settings) {
-        // The bottom nav bar's five tabs are peers, not a hierarchy, so
+        // The bottom nav bar's four tabs are peers, not a hierarchy, so
         // switching between them shouldn't play a "pushing a new screen"
         // transition. Other apps (Instagram, Spotify, WhatsApp, ...) swap
         // bottom-tab content instantly — everything else still gets the
@@ -122,7 +126,6 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
           '/dashboard' => (_) => const DashboardScreen(),
           '/grid' => (_) => const GridScreen(),
           '/focus' => (_) => const FocusScreen(),
-          '/matrix' => (_) => const MatrixScreen(),
           '/profile' => (_) => const ProfileScreen(),
           _ => null,
         };

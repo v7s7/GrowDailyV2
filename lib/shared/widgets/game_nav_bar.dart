@@ -13,7 +13,7 @@ class _NavItem {
   const _NavItem(this.icon, this.label);
 }
 
-const _kRoutes = ['/grid', '/dashboard', '/focus', '/matrix', '/profile'];
+const _kRoutes = ['/grid', '/dashboard', '/focus', '/profile'];
 
 class GameNavBar extends StatelessWidget {
   final int currentIndex;
@@ -32,7 +32,6 @@ class GameNavBar extends StatelessWidget {
       _NavItem(Icons.grid_view_rounded, s.navGrid),
       _NavItem(Icons.home_rounded, s.navDashboard),
       _NavItem(Icons.center_focus_strong_rounded, s.navFocus),
-      _NavItem(Icons.checklist_rounded, s.navGoals),
       _NavItem(Icons.person_rounded, s.navProfile),
     ];
 

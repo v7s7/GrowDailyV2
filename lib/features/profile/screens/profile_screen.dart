@@ -87,7 +87,7 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 4),
+      bottomNavigationBar: const GameNavBar(currentIndex: 3),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
@@ -402,6 +402,12 @@ class _StatsRow extends StatelessWidget {
             color: GameColors.gold,
             value: '${state.gold}',
             label: s.gold),
+        const SizedBox(width: 8),
+        _StatCell(
+            icon: Icons.bolt_rounded,
+            color: GameColors.xpBlue,
+            value: '${state.cumulativeXp}',
+            label: s.totalXp),
       ],
     );
   }

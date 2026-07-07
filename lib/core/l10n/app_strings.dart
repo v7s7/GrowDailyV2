@@ -317,7 +317,7 @@ class S {
   String get matrixDeleteTask => isAr ? 'حذف المهمة' : 'Delete task';
 
   // ── Navigation ───────────────────────────────────────────────────────────
-  String get navDashboard => isAr ? 'الرئيسية' : 'Dashboard';
+  String get navDashboard => isAr ? 'اليوم' : 'Today';
   String get navGrid => isAr ? 'الشبكة' : 'Grid';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
