@@ -7,7 +7,10 @@ import '../models/quick_win.dart';
 // replacement for the real habit/streak loop.
 const int _dailyXp = 12;
 const int _weeklyXp = 50;
-const int _weeklyGold = 15;
+// Kept small deliberately: v1's local-only Hive persistence isn't
+// cross-device/reinstall-proof against a re-claim, so gold (which feeds the
+// streak-freeze economy) stays more conservative than XP while that's true.
+const int _weeklyGold = 5;
 
 abstract final class QuickWinCatalog {
   static const List<QuickWin> daily = [
