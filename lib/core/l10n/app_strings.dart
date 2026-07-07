@@ -314,6 +314,7 @@ class S {
   String get matrixAddTask => isAr ? 'أضف مهمة' : 'ADD TASK';
   String get matrixWhatToDo => isAr ? 'ما الذي يجب فعله؟' : 'What needs to be done?';
   String get matrixMoveToQuadrant => isAr ? 'انقل إلى ربع' : 'MOVE TO QUADRANT';
+  String get matrixDeleteTask => isAr ? 'حذف المهمة' : 'Delete task';
 
   // ── Navigation ───────────────────────────────────────────────────────────
   String get navDashboard => isAr ? 'الرئيسية' : 'Dashboard';
