@@ -106,16 +106,33 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
       initialRoute: '/',
       routes: {
         '/': (_) => const _AuthGate(),
-        '/dashboard': (_) => const DashboardScreen(),
-        '/grid': (_) => const GridScreen(),
         '/heatmap': (_) => const MonthlyHeatmapScreen(),
-        '/focus': (_) => const FocusScreen(),
-        '/matrix': (_) => const MatrixScreen(),
         '/intention': (_) => const IntentionScreen(),
         '/night-review': (_) => const NightReviewScreen(),
         '/premium': (_) => const PremiumScreen(),
-        '/profile': (_) => const ProfileScreen(),
         '/auth': (_) => const AuthScreen(),
+      },
+      onGenerateRoute: (settings) {
+        // The bottom nav bar's five tabs are peers, not a hierarchy, so
+        // switching between them shouldn't play a "pushing a new screen"
+        // transition. Other apps (Instagram, Spotify, WhatsApp, ...) swap
+        // bottom-tab content instantly — everything else still gets the
+        // normal platform push/pop animation via the `routes` map above.
+        final WidgetBuilder? builder = switch (settings.name) {
+          '/dashboard' => (_) => const DashboardScreen(),
+          '/grid' => (_) => const GridScreen(),
+          '/focus' => (_) => const FocusScreen(),
+          '/matrix' => (_) => const MatrixScreen(),
+          '/profile' => (_) => const ProfileScreen(),
+          _ => null,
+        };
+        if (builder == null) return null;
+        return PageRouteBuilder(
+          settings: settings,
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (context, _, __) => builder(context),
+        );
       },
     );
   }
