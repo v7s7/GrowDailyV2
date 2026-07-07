@@ -976,11 +976,15 @@ class _GridTable extends ConsumerWidget {
     if (isSyncable &&
         current == SquareState.complete &&
         ref.read(dashboardProvider).isCompleted(habit.id, habit.frequencyTarget)) {
-      // Reward-locked: a synced completion can't be un-tapped today,
-      // matching Today's own "Done" button (also non-interactive once
-      // done). Pre-existing green squares from before this sync shipped
-      // (never recorded in `completions`) aren't caught by this check and
-      // keep behaving via the flat-rate cycle below, unaffected.
+      // A quick tap on a synced completion doesn't un-tap it — matches
+      // Today's own "Done" button (also non-interactive once done) and
+      // guards against an accidental tap undoing a reward. Long-press
+      // still opens the editor, where a deliberate color change is
+      // treated as an intentional correction (see
+      // _CellEditorSheetState._handlePaletteTap). Pre-existing green
+      // squares from before this sync shipped (never recorded in
+      // `completions`) aren't caught by this check and keep behaving via
+      // the flat-rate cycle below, unaffected.
       HapticFeedback.selectionClick();
       return;
     }
@@ -1163,11 +1167,14 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     final locale = Localizations.localeOf(context).languageCode;
     final current =
         ref.watch(weeklyGridProvider).squareFor(widget.habit.id, widget.day);
-    // A synced completion (rewarded via the canonical completeHabit path)
-    // is reward-locked for the rest of the day — no re-coloring, so the
-    // palette can't accidentally re-trigger or appear to undo a reward
-    // that was already granted. Pre-existing green squares from before
-    // this sync existed are unaffected (never recorded in `completions`).
+    // Whether this square is a synced completion (rewarded via the
+    // canonical completeHabit path) — shown with a note above the palette
+    // instead of hiding it, since picking a different color here is a
+    // deliberate "I completed this by mistake" correction (see
+    // _handlePaletteTap), not an accidental undo. Pre-existing green
+    // squares from before this sync existed aren't caught by this check
+    // (never recorded in `completions`) and behave via the plain
+    // flat-rate palette path below, unaffected.
     final isLocked = widget.day.isToday &&
         widget.habit.frequencyTarget == 1 &&
         current == SquareState.complete &&
@@ -1257,53 +1264,48 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             if (isLocked) ...[
               Row(
                 children: [
-                  const Icon(Icons.check_circle_rounded,
-                      color: GameColors.success, size: 16),
+                  Icon(Icons.check_circle_rounded,
+                      color: gp.textTert, size: 16),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      s.gridSquareLocked,
+                      s.gridSquareDoneFromToday,
                       style: TextStyle(fontSize: 12, color: gp.textSec),
                     ),
                   ),
                 ],
               ),
-            ] else ...[
-              Text(
-                s.gridEditSquare.toUpperCase(),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: gp.textTert,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  for (var i = 0; i < palette.length; i++)
-                    _PaletteSwatch(
-                      state: palette[i],
-                      selected: palette[i] == current,
-                      label: isAr ? palette[i].labelAr : palette[i].label,
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        ref
-                            .read(weeklyGridProvider.notifier)
-                            .setSquare(widget.habit.id, widget.day, palette[i]);
-                      },
-                    )
-                        .animate(delay: (i * 35).ms)
-                        .fadeIn(duration: 220.ms)
-                        .scale(
-                          begin: const Offset(0.8, 0.8),
-                          curve: Curves.easeOutBack,
-                        ),
-                ],
-              ),
+              const SizedBox(height: 14),
             ],
+            Text(
+              s.gridEditSquare.toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: gp.textTert,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (var i = 0; i < palette.length; i++)
+                  _PaletteSwatch(
+                    state: palette[i],
+                    selected: palette[i] == current,
+                    label: isAr ? palette[i].labelAr : palette[i].label,
+                    onTap: () => _handlePaletteTap(isLocked, palette[i]),
+                  )
+                      .animate(delay: (i * 35).ms)
+                      .fadeIn(duration: 220.ms)
+                      .scale(
+                        begin: const Offset(0.8, 0.8),
+                        curve: Curves.easeOutBack,
+                      ),
+              ],
+            ),
             const SizedBox(height: 20),
             Text(
               s.gridNoteLabel,
@@ -1342,6 +1344,62 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         ),
       ),
     );
+  }
+
+  /// Handles tapping a palette swatch for [picked].
+  ///
+  /// - If the square is currently a synced, reward-locked completion
+  ///   (`isLocked`) and [picked] isn't `complete`, this is a correction:
+  ///   reverse the canonical reward first (`uncompleteHabit`), then
+  ///   update the visual state only.
+  /// - If the square isn't done yet and [picked] is `complete` for a
+  ///   real, single-tap, today's habit, this is the same canonical
+  ///   completion tapping the square or Today's button would do — reward
+  ///   first, then mirror the visual state only if the reward actually
+  ///   landed, so a failed/no-op reward never leaves the square green.
+  /// - Everything else falls through to the original flat-rate
+  ///   `setSquare` path, unchanged.
+  Future<void> _handlePaletteTap(bool isLocked, SquareState picked) async {
+    HapticFeedback.selectionClick();
+    final habit = widget.habit;
+    final day = widget.day;
+
+    if (isLocked && picked != SquareState.complete) {
+      ref.read(dashboardProvider.notifier).uncompleteHabit(
+            habitId: habit.id,
+            xpReward: habit.xpReward,
+            goldReward: habit.goldReward,
+            category: habit.category.name,
+          );
+      ref
+          .read(weeklyGridProvider.notifier)
+          .setSquareStateOnly(habit.id, day, picked);
+      return;
+    }
+
+    final isSyncable = day.isToday && habit.frequencyTarget == 1;
+    final alreadyDoneToday = ref
+        .read(dashboardProvider)
+        .isCompleted(habit.id, habit.frequencyTarget);
+    if (isSyncable && picked == SquareState.complete && !alreadyDoneToday) {
+      final justCompleted =
+          await ref.read(dashboardProvider.notifier).completeHabit(
+                habitId: habit.id,
+                xpReward: habit.xpReward,
+                goldReward: habit.goldReward,
+                frequencyTarget: habit.frequencyTarget,
+                category: habit.category.name,
+                habitName: habit.name,
+              );
+      if (justCompleted) {
+        ref
+            .read(weeklyGridProvider.notifier)
+            .setSquareStateOnly(habit.id, day, SquareState.complete);
+      }
+      return;
+    }
+
+    ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked);
   }
 }
 

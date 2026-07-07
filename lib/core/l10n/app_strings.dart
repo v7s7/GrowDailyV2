@@ -359,9 +359,9 @@ class S {
       isAr ? 'اكتب انعكاسًا قصيرًا…' : 'Write a short reflection…';
   String get gridSave => isAr ? 'حفظ' : 'Save';
   String get gridFutureDay => isAr ? 'يوم قادم' : 'Future day';
-  String get gridSquareLocked => isAr
-      ? 'أُنجزت هذه المهمة اليوم ومُنحت مكافأتها — لا يمكن تغييرها الآن.'
-      : "Completed and rewarded today — this can't be changed right now.";
+  String get gridSquareDoneFromToday => isAr
+      ? 'أُنجزت هذه المهمة اليوم من صفحة اليوم. اختر لونًا آخر لتصحيحها.'
+      : 'Completed from Today. Pick a different color to correct it.';
 
   // ── Monthly Heatmap ──────────────────────────────────────────────────────
   String get heatmapTitle => isAr ? 'خريطة التقدّم' : 'Progress Heatmap';

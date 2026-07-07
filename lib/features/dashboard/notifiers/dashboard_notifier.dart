@@ -698,6 +698,111 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     return isGridSyncable;
   }
 
+  /// Reverses a same-day completion made via [completeHabit] — the "I
+  /// completed this by mistake" correction available from Grid's
+  /// long-press editor on a synced, completed-today square. Always
+  /// operates on *today* (there's no "edit yesterday's completion"
+  /// concept anywhere in this app).
+  ///
+  /// Reverses what's safe to reverse: XP, gold, `completions[habitId]`
+  /// (back to not-done so Today un-checks it too), `categoryCompletions`,
+  /// `totalCompletions`, and the `totalGreenSquares`/`dailyGreenCounts`
+  /// counters this phase added for synced completions.
+  ///
+  /// Deliberately does **not** touch `unlockedAchievements` — nothing in
+  /// this app ever revokes an unlocked achievement, the same way a real
+  /// trophy doesn't get taken back once earned — or
+  /// `streak`/`longestStreak`/`gridActivityToday`: safely re-deriving
+  /// "was this really the day's only source of today's streak point" is
+  /// fragile, so an already-earned streak day is left alone. Both are the
+  /// same conservative bias `completeHabit` already takes.
+  Future<void> uncompleteHabit({
+    required String habitId,
+    required int xpReward,
+    required int goldReward,
+    String? category,
+  }) async {
+    final current = state.completions[habitId] ?? 0;
+    if (current <= 0) return;
+
+    final newCompletions = Map<String, int>.from(state.completions)
+      ..remove(habitId);
+
+    final xpResult = XpCalculator.applyXpDelta(
+      currentLevel: state.level,
+      currentLevelXp: state.currentLevelXp,
+      cumulativeXp: state.cumulativeXp,
+      xpDelta: -xpReward,
+    );
+    final rawGold = state.gold - goldReward;
+    final newGold = rawGold < 0 ? 0 : rawGold;
+
+    final newCategoryCompletions = {...state.categoryCompletions};
+    if (category != null) {
+      final rawCategory = (newCategoryCompletions[category] ?? 0) - 1;
+      newCategoryCompletions[category] = rawCategory < 0 ? 0 : rawCategory;
+    }
+    final rawTotal = state.totalCompletions - 1;
+    final newTotal = rawTotal < 0 ? 0 : rawTotal;
+
+    final rawTotalGreen = state.totalGreenSquares - 1;
+    final newTotalGreenSquares = rawTotalGreen < 0 ? 0 : rawTotalGreen;
+    final newDailyGreenCounts = {...state.dailyGreenCounts};
+    final rawDay = (newDailyGreenCounts[_todayKey] ?? 0) - 1;
+    newDailyGreenCounts[_todayKey] = rawDay < 0 ? 0 : rawDay;
+
+    state = state.copyWith(
+      level: xpResult.newLevel,
+      currentLevelXp: xpResult.newCurrentLevelXp,
+      cumulativeXp: xpResult.newCumulativeXp,
+      gold: newGold,
+      totalCompletions: newTotal,
+      completions: newCompletions,
+      categoryCompletions: newCategoryCompletions,
+      totalGreenSquares: newTotalGreenSquares,
+      dailyGreenCounts: newDailyGreenCounts,
+    );
+
+    if (_uid == null) {
+      await _saveGuestDaily(newCompletions);
+      // No lastActiveDate here — undoing isn't "new activity" and
+      // shouldn't disturb the streak-gap-detection logic that field feeds.
+      await _saveGuestState();
+      return;
+    }
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+
+      batch.set(
+        _dailyRef,
+        {'habitCompletions': newCompletions},
+        SetOptions(merge: true),
+      );
+
+      batch.set(
+        _userRef,
+        {
+          'level': xpResult.newLevel,
+          'currentLevelXp': xpResult.newCurrentLevelXp,
+          'cumulativeXp': xpResult.newCumulativeXp,
+          'gold': newGold,
+          'totalHabitCompletions': newTotal,
+          'categoryCompletions': newCategoryCompletions,
+          // Atomic increments, matching completeHabit's own writes to
+          // these same two fields — both Grid's applyGridSquareChange and
+          // this method can touch them, so an absolute local value would
+          // risk a lost update.
+          'totalGreenSquares': FieldValue.increment(-1),
+          'dailyGreenCounts.$_todayKey': FieldValue.increment(-1),
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+    } catch (_) {}
+  }
+
   /// Fires local notifications for a habit completion — a habit-completed
   /// ping, plus a level-up / achievement-unlocked ping if either happened in
   /// the same action. These are on-device local notifications (no push
