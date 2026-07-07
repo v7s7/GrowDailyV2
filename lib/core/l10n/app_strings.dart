@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../services/local_store_service.dart';
 import '../utils/intention_phrase.dart';
 
 // ─── Locale provider ──────────────────────────────────────────────────────────
@@ -10,14 +11,45 @@ final localeProvider = StateNotifierProvider<_LocaleNotifier, Locale>(
 );
 
 class _LocaleNotifier extends StateNotifier<Locale> {
-  _LocaleNotifier() : super(const Locale('en'));
-
-  void toggle() => state = state.languageCode == 'en'
-      ? const Locale('ar')
-      : const Locale('en');
+  _LocaleNotifier([Locale initial = const Locale('en')]) : super(initial);
 
   void set(Locale locale) => state = locale;
 }
+
+const _kLocaleKey = 'selected_locale_v1';
+
+/// Whether this device has completed the first-launch language picker at
+/// least once. Seeded from Hive at boot (see main.dart) — a fresh install
+/// has no persisted locale key yet, so this starts `false` and the picker
+/// gate shows; once a language is chosen it's `true` forever after on this
+/// device, so the picker never shows again.
+final languageChosenProvider = StateProvider<bool>((ref) => false);
+
+/// Sets the active locale and persists it, marking the language picker as
+/// completed. Use this instead of `localeProvider.notifier.set` directly
+/// so the choice survives a cold start.
+Future<void> setLocale(WidgetRef ref, Locale locale) async {
+  ref.read(localeProvider.notifier).set(locale);
+  ref.read(languageChosenProvider.notifier).state = true;
+  final box = await LocalStoreService.settingsBox();
+  await box.put(_kLocaleKey, locale.languageCode);
+}
+
+/// Reads the persisted locale, if any. Called once at boot (see main.dart)
+/// to seed [localeProvider]/[languageChosenProvider] before the first frame.
+Future<Locale?> loadPersistedLocale() async {
+  final box = await LocalStoreService.settingsBox();
+  final code = box.get(_kLocaleKey) as String?;
+  return code == null ? null : Locale(code);
+}
+
+/// Provider overrides that seed locale state from [persisted] at boot,
+/// mirroring the `guestModeProvider.overrideWith(...)` pattern in main.dart.
+List<Override> localeProviderOverrides(Locale? persisted) => [
+      if (persisted != null)
+        localeProvider.overrideWith((ref) => _LocaleNotifier(persisted)),
+      languageChosenProvider.overrideWith((ref) => persisted != null),
+    ];
 
 // ─── Strings ──────────────────────────────────────────────────────────────────
 
@@ -314,9 +346,18 @@ class S {
   String get matrixAddTask => isAr ? 'أضف مهمة' : 'ADD TASK';
   String get matrixWhatToDo => isAr ? 'ما الذي يجب فعله؟' : 'What needs to be done?';
   String get matrixMoveToQuadrant => isAr ? 'انقل إلى ربع' : 'MOVE TO QUADRANT';
+  String get matrixDeleteTask => isAr ? 'حذف المهمة' : 'Delete task';
+
+  // ── Quick Wins ───────────────────────────────────────────────────────────
+  String get quickWins => isAr ? 'مكاسب سريعة' : 'Quick Wins';
+  String get quickWinToday => isAr ? 'اليوم' : 'TODAY';
+  String get quickWinThisWeek => isAr ? 'هذا الأسبوع' : 'THIS WEEK';
+  String get quickWinDone => isAr ? 'تم' : 'Done';
+  String get quickWinSwap => isAr ? 'تبديل' : 'Swap';
+  String get quickWinClaim => isAr ? 'استلام' : 'Claim';
 
   // ── Navigation ───────────────────────────────────────────────────────────
-  String get navDashboard => isAr ? 'الرئيسية' : 'Dashboard';
+  String get navDashboard => isAr ? 'اليوم' : 'Today';
   String get navGrid => isAr ? 'الشبكة' : 'Grid';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
@@ -350,6 +391,9 @@ class S {
       isAr ? 'اكتب انعكاسًا قصيرًا…' : 'Write a short reflection…';
   String get gridSave => isAr ? 'حفظ' : 'Save';
   String get gridFutureDay => isAr ? 'يوم قادم' : 'Future day';
+  String get gridSquareDoneFromToday => isAr
+      ? 'أُنجزت هذه المهمة اليوم من صفحة اليوم. اختر لونًا آخر لتصحيحها.'
+      : 'Completed from Today. Pick a different color to correct it.';
 
   // ── Monthly Heatmap ──────────────────────────────────────────────────────
   String get heatmapTitle => isAr ? 'خريطة التقدّم' : 'Progress Heatmap';

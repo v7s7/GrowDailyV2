@@ -31,10 +31,20 @@ class QuadrantCard extends StatelessWidget {
 
   int get _pending => tasks.where((t) => !t.isDone).length;
 
+  /// Pending tasks first (in their existing order), finished ones pushed to
+  /// the bottom — so checking a task off doesn't just cross it out, it also
+  /// clears it out of the way of what's still left to do.
+  List<MatrixTask> get _orderedTasks {
+    final pending = tasks.where((t) => !t.isDone);
+    final done = tasks.where((t) => t.isDone);
+    return [...pending, ...done];
+  }
+
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
+    final ordered = _orderedTasks;
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -106,17 +116,17 @@ class QuadrantCard extends StatelessWidget {
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(vertical: 4),
-                    itemCount: tasks.length + 1,
+                    itemCount: ordered.length + 1,
                     separatorBuilder: (_, __) =>
                         Divider(height: 1, color: gp.divider, indent: 10, endIndent: 10),
                     itemBuilder: (ctx, i) {
-                      if (i == tasks.length) {
+                      if (i == ordered.length) {
                         return _AddAnotherRow(
                           color: _color,
                           onTap: onAddTapped,
                         );
                       }
-                      final t = tasks[i];
+                      final t = ordered[i];
                       return _TaskTile(
                         key: ValueKey(t.id),
                         task: t,
@@ -307,7 +317,7 @@ class _TaskTileState extends State<_TaskTile>
           _handleTap();
         },
         onTapCancel: () => setState(() => _pressed = false),
-        onLongPress: () => _showMoveMenu(context),
+        onLongPress: () => _showTaskActions(context),
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
@@ -377,7 +387,7 @@ class _TaskTileState extends State<_TaskTile>
     );
   }
 
-  void _showMoveMenu(BuildContext context) {
+  void _showTaskActions(BuildContext context) {
     final others =
         MatrixQuadrant.values.where((q) => q != widget.task.quadrant).toList();
     showModalBottomSheet(
@@ -396,6 +406,24 @@ class _TaskTileState extends State<_TaskTile>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.delete_outline_rounded,
+                      color: GameColors.error, size: 20),
+                  title: Text(
+                    S.of(context).matrixDeleteTask,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: GameColors.error,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    widget.onDelete();
+                  },
+                ),
+                Divider(height: 1, color: mgp.divider),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: Text(

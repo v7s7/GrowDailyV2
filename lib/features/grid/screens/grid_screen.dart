@@ -13,6 +13,7 @@ import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
+import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
@@ -865,43 +866,47 @@ class _GridTable extends ConsumerWidget {
     final today = DateTime.now();
     return Row(
       children: [
-        SizedBox(
-          width: _habitCol,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Row(
-              children: [
-                Builder(builder: (_) {
-                  final (_, color) = categoryVisual(habit.category);
-                  return Container(
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: CategoryIcon(
-                      category: habit.category,
-                      size: 13,
-                      color: color,
-                    ),
-                  );
-                }),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    habit.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: gp.textPrimary,
-                      height: 1.15,
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onLongPress: () => _showHabitActionsSheet(context, ref, habit),
+          child: SizedBox(
+            width: _habitCol,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Row(
+                children: [
+                  Builder(builder: (_) {
+                    final (_, color) = categoryVisual(habit.category);
+                    return Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: CategoryIcon(
+                        category: habit.category,
+                        size: 13,
+                        color: color,
+                      ),
+                    );
+                  }),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      habit.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: gp.textPrimary,
+                        height: 1.15,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -915,19 +920,7 @@ class _GridTable extends ConsumerWidget {
               isFuture: day.startOfDay.isAfter(today.startOfDay),
               square: state.squareFor(habit.id, day),
               hasNote: state.noteFor(habit.id, day).isNotEmpty,
-              onTap: () {
-                // A square turning green is the app's core reward moment —
-                // it gets a heavier thump than the intermediate colors.
-                final next = state.squareFor(habit.id, day).next;
-                if (next.isGreen) {
-                  HapticFeedback.mediumImpact();
-                } else {
-                  HapticFeedback.selectionClick();
-                }
-                ref
-                    .read(weeklyGridProvider.notifier)
-                    .cycleSquare(habit.id, day);
-              },
+              onTap: () => _handleSquareTap(ref, habit, day),
               onLongPress: () {
                 HapticFeedback.mediumImpact();
                 _openEditor(context, ref, habit, day);
@@ -938,6 +931,79 @@ class _GridTable extends ConsumerWidget {
     );
   }
 
+  /// Handles a plain tap on a habit's square.
+  ///
+  /// Today's square reaching "complete" for a real single-tap habit is
+  /// special-cased to route through the exact same canonical reward path
+  /// Today's own "Done" button uses (`DashboardNotifier.completeHabit`),
+  /// instead of Grid's own flat per-square XP — one reward, ever, for a
+  /// given habit-day, regardless of which screen it's completed from.
+  /// Everything else (other days, other colors, multi-tap habits) falls
+  /// through to the original flat-rate tap-cycle, unchanged.
+  Future<void> _handleSquareTap(
+      WidgetRef ref, IslamicHabitTemplate habit, DateTime day) async {
+    final current = state.squareFor(habit.id, day);
+    final next = current.next;
+    final isSyncable = day.isToday && habit.frequencyTarget == 1;
+
+    if (isSyncable && next == SquareState.complete) {
+      final alreadyDoneToday = ref
+          .read(dashboardProvider)
+          .isCompleted(habit.id, habit.frequencyTarget);
+      HapticFeedback.mediumImpact();
+      if (alreadyDoneToday) {
+        // Already rewarded (e.g. completed from Today and the mirror
+        // hasn't caught up) — just repair the visual state, no reward call.
+        ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
+      } else {
+        // Canonical reward first. Only mirror the square if it actually
+        // succeeded — a failed or no-op completeHabit call must never
+        // leave the Grid square green while Today/rewards/streak didn't
+        // update.
+        final justCompleted =
+            await ref.read(dashboardProvider.notifier).completeHabit(
+                  habitId: habit.id,
+                  xpReward: habit.xpReward,
+                  goldReward: habit.goldReward,
+                  frequencyTarget: habit.frequencyTarget,
+                  category: habit.category.name,
+                  habitName: habit.name,
+                );
+        if (justCompleted) {
+          ref
+              .read(weeklyGridProvider.notifier)
+              .markCompleteFromHabit(habit.id, day);
+        }
+      }
+      return;
+    }
+
+    if (isSyncable &&
+        current == SquareState.complete &&
+        ref.read(dashboardProvider).isCompleted(habit.id, habit.frequencyTarget)) {
+      // A quick tap on a synced completion doesn't un-tap it — matches
+      // Today's own "Done" button (also non-interactive once done) and
+      // guards against an accidental tap undoing a reward. Long-press
+      // still opens the editor, where a deliberate color change is
+      // treated as an intentional correction (see
+      // _CellEditorSheetState._handlePaletteTap). Pre-existing green
+      // squares from before this sync shipped (never recorded in
+      // `completions`) aren't caught by this check and keep behaving via
+      // the flat-rate cycle below, unaffected.
+      HapticFeedback.selectionClick();
+      return;
+    }
+
+    // A square turning green is the app's core reward moment — it gets a
+    // heavier thump than the intermediate colors.
+    if (next.isGreen) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
+    ref.read(weeklyGridProvider.notifier).cycleSquare(habit.id, day);
+  }
+
   void _openEditor(BuildContext context, WidgetRef ref,
       IslamicHabitTemplate habit, DateTime day) {
     showModalBottomSheet(
@@ -945,6 +1011,101 @@ class _GridTable extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _CellEditorSheet(habit: habit, day: day),
+    );
+  }
+
+  /// Long-press on a habit's name/icon opens edit/remove for that habit —
+  /// Grid previously had no way to manage habits at all (add-only, via the
+  /// FAB), even though Today's habit list has supported this for a while.
+  /// Reuses the exact same notifiers Today's own menu uses, just adds the
+  /// missing entry point here.
+  void _showHabitActionsSheet(
+      BuildContext context, WidgetRef ref, IslamicHabitTemplate habit) {
+    HapticFeedback.mediumImpact();
+    final s = S.of(context);
+    final isCustom =
+        ref.read(customHabitsProvider).any((h) => h.id == habit.id);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final gp = ctx.gp;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+              12, 0, 12, 24 + MediaQuery.of(ctx).padding.bottom),
+          child: Container(
+            decoration: BoxDecoration(
+              color: gp.surfaceHigh,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: gp.border, width: 0.5),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+                  child: Text(
+                    habit.name,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textPrimary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                Divider(height: 1, color: gp.divider),
+                // Preset/catalog habits are shared immutable templates —
+                // only custom habits (created via AddHabitSheet) can be
+                // edited, matching Today's own onEdit gating exactly.
+                if (isCustom)
+                  ListTile(
+                    leading: Icon(Icons.edit_outlined, color: gp.textSec),
+                    title: Text(
+                      s.editHabitAction,
+                      style: TextStyle(
+                          color: gp.textPrimary, fontWeight: FontWeight.w600),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      HapticFeedback.selectionClick();
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => AddHabitSheet(existing: habit),
+                      );
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline_rounded,
+                      color: GameColors.error),
+                  title: Text(
+                    s.removeHabit,
+                    style: const TextStyle(
+                        color: GameColors.error, fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    HapticFeedback.mediumImpact();
+                    // Custom habits are deleted outright; preset habits are
+                    // deactivated (reversible via Plans/the catalog) rather
+                    // than destroyed, matching Today's own onDelete exactly.
+                    if (isCustom) {
+                      ref.read(customHabitsProvider.notifier).remove(habit.id);
+                    } else {
+                      ref
+                          .read(activeCatalogProvider.notifier)
+                          .toggle(habit.id);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1106,6 +1267,20 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     final locale = Localizations.localeOf(context).languageCode;
     final current =
         ref.watch(weeklyGridProvider).squareFor(widget.habit.id, widget.day);
+    // Whether this square is a synced completion (rewarded via the
+    // canonical completeHabit path) — shown with a note above the palette
+    // instead of hiding it, since picking a different color here is a
+    // deliberate "I completed this by mistake" correction (see
+    // _handlePaletteTap), not an accidental undo. Pre-existing green
+    // squares from before this sync existed aren't caught by this check
+    // (never recorded in `completions`) and behave via the plain
+    // flat-rate palette path below, unaffected.
+    final isLocked = widget.day.isToday &&
+        widget.habit.frequencyTarget == 1 &&
+        current == SquareState.complete &&
+        ref
+            .watch(dashboardProvider)
+            .isCompleted(widget.habit.id, widget.habit.frequencyTarget);
     final palette = [
       SquareState.complete,
       SquareState.partial,
@@ -1186,6 +1361,22 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               ],
             ),
             const SizedBox(height: 18),
+            if (isLocked) ...[
+              Row(
+                children: [
+                  Icon(Icons.check_circle_rounded,
+                      color: gp.textTert, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      s.gridSquareDoneFromToday,
+                      style: TextStyle(fontSize: 12, color: gp.textSec),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+            ],
             Text(
               s.gridEditSquare.toUpperCase(),
               style: TextStyle(
@@ -1205,12 +1396,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                     state: palette[i],
                     selected: palette[i] == current,
                     label: isAr ? palette[i].labelAr : palette[i].label,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      ref
-                          .read(weeklyGridProvider.notifier)
-                          .setSquare(widget.habit.id, widget.day, palette[i]);
-                    },
+                    onTap: () => _handlePaletteTap(isLocked, palette[i]),
                   )
                       .animate(delay: (i * 35).ms)
                       .fadeIn(duration: 220.ms)
@@ -1258,6 +1444,62 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         ),
       ),
     );
+  }
+
+  /// Handles tapping a palette swatch for [picked].
+  ///
+  /// - If the square is currently a synced, reward-locked completion
+  ///   (`isLocked`) and [picked] isn't `complete`, this is a correction:
+  ///   reverse the canonical reward first (`uncompleteHabit`), then
+  ///   update the visual state only.
+  /// - If the square isn't done yet and [picked] is `complete` for a
+  ///   real, single-tap, today's habit, this is the same canonical
+  ///   completion tapping the square or Today's button would do — reward
+  ///   first, then mirror the visual state only if the reward actually
+  ///   landed, so a failed/no-op reward never leaves the square green.
+  /// - Everything else falls through to the original flat-rate
+  ///   `setSquare` path, unchanged.
+  Future<void> _handlePaletteTap(bool isLocked, SquareState picked) async {
+    HapticFeedback.selectionClick();
+    final habit = widget.habit;
+    final day = widget.day;
+
+    if (isLocked && picked != SquareState.complete) {
+      ref.read(dashboardProvider.notifier).uncompleteHabit(
+            habitId: habit.id,
+            xpReward: habit.xpReward,
+            goldReward: habit.goldReward,
+            category: habit.category.name,
+          );
+      ref
+          .read(weeklyGridProvider.notifier)
+          .setSquareStateOnly(habit.id, day, picked);
+      return;
+    }
+
+    final isSyncable = day.isToday && habit.frequencyTarget == 1;
+    final alreadyDoneToday = ref
+        .read(dashboardProvider)
+        .isCompleted(habit.id, habit.frequencyTarget);
+    if (isSyncable && picked == SquareState.complete && !alreadyDoneToday) {
+      final justCompleted =
+          await ref.read(dashboardProvider.notifier).completeHabit(
+                habitId: habit.id,
+                xpReward: habit.xpReward,
+                goldReward: habit.goldReward,
+                frequencyTarget: habit.frequencyTarget,
+                category: habit.category.name,
+                habitName: habit.name,
+              );
+      if (justCompleted) {
+        ref
+            .read(weeklyGridProvider.notifier)
+            .setSquareStateOnly(habit.id, day, SquareState.complete);
+      }
+      return;
+    }
+
+    ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked);
   }
 }
 

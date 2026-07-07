@@ -215,6 +215,14 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     state = state.copyWith(states: states);
     _persistSquare(habitId, day, value);
 
+    // Anti-backdating: a square for any day other than today still colors
+    // and saves normally — Grid stays an honest visual record of what you
+    // did — but never reaches the reward system. Without this, navigating
+    // to a past week and coloring squares green would be a free, repeatable
+    // way to farm XP, gold, and achievement/green-square progress for days
+    // that were never actually lived through.
+    if (!day.isToday) return;
+
     final xpDelta = value.xpValue - old.xpValue;
     final greenDelta = (value.isGreen ? 1 : 0) - (old.isGreen ? 1 : 0);
     if (xpDelta != 0 || greenDelta != 0) {
@@ -232,6 +240,30 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
             stillGreenToday: stillGreenToday,
           );
     }
+  }
+
+  /// Sets a square's visual state without touching any reward system —
+  /// for the cases where the reward is (or was already) handled by the
+  /// canonical `DashboardNotifier.completeHabit`/`uncompleteHabit` path,
+  /// so Grid's own flat-rate delta math ([setSquare]/
+  /// `applyGridSquareChange`) must not also fire for the same change.
+  void setSquareStateOnly(String habitId, DateTime day, SquareState value) {
+    final key = day.toDateKey();
+    final states = {
+      for (final e in state.states.entries) e.key: {...e.value},
+    };
+    (states[key] ??= {})[habitId] = value;
+    state = state.copyWith(states: states);
+    _persistSquare(habitId, day, value);
+  }
+
+  /// Mirrors a habit completion already rewarded by
+  /// `DashboardNotifier.completeHabit` onto today's Grid square. A no-op
+  /// if the square is already `complete` (e.g. repairing the mirror after
+  /// `completeHabit` succeeded but the visual write hadn't landed yet).
+  void markCompleteFromHabit(String habitId, DateTime day) {
+    if (state.squareFor(habitId, day) == SquareState.complete) return;
+    setSquareStateOnly(habitId, day, SquareState.complete);
   }
 
   /// Attach (or clear) a daily reflection note for a habit's square.

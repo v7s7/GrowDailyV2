@@ -246,6 +246,11 @@ class _Header extends StatelessWidget {
                 ],
               ),
             ),
+            IconButton(
+              onPressed: () => Navigator.pushNamed(context, '/matrix'),
+              tooltip: S.of(context).navGoals,
+              icon: Icon(Icons.checklist_rounded, color: gp.textSec),
+            ),
           ],
         ),
         const SizedBox(height: 18),

@@ -3,23 +3,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
-import '../../../features/focus/notifiers/focus_plan_notifier.dart';
+import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/habits/catalog/habit_plans.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/habits/widgets/add_habit_sheet.dart';
 import '../../../features/habits/widgets/plan_picker_sheet.dart';
-import '../../../features/challenges/widgets/weekly_challenge_card.dart';
+import '../../../features/quick_wins/widgets/quick_wins_card.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
-import '../../../shared/widgets/stat_chip.dart';
-import '../../../shared/widgets/xp_bar.dart';
+import '../../../shared/widgets/victory_burst.dart';
 import '../notifiers/dashboard_notifier.dart';
 import '../widgets/reaction_overlays.dart';
 
@@ -116,15 +114,6 @@ class DashboardScreen extends ConsumerWidget {
                     const SizedBox(width: 4),
                   ],
                 ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: _StatsCard(state: state)
-                        .animate()
-                        .fadeIn(duration: 500.ms)
-                        .slideY(begin: -0.04, curve: Curves.easeOut),
-                  ),
-                ),
                 if (state.showComebackBonus)
                   SliverToBoxAdapter(
                     child: Padding(
@@ -135,24 +124,15 @@ class DashboardScreen extends ConsumerWidget {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: const WeeklyChallengeCard()
+                    child: const QuickWinsCard()
                         .animate(delay: 80.ms)
-                        .fadeIn(duration: 450.ms),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                    child: const _TodayIntentionCard()
-                        .animate(delay: 120.ms)
-                        .fadeIn(duration: 400.ms)
-                        .slideY(begin: 0.08),
+                        .fadeIn(duration: 400.ms),
                   ),
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
                     padding:
-                        const EdgeInsets.fromLTRB(16, 28, 16, 12),
+                        const EdgeInsets.fromLTRB(16, 12, 16, 12),
                     child: Row(
                       children: [
                         Text(
@@ -196,18 +176,8 @@ class DashboardScreen extends ConsumerWidget {
                           template: t,
                           completions: state.completions[t.id] ?? 0,
                           isDone: done,
-                          onComplete: done
-                              ? null
-                              : () => ref
-                                  .read(dashboardProvider.notifier)
-                                  .completeHabit(
-                                    habitId: t.id,
-                                    xpReward: t.xpReward,
-                                    goldReward: t.goldReward,
-                                    frequencyTarget: t.frequencyTarget,
-                                    category: t.category.name,
-                                    habitName: t.name,
-                                  ),
+                          onComplete:
+                              done ? null : () => _completeHabit(ref, t),
                           onDelete: () {
                             if (customIds.contains(t.id)) {
                               ref
@@ -278,6 +248,29 @@ class DashboardScreen extends ConsumerWidget {
               ],
             ),
     );
+  }
+
+  /// Completes a habit from Today, then — if that just finished a
+  /// single-tap habit — mirrors today's Grid square to green. The mirror
+  /// is visual/state only (`markCompleteFromHabit`), never a second
+  /// reward: `completeHabit` already granted the one canonical reward for
+  /// this habit-day. Multi-tap habits report `false` here and are left
+  /// exactly as they behave today (see `completeHabit`'s doc comment).
+  Future<void> _completeHabit(WidgetRef ref, IslamicHabitTemplate t) async {
+    final justFinishedSingleTap =
+        await ref.read(dashboardProvider.notifier).completeHabit(
+              habitId: t.id,
+              xpReward: t.xpReward,
+              goldReward: t.goldReward,
+              frequencyTarget: t.frequencyTarget,
+              category: t.category.name,
+              habitName: t.name,
+            );
+    if (justFinishedSingleTap) {
+      ref
+          .read(weeklyGridProvider.notifier)
+          .markCompleteFromHabit(t.id, DateTime.now());
+    }
   }
 
   void _showAddHabit(BuildContext context, WidgetRef ref) {
@@ -430,196 +423,6 @@ class _EmptyHabitsState extends StatelessWidget {
             ).animate(delay: 380.ms).fadeIn(),
           ],
         ),
-      ),
-    );
-  }
-}
-
-// ─── Today Intention Card ─────────────────────────────────────────────────
-
-class _TodayIntentionCard extends ConsumerWidget {
-  const _TodayIntentionCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final gp = context.gp;
-    final s = S.of(context);
-    final plan = ref.watch(focusPlanProvider).plan;
-    final hasPlan = plan.topTask.trim().isNotEmpty;
-    return InkWell(
-      onTap: () => Navigator.pushReplacementNamed(context, '/focus'),
-      borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: gp.surface,
-          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-          border: Border.all(color: GameColors.xpBlue.withOpacity(0.22)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: GameColors.xpBlue.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.flag_rounded, color: GameColors.xpBlue),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    hasPlan ? s.todaysIntention : s.pickTinyWin,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: gp.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    hasPlan ? plan.topTask : s.pickOneGoal,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: gp.textSec),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right_rounded, color: GameColors.xpBlue),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Stats Card ───────────────────────────────────────────────────────────
-
-class _StatsCard extends StatelessWidget {
-  final DashboardState state;
-  const _StatsCard({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final s = S.of(context);
-    final locale = Localizations.localeOf(context).languageCode;
-    final today = DateFormat('EEEE, MMMM d', locale).format(DateTime.now());
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: gp.surface,
-        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: gp.border, width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            today.toUpperCase(),
-            style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: gp.textTert,
-                letterSpacing: 1.5),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(s.level,
-                      style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: gp.textSec,
-                          letterSpacing: 1.5)),
-                  Text(
-                    '${state.level}',
-                    style: const TextStyle(
-                        fontSize: 52,
-                        fontWeight: FontWeight.w900,
-                        color: GameColors.gold,
-                        height: 1,
-                        letterSpacing: -2),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${state.currentLevelXp} / ${state.xpToNext} XP',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: gp.textSec),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${state.cumulativeXp} ${s.totalXp}',
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: gp.textTert,
-                        letterSpacing: 0.5),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          XpBar(progress: state.levelProgress),
-          const SizedBox(height: 18),
-          Container(height: 0.5, color: gp.border),
-          const SizedBox(height: 16),
-          Row(children: [
-            StatChip(
-              icon: Icons.local_fire_department_rounded,
-              value: state.streak,
-              label: s.streak,
-              color: GameColors.streakOrange,
-            ),
-            const SizedBox(width: 10),
-            StatChip(
-              icon: Icons.ac_unit_rounded,
-              value: state.streakFreezes,
-              label: s.freeze,
-              color: GameColors.xpBlue,
-            ),
-            const SizedBox(width: 10),
-            StatChip(
-              icon: Icons.stars_rounded,
-              value: state.gold,
-              label: s.gold,
-              color: GameColors.gold,
-            ),
-          ]),
-          if (state.streakFreezes > 0) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Icon(Icons.ac_unit_rounded,
-                    size: 13, color: GameColors.xpBlue),
-                const SizedBox(width: 6),
-                Text(
-                  '${state.streakFreezes} streak freeze${state.streakFreezes > 1 ? 's' : ''} ready to protect your streak',
-                  style: const TextStyle(
-                      fontSize: 11,
-                      color: GameColors.xpBlue,
-                      fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ],
-        ],
       ),
     );
   }
@@ -871,6 +674,33 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
   void dispose() {
     _ctrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_SwipeableHabitRow old) {
+    super.didUpdateWidget(old);
+    // Fires for either completion path (tap the button inside HabitCard,
+    // or swipe the row) since both land here as the same isDone flip —
+    // reuses the app's existing "reward moment" language (the same burst
+    // Grid fires on a square turning green) instead of building a second
+    // celebration effect just for Today.
+    //
+    // didUpdateWidget runs mid-build, and showVictoryBurst inserts into
+    // the root Overlay (setState on an unrelated ancestor) — deferring to
+    // a post-frame callback is required, not optional: doing this inline
+    // throws "setState() or markNeedsBuild() called during build."
+    if (!old.isDone && widget.isDone) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final box = context.findRenderObject() as RenderBox?;
+        if (box != null && box.attached) {
+          showVictoryBurst(
+            context,
+            box.localToGlobal(box.size.center(Offset.zero)),
+          );
+        }
+      });
+    }
   }
 
   double get _x => _dragging ? _liveX : _xAnim.value;

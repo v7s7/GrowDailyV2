@@ -504,7 +504,21 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
   // ── Actions ──────────────────────────────────────────────────
 
-  Future<void> completeHabit({
+  /// Completes a habit for today — the single canonical reward path for
+  /// "a habit was done today", called from both Today's habit list and
+  /// Grid's square tap (see [markCompleteFromHabit] on `WeeklyGridNotifier`
+  /// for the visual-only mirror the other screen uses).
+  ///
+  /// Returns whether this call just finished a *single-tap*
+  /// (`frequencyTarget == 1`) habit — the signal callers use to decide
+  /// whether to mirror today's Grid square to green. Multi-tap
+  /// (`frequencyTarget > 1`, e.g. "3x this week") habits intentionally
+  /// return `false` here even on their final completing tap: a single
+  /// day's Grid square can't cleanly represent "2 of 3 this week" yet, so
+  /// Grid/Today sync is deferred for those and this always reports
+  /// "nothing to mirror". Returns `false` if the habit was already done
+  /// today (no new completion registered at all).
+  Future<bool> completeHabit({
     required String habitId,
     required int xpReward,
     required int goldReward,
@@ -513,10 +527,14 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     String? habitName,
   }) async {
     final current = state.completions[habitId] ?? 0;
-    if (current >= frequencyTarget) return;
+    if (current >= frequencyTarget) return false;
 
     final newCompletions = Map<String, int>.from(state.completions)
       ..[habitId] = current + 1;
+
+    // Only single-tap habits are synced with the Grid in this phase — see
+    // the doc comment above.
+    final isGridSyncable = frequencyTarget == 1;
 
     final isFirstToday = state.completions.isEmpty && !state.gridActivityToday;
     final bump = isFirstToday
@@ -547,6 +565,21 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           (newCategoryCompletions[category] ?? 0) + 1;
     }
 
+    // A synced single-tap completion counts exactly like Grid's own green
+    // square, using the same existing fields Grid already writes — no new
+    // schema. Forward-only: this only ever touches today's dateKey, never
+    // rewrites or backfills earlier days. The guard above (`current >=
+    // frequencyTarget`) already makes this at most a one-time bump per
+    // habit per day, same as everything else in this method.
+    final newTotalGreenSquares = isGridSyncable
+        ? state.totalGreenSquares + 1
+        : state.totalGreenSquares;
+    final newDailyGreenCounts = {...state.dailyGreenCounts};
+    if (isGridSyncable) {
+      newDailyGreenCounts[_todayKey] =
+          (newDailyGreenCounts[_todayKey] ?? 0) + 1;
+    }
+
     // ── Achievement check ────────────────────────────────────
     final newly = AchievementCatalog.locked(state.unlockedAchievements)
         .where((a) => switch (a.trigger) {
@@ -558,6 +591,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
               AchievementTrigger.habitMastery => a.targetCategory != null &&
                   (newCategoryCompletions[a.targetCategory] ?? 0) >=
                       a.threshold,
+              AchievementTrigger.greenSquares =>
+                newTotalGreenSquares >= a.threshold,
               _ => false,
             })
         .toList();
@@ -607,6 +642,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       lastCompletedId: habitId,
       setMilestone: newMilestone,
       categoryCompletions: newCategoryCompletions,
+      totalGreenSquares: newTotalGreenSquares,
+      dailyGreenCounts: newDailyGreenCounts,
     );
 
     _fireCompletionNotifications(
@@ -621,7 +658,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     if (_uid == null) {
       await _saveGuestDaily(newCompletions);
       await _saveGuestState(lastActiveDate: DateTime.now());
-      return;
+      return isGridSyncable;
     }
 
     try {
@@ -647,6 +684,117 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           'unlockedAchievements': newUnlockedIds,
           'categoryCompletions': newCategoryCompletions,
           'lastActiveDate': Timestamp.fromDate(now),
+          // Same fields Grid's own applyGridSquareChange writes — no new
+          // schema, just a second (mutually-exclusive, see isGridSyncable
+          // above) writer for the synced single-tap case.
+          if (isGridSyncable) 'totalGreenSquares': FieldValue.increment(1),
+          if (isGridSyncable) 'dailyGreenCounts.$_todayKey': FieldValue.increment(1),
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+    } catch (_) {}
+    return isGridSyncable;
+  }
+
+  /// Reverses a same-day completion made via [completeHabit] — the "I
+  /// completed this by mistake" correction available from Grid's
+  /// long-press editor on a synced, completed-today square. Always
+  /// operates on *today* (there's no "edit yesterday's completion"
+  /// concept anywhere in this app).
+  ///
+  /// Reverses what's safe to reverse: XP, gold, `completions[habitId]`
+  /// (back to not-done so Today un-checks it too), `categoryCompletions`,
+  /// `totalCompletions`, and the `totalGreenSquares`/`dailyGreenCounts`
+  /// counters this phase added for synced completions.
+  ///
+  /// Deliberately does **not** touch `unlockedAchievements` — nothing in
+  /// this app ever revokes an unlocked achievement, the same way a real
+  /// trophy doesn't get taken back once earned — or
+  /// `streak`/`longestStreak`/`gridActivityToday`: safely re-deriving
+  /// "was this really the day's only source of today's streak point" is
+  /// fragile, so an already-earned streak day is left alone. Both are the
+  /// same conservative bias `completeHabit` already takes.
+  Future<void> uncompleteHabit({
+    required String habitId,
+    required int xpReward,
+    required int goldReward,
+    String? category,
+  }) async {
+    final current = state.completions[habitId] ?? 0;
+    if (current <= 0) return;
+
+    final newCompletions = Map<String, int>.from(state.completions)
+      ..remove(habitId);
+
+    final xpResult = XpCalculator.applyXpDelta(
+      currentLevel: state.level,
+      currentLevelXp: state.currentLevelXp,
+      cumulativeXp: state.cumulativeXp,
+      xpDelta: -xpReward,
+    );
+    final rawGold = state.gold - goldReward;
+    final newGold = rawGold < 0 ? 0 : rawGold;
+
+    final newCategoryCompletions = {...state.categoryCompletions};
+    if (category != null) {
+      final rawCategory = (newCategoryCompletions[category] ?? 0) - 1;
+      newCategoryCompletions[category] = rawCategory < 0 ? 0 : rawCategory;
+    }
+    final rawTotal = state.totalCompletions - 1;
+    final newTotal = rawTotal < 0 ? 0 : rawTotal;
+
+    final rawTotalGreen = state.totalGreenSquares - 1;
+    final newTotalGreenSquares = rawTotalGreen < 0 ? 0 : rawTotalGreen;
+    final newDailyGreenCounts = {...state.dailyGreenCounts};
+    final rawDay = (newDailyGreenCounts[_todayKey] ?? 0) - 1;
+    newDailyGreenCounts[_todayKey] = rawDay < 0 ? 0 : rawDay;
+
+    state = state.copyWith(
+      level: xpResult.newLevel,
+      currentLevelXp: xpResult.newCurrentLevelXp,
+      cumulativeXp: xpResult.newCumulativeXp,
+      gold: newGold,
+      totalCompletions: newTotal,
+      completions: newCompletions,
+      categoryCompletions: newCategoryCompletions,
+      totalGreenSquares: newTotalGreenSquares,
+      dailyGreenCounts: newDailyGreenCounts,
+    );
+
+    if (_uid == null) {
+      await _saveGuestDaily(newCompletions);
+      // No lastActiveDate here — undoing isn't "new activity" and
+      // shouldn't disturb the streak-gap-detection logic that field feeds.
+      await _saveGuestState();
+      return;
+    }
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+
+      batch.set(
+        _dailyRef,
+        {'habitCompletions': newCompletions},
+        SetOptions(merge: true),
+      );
+
+      batch.set(
+        _userRef,
+        {
+          'level': xpResult.newLevel,
+          'currentLevelXp': xpResult.newCurrentLevelXp,
+          'cumulativeXp': xpResult.newCumulativeXp,
+          'gold': newGold,
+          'totalHabitCompletions': newTotal,
+          'categoryCompletions': newCategoryCompletions,
+          // Atomic increments, matching completeHabit's own writes to
+          // these same two fields — both Grid's applyGridSquareChange and
+          // this method can touch them, so an absolute local value would
+          // risk a lost update.
+          'totalGreenSquares': FieldValue.increment(-1),
+          'dailyGreenCounts.$_todayKey': FieldValue.increment(-1),
         },
         SetOptions(merge: true),
       );

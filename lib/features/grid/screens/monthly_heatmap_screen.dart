@@ -28,8 +28,9 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
 
   static const int _freeWeeksToShow = 12;
   static const int _premiumWeeksToShow = 52;
-  static const double _cell = 12;
-  static const double _gap = 3;
+  static const double _minCell = 16;
+  static const double _maxCell = 22;
+  static const double _gap = 4;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -105,24 +106,38 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
               ).animate(delay: 60.ms).fadeIn(duration: 350.ms),
               const SizedBox(height: 22),
               Container(
-                padding: const EdgeInsets.all(14),
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: gp.surface,
                   borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
                   border: Border.all(color: gp.border, width: 0.5),
                 ),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  reverse: true,
-                  child: _ContributionGraph(
-                    weekStarts: weekStarts,
-                    counts: counts,
-                    totalHabits: totalHabits,
-                    dark: dark,
-                    cell: _cell,
-                    gap: _gap,
-                    onTapDay: (day, count) => _showDayInfo(context, day, count),
-                  ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Size cells so the free tier's week count always fills
+                    // the card edge-to-edge — no dead space, no cramped tiny
+                    // squares. Premium reuses the same cell size and scrolls
+                    // for the extra weeks that don't fit on screen, the same
+                    // way GitHub's own contribution graph does.
+                    final rawCell =
+                        (constraints.maxWidth - (_freeWeeksToShow - 1) * _gap) /
+                            _freeWeeksToShow;
+                    final cell = rawCell.clamp(_minCell, _maxCell).toDouble();
+                    return SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      child: _ContributionGraph(
+                        weekStarts: weekStarts,
+                        counts: counts,
+                        totalHabits: totalHabits,
+                        dark: dark,
+                        cell: cell,
+                        gap: _gap,
+                        onTapDay: (day, count) => _showDayInfo(context, day, count),
+                      ),
+                    );
+                  },
                 ),
               ).animate(delay: 120.ms).fadeIn(duration: 400.ms),
               const SizedBox(height: 16),
@@ -218,14 +233,23 @@ class _ContributionGraph extends StatelessWidget {
             for (final week in weekStarts)
               SizedBox(
                 width: colWidth,
-                child: Builder(builder: (_) {
-                  final label = DateFormat.MMM().format(week);
+                child: Builder(builder: (context) {
+                  final locale = Localizations.localeOf(context).languageCode;
+                  final label = DateFormat.MMM(locale).format(week);
                   final show = label != lastMonth;
                   lastMonth = label;
+                  // A month label only needs to start at the right column —
+                  // clipping/wrapping it to that single narrow column's
+                  // width would break it across two lines instead, so it's
+                  // left free to bleed rightward over the (still-blank)
+                  // cells that follow, the same way GitHub's own graph does.
                   return Text(
                     show ? label : '',
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.visible,
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: gp.textTert,
                     ),
@@ -297,9 +321,9 @@ class _HeatCell extends StatelessWidget {
           height: size,
           decoration: BoxDecoration(
             color: heatColor(level, dark),
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: BorderRadius.circular(4),
             border: day.isToday
-                ? Border.all(color: GameColors.gold, width: 1)
+                ? Border.all(color: GameColors.gold, width: 1.4)
                 : null,
           ),
         ),
@@ -328,11 +352,11 @@ class _HeatLegend extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 4),
             child: Container(
-              width: 12,
-              height: 12,
+              width: 14,
+              height: 14,
               decoration: BoxDecoration(
                 color: heatColor(level, dark),
-                borderRadius: BorderRadius.circular(3),
+                borderRadius: BorderRadius.circular(4),
               ),
             ),
           ),
