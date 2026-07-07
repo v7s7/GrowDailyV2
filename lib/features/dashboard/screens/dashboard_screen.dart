@@ -684,14 +684,22 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
     // reuses the app's existing "reward moment" language (the same burst
     // Grid fires on a square turning green) instead of building a second
     // celebration effect just for Today.
+    //
+    // didUpdateWidget runs mid-build, and showVictoryBurst inserts into
+    // the root Overlay (setState on an unrelated ancestor) — deferring to
+    // a post-frame callback is required, not optional: doing this inline
+    // throws "setState() or markNeedsBuild() called during build."
     if (!old.isDone && widget.isDone) {
-      final box = context.findRenderObject() as RenderBox?;
-      if (box != null && box.attached) {
-        showVictoryBurst(
-          context,
-          box.localToGlobal(box.size.center(Offset.zero)),
-        );
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final box = context.findRenderObject() as RenderBox?;
+        if (box != null && box.attached) {
+          showVictoryBurst(
+            context,
+            box.localToGlobal(box.size.center(Offset.zero)),
+          );
+        }
+      });
     }
   }
 
