@@ -167,7 +167,7 @@ class _LanguageGate extends ConsumerWidget {
 }
 
 class _AuthGate extends ConsumerWidget {
-  const _AuthGate();
+  const _AuthGate({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
