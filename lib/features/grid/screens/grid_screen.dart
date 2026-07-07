@@ -13,6 +13,7 @@ import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
+import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
@@ -865,43 +866,47 @@ class _GridTable extends ConsumerWidget {
     final today = DateTime.now();
     return Row(
       children: [
-        SizedBox(
-          width: _habitCol,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Row(
-              children: [
-                Builder(builder: (_) {
-                  final (_, color) = categoryVisual(habit.category);
-                  return Container(
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: CategoryIcon(
-                      category: habit.category,
-                      size: 13,
-                      color: color,
-                    ),
-                  );
-                }),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    habit.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: gp.textPrimary,
-                      height: 1.15,
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onLongPress: () => _showHabitActionsSheet(context, ref, habit),
+          child: SizedBox(
+            width: _habitCol,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Row(
+                children: [
+                  Builder(builder: (_) {
+                    final (_, color) = categoryVisual(habit.category);
+                    return Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: CategoryIcon(
+                        category: habit.category,
+                        size: 13,
+                        color: color,
+                      ),
+                    );
+                  }),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      habit.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: gp.textPrimary,
+                        height: 1.15,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1006,6 +1011,101 @@ class _GridTable extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _CellEditorSheet(habit: habit, day: day),
+    );
+  }
+
+  /// Long-press on a habit's name/icon opens edit/remove for that habit —
+  /// Grid previously had no way to manage habits at all (add-only, via the
+  /// FAB), even though Today's habit list has supported this for a while.
+  /// Reuses the exact same notifiers Today's own menu uses, just adds the
+  /// missing entry point here.
+  void _showHabitActionsSheet(
+      BuildContext context, WidgetRef ref, IslamicHabitTemplate habit) {
+    HapticFeedback.mediumImpact();
+    final s = S.of(context);
+    final isCustom =
+        ref.read(customHabitsProvider).any((h) => h.id == habit.id);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final gp = ctx.gp;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+              12, 0, 12, 24 + MediaQuery.of(ctx).padding.bottom),
+          child: Container(
+            decoration: BoxDecoration(
+              color: gp.surfaceHigh,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: gp.border, width: 0.5),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+                  child: Text(
+                    habit.name,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textPrimary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                Divider(height: 1, color: gp.divider),
+                // Preset/catalog habits are shared immutable templates —
+                // only custom habits (created via AddHabitSheet) can be
+                // edited, matching Today's own onEdit gating exactly.
+                if (isCustom)
+                  ListTile(
+                    leading: Icon(Icons.edit_outlined, color: gp.textSec),
+                    title: Text(
+                      s.editHabitAction,
+                      style: TextStyle(
+                          color: gp.textPrimary, fontWeight: FontWeight.w600),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      HapticFeedback.selectionClick();
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => AddHabitSheet(existing: habit),
+                      );
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline_rounded,
+                      color: GameColors.error),
+                  title: Text(
+                    s.removeHabit,
+                    style: const TextStyle(
+                        color: GameColors.error, fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    HapticFeedback.mediumImpact();
+                    // Custom habits are deleted outright; preset habits are
+                    // deactivated (reversible via Plans/the catalog) rather
+                    // than destroyed, matching Today's own onDelete exactly.
+                    if (isCustom) {
+                      ref.read(customHabitsProvider.notifier).remove(habit.id);
+                    } else {
+                      ref
+                          .read(activeCatalogProvider.notifier)
+                          .toggle(habit.id);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
