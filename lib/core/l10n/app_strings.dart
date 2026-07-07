@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../services/local_store_service.dart';
 import '../utils/intention_phrase.dart';
 
 // ─── Locale provider ──────────────────────────────────────────────────────────
@@ -10,14 +11,45 @@ final localeProvider = StateNotifierProvider<_LocaleNotifier, Locale>(
 );
 
 class _LocaleNotifier extends StateNotifier<Locale> {
-  _LocaleNotifier() : super(const Locale('en'));
-
-  void toggle() => state = state.languageCode == 'en'
-      ? const Locale('ar')
-      : const Locale('en');
+  _LocaleNotifier([Locale initial = const Locale('en')]) : super(initial);
 
   void set(Locale locale) => state = locale;
 }
+
+const _kLocaleKey = 'selected_locale_v1';
+
+/// Whether this device has completed the first-launch language picker at
+/// least once. Seeded from Hive at boot (see main.dart) — a fresh install
+/// has no persisted locale key yet, so this starts `false` and the picker
+/// gate shows; once a language is chosen it's `true` forever after on this
+/// device, so the picker never shows again.
+final languageChosenProvider = StateProvider<bool>((ref) => false);
+
+/// Sets the active locale and persists it, marking the language picker as
+/// completed. Use this instead of `localeProvider.notifier.set` directly
+/// so the choice survives a cold start.
+Future<void> setLocale(WidgetRef ref, Locale locale) async {
+  ref.read(localeProvider.notifier).set(locale);
+  ref.read(languageChosenProvider.notifier).state = true;
+  final box = await LocalStoreService.settingsBox();
+  await box.put(_kLocaleKey, locale.languageCode);
+}
+
+/// Reads the persisted locale, if any. Called once at boot (see main.dart)
+/// to seed [localeProvider]/[languageChosenProvider] before the first frame.
+Future<Locale?> loadPersistedLocale() async {
+  final box = await LocalStoreService.settingsBox();
+  final code = box.get(_kLocaleKey) as String?;
+  return code == null ? null : Locale(code);
+}
+
+/// Provider overrides that seed locale state from [persisted] at boot,
+/// mirroring the `guestModeProvider.overrideWith(...)` pattern in main.dart.
+List<Override> localeProviderOverrides(Locale? persisted) => [
+      if (persisted != null)
+        localeProvider.overrideWith((ref) => _LocaleNotifier(persisted)),
+      languageChosenProvider.overrideWith((ref) => persisted != null),
+    ];
 
 // ─── Strings ──────────────────────────────────────────────────────────────────
 

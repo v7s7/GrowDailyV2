@@ -19,6 +19,7 @@ import 'features/focus/screens/focus_screen.dart';
 import 'features/grid/screens/grid_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
 import 'features/intention/screens/intention_screen.dart';
+import 'features/language/screens/language_picker_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'features/night_review/screens/night_review_screen.dart';
 import 'features/premium/screens/premium_screen.dart';
@@ -46,8 +47,12 @@ Future<void> main() async {
   // data lands back on their grid instead of being bounced to the auth
   // screen (the provider's own default is always `false` in memory).
   final persistedGuestMode = await loadPersistedGuestMode();
+  final persistedLocale = await loadPersistedLocale();
   runApp(ProviderScope(
-    overrides: [guestModeProvider.overrideWith((ref) => persistedGuestMode)],
+    overrides: [
+      guestModeProvider.overrideWith((ref) => persistedGuestMode),
+      ...localeProviderOverrides(persistedLocale),
+    ],
     child: const GrowDailyApp(),
   ));
 }
@@ -105,7 +110,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
       locale: locale,
       initialRoute: '/',
       routes: {
-        '/': (_) => const _AuthGate(),
+        '/': (_) => const _LanguageGate(),
         '/heatmap': (_) => const MonthlyHeatmapScreen(),
         '/intention': (_) => const IntentionScreen(),
         '/night-review': (_) => const NightReviewScreen(),
@@ -137,6 +142,26 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
           pageBuilder: (context, _, __) => builder(context),
         );
       },
+    );
+  }
+}
+
+/// Shown once per device, before auth: picks a language on first launch,
+/// then hands off to [_AuthGate]. Crossfades rather than snapping straight
+/// to the auth/grid screen once a language is chosen.
+class _LanguageGate extends ConsumerWidget {
+  const _LanguageGate();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final chosen = ref.watch(languageChosenProvider);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 450),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: chosen
+          ? const _AuthGate(key: ValueKey('auth-gate'))
+          : const LanguagePickerScreen(key: ValueKey('language-picker')),
     );
   }
 }

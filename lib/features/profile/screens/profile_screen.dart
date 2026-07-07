@@ -14,6 +14,7 @@ import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
+import '../../../features/language/widgets/language_option_card.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../widgets/delete_account_sheet.dart';
 
@@ -1000,6 +1001,88 @@ class _AchievementCard extends StatelessWidget {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
+/// Opens the language picker sheet from Settings — same [LanguageOptionCard]
+/// rows as the first-launch picker, just presented as a sheet since the
+/// locale is already known here.
+void _showLanguageSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => const _LanguageSheet(),
+  );
+}
+
+class _LanguageSheet extends ConsumerWidget {
+  const _LanguageSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final isAr = ref.watch(localeProvider).languageCode == 'ar';
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              s.language,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: gp.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 18),
+            LanguageOptionCard(
+              nativeName: 'English',
+              selected: !isAr,
+              onTap: () {
+                Navigator.pop(context);
+                setLocale(ref, const Locale('en'));
+              },
+            ),
+            const SizedBox(height: 10),
+            LanguageOptionCard(
+              nativeName: 'العربية',
+              selected: isAr,
+              textDirection: TextDirection.rtl,
+              onTap: () {
+                Navigator.pop(context);
+                setLocale(ref, const Locale('ar'));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SettingsSection extends ConsumerWidget {
   const _SettingsSection();
 
@@ -1096,11 +1179,11 @@ class _SettingsSection extends ConsumerWidget {
                   ),
                 ),
                 Container(height: 0.5, color: gp.divider),
-                // Language toggle
+                // Language picker
                 InkWell(
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    ref.read(localeProvider.notifier).toggle();
+                    _showLanguageSheet(context);
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
