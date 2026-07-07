@@ -12,6 +12,7 @@ import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/habits/widgets/add_habit_sheet.dart';
 import '../../../features/habits/widgets/plan_picker_sheet.dart';
+import '../../../features/quick_wins/widgets/quick_wins_card.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
@@ -118,6 +119,14 @@ class DashboardScreen extends ConsumerWidget {
                       child: _ComebackCard(state: state),
                     ),
                   ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: const QuickWinsCard()
+                        .animate(delay: 80.ms)
+                        .fadeIn(duration: 400.ms),
+                  ),
+                ),
                 SliverToBoxAdapter(
                   child: Padding(
                     padding:

@@ -316,6 +316,14 @@ class S {
   String get matrixMoveToQuadrant => isAr ? 'انقل إلى ربع' : 'MOVE TO QUADRANT';
   String get matrixDeleteTask => isAr ? 'حذف المهمة' : 'Delete task';
 
+  // ── Quick Wins ───────────────────────────────────────────────────────────
+  String get quickWins => isAr ? 'مكاسب سريعة' : 'Quick Wins';
+  String get quickWinToday => isAr ? 'اليوم' : 'TODAY';
+  String get quickWinThisWeek => isAr ? 'هذا الأسبوع' : 'THIS WEEK';
+  String get quickWinDone => isAr ? 'تم' : 'Done';
+  String get quickWinSwap => isAr ? 'تبديل' : 'Swap';
+  String get quickWinClaim => isAr ? 'استلام' : 'Claim';
+
   // ── Navigation ───────────────────────────────────────────────────────────
   String get navDashboard => isAr ? 'اليوم' : 'Today';
   String get navGrid => isAr ? 'الشبكة' : 'Grid';
