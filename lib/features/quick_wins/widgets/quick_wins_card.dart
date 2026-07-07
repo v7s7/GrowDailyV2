@@ -172,6 +172,7 @@ class _QuickWinRow extends StatelessWidget {
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
             ),
           ),
+          const SizedBox(width: 4),
           FilledButton(
             onPressed: canAct ? onComplete : null,
             style: FilledButton.styleFrom(
