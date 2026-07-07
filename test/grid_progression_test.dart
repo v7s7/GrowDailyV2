@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
+import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/core/utils/xp_calculator.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
@@ -177,6 +178,35 @@ void main() {
       expect(dash.cumulativeXp, 0); // 0 - 3 floors at 0
       expect(dash.totalGreenSquares, 0);
       expect(dash.streak, 0); // red never earns a streak
+    });
+
+    test(
+        'coloring a past day green persists visually but awards zero XP, gold, or achievement credit',
+        () async {
+      final pastDay = DateTime.now().subtract(const Duration(days: 3));
+      final grid = container.read(weeklyGridProvider.notifier);
+
+      grid.setSquare('habit_a', pastDay, SquareState.complete);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Visual record still updates — Grid stays an honest "what did I do"
+      // log even for a day logged after the fact.
+      expect(
+        container.read(weeklyGridProvider).squareFor('habit_a', pastDay),
+        SquareState.complete,
+      );
+
+      // But nothing reaches the reward system: no free XP/gold/achievement
+      // farming by backdating squares to a day that was never lived through.
+      final dash = container.read(dashboardProvider);
+      expect(dash.cumulativeXp, 0);
+      expect(dash.gold, 0);
+      expect(dash.totalGreenSquares, 0);
+      expect(dash.unlockedAchievements, isNot(contains('green_1')));
+      expect(dash.streak, 0);
+
+      final key = pastDay.toDateKey();
+      expect(dash.dailyGreenCounts[key], isNull);
     });
 
     test('grid state cycles and persists square + note per habit per day',

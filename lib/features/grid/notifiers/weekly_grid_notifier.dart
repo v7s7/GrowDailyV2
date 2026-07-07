@@ -215,6 +215,14 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     state = state.copyWith(states: states);
     _persistSquare(habitId, day, value);
 
+    // Anti-backdating: a square for any day other than today still colors
+    // and saves normally — Grid stays an honest visual record of what you
+    // did — but never reaches the reward system. Without this, navigating
+    // to a past week and coloring squares green would be a free, repeatable
+    // way to farm XP, gold, and achievement/green-square progress for days
+    // that were never actually lived through.
+    if (!day.isToday) return;
+
     final xpDelta = value.xpValue - old.xpValue;
     final greenDelta = (value.isGreen ? 1 : 0) - (old.isGreen ? 1 : 0);
     if (xpDelta != 0 || greenDelta != 0) {
