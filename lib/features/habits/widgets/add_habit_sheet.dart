@@ -158,13 +158,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return AnimatedPadding(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
-      padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
+      padding: EdgeInsets.only(bottom: bottom),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
         child: Container(
           decoration: BoxDecoration(
             color: gp.surfaceHigh,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(color: gp.border, width: 0.5),
           ),
           child: Column(
@@ -192,7 +192,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                       child: Text(
                         _isEditing ? s.editHabit : s.addGoalTitle,
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: 18,
                           fontWeight: FontWeight.w800,
                           color: gp.textPrimary,
                         ),
@@ -239,8 +239,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                           ),
                         ),
                         child: Text(
-                          _step < 2 ? s.continueAction : (_isEditing ? s.saveChanges : s.createGoal),
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                          _step < 2
+                              ? s.continueAction
+                              : (_isEditing ? s.saveChanges : s.createGoal),
                         ),
                       ),
                     ),
@@ -308,11 +309,19 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           TextField(
             controller: _nameCtrl,
             focusNode: _focus,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: context.gp.textPrimary,
+            ),
             textCapitalization: TextCapitalization.sentences,
             onSubmitted: (_) {
               if (_hasName) setState(() => _step = 2);
             },
-            decoration: InputDecoration(hintText: s.goalTitleHint),
+            decoration: InputDecoration(
+              hintText: s.goalTitleHint,
+              prefixIcon: const Icon(Icons.edit_note_rounded, size: 20),
+            ),
           ),
           const SizedBox(height: 18),
           _SectionLabel(s.category),
@@ -321,11 +330,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             spacing: 8,
             runSpacing: 8,
             children: _broadCategories.map((cat) {
-              return ChoiceChip(
-                avatar: CategoryIcon(category: cat, size: 16, color: _category == cat ? GameColors.gold : context.gp.textSec),
-                selected: _category == cat,
-                label: Text(cat.localizedName(s.isAr)),
-                onSelected: (_) => setState(() {
+              final selected = _category == cat;
+              return _PlainChoiceChip(
+                selected: selected,
+                label: cat.localizedName(s.isAr),
+                icon: CategoryIcon(
+                  category: cat,
+                  size: 15,
+                  color: selected ? GameColors.gold : context.gp.textSec,
+                ),
+                onTap: () => setState(() {
                   _didPickCategory = true;
                   _category = cat;
                 }),
@@ -339,9 +353,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             spacing: 8,
             runSpacing: 8,
             children: _suggestions().map((item) {
-              return ActionChip(
-                label: Text(item.name(s.isAr)),
-                onPressed: () => _applySuggestion(item),
+              return _PlainActionChip(
+                label: item.name(s.isAr),
+                onTap: () => _applySuggestion(item),
               );
             }).toList(),
           ),
@@ -382,11 +396,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             spacing: 8,
             runSpacing: 8,
             children: _cueSuggestions().map((cue) {
-              final selected = _cueCtrl.text.trim() == cue.labelFor(context);
-              return ChoiceChip(
-                selected: selected,
-                label: Text(cue.labelFor(context)),
-                onSelected: (_) => setState(() => _cueCtrl.text = cue.labelFor(context)),
+              final label = cue.labelFor(context);
+              return _PlainChoiceChip(
+                selected: _cueCtrl.text.trim() == label,
+                label: label,
+                onTap: () => setState(() => _cueCtrl.text = label),
               );
             }).toList(),
           ),
@@ -513,6 +527,92 @@ const _allSuggestions = [
   _GoalSuggestion(GoalType.quit, HabitCategory.money, 'Reduce delivery orders', 'تقليل طلبات التوصيل'),
   _GoalSuggestion(GoalType.quit, HabitCategory.money, 'No unnecessary shopping', 'بدون تسوق غير ضروري'),
 ];
+
+class _PlainChoiceChip extends StatelessWidget {
+  final bool selected;
+  final String label;
+  final Widget? icon;
+  final VoidCallback onTap;
+
+  const _PlainChoiceChip({
+    required this.selected,
+    required this.label,
+    required this.onTap,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? GameColors.gold.withOpacity(0.14) : gp.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? GameColors.gold : gp.border.withOpacity(0.8),
+            width: selected ? 1.1 : 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              icon!,
+              const SizedBox(width: 7),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                color: selected ? GameColors.gold : gp.textPrimary,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlainActionChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _PlainActionChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: gp.border.withOpacity(0.9), width: 0.8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: gp.textPrimary,
+            height: 1.1,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _QuestionTitle extends StatelessWidget {
   final String text;
