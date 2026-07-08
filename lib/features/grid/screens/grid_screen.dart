@@ -361,8 +361,7 @@ class _SummaryCard extends StatelessWidget {
     final s = S.of(context);
     final habitIds = habits.map((h) => h.id).toList();
     final greens = state.greenSquares(habitIds);
-    final possible = habits.length * 7;
-    final ratio = possible == 0 ? 0.0 : greens / possible;
+    final ratio = state.todayCompletionRatio(habitIds);
 
     // Only today's marks are reward-eligible. Past-day marks remain visual
     // history, but the summary must not present them as earned XP.
@@ -443,15 +442,13 @@ class _SummaryCard extends StatelessWidget {
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
                   child: Text(
-                    ratio >= 1.0
-                        ? s.gridWeekFilled
-                        : perfectDay
-                            ? s.gridPerfectDay
-                            : greensToday > 0
-                                ? s.gridGreensToday(greensToday)
-                                : s.gridTapHint,
+                    perfectDay
+                        ? s.gridPerfectDay
+                        : greensToday > 0
+                            ? s.gridGreensToday(greensToday)
+                            : s.gridTapHint,
                     key: ValueKey(
-                      '$perfectDay-$greensToday-${ratio >= 1.0}',
+                      '$perfectDay-$greensToday-${(ratio * 100).round()}',
                     ),
                     style: TextStyle(
                       fontSize: 12,

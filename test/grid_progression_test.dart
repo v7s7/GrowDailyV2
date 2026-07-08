@@ -209,6 +209,36 @@ void main() {
       expect(dash.dailyGreenCounts[key], isNull);
     });
 
+    test('today completion ratio counts daily tasks, not old squares', () {
+      final today = DateTime.now();
+      final state = WeeklyGridState(
+        weekStart: startOfGridWeek(today),
+        states: {
+          today.subtract(const Duration(days: 1)).toDateKey(): {
+            'habit_a': SquareState.complete,
+            'habit_b': SquareState.complete,
+            'habit_c': SquareState.complete,
+            'habit_d': SquareState.complete,
+          },
+          today.toDateKey(): {
+            'habit_a': SquareState.complete,
+          },
+        },
+        notes: const {},
+      );
+
+      expect(
+        state.todayCompletionRatio([
+          'habit_a',
+          'habit_b',
+          'habit_c',
+          'habit_d',
+          'habit_e',
+        ]),
+        0.2,
+      );
+    });
+
     test('reward-eligible Grid summary points only count today', () async {
       final today = DateTime.now();
       final grid = container.read(weeklyGridProvider.notifier);
