@@ -736,8 +736,8 @@ class _GridTable extends ConsumerWidget {
   final WeeklyGridState state;
   const _GridTable({required this.habits, required this.state});
 
-  static const double _habitCol = 112;
-  static const double _gap = 6;
+  static const double _habitCol = 96;
+  static const double _gap = 5;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -754,11 +754,11 @@ class _GridTable extends ConsumerWidget {
           final avail = constraints.maxWidth;
           double cell = (avail - _habitCol - 7 * _gap) / 7;
           bool scroll = false;
-          if (cell < 36) {
-            cell = 36;
+          if (cell < 30) {
+            cell = 30;
             scroll = true;
           } else {
-            cell = cell.clamp(36, 54);
+            cell = cell.clamp(30, 54);
           }
           final table = _buildTable(context, ref, cell);
           if (!scroll) return table;
