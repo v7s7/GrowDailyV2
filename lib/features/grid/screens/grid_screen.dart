@@ -185,7 +185,10 @@ class GridScreen extends ConsumerWidget {
               foregroundColor: gp.textPrimary,
               elevation: 0,
               tooltip: s.addHabit,
-              child: const Icon(Icons.add_rounded,
+              // Not `const` — GameColors.gold is a mutable `static Color`
+              // (theme-preset system), not a compile-time constant. See
+              // BUILD_LESSONS.md #6.
+              child: Icon(Icons.add_rounded,
                   size: 20, color: GameColors.gold),
             ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.4),
     );

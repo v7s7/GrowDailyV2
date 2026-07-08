@@ -30,8 +30,11 @@ void showVictoryBurst(
       particleCount: particleCount,
       spread: spread,
       duration: duration,
+      // Not `const` — GameColors.gold/xpBlue/emerald are mutable `static
+      // Color` fields (swapped at runtime by the theme-preset system), not
+      // compile-time constants. See BUILD_LESSONS.md #6.
       colors: colors ??
-          const [
+          [
             GameColors.emerald,
             GameColors.gold,
             GameColors.xpBlue,
