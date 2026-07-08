@@ -63,6 +63,23 @@ class HabitCue {
       RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', caseSensitive: false);
   static final RegExp _timeAr = RegExp(r'^(\d{1,2}):(\d{2})\s*(ص|م)$');
 
+  static const _arabicIndicDigits = '٠١٢٣٤٥٦٧٨٩';
+
+  /// Dart's `\d` matches ASCII digits only, but Arabic keyboards (especially
+  /// on mobile) commonly default to Arabic-Indic digits (٠-٩) — a time typed
+  /// as "٧:٣٠ ص" must still be recognized as 7:30, not fall through to
+  /// freeform text. Only used ahead of the time-pattern checks below; preset
+  /// matching and the freeform fallback both still see the original,
+  /// unmodified text.
+  static String _asciiDigits(String s) {
+    final buffer = StringBuffer();
+    for (final ch in s.split('')) {
+      final i = _arabicIndicDigits.indexOf(ch);
+      buffer.write(i >= 0 ? i.toString() : ch);
+    }
+    return buffer.toString();
+  }
+
   /// A known routine preset by canonical key (e.g. `'maghrib'`). Falls back
   /// to freeform if [key] isn't one of the 6 recognized keys.
   factory HabitCue.preset(String key) => _presetSynonyms.containsKey(key)
@@ -91,19 +108,20 @@ class HabitCue {
       }
     }
 
-    final canon = _timeCanonical.firstMatch(raw);
+    final timeCandidate = _asciiDigits(raw);
+    final canon = _timeCanonical.firstMatch(timeCandidate);
     if (canon != null) {
       return HabitCue._time(
           int.parse(canon.group(1)!), int.parse(canon.group(2)!));
     }
-    final en = _timeEn.firstMatch(raw);
+    final en = _timeEn.firstMatch(timeCandidate);
     if (en != null) {
       return HabitCue._time(
         _to24(int.parse(en.group(1)!), en.group(3)!.toUpperCase() == 'PM'),
         int.parse(en.group(2)!),
       );
     }
-    final ar = _timeAr.firstMatch(raw);
+    final ar = _timeAr.firstMatch(timeCandidate);
     if (ar != null) {
       return HabitCue._time(
         _to24(int.parse(ar.group(1)!), ar.group(3)! == 'م'),

@@ -122,6 +122,24 @@ void main() {
       expect(HabitCue.fromStoredValue('7:30 م').toStorageValue(),
           'custom_time:19:30');
     });
+
+    test('Arabic-Indic digits ("٧:٣٠ ص") are recognized the same as ASCII '
+        'digits, not left as unrecognized freeform text', () {
+      // Arabic mobile keyboards commonly default to Arabic-Indic numerals —
+      // a user typing a custom time this way must still get a real time
+      // cue, not raw text that's stuck showing "٧:٣٠ ص" forever.
+      final cue = HabitCue.fromStoredValue('٧:٣٠ ص');
+      expect(cue.toStorageValue(), 'custom_time:07:30');
+      expect(cue.labelForLocale(true), '7:30 ص');
+      expect(cue.labelForLocale(false), '7:30 AM');
+    });
+
+    test('Arabic-Indic PM time and midnight/noon edge cases', () {
+      expect(HabitCue.fromStoredValue('٧:٣٠ م').toStorageValue(),
+          'custom_time:19:30');
+      expect(HabitCue.fromStoredValue('١٢:٠٠ ص').toStorageValue(),
+          'custom_time:00:00');
+    });
   });
 
   group('HabitCue — freeform text passes through unchanged', () {
@@ -131,6 +149,17 @@ void main() {
       expect(cue.toStorageValue(), 'your quiet study block');
       expect(cue.labelForLocale(true), 'your quiet study block');
       expect(cue.labelForLocale(false), 'your quiet study block');
+    });
+
+    test('a freeform Arabic cue is stored and shown exactly as typed, not '
+        'mistaken for a preset or a time', () {
+      // "بعد المدرسة" ("after school") contains an Arabic preposition and
+      // no digits — it must not be coerced into a preset key or a time
+      // value; it's arbitrary user text like any freeform English cue.
+      final cue = HabitCue.fromStoredValue('بعد المدرسة');
+      expect(cue.toStorageValue(), 'بعد المدرسة');
+      expect(cue.labelForLocale(true), 'بعد المدرسة');
+      expect(cue.labelForLocale(false), 'بعد المدرسة');
     });
   });
 
