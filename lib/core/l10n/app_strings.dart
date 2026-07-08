@@ -280,8 +280,10 @@ class S {
   String get editHabit => isAr ? 'تعديل العادة' : 'EDIT HABIT';
   String get saveChanges => isAr ? 'احفظ التغييرات' : 'SAVE CHANGES';
   String get habitNameHint => isAr ? 'ما العادة التي تريد بناءها؟' : 'What habit do you want to build?';
-  String get afterWhatRoutine => isAr ? 'بعد أي روتين؟ (اختياري)' : 'After what routine? (optional)';
-  String get routineHint => isAr ? 'الفجر، المغرب، قبل النوم...' : 'Fajr, Maghrib, before sleep...';
+  String get afterWhatRoutine => isAr ? 'بعد أو قبل أي روتين؟ (اختياري)' : 'Before or after what routine? (optional)';
+  String get routineHint => isAr ? 'الفجر، قبل العمل، بعد المغرب...' : 'Fajr, before work, after Maghrib...';
+  String get cueAfterOption => isAr ? 'بعد' : 'After';
+  String get cueBeforeOption => isAr ? 'قبل' : 'Before';
   String get pickATime => isAr ? 'اختر وقتًا' : 'Pick a time';
   String get category => isAr ? 'الفئة' : 'CATEGORY';
   String get frequency => isAr ? 'التكرار' : 'FREQUENCY';

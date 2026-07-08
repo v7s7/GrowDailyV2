@@ -13,6 +13,8 @@ import '../models/habit_cue.dart';
 import '../models/habit_model.dart';
 import '../notifiers/custom_habits_notifier.dart';
 
+enum _CueRelation { after, before }
+
 class AddHabitSheet extends ConsumerStatefulWidget {
   final IslamicHabitTemplate? existing;
   const AddHabitSheet({super.key, this.existing});
@@ -44,6 +46,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   HabitFrequencyType _freqType = HabitFrequencyType.daily;
   int _freqTarget = 1;
   Set<int> _selectedWeekdays = {};
+  _CueRelation _cueRelation = _CueRelation.after;
   ReductionType _reductionType = ReductionType.avoid;
   LimitUnit _limitUnit = LimitUnit.minutes;
   int _step = 0;
@@ -60,6 +63,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     if (existing != null) {
       _nameCtrl.text = existing.name;
       _cueCtrl.text = existing.cueAfter ?? '';
+      _cueRelation = _startsWithBefore(_cueCtrl.text)
+          ? _CueRelation.before
+          : _CueRelation.after;
       _category = _canonicalCategory(existing.category);
       _freqType = existing.frequencyType;
       _freqTarget = existing.frequencyTarget;
@@ -108,7 +114,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       return;
     }
     HapticFeedback.mediumImpact();
-    final cue = HabitCue.fromStoredValue(_cueCtrl.text.trim()).toStorageValue();
+    final cue = HabitCue.fromStoredValue(_cueWithRelation(_cueCtrl.text)).toStorageValue();
     final limitAmount = int.tryParse(_limitCtrl.text.trim());
     final notifier = ref.read(customHabitsProvider.notifier);
     if (existing != null) {
@@ -399,15 +405,35 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ] else
             _SectionLabel(s.whenQuestion),
           const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _SmallPick(
+                  label: s.cueAfterOption,
+                  selected: _cueRelation == _CueRelation.after,
+                  onTap: () => _setCueRelation(_CueRelation.after),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SmallPick(
+                  label: s.cueBeforeOption,
+                  selected: _cueRelation == _CueRelation.before,
+                  onTap: () => _setCueRelation(_CueRelation.before),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               for (final cue in _cueSuggestions())
                 _PlainChoiceChip(
-                  selected: _cueCtrl.text.trim() == cue.labelFor(context),
+                  selected: _baseCue(_cueCtrl.text) == cue.labelFor(context),
                   label: cue.labelFor(context),
-                  onTap: () => setState(() => _cueCtrl.text = cue.labelFor(context)),
+                  onTap: () => _applyCue(cue.labelFor(context)),
                 ),
               _PlainActionChip(label: s.customTime, onTap: _pickCustomTime),
               _PlainActionChip(
@@ -505,6 +531,42 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
       );
 
+  bool _startsWithBefore(String value) {
+    final trimmed = value.trim().toLowerCase();
+    return trimmed.startsWith('before ') || value.trim().startsWith('قبل ');
+  }
+
+  String _baseCue(String value) {
+    final trimmed = value.trim();
+    final lower = trimmed.toLowerCase();
+    if (lower.startsWith('before ')) return trimmed.substring(7).trim();
+    if (lower.startsWith('after ')) return trimmed.substring(6).trim();
+    if (trimmed.startsWith('قبل ')) return trimmed.substring(4).trim();
+    if (trimmed.startsWith('بعد ')) return trimmed.substring(4).trim();
+    return trimmed;
+  }
+
+  String _cueWithRelation(String base) {
+    final trimmed = _baseCue(base);
+    if (trimmed.isEmpty || _cueRelation == _CueRelation.after) return trimmed;
+    return S.of(context).isAr ? 'قبل $trimmed' : 'Before $trimmed';
+  }
+
+  void _applyCue(String label) {
+    HapticFeedback.selectionClick();
+    setState(() => _cueCtrl.text = _cueWithRelation(label));
+  }
+
+  void _setCueRelation(_CueRelation relation) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _cueRelation = relation;
+      if (_cueCtrl.text.trim().isNotEmpty) {
+        _cueCtrl.text = _cueWithRelation(_cueCtrl.text);
+      }
+    });
+  }
+
   List<(int, String)> _weekdays(BuildContext context) {
     final locale = Localizations.localeOf(context).languageCode;
     final monday = DateTime(2024, 1, 1);
@@ -523,7 +585,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     );
     if (picked == null) return;
     setState(() {
-      _cueCtrl.text = HabitCue.time(picked.hour, picked.minute).labelFor(context);
+      _cueCtrl.text = _cueWithRelation(
+        HabitCue.time(picked.hour, picked.minute).labelFor(context),
+      );
     });
   }
 
