@@ -1567,16 +1567,13 @@ class _Legend extends StatelessWidget {
     final gp = context.gp;
     final s = S.of(context);
     final dark = gp.dark;
-    final items = [
-      SquareState.complete,
-      SquareState.partial,
-      SquareState.none,
-      SquareState.bonus,
-      SquareState.failed,
-      SquareState.skipped,
-    ];
+    // Only the three states a plain tap actually cycles through — the
+    // "advanced" colors (bonus/failed/skipped) are already labeled in the
+    // long-press editor's own palette, so repeating all six here just
+    // forced this onto a second line for no real benefit.
+    final items = [SquareState.none, SquareState.partial, SquareState.complete];
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
@@ -1585,43 +1582,36 @@ class _Legend extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            s.gridLegend.toUpperCase(),
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: gp.textTert,
-              letterSpacing: 1.2,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 16,
-            runSpacing: 10,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               for (final st in items)
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      width: 16,
-                      height: 16,
+                      width: 14,
+                      height: 14,
                       decoration: BoxDecoration(
                         color: st.fill(dark),
-                        borderRadius: BorderRadius.circular(5),
+                        borderRadius: BorderRadius.circular(4),
                         border: Border.all(color: st.border(dark), width: 0.8),
                       ),
                     ),
                     const SizedBox(width: 6),
                     Text(
                       s.isAr ? st.labelAr : st.label,
-                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                        color: gp.textSec,
+                      ),
                     ),
                   ],
                 ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Text(
             s.gridRewardHint,
             style: TextStyle(fontSize: 10.5, color: gp.textTert, height: 1.3),

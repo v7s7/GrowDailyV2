@@ -434,7 +434,6 @@ class S {
   String get gridTapHint => isAr
       ? 'اضغط لتلوين المربّع · اضغط مطولاً للمزيد من الألوان'
       : 'Tap to color · long-press for more colors';
-  String get gridLegend => isAr ? 'الألوان' : 'Legend';
   String get gridRewardHint => isAr
       ? 'اليوم فقط يمنحك نقاط الخبرة والذهب، ويزيد سلسلتك مرة واحدة يوميًا كحد أقصى.'
       : "Only today earns XP, gold, and streak credit — once per day at most.";
