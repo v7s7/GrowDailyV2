@@ -290,6 +290,46 @@ class S {
   String get times => isAr ? 'مرات:' : 'Times:';
   String get createHabit => isAr ? 'أنشئ العادة' : 'CREATE TINY HABIT';
   String get smartStarters => isAr ? 'بدايات ذكية' : 'SMART STARTERS';
+
+  String get addGoalTitle => isAr ? 'إضافة هدف' : 'Add Goal';
+  String get whatImprove => isAr ? 'ما الذي تريد تحسينه؟' : 'What do you want to improve?';
+  String get buildHabitTitle => isAr ? 'أبني عادة' : 'Build a habit';
+  String get buildHabitSubtitle => isAr ? 'أنشئ شيئًا تريد فعله أكثر.' : 'Create something you want to do more.';
+  String get quitHabitTitle => isAr ? 'أترك أو أقلل عادة' : 'Quit / reduce something';
+  String get quitHabitSubtitle => isAr ? 'تحكّم في شيء تريد فعله أقل.' : 'Control something you want to do less.';
+  String get whatHabitBuild => isAr ? 'ما العادة التي تريد بناءها؟' : 'What habit do you want to build?';
+  String get whatReduce => isAr ? 'ما الذي تريد تقليله؟' : 'What do you want to reduce?';
+  String get goalTitleHint => isAr ? 'اكتب هدفك أو اختر اقتراحًا' : 'Type your goal or pick a suggestion';
+  String get smartSuggestions => isAr ? 'اقتراحات ذكية' : 'Smart suggestions';
+  String get timingBuildTitle => isAr ? 'متى وكيف ستتابع؟' : 'When and how often?';
+  String get timingQuitTitle => isAr ? 'ما الخطة الهادئة؟' : 'What is the calm plan?';
+  String get whenQuestion => isAr ? 'متى؟' : 'When?';
+  String get goalStyle => isAr ? 'أسلوب الهدف' : 'Goal style';
+  String get avoidCompletely => isAr ? 'تجنّبه تمامًا' : 'Avoid completely';
+  String get setLimit => isAr ? 'ضع حدًا' : 'Set a limit';
+  String get maxAmount => isAr ? 'الحد الأقصى' : 'Max amount';
+  String get whenHardest => isAr ? 'متى يكون أصعب؟' : 'When is it hardest?';
+  String get customTriggerOptional => isAr ? 'وقت أو موقف مخصص (اختياري)' : 'Custom time or trigger (optional)';
+  String get threeTimesWeek => isAr ? '3 مرات/أسبوع' : '3x/week';
+  String get specificDays => isAr ? 'أيام محددة' : 'Specific days';
+  String get createGoal => isAr ? 'أنشئ الهدف' : 'CREATE GOAL';
+  String get continueAction => isAr ? 'متابعة' : 'CONTINUE';
+  String get back => isAr ? 'رجوع' : 'Back';
+  String limitUnitLabel(String key) => isAr
+      ? switch (key) {
+          'minutes' => 'دقائق',
+          'times' => 'مرات',
+          'cups' => 'أكواب',
+          'money' => 'مال',
+          _ => 'مخصص',
+        }
+      : switch (key) {
+          'minutes' => 'minutes',
+          'times' => 'times',
+          'cups' => 'cups',
+          'money' => 'money',
+          _ => 'custom',
+        };
   // A cue like "Fajr" reads naturally as "After Fajr, I will X." — but a
   // cue that already carries its own preposition, like "Before sleep",
   // would read as "After Before sleep, I will X." if we always prepended
@@ -385,6 +425,8 @@ class S {
   String habitAfterCue(String cue) => isAr ? '  ·  بعد $cue' : '  ·  After $cue';
   String get habitDone => isAr ? 'تم' : 'DONE';
   String get habitComplete => isAr ? 'أتمم' : 'COMPLETE';
+  String get habitStayedOnTrack => isAr ? 'بقيت على المسار' : 'STAYED ON TRACK';
+  String get habitWithinLimit => isAr ? 'ضمن الحد' : 'WITHIN LIMIT';
 
   // ── Goals Matrix ─────────────────────────────────────────────────────────
   String get goals => isAr ? 'الأهداف' : 'Goals';

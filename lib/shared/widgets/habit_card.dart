@@ -41,6 +41,16 @@ class _HabitCardState extends State<HabitCard> {
     }
   }
 
+  String _actionLabel(BuildContext context) {
+    final s = S.of(context);
+    if (widget.template.goalType == GoalType.quit) {
+      return widget.template.reductionType == ReductionType.limit
+          ? s.habitWithinLimit
+          : s.habitStayedOnTrack;
+    }
+    return s.habitComplete;
+  }
+
   String _subtitle(BuildContext context) {
     final s = S.of(context);
     final freq = widget.template.frequencyType == HabitFrequencyType.daily
@@ -117,7 +127,7 @@ class _HabitCardState extends State<HabitCard> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
+                          letterSpacing: s.isAr ? 0 : 0.5,
                           color: widget.isDone ? GameColors.gold : gp.textPrimary,
                         ),
                       ),
@@ -202,11 +212,11 @@ class _HabitCardState extends State<HabitCard> {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            widget.isDone ? s.habitDone : s.habitComplete,
+                            widget.isDone ? s.habitDone : _actionLabel(context),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w800,
-                              letterSpacing: 0.8,
+                              letterSpacing: s.isAr ? 0 : 0.8,
                               color: widget.isDone
                                   ? GameColors.gold
                                   : Colors.black,

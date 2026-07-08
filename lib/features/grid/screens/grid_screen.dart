@@ -58,14 +58,17 @@ void showAddHabitSheet(BuildContext context, WidgetRef ref) {
 /// icon for categories without custom art. Kept here since callers still
 /// destructure the color.
 (IconData, Color) categoryVisual(HabitCategory category) => switch (category) {
-      HabitCategory.quran => (Icons.menu_book_rounded, GameColors.emerald),
-      HabitCategory.athkar =>
-        (Icons.self_improvement_rounded, GameColors.gold),
-      HabitCategory.fitness =>
+      HabitCategory.faith || HabitCategory.quran || HabitCategory.athkar =>
+        (Icons.menu_book_rounded, GameColors.emerald),
+      HabitCategory.health || HabitCategory.fitness =>
         (Icons.fitness_center_rounded, GameColors.streakOrange),
-      HabitCategory.fasting => (Icons.nights_stay_rounded, GameColors.xpBlue),
-      HabitCategory.sadaqah =>
-        (Icons.volunteer_activism_rounded, GameColors.warning),
+      HabitCategory.learning => (Icons.school_rounded, GameColors.xpBlue),
+      HabitCategory.focus || HabitCategory.fasting =>
+        (Icons.center_focus_strong_rounded, GameColors.xpBlue),
+      HabitCategory.money || HabitCategory.sadaqah =>
+        (Icons.savings_rounded, GameColors.warning),
+      HabitCategory.mind => (Icons.psychology_rounded, GameColors.rarityEpic),
+      HabitCategory.social => (Icons.groups_rounded, GameColors.gold),
       HabitCategory.sleep => (Icons.bedtime_rounded, GameColors.rarityEpic),
       HabitCategory.custom => (Icons.star_rounded, GameColors.gold),
     };
