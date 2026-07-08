@@ -8,6 +8,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../catalog/islamic_habit_catalog.dart';
+import '../models/habit_cue.dart';
 import '../models/habit_model.dart';
 import '../notifiers/custom_habits_notifier.dart';
 
@@ -28,6 +29,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   int _freqTarget = 1;
   bool _hasName = false;
   bool _didPickCategory = false;
+  // cueAfter on disk is a stable, locale-independent key/value (see
+  // HabitCue) — the text field itself always shows the localized label, so
+  // this resolves the stored value into that label exactly once. Deferred
+  // to build() (guarded by this flag) rather than done in initState,
+  // because S.of(context) needs the widget already mounted in the tree.
+  bool _cueLabelResolved = false;
 
   bool get _isEditing => widget.existing != null;
 
@@ -79,12 +86,18 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       return;
     }
     HapticFeedback.mediumImpact();
+    // The text field shows a localized label ("المغرب"/"Maghrib"/a picked
+    // time/free text) — convert back to the stable, locale-independent
+    // value before it's persisted, so Firestore/Hive never stores text
+    // that's tied to whatever language happened to be active right now.
+    final cueValue =
+        HabitCue.fromStoredValue(_cueCtrl.text.trim()).toStorageValue();
     if (existing != null) {
       ref.read(customHabitsProvider.notifier).update(
             id: existing.id,
             name: _nameCtrl.text.trim(),
             category: _category,
-            cueAfter: _cueCtrl.text.trim(),
+            cueAfter: cueValue,
             frequencyType: _freqType,
             frequencyTarget: _freqTarget,
           );
@@ -92,7 +105,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       ref.read(customHabitsProvider.notifier).add(
             name: _nameCtrl.text.trim(),
             category: _category,
-            cueAfter: _cueCtrl.text.trim(),
+            cueAfter: cueValue,
             frequencyType: _freqType,
             frequencyTarget: _freqTarget,
           );
@@ -112,6 +125,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    if (!_cueLabelResolved) {
+      _cueLabelResolved = true;
+      if (_cueCtrl.text.isNotEmpty) {
+        _cueCtrl.text = HabitCue.fromStoredValue(_cueCtrl.text).labelFor(context);
+      }
+    }
     final bottom = MediaQuery.of(context).viewInsets.bottom;
 
     // Bounding the sheet's height (rather than letting it size to content)
@@ -223,7 +242,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                         selected: _cueCtrl.text.trim(),
                         onPick: (cue) {
                           HapticFeedback.selectionClick();
-                          setState(() => _cueCtrl.text = cue);
+                          setState(() => _cueCtrl.text = cue.labelFor(context));
                         },
                       ),
                       if (_hasName && _cueCtrl.text.trim().isNotEmpty) ...[
@@ -566,27 +585,23 @@ class _SmartStarterRail extends StatelessWidget {
 }
 
 class _RoutineCueChips extends StatelessWidget {
+  /// The label currently shown in the routine-cue text field above (already
+  /// localized — see AddHabitSheet's cue-resolution in build()).
   final String selected;
-  final ValueChanged<String> onPick;
+  final ValueChanged<HabitCue> onPick;
   const _RoutineCueChips({required this.selected, required this.onPick});
 
-  // (English, Arabic) pairs — the chip both displays and *emits* whichever
-  // one matches the active locale, since cueAfter is stored as plain
-  // freeform text (a user can type any routine, not just a prayer), so the
-  // simplest correct fix is to never write English into it while the app is
-  // in Arabic mode, rather than storing a key and translating on every read.
-  static const _cues = [
-    ('Fajr', 'الفجر'),
-    ('Dhuhr', 'الظهر'),
-    ('Asr', 'العصر'),
-    ('Maghrib', 'المغرب'),
-    ('Isha', 'العشاء'),
-    ('Before sleep', 'قبل النوم'),
+  static const _presetKeys = [
+    'fajr',
+    'dhuhr',
+    'asr',
+    'maghrib',
+    'isha',
+    'before_sleep',
   ];
 
   Future<void> _pickTime(BuildContext context) async {
     HapticFeedback.selectionClick();
-    final isAr = S.of(context).isAr;
     final picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
@@ -595,24 +610,15 @@ class _RoutineCueChips extends StatelessWidget {
         child: child!,
       ),
     );
-    if (picked != null) onPick(_formatTime(picked, isAr));
-  }
-
-  static String _formatTime(TimeOfDay t, bool isAr) {
-    final hour = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
-    final minute = t.minute.toString().padLeft(2, '0');
-    if (isAr) {
-      final period = t.period == DayPeriod.am ? 'ص' : 'م';
-      return '$hour:$minute $period';
-    }
-    final period = t.period == DayPeriod.am ? 'AM' : 'PM';
-    return '$hour:$minute $period';
+    if (picked != null) onPick(HabitCue.time(picked.hour, picked.minute));
   }
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final labels = _cues.map((c) => s.isAr ? c.$2 : c.$1).toList();
+    final labels = _presetKeys
+        .map((k) => HabitCue.preset(k).labelForLocale(s.isAr))
+        .toList();
     // Not every habit hangs off a prayer — some people just want "7:30 AM".
     // The current cue counts as a picked clock time when it's set but isn't
     // one of the named routine anchors above.
@@ -637,11 +643,12 @@ class _RoutineCueChips extends StatelessWidget {
               onSelected: (_) => _pickTime(context),
             );
           }
+          final key = _presetKeys[index];
           final label = labels[index];
           return ChoiceChip(
             selected: selected == label,
             label: Text(label),
-            onSelected: (_) => onPick(label),
+            onSelected: (_) => onPick(HabitCue.preset(key)),
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
