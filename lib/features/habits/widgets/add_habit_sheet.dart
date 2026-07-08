@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
@@ -42,6 +43,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   HabitCategory _category = HabitCategory.custom;
   HabitFrequencyType _freqType = HabitFrequencyType.daily;
   int _freqTarget = 1;
+  Set<int> _selectedWeekdays = {};
   ReductionType _reductionType = ReductionType.avoid;
   LimitUnit _limitUnit = LimitUnit.minutes;
   int _step = 0;
@@ -61,6 +63,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _category = _canonicalCategory(existing.category);
       _freqType = existing.frequencyType;
       _freqTarget = existing.frequencyTarget;
+      _selectedWeekdays = existing.scheduledWeekdays.toSet();
       _goalType = existing.goalType;
       _reductionType = existing.reductionType;
       _limitCtrl.text = existing.limitAmount?.toString() ?? '';
@@ -116,6 +119,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         cueAfter: cue,
         frequencyType: _freqType,
         frequencyTarget: _freqTarget,
+        scheduledWeekdays: _selectedWeekdays.toList()..sort(),
         goalType: _goalType,
         reductionType: _reductionType,
         limitAmount: _reductionType == ReductionType.limit ? limitAmount : null,
@@ -128,6 +132,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         cueAfter: cue,
         frequencyType: _freqType,
         frequencyTarget: _freqTarget,
+        scheduledWeekdays: _selectedWeekdays.toList()..sort(),
         goalType: _goalType,
         reductionType: _reductionType,
         limitAmount: _reductionType == ReductionType.limit ? limitAmount : null,
@@ -441,6 +446,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   onTap: () => setState(() {
                     _freqType = HabitFrequencyType.daily;
                     _freqTarget = 1;
+                    _selectedWeekdays.clear();
                   }),
                 ),
               ),
@@ -448,10 +454,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               Expanded(
                 child: _SmallPick(
                   label: s.weekly,
-                  selected: _freqType == HabitFrequencyType.weekly && _freqTarget == 3,
+                  selected: _freqType == HabitFrequencyType.weekly && _selectedWeekdays.isEmpty,
                   onTap: () => setState(() {
                     _freqType = HabitFrequencyType.weekly;
                     _freqTarget = 3;
+                    _selectedWeekdays.clear();
                   }),
                 ),
               ),
@@ -459,17 +466,53 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               Expanded(
                 child: _SmallPick(
                   label: s.specificDays,
-                  selected: _freqType == HabitFrequencyType.weekly && _freqTarget != 3,
+                  selected: _selectedWeekdays.isNotEmpty,
                   onTap: () => setState(() {
                     _freqType = HabitFrequencyType.weekly;
-                    _freqTarget = 2;
+                    if (_selectedWeekdays.isEmpty) {
+                      _selectedWeekdays.add(DateTime.now().weekday);
+                    }
+                    _freqTarget = _selectedWeekdays.length;
                   }),
                 ),
               ),
             ],
           ),
+          if (_selectedWeekdays.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final day in _weekdays(context))
+                  _PlainChoiceChip(
+                    selected: _selectedWeekdays.contains(day.$1),
+                    label: day.$2,
+                    onTap: () => setState(() {
+                      if (!_selectedWeekdays.remove(day.$1)) {
+                        _selectedWeekdays.add(day.$1);
+                      }
+                      if (_selectedWeekdays.isEmpty) {
+                        _selectedWeekdays.add(day.$1);
+                      }
+                      _freqType = HabitFrequencyType.weekly;
+                      _freqTarget = _selectedWeekdays.length;
+                    }),
+                  ),
+              ],
+            ),
+          ],
         ],
       );
+
+  List<(int, String)> _weekdays(BuildContext context) {
+    final locale = Localizations.localeOf(context).languageCode;
+    final monday = DateTime(2024, 1, 1);
+    return List.generate(7, (i) {
+      final day = monday.add(Duration(days: i));
+      return (day.weekday, DateFormat.E(locale).format(day));
+    });
+  }
 
   Future<void> _pickCustomTime() async {
     HapticFeedback.selectionClick();

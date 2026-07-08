@@ -359,24 +359,29 @@ class _SummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    final today = DateTime.now();
     final habitIds = habits.map((h) => h.id).toList();
+    final scheduledTodayIds = habits
+        .where((h) => h.isScheduledFor(today))
+        .map((h) => h.id)
+        .toList();
     final greens = state.greenSquares(habitIds);
-    final ratio = state.todayCompletionRatio(habitIds);
+    final ratio = state.todayCompletionRatio(scheduledTodayIds);
 
     // Only today's marks are reward-eligible. Past-day marks remain visual
     // history, but the summary must not present them as earned XP.
-    final points = state.rewardEligiblePoints(habitIds);
+    final points = state.rewardEligiblePoints(scheduledTodayIds);
 
     final greensToday = () {
-      final today = DateTime.now();
       if (!state.days.any((d) => d.isSameDayAs(today))) return 0;
       final row = state.states[today.toDateKey()];
       if (row == null) return 0;
-      return habitIds
+      return scheduledTodayIds
           .where((id) => (row[id] ?? SquareState.none).isGreen)
           .length;
     }();
-    final perfectDay = habits.isNotEmpty && greensToday >= habits.length;
+    final perfectDay = scheduledTodayIds.isNotEmpty &&
+        greensToday >= scheduledTodayIds.length;
 
     return Container(
       padding: const EdgeInsets.all(18),

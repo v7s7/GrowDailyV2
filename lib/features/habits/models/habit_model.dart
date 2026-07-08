@@ -140,6 +140,7 @@ class HabitModel {
   // ── Frequency ────────────────────────────────────────────────
   final HabitFrequencyType frequencyType;
   final int frequencyTarget; // completions required per period
+  final List<int> scheduledWeekdays; // DateTime weekday values; empty = every day
 
   // ── Catalog ──────────────────────────────────────────────────
   final bool isPreset; // sourced from IslamicHabitCatalog
@@ -174,6 +175,7 @@ class HabitModel {
     this.limitUnit,
     required this.frequencyType,
     required this.frequencyTarget,
+    this.scheduledWeekdays = const [],
     this.isPreset = false,
     this.catalogId,
     this.hasTimer = false,
@@ -211,6 +213,11 @@ class HabitModel {
         d['frequencyType'] as String? ?? 'daily',
       ),
       frequencyTarget: d['frequencyTarget'] as int? ?? 1,
+      scheduledWeekdays: (d['scheduledWeekdays'] as List?)
+              ?.whereType<int>()
+              .where((d) => d >= DateTime.monday && d <= DateTime.sunday)
+              .toList() ??
+          const [],
       isPreset: d['isPreset'] as bool? ?? false,
       catalogId: d['catalogId'] as String?,
       hasTimer: d['hasTimer'] as bool? ?? false,
@@ -244,6 +251,7 @@ class HabitModel {
           'limitUnit': limitUnit!.toJson(),
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
+        if (scheduledWeekdays.isNotEmpty) 'scheduledWeekdays': scheduledWeekdays,
         'isPreset': isPreset,
         if (catalogId != null) 'catalogId': catalogId,
         'hasTimer': hasTimer,
@@ -269,6 +277,7 @@ class HabitModel {
     LimitUnit? limitUnit,
     HabitFrequencyType? frequencyType,
     int? frequencyTarget,
+    List<int>? scheduledWeekdays,
     bool? hasTimer,
     int? timerDurationSeconds,
     int? xpReward,
@@ -291,6 +300,7 @@ class HabitModel {
         limitUnit: limitUnit ?? this.limitUnit,
         frequencyType: frequencyType ?? this.frequencyType,
         frequencyTarget: frequencyTarget ?? this.frequencyTarget,
+        scheduledWeekdays: scheduledWeekdays ?? this.scheduledWeekdays,
         isPreset: isPreset,
         catalogId: catalogId,
         hasTimer: hasTimer ?? this.hasTimer,
