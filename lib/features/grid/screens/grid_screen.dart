@@ -968,16 +968,23 @@ class _GridTable extends ConsumerWidget {
     if (isSyncable &&
         current == SquareState.complete &&
         ref.read(dashboardProvider).isCompleted(habit.id, habit.frequencyTarget)) {
-      // A quick tap on a synced completion doesn't un-tap it — matches
-      // Today's own "Done" button (also non-interactive once done) and
-      // guards against an accidental tap undoing a reward. Long-press
-      // still opens the editor, where a deliberate color change is
-      // treated as an intentional correction (see
-      // _CellEditorSheetState._handlePaletteTap). Pre-existing green
-      // squares from before this sync shipped (never recorded in
-      // `completions`) aren't caught by this check and keep behaving via
-      // the flat-rate cycle below, unaffected.
+      // Today's completed, synced squares should still behave like every
+      // other editable square: tapping green cycles it back to empty, and
+      // long-press still opens the explicit palette. Because this green
+      // state was rewarded through DashboardNotifier.completeHabit, undo
+      // that canonical completion first so Today un-checks the task and
+      // XP/gold/green counters are refunded before the visual square is
+      // cleared.
       HapticFeedback.selectionClick();
+      await ref.read(dashboardProvider.notifier).uncompleteHabit(
+            habitId: habit.id,
+            xpReward: habit.xpReward,
+            goldReward: habit.goldReward,
+            category: habit.category.name,
+          );
+      ref
+          .read(weeklyGridProvider.notifier)
+          .setSquareStateOnly(habit.id, day, next);
       return;
     }
 

@@ -259,7 +259,7 @@ abstract final class GameTheme {
           elevation: 0,
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
-          textStyle: GameTextStyles.labelLarge,
+          textStyle: GoogleFonts.cairo(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -268,13 +268,13 @@ abstract final class GameTheme {
           side: BorderSide(color: GameColors.gold),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
-          textStyle: GameTextStyles.labelLarge,
+          textStyle: GoogleFonts.cairo(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: GameColors.gold,
-          textStyle: GameTextStyles.labelLarge,
+          textStyle: GoogleFonts.cairo(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -400,7 +400,7 @@ abstract final class GameTheme {
           elevation: 0,
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
-          textStyle: GameTextStyles.labelLarge,
+          textStyle: GoogleFonts.cairo(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -409,10 +409,14 @@ abstract final class GameTheme {
           side: BorderSide(color: GameColors.gold),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
+          textStyle: GoogleFonts.cairo(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: GameColors.gold),
+        style: TextButton.styleFrom(
+          foregroundColor: GameColors.gold,
+          textStyle: GoogleFonts.cairo(textStyle: GameTextStyles.labelLarge),
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: lBg,
