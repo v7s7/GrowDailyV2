@@ -56,6 +56,20 @@ class HabitCue {
     'maghrib': ['maghrib', 'Maghrib', 'المغرب'],
     'isha': ['isha', 'Isha', 'العشاء'],
     'before_sleep': ['before_sleep', 'Before sleep', 'قبل النوم'],
+    'morning': ['morning', 'Morning', 'الصباح'],
+    'afternoon': ['afternoon', 'Afternoon', 'بعد الظهر'],
+    'evening': ['evening', 'Evening', 'المساء'],
+    'after_work_school': [
+      'after_work_school',
+      'After work/school',
+      'بعد العمل/المدرسة',
+    ],
+    'after_school_work': [
+      'after_school_work',
+      'After school/work',
+      'بعد المدرسة/العمل',
+    ],
+    'work_block': ['work_block', 'Work block', 'وقت العمل'],
   };
 
   static final RegExp _timeCanonical = RegExp(r'^custom_time:(\d{2}):(\d{2})$');
@@ -165,6 +179,12 @@ class HabitCue {
         'maghrib' => isAr ? 'المغرب' : 'Maghrib',
         'isha' => isAr ? 'العشاء' : 'Isha',
         'before_sleep' => isAr ? 'قبل النوم' : 'Before sleep',
+        'morning' => isAr ? 'الصباح' : 'Morning',
+        'afternoon' => isAr ? 'بعد الظهر' : 'Afternoon',
+        'evening' => isAr ? 'المساء' : 'Evening',
+        'after_work_school' => isAr ? 'بعد العمل/المدرسة' : 'After work/school',
+        'after_school_work' => isAr ? 'بعد المدرسة/العمل' : 'After school/work',
+        'work_block' => isAr ? 'وقت العمل' : 'Work block',
         _ => key,
       };
 
