@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
@@ -11,6 +12,10 @@ class QuadrantCard extends StatelessWidget {
   final void Function(String id) onDelete;
   final void Function(String id, MatrixQuadrant q) onMove;
   final VoidCallback onAddTapped;
+  final bool selectionMode;
+  final Set<String> selectedIds;
+  final void Function(String id) onSelectionToggle;
+  final void Function(String id) onSelectionStart;
 
   const QuadrantCard({
     super.key,
@@ -20,6 +25,10 @@ class QuadrantCard extends StatelessWidget {
     required this.onDelete,
     required this.onMove,
     required this.onAddTapped,
+    this.selectionMode = false,
+    this.selectedIds = const {},
+    required this.onSelectionToggle,
+    required this.onSelectionStart,
   });
 
   Color get _color => switch (quadrant) {
@@ -109,12 +118,18 @@ class QuadrantCard extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: tasks.isEmpty
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: tasks.isEmpty
                 ? _EmptyQuadrantBody(
+                    key: const ValueKey('empty'),
                     color: _color,
                     onTap: onAddTapped,
                   )
                 : ListView.separated(
+                    key: ValueKey(ordered.map((t) => '${t.id}:${t.isDone}').join('|')),
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     itemCount: ordered.length + 1,
                     separatorBuilder: (_, __) =>
@@ -133,13 +148,18 @@ class QuadrantCard extends StatelessWidget {
                         accentColor: _color,
                         onToggle: () => onToggle(t.id),
                         onDelete: () => onDelete(t.id),
+                        selectionMode: selectionMode,
+                        selected: selectedIds.contains(t.id),
+                        onSelectionToggle: () => onSelectionToggle(t.id),
+                        onSelectionStart: () => onSelectionStart(t.id),
                         onMove: (q) => onMove(t.id, q),
                       )
                           .animate(delay: (i * 35).ms)
                           .fadeIn(duration: 260.ms)
-                          .slideX(begin: 0.05, curve: Curves.easeOut);
+                          .slideY(begin: t.isDone ? 0.12 : -0.08, curve: Curves.easeOutCubic);
                     },
                   ),
+            ),
           ),
         ],
       ),
@@ -156,6 +176,7 @@ class _EmptyQuadrantBody extends StatelessWidget {
   final VoidCallback onTap;
 
   const _EmptyQuadrantBody({
+    super.key,
     required this.color,
     required this.onTap,
   });
@@ -240,6 +261,10 @@ class _TaskTile extends StatefulWidget {
   final Color accentColor;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback onSelectionToggle;
+  final VoidCallback onSelectionStart;
   final void Function(MatrixQuadrant) onMove;
 
   const _TaskTile({
@@ -248,6 +273,10 @@ class _TaskTile extends StatefulWidget {
     required this.accentColor,
     required this.onToggle,
     required this.onDelete,
+    required this.selectionMode,
+    required this.selected,
+    required this.onSelectionToggle,
+    required this.onSelectionStart,
     required this.onMove,
   });
 
@@ -289,6 +318,10 @@ class _TaskTileState extends State<_TaskTile>
   }
 
   void _handleTap() {
+    if (widget.selectionMode) {
+      widget.onSelectionToggle();
+      return;
+    }
     _spring.forward(from: 0.0);
     widget.onToggle();
   }
@@ -298,7 +331,7 @@ class _TaskTileState extends State<_TaskTile>
     final gp = context.gp;
     return Dismissible(
       key: ValueKey('dismiss-${widget.task.id}'),
-      direction: DismissDirection.endToStart,
+      direction: widget.selectionMode ? DismissDirection.none : DismissDirection.endToStart,
       onDismissed: (_) => widget.onDelete(),
       background: Container(
         alignment: Alignment.centerRight,
@@ -317,7 +350,10 @@ class _TaskTileState extends State<_TaskTile>
           _handleTap();
         },
         onTapCancel: () => setState(() => _pressed = false),
-        onLongPress: () => _showTaskActions(context),
+        onLongPress: () {
+          HapticFeedback.mediumImpact();
+          widget.onSelectionStart();
+        },
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
@@ -337,28 +373,40 @@ class _TaskTileState extends State<_TaskTile>
                     height: 17,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: widget.task.isDone
-                          ? widget.accentColor
-                          : Colors.transparent,
+                      color: widget.selectionMode
+                          ? (widget.selected ? GameColors.gold : Colors.transparent)
+                          : widget.task.isDone
+                              ? widget.accentColor
+                              : Colors.transparent,
                       border: Border.all(
-                        color: widget.task.isDone
-                            ? widget.accentColor
-                            : gp.border,
+                        color: widget.selectionMode
+                            ? (widget.selected ? GameColors.gold : gp.border)
+                            : widget.task.isDone
+                                ? widget.accentColor
+                                : gp.border,
                         width: 1.5,
                       ),
-                      boxShadow: widget.task.isDone
+                      boxShadow: widget.selected || widget.task.isDone
                           ? [
                               BoxShadow(
-                                  color:
-                                      widget.accentColor.withOpacity(0.35),
-                                  blurRadius: 6)
+                                color: (widget.selected
+                                        ? GameColors.gold
+                                        : widget.accentColor)
+                                    .withOpacity(0.35),
+                                blurRadius: 6,
+                              )
                             ]
                           : null,
                     ),
-                    child: widget.task.isDone
-                        ? const Icon(Icons.check_rounded,
-                            size: 10, color: Colors.black)
-                        : null,
+                    child: widget.selectionMode
+                        ? (widget.selected
+                            ? const Icon(Icons.check_rounded,
+                                size: 10, color: Colors.black)
+                            : null)
+                        : widget.task.isDone
+                            ? const Icon(Icons.check_rounded,
+                                size: 10, color: Colors.black)
+                            : null,
                   ),
                 ),
               ),

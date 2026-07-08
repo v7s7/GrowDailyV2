@@ -116,6 +116,7 @@ extension BuildContextGameTheme on BuildContext {
 
 abstract final class GameTextStyles {
   static const List<String> fontFallback = <String>[
+    'IBM Plex Sans Arabic',
     'Noto Sans Arabic',
     'Noto Naskh Arabic',
     'DIN Next LT Arabic',
@@ -259,7 +260,7 @@ abstract final class GameTheme {
           elevation: 0,
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
-          textStyle: GameTextStyles.labelLarge,
+          textStyle: GoogleFonts.inter(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -268,13 +269,13 @@ abstract final class GameTheme {
           side: BorderSide(color: GameColors.gold),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
-          textStyle: GameTextStyles.labelLarge,
+          textStyle: GoogleFonts.inter(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: GameColors.gold,
-          textStyle: GameTextStyles.labelLarge,
+          textStyle: GoogleFonts.inter(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -318,7 +319,7 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : GameColors.surfaceElevated),
       ),
       inputDecorationTheme: _inputTheme(true),
-      textTheme: GoogleFonts.cairoTextTheme(
+      textTheme: GoogleFonts.interTextTheme(
         TextTheme(
           displayLarge: GameTextStyles.displayLarge,
           displayMedium: GameTextStyles.displayMedium,
@@ -400,7 +401,7 @@ abstract final class GameTheme {
           elevation: 0,
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
-          textStyle: GameTextStyles.labelLarge,
+          textStyle: GoogleFonts.inter(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -409,10 +410,14 @@ abstract final class GameTheme {
           side: BorderSide(color: GameColors.gold),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
+          textStyle: GoogleFonts.inter(textStyle: GameTextStyles.labelLarge),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: GameColors.gold),
+        style: TextButton.styleFrom(
+          foregroundColor: GameColors.gold,
+          textStyle: GoogleFonts.inter(textStyle: GameTextStyles.labelLarge),
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: lBg,
@@ -461,12 +466,9 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : lHL),
       ),
       inputDecorationTheme: _inputTheme(false),
-      // Same Cairo wrapping as the dark theme (see below) — without it, light
-      // mode silently falls back to the platform default font while dark
-      // mode renders Cairo, so Arabic and English text look inconsistent
-      // depending on theme. Cairo is the standard pairing for bilingual
-      // Arabic/English UI and reads correctly on iOS.
-      textTheme: GoogleFonts.cairoTextTheme(
+      // Match dark mode's app typography: Inter for Latin UI text, with
+      // IBM Plex Sans Arabic first in the fallback stack for smooth Arabic.
+      textTheme: GoogleFonts.interTextTheme(
         const TextTheme(
           displayLarge: GameTextStyles.displayLarge,
           displayMedium: GameTextStyles.displayMedium,

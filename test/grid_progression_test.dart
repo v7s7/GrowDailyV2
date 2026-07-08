@@ -209,6 +209,60 @@ void main() {
       expect(dash.dailyGreenCounts[key], isNull);
     });
 
+    test('today completion ratio counts daily tasks, not old squares', () {
+      final today = DateTime.now();
+      final state = WeeklyGridState(
+        weekStart: startOfGridWeek(today),
+        states: {
+          today.subtract(const Duration(days: 1)).toDateKey(): {
+            'habit_a': SquareState.complete,
+            'habit_b': SquareState.complete,
+            'habit_c': SquareState.complete,
+            'habit_d': SquareState.complete,
+          },
+          today.toDateKey(): {
+            'habit_a': SquareState.complete,
+          },
+        },
+        notes: const {},
+      );
+
+      expect(
+        state.todayCompletionRatio([
+          'habit_a',
+          'habit_b',
+          'habit_c',
+          'habit_d',
+          'habit_e',
+        ]),
+        0.2,
+      );
+    });
+
+    test('reward-eligible Grid summary points only count today', () async {
+      final today = DateTime.now();
+      final grid = container.read(weeklyGridProvider.notifier);
+      final state = container.read(weeklyGridProvider);
+      final pastDay = state.days.lastWhere(
+        (d) => d.startOfDay.isBefore(today.startOfDay),
+        orElse: () => today.subtract(const Duration(days: 1)),
+      );
+
+      grid.setSquare('habit_a', pastDay, SquareState.complete);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        container.read(weeklyGridProvider).rewardEligiblePoints(['habit_a']),
+        0,
+      );
+
+      grid.setSquare('habit_a', today, SquareState.partial);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        container.read(weeklyGridProvider).rewardEligiblePoints(['habit_a']),
+        SquareState.partial.xpValue,
+      );
+    });
+
     test('grid state cycles and persists square + note per habit per day',
         () async {
       final today = DateTime.now();

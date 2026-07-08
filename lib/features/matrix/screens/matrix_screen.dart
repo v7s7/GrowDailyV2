@@ -5,16 +5,47 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/game_nav_bar.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../widgets/add_task_sheet.dart';
 import '../widgets/quadrant_card.dart';
 
-class MatrixScreen extends ConsumerWidget {
+class MatrixScreen extends ConsumerStatefulWidget {
   const MatrixScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MatrixScreen> createState() => _MatrixScreenState();
+}
+
+class _MatrixScreenState extends ConsumerState<MatrixScreen> {
+  final Set<String> _selectedIds = {};
+
+  bool get _selectionMode => _selectedIds.isNotEmpty;
+
+  void _startSelection(String id) {
+    setState(() => _selectedIds.add(id));
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (!_selectedIds.remove(id)) _selectedIds.add(id);
+    });
+  }
+
+  void _clearSelection() {
+    setState(_selectedIds.clear);
+  }
+
+  void _deleteSelected() {
+    if (_selectedIds.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    ref.read(matrixProvider.notifier).deleteMany(_selectedIds);
+    _clearSelection();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
     final matrixState = ref.watch(matrixProvider);
@@ -23,7 +54,6 @@ class MatrixScreen extends ConsumerWidget {
     if (matrixState.isLoading) {
       return Scaffold(
         backgroundColor: gp.bg,
-        appBar: AppBar(backgroundColor: gp.bg, elevation: 0),
         body: SafeArea(
           child: Center(
             child: CircularProgressIndicator(
@@ -37,10 +67,7 @@ class MatrixScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      // Matrix is now a secondary screen reached from Focus (not a bottom-nav
-      // peer tab), so it needs a real back affordance — a bare AppBar gives
-      // us that for free while leaving the hand-built title below untouched.
-      appBar: AppBar(backgroundColor: gp.bg, elevation: 0),
+      bottomNavigationBar: const GameNavBar(currentIndex: 2),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,6 +98,16 @@ class MatrixScreen extends ConsumerWidget {
                 ],
               ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.05),
             ),
+            if (_selectionMode) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: _SelectionBar(
+                  count: _selectedIds.length,
+                  onClear: _clearSelection,
+                  onDelete: _deleteSelected,
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -142,6 +179,10 @@ class MatrixScreen extends ConsumerWidget {
                                         context,
                                         ref,
                                         MatrixQuadrant.doFirst),
+                                    selectionMode: _selectionMode,
+                                    selectedIds: _selectedIds,
+                                    onSelectionToggle: _toggleSelection,
+                                    onSelectionStart: _startSelection,
                                   )
                                       .animate(delay: 150.ms)
                                       .fadeIn(duration: 350.ms)
@@ -181,6 +222,10 @@ class MatrixScreen extends ConsumerWidget {
                                         context,
                                         ref,
                                         MatrixQuadrant.schedule),
+                                    selectionMode: _selectionMode,
+                                    selectedIds: _selectedIds,
+                                    onSelectionToggle: _toggleSelection,
+                                    onSelectionStart: _startSelection,
                                   )
                                       .animate(delay: 200.ms)
                                       .fadeIn(duration: 350.ms)
@@ -226,6 +271,10 @@ class MatrixScreen extends ConsumerWidget {
                                         context,
                                         ref,
                                         MatrixQuadrant.delegate),
+                                    selectionMode: _selectionMode,
+                                    selectedIds: _selectedIds,
+                                    onSelectionToggle: _toggleSelection,
+                                    onSelectionStart: _startSelection,
                                   )
                                       .animate(delay: 250.ms)
                                       .fadeIn(duration: 350.ms)
@@ -265,6 +314,10 @@ class MatrixScreen extends ConsumerWidget {
                                         context,
                                         ref,
                                         MatrixQuadrant.eliminate),
+                                    selectionMode: _selectionMode,
+                                    selectedIds: _selectedIds,
+                                    onSelectionToggle: _toggleSelection,
+                                    onSelectionStart: _startSelection,
                                   )
                                       .animate(delay: 300.ms)
                                       .fadeIn(duration: 350.ms)
@@ -303,6 +356,58 @@ class MatrixScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+}
+
+
+class _SelectionBar extends StatelessWidget {
+  final int count;
+  final VoidCallback onClear;
+  final VoidCallback onDelete;
+
+  const _SelectionBar({
+    required this.count,
+    required this.onClear,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: GameColors.gold.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.close_rounded, size: 18, color: gp.textSec),
+            onPressed: onClear,
+          ),
+          Expanded(
+            child: Text(
+              s.matrixSelectedCount(count),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline_rounded, size: 17),
+            label: Text(s.matrixDeleteSelected),
+            style: TextButton.styleFrom(foregroundColor: GameColors.error),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 180.ms).slideY(begin: -0.15);
   }
 }
 
