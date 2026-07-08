@@ -38,6 +38,13 @@ abstract final class GameConstants {
     'sadaqah': 25,
     'sleep': 15,
     'custom': 20,
+    'faith': 20,
+    'health': 20,
+    'learning': 20,
+    'focus': 20,
+    'money': 20,
+    'mind': 20,
+    'social': 20,
   };
 
   static const Map<String, int> categoryGoldRewards = {
@@ -48,6 +55,13 @@ abstract final class GameConstants {
     'sadaqah': 10,
     'sleep': 5,
     'custom': 8,
+    'faith': 8,
+    'health': 8,
+    'learning': 8,
+    'focus': 8,
+    'money': 8,
+    'mind': 8,
+    'social': 8,
   };
 
   // Hive box names

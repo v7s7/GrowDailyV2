@@ -61,6 +61,7 @@ void main() {
       expect(habits.first.category, HabitCategory.quran);
       expect(habits.first.frequencyType, HabitFrequencyType.daily);
       expect(habits.first.frequencyTarget, 1);
+      expect(habits.first.goalType, GoalType.build);
     });
 
     test('update changes title/time/category/frequency but keeps the same id',
@@ -139,6 +140,31 @@ void main() {
       expect(stored, 'maghrib');
       expect(stored, isNot('المغرب'));
       expect(stored, isNot('Maghrib'));
+    });
+
+
+
+    test('add can create a quit/reduce goal with stable metadata', () async {
+      final notifier = container.read(customHabitsProvider.notifier);
+      notifier.add(
+        name: 'Reduce scrolling',
+        category: HabitCategory.focus,
+        cueAfter: HabitCue.preset('before_sleep').toStorageValue(),
+        frequencyType: HabitFrequencyType.daily,
+        frequencyTarget: 1,
+        goalType: GoalType.quit,
+        reductionType: ReductionType.limit,
+        limitAmount: 30,
+        limitUnit: LimitUnit.minutes,
+      );
+
+      final habit = container.read(customHabitsProvider).first;
+      expect(habit.goalType, GoalType.quit);
+      expect(habit.reductionType, ReductionType.limit);
+      expect(habit.limitAmount, 30);
+      expect(habit.limitUnit, LimitUnit.minutes);
+      expect(habit.category.toJson(), 'focus');
+      expect(habit.cueAfter, 'before_sleep');
     });
 
     test('remove deletes the habit and it no longer appears in the list',

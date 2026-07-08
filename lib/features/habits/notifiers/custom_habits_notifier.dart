@@ -69,6 +69,10 @@ class CustomHabitsNotifier
     String? cueAfter,
     required HabitFrequencyType frequencyType,
     required int frequencyTarget,
+    GoalType goalType = GoalType.build,
+    ReductionType reductionType = ReductionType.avoid,
+    int? limitAmount,
+    LimitUnit? limitUnit,
   }) {
     final rewards = _rewards(category);
     final template = IslamicHabitTemplate(
@@ -81,6 +85,10 @@ class CustomHabitsNotifier
       category: category,
       frequencyType: frequencyType,
       frequencyTarget: frequencyTarget,
+      goalType: goalType,
+      reductionType: reductionType,
+      limitAmount: limitAmount,
+      limitUnit: limitUnit,
       hasTimer: false,
       xpReward: rewards.$1,
       goldReward: rewards.$2,
@@ -103,10 +111,24 @@ class CustomHabitsNotifier
     String? cueAfter,
     required HabitFrequencyType frequencyType,
     required int frequencyTarget,
+    GoalType? goalType,
+    ReductionType? reductionType,
+    int? limitAmount,
+    LimitUnit? limitUnit,
   }) {
     final existing = state.firstWhere((h) => h.id == id);
     final rewards = _rewards(category);
     final cue = cueAfter?.trim().isEmpty == true ? null : cueAfter?.trim();
+    final effectiveGoalType = goalType ?? existing.goalType;
+    final effectiveReductionType = reductionType ?? existing.reductionType;
+    final effectiveLimitAmount = effectiveGoalType == GoalType.quit &&
+            effectiveReductionType == ReductionType.limit
+        ? limitAmount ?? existing.limitAmount
+        : null;
+    final effectiveLimitUnit = effectiveGoalType == GoalType.quit &&
+            effectiveReductionType == ReductionType.limit
+        ? limitUnit ?? existing.limitUnit
+        : null;
     final updated = IslamicHabitTemplate(
       id: id,
       name: name,
@@ -115,6 +137,10 @@ class CustomHabitsNotifier
       category: category,
       frequencyType: frequencyType,
       frequencyTarget: frequencyTarget,
+      goalType: effectiveGoalType,
+      reductionType: effectiveReductionType,
+      limitAmount: effectiveLimitAmount,
+      limitUnit: effectiveLimitUnit,
       hasTimer: existing.hasTimer,
       timerDurationSeconds: existing.timerDurationSeconds,
       xpReward: rewards.$1,
