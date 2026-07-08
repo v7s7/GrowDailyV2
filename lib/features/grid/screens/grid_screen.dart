@@ -749,11 +749,11 @@ class _GridTable extends ConsumerWidget {
           final avail = constraints.maxWidth;
           double cell = (avail - _habitCol - 7 * _gap) / 7;
           bool scroll = false;
-          if (cell < 32) {
-            cell = 32;
+          if (cell < 36) {
+            cell = 36;
             scroll = true;
           } else {
-            cell = cell.clamp(32, 54);
+            cell = cell.clamp(36, 54);
           }
           final table = _buildTable(context, ref, cell);
           if (!scroll) return table;
@@ -772,7 +772,7 @@ class _GridTable extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _headerRow(context, days, cell),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         // Rows cascade in on entrance; effects play once per screen visit
         // (rebuilds on square taps reuse the same elements, so no replay).
         for (var i = 0; i < habits.length; i++) ...[
@@ -799,19 +799,26 @@ class _GridTable extends ConsumerWidget {
               width: cell,
               child: Column(
                 children: [
-                  Text(
-                    DateFormat('EEE', locale).format(day),
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: day.isToday ? GameColors.gold : gp.textTert,
-                      letterSpacing: 0.5,
+                  SizedBox(
+                    height: 14,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        DateFormat('EEE', locale).format(day),
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: day.isToday ? GameColors.gold : gp.textTert,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   Container(
-                    width: 20,
-                    height: 20,
+                    width: 22,
+                    height: 22,
                     alignment: Alignment.center,
                     decoration: day.isToday
                         ? BoxDecoration(
