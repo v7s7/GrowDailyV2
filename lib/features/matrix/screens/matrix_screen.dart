@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/game_nav_bar.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../widgets/add_task_sheet.dart';
@@ -23,7 +24,6 @@ class MatrixScreen extends ConsumerWidget {
     if (matrixState.isLoading) {
       return Scaffold(
         backgroundColor: gp.bg,
-        appBar: AppBar(backgroundColor: gp.bg, elevation: 0),
         body: SafeArea(
           child: Center(
             child: CircularProgressIndicator(
@@ -37,10 +37,7 @@ class MatrixScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      // Matrix is now a secondary screen reached from Focus (not a bottom-nav
-      // peer tab), so it needs a real back affordance — a bare AppBar gives
-      // us that for free while leaving the hand-built title below untouched.
-      appBar: AppBar(backgroundColor: gp.bg, elevation: 0),
+      bottomNavigationBar: const GameNavBar(currentIndex: 2),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

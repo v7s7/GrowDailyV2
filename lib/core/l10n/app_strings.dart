@@ -459,6 +459,7 @@ class S {
   // ── Navigation ───────────────────────────────────────────────────────────
   String get navToday => isAr ? 'اليوم' : 'Today';
   String get navGrid => isAr ? 'الشبكة' : 'Grid';
+  String get navMatrix => isAr ? 'المصفوفة' : 'Matrix';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
   String get navProfile => isAr ? 'ملفي' : 'Profile';
