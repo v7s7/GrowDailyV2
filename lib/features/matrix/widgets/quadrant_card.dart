@@ -176,6 +176,7 @@ class _EmptyQuadrantBody extends StatelessWidget {
   final VoidCallback onTap;
 
   const _EmptyQuadrantBody({
+    super.key,
     required this.color,
     required this.onTap,
   });
