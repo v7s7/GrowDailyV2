@@ -19,6 +19,7 @@ import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../widgets/delete_account_sheet.dart';
+import 'theme_preview_screen.dart';
 
 
 class ProgressPoint {
@@ -1228,6 +1229,20 @@ class _ThemePresetSheet extends ConsumerWidget {
                     ref.read(themePresetProvider.notifier).set(preset.id);
                     Navigator.pop(context);
                   },
+                  // Preview works even for locked/premium presets — trying
+                  // the look on the real screens is not the same as
+                  // unlocking it, so it doesn't need the premium gate onTap
+                  // above uses.
+                  onPreview: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ThemePreviewScreen(preset: preset),
+                      ),
+                    );
+                  },
                 ),
               );
             }),
@@ -1244,6 +1259,7 @@ class _ThemePresetTile extends StatelessWidget {
   final bool locked;
   final String label;
   final VoidCallback onTap;
+  final VoidCallback onPreview;
 
   const _ThemePresetTile({
     required this.preset,
@@ -1251,11 +1267,13 @@ class _ThemePresetTile extends StatelessWidget {
     required this.locked,
     required this.label,
     required this.onTap,
+    required this.onPreview,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1286,6 +1304,38 @@ class _ThemePresetTile extends StatelessWidget {
                 ),
               ),
             ),
+            // Nothing to preview for the preset already applied — for
+            // every other tile (locked or not) this is a second tap target
+            // nested inside the row's own tap target, which Flutter's
+            // gesture arena resolves fine as long as this one claims the
+            // hit first (HitTestBehavior.opaque).
+            if (!selected) ...[
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onPreview,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.visibility_outlined,
+                          size: 15, color: gp.textSec),
+                      const SizedBox(width: 4),
+                      Text(
+                        s.preview,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: gp.textSec,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
             if (locked)
               Icon(Icons.lock_rounded, size: 16, color: gp.textTert)
             else if (selected)

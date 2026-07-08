@@ -221,6 +221,9 @@ class S {
   String get appearancePremiumHint => isAr
       ? 'القوالب المميزة تتطلب Premium'
       : 'Premium templates require Premium';
+  String get preview => isAr ? 'معاينة' : 'Preview';
+  String previewingTheme(String name) =>
+      isAr ? 'معاينة: $name — مرر للتصفح' : 'Previewing: $name — swipe to look around';
   String get language => isAr ? 'اللغة' : 'Language';
   String get languageAr => isAr ? 'العربية' : 'Arabic';
   String get languageEn => isAr ? 'English' : 'English';
