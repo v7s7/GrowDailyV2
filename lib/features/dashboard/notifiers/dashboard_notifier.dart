@@ -21,15 +21,10 @@ final List<int> kStreakMilestones = GameConstants.streakBonuses.keys.toList();
 int milestoneXpBonus(int milestone) =>
     XpCalculator.streakMilestoneBonus(milestone);
 
-String milestoneTitle(int milestone) => switch (milestone) {
-      3 => '3-Day Starter',
-      7 => '7-Day Warrior',
-      14 => '2-Week Champion',
-      30 => 'Month Master',
-      60 => '60-Day Devotee',
-      100 => 'Century Legend',
-      _ => 'Streak Milestone',
-    };
+// Milestone flavor titles ("3-Day Starter", "بداية النشامى", ...) live in
+// S.milestoneTitle (app_strings.dart) since they're locale-dependent —
+// keeping them here would mean an English-only title bleeding into the
+// Arabic UI.
 
 class DashboardState {
   final int level;
