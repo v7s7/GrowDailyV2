@@ -24,7 +24,7 @@ class MatrixScreen extends ConsumerWidget {
       return Scaffold(
         backgroundColor: gp.bg,
         appBar: AppBar(backgroundColor: gp.bg, elevation: 0),
-        body: const SafeArea(
+        body: SafeArea(
           child: Center(
             child: CircularProgressIndicator(
               color: GameColors.gold,

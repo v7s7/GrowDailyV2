@@ -186,7 +186,7 @@ class GridScreen extends ConsumerWidget {
                   backgroundColor: gp.surfaceHigh,
                   foregroundColor: gp.textPrimary,
                   elevation: 0,
-                  child: const Icon(Icons.auto_awesome_rounded,
+                  child: Icon(Icons.auto_awesome_rounded,
                       size: 18, color: GameColors.gold),
                 ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.4),
                 const SizedBox(height: 10),
@@ -302,7 +302,7 @@ class _GridHeader extends ConsumerWidget {
                       if (!state.isCurrentWeek)
                         Text(
                           s.gridThisWeek,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
                             color: GameColors.gold,
@@ -633,7 +633,7 @@ class _StreakAtRiskBanner extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.local_fire_department_rounded,
+            Icon(Icons.local_fire_department_rounded,
                     color: GameColors.streakOrange, size: 26)
                 .animate(onPlay: (c) => c.repeat(reverse: true))
                 .scaleXY(
@@ -649,7 +649,7 @@ class _StreakAtRiskBanner extends ConsumerWidget {
                 children: [
                   Text(
                     s.streakAtRiskTitle(dash.streak),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w800,
                       color: GameColors.streakOrange,
@@ -712,7 +712,7 @@ class _NightReviewPromptCard extends ConsumerWidget {
                   color: GameColors.xpBlue.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.nightlight_round,
+                child: Icon(Icons.nightlight_round,
                     color: GameColors.xpBlue),
               ),
               const SizedBox(width: 12),
@@ -738,7 +738,7 @@ class _NightReviewPromptCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: GameColors.xpBlue),
+              Icon(Icons.chevron_right_rounded, color: GameColors.xpBlue),
             ],
           ),
         ),

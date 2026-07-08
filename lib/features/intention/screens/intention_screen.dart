@@ -74,7 +74,7 @@ class _IntentionScreenState extends ConsumerState<IntentionScreen> {
                       color: GameColors.gold.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.wb_sunny_rounded,
+                    child: Icon(Icons.wb_sunny_rounded,
                         color: GameColors.gold, size: 22),
                   ),
                   const Spacer(),
@@ -226,7 +226,7 @@ class _PriorityField extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child: Text('$number',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
                     color: GameColors.gold)),

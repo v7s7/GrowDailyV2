@@ -48,10 +48,18 @@ Future<void> main() async {
   // screen (the provider's own default is always `false` in memory).
   final persistedGuestMode = await loadPersistedGuestMode();
   final persistedLocale = await loadPersistedLocale();
+  final persistedThemeMode = await loadPersistedThemeMode();
+  // Also applies the preset's colors to GameColors immediately, so the
+  // very first frame already renders in the right preset.
+  final persistedThemePreset = await loadPersistedThemePreset();
   runApp(ProviderScope(
     overrides: [
       guestModeProvider.overrideWith((ref) => persistedGuestMode),
       ...localeProviderOverrides(persistedLocale),
+      if (persistedThemeMode != null)
+        themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
+      if (persistedThemePreset != null)
+        themePresetProvider.overrideWith((ref) => ThemePresetNotifier(persistedThemePreset)),
     ],
     child: const GrowDailyApp(),
   ));
@@ -94,6 +102,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
   Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
     final locale = ref.watch(localeProvider);
+    // Not read directly below — GameTheme.light/dark pull live from
+    // GameColors, which `themePresetProvider.notifier.set()` mutates in
+    // place. Watching here is what makes that mutation actually trigger a
+    // rebuild (and thus a fresh MaterialApp theme) across the whole app.
+    ref.watch(themePresetProvider);
 
     return MaterialApp(
       title: 'GrowDaily',
@@ -195,7 +208,7 @@ class _SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.grid_view_rounded,
+            Icon(Icons.grid_view_rounded,
                 size: 48, color: GameColors.gold),
             const SizedBox(height: 16),
             Text(

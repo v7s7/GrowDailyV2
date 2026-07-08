@@ -53,7 +53,7 @@ class _GuestLimitSheet extends ConsumerWidget {
                 color: GameColors.gold.withOpacity(0.12),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.lock_open_rounded,
+              child: Icon(Icons.lock_open_rounded,
                   size: 28, color: GameColors.gold),
             ),
             const SizedBox(height: 18),

@@ -119,15 +119,15 @@ class WeeklyChallengeCard extends ConsumerWidget {
               Icon(Icons.bolt_rounded, size: 12, color: GameColors.xpBlue),
               const SizedBox(width: 2),
               Text('+${c.xpReward}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       color: GameColors.xpBlue)),
               const SizedBox(width: 8),
-              const Icon(Icons.toll_rounded, size: 12, color: GameColors.gold),
+              Icon(Icons.toll_rounded, size: 12, color: GameColors.gold),
               const SizedBox(width: 2),
               Text('+${c.goldReward}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       color: GameColors.gold)),

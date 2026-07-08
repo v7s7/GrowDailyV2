@@ -449,7 +449,7 @@ class _UpgradeForFullHistoryCard extends StatelessWidget {
                 color: GameColors.gold.withOpacity(0.14),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.lock_clock_rounded,
+              child: Icon(Icons.lock_clock_rounded,
                   size: 20, color: GameColors.gold),
             ),
             const SizedBox(width: 12),

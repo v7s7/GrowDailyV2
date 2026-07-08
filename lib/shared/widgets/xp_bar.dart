@@ -25,7 +25,7 @@ class XpBar extends StatelessWidget {
                 curve: Curves.easeOutCubic,
                 height: 6,
                 width: fillWidth,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [GameColors.xpBlueDim, GameColors.xpBlue],
                   ),

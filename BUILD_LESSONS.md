@@ -91,7 +91,26 @@ error • Invalid constant value • lib/features/grid/screens/monthly_heatmap_s
 literal — check whether every value inside actually is a compile-time
 constant first.
 
-## 6. `flutter create .` overwrites some files without asking
+## 6. Converting a `static const` color to a mutable `static` field breaks every `const` call site that touches it
+
+**What changed:** `GameColors.gold`/`.xpBlue`/`.streakOrange` (+ Dim variants)
+needed to become mutable (`static Color`, not `static const Color`) so the
+new theme-preset system could swap them at runtime. The moment they stopped
+being compile-time constants, every `const Icon(...)`, `const TextStyle(...)`,
+`const BorderSide(...)`, etc. that referenced them anywhere in the app broke
+— Dart requires every value inside a `const` expression to itself be a
+compile-time constant.
+
+**Rule:** before making a previously-const value mutable, grep the whole
+`lib/` tree for `const ` near that identifier — not just in the file that
+declares it. A single-line grep misses multi-line `const Icon(Icons.x,\n
+color: GameColors.gold)` calls; use a multiline pattern (e.g. `const
+(Icon|TextStyle|BorderSide)\([\s\S]{0,150}?GameColors\.gold`) and check every
+hit by hand, since plenty will be false positives where `const` and the
+color just happen to be near each other but aren't in the same expression.
+This one touched ~35 call sites across 20+ files.
+
+## 7. `flutter create .` overwrites some files without asking
 
 **What happened (not a break, but a gotcha):** running `flutter create
 --platforms=ios .` on an existing project regenerated `test/widget_test.dart`

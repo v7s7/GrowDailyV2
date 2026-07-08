@@ -114,309 +114,306 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     final s = S.of(context);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
 
+    // Bounding the sheet's height (rather than letting it size to content)
+    // is what lets the Flexible/SingleChildScrollView below actually
+    // scroll instead of silently overflowing off the top of the screen
+    // once the keyboard is open — previously the whole Column just sized
+    // to its content with no scroll fallback, so on smaller screens the
+    // header and top fields got pushed off-screen behind the keyboard.
+    final maxHeight = MediaQuery.of(context).size.height * 0.88;
+
     return AnimatedPadding(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
-      child: Container(
-        decoration: BoxDecoration(
-          color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: gp.border, width: 0.5),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Drag handle
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: 4),
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                      color: gp.border,
-                      borderRadius: BorderRadius.circular(2)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Container(
+          decoration: BoxDecoration(
+            color: gp.surfaceHigh,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: gp.border, width: 0.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Drag handle
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 10, bottom: 4),
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: gp.border,
+                        borderRadius: BorderRadius.circular(2)),
+                  ),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-              child: Text(
-                _isEditing ? s.editHabit : s.newHabit,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: GameColors.gold,
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            if (!_isEditing) ...[
-              _SmartStarterRail(onPick: _applyStarter),
-              const SizedBox(height: 16),
-            ],
-            // Name field
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextField(
-                controller: _nameCtrl,
-                focusNode: _focus,
-                textCapitalization: TextCapitalization.sentences,
-                onSubmitted: (_) => _submit(),
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: gp.textPrimary,
-                    height: 1.4),
-                decoration: InputDecoration(
-                  hintText: s.habitNameHint,
-                  hintStyle: TextStyle(
-                      fontSize: 16,
-                      color: gp.textTert.withOpacity(0.8)),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ),
-            if (_hasName) ...[
-              const SizedBox(height: 10),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: _TinyHint(text: _tinyHint(context)),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextField(
-                controller: _cueCtrl,
-                textCapitalization: TextCapitalization.sentences,
-                textInputAction: TextInputAction.next,
-                style: TextStyle(fontSize: 14, color: gp.textPrimary),
-                decoration: InputDecoration(
-                  labelText: s.afterWhatRoutine,
-                  hintText: s.routineHint,
-                  prefixIcon:
-                      Icon(Icons.schedule_rounded, size: 18, color: gp.textSec),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            _RoutineCueChips(
-              selected: _cueCtrl.text.trim(),
-              onPick: (cue) {
-                HapticFeedback.selectionClick();
-                setState(() => _cueCtrl.text = cue);
-              },
-            ),
-            if (_hasName && _cueCtrl.text.trim().isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: _PlanPreview(
-                  cue: _cueCtrl.text.trim(),
-                  habit: _nameCtrl.text.trim(),
-                ),
-              ),
-            ],
-            const SizedBox(height: 20),
-            // Category
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(s.category,
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Text(
+                  _isEditing ? s.editHabit : s.newHabit,
                   style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: gp.textTert,
-                      letterSpacing: 1.5)),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 36,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                children: HabitCategory.values.map((cat) {
-                  final selected = _category == cat;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        setState(() {
-                          _didPickCategory = true;
-                          _category = cat;
-                        });
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 0),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? GameColors.gold.withOpacity(0.12)
-                              : gp.surface,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: selected
-                                ? GameColors.gold.withOpacity(0.5)
-                                : gp.border,
-                            width: selected ? 1 : 0.5,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: GameColors.gold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Everything between the title and the action buttons scrolls
+              // as one unit, so the buttons below stay reachable and in a
+              // fixed place no matter how much room the keyboard takes.
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (!_isEditing) ...[
+                        _SmartStarterRail(onPick: _applyStarter),
+                        const SizedBox(height: 16),
+                      ],
+                      // Name field
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: TextField(
+                          controller: _nameCtrl,
+                          focusNode: _focus,
+                          textCapitalization: TextCapitalization.sentences,
+                          onSubmitted: (_) => _submit(),
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                              color: gp.textPrimary,
+                              height: 1.4),
+                          decoration: InputDecoration(
+                            hintText: s.habitNameHint,
+                            hintStyle: TextStyle(
+                                fontSize: 16,
+                                color: gp.textTert.withOpacity(0.8)),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                            contentPadding: EdgeInsets.zero,
                           ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CategoryIcon(
-                              category: cat,
-                              size: 14,
-                              color:
-                                  selected ? GameColors.gold : gp.textSec,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              cat.displayName,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: selected
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                                color: selected
-                                    ? GameColors.gold
-                                    : gp.textSec,
+                      ),
+                      const SizedBox(height: 14),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: TextField(
+                          controller: _cueCtrl,
+                          textCapitalization: TextCapitalization.sentences,
+                          textInputAction: TextInputAction.next,
+                          style: TextStyle(fontSize: 14, color: gp.textPrimary),
+                          decoration: InputDecoration(
+                            labelText: s.afterWhatRoutine,
+                            hintText: s.routineHint,
+                            prefixIcon: Icon(Icons.schedule_rounded,
+                                size: 18, color: gp.textSec),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _RoutineCueChips(
+                        selected: _cueCtrl.text.trim(),
+                        onPick: (cue) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _cueCtrl.text = cue);
+                        },
+                      ),
+                      if (_hasName && _cueCtrl.text.trim().isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: _PlanPreview(
+                            cue: _cueCtrl.text.trim(),
+                            habit: _nameCtrl.text.trim(),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      // Category
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Text(s.category,
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: gp.textTert)),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 36,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          children: HabitCategory.values.map((cat) {
+                            final selected = _category == cat;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: GestureDetector(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() {
+                                    _didPickCategory = true;
+                                    _category = cat;
+                                  });
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 0),
+                                  decoration: BoxDecoration(
+                                    color: selected
+                                        ? GameColors.gold.withOpacity(0.12)
+                                        : gp.surface,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: selected
+                                          ? GameColors.gold.withOpacity(0.5)
+                                          : gp.border,
+                                      width: selected ? 1 : 0.5,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      CategoryIcon(
+                                        category: cat,
+                                        size: 14,
+                                        color: selected
+                                            ? GameColors.gold
+                                            : gp.textSec,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        cat.displayName,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: selected
+                                              ? FontWeight.w600
+                                              : FontWeight.w400,
+                                          color: selected
+                                              ? GameColors.gold
+                                              : gp.textSec,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // Frequency
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Text(s.frequency,
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: gp.textTert)),
+                      ),
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          children: [
+                            _FreqBtn(
+                              label: s.daily,
+                              active: _freqType == HabitFrequencyType.daily,
+                              onTap: () => setState(() {
+                                _freqType = HabitFrequencyType.daily;
+                                _freqTarget = 1;
+                              }),
                             ),
+                            const SizedBox(width: 8),
+                            _FreqBtn(
+                              label: s.weekly,
+                              active: _freqType == HabitFrequencyType.weekly,
+                              onTap: () => setState(() {
+                                _freqType = HabitFrequencyType.weekly;
+                                _freqTarget = 3;
+                              }),
+                            ),
+                            if (_freqType == HabitFrequencyType.weekly) ...[
+                              const SizedBox(width: 16),
+                              Text(s.times,
+                                  style: TextStyle(
+                                      fontSize: 13, color: gp.textSec)),
+                              const SizedBox(width: 8),
+                              _CountBtn(
+                                  icon: Icons.remove_rounded,
+                                  onTap: () {
+                                    if (_freqTarget > 1) {
+                                      setState(() => _freqTarget--);
+                                    }
+                                  }),
+                              const SizedBox(width: 8),
+                              Text('$_freqTarget',
+                                  style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: gp.textPrimary)),
+                              const SizedBox(width: 8),
+                              _CountBtn(
+                                  icon: Icons.add_rounded,
+                                  onTap: () {
+                                    if (_freqTarget < 7) {
+                                      setState(() => _freqTarget++);
+                                    }
+                                  }),
+                            ],
                           ],
                         ),
                       ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Frequency
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(s.frequency,
-                  style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: gp.textTert,
-                      letterSpacing: 1.5)),
-            ),
-            const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  _FreqBtn(
-                    label: s.daily,
-                    active: _freqType == HabitFrequencyType.daily,
-                    onTap: () => setState(() {
-                      _freqType = HabitFrequencyType.daily;
-                      _freqTarget = 1;
-                    }),
-                  ),
-                  const SizedBox(width: 8),
-                  _FreqBtn(
-                    label: s.weekly,
-                    active: _freqType == HabitFrequencyType.weekly,
-                    onTap: () => setState(() {
-                      _freqType = HabitFrequencyType.weekly;
-                      _freqTarget = 3;
-                    }),
-                  ),
-                  if (_freqType == HabitFrequencyType.weekly) ...
-                    [
-                      const SizedBox(width: 16),
-                      Text(s.times,
-                          style: TextStyle(
-                              fontSize: 13, color: gp.textSec)),
-                      const SizedBox(width: 8),
-                      _CountBtn(
-                          icon: Icons.remove_rounded,
-                          onTap: () {
-                            if (_freqTarget > 1)
-                              setState(() => _freqTarget--);
-                          }),
-                      const SizedBox(width: 8),
-                      Text('$_freqTarget',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: gp.textPrimary)),
-                      const SizedBox(width: 8),
-                      _CountBtn(
-                          icon: Icons.add_rounded,
-                          onTap: () {
-                            if (_freqTarget < 7)
-                              setState(() => _freqTarget++);
-                          }),
+                      const SizedBox(height: 12),
                     ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Submit
-            Padding(
-              padding: EdgeInsets.fromLTRB(20, 0, 20, _isEditing ? 4 : 24),
-              child: FilledButton(
-                onPressed: _hasName ? _submit : null,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                child: Text(_isEditing ? s.saveChanges : s.createHabit,
-                    style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.0)),
-              ).animate(delay: 60.ms).fadeIn(duration: 250.ms),
-            ),
-            if (_isEditing)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                child: TextButton(
-                  onPressed: _deleteExisting,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 44),
-                    foregroundColor: GameColors.error,
                   ),
-                  child: Text(s.removeHabit),
                 ),
               ),
-          ],
+              // Actions — pinned below the scroll area so they're always
+              // in the same place and never need scrolling to reach.
+              Padding(
+                padding: EdgeInsets.fromLTRB(20, 12, 20, _isEditing ? 4 : 20),
+                child: FilledButton(
+                  onPressed: _hasName ? _submit : null,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: Text(_isEditing ? s.saveChanges : s.createHabit,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w600)),
+                ).animate(delay: 60.ms).fadeIn(duration: 250.ms),
+              ),
+              if (_isEditing)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  child: TextButton(
+                    onPressed: _deleteExisting,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 44),
+                      foregroundColor: GameColors.error,
+                    ),
+                    child: Text(s.removeHabit),
+                  ),
+                ),
+            ],
+          ),
         ),
       ).animate()
           .slideY(begin: 0.06, duration: 260.ms, curve: Curves.easeOutCubic)
           .fadeIn(duration: 200.ms),
     );
-  }
-
-  String _tinyHint(BuildContext context) {
-    final s = S.of(context);
-    final name = _nameCtrl.text.trim().toLowerCase();
-    if (name.contains('quran') || name.contains('ayat') || name.contains('page')) {
-      return s.tinyHintQuran;
-    }
-    if (name.contains('athkar') || name.contains('dhikr')) {
-      return s.tinyHintAthkar;
-    }
-    if (name.contains('walk') || name.contains('run') || name.contains('gym')) {
-      return s.tinyHintFitness;
-    }
-    if (name.contains('sleep')) {
-      return s.tinyHintSleep;
-    }
-    return s.tinyHintDefault;
   }
 
   void _applyStarter(_HabitStarter starter) {
@@ -520,10 +517,9 @@ class _SmartStarterRail extends StatelessWidget {
           child: Text(
             S.of(context).smartStarters,
             style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
               color: gp.textTert,
-              letterSpacing: 1.5,
             ),
           ),
         ),
@@ -546,37 +542,6 @@ class _SmartStarterRail extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _TinyHint extends StatelessWidget {
-  final String text;
-  const _TinyHint({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: GameColors.success.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: GameColors.success.withOpacity(0.18)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.auto_awesome_rounded,
-              size: 16, color: GameColors.success),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: 12, color: gp.textSec, height: 1.3),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

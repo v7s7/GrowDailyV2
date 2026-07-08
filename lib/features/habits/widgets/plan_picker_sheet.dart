@@ -61,7 +61,7 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
                     color: GameColors.gold.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.auto_awesome_rounded,
+                  child: Icon(Icons.auto_awesome_rounded,
                       color: GameColors.gold, size: 20),
                 ),
                 const SizedBox(width: 12),

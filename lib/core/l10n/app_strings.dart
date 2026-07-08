@@ -169,6 +169,12 @@ class S {
   String get achievements => isAr ? 'الإنجازات' : 'ACHIEVEMENTS';
   String get settings => isAr ? 'الإعدادات' : 'SETTINGS';
   String get darkMode => isAr ? 'الوضع الداكن' : 'Dark Mode';
+  String get appearance => isAr ? 'المظهر' : 'Appearance';
+  String get appearanceSheetTitle =>
+      isAr ? 'اختر مظهر التطبيق' : 'Choose an app theme';
+  String get appearancePremiumHint => isAr
+      ? 'القوالب المميزة تتطلب Premium'
+      : 'Premium templates require Premium';
   String get language => isAr ? 'اللغة' : 'Language';
   String get languageAr => isAr ? 'العربية' : 'Arabic';
   String get languageEn => isAr ? 'English' : 'English';

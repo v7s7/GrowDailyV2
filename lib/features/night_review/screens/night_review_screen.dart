@@ -88,7 +88,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
       appBar: AppBar(title: Text(s.nightReviewTitle)),
       body: SafeArea(
         child: review.isLoading
-            ? const Center(
+            ? Center(
                 child: CircularProgressIndicator(
                     color: GameColors.gold, strokeWidth: 2))
             : SingleChildScrollView(
@@ -106,7 +106,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                             color: GameColors.xpBlue.withOpacity(0.14),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Icon(Icons.nightlight_round,
+                          child: Icon(Icons.nightlight_round,
                               color: GameColors.xpBlue, size: 22),
                         ),
                         const SizedBox(width: 14),

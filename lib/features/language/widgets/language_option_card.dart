@@ -68,7 +68,7 @@ class LanguageOptionCard extends StatelessWidget {
                   AnimatedOpacity(
                     opacity: selected ? 1 : 0,
                     duration: const Duration(milliseconds: 200),
-                    child: const Icon(Icons.check_circle_rounded,
+                    child: Icon(Icons.check_circle_rounded,
                         size: 22, color: GameColors.gold),
                   ),
                 ],

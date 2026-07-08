@@ -130,7 +130,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         border: Border.all(
                             color: GameColors.gold.withOpacity(0.3), width: 1),
                       ),
-                      child: const Icon(Icons.grid_view_rounded,
+                      child: Icon(Icons.grid_view_rounded,
                           size: 38, color: GameColors.gold),
                     ),
                     const SizedBox(height: 18),

@@ -99,7 +99,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                         color: GameColors.gold.withOpacity(0.16),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.workspace_premium_rounded,
+                      child: Icon(Icons.workspace_premium_rounded,
                           size: 32, color: GameColors.gold),
                     )
                         .animate()

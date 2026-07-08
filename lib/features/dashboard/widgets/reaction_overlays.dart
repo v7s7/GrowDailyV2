@@ -72,7 +72,7 @@ void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Row(children: [
-        const Icon(Icons.ac_unit_rounded, color: GameColors.xpBlue, size: 18),
+        Icon(Icons.ac_unit_rounded, color: GameColors.xpBlue, size: 18),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
@@ -102,11 +102,11 @@ void showLevelUpSnackBar(BuildContext context, int level) {
       content: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.arrow_upward_rounded,
+          Icon(Icons.arrow_upward_rounded,
               color: GameColors.gold, size: 18),
           const SizedBox(width: 8),
           Text('${s.levelUpMsg}  —  LVL $level',
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: GameColors.gold,
@@ -119,7 +119,7 @@ void showLevelUpSnackBar(BuildContext context, int level) {
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: GameColors.gold, width: 1),
+        side: BorderSide(color: GameColors.gold, width: 1),
       ),
     ),
   );
@@ -190,7 +190,7 @@ class MilestoneCelebration extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.local_fire_department_rounded,
+                child: Icon(Icons.local_fire_department_rounded,
                     size: 56, color: GameColors.streakOrange),
               )
                   .animate()
@@ -202,7 +202,7 @@ class MilestoneCelebration extends StatelessWidget {
               const SizedBox(height: 28),
               Text(
                 s.streakMilestoneLabel,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: GameColors.streakOrange,
@@ -248,10 +248,10 @@ class MilestoneCelebration extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.bolt_rounded, size: 16, color: GameColors.xpBlue),
+                      Icon(Icons.bolt_rounded, size: 16, color: GameColors.xpBlue),
                       const SizedBox(width: 6),
                       Text(s.milestoneBonusXp(bonus),
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                               color: GameColors.xpBlue)),

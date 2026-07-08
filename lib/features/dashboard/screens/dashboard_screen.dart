@@ -225,7 +225,7 @@ class DashboardScreen extends ConsumerWidget {
                   backgroundColor: gp.surfaceHigh,
                   foregroundColor: gp.textPrimary,
                   elevation: 0,
-                  child: const Icon(Icons.auto_awesome_rounded,
+                  child: Icon(Icons.auto_awesome_rounded,
                       size: 18, color: GameColors.gold),
                 ).animate(delay: 600.ms).fadeIn().slideY(begin: 0.4),
                 const SizedBox(height: 10),
@@ -314,7 +314,7 @@ class DashboardScreen extends ConsumerWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(children: [
-          const Icon(Icons.check_circle_rounded,
+          Icon(Icons.check_circle_rounded,
               color: GameColors.gold, size: 18),
           const SizedBox(width: 10),
           Expanded(
@@ -328,7 +328,7 @@ class DashboardScreen extends ConsumerWidget {
                         fontSize: 13,
                         color: gp.textPrimary)),
                 Text('+$xp XP  ·  +$gold Gold',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 11,
                         color: GameColors.gold,
                         fontWeight: FontWeight.w600)),
@@ -342,7 +342,7 @@ class DashboardScreen extends ConsumerWidget {
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: GameColors.gold, width: 0.5),
+          side: BorderSide(color: GameColors.gold, width: 0.5),
         ),
       ),
     );
@@ -460,7 +460,7 @@ class _ComebackCard extends ConsumerWidget {
                   color: GameColors.xpBlue.withOpacity(0.14),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.wb_twilight_rounded,
+                child: Icon(Icons.wb_twilight_rounded,
                     color: GameColors.xpBlue, size: 22),
               ),
               const SizedBox(width: 14),
@@ -492,10 +492,10 @@ class _ComebackCard extends ConsumerWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
+                Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
                 const SizedBox(width: 6),
                 Text(s.comebackBonusHint,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: GameColors.xpBlue)),
@@ -603,7 +603,7 @@ class _AllDoneBanner extends StatelessWidget {
               children: [
                 Text(
                   s.allDoneTitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
                     color: GameColors.gold,

@@ -80,7 +80,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       bottomNavigationBar: const GameNavBar(currentIndex: 2),
       body: SafeArea(
         child: state.isLoading
-            ? const Center(
+            ? Center(
                 child: CircularProgressIndicator(
                   color: GameColors.gold,
                   strokeWidth: 2,
@@ -221,7 +221,7 @@ class _Header extends StatelessWidget {
                 color: GameColors.xpBlue.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: const Icon(Icons.center_focus_strong_rounded,
+              child: Icon(Icons.center_focus_strong_rounded,
                   color: GameColors.xpBlue),
             ),
             const SizedBox(width: 12),
@@ -506,7 +506,7 @@ class _FocusTimerCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
+              Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
               const SizedBox(width: 4),
               Text(
                 s.focusXpOnCompletion(duration.xpReward),
@@ -653,11 +653,11 @@ class _FocusCompleteSheet extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
+                  Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
                   const SizedBox(width: 5),
                   Text(
                     '+${duration.xpReward} XP',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: GameColors.xpBlue,

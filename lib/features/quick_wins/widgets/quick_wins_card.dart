@@ -145,7 +145,7 @@ class _QuickWinRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   progressText!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     color: GameColors.xpBlue,
                     fontWeight: FontWeight.w600,

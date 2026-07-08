@@ -2,29 +2,38 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-// ─── Gamification Colors (theme-invariant) ────────────────────────────────────
+import 'theme_preset.dart';
+
+// ─── Gamification Colors ──────────────────────────────────────────────────
+//
+// `gold`/`xpBlue`/`streakOrange` (+ Dim variants) and the light-mode
+// structural neutrals below are preset-driven and mutable — call
+// `GameColors.applyPreset(...)` to swap the whole app's look. Everything
+// else (emerald/success, error, warning, dark-mode structural colors) stays
+// fixed across every preset so semantic meaning (green = success, red =
+// error) and dark mode's shared identity never change.
 
 abstract final class GameColors {
-  // Warm amber + emerald gives the app a calmer deen/productivity identity than
-  // bright arcade gold, while keeping reward moments visible.
-  static const Color gold = Color(0xFFE4B45F);
-  static const Color goldDim = Color(0xFF9C7436);
+  static Color gold = ThemePresets.byId(ThemePresets.defaultId).gold;
+  static Color goldDim = ThemePresets.byId(ThemePresets.defaultId).goldDim;
   static const Color emerald = Color(0xFF2ECF8F);
   static const Color emeraldDim = Color(0xFF188A61);
-  static const Color xpBlue = Color(0xFF5DADEC);
-  static const Color xpBlueDim = Color(0xFF236EA8);
-  static const Color streakOrange = Color(0xFFFF8A4C);
-  static const Color streakOrangeDim = Color(0xFFC95B22);
+  static Color xpBlue = ThemePresets.byId(ThemePresets.defaultId).xpBlue;
+  static Color xpBlueDim = ThemePresets.byId(ThemePresets.defaultId).xpBlueDim;
+  static Color streakOrange =
+      ThemePresets.byId(ThemePresets.defaultId).streakOrange;
+  static Color streakOrangeDim =
+      ThemePresets.byId(ThemePresets.defaultId).streakOrangeDim;
   static const Color success = emerald;
   static const Color error = Color(0xFFFF5A52);
   static const Color warning = Color(0xFFF7C948);
   static const Color rarityCommon = Color(0xFF8C9A92);
   static const Color rarityUncommon = emerald;
-  static const Color rarityRare = xpBlue;
+  static Color get rarityRare => xpBlue;
   static const Color rarityEpic = Color(0xFFB982FF);
-  static const Color rarityLegendary = gold;
+  static Color get rarityLegendary => gold;
 
-  // Dark-mode structural — kept for const TextStyles & ThemeData construction.
+  // Dark-mode structural — shared by every preset, kept const.
   static const Color background = Color(0xFF07100D);
   static const Color surface = Color(0xFF101B17);
   static const Color surfaceElevated = Color(0xFF17251F);
@@ -34,6 +43,46 @@ abstract final class GameColors {
   static const Color textTertiary = Color(0xFF6F7A70);
   static const Color border = Color(0xFF2D4037);
   static const Color divider = Color(0xFF22352D);
+
+  // Light-mode structural — preset-driven, mutable.
+  static Color lightBg = ThemePresets.byId(ThemePresets.defaultId).lightBg;
+  static Color lightSurface =
+      ThemePresets.byId(ThemePresets.defaultId).lightSurface;
+  static Color lightSurfaceHigh =
+      ThemePresets.byId(ThemePresets.defaultId).lightSurfaceHigh;
+  static Color lightSurfaceHL =
+      ThemePresets.byId(ThemePresets.defaultId).lightSurfaceHL;
+  static Color lightBorder =
+      ThemePresets.byId(ThemePresets.defaultId).lightBorder;
+  static Color lightDivider =
+      ThemePresets.byId(ThemePresets.defaultId).lightDivider;
+  static Color lightTextPrimary =
+      ThemePresets.byId(ThemePresets.defaultId).lightTextPrimary;
+  static Color lightTextSecondary =
+      ThemePresets.byId(ThemePresets.defaultId).lightTextSecondary;
+  static Color lightTextTertiary =
+      ThemePresets.byId(ThemePresets.defaultId).lightTextTertiary;
+
+  /// Swaps every preset-driven color in place. Callers must rebuild
+  /// (`setState`/provider notify) after calling this — it doesn't trigger
+  /// any rebuild itself.
+  static void applyPreset(ThemePreset preset) {
+    gold = preset.gold;
+    goldDim = preset.goldDim;
+    xpBlue = preset.xpBlue;
+    xpBlueDim = preset.xpBlueDim;
+    streakOrange = preset.streakOrange;
+    streakOrangeDim = preset.streakOrangeDim;
+    lightBg = preset.lightBg;
+    lightSurface = preset.lightSurface;
+    lightSurfaceHigh = preset.lightSurfaceHigh;
+    lightSurfaceHL = preset.lightSurfaceHL;
+    lightBorder = preset.lightBorder;
+    lightDivider = preset.lightDivider;
+    lightTextPrimary = preset.lightTextPrimary;
+    lightTextSecondary = preset.lightTextSecondary;
+    lightTextTertiary = preset.lightTextTertiary;
+  }
 }
 
 // ─── Adaptive Palette — widgets call context.gp.* ────────────────────────────
@@ -42,15 +91,20 @@ class _GamePalette {
   final bool dark;
   const _GamePalette(this.dark);
 
-  Color get bg => dark ? GameColors.background : const Color(0xFFFFFCF5);
-  Color get surface => dark ? GameColors.surface : const Color(0xFFF5EFE3);
-  Color get surfaceHigh => dark ? GameColors.surfaceElevated : Colors.white;
-  Color get surfaceHL => dark ? GameColors.surfaceHighlight : const Color(0xFFEADFCB);
-  Color get textPrimary => dark ? GameColors.textPrimary : const Color(0xFF18251F);
-  Color get textSec => dark ? GameColors.textSecondary : const Color(0xFF657166);
-  Color get textTert => dark ? GameColors.textTertiary : const Color(0xFF9AA397);
-  Color get border => dark ? GameColors.border : const Color(0xFFD8CDBA);
-  Color get divider => dark ? GameColors.divider : const Color(0xFFE8DDCB);
+  Color get bg => dark ? GameColors.background : GameColors.lightBg;
+  Color get surface => dark ? GameColors.surface : GameColors.lightSurface;
+  Color get surfaceHigh =>
+      dark ? GameColors.surfaceElevated : GameColors.lightSurfaceHigh;
+  Color get surfaceHL =>
+      dark ? GameColors.surfaceHighlight : GameColors.lightSurfaceHL;
+  Color get textPrimary =>
+      dark ? GameColors.textPrimary : GameColors.lightTextPrimary;
+  Color get textSec =>
+      dark ? GameColors.textSecondary : GameColors.lightTextSecondary;
+  Color get textTert =>
+      dark ? GameColors.textTertiary : GameColors.lightTextTertiary;
+  Color get border => dark ? GameColors.border : GameColors.lightBorder;
+  Color get divider => dark ? GameColors.divider : GameColors.lightDivider;
 }
 
 extension BuildContextGameTheme on BuildContext {
@@ -82,14 +136,19 @@ abstract final class GameTextStyles {
   static const TextStyle bodySmall = TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary, height: 1.42, fontFamilyFallback: fontFallback);
   static const TextStyle labelLarge = TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: 0.1, height: 1.25, fontFamilyFallback: fontFallback);
   static const TextStyle labelSmall = TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: GameColors.textSecondary, letterSpacing: 0.5, height: 1.25, fontFamilyFallback: fontFallback);
-  static const TextStyle xpLabel = TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2, fontFamilyFallback: fontFallback);
-  static const TextStyle goldLabel = TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2, fontFamilyFallback: fontFallback);
-  static const TextStyle levelDisplay = TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05, fontFamilyFallback: fontFallback);
-  static const TextStyle streakDisplay = TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05, fontFamilyFallback: fontFallback);
+
+  // These five embed a preset-driven color, so they can't be compile-time
+  // constants anymore — they're getters instead. (Confirmed unused outside
+  // this file, so switching `static const` → `static ... get` needed no
+  // call-site changes.)
+  static TextStyle get xpLabel => TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2, fontFamilyFallback: fontFallback);
+  static TextStyle get goldLabel => TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2, fontFamilyFallback: fontFallback);
+  static TextStyle get levelDisplay => TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05, fontFamilyFallback: fontFallback);
+  static TextStyle get streakDisplay => TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05, fontFamilyFallback: fontFallback);
 
   static const TextStyle arabicTitle = TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.55, fontFamilyFallback: fontFallback);
   static const TextStyle arabicBody = TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.65, fontFamilyFallback: fontFallback);
-  static const TextStyle arabicLabel = TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45, fontFamilyFallback: fontFallback);
+  static TextStyle get arabicLabel => TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45, fontFamilyFallback: fontFallback);
 }
 // ─── Spacing & Radii ─────────────────────────────────────────────────────────
 
@@ -112,17 +171,17 @@ abstract final class GameSpacing {
 // ─── Shared input theme helper ────────────────────────────────────────────────
 
 InputDecorationTheme _inputTheme(bool dark) {
-  final fill = dark ? GameColors.surface : const Color(0xFFF5EFE3);
-  final bd = dark ? GameColors.border : const Color(0xFFD8CDBA);
-  final hint = dark ? GameColors.textTertiary : const Color(0xFF9AA397);
-  final label = dark ? GameColors.textSecondary : const Color(0xFF657166);
+  final fill = dark ? GameColors.surface : GameColors.lightSurface;
+  final bd = dark ? GameColors.border : GameColors.lightBorder;
+  final hint = dark ? GameColors.textTertiary : GameColors.lightTextTertiary;
+  final label = dark ? GameColors.textSecondary : GameColors.lightTextSecondary;
   return InputDecorationTheme(
     filled: true,
     fillColor: fill,
     contentPadding: const EdgeInsets.symmetric(horizontal: GameSpacing.lg, vertical: GameSpacing.md),
     border: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: BorderSide(color: bd, width: 0.5)),
     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: BorderSide(color: bd, width: 0.5)),
-    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: const BorderSide(color: GameColors.gold)),
+    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: BorderSide(color: GameColors.gold)),
     errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: const BorderSide(color: GameColors.error)),
     focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: const BorderSide(color: GameColors.error)),
     hintStyle: TextStyle(
@@ -135,7 +194,7 @@ InputDecorationTheme _inputTheme(bool dark) {
       color: label,
       fontFamilyFallback: GameTextStyles.fontFallback,
     ),
-    floatingLabelStyle: const TextStyle(
+    floatingLabelStyle: TextStyle(
       fontSize: 12,
       color: GameColors.gold,
       fontFamilyFallback: GameTextStyles.fontFallback,
@@ -152,7 +211,7 @@ abstract final class GameTheme {
       brightness: Brightness.dark,
       fontFamilyFallback: GameTextStyles.fontFallback,
       scaffoldBackgroundColor: GameColors.background,
-      colorScheme: const ColorScheme.dark(
+      colorScheme: ColorScheme.dark(
         primary: GameColors.gold,
         onPrimary: GameColors.background,
         secondary: GameColors.xpBlue,
@@ -179,7 +238,7 @@ abstract final class GameTheme {
         ),
         titleTextStyle: GameTextStyles.titleLarge,
         iconTheme: const IconThemeData(color: GameColors.textPrimary),
-        actionsIconTheme: const IconThemeData(color: GameColors.gold),
+        actionsIconTheme: IconThemeData(color: GameColors.gold),
       ),
       cardTheme: CardThemeData(
         color: GameColors.surface,
@@ -206,7 +265,7 @@ abstract final class GameTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: GameColors.gold,
-          side: const BorderSide(color: GameColors.gold),
+          side: BorderSide(color: GameColors.gold),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
           textStyle: GameTextStyles.labelLarge,
@@ -221,12 +280,12 @@ abstract final class GameTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: GameColors.surface,
         surfaceTintColor: Colors.transparent,
-        indicatorColor: const Color(0x2EE4B45F),
+        indicatorColor: GameColors.gold.withAlpha(46),
         iconTheme: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? const IconThemeData(color: GameColors.gold, size: 24)
+            ? IconThemeData(color: GameColors.gold, size: 24)
             : const IconThemeData(color: GameColors.textTertiary, size: 24)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamilyFallback: GameTextStyles.fontFallback)
+            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamilyFallback: GameTextStyles.fontFallback)
             : const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: GameColors.textTertiary, fontFamilyFallback: GameTextStyles.fontFallback)),
         elevation: 0,
         height: 72,
@@ -247,7 +306,7 @@ abstract final class GameTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.chipRadius)),
         behavior: SnackBarBehavior.floating,
       ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(
+      progressIndicatorTheme: ProgressIndicatorThemeData(
         color: GameColors.xpBlue,
         circularTrackColor: GameColors.surfaceElevated,
         linearTrackColor: GameColors.surfaceElevated,
@@ -278,22 +337,22 @@ abstract final class GameTheme {
   }
 
   static ThemeData get light {
-    const Color lBg = Color(0xFFFFFCF5);
-    const Color lCard = Color(0xFFF5EFE3);
-    const Color lHigh = Colors.white;
-    const Color lHL = Color(0xFFEADFCB);
-    const Color lTp = Color(0xFF18251F);
-    const Color lTs = Color(0xFF657166);
-    const Color lTt = Color(0xFF9AA397);
-    const Color lBd = Color(0xFFD8CDBA);
-    const Color lDv = Color(0xFFE8DDCB);
+    final Color lBg = GameColors.lightBg;
+    final Color lCard = GameColors.lightSurface;
+    final Color lHigh = GameColors.lightSurfaceHigh;
+    final Color lHL = GameColors.lightSurfaceHL;
+    final Color lTp = GameColors.lightTextPrimary;
+    final Color lTs = GameColors.lightTextSecondary;
+    final Color lTt = GameColors.lightTextTertiary;
+    final Color lBd = GameColors.lightBorder;
+    final Color lDv = GameColors.lightDivider;
 
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
       fontFamilyFallback: GameTextStyles.fontFallback,
       scaffoldBackgroundColor: lBg,
-      colorScheme: const ColorScheme.light(
+      colorScheme: ColorScheme.light(
         primary: GameColors.gold,
         onPrimary: lTp,
         secondary: GameColors.xpBlue,
@@ -308,12 +367,12 @@ abstract final class GameTheme {
         error: GameColors.error,
         onError: Colors.white,
       ),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: lBg,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        systemOverlayStyle: SystemUiOverlayStyle(
+        systemOverlayStyle: const SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: Brightness.dark,
           statusBarBrightness: Brightness.light,
@@ -328,7 +387,7 @@ abstract final class GameTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-          side: const BorderSide(color: lBd, width: 0.5),
+          side: BorderSide(color: lBd, width: 0.5),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -347,7 +406,7 @@ abstract final class GameTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: GameColors.gold,
-          side: const BorderSide(color: GameColors.gold),
+          side: BorderSide(color: GameColors.gold),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
         ),
@@ -358,23 +417,23 @@ abstract final class GameTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: lBg,
         surfaceTintColor: Colors.transparent,
-        indicatorColor: const Color(0x2EE4B45F),
+        indicatorColor: GameColors.gold.withAlpha(46),
         iconTheme: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? const IconThemeData(color: GameColors.gold, size: 24)
+            ? IconThemeData(color: GameColors.gold, size: 24)
             : IconThemeData(color: lTt, size: 24)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamilyFallback: GameTextStyles.fontFallback)
+            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamilyFallback: GameTextStyles.fontFallback)
             : TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: lTt, fontFamilyFallback: GameTextStyles.fontFallback)),
         elevation: 0,
         shadowColor: Colors.black12,
         height: 72,
       ),
-      dividerTheme: const DividerThemeData(color: lDv, space: 1, thickness: 0.5),
-      dialogTheme: const DialogThemeData(
+      dividerTheme: DividerThemeData(color: lDv, space: 1, thickness: 0.5),
+      dialogTheme: DialogThemeData(
         backgroundColor: lBg,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        shape: RoundedRectangleBorder(
+        shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(GameSpacing.cardRadius)),
         ),
         titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: lTp, fontFamilyFallback: GameTextStyles.fontFallback),
@@ -382,15 +441,15 @@ abstract final class GameTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: lBg,
-        contentTextStyle: const TextStyle(fontSize: 15, color: lTp, fontFamilyFallback: GameTextStyles.fontFallback),
+        contentTextStyle: TextStyle(fontSize: 15, color: lTp, fontFamilyFallback: GameTextStyles.fontFallback),
         actionTextColor: GameColors.gold,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
-          side: const BorderSide(color: lBd, width: 0.5),
+          side: BorderSide(color: lBd, width: 0.5),
         ),
         behavior: SnackBarBehavior.floating,
       ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(
+      progressIndicatorTheme: ProgressIndicatorThemeData(
         color: GameColors.xpBlue,
         circularTrackColor: lCard,
         linearTrackColor: lCard,

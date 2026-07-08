@@ -43,7 +43,7 @@ class _LanguagePickerScreenState extends ConsumerState<LanguagePickerScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.translate_rounded,
+                Icon(Icons.translate_rounded,
                         size: 52, color: GameColors.gold)
                     .animate()
                     .fadeIn(duration: 500.ms)
