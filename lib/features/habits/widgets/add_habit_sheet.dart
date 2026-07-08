@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
@@ -37,10 +38,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   final _cueCtrl = TextEditingController();
   final _limitCtrl = TextEditingController();
   final _focus = FocusNode();
+  final _cueFocus = FocusNode();
   GoalType _goalType = GoalType.build;
   HabitCategory _category = HabitCategory.custom;
   HabitFrequencyType _freqType = HabitFrequencyType.daily;
   int _freqTarget = 1;
+  Set<int> _selectedWeekdays = {};
   ReductionType _reductionType = ReductionType.avoid;
   LimitUnit _limitUnit = LimitUnit.minutes;
   int _step = 0;
@@ -60,6 +63,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _category = _canonicalCategory(existing.category);
       _freqType = existing.frequencyType;
       _freqTarget = existing.frequencyTarget;
+      _selectedWeekdays = existing.scheduledWeekdays.toSet();
       _goalType = existing.goalType;
       _reductionType = existing.reductionType;
       _limitCtrl.text = existing.limitAmount?.toString() ?? '';
@@ -91,6 +95,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     _cueCtrl.dispose();
     _limitCtrl.dispose();
     _focus.dispose();
+    _cueFocus.dispose();
     super.dispose();
   }
 
@@ -114,6 +119,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         cueAfter: cue,
         frequencyType: _freqType,
         frequencyTarget: _freqTarget,
+        scheduledWeekdays: _selectedWeekdays.toList()..sort(),
         goalType: _goalType,
         reductionType: _reductionType,
         limitAmount: _reductionType == ReductionType.limit ? limitAmount : null,
@@ -126,6 +132,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         cueAfter: cue,
         frequencyType: _freqType,
         frequencyTarget: _freqTarget,
+        scheduledWeekdays: _selectedWeekdays.toList()..sort(),
         goalType: _goalType,
         reductionType: _reductionType,
         limitAmount: _reductionType == ReductionType.limit ? limitAmount : null,
@@ -158,13 +165,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return AnimatedPadding(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
-      padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
+      padding: EdgeInsets.only(bottom: bottom),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
         child: Container(
           decoration: BoxDecoration(
             color: gp.surfaceHigh,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(color: gp.border, width: 0.5),
           ),
           child: Column(
@@ -192,7 +199,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                       child: Text(
                         _isEditing ? s.editHabit : s.addGoalTitle,
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: 18,
                           fontWeight: FontWeight.w800,
                           color: gp.textPrimary,
                         ),
@@ -239,8 +246,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                           ),
                         ),
                         child: Text(
-                          _step < 2 ? s.continueAction : (_isEditing ? s.saveChanges : s.createGoal),
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                          _step < 2
+                              ? s.continueAction
+                              : (_isEditing ? s.saveChanges : s.createGoal),
                         ),
                       ),
                     ),
@@ -308,11 +316,19 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           TextField(
             controller: _nameCtrl,
             focusNode: _focus,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: context.gp.textPrimary,
+            ),
             textCapitalization: TextCapitalization.sentences,
             onSubmitted: (_) {
               if (_hasName) setState(() => _step = 2);
             },
-            decoration: InputDecoration(hintText: s.goalTitleHint),
+            decoration: InputDecoration(
+              hintText: s.goalTitleHint,
+              prefixIcon: const Icon(Icons.edit_note_rounded, size: 20),
+            ),
           ),
           const SizedBox(height: 18),
           _SectionLabel(s.category),
@@ -321,11 +337,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             spacing: 8,
             runSpacing: 8,
             children: _broadCategories.map((cat) {
-              return ChoiceChip(
-                avatar: CategoryIcon(category: cat, size: 16, color: _category == cat ? GameColors.gold : context.gp.textSec),
-                selected: _category == cat,
-                label: Text(cat.localizedName(s.isAr)),
-                onSelected: (_) => setState(() {
+              final selected = _category == cat;
+              return _PlainChoiceChip(
+                selected: selected,
+                label: cat.localizedName(s.isAr),
+                icon: CategoryIcon(
+                  category: cat,
+                  size: 15,
+                  color: selected ? GameColors.gold : context.gp.textSec,
+                ),
+                onTap: () => setState(() {
                   _didPickCategory = true;
                   _category = cat;
                 }),
@@ -339,9 +360,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             spacing: 8,
             runSpacing: 8,
             children: _suggestions().map((item) {
-              return ActionChip(
-                label: Text(item.name(s.isAr)),
-                onPressed: () => _applySuggestion(item),
+              return _PlainActionChip(
+                label: item.name(s.isAr),
+                onTap: () => _applySuggestion(item),
               );
             }).toList(),
           ),
@@ -381,18 +402,27 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: _cueSuggestions().map((cue) {
-              final selected = _cueCtrl.text.trim() == cue.labelFor(context);
-              return ChoiceChip(
-                selected: selected,
-                label: Text(cue.labelFor(context)),
-                onSelected: (_) => setState(() => _cueCtrl.text = cue.labelFor(context)),
-              );
-            }).toList(),
+            children: [
+              for (final cue in _cueSuggestions())
+                _PlainChoiceChip(
+                  selected: _cueCtrl.text.trim() == cue.labelFor(context),
+                  label: cue.labelFor(context),
+                  onTap: () => setState(() => _cueCtrl.text = cue.labelFor(context)),
+                ),
+              _PlainActionChip(label: s.customTime, onTap: _pickCustomTime),
+              _PlainActionChip(
+                label: s.customText,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  _cueFocus.requestFocus();
+                },
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           TextField(
             controller: _cueCtrl,
+            focusNode: _cueFocus,
             textCapitalization: TextCapitalization.sentences,
             decoration: InputDecoration(
               labelText: _goalType == GoalType.build ? s.afterWhatRoutine : s.customTriggerOptional,
@@ -405,19 +435,97 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             _PlanPreview(cue: _cueCtrl.text.trim(), habit: _nameCtrl.text.trim()),
           ],
           const SizedBox(height: 18),
-          _SectionLabel(s.frequency),
+          _SectionLabel(s.repeat),
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _SmallPick(label: s.daily, selected: _freqType == HabitFrequencyType.daily, onTap: () => setState(() { _freqType = HabitFrequencyType.daily; _freqTarget = 1; }))),
+              Expanded(
+                child: _SmallPick(
+                  label: s.daily,
+                  selected: _freqType == HabitFrequencyType.daily,
+                  onTap: () => setState(() {
+                    _freqType = HabitFrequencyType.daily;
+                    _freqTarget = 1;
+                    _selectedWeekdays.clear();
+                  }),
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _SmallPick(label: s.threeTimesWeek, selected: _freqType == HabitFrequencyType.weekly && _freqTarget == 3, onTap: () => setState(() { _freqType = HabitFrequencyType.weekly; _freqTarget = 3; }))),
+              Expanded(
+                child: _SmallPick(
+                  label: s.weekly,
+                  selected: _freqType == HabitFrequencyType.weekly && _selectedWeekdays.isEmpty,
+                  onTap: () => setState(() {
+                    _freqType = HabitFrequencyType.weekly;
+                    _freqTarget = 3;
+                    _selectedWeekdays.clear();
+                  }),
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _SmallPick(label: s.specificDays, selected: _freqType == HabitFrequencyType.weekly && _freqTarget != 3, onTap: () => setState(() { _freqType = HabitFrequencyType.weekly; _freqTarget = 2; }))),
+              Expanded(
+                child: _SmallPick(
+                  label: s.specificDays,
+                  selected: _selectedWeekdays.isNotEmpty,
+                  onTap: () => setState(() {
+                    _freqType = HabitFrequencyType.weekly;
+                    if (_selectedWeekdays.isEmpty) {
+                      _selectedWeekdays.add(DateTime.now().weekday);
+                    }
+                    _freqTarget = _selectedWeekdays.length;
+                  }),
+                ),
+              ),
             ],
           ),
+          if (_selectedWeekdays.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final day in _weekdays(context))
+                  _PlainChoiceChip(
+                    selected: _selectedWeekdays.contains(day.$1),
+                    label: day.$2,
+                    onTap: () => setState(() {
+                      if (!_selectedWeekdays.remove(day.$1)) {
+                        _selectedWeekdays.add(day.$1);
+                      }
+                      if (_selectedWeekdays.isEmpty) {
+                        _selectedWeekdays.add(day.$1);
+                      }
+                      _freqType = HabitFrequencyType.weekly;
+                      _freqTarget = _selectedWeekdays.length;
+                    }),
+                  ),
+              ],
+            ),
+          ],
         ],
       );
+
+  List<(int, String)> _weekdays(BuildContext context) {
+    final locale = Localizations.localeOf(context).languageCode;
+    final monday = DateTime(2024, 1, 1);
+    return List.generate(7, (i) {
+      final day = monday.add(Duration(days: i));
+      return (day.weekday, DateFormat.E(locale).format(day));
+    });
+  }
+
+  Future<void> _pickCustomTime() async {
+    HapticFeedback.selectionClick();
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      helpText: S.of(context).pickATime,
+    );
+    if (picked == null) return;
+    setState(() {
+      _cueCtrl.text = HabitCue.time(picked.hour, picked.minute).labelFor(context);
+    });
+  }
 
   void _applySuggestion(_GoalSuggestion suggestion) {
     HapticFeedback.selectionClick();
@@ -513,6 +621,92 @@ const _allSuggestions = [
   _GoalSuggestion(GoalType.quit, HabitCategory.money, 'Reduce delivery orders', 'تقليل طلبات التوصيل'),
   _GoalSuggestion(GoalType.quit, HabitCategory.money, 'No unnecessary shopping', 'بدون تسوق غير ضروري'),
 ];
+
+class _PlainChoiceChip extends StatelessWidget {
+  final bool selected;
+  final String label;
+  final Widget? icon;
+  final VoidCallback onTap;
+
+  const _PlainChoiceChip({
+    required this.selected,
+    required this.label,
+    required this.onTap,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? GameColors.gold.withOpacity(0.14) : gp.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? GameColors.gold : gp.border.withOpacity(0.8),
+            width: selected ? 1.1 : 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              icon!,
+              const SizedBox(width: 7),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                color: selected ? GameColors.gold : gp.textPrimary,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlainActionChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _PlainActionChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: gp.border.withOpacity(0.9), width: 0.8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: gp.textPrimary,
+            height: 1.1,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _QuestionTitle extends StatelessWidget {
   final String text;

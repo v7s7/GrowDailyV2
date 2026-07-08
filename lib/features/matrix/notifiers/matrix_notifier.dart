@@ -110,6 +110,23 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     }
   }
 
+  void deleteMany(Iterable<String> ids) {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    _mutatedBeforeLoad = true;
+    state = MatrixState(
+      tasks: state.tasks.where((t) => !idSet.contains(t.id)).toList(),
+      isLoading: false,
+    );
+    if (_uid != null) {
+      for (final id in idSet) {
+        _col.doc(id).delete().ignore();
+      }
+    } else {
+      _saveGuest().ignore();
+    }
+  }
+
   void move(String id, MatrixQuadrant newQuadrant) {
     _mutatedBeforeLoad = true;
     final tasks = state.tasks.toList();

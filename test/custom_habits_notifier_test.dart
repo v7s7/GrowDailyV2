@@ -82,7 +82,8 @@ void main() {
         category: HabitCategory.fitness,
         cueAfter: '7:30 AM',
         frequencyType: HabitFrequencyType.weekly,
-        frequencyTarget: 4,
+        frequencyTarget: 2,
+        scheduledWeekdays: const [DateTime.monday, DateTime.thursday],
       );
 
       final habits = container.read(customHabitsProvider);
@@ -93,7 +94,10 @@ void main() {
       expect(updated.cueAfter, '7:30 AM');
       expect(updated.category, HabitCategory.fitness);
       expect(updated.frequencyType, HabitFrequencyType.weekly);
-      expect(updated.frequencyTarget, 4);
+      expect(updated.frequencyTarget, 2);
+      expect(updated.scheduledWeekdays, [DateTime.monday, DateTime.thursday]);
+      expect(updated.isScheduledFor(DateTime(2026, 7, 6)), isTrue); // Monday
+      expect(updated.isScheduledFor(DateTime(2026, 7, 8)), isFalse); // Wednesday
     });
 
     test('update to a bare custom time (not a named prayer cue) round-trips',

@@ -8,6 +8,7 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../models/square_state.dart';
@@ -45,7 +46,7 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
     // quiet one at 8. Color by percentage of today's habit list, not the
     // raw count, so a 100% day is always the deepest green regardless of
     // how many habits someone keeps.
-    final totalHabits = ref.watch(habitListProvider).length;
+    final habits = ref.watch(habitListProvider);
 
     final currentWeekStart = startOfGridWeek(DateTime.now());
     final firstWeekStart = currentWeekStart
@@ -130,7 +131,7 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
                       child: _ContributionGraph(
                         weekStarts: weekStarts,
                         counts: counts,
-                        totalHabits: totalHabits,
+                        habits: habits,
                         dark: dark,
                         cell: cell,
                         gap: _gap,
@@ -203,7 +204,7 @@ Color heatColor(int level, bool dark) {
 class _ContributionGraph extends StatelessWidget {
   final List<DateTime> weekStarts;
   final Map<String, int> counts;
-  final int totalHabits;
+  final List<IslamicHabitTemplate> habits;
   final bool dark;
   final double cell;
   final double gap;
@@ -212,7 +213,7 @@ class _ContributionGraph extends StatelessWidget {
   const _ContributionGraph({
     required this.weekStarts,
     required this.counts,
-    required this.totalHabits,
+    required this.habits,
     required this.dark,
     required this.cell,
     required this.gap,
@@ -275,7 +276,9 @@ class _ContributionGraph extends StatelessWidget {
                           count: counts[
                                   week.add(Duration(days: d)).toDateKey()] ??
                               0,
-                          totalHabits: totalHabits,
+                          totalHabits: habits
+                              .where((h) => h.isScheduledFor(week.add(Duration(days: d))))
+                              .length,
                           dark: dark,
                           size: cell,
                           onTap: onTapDay,

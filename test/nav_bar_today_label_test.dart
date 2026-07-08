@@ -28,7 +28,7 @@ void main() {
       expect(find.byIcon(Icons.home_rounded), findsNothing);
     });
 
-    testWidgets('keeps the Grid — Today — Focus — Profile order',
+    testWidgets('keeps the Grid — Today — Matrix — Profile order',
         (tester) async {
       await harness.pumpApp(tester);
 
@@ -37,7 +37,7 @@ void main() {
       expect(navBar.currentIndex, 0);
       expect(find.text('Grid'), findsOneWidget);
       expect(find.text('Today'), findsOneWidget);
-      expect(find.text('Focus'), findsOneWidget);
+      expect(find.text('Matrix'), findsOneWidget);
       expect(find.text('Profile'), findsOneWidget);
     });
   });

@@ -72,6 +72,53 @@ class WeeklyGridState {
     return count;
   }
 
+  /// Completion ratio for today's habit list in the visible week.
+  ///
+  /// The Grid can show a whole week of history, but the completion percent is
+  /// a daily task metric: if there are 5 habits and 1 is green today, this is
+  /// 20%, regardless of how many older squares were backfilled. A yellow
+  /// partial square counts as half work, so 4 yellow marks across 4 tasks is
+  /// 50% completion.
+  double todayCompletionRatio(Iterable<String> habitIds) {
+    final ids = habitIds.toList(growable: false);
+    if (ids.isEmpty) return 0;
+
+    final today = DateTime.now();
+    if (!isCurrentWeek || !days.any((d) => d.isSameDayAs(today))) return 0;
+
+    final row = states[today.toDateKey()];
+    if (row == null) return 0;
+
+    var completedUnits = 0.0;
+    for (final id in ids) {
+      completedUnits += switch (row[id] ?? SquareState.none) {
+        SquareState.complete || SquareState.bonus => 1.0,
+        SquareState.partial => 0.5,
+        SquareState.none || SquareState.failed || SquareState.skipped => 0.0,
+      };
+    }
+    return completedUnits / ids.length;
+  }
+
+  /// Points that are actually reward-eligible for the visible week.
+  ///
+  /// Backfilled/past-day marks are an honest visual record, but they must not
+  /// look like banked XP in the Grid summary. Only today's row in the current
+  /// week can award progression, matching [setSquare]'s anti-backdating guard.
+  int rewardEligiblePoints(Iterable<String> habitIds) {
+    final today = DateTime.now();
+    if (!isCurrentWeek || !days.any((d) => d.isSameDayAs(today))) return 0;
+
+    final row = states[today.toDateKey()];
+    if (row == null) return 0;
+
+    var points = 0;
+    for (final id in habitIds) {
+      points += (row[id] ?? SquareState.none).xpValue;
+    }
+    return points;
+  }
+
   /// Every deliberately-marked square this week (any color).
   int markedSquares(Iterable<String> habitIds) {
     var count = 0;

@@ -129,10 +129,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
         '/night-review': (_) => const NightReviewScreen(),
         '/premium': (_) => const PremiumScreen(),
         '/auth': (_) => const AuthScreen(),
-        // Matrix is a secondary screen reached from Focus, not a bottom-nav
-        // peer tab, so it belongs here with the normal push transition
-        // rather than in the instant-switch onGenerateRoute block below.
-        '/matrix': (_) => const MatrixScreen(),
+        // Focus is still available as a normal pushed screen, while Matrix is
+        // restored as the bottom-nav peer tab below.
+        '/focus': (_) => const FocusScreen(),
       },
       onGenerateRoute: (settings) {
         // The bottom nav bar's four tabs are peers, not a hierarchy, so
@@ -143,7 +142,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
         final WidgetBuilder? builder = switch (settings.name) {
           '/dashboard' => (_) => const DashboardScreen(),
           '/grid' => (_) => const GridScreen(),
-          '/focus' => (_) => const FocusScreen(),
+          '/matrix' => (_) => const MatrixScreen(),
           '/profile' => (_) => const ProfileScreen(),
           _ => null,
         };

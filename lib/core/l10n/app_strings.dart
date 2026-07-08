@@ -304,6 +304,9 @@ class S {
   String get timingBuildTitle => isAr ? 'متى وكيف ستتابع؟' : 'When and how often?';
   String get timingQuitTitle => isAr ? 'ما الخطة الهادئة؟' : 'What is the calm plan?';
   String get whenQuestion => isAr ? 'متى؟' : 'When?';
+  String get customTime => isAr ? 'وقت مخصص' : 'Custom time';
+  String get customText => isAr ? 'نص مخصص' : 'Custom text';
+  String get repeat => isAr ? 'التكرار' : 'Repeat';
   String get goalStyle => isAr ? 'أسلوب الهدف' : 'Goal style';
   String get avoidCompletely => isAr ? 'تجنّبه تمامًا' : 'Avoid completely';
   String get setLimit => isAr ? 'ضع حدًا' : 'Set a limit';
@@ -444,6 +447,8 @@ class S {
   String get matrixWhatToDo => isAr ? 'ما الذي يجب فعله؟' : 'What needs to be done?';
   String get matrixMoveToQuadrant => isAr ? 'انقل إلى ربع' : 'MOVE TO QUADRANT';
   String get matrixDeleteTask => isAr ? 'حذف المهمة' : 'Delete task';
+  String get matrixDeleteSelected => isAr ? 'حذف المحدد' : 'Delete selected';
+  String matrixSelectedCount(int count) => isAr ? '$count محدد' : '$count selected';
 
   // ── Quick Wins ───────────────────────────────────────────────────────────
   String get quickWins => isAr ? 'مكاسب سريعة' : 'Quick Wins';
@@ -456,6 +461,7 @@ class S {
   // ── Navigation ───────────────────────────────────────────────────────────
   String get navToday => isAr ? 'اليوم' : 'Today';
   String get navGrid => isAr ? 'الشبكة' : 'Grid';
+  String get navMatrix => isAr ? 'المصفوفة' : 'Matrix';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
   String get navProfile => isAr ? 'ملفي' : 'Profile';

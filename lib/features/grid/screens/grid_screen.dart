@@ -359,32 +359,29 @@ class _SummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    final today = DateTime.now();
     final habitIds = habits.map((h) => h.id).toList();
+    final scheduledTodayIds = habits
+        .where((h) => h.isScheduledFor(today))
+        .map((h) => h.id)
+        .toList();
     final greens = state.greenSquares(habitIds);
-    final possible = habits.length * 7;
-    final ratio = possible == 0 ? 0.0 : greens / possible;
+    final ratio = state.todayCompletionRatio(scheduledTodayIds);
 
-    // Points this week = the same fixed per-color XP that feeds the RPG
-    // system (green +10, yellow +5, blue +15, red -3, white/gray 0).
-    var points = 0;
-    for (final day in state.days) {
-      final row = state.states[day.toDateKey()];
-      if (row == null) continue;
-      for (final h in habits) {
-        points += (row[h.id] ?? SquareState.none).xpValue;
-      }
-    }
+    // Only today's marks are reward-eligible. Past-day marks remain visual
+    // history, but the summary must not present them as earned XP.
+    final points = state.rewardEligiblePoints(scheduledTodayIds);
 
     final greensToday = () {
-      final today = DateTime.now();
       if (!state.days.any((d) => d.isSameDayAs(today))) return 0;
       final row = state.states[today.toDateKey()];
       if (row == null) return 0;
-      return habitIds
+      return scheduledTodayIds
           .where((id) => (row[id] ?? SquareState.none).isGreen)
           .length;
     }();
-    final perfectDay = habits.isNotEmpty && greensToday >= habits.length;
+    final perfectDay = scheduledTodayIds.isNotEmpty &&
+        greensToday >= scheduledTodayIds.length;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -450,15 +447,13 @@ class _SummaryCard extends StatelessWidget {
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
                   child: Text(
-                    ratio >= 1.0
-                        ? s.gridWeekFilled
-                        : perfectDay
-                            ? s.gridPerfectDay
-                            : greensToday > 0
-                                ? s.gridGreensToday(greensToday)
-                                : s.gridTapHint,
+                    perfectDay
+                        ? s.gridPerfectDay
+                        : greensToday > 0
+                            ? s.gridGreensToday(greensToday)
+                            : s.gridTapHint,
                     key: ValueKey(
-                      '$perfectDay-$greensToday-${ratio >= 1.0}',
+                      '$perfectDay-$greensToday-${(ratio * 100).round()}',
                     ),
                     style: TextStyle(
                       fontSize: 12,
@@ -759,11 +754,11 @@ class _GridTable extends ConsumerWidget {
           final avail = constraints.maxWidth;
           double cell = (avail - _habitCol - 7 * _gap) / 7;
           bool scroll = false;
-          if (cell < 32) {
-            cell = 32;
+          if (cell < 36) {
+            cell = 36;
             scroll = true;
           } else {
-            cell = cell.clamp(32, 54);
+            cell = cell.clamp(36, 54);
           }
           final table = _buildTable(context, ref, cell);
           if (!scroll) return table;
@@ -782,7 +777,7 @@ class _GridTable extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _headerRow(context, days, cell),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         // Rows cascade in on entrance; effects play once per screen visit
         // (rebuilds on square taps reuse the same elements, so no replay).
         for (var i = 0; i < habits.length; i++) ...[
@@ -809,19 +804,26 @@ class _GridTable extends ConsumerWidget {
               width: cell,
               child: Column(
                 children: [
-                  Text(
-                    DateFormat('EEE', locale).format(day),
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: day.isToday ? GameColors.gold : gp.textTert,
-                      letterSpacing: 0.5,
+                  SizedBox(
+                    height: 14,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        DateFormat('EEE', locale).format(day),
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: day.isToday ? GameColors.gold : gp.textTert,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   Container(
-                    width: 20,
-                    height: 20,
+                    width: 22,
+                    height: 22,
                     alignment: Alignment.center,
                     decoration: day.isToday
                         ? BoxDecoration(
@@ -968,16 +970,23 @@ class _GridTable extends ConsumerWidget {
     if (isSyncable &&
         current == SquareState.complete &&
         ref.read(dashboardProvider).isCompleted(habit.id, habit.frequencyTarget)) {
-      // A quick tap on a synced completion doesn't un-tap it — matches
-      // Today's own "Done" button (also non-interactive once done) and
-      // guards against an accidental tap undoing a reward. Long-press
-      // still opens the editor, where a deliberate color change is
-      // treated as an intentional correction (see
-      // _CellEditorSheetState._handlePaletteTap). Pre-existing green
-      // squares from before this sync shipped (never recorded in
-      // `completions`) aren't caught by this check and keep behaving via
-      // the flat-rate cycle below, unaffected.
+      // Today's completed, synced squares should still behave like every
+      // other editable square: tapping green cycles it back to empty, and
+      // long-press still opens the explicit palette. Because this green
+      // state was rewarded through DashboardNotifier.completeHabit, undo
+      // that canonical completion first so Today un-checks the task and
+      // XP/gold/green counters are refunded before the visual square is
+      // cleared.
       HapticFeedback.selectionClick();
+      await ref.read(dashboardProvider.notifier).uncompleteHabit(
+            habitId: habit.id,
+            xpReward: habit.xpReward,
+            goldReward: habit.goldReward,
+            category: habit.category.name,
+          );
+      ref
+          .read(weeklyGridProvider.notifier)
+          .setSquareStateOnly(habit.id, day, next);
       return;
     }
 

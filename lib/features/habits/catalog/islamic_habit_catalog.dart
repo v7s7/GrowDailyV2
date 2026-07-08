@@ -13,6 +13,7 @@ class IslamicHabitTemplate {
   final HabitCategory category;
   final HabitFrequencyType frequencyType;
   final int frequencyTarget;
+  final List<int> scheduledWeekdays;
   final GoalType goalType;
   final ReductionType reductionType;
   final int? limitAmount;
@@ -30,6 +31,7 @@ class IslamicHabitTemplate {
     required this.category,
     required this.frequencyType,
     required this.frequencyTarget,
+    this.scheduledWeekdays = const [],
     this.goalType = GoalType.build,
     this.reductionType = ReductionType.avoid,
     this.limitAmount,
@@ -49,6 +51,7 @@ class IslamicHabitTemplate {
         category: category,
         frequencyType: frequencyType,
         frequencyTarget: frequencyTarget,
+        scheduledWeekdays: scheduledWeekdays,
         goalType: goalType,
         reductionType: reductionType,
         limitAmount: limitAmount,
@@ -69,6 +72,7 @@ class IslamicHabitTemplate {
         'category': category.toJson(),
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
+        if (scheduledWeekdays.isNotEmpty) 'scheduledWeekdays': scheduledWeekdays,
         'goalType': goalType.toJson(),
         if (goalType == GoalType.quit) 'reductionType': reductionType.toJson(),
         if (goalType == GoalType.quit &&
@@ -97,6 +101,11 @@ class IslamicHabitTemplate {
           d['frequencyType'] as String? ?? 'daily',
         ),
         frequencyTarget: d['frequencyTarget'] as int? ?? 1,
+        scheduledWeekdays: (d['scheduledWeekdays'] as List?)
+                ?.whereType<int>()
+                .where((d) => d >= DateTime.monday && d <= DateTime.sunday)
+                .toList() ??
+            const [],
         goalType: GoalType.fromJson(d['goalType'] as String?),
         reductionType: ReductionType.fromJson(d['reductionType'] as String?),
         limitAmount: d['limitAmount'] as int?,
@@ -108,6 +117,9 @@ class IslamicHabitTemplate {
         xpReward: d['xpReward'] as int? ?? 20,
         goldReward: d['goldReward'] as int? ?? 8,
       );
+
+  bool isScheduledFor(DateTime day) =>
+      scheduledWeekdays.isEmpty || scheduledWeekdays.contains(day.weekday);
 
   factory IslamicHabitTemplate.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
