@@ -239,6 +239,32 @@ void main() {
       );
     });
 
+    test('today completion ratio counts yellow partials as half work', () {
+      final today = DateTime.now();
+      final state = WeeklyGridState(
+        weekStart: startOfGridWeek(today),
+        states: {
+          today.toDateKey(): {
+            'habit_a': SquareState.partial,
+            'habit_b': SquareState.partial,
+            'habit_c': SquareState.partial,
+            'habit_d': SquareState.partial,
+          },
+        },
+        notes: const {},
+      );
+
+      expect(
+        state.todayCompletionRatio([
+          'habit_a',
+          'habit_b',
+          'habit_c',
+          'habit_d',
+        ]),
+        0.5,
+      );
+    });
+
     test('reward-eligible Grid summary points only count today', () async {
       final today = DateTime.now();
       final grid = container.read(weeklyGridProvider.notifier);

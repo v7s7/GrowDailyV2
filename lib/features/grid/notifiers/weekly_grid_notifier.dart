@@ -76,7 +76,9 @@ class WeeklyGridState {
   ///
   /// The Grid can show a whole week of history, but the completion percent is
   /// a daily task metric: if there are 5 habits and 1 is green today, this is
-  /// 20%, regardless of how many older squares were backfilled.
+  /// 20%, regardless of how many older squares were backfilled. A yellow
+  /// partial square counts as half work, so 4 yellow marks across 4 tasks is
+  /// 50% completion.
   double todayCompletionRatio(Iterable<String> habitIds) {
     final ids = habitIds.toList(growable: false);
     if (ids.isEmpty) return 0;
@@ -87,10 +89,15 @@ class WeeklyGridState {
     final row = states[today.toDateKey()];
     if (row == null) return 0;
 
-    final greensToday = ids
-        .where((id) => (row[id] ?? SquareState.none).isGreen)
-        .length;
-    return greensToday / ids.length;
+    var completedUnits = 0.0;
+    for (final id in ids) {
+      completedUnits += switch (row[id] ?? SquareState.none) {
+        SquareState.complete || SquareState.bonus => 1.0,
+        SquareState.partial => 0.5,
+        SquareState.none || SquareState.failed || SquareState.skipped => 0.0,
+      };
+    }
+    return completedUnits / ids.length;
   }
 
   /// Points that are actually reward-eligible for the visible week.
