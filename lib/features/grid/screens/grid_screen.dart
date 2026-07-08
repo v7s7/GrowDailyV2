@@ -364,16 +364,9 @@ class _SummaryCard extends StatelessWidget {
     final possible = habits.length * 7;
     final ratio = possible == 0 ? 0.0 : greens / possible;
 
-    // Points this week = the same fixed per-color XP that feeds the RPG
-    // system (green +10, yellow +5, blue +15, red -3, white/gray 0).
-    var points = 0;
-    for (final day in state.days) {
-      final row = state.states[day.toDateKey()];
-      if (row == null) continue;
-      for (final h in habits) {
-        points += (row[h.id] ?? SquareState.none).xpValue;
-      }
-    }
+    // Only today's marks are reward-eligible. Past-day marks remain visual
+    // history, but the summary must not present them as earned XP.
+    final points = state.rewardEligiblePoints(habitIds);
 
     final greensToday = () {
       final today = DateTime.now();

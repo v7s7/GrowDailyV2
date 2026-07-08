@@ -72,6 +72,25 @@ class WeeklyGridState {
     return count;
   }
 
+  /// Points that are actually reward-eligible for the visible week.
+  ///
+  /// Backfilled/past-day marks are an honest visual record, but they must not
+  /// look like banked XP in the Grid summary. Only today's row in the current
+  /// week can award progression, matching [setSquare]'s anti-backdating guard.
+  int rewardEligiblePoints(Iterable<String> habitIds) {
+    final today = DateTime.now();
+    if (!isCurrentWeek || !days.any((d) => d.isSameDayAs(today))) return 0;
+
+    final row = states[today.toDateKey()];
+    if (row == null) return 0;
+
+    var points = 0;
+    for (final id in habitIds) {
+      points += (row[id] ?? SquareState.none).xpValue;
+    }
+    return points;
+  }
+
   /// Every deliberately-marked square this week (any color).
   int markedSquares(Iterable<String> habitIds) {
     var count = 0;

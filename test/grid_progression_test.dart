@@ -209,6 +209,30 @@ void main() {
       expect(dash.dailyGreenCounts[key], isNull);
     });
 
+    test('reward-eligible Grid summary points only count today', () async {
+      final today = DateTime.now();
+      final grid = container.read(weeklyGridProvider.notifier);
+      final state = container.read(weeklyGridProvider);
+      final pastDay = state.days.lastWhere(
+        (d) => d.startOfDay.isBefore(today.startOfDay),
+        orElse: () => today.subtract(const Duration(days: 1)),
+      );
+
+      grid.setSquare('habit_a', pastDay, SquareState.complete);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        container.read(weeklyGridProvider).rewardEligiblePoints(['habit_a']),
+        0,
+      );
+
+      grid.setSquare('habit_a', today, SquareState.partial);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        container.read(weeklyGridProvider).rewardEligiblePoints(['habit_a']),
+        SquareState.partial.xpValue,
+      );
+    });
+
     test('grid state cycles and persists square + note per habit per day',
         () async {
       final today = DateTime.now();
