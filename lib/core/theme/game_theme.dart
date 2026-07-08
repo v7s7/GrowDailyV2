@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'theme_preset.dart';
 
@@ -115,7 +114,13 @@ extension BuildContextGameTheme on BuildContext {
 // ─── Typography ──────────────────────────────────────────────────────────────
 
 abstract final class GameTextStyles {
+  static const String systemFont = '.SF Pro Text';
+
   static const List<String> fontFallback = <String>[
+    'SF Arabic',
+    '.SF Arabic',
+    'SF Pro Text',
+    '.SF Pro Text',
     'Noto Sans Arabic',
     'Noto Naskh Arabic',
     'DIN Next LT Arabic',
@@ -209,6 +214,7 @@ abstract final class GameTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      fontFamily: GameTextStyles.systemFont,
       fontFamilyFallback: GameTextStyles.fontFallback,
       scaffoldBackgroundColor: GameColors.background,
       colorScheme: ColorScheme.dark(
@@ -318,8 +324,7 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : GameColors.surfaceElevated),
       ),
       inputDecorationTheme: _inputTheme(true),
-      textTheme: GoogleFonts.cairoTextTheme(
-        TextTheme(
+      textTheme: TextTheme(
           displayLarge: GameTextStyles.displayLarge,
           displayMedium: GameTextStyles.displayMedium,
           headlineLarge: GameTextStyles.headlineLarge,
@@ -332,7 +337,6 @@ abstract final class GameTheme {
           labelLarge: GameTextStyles.labelLarge,
           labelSmall: GameTextStyles.labelSmall,
         ),
-      ),
     );
   }
 
@@ -350,6 +354,7 @@ abstract final class GameTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
+      fontFamily: GameTextStyles.systemFont,
       fontFamilyFallback: GameTextStyles.fontFallback,
       scaffoldBackgroundColor: lBg,
       colorScheme: ColorScheme.light(
@@ -409,10 +414,14 @@ abstract final class GameTheme {
           side: BorderSide(color: GameColors.gold),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
+          textStyle: GameTextStyles.labelLarge,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: GameColors.gold),
+        style: TextButton.styleFrom(
+          foregroundColor: GameColors.gold,
+          textStyle: GameTextStyles.labelLarge,
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: lBg,
@@ -461,13 +470,10 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : lHL),
       ),
       inputDecorationTheme: _inputTheme(false),
-      // Same Cairo wrapping as the dark theme (see below) — without it, light
-      // mode silently falls back to the platform default font while dark
-      // mode renders Cairo, so Arabic and English text look inconsistent
-      // depending on theme. Cairo is the standard pairing for bilingual
-      // Arabic/English UI and reads correctly on iOS.
-      textTheme: GoogleFonts.cairoTextTheme(
-        const TextTheme(
+      // Use iOS system typography: SF Pro for Latin text, with SF Arabic
+      // first in the fallback stack for Arabic. Platform fallbacks keep this
+      // readable on non-iOS devices without decorative/compressed fonts.
+      textTheme: const TextTheme(
           displayLarge: GameTextStyles.displayLarge,
           displayMedium: GameTextStyles.displayMedium,
           headlineLarge: GameTextStyles.headlineLarge,
@@ -483,7 +489,6 @@ abstract final class GameTheme {
           bodyColor: lTp,
           displayColor: lTp,
         ),
-      ),
     );
   }
 }

@@ -46,7 +46,8 @@ class DashboardScreen extends ConsumerWidget {
     });
 
     final state = ref.watch(dashboardProvider);
-    final habits = ref.watch(habitListProvider);
+    final today = DateTime.now();
+    final habits = ref.watch(habitListProvider).where((h) => h.isScheduledFor(today)).toList();
     final customHabits = ref.watch(customHabitsProvider);
     final customIds = customHabits.map((h) => h.id).toSet();
     final allDone = habits.isNotEmpty &&
