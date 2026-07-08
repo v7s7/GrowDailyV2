@@ -13,6 +13,10 @@ class IslamicHabitTemplate {
   final HabitCategory category;
   final HabitFrequencyType frequencyType;
   final int frequencyTarget;
+  final GoalType goalType;
+  final ReductionType reductionType;
+  final int? limitAmount;
+  final LimitUnit? limitUnit;
   final bool hasTimer;
   final int? timerDurationSeconds;
   final int xpReward;
@@ -26,6 +30,10 @@ class IslamicHabitTemplate {
     required this.category,
     required this.frequencyType,
     required this.frequencyTarget,
+    this.goalType = GoalType.build,
+    this.reductionType = ReductionType.avoid,
+    this.limitAmount,
+    this.limitUnit,
     required this.hasTimer,
     this.timerDurationSeconds,
     required this.xpReward,
@@ -41,6 +49,10 @@ class IslamicHabitTemplate {
         category: category,
         frequencyType: frequencyType,
         frequencyTarget: frequencyTarget,
+        goalType: goalType,
+        reductionType: reductionType,
+        limitAmount: limitAmount,
+        limitUnit: limitUnit,
         isPreset: true,
         catalogId: id,
         hasTimer: hasTimer,
@@ -57,6 +69,16 @@ class IslamicHabitTemplate {
         'category': category.toJson(),
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
+        'goalType': goalType.toJson(),
+        if (goalType == GoalType.quit) 'reductionType': reductionType.toJson(),
+        if (goalType == GoalType.quit &&
+            reductionType == ReductionType.limit &&
+            limitAmount != null)
+          'limitAmount': limitAmount,
+        if (goalType == GoalType.quit &&
+            reductionType == ReductionType.limit &&
+            limitUnit != null)
+          'limitUnit': limitUnit!.toJson(),
         'hasTimer': hasTimer,
         if (timerDurationSeconds != null)
           'timerDurationSeconds': timerDurationSeconds,
@@ -75,6 +97,12 @@ class IslamicHabitTemplate {
           d['frequencyType'] as String? ?? 'daily',
         ),
         frequencyTarget: d['frequencyTarget'] as int? ?? 1,
+        goalType: GoalType.fromJson(d['goalType'] as String?),
+        reductionType: ReductionType.fromJson(d['reductionType'] as String?),
+        limitAmount: d['limitAmount'] as int?,
+        limitUnit: d['limitUnit'] == null
+            ? null
+            : LimitUnit.fromJson(d['limitUnit'] as String?),
         hasTimer: d['hasTimer'] as bool? ?? false,
         timerDurationSeconds: d['timerDurationSeconds'] as int?,
         xpReward: d['xpReward'] as int? ?? 20,

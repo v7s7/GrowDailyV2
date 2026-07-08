@@ -10,16 +10,57 @@ enum HabitFrequencyType {
       values.firstWhere((e) => e.name == v, orElse: () => daily);
 }
 
+enum GoalType {
+  build,
+  quit;
+
+  String toJson() => name;
+  static GoalType fromJson(String? v) =>
+      values.firstWhere((e) => e.name == v, orElse: () => build);
+}
+
+enum ReductionType {
+  avoid,
+  limit;
+
+  String toJson() => name;
+  static ReductionType fromJson(String? v) =>
+      values.firstWhere((e) => e.name == v, orElse: () => avoid);
+}
+
+enum LimitUnit {
+  minutes,
+  times,
+  cups,
+  money,
+  custom;
+
+  String toJson() => name;
+  static LimitUnit fromJson(String? v) =>
+      values.firstWhere((e) => e.name == v, orElse: () => minutes);
+}
+
 enum HabitCategory {
+  faith,
+  health,
+  learning,
+  focus,
+  sleep,
+  money,
+  mind,
+  social,
+  custom,
   quran,
   athkar,
   fitness,
   fasting,
-  sadaqah,
-  sleep,
-  custom;
+  sadaqah;
 
-  String toJson() => name;
+  String toJson() => switch (this) {
+        quran || athkar || fasting || sadaqah => 'faith',
+        fitness => 'health',
+        _ => name,
+      };
   static HabitCategory fromJson(String v) =>
       values.firstWhere((e) => e.name == v, orElse: () => custom);
 
@@ -28,31 +69,37 @@ enum HabitCategory {
   /// "Fasting"/"Fitness"/etc. even with the app set to Arabic.
   String localizedName(bool isAr) => isAr
       ? switch (this) {
-          quran => 'القرآن',
-          athkar => 'الأذكار',
-          fitness => 'اللياقة',
-          fasting => 'الصيام',
-          sadaqah => 'الصدقة',
+          faith || quran || athkar || fasting || sadaqah => 'الإيمان',
+          health || fitness => 'الصحة',
+          learning => 'التعلّم',
+          focus => 'التركيز',
           sleep => 'النوم',
+          money => 'المال',
+          mind => 'العقل',
+          social => 'العلاقات',
           custom => 'مخصص',
         }
       : switch (this) {
-          quran => 'Quran',
-          athkar => 'Athkar',
-          fitness => 'Fitness',
-          fasting => 'Fasting',
-          sadaqah => 'Sadaqah',
+          faith || quran || athkar || fasting || sadaqah => 'Faith',
+          health || fitness => 'Health',
+          learning => 'Learning',
+          focus => 'Focus',
           sleep => 'Sleep',
+          money => 'Money',
+          mind => 'Mind',
+          social => 'Social',
           custom => 'Custom',
         };
 
   IconData get icon => switch (this) {
-        quran => Icons.menu_book_rounded,
-        athkar => Icons.self_improvement_rounded,
-        fitness => Icons.fitness_center_rounded,
-        fasting => Icons.nightlight_rounded,
-        sadaqah => Icons.favorite_rounded,
+        faith || quran || athkar || fasting || sadaqah => Icons.menu_book_rounded,
+        health || fitness => Icons.fitness_center_rounded,
+        learning => Icons.school_rounded,
+        focus => Icons.center_focus_strong_rounded,
         sleep => Icons.bedtime_rounded,
+        money => Icons.savings_rounded,
+        mind => Icons.psychology_rounded,
+        social => Icons.groups_rounded,
         custom => Icons.star_rounded,
       };
 
@@ -62,13 +109,12 @@ enum HabitCategory {
   /// — see [CategoryIcon] — so they behave like a drop-in replacement for
   /// `Icon(category.icon, color: x)` wherever it's used.
   String? get iconAsset => switch (this) {
-        quran => 'assets/images/category_quran.png',
-        athkar => 'assets/images/category_prayer.png',
-        fitness => 'assets/images/category_fitness.png',
-        fasting => 'assets/images/category_focus.png',
-        sadaqah => 'assets/images/category_charity.png',
+        faith || quran || athkar => 'assets/images/category_quran.png',
+        health || fitness => 'assets/images/category_fitness.png',
+        fasting || focus => 'assets/images/category_focus.png',
+        sadaqah || money => 'assets/images/category_charity.png',
         sleep => 'assets/images/category_sleep.png',
-        custom => null, // no custom art yet — keeps the Material star icon
+        learning || mind || social || custom => null,
       };
 }
 
@@ -86,6 +132,10 @@ class HabitModel {
   final String? description;
   final String? cueAfter;
   final HabitCategory category;
+  final GoalType goalType;
+  final ReductionType reductionType;
+  final int? limitAmount;
+  final LimitUnit? limitUnit;
 
   // ── Frequency ────────────────────────────────────────────────
   final HabitFrequencyType frequencyType;
@@ -118,6 +168,10 @@ class HabitModel {
     this.description,
     this.cueAfter,
     required this.category,
+    this.goalType = GoalType.build,
+    this.reductionType = ReductionType.avoid,
+    this.limitAmount,
+    this.limitUnit,
     required this.frequencyType,
     required this.frequencyTarget,
     this.isPreset = false,
@@ -147,6 +201,12 @@ class HabitModel {
       description: d['description'] as String?,
       cueAfter: d['cueAfter'] as String?,
       category: HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
+      goalType: GoalType.fromJson(d['goalType'] as String?),
+      reductionType: ReductionType.fromJson(d['reductionType'] as String?),
+      limitAmount: d['limitAmount'] as int?,
+      limitUnit: d['limitUnit'] == null
+          ? null
+          : LimitUnit.fromJson(d['limitUnit'] as String?),
       frequencyType: HabitFrequencyType.fromJson(
         d['frequencyType'] as String? ?? 'daily',
       ),
@@ -172,6 +232,16 @@ class HabitModel {
         if (description != null) 'description': description,
         if (cueAfter != null) 'cueAfter': cueAfter,
         'category': category.toJson(),
+        'goalType': goalType.toJson(),
+        if (goalType == GoalType.quit) 'reductionType': reductionType.toJson(),
+        if (goalType == GoalType.quit &&
+            reductionType == ReductionType.limit &&
+            limitAmount != null)
+          'limitAmount': limitAmount,
+        if (goalType == GoalType.quit &&
+            reductionType == ReductionType.limit &&
+            limitUnit != null)
+          'limitUnit': limitUnit!.toJson(),
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
         'isPreset': isPreset,
@@ -193,6 +263,10 @@ class HabitModel {
     String? description,
     String? cueAfter,
     HabitCategory? category,
+    GoalType? goalType,
+    ReductionType? reductionType,
+    int? limitAmount,
+    LimitUnit? limitUnit,
     HabitFrequencyType? frequencyType,
     int? frequencyTarget,
     bool? hasTimer,
@@ -211,6 +285,10 @@ class HabitModel {
         description: description ?? this.description,
         cueAfter: cueAfter ?? this.cueAfter,
         category: category ?? this.category,
+        goalType: goalType ?? this.goalType,
+        reductionType: reductionType ?? this.reductionType,
+        limitAmount: limitAmount ?? this.limitAmount,
+        limitUnit: limitUnit ?? this.limitUnit,
         frequencyType: frequencyType ?? this.frequencyType,
         frequencyTarget: frequencyTarget ?? this.frequencyTarget,
         isPreset: isPreset,

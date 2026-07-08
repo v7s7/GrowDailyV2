@@ -63,6 +63,14 @@ void main() {
       expect(cue.toStorageValue(), 'maghrib');
     });
 
+    test('general routine suggestions store canonical keys and relabel', () {
+      final cue = HabitCue.fromStoredValue('بعد العمل/المدرسة');
+      expect(cue.toStorageValue(), 'after_work_school');
+      expect(cue.labelForLocale(false), 'After work/school');
+      expect(cue.labelForLocale(true), 'بعد العمل/المدرسة');
+      expect(HabitCue.preset('morning').toStorageValue(), 'morning');
+    });
+
     test('a picked time relabels in both languages from one stored value', () {
       final cue = HabitCue.fromStoredValue('custom_time:19:05');
       expect(cue.labelForLocale(false), '7:05 PM');
