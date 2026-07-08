@@ -37,6 +37,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   final _cueCtrl = TextEditingController();
   final _limitCtrl = TextEditingController();
   final _focus = FocusNode();
+  final _cueFocus = FocusNode();
   GoalType _goalType = GoalType.build;
   HabitCategory _category = HabitCategory.custom;
   HabitFrequencyType _freqType = HabitFrequencyType.daily;
@@ -91,6 +92,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     _cueCtrl.dispose();
     _limitCtrl.dispose();
     _focus.dispose();
+    _cueFocus.dispose();
     super.dispose();
   }
 
@@ -395,18 +397,27 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: _cueSuggestions().map((cue) {
-              final label = cue.labelFor(context);
-              return _PlainChoiceChip(
-                selected: _cueCtrl.text.trim() == label,
-                label: label,
-                onTap: () => setState(() => _cueCtrl.text = label),
-              );
-            }).toList(),
+            children: [
+              for (final cue in _cueSuggestions())
+                _PlainChoiceChip(
+                  selected: _cueCtrl.text.trim() == cue.labelFor(context),
+                  label: cue.labelFor(context),
+                  onTap: () => setState(() => _cueCtrl.text = cue.labelFor(context)),
+                ),
+              _PlainActionChip(label: s.customTime, onTap: _pickCustomTime),
+              _PlainActionChip(
+                label: s.customText,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  _cueFocus.requestFocus();
+                },
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           TextField(
             controller: _cueCtrl,
+            focusNode: _cueFocus,
             textCapitalization: TextCapitalization.sentences,
             decoration: InputDecoration(
               labelText: _goalType == GoalType.build ? s.afterWhatRoutine : s.customTriggerOptional,
@@ -419,19 +430,59 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             _PlanPreview(cue: _cueCtrl.text.trim(), habit: _nameCtrl.text.trim()),
           ],
           const SizedBox(height: 18),
-          _SectionLabel(s.frequency),
+          _SectionLabel(s.repeat),
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _SmallPick(label: s.daily, selected: _freqType == HabitFrequencyType.daily, onTap: () => setState(() { _freqType = HabitFrequencyType.daily; _freqTarget = 1; }))),
+              Expanded(
+                child: _SmallPick(
+                  label: s.daily,
+                  selected: _freqType == HabitFrequencyType.daily,
+                  onTap: () => setState(() {
+                    _freqType = HabitFrequencyType.daily;
+                    _freqTarget = 1;
+                  }),
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _SmallPick(label: s.threeTimesWeek, selected: _freqType == HabitFrequencyType.weekly && _freqTarget == 3, onTap: () => setState(() { _freqType = HabitFrequencyType.weekly; _freqTarget = 3; }))),
+              Expanded(
+                child: _SmallPick(
+                  label: s.weekly,
+                  selected: _freqType == HabitFrequencyType.weekly && _freqTarget == 3,
+                  onTap: () => setState(() {
+                    _freqType = HabitFrequencyType.weekly;
+                    _freqTarget = 3;
+                  }),
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _SmallPick(label: s.specificDays, selected: _freqType == HabitFrequencyType.weekly && _freqTarget != 3, onTap: () => setState(() { _freqType = HabitFrequencyType.weekly; _freqTarget = 2; }))),
+              Expanded(
+                child: _SmallPick(
+                  label: s.specificDays,
+                  selected: _freqType == HabitFrequencyType.weekly && _freqTarget != 3,
+                  onTap: () => setState(() {
+                    _freqType = HabitFrequencyType.weekly;
+                    _freqTarget = 2;
+                  }),
+                ),
+              ),
             ],
           ),
         ],
       );
+
+  Future<void> _pickCustomTime() async {
+    HapticFeedback.selectionClick();
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      helpText: S.of(context).pickATime,
+    );
+    if (picked == null) return;
+    setState(() {
+      _cueCtrl.text = HabitCue.time(picked.hour, picked.minute).labelFor(context);
+    });
+  }
 
   void _applySuggestion(_GoalSuggestion suggestion) {
     HapticFeedback.selectionClick();
