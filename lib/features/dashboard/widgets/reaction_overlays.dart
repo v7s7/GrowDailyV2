@@ -52,6 +52,11 @@ void registerDashboardReactions(
       HapticFeedback.heavyImpact();
       Future.delayed(const Duration(milliseconds: 250), () {
         if (context.mounted) {
+          // A level-up or streak-freeze snackbar may already be on screen
+          // from earlier in this same reaction batch — clear it so the
+          // achievement sheet (the bigger celebration) doesn't visually
+          // collide with a toast sitting at the same bottom edge.
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
           showAchievementUnlockSheet(context, next.newlyUnlocked.first);
         }
       });
@@ -60,7 +65,13 @@ void registerDashboardReactions(
         prev.milestoneCelebration == null) {
       final m = next.milestoneCelebration!;
       Future.delayed(const Duration(milliseconds: 350), () {
-        if (context.mounted) showMilestoneCelebration(context, m, ref);
+        if (context.mounted) {
+          // Same reasoning as the achievement sheet above: a milestone is
+          // the biggest celebration in the app, so it should never appear
+          // stacked on top of a leftover snackbar.
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          showMilestoneCelebration(context, m, ref);
+        }
       });
     }
   });

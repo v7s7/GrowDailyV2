@@ -170,43 +170,24 @@ class GridScreen extends ConsumerWidget {
           ],
         ),
       ),
-      // This is the ONLY way to add a habit once the grid isn't empty — the
-      // empty state's buttons disappear the moment the first habit lands,
-      // so without this FAB there is no way back into "add a habit" from
-      // the app's home screen.
+      // Today is the primary place to add/browse habits (its FAB offers both
+      // "Plans" and "Add Habit" at full size). Grid only needs a secondary,
+      // smaller way back into "add a habit" for when the grid isn't empty —
+      // the empty state's own "Browse Plans" button covers the zero-habit
+      // case, so this single small icon FAB is deliberately the *lesser*
+      // affordance, not a duplicate of Today's.
       floatingActionButton: habits.isEmpty
           ? null
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                FloatingActionButton.small(
-                  heroTag: 'grid-plans',
-                  onPressed: () => showPlanPickerSheet(context),
-                  backgroundColor: gp.surfaceHigh,
-                  foregroundColor: gp.textPrimary,
-                  elevation: 0,
-                  child: Icon(Icons.auto_awesome_rounded,
-                      size: 18, color: GameColors.gold),
-                ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.4),
-                const SizedBox(height: 10),
-                FloatingActionButton.extended(
-                  heroTag: 'grid-add',
-                  onPressed: () => showAddHabitSheet(context, ref),
-                  backgroundColor: GameColors.gold,
-                  foregroundColor: Colors.black,
-                  elevation: 0,
-                  icon: const Icon(Icons.add_rounded, size: 20),
-                  label: Text(
-                    s.addHabit,
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.0),
-                  ),
-                ).animate(delay: 600.ms).fadeIn().slideY(begin: 0.4),
-              ],
-            ),
+          : FloatingActionButton.small(
+              heroTag: 'grid-add',
+              onPressed: () => showAddHabitSheet(context, ref),
+              backgroundColor: gp.surfaceHigh,
+              foregroundColor: gp.textPrimary,
+              elevation: 0,
+              tooltip: s.addHabit,
+              child: const Icon(Icons.add_rounded,
+                  size: 20, color: GameColors.gold),
+            ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.4),
     );
   }
 }
@@ -1377,6 +1358,22 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               ),
               const SizedBox(height: 14),
             ],
+            if (!widget.day.isToday) ...[
+              Row(
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      color: gp.textTert, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      s.gridPastDayHint,
+                      style: TextStyle(fontSize: 12, color: gp.textSec),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+            ],
             Text(
               s.gridEditSquare.toUpperCase(),
               style: TextStyle(
@@ -1620,6 +1617,11 @@ class _Legend extends StatelessWidget {
                   ],
                 ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            s.gridRewardHint,
+            style: TextStyle(fontSize: 10.5, color: gp.textTert, height: 1.3),
           ),
         ],
       ),

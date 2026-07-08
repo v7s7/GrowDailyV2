@@ -151,75 +151,11 @@ class ProfileScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Decorative banner — kept on its own fixed light card
-                  // (see premium_upgrade_hero for why) since the confetti
-                  // art has soft shading baked in for a cream backdrop.
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-                    child: Container(
-                      height: 130,
-                      width: double.infinity,
-                      color: const Color(0xFFFEFAF0),
-                      child: Image.asset(
-                        'assets/images/achievement_celebration_burst.png',
-                        fit: BoxFit.cover,
-                        alignment: Alignment.center,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Text(s.achievements,
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: gp.textSec,
-                              letterSpacing: 1.5)),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: GameColors.gold.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(100),
-                        ),
-                        child: Text(
-                          '${unlockedIds.length} / ${AchievementCatalog.all.length}',
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: GameColors.gold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+              child: _AchievementsSection(
+                sorted: sorted,
+                unlockedIds: unlockedIds,
+                state: state,
               ),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverGrid.count(
-              crossAxisCount: 2,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              childAspectRatio: 0.78,
-              children: sorted
-                  .asMap()
-                  .entries
-                  .map((e) => _AchievementCard(
-                        achievement: e.value,
-                        isUnlocked: unlockedIds.contains(e.value.id),
-                        state: state,
-                      )
-                          .animate(delay: (e.key * 45).ms)
-                          .fadeIn(duration: 350.ms)
-                          .slideY(begin: 0.1))
-                  .toList(),
             ),
           ),
           const SliverToBoxAdapter(child: _SettingsSection()),
@@ -829,6 +765,124 @@ class _StreakFreezeCard extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─── Achievements Section (banner + collapsible preview grid) ─────────────────
+
+/// Keeps the achievements block from dominating Profile: shows a short
+/// unlocked-first preview by default (matching the top section's focus on
+/// Level/XP/Streak/Gold/14-day progress) with a "View all" toggle that
+/// expands to the full catalog in place — no extra screen/route needed.
+class _AchievementsSection extends StatefulWidget {
+  final List<AchievementModel> sorted;
+  final List<String> unlockedIds;
+  final DashboardState state;
+
+  const _AchievementsSection({
+    required this.sorted,
+    required this.unlockedIds,
+    required this.state,
+  });
+
+  @override
+  State<_AchievementsSection> createState() => _AchievementsSectionState();
+}
+
+class _AchievementsSectionState extends State<_AchievementsSection> {
+  static const int _previewCount = 4;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final canCollapse = widget.sorted.length > _previewCount;
+    final visible =
+        _expanded ? widget.sorted : widget.sorted.take(_previewCount).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Decorative banner — kept on its own fixed light card (see
+        // premium_upgrade_hero for why) since the confetti art has soft
+        // shading baked in for a cream backdrop.
+        ClipRRect(
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          child: Container(
+            height: 130,
+            width: double.infinity,
+            color: const Color(0xFFFEFAF0),
+            child: Image.asset(
+              'assets/images/achievement_celebration_burst.png',
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Text(s.achievements,
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textSec,
+                    letterSpacing: 1.5)),
+            const Spacer(),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: GameColors.gold.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Text(
+                '${widget.unlockedIds.length} / ${AchievementCatalog.all.length}',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: GameColors.gold),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 0.78,
+          children: visible
+              .asMap()
+              .entries
+              .map((e) => _AchievementCard(
+                    achievement: e.value,
+                    isUnlocked: widget.unlockedIds.contains(e.value.id),
+                    state: widget.state,
+                  )
+                      .animate(delay: (e.key * 45).ms)
+                      .fadeIn(duration: 350.ms)
+                      .slideY(begin: 0.1))
+              .toList(),
+        ),
+        if (canCollapse) ...[
+          const SizedBox(height: 6),
+          Center(
+            child: TextButton(
+              onPressed: () => setState(() => _expanded = !_expanded),
+              child: Text(
+                _expanded
+                    ? s.achievementsShowLess
+                    : s.achievementsViewAll(widget.sorted.length),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

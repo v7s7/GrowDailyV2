@@ -30,7 +30,7 @@ class GameNavBar extends StatelessWidget {
     final s = S.of(context);
     final items = [
       _NavItem(Icons.grid_view_rounded, s.navGrid),
-      _NavItem(Icons.home_rounded, s.navDashboard),
+      _NavItem(Icons.checklist_rounded, s.navToday),
       _NavItem(Icons.center_focus_strong_rounded, s.navFocus),
       _NavItem(Icons.person_rounded, s.navProfile),
     ];

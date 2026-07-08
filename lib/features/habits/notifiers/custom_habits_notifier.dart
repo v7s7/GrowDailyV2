@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/constants/game_constants.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/utils/intention_phrase.dart';
 import '../../auth/notifiers/auth_notifier.dart';
@@ -138,15 +139,13 @@ class CustomHabitsNotifier
     }
   }
 
-  static (int, int) _rewards(HabitCategory c) => switch (c) {
-        HabitCategory.quran => (30, 10),
-        HabitCategory.athkar => (15, 5),
-        HabitCategory.fitness => (20, 8),
-        HabitCategory.fasting => (40, 15),
-        HabitCategory.sadaqah => (25, 10),
-        HabitCategory.sleep => (15, 5),
-        HabitCategory.custom => (20, 8),
-      };
+  /// Default reward for a custom habit in category [c] — sourced from
+  /// [GameConstants] so this isn't a second, driftable copy of the same
+  /// numbers.
+  static (int, int) _rewards(HabitCategory c) => (
+        GameConstants.categoryXpRewards[c.name] ?? 10,
+        GameConstants.categoryGoldRewards[c.name] ?? 5,
+      );
 }
 
 final customHabitsProvider =

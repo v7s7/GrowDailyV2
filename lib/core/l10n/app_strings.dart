@@ -167,6 +167,8 @@ class S {
   // ── Profile ──────────────────────────────────────────────────────────────
   String get profile => isAr ? 'الملف الشخصي' : 'Profile';
   String get achievements => isAr ? 'الإنجازات' : 'ACHIEVEMENTS';
+  String achievementsViewAll(int n) => isAr ? 'عرض الكل ($n)' : 'View all ($n)';
+  String get achievementsShowLess => isAr ? 'عرض أقل' : 'Show less';
   String get settings => isAr ? 'الإعدادات' : 'SETTINGS';
   String get darkMode => isAr ? 'الوضع الداكن' : 'Dark Mode';
   String get appearance => isAr ? 'المظهر' : 'Appearance';
@@ -217,8 +219,8 @@ class S {
   // ── Empty state ───────────────────────────────────────────────────────────
   String get noHabitsYet => isAr ? 'لا عادات بعد' : 'No habits yet';
   String get noHabitsDesc => isAr
-      ? 'ابدأ بخطة جاهزة أو أنشئ عادتك الخاصة.'
-      : 'Start with a ready plan or create your own habit.';
+      ? 'أكمل عاداتك اليوم، لوّن شبكتك الأسبوعية، وحافظ على سلسلتك مستمرة.'
+      : 'Complete habits today, fill your grid, and keep your streak alive.';
   String get allDoneTitle => isAr ? 'أحسنت!' : 'ALL DONE!';
   String get allDoneSubtitle => isAr
       ? 'كل عادات اليوم مكتملة. استمر!'
@@ -363,7 +365,7 @@ class S {
   String get quickWinClaim => isAr ? 'استلام' : 'Claim';
 
   // ── Navigation ───────────────────────────────────────────────────────────
-  String get navDashboard => isAr ? 'اليوم' : 'Today';
+  String get navToday => isAr ? 'اليوم' : 'Today';
   String get navGrid => isAr ? 'الشبكة' : 'Grid';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
@@ -386,11 +388,17 @@ class S {
       ? 'اضغط لتلوين المربّع · اضغط مطولاً للمزيد من الألوان'
       : 'Tap to color · long-press for more colors';
   String get gridLegend => isAr ? 'الألوان' : 'Legend';
+  String get gridRewardHint => isAr
+      ? 'اليوم فقط يمنحك نقاط الخبرة والذهب، ويزيد سلسلتك مرة واحدة يوميًا كحد أقصى.'
+      : "Only today earns XP, gold, and streak credit — once per day at most.";
+  String get gridPastDayHint => isAr
+      ? 'تعديل يوم سابق: يُحدّث سجلّك المرئي فقط، دون مكافآت.'
+      : 'Editing a past day updates your visual record only — no rewards.';
   String get gridEmptyTitle => isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
   String get gridEmptyDesc => isAr
-      ? 'أضف عادات من الرئيسية لتبدأ بتلوين أسبوعك.'
-      : 'Add a few habits from the Dashboard to start coloring your week.';
-  String get gridGoToDashboard => isAr ? 'الذهاب للرئيسية' : 'Go to Dashboard';
+      ? 'أضف عادات من تبويب اليوم لتبدأ بتلوين أسبوعك.'
+      : 'Add a few habits from Today to start coloring your week.';
+  String get gridGoToDashboard => isAr ? 'الذهاب لليوم' : 'Go to Today';
   String get gridEditSquare => isAr ? 'حدّد المربّع' : 'Set this square';
   String get gridNoteLabel => isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
   String get gridNoteHint =>

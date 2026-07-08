@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/game_constants.dart';
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/notification_service.dart';
@@ -8,17 +10,16 @@ import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 
-const List<int> kStreakMilestones = [3, 7, 14, 30, 60, 100];
+/// Streak-day thresholds that trigger a milestone celebration, derived from
+/// [GameConstants.streakBonuses] so the thresholds and their XP payouts
+/// can't drift apart into two different lists.
+final List<int> kStreakMilestones = GameConstants.streakBonuses.keys.toList();
 
-int milestoneXpBonus(int milestone) => switch (milestone) {
-      3 => 25,
-      7 => 75,
-      14 => 150,
-      30 => 300,
-      60 => 600,
-      100 => 1500,
-      _ => 0,
-    };
+/// One-time XP bonus for reaching [milestone] days — delegates to
+/// [XpCalculator.streakMilestoneBonus] (backed by [GameConstants]) so this
+/// isn't a second, independently-editable copy of the same numbers.
+int milestoneXpBonus(int milestone) =>
+    XpCalculator.streakMilestoneBonus(milestone);
 
 String milestoneTitle(int milestone) => switch (milestone) {
       3 => '3-Day Starter',
@@ -175,7 +176,6 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   static const int streakFreezeCost = 100;
   static const int maxStreakFreezes = 3;
   static const int comebackBonusXp = 50;
-  static const List<int> streakMilestones = [3, 7, 14, 30, 60, 100];
 
   final String? _uid;
 
@@ -189,10 +189,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
   // ── Helpers ─────────────────────────────────────────────────
 
-  static String get _todayKey {
-    final n = DateTime.now();
-    return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
-  }
+  static String get _todayKey => DateTime.now().toDateKey();
 
   static String get _weekKey {
     final today = _dateOnly(DateTime.now());
