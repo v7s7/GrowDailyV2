@@ -5,13 +5,24 @@ enum AchievementRarity {
   epic,
   legendary;
 
-  String get displayName => switch (this) {
-        common => 'Common',
-        uncommon => 'Uncommon',
-        rare => 'Rare',
-        epic => 'Epic',
-        legendary => 'Legendary',
-      };
+  /// Locale-aware rarity label for the achievement-card badge (e.g.
+  /// "RARE"/"نادر") — was English-only before, showing untranslated even
+  /// with the app set to Arabic.
+  String localizedName(bool isAr) => isAr
+      ? switch (this) {
+          common => 'شائع',
+          uncommon => 'غير شائع',
+          rare => 'نادر',
+          epic => 'ملحمي',
+          legendary => 'أسطوري',
+        }
+      : switch (this) {
+          common => 'Common',
+          uncommon => 'Uncommon',
+          rare => 'Rare',
+          epic => 'Epic',
+          legendary => 'Legendary',
+        };
 }
 
 enum AchievementTrigger {

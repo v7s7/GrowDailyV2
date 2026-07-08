@@ -947,6 +947,7 @@ class _AchievementCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     final c = _color;
     return Container(
       padding: const EdgeInsets.all(14),
@@ -996,12 +997,16 @@ class _AchievementCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              achievement.rarity.displayName.toUpperCase(),
+              s.isAr
+                  ? achievement.rarity.localizedName(true)
+                  : achievement.rarity.localizedName(false).toUpperCase(),
               style: TextStyle(
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
                   color: c,
-                  letterSpacing: 1.2),
+                  // Same reasoning as the milestone-celebration fix: wide
+                  // letter-spacing breaks Arabic cursive letter-joining.
+                  letterSpacing: s.isAr ? 0 : 1.2),
             ),
             const SizedBox(height: 10),
             if (isUnlocked)

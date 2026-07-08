@@ -292,7 +292,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
-                                        cat.displayName,
+                                        cat.localizedName(s.isAr),
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: selected
@@ -418,8 +418,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   void _applyStarter(_HabitStarter starter) {
     HapticFeedback.selectionClick();
-    _nameCtrl.text = starter.name;
-    _cueCtrl.text = starter.cueAfter;
+    final isAr = S.of(context).isAr;
+    _nameCtrl.text = starter.name(isAr);
+    _cueCtrl.text = starter.cueAfter(isAr);
     setState(() {
       _category = starter.category;
       _freqType = starter.frequencyType;
@@ -457,47 +458,64 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
 
 class _HabitStarter {
-  final String name;
-  final String cueAfter;
+  final String nameEn;
+  final String nameAr;
+  final String cueEn;
+  final String cueAr;
   final HabitCategory category;
   final HabitFrequencyType frequencyType;
   final int frequencyTarget;
 
   const _HabitStarter({
-    required this.name,
-    required this.cueAfter,
+    required this.nameEn,
+    required this.nameAr,
+    required this.cueEn,
+    required this.cueAr,
     required this.category,
     this.frequencyType = HabitFrequencyType.daily,
     this.frequencyTarget = 1,
   });
+
+  String name(bool isAr) => isAr ? nameAr : nameEn;
+  String cueAfter(bool isAr) => isAr ? cueAr : cueEn;
 }
 
 const _starters = [
   _HabitStarter(
-    name: 'Read 3 ayat',
-    cueAfter: 'Fajr',
+    nameEn: 'Read 3 ayat',
+    nameAr: 'اقرأ 3 آيات',
+    cueEn: 'Fajr',
+    cueAr: 'الفجر',
     category: HabitCategory.quran,
   ),
   _HabitStarter(
-    name: 'Morning Athkar',
-    cueAfter: 'Fajr',
+    nameEn: 'Morning Athkar',
+    nameAr: 'أذكار الصباح',
+    cueEn: 'Fajr',
+    cueAr: 'الفجر',
     category: HabitCategory.athkar,
   ),
   _HabitStarter(
-    name: 'Give small sadaqah',
-    cueAfter: 'Jumuah',
+    nameEn: 'Give small sadaqah',
+    nameAr: 'تصدّق ولو بالقليل',
+    cueEn: 'Jumuah',
+    cueAr: 'الجمعة',
     category: HabitCategory.sadaqah,
     frequencyType: HabitFrequencyType.weekly,
     frequencyTarget: 1,
   ),
   _HabitStarter(
-    name: 'Walk 10 minutes',
-    cueAfter: 'Asr',
+    nameEn: 'Walk 10 minutes',
+    nameAr: 'امشِ 10 دقائق',
+    cueEn: 'Asr',
+    cueAr: 'العصر',
     category: HabitCategory.fitness,
   ),
   _HabitStarter(
-    name: 'Sleep before 11',
-    cueAfter: 'Isha',
+    nameEn: 'Sleep before 11',
+    nameAr: 'نم قبل الساعة 11',
+    cueEn: 'Isha',
+    cueAr: 'العشاء',
     category: HabitCategory.sleep,
   ),
 ];
@@ -509,13 +527,14 @@ class _SmartStarterRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Text(
-            S.of(context).smartStarters,
+            s.smartStarters,
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
@@ -534,7 +553,7 @@ class _SmartStarterRail extends StatelessWidget {
               return ActionChip(
                 onPressed: () => onPick(starter),
                 avatar: Icon(starter.category.icon, size: 16),
-                label: Text(starter.name),
+                label: Text(starter.name(s.isAr)),
               );
             },
             separatorBuilder: (_, __) => const SizedBox(width: 8),
@@ -551,16 +570,23 @@ class _RoutineCueChips extends StatelessWidget {
   final ValueChanged<String> onPick;
   const _RoutineCueChips({required this.selected, required this.onPick});
 
-  static const _cues = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Before sleep'];
-
-  /// Not every habit hangs off a prayer — some people just want "7:30 AM".
-  /// The current cue counts as a picked clock time when it's set but isn't
-  /// one of the named routine anchors above.
-  bool get _selectedIsCustomTime =>
-      selected.isNotEmpty && !_cues.contains(selected);
+  // (English, Arabic) pairs — the chip both displays and *emits* whichever
+  // one matches the active locale, since cueAfter is stored as plain
+  // freeform text (a user can type any routine, not just a prayer), so the
+  // simplest correct fix is to never write English into it while the app is
+  // in Arabic mode, rather than storing a key and translating on every read.
+  static const _cues = [
+    ('Fajr', 'الفجر'),
+    ('Dhuhr', 'الظهر'),
+    ('Asr', 'العصر'),
+    ('Maghrib', 'المغرب'),
+    ('Isha', 'العشاء'),
+    ('Before sleep', 'قبل النوم'),
+  ];
 
   Future<void> _pickTime(BuildContext context) async {
     HapticFeedback.selectionClick();
+    final isAr = S.of(context).isAr;
     final picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
@@ -569,12 +595,16 @@ class _RoutineCueChips extends StatelessWidget {
         child: child!,
       ),
     );
-    if (picked != null) onPick(_formatTime(picked));
+    if (picked != null) onPick(_formatTime(picked, isAr));
   }
 
-  static String _formatTime(TimeOfDay t) {
+  static String _formatTime(TimeOfDay t, bool isAr) {
     final hour = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
     final minute = t.minute.toString().padLeft(2, '0');
+    if (isAr) {
+      final period = t.period == DayPeriod.am ? 'ص' : 'م';
+      return '$hour:$minute $period';
+    }
     final period = t.period == DayPeriod.am ? 'AM' : 'PM';
     return '$hour:$minute $period';
   }
@@ -582,14 +612,18 @@ class _RoutineCueChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final timeSelected = _selectedIsCustomTime;
+    final labels = _cues.map((c) => s.isAr ? c.$2 : c.$1).toList();
+    // Not every habit hangs off a prayer — some people just want "7:30 AM".
+    // The current cue counts as a picked clock time when it's set but isn't
+    // one of the named routine anchors above.
+    final timeSelected = selected.isNotEmpty && !labels.contains(selected);
     return SizedBox(
       height: 34,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
         itemBuilder: (context, index) {
-          if (index == _cues.length) {
+          if (index == labels.length) {
             return ChoiceChip(
               avatar: Icon(
                 timeSelected
@@ -603,15 +637,15 @@ class _RoutineCueChips extends StatelessWidget {
               onSelected: (_) => _pickTime(context),
             );
           }
-          final cue = _cues[index];
+          final label = labels[index];
           return ChoiceChip(
-            selected: selected == cue,
-            label: Text(cue),
-            onSelected: (_) => onPick(cue),
+            selected: selected == label,
+            label: Text(label),
+            onSelected: (_) => onPick(label),
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: _cues.length + 1,
+        itemCount: labels.length + 1,
       ),
     );
   }

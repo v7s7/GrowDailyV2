@@ -23,15 +23,28 @@ enum HabitCategory {
   static HabitCategory fromJson(String v) =>
       values.firstWhere((e) => e.name == v, orElse: () => custom);
 
-  String get displayName => switch (this) {
-        quran => 'Quran',
-        athkar => 'Athkar',
-        fitness => 'Fitness',
-        fasting => 'Fasting',
-        sadaqah => 'Sadaqah',
-        sleep => 'Sleep',
-        custom => 'Custom',
-      };
+  /// Locale-aware category label (e.g. for the Add/Edit Habit category
+  /// chips) — this was English-only before, which meant it showed as
+  /// "Fasting"/"Fitness"/etc. even with the app set to Arabic.
+  String localizedName(bool isAr) => isAr
+      ? switch (this) {
+          quran => 'القرآن',
+          athkar => 'الأذكار',
+          fitness => 'اللياقة',
+          fasting => 'الصيام',
+          sadaqah => 'الصدقة',
+          sleep => 'النوم',
+          custom => 'مخصص',
+        }
+      : switch (this) {
+          quran => 'Quran',
+          athkar => 'Athkar',
+          fitness => 'Fitness',
+          fasting => 'Fasting',
+          sadaqah => 'Sadaqah',
+          sleep => 'Sleep',
+          custom => 'Custom',
+        };
 
   IconData get icon => switch (this) {
         quran => Icons.menu_book_rounded,
