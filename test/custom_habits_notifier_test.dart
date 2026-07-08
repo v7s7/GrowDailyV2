@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
+import 'package:grow_daily_v2/features/habits/models/habit_cue.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
 
@@ -115,6 +116,29 @@ void main() {
       );
 
       expect(container.read(customHabitsProvider).first.cueAfter, '9:15 PM');
+    });
+
+    test(
+        'the notifier stores exactly the canonical value it is given — '
+        'AddHabitSheet is responsible for canonicalizing before calling in, '
+        'not this layer', () async {
+      final notifier = container.read(customHabitsProvider.notifier);
+      // This is what AddHabitSheet._submit() now passes for a preset cue
+      // (HabitCue.preset('maghrib').toStorageValue()) — a bare canonical
+      // key, never the localized label ("المغرب"/"Maghrib") the chip
+      // showed on screen.
+      notifier.add(
+        name: 'Read Surat Al-Mulk',
+        category: HabitCategory.quran,
+        cueAfter: HabitCue.preset('maghrib').toStorageValue(),
+        frequencyType: HabitFrequencyType.daily,
+        frequencyTarget: 1,
+      );
+
+      final stored = container.read(customHabitsProvider).first.cueAfter;
+      expect(stored, 'maghrib');
+      expect(stored, isNot('المغرب'));
+      expect(stored, isNot('Maghrib'));
     });
 
     test('remove deletes the habit and it no longer appears in the list',

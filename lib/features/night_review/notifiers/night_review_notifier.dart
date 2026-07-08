@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/mood.dart';
@@ -42,10 +43,7 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
     _load();
   }
 
-  static String get _todayKey {
-    final n = DateTime.now();
-    return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
-  }
+  static String get _todayKey => DateTime.now().toDateKey();
 
   DocumentReference<Map<String, dynamic>> get _dailyRef => FirebaseFirestore
       .instance

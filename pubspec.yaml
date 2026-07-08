@@ -24,8 +24,11 @@ dependencies:
   # ── State management ─────────────────────────────────────────
   flutter_riverpod: ^2.5.1
 
-  # ── Navigation ───────────────────────────────────────────────
-  go_router: ^14.2.7
+  # Navigation is hand-rolled in main.dart (MaterialApp routes +
+  # onGenerateRoute for the instant bottom-tab switch) — go_router was
+  # never wired up, so it's intentionally not a dependency here. If routing
+  # is ever migrated to go_router, re-add it then rather than carrying an
+  # unused package in the meantime.
 
   # ── Animations ───────────────────────────────────────────────
   flutter_animate: ^4.5.0

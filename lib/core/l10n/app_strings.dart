@@ -153,13 +153,57 @@ class S {
   String get freshStreakInstead => isAr ? 'ابدأ سلسلة جديدة بدلاً من ذلك' : 'Start a fresh streak instead';
   String get keepGrowing => isAr ? 'واصل النمو' : 'Keep growing';
   String get streakMilestoneLabel => isAr ? 'إنجاز السلسلة' : 'STREAK MILESTONE';
-  String daysCount(int n) => isAr ? '$n يوم' : '$n Days';
-  String nowWarrior(String title) => isAr ? 'أنت الآن $title.' : 'You are now a $title.';
+
+  /// Arabic cardinal numbers agree with their counted noun differently by
+  /// range (CLDR's Arabic plural rule: one/two/few(3-10)/many(11-99)/other)
+  /// — "3 أيام" and "14 يومًا" are both correct, "3 يوم" or "14 أيام" read as
+  /// mistakes to a native reader, so this can't just be "$n يوم" for every n.
+  String daysCount(int n) {
+    if (!isAr) return '$n Days';
+    if (n == 0) return 'لا أيام';
+    if (n == 1) return 'يوم واحد';
+    if (n == 2) return 'يومان';
+    final mod100 = n % 100;
+    if (mod100 >= 3 && mod100 <= 10) return '$n أيام';
+    if (mod100 >= 11 && mod100 <= 99) return '$n يومًا';
+    return '$n يوم';
+  }
+
+  /// Flavor title for a streak milestone (e.g. "3-Day Starter"). Gulf/Khaleeji
+  /// tone in Arabic — "النشامى" especially is a warm, distinctly Bahraini/Gulf
+  /// word for the brave/steadfast, rather than a flat literal translation.
+  String milestoneTitle(int milestone) {
+    if (!isAr) {
+      return switch (milestone) {
+        3 => '3-Day Starter',
+        7 => '7-Day Warrior',
+        14 => '2-Week Champion',
+        30 => 'Month Master',
+        60 => '60-Day Devotee',
+        100 => 'Century Legend',
+        _ => 'Streak Milestone',
+      };
+    }
+    return switch (milestone) {
+      3 => 'بداية النشامى',
+      7 => 'محارب الأسبوع',
+      14 => 'بطل الأسبوعين',
+      30 => 'سيد الشهر',
+      60 => 'صاحب الهمّة',
+      100 => 'أسطورة المئة',
+      _ => 'إنجاز السلسلة',
+    };
+  }
+
+  String nowWarrior(String title) =>
+      isAr ? 'ما شاء الله! أنت الآن $title.' : 'You are now a $title.';
   String get consistencyBuildsCharacter => isAr
-      ? 'الاتساق يبني الشخصية — استمر بالحضور.'
+      ? 'الثبات يصنع الأبطال — كمّل المشوار.'
       : 'Consistency builds character — keep showing up.';
+  // Arabic phrase leads, the "+N XP" token trails — reads more naturally in
+  // an RTL sentence than opening with a Latin/number run.
   String milestoneBonusXp(int bonus) =>
-      isAr ? '+$bonus XP مكافأة الإنجاز' : '+$bonus XP milestone bonus';
+      isAr ? 'مكافأة الإنجاز: +$bonus XP' : '+$bonus XP milestone bonus';
   String get achievementUnlocked => isAr ? 'إنجاز مفتوح!' : 'ACHIEVEMENT UNLOCKED';
   String get claimReward => isAr ? 'استلم المكافأة' : 'CLAIM REWARD';
   String get levelUpMsg => isAr ? 'ارتقاء مستوى' : 'LEVEL UP';
@@ -167,6 +211,8 @@ class S {
   // ── Profile ──────────────────────────────────────────────────────────────
   String get profile => isAr ? 'الملف الشخصي' : 'Profile';
   String get achievements => isAr ? 'الإنجازات' : 'ACHIEVEMENTS';
+  String achievementsViewAll(int n) => isAr ? 'عرض الكل ($n)' : 'View all ($n)';
+  String get achievementsShowLess => isAr ? 'عرض أقل' : 'Show less';
   String get settings => isAr ? 'الإعدادات' : 'SETTINGS';
   String get darkMode => isAr ? 'الوضع الداكن' : 'Dark Mode';
   String get appearance => isAr ? 'المظهر' : 'Appearance';
@@ -175,6 +221,9 @@ class S {
   String get appearancePremiumHint => isAr
       ? 'القوالب المميزة تتطلب Premium'
       : 'Premium templates require Premium';
+  String get preview => isAr ? 'معاينة' : 'Preview';
+  String previewingTheme(String name) =>
+      isAr ? 'معاينة: $name — مرر للتصفح' : 'Previewing: $name — swipe to look around';
   String get language => isAr ? 'اللغة' : 'Language';
   String get languageAr => isAr ? 'العربية' : 'Arabic';
   String get languageEn => isAr ? 'English' : 'English';
@@ -217,8 +266,8 @@ class S {
   // ── Empty state ───────────────────────────────────────────────────────────
   String get noHabitsYet => isAr ? 'لا عادات بعد' : 'No habits yet';
   String get noHabitsDesc => isAr
-      ? 'ابدأ بخطة جاهزة أو أنشئ عادتك الخاصة.'
-      : 'Start with a ready plan or create your own habit.';
+      ? 'أكمل عاداتك اليوم، لوّن شبكتك الأسبوعية، وحافظ على سلسلتك مستمرة.'
+      : 'Complete habits today, fill your grid, and keep your streak alive.';
   String get allDoneTitle => isAr ? 'أحسنت!' : 'ALL DONE!';
   String get allDoneSubtitle => isAr
       ? 'كل عادات اليوم مكتملة. استمر!'
@@ -363,7 +412,7 @@ class S {
   String get quickWinClaim => isAr ? 'استلام' : 'Claim';
 
   // ── Navigation ───────────────────────────────────────────────────────────
-  String get navDashboard => isAr ? 'اليوم' : 'Today';
+  String get navToday => isAr ? 'اليوم' : 'Today';
   String get navGrid => isAr ? 'الشبكة' : 'Grid';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
@@ -385,12 +434,17 @@ class S {
   String get gridTapHint => isAr
       ? 'اضغط لتلوين المربّع · اضغط مطولاً للمزيد من الألوان'
       : 'Tap to color · long-press for more colors';
-  String get gridLegend => isAr ? 'الألوان' : 'Legend';
+  String get gridRewardHint => isAr
+      ? 'اليوم فقط يمنحك نقاط الخبرة والذهب، ويزيد سلسلتك مرة واحدة يوميًا كحد أقصى.'
+      : "Only today earns XP, gold, and streak credit — once per day at most.";
+  String get gridPastDayHint => isAr
+      ? 'تعديل يوم سابق: يُحدّث سجلّك المرئي فقط، دون مكافآت.'
+      : 'Editing a past day updates your visual record only — no rewards.';
   String get gridEmptyTitle => isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
   String get gridEmptyDesc => isAr
-      ? 'أضف عادات من الرئيسية لتبدأ بتلوين أسبوعك.'
-      : 'Add a few habits from the Dashboard to start coloring your week.';
-  String get gridGoToDashboard => isAr ? 'الذهاب للرئيسية' : 'Go to Dashboard';
+      ? 'أضف عادات من تبويب اليوم لتبدأ بتلوين أسبوعك.'
+      : 'Add a few habits from Today to start coloring your week.';
+  String get gridGoToDashboard => isAr ? 'الذهاب لليوم' : 'Go to Today';
   String get gridEditSquare => isAr ? 'حدّد المربّع' : 'Set this square';
   String get gridNoteLabel => isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
   String get gridNoteHint =>

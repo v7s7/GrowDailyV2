@@ -8,6 +8,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../catalog/islamic_habit_catalog.dart';
+import '../models/habit_cue.dart';
 import '../models/habit_model.dart';
 import '../notifiers/custom_habits_notifier.dart';
 
@@ -28,6 +29,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   int _freqTarget = 1;
   bool _hasName = false;
   bool _didPickCategory = false;
+  // cueAfter on disk is a stable, locale-independent key/value (see
+  // HabitCue) — the text field itself always shows the localized label, so
+  // this resolves the stored value into that label exactly once. Deferred
+  // to build() (guarded by this flag) rather than done in initState,
+  // because S.of(context) needs the widget already mounted in the tree.
+  bool _cueLabelResolved = false;
 
   bool get _isEditing => widget.existing != null;
 
@@ -79,12 +86,18 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       return;
     }
     HapticFeedback.mediumImpact();
+    // The text field shows a localized label ("المغرب"/"Maghrib"/a picked
+    // time/free text) — convert back to the stable, locale-independent
+    // value before it's persisted, so Firestore/Hive never stores text
+    // that's tied to whatever language happened to be active right now.
+    final cueValue =
+        HabitCue.fromStoredValue(_cueCtrl.text.trim()).toStorageValue();
     if (existing != null) {
       ref.read(customHabitsProvider.notifier).update(
             id: existing.id,
             name: _nameCtrl.text.trim(),
             category: _category,
-            cueAfter: _cueCtrl.text.trim(),
+            cueAfter: cueValue,
             frequencyType: _freqType,
             frequencyTarget: _freqTarget,
           );
@@ -92,7 +105,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       ref.read(customHabitsProvider.notifier).add(
             name: _nameCtrl.text.trim(),
             category: _category,
-            cueAfter: _cueCtrl.text.trim(),
+            cueAfter: cueValue,
             frequencyType: _freqType,
             frequencyTarget: _freqTarget,
           );
@@ -112,6 +125,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    if (!_cueLabelResolved) {
+      _cueLabelResolved = true;
+      if (_cueCtrl.text.isNotEmpty) {
+        _cueCtrl.text = HabitCue.fromStoredValue(_cueCtrl.text).labelFor(context);
+      }
+    }
     final bottom = MediaQuery.of(context).viewInsets.bottom;
 
     // Bounding the sheet's height (rather than letting it size to content)
@@ -223,7 +242,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                         selected: _cueCtrl.text.trim(),
                         onPick: (cue) {
                           HapticFeedback.selectionClick();
-                          setState(() => _cueCtrl.text = cue);
+                          setState(() => _cueCtrl.text = cue.labelFor(context));
                         },
                       ),
                       if (_hasName && _cueCtrl.text.trim().isNotEmpty) ...[
@@ -292,7 +311,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
-                                        cat.displayName,
+                                        cat.localizedName(s.isAr),
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: selected
@@ -418,8 +437,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   void _applyStarter(_HabitStarter starter) {
     HapticFeedback.selectionClick();
-    _nameCtrl.text = starter.name;
-    _cueCtrl.text = starter.cueAfter;
+    final isAr = S.of(context).isAr;
+    _nameCtrl.text = starter.name(isAr);
+    _cueCtrl.text = starter.cueAfter(isAr);
     setState(() {
       _category = starter.category;
       _freqType = starter.frequencyType;
@@ -457,47 +477,64 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
 
 class _HabitStarter {
-  final String name;
-  final String cueAfter;
+  final String nameEn;
+  final String nameAr;
+  final String cueEn;
+  final String cueAr;
   final HabitCategory category;
   final HabitFrequencyType frequencyType;
   final int frequencyTarget;
 
   const _HabitStarter({
-    required this.name,
-    required this.cueAfter,
+    required this.nameEn,
+    required this.nameAr,
+    required this.cueEn,
+    required this.cueAr,
     required this.category,
     this.frequencyType = HabitFrequencyType.daily,
     this.frequencyTarget = 1,
   });
+
+  String name(bool isAr) => isAr ? nameAr : nameEn;
+  String cueAfter(bool isAr) => isAr ? cueAr : cueEn;
 }
 
 const _starters = [
   _HabitStarter(
-    name: 'Read 3 ayat',
-    cueAfter: 'Fajr',
+    nameEn: 'Read 3 ayat',
+    nameAr: 'اقرأ 3 آيات',
+    cueEn: 'Fajr',
+    cueAr: 'الفجر',
     category: HabitCategory.quran,
   ),
   _HabitStarter(
-    name: 'Morning Athkar',
-    cueAfter: 'Fajr',
+    nameEn: 'Morning Athkar',
+    nameAr: 'أذكار الصباح',
+    cueEn: 'Fajr',
+    cueAr: 'الفجر',
     category: HabitCategory.athkar,
   ),
   _HabitStarter(
-    name: 'Give small sadaqah',
-    cueAfter: 'Jumuah',
+    nameEn: 'Give small sadaqah',
+    nameAr: 'تصدّق ولو بالقليل',
+    cueEn: 'Jumuah',
+    cueAr: 'الجمعة',
     category: HabitCategory.sadaqah,
     frequencyType: HabitFrequencyType.weekly,
     frequencyTarget: 1,
   ),
   _HabitStarter(
-    name: 'Walk 10 minutes',
-    cueAfter: 'Asr',
+    nameEn: 'Walk 10 minutes',
+    nameAr: 'امشِ 10 دقائق',
+    cueEn: 'Asr',
+    cueAr: 'العصر',
     category: HabitCategory.fitness,
   ),
   _HabitStarter(
-    name: 'Sleep before 11',
-    cueAfter: 'Isha',
+    nameEn: 'Sleep before 11',
+    nameAr: 'نم قبل الساعة 11',
+    cueEn: 'Isha',
+    cueAr: 'العشاء',
     category: HabitCategory.sleep,
   ),
 ];
@@ -509,13 +546,14 @@ class _SmartStarterRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Text(
-            S.of(context).smartStarters,
+            s.smartStarters,
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
@@ -534,7 +572,7 @@ class _SmartStarterRail extends StatelessWidget {
               return ActionChip(
                 onPressed: () => onPick(starter),
                 avatar: Icon(starter.category.icon, size: 16),
-                label: Text(starter.name),
+                label: Text(starter.name(s.isAr)),
               );
             },
             separatorBuilder: (_, __) => const SizedBox(width: 8),
@@ -547,17 +585,20 @@ class _SmartStarterRail extends StatelessWidget {
 }
 
 class _RoutineCueChips extends StatelessWidget {
+  /// The label currently shown in the routine-cue text field above (already
+  /// localized — see AddHabitSheet's cue-resolution in build()).
   final String selected;
-  final ValueChanged<String> onPick;
+  final ValueChanged<HabitCue> onPick;
   const _RoutineCueChips({required this.selected, required this.onPick});
 
-  static const _cues = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Before sleep'];
-
-  /// Not every habit hangs off a prayer — some people just want "7:30 AM".
-  /// The current cue counts as a picked clock time when it's set but isn't
-  /// one of the named routine anchors above.
-  bool get _selectedIsCustomTime =>
-      selected.isNotEmpty && !_cues.contains(selected);
+  static const _presetKeys = [
+    'fajr',
+    'dhuhr',
+    'asr',
+    'maghrib',
+    'isha',
+    'before_sleep',
+  ];
 
   Future<void> _pickTime(BuildContext context) async {
     HapticFeedback.selectionClick();
@@ -569,27 +610,26 @@ class _RoutineCueChips extends StatelessWidget {
         child: child!,
       ),
     );
-    if (picked != null) onPick(_formatTime(picked));
-  }
-
-  static String _formatTime(TimeOfDay t) {
-    final hour = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
-    final minute = t.minute.toString().padLeft(2, '0');
-    final period = t.period == DayPeriod.am ? 'AM' : 'PM';
-    return '$hour:$minute $period';
+    if (picked != null) onPick(HabitCue.time(picked.hour, picked.minute));
   }
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final timeSelected = _selectedIsCustomTime;
+    final labels = _presetKeys
+        .map((k) => HabitCue.preset(k).labelForLocale(s.isAr))
+        .toList();
+    // Not every habit hangs off a prayer — some people just want "7:30 AM".
+    // The current cue counts as a picked clock time when it's set but isn't
+    // one of the named routine anchors above.
+    final timeSelected = selected.isNotEmpty && !labels.contains(selected);
     return SizedBox(
       height: 34,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
         itemBuilder: (context, index) {
-          if (index == _cues.length) {
+          if (index == labels.length) {
             return ChoiceChip(
               avatar: Icon(
                 timeSelected
@@ -603,15 +643,16 @@ class _RoutineCueChips extends StatelessWidget {
               onSelected: (_) => _pickTime(context),
             );
           }
-          final cue = _cues[index];
+          final key = _presetKeys[index];
+          final label = labels[index];
           return ChoiceChip(
-            selected: selected == cue,
-            label: Text(cue),
-            onSelected: (_) => onPick(cue),
+            selected: selected == label,
+            label: Text(label),
+            onSelected: (_) => onPick(HabitCue.preset(key)),
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: _cues.length + 1,
+        itemCount: labels.length + 1,
       ),
     );
   }

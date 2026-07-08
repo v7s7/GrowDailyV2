@@ -19,6 +19,7 @@ import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../widgets/delete_account_sheet.dart';
+import 'theme_preview_screen.dart';
 
 
 class ProgressPoint {
@@ -151,75 +152,11 @@ class ProfileScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Decorative banner — kept on its own fixed light card
-                  // (see premium_upgrade_hero for why) since the confetti
-                  // art has soft shading baked in for a cream backdrop.
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-                    child: Container(
-                      height: 130,
-                      width: double.infinity,
-                      color: const Color(0xFFFEFAF0),
-                      child: Image.asset(
-                        'assets/images/achievement_celebration_burst.png',
-                        fit: BoxFit.cover,
-                        alignment: Alignment.center,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Text(s.achievements,
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: gp.textSec,
-                              letterSpacing: 1.5)),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: GameColors.gold.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(100),
-                        ),
-                        child: Text(
-                          '${unlockedIds.length} / ${AchievementCatalog.all.length}',
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: GameColors.gold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+              child: _AchievementsSection(
+                sorted: sorted,
+                unlockedIds: unlockedIds,
+                state: state,
               ),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverGrid.count(
-              crossAxisCount: 2,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              childAspectRatio: 0.78,
-              children: sorted
-                  .asMap()
-                  .entries
-                  .map((e) => _AchievementCard(
-                        achievement: e.value,
-                        isUnlocked: unlockedIds.contains(e.value.id),
-                        state: state,
-                      )
-                          .animate(delay: (e.key * 45).ms)
-                          .fadeIn(duration: 350.ms)
-                          .slideY(begin: 0.1))
-                  .toList(),
             ),
           ),
           const SliverToBoxAdapter(child: _SettingsSection()),
@@ -833,6 +770,124 @@ class _StreakFreezeCard extends ConsumerWidget {
   }
 }
 
+// ─── Achievements Section (banner + collapsible preview grid) ─────────────────
+
+/// Keeps the achievements block from dominating Profile: shows a short
+/// unlocked-first preview by default (matching the top section's focus on
+/// Level/XP/Streak/Gold/14-day progress) with a "View all" toggle that
+/// expands to the full catalog in place — no extra screen/route needed.
+class _AchievementsSection extends StatefulWidget {
+  final List<AchievementModel> sorted;
+  final List<String> unlockedIds;
+  final DashboardState state;
+
+  const _AchievementsSection({
+    required this.sorted,
+    required this.unlockedIds,
+    required this.state,
+  });
+
+  @override
+  State<_AchievementsSection> createState() => _AchievementsSectionState();
+}
+
+class _AchievementsSectionState extends State<_AchievementsSection> {
+  static const int _previewCount = 4;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final canCollapse = widget.sorted.length > _previewCount;
+    final visible =
+        _expanded ? widget.sorted : widget.sorted.take(_previewCount).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Decorative banner — kept on its own fixed light card (see
+        // premium_upgrade_hero for why) since the confetti art has soft
+        // shading baked in for a cream backdrop.
+        ClipRRect(
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          child: Container(
+            height: 130,
+            width: double.infinity,
+            color: const Color(0xFFFEFAF0),
+            child: Image.asset(
+              'assets/images/achievement_celebration_burst.png',
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Text(s.achievements,
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textSec,
+                    letterSpacing: 1.5)),
+            const Spacer(),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: GameColors.gold.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Text(
+                '${widget.unlockedIds.length} / ${AchievementCatalog.all.length}',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: GameColors.gold),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 0.78,
+          children: visible
+              .asMap()
+              .entries
+              .map((e) => _AchievementCard(
+                    achievement: e.value,
+                    isUnlocked: widget.unlockedIds.contains(e.value.id),
+                    state: widget.state,
+                  )
+                      .animate(delay: (e.key * 45).ms)
+                      .fadeIn(duration: 350.ms)
+                      .slideY(begin: 0.1))
+              .toList(),
+        ),
+        if (canCollapse) ...[
+          const SizedBox(height: 6),
+          Center(
+            child: TextButton(
+              onPressed: () => setState(() => _expanded = !_expanded),
+              child: Text(
+                _expanded
+                    ? s.achievementsShowLess
+                    : s.achievementsViewAll(widget.sorted.length),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 // ─── Achievement Card ─────────────────────────────────────────────────────────
 
 class _AchievementCard extends StatelessWidget {
@@ -893,6 +948,7 @@ class _AchievementCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     final c = _color;
     return Container(
       padding: const EdgeInsets.all(14),
@@ -942,12 +998,16 @@ class _AchievementCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              achievement.rarity.displayName.toUpperCase(),
+              s.isAr
+                  ? achievement.rarity.localizedName(true)
+                  : achievement.rarity.localizedName(false).toUpperCase(),
               style: TextStyle(
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
                   color: c,
-                  letterSpacing: 1.2),
+                  // Same reasoning as the milestone-celebration fix: wide
+                  // letter-spacing breaks Arabic cursive letter-joining.
+                  letterSpacing: s.isAr ? 0 : 1.2),
             ),
             const SizedBox(height: 10),
             if (isUnlocked)
@@ -1169,6 +1229,20 @@ class _ThemePresetSheet extends ConsumerWidget {
                     ref.read(themePresetProvider.notifier).set(preset.id);
                     Navigator.pop(context);
                   },
+                  // Preview works even for locked/premium presets — trying
+                  // the look on the real screens is not the same as
+                  // unlocking it, so it doesn't need the premium gate onTap
+                  // above uses.
+                  onPreview: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ThemePreviewScreen(preset: preset),
+                      ),
+                    );
+                  },
                 ),
               );
             }),
@@ -1185,6 +1259,7 @@ class _ThemePresetTile extends StatelessWidget {
   final bool locked;
   final String label;
   final VoidCallback onTap;
+  final VoidCallback onPreview;
 
   const _ThemePresetTile({
     required this.preset,
@@ -1192,11 +1267,13 @@ class _ThemePresetTile extends StatelessWidget {
     required this.locked,
     required this.label,
     required this.onTap,
+    required this.onPreview,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1227,6 +1304,38 @@ class _ThemePresetTile extends StatelessWidget {
                 ),
               ),
             ),
+            // Nothing to preview for the preset already applied — for
+            // every other tile (locked or not) this is a second tap target
+            // nested inside the row's own tap target, which Flutter's
+            // gesture arena resolves fine as long as this one claims the
+            // hit first (HitTestBehavior.opaque).
+            if (!selected) ...[
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onPreview,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.visibility_outlined,
+                          size: 15, color: gp.textSec),
+                      const SizedBox(width: 4),
+                      Text(
+                        s.preview,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: gp.textSec,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
             if (locked)
               Icon(Icons.lock_rounded, size: 16, color: gp.textTert)
             else if (selected)

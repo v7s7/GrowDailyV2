@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/habits/catalog/islamic_habit_catalog.dart';
+import '../../features/habits/models/habit_cue.dart';
 import '../../features/habits/models/habit_model.dart';
 import 'category_icon.dart';
 
@@ -46,7 +47,13 @@ class _HabitCardState extends State<HabitCard> {
         ? s.habitDaily
         : s.habitWeeklyTimes(widget.template.frequencyTarget);
     final cue = widget.template.cueAfter;
-    final cueText = cue == null || cue.isEmpty ? '' : s.habitAfterCue(cue);
+    // cueAfter is stored as a stable key/value (see HabitCue) — this covers
+    // both custom habits and the hardcoded catalog templates ('Fajr',
+    // 'Asr', ...), so either one displays in whatever language the app is
+    // in right now, not whichever language it was written/created in.
+    final cueText = cue == null || cue.isEmpty
+        ? ''
+        : s.habitAfterCue(HabitCue.fromStoredValue(cue).labelFor(context));
     if (widget.template.hasTimer) {
       final mins = (widget.template.timerDurationSeconds ?? 0) ~/ 60;
       return '$freq  ·  ${mins}min$cueText';

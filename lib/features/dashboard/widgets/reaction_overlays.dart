@@ -52,6 +52,11 @@ void registerDashboardReactions(
       HapticFeedback.heavyImpact();
       Future.delayed(const Duration(milliseconds: 250), () {
         if (context.mounted) {
+          // A level-up or streak-freeze snackbar may already be on screen
+          // from earlier in this same reaction batch — clear it so the
+          // achievement sheet (the bigger celebration) doesn't visually
+          // collide with a toast sitting at the same bottom edge.
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
           showAchievementUnlockSheet(context, next.newlyUnlocked.first);
         }
       });
@@ -60,7 +65,13 @@ void registerDashboardReactions(
         prev.milestoneCelebration == null) {
       final m = next.milestoneCelebration!;
       Future.delayed(const Duration(milliseconds: 350), () {
-        if (context.mounted) showMilestoneCelebration(context, m, ref);
+        if (context.mounted) {
+          // Same reasoning as the achievement sheet above: a milestone is
+          // the biggest celebration in the app, so it should never appear
+          // stacked on top of a leftover snackbar.
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          showMilestoneCelebration(context, m, ref);
+        }
       });
     }
   });
@@ -167,7 +178,7 @@ class MilestoneCelebration extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final bonus = milestoneXpBonus(milestone);
-    final title = milestoneTitle(milestone);
+    final title = s.milestoneTitle(milestone);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Center(
@@ -206,17 +217,22 @@ class MilestoneCelebration extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: GameColors.streakOrange,
-                  letterSpacing: 3,
+                  // Wide/negative letter-spacing is a Latin-typography trick
+                  // (all-caps eyebrow labels, tight display numerals) — on
+                  // Arabic's cursive, joined script it forces gaps between
+                  // letters that should connect, reading as a broken font.
+                  // Zero it out for Arabic instead.
+                  letterSpacing: s.isAr ? 0 : 3,
                 ),
               ).animate(delay: 250.ms).fadeIn(),
               const SizedBox(height: 10),
               Text(
                 s.daysCount(milestone),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 44,
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
-                  letterSpacing: -1.5,
+                  letterSpacing: s.isAr ? 0 : -1.5,
                   height: 1,
                 ),
               ).animate(delay: 320.ms).fadeIn().slideY(begin: 0.2),

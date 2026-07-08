@@ -231,5 +231,89 @@ void main() {
         'felt great',
       );
     });
+
+    test(
+        "Today's habit-list completion (DashboardNotifier.completeHabit) "
+        'awards XP, gold, and a streak point', () async {
+      final ok = await container.read(dashboardProvider.notifier).completeHabit(
+            habitId: 'habit_today',
+            xpReward: 20,
+            goldReward: 8,
+            frequencyTarget: 1,
+            category: 'custom',
+            habitName: 'Test Habit',
+          );
+
+      final dash = container.read(dashboardProvider);
+      expect(ok, isTrue); // single-tap habit → Grid should mirror it
+      // Single-tap completions also count as a green square (same field
+      // Grid itself writes), so this is also the very first one — it earns
+      // +20 for the habit plus +25/+10 from the one-time "First Victory"
+      // achievement, exactly like coloring the first Grid square does.
+      expect(dash.cumulativeXp, 45);
+      expect(dash.gold, 18);
+      expect(dash.unlockedAchievements, contains('green_1'));
+      expect(dash.streak, 1);
+      expect(dash.completions['habit_today'], 1);
+      expect(dash.categoryCompletions['custom'], 1);
+    });
+
+    test('completing the same habit twice today does not double-pay',
+        () async {
+      final notifier = container.read(dashboardProvider.notifier);
+      await notifier.completeHabit(
+        habitId: 'habit_once',
+        xpReward: 20,
+        goldReward: 8,
+        frequencyTarget: 1,
+        category: 'custom',
+        habitName: 'Test Habit',
+      );
+      final afterFirst = container.read(dashboardProvider);
+      final second = await notifier.completeHabit(
+        habitId: 'habit_once',
+        xpReward: 20,
+        goldReward: 8,
+        frequencyTarget: 1,
+        category: 'custom',
+        habitName: 'Test Habit',
+      );
+
+      expect(second, isFalse); // already-done guard, no new reward
+      final dash = container.read(dashboardProvider);
+      expect(dash.cumulativeXp, afterFirst.cumulativeXp);
+      expect(dash.gold, afterFirst.gold);
+    });
+
+    test(
+        'completing two different habits the same day bumps the streak at '
+        'most once', () async {
+      final notifier = container.read(dashboardProvider.notifier);
+      await notifier.completeHabit(
+        habitId: 'habit_1',
+        xpReward: 10,
+        goldReward: 5,
+        frequencyTarget: 1,
+        category: 'custom',
+        habitName: 'Habit One',
+      );
+      final afterFirst = container.read(dashboardProvider);
+      await notifier.completeHabit(
+        habitId: 'habit_2',
+        xpReward: 10,
+        goldReward: 5,
+        frequencyTarget: 1,
+        category: 'custom',
+        habitName: 'Habit Two',
+      );
+
+      final dash = container.read(dashboardProvider);
+      expect(dash.streak, 1);
+      expect(afterFirst.streak, 1); // the streak point came from habit_1...
+      // ...and habit_2 still pays its own +10 XP/+5 gold, just with no
+      // second streak point and no repeat of the one-time achievement bonus.
+      expect(dash.cumulativeXp, afterFirst.cumulativeXp + 10);
+      expect(dash.gold, afterFirst.gold + 5);
+    });
   });
 }
