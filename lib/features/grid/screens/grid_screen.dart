@@ -724,11 +724,11 @@ class _GridTable extends ConsumerWidget {
           final avail = constraints.maxWidth;
           double cell = (avail - _habitCol - 7 * _gap) / 7;
           bool scroll = false;
-          if (cell < 30) {
-            cell = 30;
+          if (cell < 34) {
+            cell = 34;
             scroll = true;
           } else {
-            cell = cell.clamp(30, 54);
+            cell = cell.clamp(34, 60);
           }
           final table = _buildTable(context, ref, cell);
           if (!scroll) return table;
@@ -743,6 +743,13 @@ class _GridTable extends ConsumerWidget {
 
   Widget _buildTable(BuildContext context, WidgetRef ref, double cell) {
     final days = state.days;
+    // Fixed per-row height, shared by every row regardless of square size —
+    // a 2-line habit name (long names wrap) used to make just that row
+    // taller than its neighbors, so its squares sat lower than the squares
+    // above/below it even though each square is individually the same
+    // size. Locking every row to one height keeps every square aligned
+    // into a clean grid no matter how the habit name wraps.
+    final rowHeight = (cell > 46 ? cell : 46.0) + 10;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -751,7 +758,7 @@ class _GridTable extends ConsumerWidget {
         // Rows cascade in on entrance; effects play once per screen visit
         // (rebuilds on square taps reuse the same elements, so no replay).
         for (var i = 0; i < habits.length; i++) ...[
-          _habitRow(context, ref, habits[i], days, cell)
+          _habitRow(context, ref, habits[i], days, cell, rowHeight)
               .animate(delay: (i * 45).ms)
               .fadeIn(duration: 320.ms)
               .slideX(begin: 0.04, curve: Curves.easeOut),
@@ -820,73 +827,77 @@ class _GridTable extends ConsumerWidget {
   }
 
   Widget _habitRow(BuildContext context, WidgetRef ref,
-      IslamicHabitTemplate habit, List<DateTime> days, double cell) {
+      IslamicHabitTemplate habit, List<DateTime> days, double cell,
+      double rowHeight) {
     final gp = context.gp;
     final today = DateTime.now();
-    return Row(
-      children: [
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onLongPress: () => _showHabitActionsSheet(context, ref, habit),
-          child: SizedBox(
-            width: _habitCol,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Row(
-                children: [
-                  Builder(builder: (_) {
-                    final (_, color) = categoryVisual(habit.category);
-                    return Container(
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.14),
-                        borderRadius: BorderRadius.circular(7),
-                      ),
-                      child: CategoryIcon(
-                        category: habit.category,
-                        size: 13,
-                        color: color,
-                      ),
-                    );
-                  }),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      habit.name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: gp.textPrimary,
-                        height: 1.15,
+    return SizedBox(
+      height: rowHeight,
+      child: Row(
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPress: () => _showHabitActionsSheet(context, ref, habit),
+            child: SizedBox(
+              width: _habitCol,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Row(
+                  children: [
+                    Builder(builder: (_) {
+                      final (_, color) = categoryVisual(habit.category);
+                      return Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: CategoryIcon(
+                          category: habit.category,
+                          size: 13,
+                          color: color,
+                        ),
+                      );
+                    }),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        habit.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: gp.textPrimary,
+                          height: 1.15,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        for (final day in days)
-          Padding(
-            padding: const EdgeInsets.only(left: _gap),
-            child: _SquareCell(
-              size: cell,
-              day: day,
-              isToday: day.isToday,
-              isFuture: day.startOfDay.isAfter(today.startOfDay),
-              square: state.squareFor(habit.id, day),
-              hasNote: state.noteFor(habit.id, day).isNotEmpty,
-              onTap: () => _handleSquareTap(ref, habit, day),
-              onLongPress: () {
-                HapticFeedback.mediumImpact();
-                _openEditor(context, ref, habit, day);
-              },
+          for (final day in days)
+            Padding(
+              padding: const EdgeInsets.only(left: _gap),
+              child: _SquareCell(
+                size: cell,
+                day: day,
+                isToday: day.isToday,
+                isFuture: day.startOfDay.isAfter(today.startOfDay),
+                square: state.squareFor(habit.id, day),
+                hasNote: state.noteFor(habit.id, day).isNotEmpty,
+                onTap: () => _handleSquareTap(ref, habit, day),
+                onLongPress: () {
+                  HapticFeedback.mediumImpact();
+                  _openEditor(context, ref, habit, day);
+                },
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
