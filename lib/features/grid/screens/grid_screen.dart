@@ -117,14 +117,6 @@ class GridScreen extends ConsumerWidget {
               ),
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: const _Legend()
-                      .animate()
-                      .fadeIn(duration: 400.ms, delay: 140.ms),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
                   child: Text(
                     s.gridSlogan,
@@ -1553,71 +1545,6 @@ class _PaletteSwatch extends StatelessWidget {
               fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
               color: selected ? state.accent : gp.textSec,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Legend ───────────────────────────────────────────────────────────────────
-
-class _Legend extends StatelessWidget {
-  const _Legend();
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final s = S.of(context);
-    final dark = gp.dark;
-    // Only the three states a plain tap actually cycles through — the
-    // "advanced" colors (bonus/failed/skipped) are already labeled in the
-    // long-press editor's own palette, so repeating all six here just
-    // forced this onto a second line for no real benefit.
-    final items = [SquareState.none, SquareState.partial, SquareState.complete];
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: gp.surface,
-        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: gp.border, width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              for (final st in items)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: st.fill(dark),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: st.border(dark), width: 0.8),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      s.isAr ? st.labelAr : st.label,
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w500,
-                        color: gp.textSec,
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            s.gridRewardHint,
-            style: TextStyle(fontSize: 10.5, color: gp.textTert, height: 1.3),
           ),
         ],
       ),
