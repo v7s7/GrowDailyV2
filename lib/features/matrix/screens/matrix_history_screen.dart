@@ -107,7 +107,6 @@ class _HistoryRow extends ConsumerWidget {
   const _HistoryRow({required this.task, required this.isAr});
 
   Color get _color => switch (task.quadrant) {
-        null => GameColors.gold,
         MatrixQuadrant.doFirst => GameColors.error,
         MatrixQuadrant.schedule => GameColors.xpBlue,
         MatrixQuadrant.delegate => GameColors.streakOrange,
@@ -186,8 +185,8 @@ class _HistoryRow extends ConsumerWidget {
                   const SizedBox(height: 3),
                   Text(
                     completedLabel.isEmpty
-                        ? (task.quadrant?.localLabel(isAr) ?? s.matrixInbox)
-                        : '${task.quadrant?.localLabel(isAr) ?? s.matrixInbox} · $completedLabel',
+                        ? task.quadrant.localLabel(isAr)
+                        : '${task.quadrant.localLabel(isAr)} · $completedLabel',
                     style: TextStyle(fontSize: 11, color: gp.textTert),
                   ),
                 ],

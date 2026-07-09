@@ -12,7 +12,7 @@ import '../models/matrix_task.dart';
 /// field is empty, so the same button (or the keyboard's enter key) both
 /// adds and — once you're finished — closes the sheet.
 class AddTaskSheet extends StatefulWidget {
-  final MatrixQuadrant? quadrant;
+  final MatrixQuadrant quadrant;
   final void Function(String title) onAdd;
 
   const AddTaskSheet({
@@ -32,7 +32,6 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
   bool _hasText = false;
 
   Color get _color => switch (widget.quadrant) {
-        null => GameColors.gold,
         MatrixQuadrant.doFirst => GameColors.error,
         MatrixQuadrant.schedule => GameColors.xpBlue,
         MatrixQuadrant.delegate => GameColors.streakOrange,
@@ -117,14 +116,14 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                       decoration: BoxDecoration(
                           color: _color, shape: BoxShape.circle)),
                   const SizedBox(width: 8),
-                  Text(widget.quadrant?.localLabel(isAr) ?? s.matrixInbox,
+                  Text(widget.quadrant.localLabel(isAr),
                       style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           color: _color,
                           letterSpacing: 1.2)),
                   const SizedBox(width: 8),
-                  Text(widget.quadrant?.localSubtitle(isAr) ?? s.matrixInboxHint,
+                  Text(widget.quadrant.localSubtitle(isAr),
                       style: TextStyle(fontSize: 11, color: gp.textSec)),
                 ],
               ),

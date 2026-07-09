@@ -43,11 +43,7 @@ enum MatrixQuadrant {
 class MatrixTask {
   final String id;
   final String title;
-  // Null means "Inbox" — captured but not yet triaged into a quadrant.
-  // Quick-capture shouldn't force a prioritizing decision before the
-  // thought is even saved; sorting into a quadrant happens later
-  // (drag-and-drop, or the task's own move menu).
-  final MatrixQuadrant? quadrant;
+  final MatrixQuadrant quadrant;
   final bool isDone;
   final DateTime createdAt;
   // Stamped when isDone flips to true, cleared when restored — lets
@@ -65,7 +61,7 @@ class MatrixTask {
     this.completedAt,
   });
 
-  factory MatrixTask.create(String title, [MatrixQuadrant? quadrant]) =>
+  factory MatrixTask.create(String title, MatrixQuadrant quadrant) =>
       MatrixTask(
         id: const Uuid().v4(),
         title: title.trim(),
@@ -78,16 +74,13 @@ class MatrixTask {
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final d = doc.data()!;
-    final quadrantName = d['quadrant'] as String?;
     return MatrixTask(
       id: doc.id,
       title: d['title'] as String,
-      quadrant: quadrantName == null
-          ? null
-          : MatrixQuadrant.values.firstWhere(
-              (q) => q.name == quadrantName,
-              orElse: () => MatrixQuadrant.doFirst,
-            ),
+      quadrant: MatrixQuadrant.values.firstWhere(
+        (q) => q.name == d['quadrant'],
+        orElse: () => MatrixQuadrant.doFirst,
+      ),
       isDone: d['isDone'] as bool? ?? false,
       createdAt:
           (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -98,16 +91,13 @@ class MatrixTask {
   /// Plain-map (de)serialization for the guest's local Hive store — no
   /// Firestore Timestamp involved, so createdAt is a plain ISO-8601 string.
   factory MatrixTask.fromMap(Map<String, dynamic> d) {
-    final quadrantName = d['quadrant'] as String?;
     return MatrixTask(
       id: d['id'] as String? ?? const Uuid().v4(),
       title: d['title'] as String? ?? '',
-      quadrant: quadrantName == null
-          ? null
-          : MatrixQuadrant.values.firstWhere(
-              (q) => q.name == quadrantName,
-              orElse: () => MatrixQuadrant.doFirst,
-            ),
+      quadrant: MatrixQuadrant.values.firstWhere(
+        (q) => q.name == d['quadrant'],
+        orElse: () => MatrixQuadrant.doFirst,
+      ),
       isDone: d['isDone'] as bool? ?? false,
       createdAt: DateTime.tryParse(d['createdAt'] as String? ?? '') ??
           DateTime.now(),
@@ -120,21 +110,20 @@ class MatrixTask {
   Map<String, dynamic> toMap() => {
         'id': id,
         'title': title,
-        if (quadrant != null) 'quadrant': quadrant!.name,
+        'quadrant': quadrant.name,
         'isDone': isDone,
         'createdAt': createdAt.toIso8601String(),
         if (completedAt != null)
           'completedAt': completedAt!.toIso8601String(),
       };
 
-  // `_persist` always writes with SetOptions(merge: true), so a task moved
-  // back to null (Inbox) or restored (completedAt reset to null) needs
-  // FieldValue.delete() here — simply omitting the key from a merge-set
-  // leaves the old value sitting in Firestore forever instead of actually
-  // clearing it.
+  // `_persist` always writes with SetOptions(merge: true), so a restored
+  // task (completedAt reset to null) needs FieldValue.delete() here — simply
+  // omitting the key from a merge-set leaves the old value sitting in
+  // Firestore forever instead of actually clearing it.
   Map<String, dynamic> toFirestore() => {
         'title': title,
-        'quadrant': quadrant?.name ?? FieldValue.delete(),
+        'quadrant': quadrant.name,
         'isDone': isDone,
         'createdAt': Timestamp.fromDate(createdAt),
         'completedAt': completedAt != null
@@ -145,7 +134,6 @@ class MatrixTask {
   MatrixTask copyWith({
     String? title,
     MatrixQuadrant? quadrant,
-    bool clearQuadrant = false,
     bool? isDone,
     DateTime? completedAt,
     bool clearCompletedAt = false,
@@ -153,7 +141,7 @@ class MatrixTask {
       MatrixTask(
         id: id,
         title: title ?? this.title,
-        quadrant: clearQuadrant ? null : quadrant ?? this.quadrant,
+        quadrant: quadrant ?? this.quadrant,
         isDone: isDone ?? this.isDone,
         createdAt: createdAt,
         completedAt: clearCompletedAt

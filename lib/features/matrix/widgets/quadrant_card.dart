@@ -10,7 +10,7 @@ class QuadrantCard extends StatelessWidget {
   final List<MatrixTask> tasks;
   final void Function(String id) onToggle;
   final void Function(String id) onDelete;
-  final void Function(String id, MatrixQuadrant? q) onMove;
+  final void Function(String id, MatrixQuadrant q) onMove;
   final VoidCallback onAddTapped;
   final bool selectionMode;
   final Set<String> selectedIds;
@@ -277,7 +277,7 @@ class _TaskTile extends StatefulWidget {
   final bool selected;
   final VoidCallback onSelectionToggle;
   final VoidCallback onSelectionStart;
-  final void Function(MatrixQuadrant?) onMove;
+  final void Function(MatrixQuadrant) onMove;
 
   const _TaskTile({
     super.key,
@@ -528,23 +528,6 @@ class _TaskTileState extends State<_TaskTile>
                   onTap: () {
                     Navigator.pop(context);
                     widget.onDelete();
-                  },
-                ),
-                ListTile(
-                  dense: true,
-                  leading:
-                      Icon(Icons.inbox_rounded, color: GameColors.gold, size: 20),
-                  title: Text(
-                    S.of(context).matrixMoveToInbox,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: mgp.textPrimary,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    widget.onMove(null);
                   },
                 ),
                 Divider(height: 1, color: mgp.divider),

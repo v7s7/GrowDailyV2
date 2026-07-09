@@ -78,7 +78,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     );
   }
 
-  void add(String title, [MatrixQuadrant? quadrant]) {
+  void add(String title, MatrixQuadrant quadrant) {
     if (title.trim().isEmpty) return;
     _mutatedBeforeLoad = true;
     final task = MatrixTask.create(title, quadrant);
@@ -132,15 +132,12 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     }
   }
 
-  void move(String id, MatrixQuadrant? newQuadrant) {
+  void move(String id, MatrixQuadrant newQuadrant) {
     _mutatedBeforeLoad = true;
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final updated = tasks[idx].copyWith(
-      quadrant: newQuadrant,
-      clearQuadrant: newQuadrant == null,
-    );
+    final updated = tasks[idx].copyWith(quadrant: newQuadrant);
     tasks[idx] = updated;
     state = MatrixState(tasks: tasks, isLoading: false);
     _persist(updated);
