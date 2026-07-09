@@ -91,7 +91,12 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final updated = tasks[idx].copyWith(isDone: !tasks[idx].isDone);
+    final nowDone = !tasks[idx].isDone;
+    final updated = tasks[idx].copyWith(
+      isDone: nowDone,
+      completedAt: nowDone ? DateTime.now() : null,
+      clearCompletedAt: !nowDone,
+    );
     tasks[idx] = updated;
     state = MatrixState(tasks: tasks, isLoading: false);
     _persist(updated);

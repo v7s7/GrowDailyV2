@@ -38,22 +38,18 @@ class QuadrantCard extends StatelessWidget {
         MatrixQuadrant.eliminate => GameColors.textTertiary,
       };
 
-  int get _pending => tasks.where((t) => !t.isDone).length;
-
-  /// Pending tasks first (in their existing order), finished ones pushed to
-  /// the bottom — so checking a task off doesn't just cross it out, it also
-  /// clears it out of the way of what's still left to do.
-  List<MatrixTask> get _orderedTasks {
-    final pending = tasks.where((t) => !t.isDone);
-    final done = tasks.where((t) => t.isDone);
-    return [...pending, ...done];
-  }
+  // `tasks` only ever holds pending tasks — the caller (MatrixScreen)
+  // filters out done ones before handing the list to this card, so a
+  // finished task disappears from the quadrant instead of sitting
+  // crossed-out forever. It isn't lost: it moves to the Completed history,
+  // reachable from the screen header.
+  int get _pending => tasks.length;
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
-    final ordered = _orderedTasks;
+    final ordered = tasks;
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -118,8 +114,12 @@ class QuadrantCard extends StatelessWidget {
             ),
           ),
           Expanded(
+            // Longer than the tile's own 380ms completion pop (see
+            // _TaskTileState._spring) so a just-finished task's checkmark
+            // animation gets to actually play before this crossfades the
+            // whole list down to one fewer row.
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
+              duration: const Duration(milliseconds: 400),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
               child: tasks.isEmpty
@@ -129,7 +129,7 @@ class QuadrantCard extends StatelessWidget {
                     onTap: onAddTapped,
                   )
                 : ListView.separated(
-                    key: ValueKey(ordered.map((t) => '${t.id}:${t.isDone}').join('|')),
+                    key: ValueKey(ordered.map((t) => t.id).join('|')),
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     itemCount: ordered.length + 1,
                     separatorBuilder: (_, __) =>
@@ -156,7 +156,7 @@ class QuadrantCard extends StatelessWidget {
                       )
                           .animate(delay: (i * 35).ms)
                           .fadeIn(duration: 260.ms)
-                          .slideY(begin: t.isDone ? 0.12 : -0.08, curve: Curves.easeOutCubic);
+                          .slideY(begin: -0.08, curve: Curves.easeOutCubic);
                     },
                   ),
             ),
@@ -428,6 +428,19 @@ class _TaskTileState extends State<_TaskTile>
                       maxLines: 2, overflow: TextOverflow.ellipsis),
                 ),
               ),
+              // Only reachable way to move a task to a different quadrant
+              // now that long-press starts multi-select instead of opening
+              // this menu directly.
+              if (!widget.selectionMode)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _showTaskActions(context),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Icon(Icons.more_vert_rounded,
+                        size: 16, color: gp.textTert),
+                  ),
+                ),
             ],
           ),
         ),

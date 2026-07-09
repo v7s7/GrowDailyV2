@@ -46,6 +46,11 @@ class MatrixTask {
   final MatrixQuadrant quadrant;
   final bool isDone;
   final DateTime createdAt;
+  // Stamped when isDone flips to true, cleared when restored — lets
+  // Completed history sort by "most recently finished" instead of by
+  // creation order, which is what actually matters when looking back at
+  // what you got done.
+  final DateTime? completedAt;
 
   const MatrixTask({
     required this.id,
@@ -53,6 +58,7 @@ class MatrixTask {
     required this.quadrant,
     required this.isDone,
     required this.createdAt,
+    this.completedAt,
   });
 
   factory MatrixTask.create(String title, MatrixQuadrant quadrant) =>
@@ -78,6 +84,7 @@ class MatrixTask {
       isDone: d['isDone'] as bool? ?? false,
       createdAt:
           (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      completedAt: (d['completedAt'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -93,6 +100,9 @@ class MatrixTask {
         isDone: d['isDone'] as bool? ?? false,
         createdAt: DateTime.tryParse(d['createdAt'] as String? ?? '') ??
             DateTime.now(),
+        completedAt: d['completedAt'] == null
+            ? null
+            : DateTime.tryParse(d['completedAt'] as String),
       );
 
   Map<String, dynamic> toMap() => {
@@ -101,19 +111,30 @@ class MatrixTask {
         'quadrant': quadrant.name,
         'isDone': isDone,
         'createdAt': createdAt.toIso8601String(),
+        if (completedAt != null)
+          'completedAt': completedAt!.toIso8601String(),
       };
 
+  // `_persist` always writes with SetOptions(merge: true), so a restored
+  // task (completedAt reset to null) needs FieldValue.delete() here —
+  // simply omitting the key from a merge-set leaves the old timestamp
+  // sitting in Firestore forever instead of actually clearing it.
   Map<String, dynamic> toFirestore() => {
         'title': title,
         'quadrant': quadrant.name,
         'isDone': isDone,
         'createdAt': Timestamp.fromDate(createdAt),
+        'completedAt': completedAt != null
+            ? Timestamp.fromDate(completedAt!)
+            : FieldValue.delete(),
       };
 
   MatrixTask copyWith({
     String? title,
     MatrixQuadrant? quadrant,
     bool? isDone,
+    DateTime? completedAt,
+    bool clearCompletedAt = false,
   }) =>
       MatrixTask(
         id: id,
@@ -121,6 +142,9 @@ class MatrixTask {
         quadrant: quadrant ?? this.quadrant,
         isDone: isDone ?? this.isDone,
         createdAt: createdAt,
+        completedAt: clearCompletedAt
+            ? null
+            : completedAt ?? this.completedAt,
       );
 
   @override

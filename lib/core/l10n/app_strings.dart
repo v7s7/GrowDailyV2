@@ -466,6 +466,17 @@ class S {
   String get matrixDeleteTask => isAr ? 'حذف المهمة' : 'Delete task';
   String get matrixDeleteSelected => isAr ? 'حذف المحدد' : 'Delete selected';
   String matrixSelectedCount(int count) => isAr ? '$count محدد' : '$count selected';
+  String get matrixCompletedTitle => isAr ? 'المكتملة' : 'Completed';
+  String get matrixNoCompletedTasks =>
+      isAr ? 'لا مهام مكتملة بعد' : 'No completed tasks yet';
+  String get matrixNoCompletedTasksDesc => isAr
+      ? 'المهام التي تُنجزها تظهر هنا.'
+      : 'Tasks you finish will show up here.';
+  String get matrixRestoreTask => isAr ? 'استعادة' : 'Restore';
+  String get matrixAddMultipleHint => isAr
+      ? 'اكتب مهمة واضغط أدخل، ثم أضف التالية'
+      : 'Type a task and hit enter, then add the next one';
+  String get matrixDone => isAr ? 'تم' : 'Done';
 
   // ── Quick Wins ───────────────────────────────────────────────────────────
   String get quickWins => isAr ? 'مكاسب سريعة' : 'Quick Wins';
@@ -477,8 +488,8 @@ class S {
 
   // ── Navigation ───────────────────────────────────────────────────────────
   String get navToday => isAr ? 'اليوم' : 'Today';
-  String get navGrid => isAr ? 'الشبكة' : 'Grid';
-  String get navMatrix => isAr ? 'المصفوفة' : 'Matrix';
+  String get navGrid => isAr ? 'العادات' : 'Habits';
+  String get navMatrix => isAr ? 'المهام' : 'Tasks';
   String get navFocus => isAr ? 'التركيز' : 'Focus';
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
   String get navProfile => isAr ? 'ملفي' : 'Profile';

@@ -5,6 +5,12 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../models/matrix_task.dart';
 
+/// Stays open after each add so a quick brain-dump ("buy milk" ⏎ "wash car"
+/// ⏎ "call mom" ⏎ …) doesn't mean reopening this sheet for every single
+/// item. The field clears and keeps focus after each add; the primary
+/// button reads "Add" while there's text to submit and "Done" once the
+/// field is empty, so the same button (or the keyboard's enter key) both
+/// adds and — once you're finished — closes the sheet.
 class AddTaskSheet extends StatefulWidget {
   final MatrixQuadrant quadrant;
   final void Function(String title) onAdd;
@@ -22,6 +28,7 @@ class AddTaskSheet extends StatefulWidget {
 class _AddTaskSheetState extends State<AddTaskSheet> {
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
+  final List<String> _addedTitles = [];
   bool _hasText = false;
 
   Color get _color => switch (widget.quadrant) {
@@ -49,11 +56,23 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
     super.dispose();
   }
 
+  /// Adds the current text and keeps the sheet open for the next one, or —
+  /// if the field is already empty — closes it. Shared by the primary
+  /// button and the keyboard's submit action so both always agree on what
+  /// pressing "go" does at any given moment.
   void _submit() {
-    if (_ctrl.text.trim().isEmpty) return;
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) {
+      Navigator.pop(context);
+      return;
+    }
     HapticFeedback.mediumImpact();
-    widget.onAdd(_ctrl.text.trim());
-    Navigator.pop(context);
+    widget.onAdd(text);
+    setState(() {
+      _addedTitles.add(text);
+      _ctrl.clear();
+    });
+    _focus.requestFocus();
   }
 
   @override
@@ -67,6 +86,8 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
       curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
           borderRadius: BorderRadius.circular(20),
@@ -115,6 +136,7 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                 focusNode: _focus,
                 onSubmitted: (_) => _submit(),
                 textCapitalization: TextCapitalization.sentences,
+                textInputAction: TextInputAction.done,
                 style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w500,
@@ -136,28 +158,80 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  backgroundColor: _hasText ? _color : gp.surfaceHL,
-                  foregroundColor: _hasText ? Colors.black : gp.textTert,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
+            if (_addedTitles.isEmpty) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  s.matrixAddMultipleHint,
+                  style: TextStyle(fontSize: 11, color: gp.textTert),
                 ),
-                onPressed: _hasText ? _submit : null,
-                child: Text(s.matrixAddTask,
-                    style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.4)),
-              )
-                  .animate(delay: 80.ms)
-                  .fadeIn(duration: 250.ms)
-                  .slideY(begin: 0.05),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              // Fresh open with nothing typed and nothing added yet still
+              // shows a disabled "ADD TASK" (same as before this sheet
+              // could stay open) — a "Done" button is only the right
+              // primary action once there's actually something to be done
+              // with.
+              child: Builder(builder: (_) {
+                final showDone = !_hasText && _addedTitles.isNotEmpty;
+                final active = _hasText || showDone;
+                return FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    backgroundColor: active ? _color : gp.surfaceHL,
+                    foregroundColor: active ? Colors.black : gp.textTert,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: active ? _submit : null,
+                  child: Text(showDone ? s.matrixDone : s.matrixAddTask,
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.4)),
+                );
+              }),
             ),
+            if (_addedTitles.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Divider(height: 1, color: gp.divider, indent: 20, endIndent: 20),
+              Flexible(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+                  shrinkWrap: true,
+                  itemCount: _addedTitles.length,
+                  itemBuilder: (context, i) {
+                    // Reversed so the just-added item appears right under
+                    // the input every time, not at the bottom of a list
+                    // that's scrolled out of view.
+                    final title = _addedTitles[_addedTitles.length - 1 - i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.check_circle_rounded,
+                              size: 14, color: _color),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 12.5, color: gp.textSec),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ).animate().fadeIn(duration: 200.ms);
+                  },
+                ),
+              ),
+            ],
           ],
         ),
       ).animate().slideY(
