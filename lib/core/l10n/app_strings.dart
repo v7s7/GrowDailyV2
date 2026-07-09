@@ -213,6 +213,10 @@ class S {
   String get achievements => isAr ? 'الإنجازات' : 'ACHIEVEMENTS';
   String achievementsViewAll(int n) => isAr ? 'عرض الكل ($n)' : 'View all ($n)';
   String get achievementsShowLess => isAr ? 'عرض أقل' : 'Show less';
+  String get profileSection => isAr ? 'الملف الشخصي' : 'PROFILE';
+  String get achievementsRowTitle => isAr ? 'الإنجازات' : 'Achievements';
+  String get progressStreakTitle =>
+      isAr ? 'التقدم والسلسلة' : 'Progress & Streak';
   String get settings => isAr ? 'الإعدادات' : 'SETTINGS';
   String get darkMode => isAr ? 'الوضع الداكن' : 'Dark Mode';
   String get appearance => isAr ? 'المظهر' : 'Appearance';
