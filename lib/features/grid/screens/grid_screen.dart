@@ -1110,11 +1110,16 @@ class _SquareCell extends StatelessWidget {
       decoration: BoxDecoration(
         color: square.fill(dark),
         borderRadius: BorderRadius.circular(9),
+        // Same width for every square regardless of `isToday` — Flutter
+        // centers a box border on the shape's edge, so a thicker border
+        // bleeds outward and makes that one cell look bigger/misaligned
+        // against the rest of the row. Today stays distinguished by color
+        // alone so the whole grid lines up cleanly.
         border: Border.all(
           color: isToday
               ? GameColors.gold.withOpacity(0.9)
               : square.border(dark),
-          width: isToday ? 1.4 : 0.8,
+          width: 0.8,
         ),
       ),
       child: Stack(
