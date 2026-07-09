@@ -135,26 +135,26 @@ abstract final class GameTextStyles {
     'sans-serif',
   ];
 
-  static TextStyle get displayLarge => GoogleFonts.cairo(fontSize: 34, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.5, height: 1.12, fontFamilyFallback: fontFallback);
-  static TextStyle get displayMedium => GoogleFonts.cairo(fontSize: 28, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.3, height: 1.15, fontFamilyFallback: fontFallback);
-  static TextStyle get headlineLarge => GoogleFonts.cairo(fontSize: 22, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.2, height: 1.22, fontFamilyFallback: fontFallback);
-  static TextStyle get headlineMedium => GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25, fontFamilyFallback: fontFallback);
-  static TextStyle get titleLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25, fontFamilyFallback: fontFallback);
-  static TextStyle get titleMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.28, fontFamilyFallback: fontFallback);
-  static TextStyle get bodyLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45, fontFamilyFallback: fontFallback);
-  static TextStyle get bodyMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45, fontFamilyFallback: fontFallback);
-  static TextStyle get bodySmall => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary, height: 1.42, fontFamilyFallback: fontFallback);
-  static TextStyle get labelLarge => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: 0.1, height: 1.25, fontFamilyFallback: fontFallback);
-  static TextStyle get labelSmall => GoogleFonts.cairo(fontSize: 11, fontWeight: FontWeight.w600, color: GameColors.textSecondary, letterSpacing: 0.5, height: 1.25, fontFamilyFallback: fontFallback);
+  static TextStyle get displayLarge => GoogleFonts.cairo(fontSize: 34, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.5, height: 1.12).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get displayMedium => GoogleFonts.cairo(fontSize: 28, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.3, height: 1.15).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get headlineLarge => GoogleFonts.cairo(fontSize: 22, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.2, height: 1.22).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get headlineMedium => GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get titleLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get titleMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.28).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodyLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodyMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodySmall => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary, height: 1.42).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get labelLarge => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: 0.1, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get labelSmall => GoogleFonts.cairo(fontSize: 11, fontWeight: FontWeight.w600, color: GameColors.textSecondary, letterSpacing: 0.5, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
 
-  static TextStyle get xpLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2, fontFamilyFallback: fontFallback);
-  static TextStyle get goldLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2, fontFamilyFallback: fontFallback);
-  static TextStyle get levelDisplay => GoogleFonts.cairo(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05, fontFamilyFallback: fontFallback);
-  static TextStyle get streakDisplay => GoogleFonts.cairo(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05, fontFamilyFallback: fontFallback);
+  static TextStyle get xpLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get goldLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get levelDisplay => GoogleFonts.cairo(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get streakDisplay => GoogleFonts.cairo(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
 
-  static TextStyle get arabicTitle => GoogleFonts.cairo(fontSize: 24, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.55, fontFamilyFallback: fontFallback);
-  static TextStyle get arabicBody => GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.65, fontFamilyFallback: fontFallback);
-  static TextStyle get arabicLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45, fontFamilyFallback: fontFallback);
+  static TextStyle get arabicTitle => GoogleFonts.cairo(fontSize: 24, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.55).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get arabicBody => GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.65).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get arabicLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
 }
 // ─── Spacing & Radii ─────────────────────────────────────────────────────────
 
