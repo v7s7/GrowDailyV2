@@ -532,8 +532,8 @@ class _TaskTileState extends State<_TaskTile>
                 ),
                 ListTile(
                   dense: true,
-                  leading: const Icon(Icons.inbox_rounded,
-                      color: GameColors.gold, size: 20),
+                  leading:
+                      Icon(Icons.inbox_rounded, color: GameColors.gold, size: 20),
                   title: Text(
                     S.of(context).matrixMoveToInbox,
                     style: TextStyle(
