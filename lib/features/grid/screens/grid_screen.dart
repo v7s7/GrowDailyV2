@@ -9,7 +9,6 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
-import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
@@ -17,40 +16,11 @@ import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../habits/widgets/add_habit_hub_sheet.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
-import '../../habits/widgets/plan_picker_sheet.dart';
 import '../../night_review/notifiers/night_review_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
-
-/// Opens the starter-plan picker. Shared by the empty state and the grid's
-/// floating action button so there's exactly one code path for it.
-void showPlanPickerSheet(BuildContext context) {
-  HapticFeedback.lightImpact();
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    useSafeArea: true,
-    builder: (_) => const PlanPickerSheet(),
-  );
-}
-
-/// Opens the add-habit sheet, gated by the account's habit limit. Shared by
-/// the empty state and the grid's floating action button.
-void showAddHabitSheet(BuildContext context, WidgetRef ref) {
-  if (!canAddHabits(ref)) {
-    showHabitLimitGate(context, ref);
-    return;
-  }
-  HapticFeedback.lightImpact();
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (_) => const AddHabitSheet(),
-  );
-}
 
 /// Themed tint color for a habit row's category chip. The IconData half of
 /// this tuple is legacy — actual rendering goes through [CategoryIcon],
@@ -173,17 +143,17 @@ class GridScreen extends ConsumerWidget {
           ],
         ),
       ),
-      // Today is the primary place to add/browse habits (its FAB offers both
-      // "Plans" and "Add Habit" at full size). Grid only needs a secondary,
-      // smaller way back into "add a habit" for when the grid isn't empty —
-      // the empty state's own "Browse Plans" button covers the zero-habit
-      // case, so this single small icon FAB is deliberately the *lesser*
-      // affordance, not a duplicate of Today's.
+      // Today is the primary place to add/browse habits. Grid only needs a
+      // secondary, smaller way back into the same Add Habit Hub for when
+      // the grid isn't empty — the empty state's own "Browse Plans" button
+      // covers the zero-habit case, so this single small icon FAB is
+      // deliberately the *lesser* affordance, not a duplicate of Today's.
       floatingActionButton: habits.isEmpty
           ? null
           : FloatingActionButton.small(
               heroTag: 'grid-add',
-              onPressed: () => showAddHabitSheet(context, ref),
+              onPressed: () =>
+                  showAddHabitHub(context, ref, initialTab: HubTab.quick),
               backgroundColor: gp.surfaceHigh,
               foregroundColor: gp.textPrimary,
               elevation: 0,
@@ -1709,7 +1679,8 @@ class _GridEmptyState extends ConsumerWidget {
             SizedBox(
               width: 260,
               child: FilledButton.icon(
-                onPressed: () => showPlanPickerSheet(context),
+                onPressed: () =>
+                    showAddHabitHub(context, ref, initialTab: HubTab.plans),
                 icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                 label: Text(s.browsePlans),
                 style: FilledButton.styleFrom(
@@ -1721,7 +1692,8 @@ class _GridEmptyState extends ConsumerWidget {
             ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
             const SizedBox(height: 10),
             TextButton.icon(
-              onPressed: () => showAddHabitSheet(context, ref),
+              onPressed: () =>
+                  showAddHabitHub(context, ref, initialTab: HubTab.quick),
               icon: const Icon(Icons.add_rounded, size: 16),
               label: Text(s.addHabit),
             ).animate(delay: 380.ms).fadeIn(),

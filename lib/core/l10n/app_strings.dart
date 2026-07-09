@@ -249,6 +249,17 @@ class S {
       ? '$current/$max جاهز · المستوى 5+ يُعيد الشحن أسبوعياً'
       : '$current/$max ready · Level 5+ refills weekly';
 
+  // ── Add Habit Hub (Quick / Plans / Custom tabs) ────────────────────────────
+  String get hubTitle => isAr ? 'إضافة عادة' : 'Add a Habit';
+  String get quickAddTab => isAr ? 'سريعة' : 'Quick Add';
+  String get plansTab => isAr ? 'خطط' : 'Plans';
+  String get customTab => isAr ? 'مخصص' : 'Custom';
+  String get quickAddSubtitle => isAr
+      ? 'اضغط على أي عادة لإضافتها فورًا.'
+      : 'Tap any habit to add it instantly.';
+  String get buildToggle => isAr ? 'أبني' : 'Build';
+  String get quitToggle => isAr ? 'أترك' : 'Quit';
+
   // ── Plan Picker ──────────────────────────────────────────────────────────
   String get choosePlan => isAr ? 'اختر خطتك' : 'Choose Your Plan';
   String get choosePlanSubtitle => isAr
