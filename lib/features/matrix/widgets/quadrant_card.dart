@@ -10,7 +10,7 @@ class QuadrantCard extends StatelessWidget {
   final List<MatrixTask> tasks;
   final void Function(String id) onToggle;
   final void Function(String id) onDelete;
-  final void Function(String id, MatrixQuadrant q) onMove;
+  final void Function(String id, MatrixQuadrant? q) onMove;
   final VoidCallback onAddTapped;
   final bool selectionMode;
   final Set<String> selectedIds;
@@ -50,12 +50,22 @@ class QuadrantCard extends StatelessWidget {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
     final ordered = tasks;
-    return Container(
+    // A dedicated drag-handle icon on each tile (see _TaskTile) is the only
+    // thing that starts a drag, so this target never fights the card's own
+    // tap/long-press/swipe handling.
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => true,
+      onAcceptWithDetails: (details) => onMove(details.data, quadrant),
+      builder: (context, candidateData, rejectedData) {
+        final isHovering = candidateData.isNotEmpty;
+        return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: gp.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: gp.border, width: 0.5),
+        border: Border.all(
+            color: isHovering ? _color : gp.border,
+            width: isHovering ? 2 : 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -164,6 +174,8 @@ class QuadrantCard extends StatelessWidget {
         ],
       ),
     );
+      },
+    );
   }
 }
 
@@ -265,7 +277,7 @@ class _TaskTile extends StatefulWidget {
   final bool selected;
   final VoidCallback onSelectionToggle;
   final VoidCallback onSelectionStart;
-  final void Function(MatrixQuadrant) onMove;
+  final void Function(MatrixQuadrant?) onMove;
 
   const _TaskTile({
     super.key,
@@ -428,9 +440,43 @@ class _TaskTileState extends State<_TaskTile>
                       maxLines: 2, overflow: TextOverflow.ellipsis),
                 ),
               ),
-              // Only reachable way to move a task to a different quadrant
-              // now that long-press starts multi-select instead of opening
-              // this menu directly.
+              // Dragging is scoped to this small handle rather than the
+              // whole tile so it never fights the row's own long-press
+              // (which starts multi-select) or its swipe-to-delete.
+              if (!widget.selectionMode)
+                LongPressDraggable<String>(
+                  data: widget.task.id,
+                  feedback: Material(
+                    color: Colors.transparent,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: gp.surfaceHigh,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: widget.accentColor, width: 1),
+                        ),
+                        child: Text(widget.task.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: gp.textPrimary)),
+                      ),
+                    ),
+                  ),
+                  childWhenDragging: Icon(Icons.drag_indicator_rounded,
+                      size: 16, color: gp.textTert.withOpacity(0.25)),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(Icons.drag_indicator_rounded,
+                        size: 16, color: gp.textTert.withOpacity(0.6)),
+                  ),
+                ),
               if (!widget.selectionMode)
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -482,6 +528,23 @@ class _TaskTileState extends State<_TaskTile>
                   onTap: () {
                     Navigator.pop(context);
                     widget.onDelete();
+                  },
+                ),
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.inbox_rounded,
+                      color: GameColors.gold, size: 20),
+                  title: Text(
+                    S.of(context).matrixMoveToInbox,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: mgp.textPrimary,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    widget.onMove(null);
                   },
                 ),
                 Divider(height: 1, color: mgp.divider),

@@ -477,6 +477,15 @@ class S {
       ? 'اكتب مهمة واضغط أدخل، ثم أضف التالية'
       : 'Type a task and hit enter, then add the next one';
   String get matrixDone => isAr ? 'تم' : 'Done';
+  String get matrixInbox => isAr ? 'صندوق الوارد' : 'Inbox';
+  String get matrixInboxHint => isAr
+      ? 'مهام غير مُرتّبة بعد — اسحبها إلى ربع لتصنيفها'
+      : 'Not sorted yet — drag into a quadrant to triage';
+  String get matrixMoveToInbox => isAr ? 'انقل إلى صندوق الوارد' : 'Move to Inbox';
+  String get matrixUndo => isAr ? 'تراجع' : 'Undo';
+  String get matrixTaskDeleted => isAr ? 'تم حذف المهمة' : 'Task deleted';
+  String matrixTasksDeleted(int count) =>
+      isAr ? 'تم حذف $count مهام' : '$count tasks deleted';
 
   // ── Quick Wins ───────────────────────────────────────────────────────────
   String get quickWins => isAr ? 'مكاسب سريعة' : 'Quick Wins';

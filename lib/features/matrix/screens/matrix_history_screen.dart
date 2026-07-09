@@ -107,6 +107,7 @@ class _HistoryRow extends ConsumerWidget {
   const _HistoryRow({required this.task, required this.isAr});
 
   Color get _color => switch (task.quadrant) {
+        null => GameColors.gold,
         MatrixQuadrant.doFirst => GameColors.error,
         MatrixQuadrant.schedule => GameColors.xpBlue,
         MatrixQuadrant.delegate => GameColors.streakOrange,
@@ -125,7 +126,21 @@ class _HistoryRow extends ConsumerWidget {
     return Dismissible(
       key: ValueKey(task.id),
       direction: DismissDirection.endToStart,
-      onDismissed: (_) => ref.read(matrixProvider.notifier).delete(task.id),
+      onDismissed: (_) {
+        ref.read(matrixProvider.notifier).delete(task.id);
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.matrixTaskDeleted),
+            action: SnackBarAction(
+              label: s.matrixUndo,
+              onPressed: () =>
+                  ref.read(matrixProvider.notifier).restore(task),
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      },
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -171,8 +186,8 @@ class _HistoryRow extends ConsumerWidget {
                   const SizedBox(height: 3),
                   Text(
                     completedLabel.isEmpty
-                        ? task.quadrant.localLabel(isAr)
-                        : '${task.quadrant.localLabel(isAr)} · $completedLabel',
+                        ? (task.quadrant?.localLabel(isAr) ?? s.matrixInbox)
+                        : '${task.quadrant?.localLabel(isAr) ?? s.matrixInbox} · $completedLabel',
                     style: TextStyle(fontSize: 11, color: gp.textTert),
                   ),
                 ],

@@ -41,8 +41,60 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   void _deleteSelected() {
     if (_selectedIds.isEmpty) return;
     HapticFeedback.mediumImpact();
-    ref.read(matrixProvider.notifier).deleteMany(_selectedIds);
+    final notifier = ref.read(matrixProvider.notifier);
+    final removed = ref
+        .read(matrixProvider)
+        .tasks
+        .where((t) => _selectedIds.contains(t.id))
+        .toList();
+    final count = removed.length;
+    notifier.deleteMany(_selectedIds);
     _clearSelection();
+    _showUndoSnackbar(
+      message: S.of(context).matrixTasksDeleted(count),
+      onUndo: () => notifier.restoreMany(removed),
+    );
+  }
+
+  MatrixTask? _findTask(String id) {
+    for (final t in ref.read(matrixProvider).tasks) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
+  void _deleteTask(String id) {
+    final task = _findTask(id);
+    if (task == null) return;
+    HapticFeedback.mediumImpact();
+    ref.read(matrixProvider.notifier).delete(id);
+    _showUndoSnackbar(
+      message: S.of(context).matrixTaskDeleted,
+      onUndo: () => ref.read(matrixProvider.notifier).restore(task),
+    );
+  }
+
+  void _moveTask(String id, MatrixQuadrant? q) {
+    HapticFeedback.selectionClick();
+    ref.read(matrixProvider.notifier).move(id, q);
+  }
+
+  void _showUndoSnackbar({
+    required String message,
+    required VoidCallback onUndo,
+  }) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: S.of(context).matrixUndo,
+          onPressed: onUndo,
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   @override
@@ -136,7 +188,21 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: _InboxSection(
+                tasks: tasks.where((t) => t.quadrant == null).toList(),
+                onToggle: (id) {
+                  HapticFeedback.lightImpact();
+                  ref.read(matrixProvider.notifier).toggle(id);
+                },
+                onDelete: _deleteTask,
+                onDropToInbox: (id) => _moveTask(id, null),
+                onAddTapped: () => _showAdd(context, ref, null),
+              ),
+            ).animate(delay: 100.ms).fadeIn(duration: 300.ms),
+            const SizedBox(height: 10),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
@@ -191,18 +257,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           .read(matrixProvider.notifier)
                                           .toggle(id);
                                     },
-                                    onDelete: (id) {
-                                      HapticFeedback.mediumImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .delete(id);
-                                    },
-                                    onMove: (id, q) {
-                                      HapticFeedback.selectionClick();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .move(id, q);
-                                    },
+                                    onDelete: _deleteTask,
+                                    onMove: _moveTask,
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -234,18 +290,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           .read(matrixProvider.notifier)
                                           .toggle(id);
                                     },
-                                    onDelete: (id) {
-                                      HapticFeedback.mediumImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .delete(id);
-                                    },
-                                    onMove: (id, q) {
-                                      HapticFeedback.selectionClick();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .move(id, q);
-                                    },
+                                    onDelete: _deleteTask,
+                                    onMove: _moveTask,
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -283,18 +329,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           .read(matrixProvider.notifier)
                                           .toggle(id);
                                     },
-                                    onDelete: (id) {
-                                      HapticFeedback.mediumImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .delete(id);
-                                    },
-                                    onMove: (id, q) {
-                                      HapticFeedback.selectionClick();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .move(id, q);
-                                    },
+                                    onDelete: _deleteTask,
+                                    onMove: _moveTask,
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -326,18 +362,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           .read(matrixProvider.notifier)
                                           .toggle(id);
                                     },
-                                    onDelete: (id) {
-                                      HapticFeedback.mediumImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .delete(id);
-                                    },
-                                    onMove: (id, q) {
-                                      HapticFeedback.selectionClick();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .move(id, q);
-                                    },
+                                    onDelete: _deleteTask,
+                                    onMove: _moveTask,
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -370,7 +396,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     );
   }
 
-  void _showAdd(BuildContext context, WidgetRef ref, MatrixQuadrant quadrant) {
+  void _showAdd(BuildContext context, WidgetRef ref, MatrixQuadrant? quadrant) {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
@@ -484,6 +510,201 @@ class _RotatedAxisLabel extends StatelessWidget {
             color: gp.textTert,
             letterSpacing: 1.2,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Inbox ──────────────────────────────────────────────────────────────────
+
+/// Quick-capture lands here, not straight into a quadrant — deciding what's
+/// urgent/important can wait until the thought is already safely saved.
+/// Chips can be dragged into a quadrant below to triage them (see
+/// QuadrantCard's DragTarget), or dropped back here to un-triage.
+class _InboxSection extends StatelessWidget {
+  final List<MatrixTask> tasks;
+  final void Function(String id) onToggle;
+  final void Function(String id) onDelete;
+  final void Function(String id) onDropToInbox;
+  final VoidCallback onAddTapped;
+
+  const _InboxSection({
+    required this.tasks,
+    required this.onToggle,
+    required this.onDelete,
+    required this.onDropToInbox,
+    required this.onAddTapped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => true,
+      onAcceptWithDetails: (details) => onDropToInbox(details.data),
+      builder: (context, candidateData, rejectedData) {
+        final isHovering = candidateData.isNotEmpty;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          decoration: BoxDecoration(
+            color: isHovering ? GameColors.gold.withOpacity(0.1) : null,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isHovering ? GameColors.gold : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Row(
+                  children: [
+                    Icon(Icons.inbox_rounded, size: 13, color: gp.textTert),
+                    const SizedBox(width: 4),
+                    Text(s.matrixInbox,
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: gp.textTert,
+                            letterSpacing: 0.8)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: SizedBox(
+                  height: 34,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      ...tasks.map((t) => Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: LongPressDraggable<String>(
+                              data: t.id,
+                              feedback: Material(
+                                color: Colors.transparent,
+                                child: ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 200),
+                                  child: _InboxChip(
+                                    task: t,
+                                    onTap: () {},
+                                    onDelete: () {},
+                                    showDelete: false,
+                                  ),
+                                ),
+                              ),
+                              childWhenDragging: Opacity(
+                                opacity: 0.25,
+                                child: _InboxChip(
+                                  task: t,
+                                  onTap: () {},
+                                  onDelete: () {},
+                                ),
+                              ),
+                              child: _InboxChip(
+                                task: t,
+                                onTap: () => onToggle(t.id),
+                                onDelete: () => onDelete(t.id),
+                              ),
+                            ),
+                          )),
+                      GestureDetector(
+                        onTap: onAddTapped,
+                        child: Container(
+                          height: 34,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: gp.surfaceHL,
+                            borderRadius: BorderRadius.circular(100),
+                            border: Border.all(color: gp.border, width: 0.5),
+                          ),
+                          child: Icon(Icons.add_rounded,
+                              size: 16, color: gp.textSec),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _InboxChip extends StatelessWidget {
+  final MatrixTask task;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+  final bool showDelete;
+
+  const _InboxChip({
+    required this.task,
+    required this.onTap,
+    required this.onDelete,
+    this.showDelete = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 34,
+        padding: EdgeInsets.only(left: 12, right: showDelete ? 4 : 12),
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: BorderRadius.circular(100),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              task.isDone
+                  ? Icons.check_circle_rounded
+                  : Icons.circle_outlined,
+              size: 14,
+              color: task.isDone ? GameColors.gold : gp.textTert,
+            ),
+            const SizedBox(width: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 140),
+              child: Text(
+                task.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: gp.textPrimary,
+                  decoration: task.isDone
+                      ? TextDecoration.lineThrough
+                      : TextDecoration.none,
+                  decorationColor: gp.textTert,
+                ),
+              ),
+            ),
+            if (showDelete)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onDelete,
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(Icons.close_rounded,
+                      size: 14, color: gp.textTert),
+                ),
+              ),
+          ],
         ),
       ),
     );
