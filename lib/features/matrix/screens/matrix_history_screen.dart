@@ -208,14 +208,23 @@ class _MonthHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    // Icon has no built-in RTL-mirroring flag (that's Image/ImageIcon's
+    // matchTextDirection) — flip the chevron glyph by hand so "previous"
+    // still visually points the right way once Row's own RTL mirroring
+    // has already swapped which side of the header this button sits on.
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    Widget chevron(IconData icon, Color color) {
+      final glyph = Icon(icon, color: color, size: 22);
+      return isRtl ? Transform.flip(flipX: true, child: glyph) : glyph;
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
       child: Row(
         children: [
           IconButton(
             onPressed: onPrev,
-            icon: Icon(Icons.chevron_left_rounded,
-                color: gp.textSec, size: 22, matchTextDirection: true),
+            icon: chevron(Icons.chevron_left_rounded, gp.textSec),
           ),
           Expanded(
             child: Center(
@@ -230,13 +239,9 @@ class _MonthHeader extends StatelessWidget {
           ),
           IconButton(
             onPressed: onNext,
-            icon: Icon(
+            icon: chevron(
               Icons.chevron_right_rounded,
-              size: 22,
-              matchTextDirection: true,
-              color: onNext == null
-                  ? gp.textTert.withOpacity(0.3)
-                  : gp.textSec,
+              onNext == null ? gp.textTert.withOpacity(0.3) : gp.textSec,
             ),
           ),
         ],
