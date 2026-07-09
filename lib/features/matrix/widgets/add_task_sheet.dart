@@ -90,16 +90,16 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
             maxHeight: MediaQuery.of(context).size.height * 0.85),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(color: gp.border, width: 0.5),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-              padding: const EdgeInsets.only(top: 10, bottom: 4),
+              padding: const EdgeInsets.only(top: 12, bottom: 6),
               child: Container(
-                width: 36,
+                width: 38,
                 height: 4,
                 decoration: BoxDecoration(
                     color: gp.border,
@@ -107,68 +107,96 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
               child: Row(
                 children: [
                   Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                          color: _color, shape: BoxShape.circle)),
-                  const SizedBox(width: 8),
-                  Text(widget.quadrant.localLabel(isAr),
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: _color,
-                          letterSpacing: 1.2)),
-                  const SizedBox(width: 8),
-                  Text(widget.quadrant.localSubtitle(isAr),
-                      style: TextStyle(fontSize: 11, color: gp.textSec)),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                                color: _color, shape: BoxShape.circle)),
+                        const SizedBox(width: 6),
+                        Text(widget.quadrant.localLabel(isAr),
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: _color,
+                                // Letter-spacing disconnects Arabic glyphs
+                                // (the script is cursive/joined) — only the
+                                // Latin small-caps label wants that look.
+                                letterSpacing: isAr ? 0 : 1.0)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(widget.quadrant.localSubtitle(isAr),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: gp.textSec)),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextField(
-                controller: _ctrl,
-                focusNode: _focus,
-                onSubmitted: (_) => _submit(),
-                textCapitalization: TextCapitalization.sentences,
-                textInputAction: TextInputAction.done,
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: gp.textPrimary,
-                    height: 1.4),
-                maxLines: 3,
-                minLines: 1,
-                decoration: InputDecoration(
-                  hintText: s.matrixWhatToDo,
-                  hintStyle: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w400,
-                      color: gp.textTert.withOpacity(0.7)),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  contentPadding: EdgeInsets.zero,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  color: gp.surfaceHL,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: gp.border, width: 0.5),
+                ),
+                child: TextField(
+                  controller: _ctrl,
+                  focusNode: _focus,
+                  onSubmitted: (_) => _submit(),
+                  textCapitalization: TextCapitalization.sentences,
+                  textInputAction: TextInputAction.done,
+                  style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w500,
+                      color: gp.textPrimary,
+                      height: 1.4),
+                  maxLines: 3,
+                  minLines: 1,
+                  decoration: InputDecoration(
+                    hintText: s.matrixWhatToDo,
+                    hintStyle: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w400,
+                        color: gp.textTert.withOpacity(0.7)),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
                 ),
               ),
             ),
             if (_addedTitles.isEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Text(
                   s.matrixAddMultipleHint,
-                  style: TextStyle(fontSize: 11, color: gp.textTert),
+                  style: TextStyle(fontSize: 11.5, color: gp.textTert),
                 ),
               ),
             ],
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               // Fresh open with nothing typed and nothing added yet still
@@ -181,27 +209,31 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                 final active = _hasText || showDone;
                 return FilledButton(
                   style: FilledButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
+                    minimumSize: const Size(double.infinity, 52),
                     backgroundColor: active ? _color : gp.surfaceHL,
                     foregroundColor: active ? Colors.black : gp.textTert,
+                    elevation: 0,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
+                        borderRadius: BorderRadius.circular(16)),
                   ),
                   onPressed: active ? _submit : null,
                   child: Text(showDone ? s.matrixDone : s.matrixAddTask,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: 1.4)),
+                          letterSpacing: isAr ? 0 : 1.4)),
                 );
               }),
             ),
+            SizedBox(height: _addedTitles.isEmpty ? 20 : 4),
             if (_addedTitles.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              Divider(height: 1, color: gp.divider, indent: 20, endIndent: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Divider(height: 1, color: gp.divider),
+              ),
               Flexible(
                 child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
                   shrinkWrap: true,
                   itemCount: _addedTitles.length,
                   itemBuilder: (context, i) {
@@ -210,22 +242,32 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                     // that's scrolled out of view.
                     final title = _addedTitles[_addedTitles.length - 1 - i];
                     return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Icon(Icons.check_circle_rounded,
-                              size: 14, color: _color),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  fontSize: 12.5, color: gp.textSec),
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _color.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle_rounded,
+                                size: 15, color: _color),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: gp.textPrimary),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ).animate().fadeIn(duration: 200.ms);
                   },

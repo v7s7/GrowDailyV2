@@ -97,7 +97,10 @@ class QuadrantCard extends StatelessWidget {
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
                             color: _color,
-                            letterSpacing: 0.8),
+                            // Letter-spacing disconnects Arabic glyphs (the
+                            // script is cursive/joined) — only the Latin
+                            // small-caps label wants that look.
+                            letterSpacing: isAr ? 0 : 0.8),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -497,78 +500,83 @@ class _TaskTileState extends State<_TaskTile>
   void _showTaskActions(BuildContext context) {
     final others =
         MatrixQuadrant.values.where((q) => q != widget.task.quadrant).toList();
+    final isAr = S.of(context).isAr;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final mgp = ctx.gp;
         return Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
           child: Container(
             decoration: BoxDecoration(
               color: mgp.surfaceHigh,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(color: mgp.border, width: 0.5),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.delete_outline_rounded,
-                      color: GameColors.error, size: 20),
-                  title: Text(
-                    S.of(context).matrixDeleteTask,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: GameColors.error,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    widget.onDelete();
-                  },
-                ),
-                Divider(height: 1, color: mgp.divider),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                  child: Text(
-                    S.of(context).matrixMoveToQuadrant,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: mgp.textSec,
-                      letterSpacing: 1.2,
-                    ),
+                  padding: const EdgeInsets.only(top: 12, bottom: 4),
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: mgp.border,
+                        borderRadius: BorderRadius.circular(2)),
                   ),
                 ),
-                Divider(height: 1, color: mgp.divider),
-                ...others.map((q) {
-                      final isAr = S.of(context).isAr;
-                      return ListTile(
-                      dense: true,
-                      leading: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                              color: _colorFor(q),
-                              shape: BoxShape.circle)),
-                      title: Text(q.localLabel(isAr),
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: mgp.textPrimary)),
-                      subtitle: Text(q.localSubtitle(isAr),
-                          style: TextStyle(
-                              fontSize: 11, color: mgp.textSec)),
-                      onTap: () {
-                        Navigator.pop(context);
-                        widget.onMove(q);
-                      },
-                    );
-                    }),
-                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _ActionRow(
+                        icon: Icons.delete_outline_rounded,
+                        iconColor: GameColors.error,
+                        label: S.of(context).matrixDeleteTask,
+                        labelColor: GameColors.error,
+                        onTap: () {
+                          Navigator.pop(context);
+                          widget.onDelete();
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Text(
+                            S.of(context).matrixMoveToQuadrant,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: mgp.textTert,
+                              // Letter-spacing disconnects Arabic glyphs
+                              // (the script is cursive/joined) — only the
+                              // Latin small-caps label wants that look.
+                              letterSpacing: isAr ? 0 : 1.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...others.map((q) => Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: _ActionRow(
+                              dotColor: _colorFor(q),
+                              label: q.localLabel(isAr),
+                              subtitle: q.localSubtitle(isAr),
+                              onTap: () {
+                                Navigator.pop(context);
+                                widget.onMove(q);
+                              },
+                            ),
+                          )),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -583,4 +591,87 @@ class _TaskTileState extends State<_TaskTile>
         MatrixQuadrant.delegate => GameColors.streakOrange,
         MatrixQuadrant.eliminate => GameColors.textTertiary,
       };
+}
+
+// ─── Action sheet row ─────────────────────────────────────────────────────────
+
+/// One tappable row in the task action sheet — either the "Delete" action
+/// (an icon in a tinted circle) or a "move to quadrant" option (a small
+/// colored dot standing in for that quadrant's chip color). Both share the
+/// same tinted-card treatment so the sheet reads as a set of modern,
+/// generously-spaced options instead of a cramped classic menu.
+class _ActionRow extends StatelessWidget {
+  final IconData? icon;
+  final Color? iconColor;
+  final Color? dotColor;
+  final String label;
+  final String? subtitle;
+  final Color? labelColor;
+  final VoidCallback onTap;
+
+  const _ActionRow({
+    this.icon,
+    this.iconColor,
+    this.dotColor,
+    required this.label,
+    this.subtitle,
+    this.labelColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final tint = iconColor ?? dotColor ?? GameColors.gold;
+    return Material(
+      color: tint.withOpacity(0.07),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: tint.withOpacity(0.16),
+                  shape: BoxShape.circle,
+                ),
+                child: icon != null
+                    ? Icon(icon, size: 17, color: iconColor)
+                    : Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                            color: dotColor, shape: BoxShape.circle),
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: labelColor ?? gp.textPrimary)),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle!,
+                          style: TextStyle(fontSize: 11.5, color: gp.textSec)),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
