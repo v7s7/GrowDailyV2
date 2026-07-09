@@ -481,6 +481,11 @@ class S {
   String get matrixTaskDeleted => isAr ? 'تم حذف المهمة' : 'Task deleted';
   String matrixTasksDeleted(int count) =>
       isAr ? 'تم حذف $count مهام' : '$count tasks deleted';
+  String get matrixPickADay => isAr
+      ? 'اضغط على يوم أعلاه لترى ما أنجزته'
+      : 'Tap a day above to see what you finished';
+  String get matrixNoTasksThisDay =>
+      isAr ? 'لا مهام مُنجزة في هذا اليوم' : 'Nothing finished on this day';
 
   // ── Quick Wins ───────────────────────────────────────────────────────────
   String get quickWins => isAr ? 'مكاسب سريعة' : 'Quick Wins';

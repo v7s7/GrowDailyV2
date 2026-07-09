@@ -9,23 +9,90 @@ import '../../../core/theme/game_theme.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 
-/// Completed tasks don't just vanish when checked off — they move here.
-/// Reached from Matrix's own header (the "Completed" icon + count badge),
-/// so finishing something feels like real progress (it leaves the active
-/// quadrant, decluttering what's still left to triage) without the record
-/// of what got done ever actually being lost. Each row can be restored
-/// back to its quadrant or deleted for good.
-class MatrixHistoryScreen extends ConsumerWidget {
+DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+/// Saturday-start, matching the Victory Grid's own week convention
+/// (`startOfGridWeek` in weekly_grid_notifier.dart) so the app doesn't mix
+/// two different "first day of the week" conventions.
+int _columnFor(DateTime date) => (date.weekday + 1) % 7;
+
+/// Completed tasks don't just vanish when checked off — they move here, and
+/// stay here for good until restored or permanently deleted; nothing is
+/// ever auto-cleared. A month calendar lets you jump straight to any day and
+/// see exactly what got finished then, instead of scrolling one long list.
+class MatrixHistoryScreen extends ConsumerStatefulWidget {
   const MatrixHistoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MatrixHistoryScreen> createState() =>
+      _MatrixHistoryScreenState();
+}
+
+class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
+  late DateTime _visibleMonth;
+  DateTime? _selectedDate;
+
+  @override
+  void initState() {
+    super.initState();
+    final today = _dateOnly(DateTime.now());
+    _visibleMonth = DateTime(today.year, today.month);
+    _selectedDate = today;
+  }
+
+  // Switching months clears the selected day rather than carrying a
+  // selection from a month that's no longer on screen — keeps the grid's
+  // highlighted day and the list below it from ever disagreeing.
+  void _changeMonth(int delta) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _visibleMonth =
+          DateTime(_visibleMonth.year, _visibleMonth.month + delta);
+      _selectedDate = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
     final isAr = s.isAr;
-    final tasks = ref.watch(matrixProvider).tasks.where((t) => t.isDone).toList()
-      ..sort((a, b) =>
-          (b.completedAt ?? b.createdAt).compareTo(a.completedAt ?? a.createdAt));
+    final locale = Localizations.localeOf(context).languageCode;
+    final today = _dateOnly(DateTime.now());
+
+    final doneTasks =
+        ref.watch(matrixProvider).tasks.where((t) => t.isDone).toList();
+
+    if (doneTasks.isEmpty) {
+      return Scaffold(
+        backgroundColor: gp.bg,
+        appBar: AppBar(
+          backgroundColor: gp.bg,
+          surfaceTintColor: Colors.transparent,
+          title: Text(s.matrixCompletedTitle,
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: gp.textPrimary)),
+        ),
+        body: const _EmptyHistory(),
+      );
+    }
+
+    final Map<DateTime, List<MatrixTask>> byDate = {};
+    for (final t in doneTasks) {
+      final d = _dateOnly(t.completedAt ?? t.createdAt);
+      byDate.putIfAbsent(d, () => []).add(t);
+    }
+
+    final dayTasks = _selectedDate == null
+        ? const <MatrixTask>[]
+        : (List<MatrixTask>.from(byDate[_selectedDate!] ?? const [])
+          ..sort((a, b) => (b.completedAt ?? b.createdAt)
+              .compareTo(a.completedAt ?? a.createdAt)));
+
+    final canGoNext =
+        _visibleMonth.isBefore(DateTime(today.year, today.month));
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -38,20 +105,356 @@ class MatrixHistoryScreen extends ConsumerWidget {
                 fontWeight: FontWeight.w800,
                 color: gp.textPrimary)),
       ),
-      body: tasks.isEmpty
-          ? const _EmptyHistory()
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: tasks.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, i) {
-                final t = tasks[i];
-                return _HistoryRow(task: t, isAr: isAr)
-                    .animate(delay: (i * 30).ms)
-                    .fadeIn(duration: 250.ms)
-                    .slideY(begin: 0.06, curve: Curves.easeOutCubic);
-              },
+      body: Column(
+        children: [
+          _MonthHeader(
+            label: DateFormat('MMMM yyyy', locale).format(_visibleMonth),
+            onPrev: () => _changeMonth(-1),
+            onNext: canGoNext ? () => _changeMonth(1) : null,
+          ),
+          _WeekdayHeader(locale: locale),
+          const SizedBox(height: 2),
+          _MonthGrid(
+            month: _visibleMonth,
+            today: today,
+            selectedDate: _selectedDate,
+            completedDates: byDate.keys.toSet(),
+            onSelect: (date) {
+              HapticFeedback.selectionClick();
+              setState(() => _selectedDate = date);
+            },
+          ),
+          const SizedBox(height: 10),
+          Divider(height: 1, color: gp.divider, indent: 20, endIndent: 20),
+          Expanded(
+            child: _selectedDate == null
+                ? _SelectDayPrompt(text: s.matrixPickADay)
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+                        child: Row(
+                          children: [
+                            Text(
+                              _selectedDate == today
+                                  ? s.navToday
+                                  : DateFormat('EEEE, MMM d', locale)
+                                      .format(_selectedDate!),
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  color: gp.textPrimary),
+                            ),
+                            if (dayTasks.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: GameColors.gold.withOpacity(0.16),
+                                  borderRadius: BorderRadius.circular(100),
+                                ),
+                                child: Text('${dayTasks.length}',
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: GameColors.gold)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: dayTasks.isEmpty
+                            ? _EmptyDayState(text: s.matrixNoTasksThisDay)
+                            : ListView.separated(
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 6, 20, 16),
+                                itemCount: dayTasks.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 10),
+                                itemBuilder: (context, i) {
+                                  final t = dayTasks[i];
+                                  return _HistoryRow(task: t, isAr: isAr)
+                                      .animate(delay: (i * 30).ms)
+                                      .fadeIn(duration: 220.ms)
+                                      .slideY(
+                                          begin: 0.06,
+                                          curve: Curves.easeOutCubic);
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonthHeader extends StatelessWidget {
+  final String label;
+  final VoidCallback onPrev;
+  final VoidCallback? onNext;
+
+  const _MonthHeader({
+    required this.label,
+    required this.onPrev,
+    required this.onNext,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: onPrev,
+            icon: Icon(Icons.chevron_left_rounded,
+                color: gp.textSec, size: 22, matchTextDirection: true),
+          ),
+          Expanded(
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary),
+              ),
             ),
+          ),
+          IconButton(
+            onPressed: onNext,
+            icon: Icon(
+              Icons.chevron_right_rounded,
+              size: 22,
+              matchTextDirection: true,
+              color: onNext == null
+                  ? gp.textTert.withOpacity(0.3)
+                  : gp.textSec,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeekdayHeader extends StatelessWidget {
+  final String locale;
+  const _WeekdayHeader({required this.locale});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    // Jan 6 2024 was a Saturday — just a fixed reference week to pull each
+    // column's narrow, locale-correct single-letter label from intl, in the
+    // same Saturday-start order as the grid below.
+    final labels = List.generate(
+      7,
+      (i) => DateFormat('EEEEE', locale).format(DateTime(2024, 1, 6 + i)),
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: labels
+            .map((l) => Expanded(
+                  child: Center(
+                    child: Text(
+                      l,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: gp.textTert),
+                    ),
+                  ),
+                ))
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _MonthGrid extends StatelessWidget {
+  final DateTime month;
+  final DateTime today;
+  final DateTime? selectedDate;
+  final Set<DateTime> completedDates;
+  final void Function(DateTime date) onSelect;
+
+  const _MonthGrid({
+    required this.month,
+    required this.today,
+    required this.selectedDate,
+    required this.completedDates,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final firstOfMonth = DateTime(month.year, month.month, 1);
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final leadingBlanks = _columnFor(firstOfMonth);
+    final totalCells = leadingBlanks + daysInMonth;
+    final rows = (totalCells / 7).ceil();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        children: List.generate(rows, (row) {
+          return Row(
+            children: List.generate(7, (col) {
+              final cellIndex = row * 7 + col;
+              final dayNum = cellIndex - leadingBlanks + 1;
+              if (dayNum < 1 || dayNum > daysInMonth) {
+                return const Expanded(child: SizedBox());
+              }
+              final date = DateTime(month.year, month.month, dayNum);
+              final isFuture = date.isAfter(today);
+              return _DayCell(
+                day: dayNum,
+                isToday: date == today,
+                isSelected: selectedDate != null && date == selectedDate,
+                hasCompleted: completedDates.contains(date),
+                isFuture: isFuture,
+                onTap: isFuture ? null : () => onSelect(date),
+              );
+            }),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _DayCell extends StatelessWidget {
+  final int day;
+  final bool isToday;
+  final bool isSelected;
+  final bool hasCompleted;
+  final bool isFuture;
+  final VoidCallback? onTap;
+
+  const _DayCell({
+    required this.day,
+    required this.isToday,
+    required this.isSelected,
+    required this.hasCompleted,
+    required this.isFuture,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Expanded(
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Material(
+            color: isSelected ? GameColors.gold : Colors.transparent,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: Container(
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: isToday && !isSelected
+                      ? Border.all(color: GameColors.gold, width: 1.4)
+                      : null,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$day',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected || isToday
+                            ? FontWeight.w800
+                            : FontWeight.w500,
+                        color: isSelected
+                            ? Colors.black
+                            : isFuture
+                                ? gp.textTert.withOpacity(0.35)
+                                : gp.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Container(
+                      width: 4,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: hasCompleted
+                            ? (isSelected ? Colors.black : GameColors.gold)
+                            : Colors.transparent,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectDayPrompt extends StatelessWidget {
+  final String text;
+  const _SelectDayPrompt({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, color: gp.textTert, height: 1.4),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyDayState extends StatelessWidget {
+  final String text;
+  const _EmptyDayState({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.nights_stay_rounded,
+                size: 26, color: gp.textTert.withOpacity(0.5)),
+            const SizedBox(height: 10),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: gp.textTert, height: 1.4),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -118,9 +521,11 @@ class _HistoryRow extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final locale = Localizations.localeOf(context).languageCode;
+    // Just the time-of-day — the date itself is already implied by which
+    // calendar day is selected above, so repeating it here would be noise.
     final completedLabel = task.completedAt == null
         ? ''
-        : DateFormat('MMM d, h:mm a', locale).format(task.completedAt!);
+        : DateFormat('h:mm a', locale).format(task.completedAt!);
 
     return Dismissible(
       key: ValueKey(task.id),
