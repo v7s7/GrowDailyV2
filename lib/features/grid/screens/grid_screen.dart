@@ -47,18 +47,90 @@ import '../notifiers/weekly_grid_notifier.dart';
 ///
 /// Rows are habits, columns are the seven days of the week (Sat → Fri).
 /// Tapping a square cycles white → yellow → green → white; a long-press opens
-/// the full palette plus a daily reflection note.
-class GridScreen extends ConsumerWidget {
+/// the full palette plus a daily reflection note. Long-pressing a habit's
+/// *name* instead starts multi-select (mirrors Matrix's task selection), so
+/// several habits can be checked off and removed together in one action.
+class GridScreen extends ConsumerStatefulWidget {
   const GridScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<GridScreen> createState() => _GridScreenState();
+}
+
+class _GridScreenState extends ConsumerState<GridScreen> {
+  final Set<String> _selectedIds = {};
+
+  bool get _selectionMode => _selectedIds.isNotEmpty;
+
+  void _startSelection(String id) {
+    setState(() => _selectedIds.add(id));
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (!_selectedIds.remove(id)) _selectedIds.add(id);
+    });
+  }
+
+  void _clearSelection() {
+    setState(_selectedIds.clear);
+  }
+
+  /// Custom habits are deleted outright; preset habits are deactivated
+  /// (reversible via Plans/the catalog) rather than destroyed — same split
+  /// Today's own single-habit delete and Grid's old action sheet used.
+  void _deleteSelected() {
+    if (_selectedIds.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    final customIds =
+        ref.read(customHabitsProvider).map((h) => h.id).toSet();
+    for (final id in _selectedIds) {
+      if (customIds.contains(id)) {
+        ref.read(customHabitsProvider.notifier).remove(id);
+      } else {
+        ref.read(activeCatalogProvider.notifier).toggle(id);
+      }
+    }
+    _clearSelection();
+  }
+
+  /// Opens the full edit sheet for the single selected habit — kept so
+  /// repurposing long-press for selection doesn't quietly remove Grid's
+  /// only way to edit a custom habit's cue/frequency. Only ever offered
+  /// for a single, custom selection; preset habits aren't editable here,
+  /// matching Today's own onEdit gating.
+  void _editSelected(IslamicHabitTemplate habit) {
+    HapticFeedback.lightImpact();
+    _clearSelection();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddHabitSheet(existing: habit),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     registerDashboardReactions(context, ref, routeToIntentionOnFirstLoad: true);
 
     final gp = context.gp;
     final s = S.of(context);
     final habits = ref.watch(habitListProvider);
     final grid = ref.watch(weeklyGridProvider);
+
+    IslamicHabitTemplate? singleEditableSelection;
+    if (_selectedIds.length == 1) {
+      final id = _selectedIds.first;
+      if (ref.read(customHabitsProvider).any((h) => h.id == id)) {
+        for (final h in habits) {
+          if (h.id == id) {
+            singleEditableSelection = h;
+            break;
+          }
+        }
+      }
+    }
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -70,6 +142,20 @@ class GridScreen extends ConsumerWidget {
               parent: AlwaysScrollableScrollPhysics()),
           slivers: [
             SliverToBoxAdapter(child: _GridHeader(state: grid)),
+            if (_selectionMode)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: _SelectionBar(
+                    count: _selectedIds.length,
+                    onClear: _clearSelection,
+                    onDelete: _deleteSelected,
+                    onEdit: singleEditableSelection == null
+                        ? null
+                        : () => _editSelected(singleEditableSelection!),
+                  ),
+                ),
+              ),
             if (habits.isEmpty)
               const SliverFillRemaining(
                 hasScrollBody: false,
@@ -110,7 +196,14 @@ class GridScreen extends ConsumerWidget {
                         ? const _GridSkeleton()
                         : KeyedSubtree(
                             key: ValueKey(grid.weekStart),
-                            child: _GridTable(habits: habits, state: grid),
+                            child: _GridTable(
+                              habits: habits,
+                              state: grid,
+                              selectionMode: _selectionMode,
+                              selectedIds: _selectedIds,
+                              onSelectionToggle: _toggleSelection,
+                              onSelectionStart: _startSelection,
+                            ),
                           ),
                   ),
                 ),
@@ -157,6 +250,67 @@ class GridScreen extends ConsumerWidget {
                   size: 20, color: GameColors.gold),
             ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.4),
     );
+  }
+}
+
+// ─── Selection bar (multi-select habits for bulk delete) ──────────────────────
+
+class _SelectionBar extends StatelessWidget {
+  final int count;
+  final VoidCallback onClear;
+  final VoidCallback onDelete;
+  final VoidCallback? onEdit;
+
+  const _SelectionBar({
+    required this.count,
+    required this.onClear,
+    required this.onDelete,
+    this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: GameColors.gold.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.close_rounded, size: 18, color: gp.textSec),
+            onPressed: onClear,
+          ),
+          Expanded(
+            child: Text(
+              s.matrixSelectedCount(count),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+              ),
+            ),
+          ),
+          if (onEdit != null)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: Icon(Icons.edit_outlined, size: 18, color: gp.textSec),
+              onPressed: onEdit,
+            ),
+          TextButton.icon(
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline_rounded, size: 17),
+            label: Text(s.matrixDeleteSelected),
+            style: TextButton.styleFrom(foregroundColor: GameColors.error),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 180.ms).slideY(begin: -0.15);
   }
 }
 
@@ -696,7 +850,19 @@ class _NightReviewPromptCard extends ConsumerWidget {
 class _GridTable extends ConsumerWidget {
   final List<IslamicHabitTemplate> habits;
   final WeeklyGridState state;
-  const _GridTable({required this.habits, required this.state});
+  final bool selectionMode;
+  final Set<String> selectedIds;
+  final void Function(String id) onSelectionToggle;
+  final void Function(String id) onSelectionStart;
+
+  const _GridTable({
+    required this.habits,
+    required this.state,
+    required this.selectionMode,
+    required this.selectedIds,
+    required this.onSelectionToggle,
+    required this.onSelectionStart,
+  });
 
   static const double _habitCol = 96;
   static const double _gap = 5;
@@ -823,13 +989,18 @@ class _GridTable extends ConsumerWidget {
       double rowHeight) {
     final gp = context.gp;
     final today = DateTime.now();
+    final selected = selectedIds.contains(habit.id);
     return SizedBox(
       height: rowHeight,
       child: Row(
         children: [
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onLongPress: () => _showHabitActionsSheet(context, ref, habit),
+            onTap: selectionMode ? () => onSelectionToggle(habit.id) : null,
+            onLongPress: () {
+              HapticFeedback.mediumImpact();
+              onSelectionStart(habit.id);
+            },
             child: SizedBox(
               width: _habitCol,
               child: Padding(
@@ -837,6 +1008,27 @@ class _GridTable extends ConsumerWidget {
                 child: Row(
                   children: [
                     Builder(builder: (_) {
+                      if (selectionMode) {
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: selected
+                                ? GameColors.gold
+                                : Colors.transparent,
+                            border: Border.all(
+                              color: selected ? GameColors.gold : gp.border,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: selected
+                              ? const Icon(Icons.check_rounded,
+                                  size: 13, color: Colors.black)
+                              : null,
+                        );
+                      }
                       final (_, color) = categoryVisual(habit.category);
                       return Container(
                         width: 22,
@@ -881,11 +1073,15 @@ class _GridTable extends ConsumerWidget {
                 isFuture: day.startOfDay.isAfter(today.startOfDay),
                 square: state.squareFor(habit.id, day),
                 hasNote: state.noteFor(habit.id, day).isNotEmpty,
-                onTap: () => _handleSquareTap(ref, habit, day),
-                onLongPress: () {
-                  HapticFeedback.mediumImpact();
-                  _openEditor(context, ref, habit, day);
-                },
+                onTap: selectionMode
+                    ? null
+                    : () => _handleSquareTap(ref, habit, day),
+                onLongPress: selectionMode
+                    ? null
+                    : () {
+                        HapticFeedback.mediumImpact();
+                        _openEditor(context, ref, habit, day);
+                      },
               ),
             ),
         ],
@@ -983,100 +1179,6 @@ class _GridTable extends ConsumerWidget {
     );
   }
 
-  /// Long-press on a habit's name/icon opens edit/remove for that habit —
-  /// Grid previously had no way to manage habits at all (add-only, via the
-  /// FAB), even though Today's habit list has supported this for a while.
-  /// Reuses the exact same notifiers Today's own menu uses, just adds the
-  /// missing entry point here.
-  void _showHabitActionsSheet(
-      BuildContext context, WidgetRef ref, IslamicHabitTemplate habit) {
-    HapticFeedback.mediumImpact();
-    final s = S.of(context);
-    final isCustom =
-        ref.read(customHabitsProvider).any((h) => h.id == habit.id);
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final gp = ctx.gp;
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-              12, 0, 12, 24 + MediaQuery.of(ctx).padding.bottom),
-          child: Container(
-            decoration: BoxDecoration(
-              color: gp.surfaceHigh,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: gp.border, width: 0.5),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-                  child: Text(
-                    habit.name,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: gp.textPrimary,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                Divider(height: 1, color: gp.divider),
-                // Preset/catalog habits are shared immutable templates —
-                // only custom habits (created via AddHabitSheet) can be
-                // edited, matching Today's own onEdit gating exactly.
-                if (isCustom)
-                  ListTile(
-                    leading: Icon(Icons.edit_outlined, color: gp.textSec),
-                    title: Text(
-                      s.editHabitAction,
-                      style: TextStyle(
-                          color: gp.textPrimary, fontWeight: FontWeight.w600),
-                    ),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      HapticFeedback.selectionClick();
-                      showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (_) => AddHabitSheet(existing: habit),
-                      );
-                    },
-                  ),
-                ListTile(
-                  leading: const Icon(Icons.delete_outline_rounded,
-                      color: GameColors.error),
-                  title: Text(
-                    s.removeHabit,
-                    style: const TextStyle(
-                        color: GameColors.error, fontWeight: FontWeight.w600),
-                  ),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    HapticFeedback.mediumImpact();
-                    // Custom habits are deleted outright; preset habits are
-                    // deactivated (reversible via Plans/the catalog) rather
-                    // than destroyed, matching Today's own onDelete exactly.
-                    if (isCustom) {
-                      ref.read(customHabitsProvider.notifier).remove(habit.id);
-                    } else {
-                      ref
-                          .read(activeCatalogProvider.notifier)
-                          .toggle(habit.id);
-                    }
-                  },
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
 class _SquareCell extends StatelessWidget {
@@ -1086,8 +1188,11 @@ class _SquareCell extends StatelessWidget {
   final bool isFuture;
   final SquareState square;
   final bool hasNote;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+  // Nullable: null while Grid's multi-select mode is active, so squares
+  // stop responding to taps/long-presses and can't accidentally change a
+  // habit-day's completion while the user is managing the habit list.
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   const _SquareCell({
     required this.size,
@@ -1183,8 +1288,9 @@ class _SquareCell extends StatelessWidget {
             curve: Curves.easeOutBack,
           );
     }
+    final tap = onTap;
     return GestureDetector(
-      onTap: isFuture
+      onTap: (isFuture || tap == null)
           ? null
           : () {
               // Confetti fires from the cell itself the instant the tap
@@ -1198,7 +1304,7 @@ class _SquareCell extends StatelessWidget {
                   );
                 }
               }
-              onTap();
+              tap();
             },
       onLongPress: isFuture ? null : onLongPress,
       child: Opacity(
