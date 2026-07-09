@@ -1126,10 +1126,15 @@ class _SquareCell extends StatelessWidget {
         // bleeds outward and makes that one cell look bigger/misaligned
         // against the rest of the row. Today stays distinguished by color
         // alone so the whole grid lines up cleanly.
+        //
+        // `goldDim` (not the lighter `gold`) on purpose: the empty-square
+        // fill is now a warm tan close in hue to `gold` itself, so a
+        // `gold`-on-tan ring had too little contrast to read as a single
+        // crisp line — it looked like a soft, doubled/"extra" outline
+        // instead. `goldDim` is dark and saturated enough to stay crisp
+        // against every fill color, not just the green "complete" state.
         border: Border.all(
-          color: isToday
-              ? GameColors.gold.withOpacity(0.9)
-              : square.border(dark),
+          color: isToday ? GameColors.goldDim : square.border(dark),
           width: 0.8,
         ),
       ),
