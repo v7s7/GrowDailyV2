@@ -109,6 +109,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
         children: [
           _MonthHeader(
             label: DateFormat('MMMM yyyy', locale).format(_visibleMonth),
+            isRtl: isAr,
             onPrev: () => _changeMonth(-1),
             onNext: canGoNext ? () => _changeMonth(1) : null,
           ),
@@ -196,11 +197,13 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
 
 class _MonthHeader extends StatelessWidget {
   final String label;
+  final bool isRtl;
   final VoidCallback onPrev;
   final VoidCallback? onNext;
 
   const _MonthHeader({
     required this.label,
+    required this.isRtl,
     required this.onPrev,
     required this.onNext,
   });
@@ -212,7 +215,10 @@ class _MonthHeader extends StatelessWidget {
     // matchTextDirection) — flip the chevron glyph by hand so "previous"
     // still visually points the right way once Row's own RTL mirroring
     // has already swapped which side of the header this button sits on.
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    // (isRtl is passed in as the app's own isAr flag — this file also
+    // imports package:intl, whose own TextDirection enum shadows
+    // dart:ui's, so Directionality.of(context) == TextDirection.rtl
+    // resolves to the wrong type here.)
     Widget chevron(IconData icon, Color color) {
       final glyph = Icon(icon, color: color, size: 22);
       return isRtl ? Transform.flip(flipX: true, child: glyph) : glyph;
