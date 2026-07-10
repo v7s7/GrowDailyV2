@@ -89,10 +89,17 @@ enum SquareState {
         skipped => const Color(0xFF8C9A92),
       };
 
-  /// Fill color for the square, adapted to light/dark so the "white" empty
-  /// state reads correctly in both themes.
+  /// Fill color for the square, adapted to light/dark so the "empty" state
+  /// reads correctly in both themes. Uses the theme's own highlight-surface
+  /// tone (not the card's plain surface color, and not a one-off hardcoded
+  /// value) — the previous fill was only a few RGB units off the card
+  /// background behind it, so an empty square was almost invisible except
+  /// for its thin border. That low-contrast outline then reads to the eye
+  /// as smaller/inset than a solidly-filled square of the exact same size,
+  /// which is what made whole columns look misaligned even though every
+  /// square shares the same fixed dimensions.
   Color fill(bool dark) => switch (this) {
-        none => dark ? const Color(0xFF17251F) : const Color(0xFFF2ECDE),
+        none => dark ? GameColors.surfaceHighlight : GameColors.lightSurfaceHL,
         partial => GameColors.warning.withOpacity(dark ? 0.30 : 0.28),
         complete => GameColors.emerald.withOpacity(dark ? 0.34 : 0.26),
         failed => GameColors.error.withOpacity(dark ? 0.30 : 0.22),
@@ -103,7 +110,7 @@ enum SquareState {
 
   /// Border color for the square.
   Color border(bool dark) => switch (this) {
-        none => dark ? const Color(0xFF2D4037) : const Color(0xFFD8CDBA),
+        none => dark ? GameColors.border : GameColors.lightBorder,
         _ => accent.withOpacity(dark ? 0.55 : 0.5),
       };
 

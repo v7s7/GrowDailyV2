@@ -91,7 +91,12 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final updated = tasks[idx].copyWith(isDone: !tasks[idx].isDone);
+    final nowDone = !tasks[idx].isDone;
+    final updated = tasks[idx].copyWith(
+      isDone: nowDone,
+      completedAt: nowDone ? DateTime.now() : null,
+      clearCompletedAt: !nowDone,
+    );
     tasks[idx] = updated;
     state = MatrixState(tasks: tasks, isLoading: false);
     _persist(updated);
@@ -136,6 +141,33 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     tasks[idx] = updated;
     state = MatrixState(tasks: tasks, isLoading: false);
     _persist(updated);
+  }
+
+  /// Undoes a single delete — re-inserts the exact task that was removed.
+  /// Guards against double-restore (e.g. a stale SnackBar action firing
+  /// twice) by skipping if a task with that id is already present.
+  void restore(MatrixTask task) {
+    if (state.tasks.any((t) => t.id == task.id)) return;
+    _mutatedBeforeLoad = true;
+    state = MatrixState(tasks: [...state.tasks, task], isLoading: false);
+    _persist(task);
+  }
+
+  /// Undoes a bulk delete (multi-select). Same double-restore guard as
+  /// [restore], applied per task.
+  void restoreMany(Iterable<MatrixTask> tasks) {
+    final existingIds = state.tasks.map((t) => t.id).toSet();
+    final toRestore =
+        tasks.where((t) => !existingIds.contains(t.id)).toList();
+    if (toRestore.isEmpty) return;
+    _mutatedBeforeLoad = true;
+    state = MatrixState(
+      tasks: [...state.tasks, ...toRestore],
+      isLoading: false,
+    );
+    for (final task in toRestore) {
+      _persist(task);
+    }
   }
 
   void _persist(MatrixTask task) {

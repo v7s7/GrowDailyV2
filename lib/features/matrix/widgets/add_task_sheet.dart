@@ -5,6 +5,12 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../models/matrix_task.dart';
 
+/// Stays open after each add so a quick brain-dump ("buy milk" ⏎ "wash car"
+/// ⏎ "call mom" ⏎ …) doesn't mean reopening this sheet for every single
+/// item. The field clears and keeps focus after each add; the primary
+/// button reads "Add" while there's text to submit and "Done" once the
+/// field is empty, so the same button (or the keyboard's enter key) both
+/// adds and — once you're finished — closes the sheet.
 class AddTaskSheet extends StatefulWidget {
   final MatrixQuadrant quadrant;
   final void Function(String title) onAdd;
@@ -22,6 +28,7 @@ class AddTaskSheet extends StatefulWidget {
 class _AddTaskSheetState extends State<AddTaskSheet> {
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
+  final List<String> _addedTitles = [];
   bool _hasText = false;
 
   Color get _color => switch (widget.quadrant) {
@@ -49,11 +56,23 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
     super.dispose();
   }
 
+  /// Adds the current text and keeps the sheet open for the next one, or —
+  /// if the field is already empty — closes it. Shared by the primary
+  /// button and the keyboard's submit action so both always agree on what
+  /// pressing "go" does at any given moment.
   void _submit() {
-    if (_ctrl.text.trim().isEmpty) return;
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) {
+      Navigator.pop(context);
+      return;
+    }
     HapticFeedback.mediumImpact();
-    widget.onAdd(_ctrl.text.trim());
-    Navigator.pop(context);
+    widget.onAdd(text);
+    setState(() {
+      _addedTitles.add(text);
+      _ctrl.clear();
+    });
+    _focus.requestFocus();
   }
 
   @override
@@ -67,18 +86,20 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
       curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(color: gp.border, width: 0.5),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-              padding: const EdgeInsets.only(top: 10, bottom: 4),
+              padding: const EdgeInsets.only(top: 12, bottom: 6),
               child: Container(
-                width: 36,
+                width: 38,
                 height: 4,
                 decoration: BoxDecoration(
                     color: gp.border,
@@ -86,78 +107,173 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
               child: Row(
                 children: [
                   Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                          color: _color, shape: BoxShape.circle)),
-                  const SizedBox(width: 8),
-                  Text(widget.quadrant.localLabel(isAr),
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: _color,
-                          letterSpacing: 1.2)),
-                  const SizedBox(width: 8),
-                  Text(widget.quadrant.localSubtitle(isAr),
-                      style: TextStyle(fontSize: 11, color: gp.textSec)),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                                color: _color, shape: BoxShape.circle)),
+                        const SizedBox(width: 6),
+                        Text(widget.quadrant.localLabel(isAr),
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: _color,
+                                // Letter-spacing disconnects Arabic glyphs
+                                // (the script is cursive/joined) — only the
+                                // Latin small-caps label wants that look.
+                                letterSpacing: isAr ? 0 : 1.0)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(widget.quadrant.localSubtitle(isAr),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: gp.textSec)),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextField(
-                controller: _ctrl,
-                focusNode: _focus,
-                onSubmitted: (_) => _submit(),
-                textCapitalization: TextCapitalization.sentences,
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: gp.textPrimary,
-                    height: 1.4),
-                maxLines: 3,
-                minLines: 1,
-                decoration: InputDecoration(
-                  hintText: s.matrixWhatToDo,
-                  hintStyle: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w400,
-                      color: gp.textTert.withOpacity(0.7)),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  contentPadding: EdgeInsets.zero,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  color: gp.surfaceHL,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: gp.border, width: 0.5),
+                ),
+                child: TextField(
+                  controller: _ctrl,
+                  focusNode: _focus,
+                  onSubmitted: (_) => _submit(),
+                  textCapitalization: TextCapitalization.sentences,
+                  textInputAction: TextInputAction.done,
+                  style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w500,
+                      color: gp.textPrimary,
+                      height: 1.4),
+                  maxLines: 3,
+                  minLines: 1,
+                  decoration: InputDecoration(
+                    hintText: s.matrixWhatToDo,
+                    hintStyle: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w400,
+                        color: gp.textTert.withOpacity(0.7)),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  backgroundColor: _hasText ? _color : gp.surfaceHL,
-                  foregroundColor: _hasText ? Colors.black : gp.textTert,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
+            if (_addedTitles.isEmpty) ...[
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  s.matrixAddMultipleHint,
+                  style: TextStyle(fontSize: 11.5, color: gp.textTert),
                 ),
-                onPressed: _hasText ? _submit : null,
-                child: Text(s.matrixAddTask,
-                    style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.4)),
-              )
-                  .animate(delay: 80.ms)
-                  .fadeIn(duration: 250.ms)
-                  .slideY(begin: 0.05),
+              ),
+            ],
+            const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              // Fresh open with nothing typed and nothing added yet still
+              // shows a disabled "ADD TASK" (same as before this sheet
+              // could stay open) — a "Done" button is only the right
+              // primary action once there's actually something to be done
+              // with.
+              child: Builder(builder: (_) {
+                final showDone = !_hasText && _addedTitles.isNotEmpty;
+                final active = _hasText || showDone;
+                return FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 52),
+                    backgroundColor: active ? _color : gp.surfaceHL,
+                    foregroundColor: active ? Colors.black : gp.textTert,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                  onPressed: active ? _submit : null,
+                  child: Text(showDone ? s.matrixDone : s.matrixAddTask,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: isAr ? 0 : 1.4)),
+                );
+              }),
             ),
+            SizedBox(height: _addedTitles.isEmpty ? 20 : 4),
+            if (_addedTitles.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Divider(height: 1, color: gp.divider),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                  shrinkWrap: true,
+                  itemCount: _addedTitles.length,
+                  itemBuilder: (context, i) {
+                    // Reversed so the just-added item appears right under
+                    // the input every time, not at the bottom of a list
+                    // that's scrolled out of view.
+                    final title = _addedTitles[_addedTitles.length - 1 - i];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _color.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle_rounded,
+                                size: 15, color: _color),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: gp.textPrimary),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ).animate().fadeIn(duration: 200.ms);
+                  },
+                ),
+              ),
+            ],
           ],
         ),
       ).animate().slideY(

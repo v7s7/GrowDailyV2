@@ -38,28 +38,34 @@ class QuadrantCard extends StatelessWidget {
         MatrixQuadrant.eliminate => GameColors.textTertiary,
       };
 
-  int get _pending => tasks.where((t) => !t.isDone).length;
-
-  /// Pending tasks first (in their existing order), finished ones pushed to
-  /// the bottom — so checking a task off doesn't just cross it out, it also
-  /// clears it out of the way of what's still left to do.
-  List<MatrixTask> get _orderedTasks {
-    final pending = tasks.where((t) => !t.isDone);
-    final done = tasks.where((t) => t.isDone);
-    return [...pending, ...done];
-  }
+  // `tasks` only ever holds pending tasks — the caller (MatrixScreen)
+  // filters out done ones before handing the list to this card, so a
+  // finished task disappears from the quadrant instead of sitting
+  // crossed-out forever. It isn't lost: it moves to the Completed history,
+  // reachable from the screen header.
+  int get _pending => tasks.length;
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
-    final ordered = _orderedTasks;
-    return Container(
+    final ordered = tasks;
+    // A dedicated drag-handle icon on each tile (see _TaskTile) is the only
+    // thing that starts a drag, so this target never fights the card's own
+    // tap/long-press/swipe handling.
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => true,
+      onAcceptWithDetails: (details) => onMove(details.data, quadrant),
+      builder: (context, candidateData, rejectedData) {
+        final isHovering = candidateData.isNotEmpty;
+        return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: gp.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: gp.border, width: 0.5),
+        border: Border.all(
+            color: isHovering ? _color : gp.border,
+            width: isHovering ? 2 : 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -91,7 +97,10 @@ class QuadrantCard extends StatelessWidget {
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
                             color: _color,
-                            letterSpacing: 0.8),
+                            // Letter-spacing disconnects Arabic glyphs (the
+                            // script is cursive/joined) — only the Latin
+                            // small-caps label wants that look.
+                            letterSpacing: isAr ? 0 : 0.8),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -118,8 +127,12 @@ class QuadrantCard extends StatelessWidget {
             ),
           ),
           Expanded(
+            // Longer than the tile's own 380ms completion pop (see
+            // _TaskTileState._spring) so a just-finished task's checkmark
+            // animation gets to actually play before this crossfades the
+            // whole list down to one fewer row.
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
+              duration: const Duration(milliseconds: 400),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
               child: tasks.isEmpty
@@ -129,7 +142,7 @@ class QuadrantCard extends StatelessWidget {
                     onTap: onAddTapped,
                   )
                 : ListView.separated(
-                    key: ValueKey(ordered.map((t) => '${t.id}:${t.isDone}').join('|')),
+                    key: ValueKey(ordered.map((t) => t.id).join('|')),
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     itemCount: ordered.length + 1,
                     separatorBuilder: (_, __) =>
@@ -156,13 +169,15 @@ class QuadrantCard extends StatelessWidget {
                       )
                           .animate(delay: (i * 35).ms)
                           .fadeIn(duration: 260.ms)
-                          .slideY(begin: t.isDone ? 0.12 : -0.08, curve: Curves.easeOutCubic);
+                          .slideY(begin: -0.08, curve: Curves.easeOutCubic);
                     },
                   ),
             ),
           ),
         ],
       ),
+    );
+      },
     );
   }
 }
@@ -428,6 +443,53 @@ class _TaskTileState extends State<_TaskTile>
                       maxLines: 2, overflow: TextOverflow.ellipsis),
                 ),
               ),
+              // Dragging is scoped to this small handle rather than the
+              // whole tile so it never fights the row's own long-press
+              // (which starts multi-select) or its swipe-to-delete.
+              if (!widget.selectionMode)
+                LongPressDraggable<String>(
+                  data: widget.task.id,
+                  feedback: Material(
+                    color: Colors.transparent,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: gp.surfaceHigh,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: widget.accentColor, width: 1),
+                        ),
+                        child: Text(widget.task.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: gp.textPrimary)),
+                      ),
+                    ),
+                  ),
+                  childWhenDragging: Icon(Icons.drag_indicator_rounded,
+                      size: 16, color: gp.textTert.withOpacity(0.25)),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(Icons.drag_indicator_rounded,
+                        size: 16, color: gp.textTert.withOpacity(0.6)),
+                  ),
+                ),
+              if (!widget.selectionMode)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _showTaskActions(context),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Icon(Icons.more_vert_rounded,
+                        size: 16, color: gp.textTert),
+                  ),
+                ),
             ],
           ),
         ),
@@ -438,78 +500,83 @@ class _TaskTileState extends State<_TaskTile>
   void _showTaskActions(BuildContext context) {
     final others =
         MatrixQuadrant.values.where((q) => q != widget.task.quadrant).toList();
+    final isAr = S.of(context).isAr;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final mgp = ctx.gp;
         return Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
           child: Container(
             decoration: BoxDecoration(
               color: mgp.surfaceHigh,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(color: mgp.border, width: 0.5),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.delete_outline_rounded,
-                      color: GameColors.error, size: 20),
-                  title: Text(
-                    S.of(context).matrixDeleteTask,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: GameColors.error,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    widget.onDelete();
-                  },
-                ),
-                Divider(height: 1, color: mgp.divider),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                  child: Text(
-                    S.of(context).matrixMoveToQuadrant,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: mgp.textSec,
-                      letterSpacing: 1.2,
-                    ),
+                  padding: const EdgeInsets.only(top: 12, bottom: 4),
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: mgp.border,
+                        borderRadius: BorderRadius.circular(2)),
                   ),
                 ),
-                Divider(height: 1, color: mgp.divider),
-                ...others.map((q) {
-                      final isAr = S.of(context).isAr;
-                      return ListTile(
-                      dense: true,
-                      leading: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                              color: _colorFor(q),
-                              shape: BoxShape.circle)),
-                      title: Text(q.localLabel(isAr),
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: mgp.textPrimary)),
-                      subtitle: Text(q.localSubtitle(isAr),
-                          style: TextStyle(
-                              fontSize: 11, color: mgp.textSec)),
-                      onTap: () {
-                        Navigator.pop(context);
-                        widget.onMove(q);
-                      },
-                    );
-                    }),
-                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _ActionRow(
+                        icon: Icons.delete_outline_rounded,
+                        iconColor: GameColors.error,
+                        label: S.of(context).matrixDeleteTask,
+                        labelColor: GameColors.error,
+                        onTap: () {
+                          Navigator.pop(context);
+                          widget.onDelete();
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Text(
+                            S.of(context).matrixMoveToQuadrant,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: mgp.textTert,
+                              // Letter-spacing disconnects Arabic glyphs
+                              // (the script is cursive/joined) — only the
+                              // Latin small-caps label wants that look.
+                              letterSpacing: isAr ? 0 : 1.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...others.map((q) => Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: _ActionRow(
+                              dotColor: _colorFor(q),
+                              label: q.localLabel(isAr),
+                              subtitle: q.localSubtitle(isAr),
+                              onTap: () {
+                                Navigator.pop(context);
+                                widget.onMove(q);
+                              },
+                            ),
+                          )),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -524,4 +591,87 @@ class _TaskTileState extends State<_TaskTile>
         MatrixQuadrant.delegate => GameColors.streakOrange,
         MatrixQuadrant.eliminate => GameColors.textTertiary,
       };
+}
+
+// ─── Action sheet row ─────────────────────────────────────────────────────────
+
+/// One tappable row in the task action sheet — either the "Delete" action
+/// (an icon in a tinted circle) or a "move to quadrant" option (a small
+/// colored dot standing in for that quadrant's chip color). Both share the
+/// same tinted-card treatment so the sheet reads as a set of modern,
+/// generously-spaced options instead of a cramped classic menu.
+class _ActionRow extends StatelessWidget {
+  final IconData? icon;
+  final Color? iconColor;
+  final Color? dotColor;
+  final String label;
+  final String? subtitle;
+  final Color? labelColor;
+  final VoidCallback onTap;
+
+  const _ActionRow({
+    this.icon,
+    this.iconColor,
+    this.dotColor,
+    required this.label,
+    this.subtitle,
+    this.labelColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final tint = iconColor ?? dotColor ?? GameColors.gold;
+    return Material(
+      color: tint.withOpacity(0.07),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: tint.withOpacity(0.16),
+                  shape: BoxShape.circle,
+                ),
+                child: icon != null
+                    ? Icon(icon, size: 17, color: iconColor)
+                    : Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                            color: dotColor, shape: BoxShape.circle),
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: labelColor ?? gp.textPrimary)),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle!,
+                          style: TextStyle(fontSize: 11.5, color: gp.textSec)),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

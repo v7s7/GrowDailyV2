@@ -10,6 +10,7 @@ import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../widgets/add_task_sheet.dart';
 import '../widgets/quadrant_card.dart';
+import 'matrix_history_screen.dart';
 
 class MatrixScreen extends ConsumerStatefulWidget {
   const MatrixScreen({super.key});
@@ -40,8 +41,60 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   void _deleteSelected() {
     if (_selectedIds.isEmpty) return;
     HapticFeedback.mediumImpact();
-    ref.read(matrixProvider.notifier).deleteMany(_selectedIds);
+    final notifier = ref.read(matrixProvider.notifier);
+    final removed = ref
+        .read(matrixProvider)
+        .tasks
+        .where((t) => _selectedIds.contains(t.id))
+        .toList();
+    final count = removed.length;
+    notifier.deleteMany(_selectedIds);
     _clearSelection();
+    _showUndoSnackbar(
+      message: S.of(context).matrixTasksDeleted(count),
+      onUndo: () => notifier.restoreMany(removed),
+    );
+  }
+
+  MatrixTask? _findTask(String id) {
+    for (final t in ref.read(matrixProvider).tasks) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
+  void _deleteTask(String id) {
+    final task = _findTask(id);
+    if (task == null) return;
+    HapticFeedback.mediumImpact();
+    ref.read(matrixProvider.notifier).delete(id);
+    _showUndoSnackbar(
+      message: S.of(context).matrixTaskDeleted,
+      onUndo: () => ref.read(matrixProvider.notifier).restore(task),
+    );
+  }
+
+  void _moveTask(String id, MatrixQuadrant q) {
+    HapticFeedback.selectionClick();
+    ref.read(matrixProvider.notifier).move(id, q);
+  }
+
+  void _showUndoSnackbar({
+    required String message,
+    required VoidCallback onUndo,
+  }) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: S.of(context).matrixUndo,
+          onPressed: onUndo,
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   @override
@@ -49,7 +102,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final matrixState = ref.watch(matrixProvider);
-    final tasks = matrixState.tasks;
+    final tasks = matrixState.tasks.where((t) => !t.isDone).toList();
+    final completedCount = matrixState.tasks.length - tasks.length;
 
     if (matrixState.isLoading) {
       return Scaffold(
@@ -73,27 +127,53 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Column(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    s.goalsMatrix,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: gp.textPrimary,
-                      letterSpacing: -0.4,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s.goalsMatrix,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: gp.textPrimary,
+                            letterSpacing: -0.4,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          s.matrixSubtitle,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: gp.textSec,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    s.matrixSubtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: gp.textSec,
-                      fontWeight: FontWeight.w400,
+                  IconButton(
+                    icon: Badge(
+                      label: Text('$completedCount'),
+                      isLabelVisible: completedCount > 0,
+                      backgroundColor: GameColors.gold,
+                      textColor: Colors.black,
+                      child: Icon(Icons.check_circle_outline_rounded,
+                          color: gp.textSec),
                     ),
+                    tooltip: s.matrixCompletedTitle,
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const MatrixHistoryScreen()),
+                      );
+                    },
                   ),
                 ],
               ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.05),
@@ -163,18 +243,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           .read(matrixProvider.notifier)
                                           .toggle(id);
                                     },
-                                    onDelete: (id) {
-                                      HapticFeedback.mediumImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .delete(id);
-                                    },
-                                    onMove: (id, q) {
-                                      HapticFeedback.selectionClick();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .move(id, q);
-                                    },
+                                    onDelete: _deleteTask,
+                                    onMove: _moveTask,
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -206,18 +276,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           .read(matrixProvider.notifier)
                                           .toggle(id);
                                     },
-                                    onDelete: (id) {
-                                      HapticFeedback.mediumImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .delete(id);
-                                    },
-                                    onMove: (id, q) {
-                                      HapticFeedback.selectionClick();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .move(id, q);
-                                    },
+                                    onDelete: _deleteTask,
+                                    onMove: _moveTask,
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -255,18 +315,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           .read(matrixProvider.notifier)
                                           .toggle(id);
                                     },
-                                    onDelete: (id) {
-                                      HapticFeedback.mediumImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .delete(id);
-                                    },
-                                    onMove: (id, q) {
-                                      HapticFeedback.selectionClick();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .move(id, q);
-                                    },
+                                    onDelete: _deleteTask,
+                                    onMove: _moveTask,
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -298,18 +348,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           .read(matrixProvider.notifier)
                                           .toggle(id);
                                     },
-                                    onDelete: (id) {
-                                      HapticFeedback.mediumImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .delete(id);
-                                    },
-                                    onMove: (id, q) {
-                                      HapticFeedback.selectionClick();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .move(id, q);
-                                    },
+                                    onDelete: _deleteTask,
+                                    onMove: _moveTask,
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,

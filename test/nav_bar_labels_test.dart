@@ -18,27 +18,21 @@ void main() {
 
     tearDown(() => harness.dispose());
 
-    testWidgets('shows "Today" (not "Dashboard") with a checklist icon',
+    testWidgets('shows three tabs — Habits, Profile, Tasks — with no Today',
         (tester) async {
       await harness.pumpApp(tester);
 
-      expect(find.text('Today'), findsOneWidget);
-      expect(find.text('Dashboard'), findsNothing);
-      expect(find.byIcon(Icons.checklist_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.home_rounded), findsNothing);
+      expect(find.text('Today'), findsNothing);
+      expect(find.text('Habits'), findsOneWidget);
+      expect(find.text('Profile'), findsOneWidget);
+      expect(find.text('Tasks'), findsOneWidget);
     });
 
-    testWidgets('keeps the Grid — Today — Matrix — Profile order',
-        (tester) async {
+    testWidgets('Grid screen (the harness home) is tab 0', (tester) async {
       await harness.pumpApp(tester);
 
       final navBar = tester.widget<GameNavBar>(find.byType(GameNavBar));
-      // GridScreen (the harness's home) is tab 0.
       expect(navBar.currentIndex, 0);
-      expect(find.text('Grid'), findsOneWidget);
-      expect(find.text('Today'), findsOneWidget);
-      expect(find.text('Matrix'), findsOneWidget);
-      expect(find.text('Profile'), findsOneWidget);
     });
   });
 }

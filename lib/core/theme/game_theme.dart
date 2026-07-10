@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'theme_preset.dart';
 
@@ -114,46 +115,46 @@ extension BuildContextGameTheme on BuildContext {
 // ─── Typography ──────────────────────────────────────────────────────────────
 
 abstract final class GameTextStyles {
-  static const String systemFont = '.SF Pro Text';
+  /// Cairo (Google Fonts) — one typeface purpose-drawn to cover both Arabic
+  /// and Latin script, so switching the app's language never also changes
+  /// the *feel* of the type the way pairing two unrelated fonts would.
+  /// Replaces relying on the OS's own system font: the previous
+  /// `.SF Pro Text` + generic-name fallback stack only actually rendered as
+  /// intended on iOS — Android has no bundled high-quality Arabic typeface
+  /// to fall back to, so Arabic text there was at the mercy of whatever
+  /// the device happened to ship.
+  static String get fontFamily => GoogleFonts.cairo().fontFamily!;
 
+  /// Last-resort names for the rare case Cairo hasn't finished loading yet
+  /// (first launch, no network) — still legible on every platform.
   static const List<String> fontFallback = <String>[
-    'SF Arabic',
-    '.SF Arabic',
-    'SF Pro Text',
-    '.SF Pro Text',
     'Noto Sans Arabic',
-    'Noto Naskh Arabic',
-    'DIN Next LT Arabic',
     'Segoe UI',
     'Roboto',
     'Arial',
     'sans-serif',
   ];
 
-  static const TextStyle displayLarge = TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.5, height: 1.12, fontFamilyFallback: fontFallback);
-  static const TextStyle displayMedium = TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.3, height: 1.15, fontFamilyFallback: fontFallback);
-  static const TextStyle headlineLarge = TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.2, height: 1.22, fontFamilyFallback: fontFallback);
-  static const TextStyle headlineMedium = TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25, fontFamilyFallback: fontFallback);
-  static const TextStyle titleLarge = TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25, fontFamilyFallback: fontFallback);
-  static const TextStyle titleMedium = TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.28, fontFamilyFallback: fontFallback);
-  static const TextStyle bodyLarge = TextStyle(fontSize: 17, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45, fontFamilyFallback: fontFallback);
-  static const TextStyle bodyMedium = TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45, fontFamilyFallback: fontFallback);
-  static const TextStyle bodySmall = TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary, height: 1.42, fontFamilyFallback: fontFallback);
-  static const TextStyle labelLarge = TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: 0.1, height: 1.25, fontFamilyFallback: fontFallback);
-  static const TextStyle labelSmall = TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: GameColors.textSecondary, letterSpacing: 0.5, height: 1.25, fontFamilyFallback: fontFallback);
+  static TextStyle get displayLarge => GoogleFonts.cairo(fontSize: 34, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.5, height: 1.12).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get displayMedium => GoogleFonts.cairo(fontSize: 28, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.3, height: 1.15).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get headlineLarge => GoogleFonts.cairo(fontSize: 22, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.2, height: 1.22).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get headlineMedium => GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get titleLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get titleMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.28).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodyLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodyMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodySmall => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary, height: 1.42).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get labelLarge => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: 0.1, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get labelSmall => GoogleFonts.cairo(fontSize: 11, fontWeight: FontWeight.w600, color: GameColors.textSecondary, letterSpacing: 0.5, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
 
-  // These five embed a preset-driven color, so they can't be compile-time
-  // constants anymore — they're getters instead. (Confirmed unused outside
-  // this file, so switching `static const` → `static ... get` needed no
-  // call-site changes.)
-  static TextStyle get xpLabel => TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2, fontFamilyFallback: fontFallback);
-  static TextStyle get goldLabel => TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2, fontFamilyFallback: fontFallback);
-  static TextStyle get levelDisplay => TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05, fontFamilyFallback: fontFallback);
-  static TextStyle get streakDisplay => TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05, fontFamilyFallback: fontFallback);
+  static TextStyle get xpLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get goldLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get levelDisplay => GoogleFonts.cairo(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get streakDisplay => GoogleFonts.cairo(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
 
-  static const TextStyle arabicTitle = TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.55, fontFamilyFallback: fontFallback);
-  static const TextStyle arabicBody = TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.65, fontFamilyFallback: fontFallback);
-  static TextStyle get arabicLabel => TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45, fontFamilyFallback: fontFallback);
+  static TextStyle get arabicTitle => GoogleFonts.cairo(fontSize: 24, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.55).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get arabicBody => GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.65).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get arabicLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
 }
 // ─── Spacing & Radii ─────────────────────────────────────────────────────────
 
@@ -192,16 +193,19 @@ InputDecorationTheme _inputTheme(bool dark) {
     hintStyle: TextStyle(
       fontSize: 15,
       color: hint,
+      fontFamily: GameTextStyles.fontFamily,
       fontFamilyFallback: GameTextStyles.fontFallback,
     ),
     labelStyle: TextStyle(
       fontSize: 15,
       color: label,
+      fontFamily: GameTextStyles.fontFamily,
       fontFamilyFallback: GameTextStyles.fontFallback,
     ),
     floatingLabelStyle: TextStyle(
       fontSize: 12,
       color: GameColors.gold,
+      fontFamily: GameTextStyles.fontFamily,
       fontFamilyFallback: GameTextStyles.fontFallback,
     ),
   );
@@ -214,7 +218,7 @@ abstract final class GameTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      fontFamily: GameTextStyles.systemFont,
+      fontFamily: GameTextStyles.fontFamily,
       fontFamilyFallback: GameTextStyles.fontFallback,
       scaffoldBackgroundColor: GameColors.background,
       colorScheme: ColorScheme.dark(
@@ -291,8 +295,8 @@ abstract final class GameTheme {
             ? IconThemeData(color: GameColors.gold, size: 24)
             : const IconThemeData(color: GameColors.textTertiary, size: 24)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamilyFallback: GameTextStyles.fontFallback)
-            : const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: GameColors.textTertiary, fontFamilyFallback: GameTextStyles.fontFallback)),
+            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)
+            : TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: GameColors.textTertiary, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)),
         elevation: 0,
         height: 72,
       ),
@@ -303,7 +307,7 @@ abstract final class GameTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.cardRadius)),
         titleTextStyle: GameTextStyles.headlineMedium,
-        contentTextStyle: const TextStyle(fontSize: 15, color: GameColors.textSecondary),
+        contentTextStyle: TextStyle(fontSize: 15, color: GameColors.textSecondary, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: GameColors.surfaceElevated,
@@ -354,7 +358,7 @@ abstract final class GameTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      fontFamily: GameTextStyles.systemFont,
+      fontFamily: GameTextStyles.fontFamily,
       fontFamilyFallback: GameTextStyles.fontFallback,
       scaffoldBackgroundColor: lBg,
       colorScheme: ColorScheme.light(
@@ -382,7 +386,7 @@ abstract final class GameTheme {
           statusBarIconBrightness: Brightness.dark,
           statusBarBrightness: Brightness.light,
         ),
-        titleTextStyle: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: lTp, fontFamilyFallback: GameTextStyles.fontFallback),
+        titleTextStyle: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: lTp, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback),
         iconTheme: IconThemeData(color: lTp),
         actionsIconTheme: IconThemeData(color: GameColors.gold),
       ),
@@ -431,8 +435,8 @@ abstract final class GameTheme {
             ? IconThemeData(color: GameColors.gold, size: 24)
             : IconThemeData(color: lTt, size: 24)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamilyFallback: GameTextStyles.fontFallback)
-            : TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: lTt, fontFamilyFallback: GameTextStyles.fontFallback)),
+            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)
+            : TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: lTt, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)),
         elevation: 0,
         shadowColor: Colors.black12,
         height: 72,
@@ -445,12 +449,12 @@ abstract final class GameTheme {
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(GameSpacing.cardRadius)),
         ),
-        titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: lTp, fontFamilyFallback: GameTextStyles.fontFallback),
-        contentTextStyle: TextStyle(fontSize: 15, color: lTs, fontFamilyFallback: GameTextStyles.fontFallback),
+        titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: lTp, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback),
+        contentTextStyle: TextStyle(fontSize: 15, color: lTs, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: lBg,
-        contentTextStyle: TextStyle(fontSize: 15, color: lTp, fontFamilyFallback: GameTextStyles.fontFallback),
+        contentTextStyle: TextStyle(fontSize: 15, color: lTp, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback),
         actionTextColor: GameColors.gold,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
@@ -470,10 +474,10 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : lHL),
       ),
       inputDecorationTheme: _inputTheme(false),
-      // Use iOS system typography: SF Pro for Latin text, with SF Arabic
-      // first in the fallback stack for Arabic. Platform fallbacks keep this
-      // readable on non-iOS devices without decorative/compressed fonts.
-      textTheme: const TextTheme(
+      // Cairo everywhere: one Google Font that covers Arabic and Latin
+      // script natively, so the two languages read as one consistent
+      // typeface instead of an OS-dependent system-font/fallback guess.
+      textTheme: TextTheme(
           displayLarge: GameTextStyles.displayLarge,
           displayMedium: GameTextStyles.displayMedium,
           headlineLarge: GameTextStyles.headlineLarge,

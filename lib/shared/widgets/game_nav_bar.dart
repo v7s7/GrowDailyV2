@@ -13,7 +13,12 @@ class _NavItem {
   const _NavItem(this.icon, this.label);
 }
 
-const _kRoutes = ['/grid', '/dashboard', '/matrix', '/profile'];
+// "Today" is retired from bottom-nav (Grid is the app's home screen and
+// already covers day-to-day habit completion) — three peer tabs now,
+// not four. Order here is logical/code order; the nav bar itself mirrors
+// for RTL locales same as before, so this reads Grid→Profile→Matrix in
+// English and Matrix→Profile→Grid in Arabic.
+const _kRoutes = ['/grid', '/profile', '/matrix'];
 
 class GameNavBar extends StatelessWidget {
   final int currentIndex;
@@ -30,9 +35,8 @@ class GameNavBar extends StatelessWidget {
     final s = S.of(context);
     final items = [
       _NavItem(Icons.grid_view_rounded, s.navGrid),
-      _NavItem(Icons.checklist_rounded, s.navToday),
-      _NavItem(Icons.view_quilt_rounded, s.navMatrix),
       _NavItem(Icons.person_rounded, s.navProfile),
+      _NavItem(Icons.view_quilt_rounded, s.navMatrix),
     ];
 
     // `defaultTargetPlatform` (rather than `dart:io`'s `Platform`) so this

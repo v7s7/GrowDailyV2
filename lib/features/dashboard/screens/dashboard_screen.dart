@@ -11,12 +11,11 @@ import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/habits/catalog/habit_plans.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
+import '../../../features/habits/widgets/add_habit_hub_sheet.dart';
 import '../../../features/habits/widgets/add_habit_sheet.dart';
-import '../../../features/habits/widgets/plan_picker_sheet.dart';
 import '../../../features/quick_wins/widgets/quick_wins_card.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
-import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../notifiers/dashboard_notifier.dart';
 import '../widgets/reaction_overlays.dart';
@@ -206,48 +205,37 @@ class DashboardScreen extends ConsumerWidget {
                   SliverFillRemaining(
                     hasScrollBody: false,
                     child: _EmptyHabitsState(
-                      onBrowsePlans: () => _showPlanPicker(context),
-                      onAddCustom: () => _showAddHabit(context, ref),
+                      onBrowsePlans: () =>
+                          showAddHabitHub(context, ref, initialTab: HubTab.plans),
+                      onAddCustom: () =>
+                          showAddHabitHub(context, ref, initialTab: HubTab.quick),
                     ),
                   ),
                 const SliverToBoxAdapter(child: SizedBox(height: 110)),
               ],
             ),
+      // One "+" entry point into the Add Habit Hub (Quick Add / Plans /
+      // Custom tabs) — previously this was two separate FABs (a small
+      // "Plans" button plus this one), which made a first-time user choose
+      // between two buttons before seeing what either did.
       floatingActionButton: habits.isEmpty
           ? null
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                // Plans button
-                FloatingActionButton.small(
-                  heroTag: 'plans',
-                  onPressed: () => _showPlanPicker(context),
-                  backgroundColor: gp.surfaceHigh,
-                  foregroundColor: gp.textPrimary,
-                  elevation: 0,
-                  child: Icon(Icons.auto_awesome_rounded,
-                      size: 18, color: GameColors.gold),
-                ).animate(delay: 600.ms).fadeIn().slideY(begin: 0.4),
-                const SizedBox(height: 10),
-                // Add habit button
-                FloatingActionButton.extended(
-                  heroTag: 'add',
-                  onPressed: () => _showAddHabit(context, ref),
-                  backgroundColor: GameColors.gold,
-                  foregroundColor: Colors.black,
-                  elevation: 0,
-                  icon: const Icon(Icons.add_rounded, size: 20),
-                  label: Text(
-                    s.addHabit,
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.0),
-                  ),
-                ).animate(delay: 700.ms).fadeIn().slideY(begin: 0.4),
-              ],
-            ),
+          : FloatingActionButton.extended(
+              heroTag: 'add',
+              onPressed: () =>
+                  showAddHabitHub(context, ref, initialTab: HubTab.quick),
+              backgroundColor: GameColors.gold,
+              foregroundColor: Colors.black,
+              elevation: 0,
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: Text(
+                s.addHabit,
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.0),
+              ),
+            ).animate(delay: 700.ms).fadeIn().slideY(begin: 0.4),
     );
   }
 
@@ -274,20 +262,6 @@ class DashboardScreen extends ConsumerWidget {
     }
   }
 
-  void _showAddHabit(BuildContext context, WidgetRef ref) {
-    if (!canAddHabits(ref)) {
-      showHabitLimitGate(context, ref);
-      return;
-    }
-    HapticFeedback.lightImpact();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const AddHabitSheet(),
-    );
-  }
-
   void _showEditHabit(BuildContext context, IslamicHabitTemplate habit) {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
@@ -295,17 +269,6 @@ class DashboardScreen extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => AddHabitSheet(existing: habit),
-    );
-  }
-
-  void _showPlanPicker(BuildContext context) {
-    HapticFeedback.lightImpact();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      useSafeArea: true,
-      builder: (_) => const PlanPickerSheet(),
     );
   }
 

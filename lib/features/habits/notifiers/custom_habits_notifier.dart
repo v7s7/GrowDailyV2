@@ -63,7 +63,10 @@ class CustomHabitsNotifier
     } catch (_) {}
   }
 
-  void add({
+  /// Returns the created template so callers that add several habits back
+  /// to back (the Quick Add tab) can track/undo each one by id without
+  /// re-deriving it from name matching.
+  IslamicHabitTemplate add({
     required String name,
     required HabitCategory category,
     String? cueAfter,
@@ -104,6 +107,7 @@ class CustomHabitsNotifier
     } else {
       _saveGuest().ignore();
     }
+    return template;
   }
 
   void update({

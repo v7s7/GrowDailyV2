@@ -8,6 +8,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../catalog/goal_suggestions.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_cue.dart';
 import '../models/habit_model.dart';
@@ -17,7 +18,15 @@ enum _CueRelation { after, before }
 
 class AddHabitSheet extends ConsumerStatefulWidget {
   final IslamicHabitTemplate? existing;
-  const AddHabitSheet({super.key, this.existing});
+
+  /// When true, renders just the step content + footer — no drag handle,
+  /// no rounded card, no background. Used inside [AddHabitHub]'s "Custom"
+  /// tab, which already supplies that chrome once for all three tabs.
+  /// Standalone (the default) keeps the full self-contained sheet used for
+  /// editing an existing habit.
+  final bool embedded;
+
+  const AddHabitSheet({super.key, this.existing, this.embedded = false});
 
   @override
   ConsumerState<AddHabitSheet> createState() => _AddHabitSheetState();
@@ -166,6 +175,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         _cueCtrl.text = HabitCue.fromStoredValue(_cueCtrl.text).labelFor(context);
       }
     }
+
+    final content = _content(context, s);
+    if (widget.embedded) return content;
+
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     final maxHeight = MediaQuery.of(context).size.height * 0.92;
     return AnimatedPadding(
@@ -197,87 +210,101 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _isEditing ? s.editHabit : s.addGoalTitle,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: gp.textPrimary,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '${_step + 1}/3',
-                      style: TextStyle(fontSize: 12, color: gp.textTert),
-                    ),
-                  ],
-                ),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                  child: _step == 0 && !_isEditing
-                      ? _typeStep(s)
-                      : _step == 1
-                          ? _titleStep(s)
-                          : _timingStep(s),
-                ),
-              ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(20, 10, 20, _isEditing ? 4 : 20),
-                child: Row(
-                  children: [
-                    if (_step > (_isEditing ? 1 : 0)) ...[
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => setState(() => _step--),
-                          child: Text(s.back),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
-                    Expanded(
-                      flex: 2,
-                      child: FilledButton(
-                        onPressed: _canContinue ? _primaryAction : null,
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Text(
-                          _step < 2
-                              ? s.continueAction
-                              : (_isEditing ? s.saveChanges : s.createGoal),
-                        ),
-                      ),
-                    ),
-                  ],
-                ).animate(delay: 60.ms).fadeIn(duration: 250.ms),
-              ),
-              if (_isEditing)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                  child: TextButton(
-                    onPressed: _deleteExisting,
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 44),
-                      foregroundColor: GameColors.error,
-                    ),
-                    child: Text(s.removeHabit),
-                  ),
-                ),
+              content,
             ],
           ),
         ),
       ).animate().slideY(begin: 0.06, duration: 260.ms, curve: Curves.easeOutCubic).fadeIn(duration: 200.ms),
     );
+  }
+
+  /// Header row + step content + footer buttons — everything except the
+  /// drag handle and outer card, so [embedded] mode can drop straight into
+  /// a host that already supplies those (see [AddHabitHub]).
+  Widget _content(BuildContext context, S s) {
+    final gp = context.gp;
+    return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _isEditing ? s.editHabit : s.addGoalTitle,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${_step + 1}/3',
+                  style: TextStyle(fontSize: 12, color: gp.textTert),
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: _step == 0 && !_isEditing
+                  ? _typeStep(s)
+                  : _step == 1
+                      ? _titleStep(s)
+                      : _timingStep(s),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, 10, 20, _isEditing ? 4 : 20),
+            child: Row(
+              children: [
+                if (_step > (_isEditing ? 1 : 0)) ...[
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => setState(() => _step--),
+                      child: Text(s.back),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  flex: 2,
+                  child: FilledButton(
+                    onPressed: _canContinue ? _primaryAction : null,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: Text(
+                      _step < 2
+                          ? s.continueAction
+                          : (_isEditing ? s.saveChanges : s.createGoal),
+                    ),
+                  ),
+                ),
+              ],
+            ).animate(delay: 60.ms).fadeIn(duration: 250.ms),
+          ),
+          if (_isEditing)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: TextButton(
+                onPressed: _deleteExisting,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 44),
+                  foregroundColor: GameColors.error,
+                ),
+                child: Text(s.removeHabit),
+              ),
+            ),
+        ],
+      );
   }
 
   bool get _canContinue => _step == 0 || _hasName;
@@ -591,7 +618,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     });
   }
 
-  void _applySuggestion(_GoalSuggestion suggestion) {
+  void _applySuggestion(GoalSuggestion suggestion) {
     HapticFeedback.selectionClick();
     _nameCtrl.text = suggestion.name(S.of(context).isAr);
     setState(() {
@@ -620,10 +647,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     };
   }
 
-  List<_GoalSuggestion> _suggestions() {
-    final list = _allSuggestions.where((s) => s.type == _goalType && s.category == _category).toList();
+  List<GoalSuggestion> _suggestions() {
+    final list = goalSuggestions.where((s) => s.type == _goalType && s.category == _category).toList();
     if (list.isNotEmpty) return list;
-    return _allSuggestions.where((s) => s.type == _goalType).take(6).toList();
+    return goalSuggestions.where((s) => s.type == _goalType).take(6).toList();
   }
 
   HabitCategory _inferCategory(String text) {
@@ -644,47 +671,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         _ => cat,
       };
 }
-
-class _GoalSuggestion {
-  final GoalType type;
-  final HabitCategory category;
-  final String en;
-  final String ar;
-  const _GoalSuggestion(this.type, this.category, this.en, this.ar);
-  String name(bool isAr) => isAr ? ar : en;
-}
-
-const _allSuggestions = [
-  _GoalSuggestion(GoalType.build, HabitCategory.faith, 'Read Quran', 'قراءة القرآن'),
-  _GoalSuggestion(GoalType.build, HabitCategory.faith, 'Morning athkar', 'أذكار الصباح'),
-  _GoalSuggestion(GoalType.build, HabitCategory.faith, 'Evening athkar', 'أذكار المساء'),
-  _GoalSuggestion(GoalType.build, HabitCategory.faith, 'Fast Monday/Thursday', 'صيام الاثنين/الخميس'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.faith, 'Reduce missed prayers', 'تقليل فوات الصلاة'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.faith, 'Avoid delaying prayer', 'عدم تأخير الصلاة'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.faith, 'Less phone before Quran', 'تقليل الجوال قبل القرآن'),
-  _GoalSuggestion(GoalType.build, HabitCategory.health, 'Walk 10 minutes', 'المشي 10 دقائق'),
-  _GoalSuggestion(GoalType.build, HabitCategory.health, 'Drink water', 'شرب الماء'),
-  _GoalSuggestion(GoalType.build, HabitCategory.health, 'Stretch', 'تمارين إطالة'),
-  _GoalSuggestion(GoalType.build, HabitCategory.health, 'Gym session', 'جلسة رياضة'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.health, 'No sugar', 'بدون سكر'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.health, 'No junk food', 'بدون أكل سريع'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.health, 'Reduce caffeine', 'تقليل الكافيين'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.health, 'No late snacks', 'بدون وجبات ليلية'),
-  _GoalSuggestion(GoalType.build, HabitCategory.learning, 'Read 10 pages', 'قراءة 10 صفحات'),
-  _GoalSuggestion(GoalType.build, HabitCategory.learning, 'Study 25 minutes', 'دراسة 25 دقيقة'),
-  _GoalSuggestion(GoalType.build, HabitCategory.learning, 'Review notes', 'مراجعة الملاحظات'),
-  _GoalSuggestion(GoalType.build, HabitCategory.learning, 'Practice language', 'تدريب لغة'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.focus, 'No phone after 10 PM', 'بدون جوال بعد 10 مساءً'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.focus, 'Reduce scrolling', 'تقليل التصفح'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.focus, 'No gaming before study', 'بدون ألعاب قبل الدراسة'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.focus, 'No social media in bed', 'بدون تواصل في السرير'),
-  _GoalSuggestion(GoalType.build, HabitCategory.money, 'Track spending', 'تتبّع المصروفات'),
-  _GoalSuggestion(GoalType.build, HabitCategory.money, 'Save 1 BHD', 'ادّخار 1 د.ب'),
-  _GoalSuggestion(GoalType.build, HabitCategory.money, 'Review budget', 'مراجعة الميزانية'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.money, 'No impulse buying', 'بدون شراء اندفاعي'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.money, 'Reduce delivery orders', 'تقليل طلبات التوصيل'),
-  _GoalSuggestion(GoalType.quit, HabitCategory.money, 'No unnecessary shopping', 'بدون تسوق غير ضروري'),
-];
 
 class _PlainChoiceChip extends StatelessWidget {
   final bool selected;

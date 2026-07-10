@@ -11,7 +11,11 @@ import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/custom_habits_notifier.dart';
 
 class PlanPickerSheet extends ConsumerStatefulWidget {
-  const PlanPickerSheet({super.key});
+  /// When true, skips the outer card/handle — used inside [AddHabitHub]'s
+  /// "Plans" tab, which already supplies that chrome once for all tabs.
+  final bool embedded;
+
+  const PlanPickerSheet({super.key, this.embedded = false});
 
   @override
   ConsumerState<PlanPickerSheet> createState() => _PlanPickerSheetState();
@@ -23,10 +27,9 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final s = S.of(context);
-    final isAr = s.isAr;
-    final activeIds = ref.watch(activeCatalogProvider);
-    final reminderTime = ref.watch(reminderTimeProvider);
+    final content = _content(context);
+
+    if (widget.embedded) return content;
 
     return Container(
       decoration: BoxDecoration(
@@ -48,7 +51,22 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
               ),
             ),
           ),
+          content,
+        ],
+      ),
+    );
+  }
 
+  Widget _content(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final isAr = s.isAr;
+    final activeIds = ref.watch(activeCatalogProvider);
+    final reminderTime = ref.watch(reminderTimeProvider);
+
+    return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
           // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
@@ -91,51 +109,20 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
 
           const SizedBox(height: 16),
 
-          // Plan cards
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.55,
-            ),
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              shrinkWrap: true,
-              itemCount: habitPlans.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, i) {
-                final plan = habitPlans[i];
-                final isActive = plan.catalogIds.every(activeIds.contains);
-                final isExpanded = _expandedPlanId == plan.id;
-                return _PlanCard(
-                  plan: plan,
-                  isActive: isActive,
-                  isExpanded: isExpanded,
-                  isAr: isAr,
-                  activeIds: activeIds,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() {
-                      _expandedPlanId = isExpanded ? null : plan.id;
-                    });
-                  },
-                  onActivate: () {
-                    if (isActive) {
-                      HapticFeedback.mediumImpact();
-                      ref.read(activeCatalogProvider.notifier).deactivatePlan(plan);
-                      return;
-                    }
-                    final newCount =
-                        plan.catalogIds.where((id) => !activeIds.contains(id)).length;
-                    if (!canAddHabits(ref, additionalCount: newCount)) {
-                      showHabitLimitGate(context, ref);
-                      return;
-                    }
-                    HapticFeedback.mediumImpact();
-                    ref.read(activeCatalogProvider.notifier).activatePlan(plan);
-                  },
-                ).animate(delay: (i * 60).ms).fadeIn(duration: 350.ms).slideY(begin: 0.1);
-              },
-            ),
-          ),
+          // Plan cards. Standalone caps the list at 55% of the screen so
+          // the sheet doesn't balloon to nearly full-screen even when
+          // there's room — embedded mode instead fills whatever's left of
+          // [AddHabitHub]'s fixed tab height, which is already bounded, so
+          // capping it a second time here would risk clipping the last
+          // plan card instead of just scrolling to it.
+          widget.embedded
+              ? Expanded(child: _planList(context, activeIds, isAr))
+              : ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.55,
+                  ),
+                  child: _planList(context, activeIds, isAr),
+                ),
 
           // Reminder row
           Padding(
@@ -163,7 +150,48 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
           // Bottom padding
           SizedBox(height: 20 + MediaQuery.of(context).padding.bottom),
         ],
-      ),
+      );
+  }
+
+  Widget _planList(BuildContext context, Set<String> activeIds, bool isAr) {
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      shrinkWrap: true,
+      itemCount: habitPlans.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, i) {
+        final plan = habitPlans[i];
+        final isActive = plan.catalogIds.every(activeIds.contains);
+        final isExpanded = _expandedPlanId == plan.id;
+        return _PlanCard(
+          plan: plan,
+          isActive: isActive,
+          isExpanded: isExpanded,
+          isAr: isAr,
+          activeIds: activeIds,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() {
+              _expandedPlanId = isExpanded ? null : plan.id;
+            });
+          },
+          onActivate: () {
+            if (isActive) {
+              HapticFeedback.mediumImpact();
+              ref.read(activeCatalogProvider.notifier).deactivatePlan(plan);
+              return;
+            }
+            final newCount =
+                plan.catalogIds.where((id) => !activeIds.contains(id)).length;
+            if (!canAddHabits(ref, additionalCount: newCount)) {
+              showHabitLimitGate(context, ref);
+              return;
+            }
+            HapticFeedback.mediumImpact();
+            ref.read(activeCatalogProvider.notifier).activatePlan(plan);
+          },
+        ).animate(delay: (i * 60).ms).fadeIn(duration: 350.ms).slideY(begin: 0.1);
+      },
     );
   }
 }
