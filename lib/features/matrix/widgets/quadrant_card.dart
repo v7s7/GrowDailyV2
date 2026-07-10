@@ -11,6 +11,7 @@ class QuadrantCard extends StatelessWidget {
   final void Function(String id) onToggle;
   final void Function(String id) onDelete;
   final void Function(String id, MatrixQuadrant q) onMove;
+  final void Function(String id) onToggleToday;
   final VoidCallback onAddTapped;
   final bool selectionMode;
   final Set<String> selectedIds;
@@ -24,6 +25,7 @@ class QuadrantCard extends StatelessWidget {
     required this.onToggle,
     required this.onDelete,
     required this.onMove,
+    required this.onToggleToday,
     required this.onAddTapped,
     this.selectionMode = false,
     this.selectedIds = const {},
@@ -141,8 +143,15 @@ class QuadrantCard extends StatelessWidget {
                     color: _color,
                     onTap: onAddTapped,
                   )
+                // Keyed on a stable constant, not on the task ids — this key
+                // only needs to change when AnimatedSwitcher should actually
+                // crossfade (switching between the empty state above and this
+                // list). Keying it on the joined ids meant every single
+                // toggle/add/delete re-faded the *entire* list instead of
+                // just the row that changed, since a done task drops out of
+                // `tasks` (filtered upstream) and changed the key every time.
                 : ListView.separated(
-                    key: ValueKey(ordered.map((t) => t.id).join('|')),
+                    key: const ValueKey('list'),
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     itemCount: ordered.length + 1,
                     separatorBuilder: (_, __) =>
@@ -166,6 +175,7 @@ class QuadrantCard extends StatelessWidget {
                         onSelectionToggle: () => onSelectionToggle(t.id),
                         onSelectionStart: () => onSelectionStart(t.id),
                         onMove: (q) => onMove(t.id, q),
+                        onToggleToday: () => onToggleToday(t.id),
                       )
                           .animate(delay: (i * 35).ms)
                           .fadeIn(duration: 260.ms)
@@ -281,6 +291,7 @@ class _TaskTile extends StatefulWidget {
   final VoidCallback onSelectionToggle;
   final VoidCallback onSelectionStart;
   final void Function(MatrixQuadrant) onMove;
+  final VoidCallback onToggleToday;
 
   const _TaskTile({
     super.key,
@@ -293,6 +304,7 @@ class _TaskTile extends StatefulWidget {
     required this.onSelectionToggle,
     required this.onSelectionStart,
     required this.onMove,
+    required this.onToggleToday,
   });
 
   @override
@@ -443,6 +455,29 @@ class _TaskTileState extends State<_TaskTile>
                       maxLines: 2, overflow: TextOverflow.ellipsis),
                 ),
               ),
+              // Flags this task for the Today filter — a plain bool, not a
+              // due date, so it's one tap and never opens a picker. Hidden
+              // in selection mode along with drag/move, same as those.
+              if (!widget.selectionMode)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onToggleToday();
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Icon(
+                      widget.task.isToday
+                          ? Icons.star_rounded
+                          : Icons.star_outline_rounded,
+                      size: 16,
+                      color: widget.task.isToday
+                          ? GameColors.gold
+                          : gp.textTert.withOpacity(0.6),
+                    ),
+                  ),
+                ),
               // Dragging is scoped to this small handle rather than the
               // whole tile so it never fights the row's own long-press
               // (which starts multi-select) or its swipe-to-delete.

@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/game_constants.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../models/matrix_task.dart';
 
 class MatrixState {
@@ -13,6 +15,7 @@ class MatrixState {
 }
 
 class MatrixNotifier extends StateNotifier<MatrixState> {
+  final Ref _ref;
   final String? _uid;
 
   // A guest can mutate (e.g. tap a one-tap suggestion) before the disk
@@ -21,7 +24,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   // silently wipes out the just-added task.
   bool _mutatedBeforeLoad = false;
 
-  MatrixNotifier(this._uid) : super(const MatrixState()) {
+  MatrixNotifier(this._ref, this._uid) : super(const MatrixState()) {
     if (_uid != null) {
       _load();
     } else {
@@ -91,12 +94,39 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final nowDone = !tasks[idx].isDone;
-    final updated = tasks[idx].copyWith(
+    final current = tasks[idx];
+    final nowDone = !current.isDone;
+    // Pay XP/gold the first time this task is ever finished. rewarded stays
+    // true forever after, so un-completing and re-completing the same task
+    // (or just un-completing it) never pays out again or claws it back —
+    // see the field doc on MatrixTask.rewarded for why.
+    final firstTimeDone = nowDone && !current.rewarded;
+    final updated = current.copyWith(
       isDone: nowDone,
       completedAt: nowDone ? DateTime.now() : null,
       clearCompletedAt: !nowDone,
+      rewarded: firstTimeDone ? true : null,
     );
+    tasks[idx] = updated;
+    state = MatrixState(tasks: tasks, isLoading: false);
+    _persist(updated);
+    if (firstTimeDone) {
+      _ref.read(dashboardProvider.notifier).awardBonus(
+            xp: GameConstants.matrixTaskXpReward,
+            gold: GameConstants.matrixTaskGoldReward,
+          );
+    }
+  }
+
+  /// Flags/unflags a task as one of today's — independent of isDone and of
+  /// quadrant. Powers the Today/All filter; no reward is attached to this,
+  /// only to actually finishing the task.
+  void toggleToday(String id) {
+    _mutatedBeforeLoad = true;
+    final tasks = state.tasks.toList();
+    final idx = tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return;
+    final updated = tasks[idx].copyWith(isToday: !tasks[idx].isToday);
     tasks[idx] = updated;
     state = MatrixState(tasks: tasks, isLoading: false);
     _persist(updated);
@@ -185,5 +215,5 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
 final matrixProvider =
     StateNotifierProvider<MatrixNotifier, MatrixState>((ref) {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
-  return MatrixNotifier(uid);
+  return MatrixNotifier(ref, uid);
 });

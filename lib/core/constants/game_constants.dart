@@ -64,6 +64,15 @@ abstract final class GameConstants {
     'social': 8,
   };
 
+  // Flat XP/Gold reward for completing a Matrix (Tasks) item, regardless of
+  // quadrant. Matches the 'custom' habit-category tier above — a task is an
+  // uncategorized user action, same standing as a custom habit with no
+  // matched category. Read by MatrixNotifier.toggle(); paid out once per
+  // task (tracked by MatrixTask.rewarded) and never reversed on
+  // un-complete, unlike habit XP — see MatrixNotifier.toggle for why.
+  static const int matrixTaskXpReward = 20;
+  static const int matrixTaskGoldReward = 8;
+
   // Hive box names
   static const String boxUserAccount = 'box_user_account';
   static const String boxHabits = 'box_habits';

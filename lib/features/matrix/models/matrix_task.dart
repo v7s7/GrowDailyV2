@@ -51,6 +51,17 @@ class MatrixTask {
   // creation order, which is what actually matters when looking back at
   // what you got done.
   final DateTime? completedAt;
+  // User-set flag: "this is one of the things I'm doing today", independent
+  // of quadrant. Powers the Today/All filter on the Tasks screen — deliberately
+  // just a bool rather than a due date, so flagging something takes one tap
+  // and never opens a calendar.
+  final bool isToday;
+  // True once XP/gold has ever been paid out for this task. Completing it
+  // pays out the first time isDone flips to true; un-completing it does NOT
+  // clear this flag and does NOT claw the reward back, so toggling a task
+  // done/undone/done can't be used to farm repeat payouts, and finishing a
+  // task never feels like it can be "taken away" again later.
+  final bool rewarded;
 
   const MatrixTask({
     required this.id,
@@ -59,6 +70,8 @@ class MatrixTask {
     required this.isDone,
     required this.createdAt,
     this.completedAt,
+    this.isToday = false,
+    this.rewarded = false,
   });
 
   factory MatrixTask.create(String title, MatrixQuadrant quadrant) =>
@@ -85,6 +98,10 @@ class MatrixTask {
       createdAt:
           (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       completedAt: (d['completedAt'] as Timestamp?)?.toDate(),
+      // Both default false for tasks written before these fields existed —
+      // an old task is neither flagged for today nor already rewarded.
+      isToday: d['isToday'] as bool? ?? false,
+      rewarded: d['rewarded'] as bool? ?? false,
     );
   }
 
@@ -104,6 +121,8 @@ class MatrixTask {
       completedAt: d['completedAt'] == null
           ? null
           : DateTime.tryParse(d['completedAt'] as String),
+      isToday: d['isToday'] as bool? ?? false,
+      rewarded: d['rewarded'] as bool? ?? false,
     );
   }
 
@@ -115,6 +134,8 @@ class MatrixTask {
         'createdAt': createdAt.toIso8601String(),
         if (completedAt != null)
           'completedAt': completedAt!.toIso8601String(),
+        'isToday': isToday,
+        'rewarded': rewarded,
       };
 
   // `_persist` always writes with SetOptions(merge: true), so a restored
@@ -129,6 +150,8 @@ class MatrixTask {
         'completedAt': completedAt != null
             ? Timestamp.fromDate(completedAt!)
             : FieldValue.delete(),
+        'isToday': isToday,
+        'rewarded': rewarded,
       };
 
   MatrixTask copyWith({
@@ -137,6 +160,8 @@ class MatrixTask {
     bool? isDone,
     DateTime? completedAt,
     bool clearCompletedAt = false,
+    bool? isToday,
+    bool? rewarded,
   }) =>
       MatrixTask(
         id: id,
@@ -147,6 +172,8 @@ class MatrixTask {
         completedAt: clearCompletedAt
             ? null
             : completedAt ?? this.completedAt,
+        isToday: isToday ?? this.isToday,
+        rewarded: rewarded ?? this.rewarded,
       );
 
   @override
