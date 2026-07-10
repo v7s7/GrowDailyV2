@@ -10,10 +10,12 @@ import 'core/constants/game_constants.dart';
 import 'core/l10n/app_strings.dart';
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/services/home_widget_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/game_theme.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
+import 'features/dashboard/notifiers/dashboard_notifier.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import 'features/habits/catalog/islamic_habit_catalog.dart'
@@ -50,6 +52,7 @@ Future<void> main() async {
   await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();
+  await HomeWidgetService.instance.init();
   // Seed guestModeProvider from Hive so a returning guest with intact local
   // data lands back on their grid instead of being bounced to the auth
   // screen (the provider's own default is always `false` in memory).
@@ -84,6 +87,7 @@ class GrowDailyApp extends ConsumerStatefulWidget {
 class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
   ProviderSubscription<TimeOfDay?>? _reminderSub;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitRemindersSub;
+  ProviderSubscription<DashboardState>? _widgetSub;
 
   @override
   void initState() {
@@ -115,12 +119,23 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
       }
       NotificationService.instance.scheduleHabitReminders(reminders);
     }, fireImmediately: true);
+
+    // Keep the home screen widget's numbers current — no-ops safely until
+    // the native widget extension exists (see ios/WIDGET_SETUP.md).
+    _widgetSub = ref.listenManual(dashboardProvider, (previous, next) {
+      HomeWidgetService.instance.updateWidgetData(
+        streak: next.streak,
+        level: next.level,
+        gold: next.gold,
+      );
+    }, fireImmediately: true);
   }
 
   @override
   void dispose() {
     _reminderSub?.close();
     _habitRemindersSub?.close();
+    _widgetSub?.close();
     super.dispose();
   }
 

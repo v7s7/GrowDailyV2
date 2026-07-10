@@ -50,6 +50,11 @@ dependencies:
   timezone: ^0.9.4
   flutter_timezone: ^3.0.1
 
+  # ── Home screen widget ───────────────────────────────────────
+  # Dart-side bridge only — the widget's actual UI is native Swift, written
+  # once the Xcode Widget Extension target exists. See ios/WIDGET_SETUP.md.
+  home_widget: ^0.9.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
