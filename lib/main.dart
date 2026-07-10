@@ -8,13 +8,21 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import 'core/constants/game_constants.dart';
 import 'core/l10n/app_strings.dart';
+import 'core/providers/onboarding_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/services/home_widget_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/game_theme.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
+import 'features/dashboard/notifiers/dashboard_notifier.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
+import 'features/habits/catalog/islamic_habit_catalog.dart'
+    show IslamicHabitTemplate;
+import 'features/habits/models/habit_cue.dart';
+import 'features/habits/notifiers/custom_habits_notifier.dart'
+    show habitListProvider;
 import 'features/focus/screens/focus_screen.dart';
 import 'features/grid/screens/grid_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
@@ -22,6 +30,7 @@ import 'features/intention/screens/intention_screen.dart';
 import 'features/language/screens/language_picker_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'features/night_review/screens/night_review_screen.dart';
+import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/premium/screens/premium_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
@@ -43,11 +52,13 @@ Future<void> main() async {
   await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();
+  await HomeWidgetService.instance.init();
   // Seed guestModeProvider from Hive so a returning guest with intact local
   // data lands back on their grid instead of being bounced to the auth
   // screen (the provider's own default is always `false` in memory).
   final persistedGuestMode = await loadPersistedGuestMode();
   final persistedLocale = await loadPersistedLocale();
+  final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
   final persistedThemeMode = await loadPersistedThemeMode();
   // Also applies the preset's colors to GameColors immediately, so the
   // very first frame already renders in the right preset.
@@ -56,6 +67,7 @@ Future<void> main() async {
     overrides: [
       guestModeProvider.overrideWith((ref) => persistedGuestMode),
       ...localeProviderOverrides(persistedLocale),
+      onboardingSeenProvider.overrideWith((ref) => persistedOnboardingSeen),
       if (persistedThemeMode != null)
         themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
       if (persistedThemePreset != null)
@@ -74,6 +86,8 @@ class GrowDailyApp extends ConsumerStatefulWidget {
 
 class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
   ProviderSubscription<TimeOfDay?>? _reminderSub;
+  ProviderSubscription<List<IslamicHabitTemplate>>? _habitRemindersSub;
+  ProviderSubscription<DashboardState>? _widgetSub;
 
   @override
   void initState() {
@@ -90,11 +104,38 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
             .scheduleDailyReminder(hour: next.hour, minute: next.minute);
       }
     }, fireImmediately: true);
+
+    // Give each habit with a fixed clock-time cue its own real reminder
+    // (see NotificationService.scheduleHabitReminders) instead of every
+    // habit sharing the one generic ping above. Re-runs on cold start and
+    // any time a habit is added/edited/removed or its cue changes.
+    _habitRemindersSub = ref.listenManual(habitListProvider, (previous, next) {
+      final reminders = <({String id, String name, TimeOfDay time})>[];
+      for (final habit in next) {
+        final time = HabitCue.fromStoredValue(habit.cueAfter).clockTime;
+        if (time != null) {
+          reminders.add((id: habit.id, name: habit.name, time: time));
+        }
+      }
+      NotificationService.instance.scheduleHabitReminders(reminders);
+    }, fireImmediately: true);
+
+    // Keep the home screen widget's numbers current — no-ops safely until
+    // the native widget extension exists (see ios/WIDGET_SETUP.md).
+    _widgetSub = ref.listenManual(dashboardProvider, (previous, next) {
+      HomeWidgetService.instance.updateWidgetData(
+        streak: next.streak,
+        level: next.level,
+        gold: next.gold,
+      );
+    }, fireImmediately: true);
   }
 
   @override
   void dispose() {
     _reminderSub?.close();
+    _habitRemindersSub?.close();
+    _widgetSub?.close();
     super.dispose();
   }
 
@@ -184,12 +225,34 @@ class _AuthGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isGuest = ref.watch(guestModeProvider);
-    if (isGuest) return const GridScreen();
+    if (isGuest) return const _OnboardingOrGrid();
     final auth = ref.watch(authStateProvider);
     return auth.when(
-      data: (user) => user != null ? const GridScreen() : const AuthScreen(),
+      data: (user) =>
+          user != null ? const _OnboardingOrGrid() : const AuthScreen(),
       loading: () => const _SplashScreen(),
       error: (_, __) => const AuthScreen(),
+    );
+  }
+}
+
+/// Once someone's authenticated (or in guest mode), one more gate before the
+/// real app: the first-run walkthrough, shown exactly once per device. See
+/// [onboardingSeenProvider] — finishing or skipping it flips that flag, which
+/// is what actually reveals the Grid; this widget just reacts to it.
+class _OnboardingOrGrid extends ConsumerWidget {
+  const _OnboardingOrGrid();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final seen = ref.watch(onboardingSeenProvider);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 400),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: seen
+          ? const GridScreen(key: ValueKey('grid'))
+          : const OnboardingScreen(key: ValueKey('onboarding')),
     );
   }
 }

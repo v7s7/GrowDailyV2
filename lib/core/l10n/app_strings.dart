@@ -638,4 +638,24 @@ class S {
   String get streakAtRiskBody => isAr
       ? 'مربّع أخضر واحد الليلة يبقيها حيّة.'
       : 'One green square tonight keeps it alive.';
+
+  // ── First-run onboarding ─────────────────────────────────────────────────
+  String get onboardingGridTitle =>
+      isAr ? 'كل يوم مربّع' : 'Every day is a square';
+  String get onboardingGridBody => isAr
+      ? 'أكمل عادة، ولوّن مربّع اليوم. شاهد شهرك يمتلئ رويدًا رويدًا.'
+      : 'Complete a habit, color today\'s square. Watch your month fill in.';
+  String get onboardingHabitsTitle =>
+      isAr ? 'عادات صغيرة، زخم حقيقي' : 'Small habits, real momentum';
+  String get onboardingHabitsBody => isAr
+      ? 'كل عادة تمنحك XP وذهبًا. تجميد السلسلة يحميك إن فاتك يوم — يوم واحد لا يمحو تقدمك.'
+      : 'Each habit earns XP and gold. Streak Freeze protects you if you miss a day — one slip doesn\'t erase your progress.';
+  String get onboardingTasksTitle =>
+      isAr ? 'رتّب ما يهم' : 'Prioritize what matters';
+  String get onboardingTasksBody => isAr
+      ? 'افرز العاجل عن المهم في المهام، وحدّد أولويات اليوم بضغطة واحدة.'
+      : 'Sort urgent from important in Tasks, and flag today\'s must-dos in one tap.';
+  String get onboardingSkip => isAr ? 'تخطّي' : 'Skip';
+  String get onboardingNext => isAr ? 'التالي' : 'Next';
+  String get onboardingGetStarted => isAr ? 'ابدأ الآن' : 'Get started';
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
@@ -106,6 +107,57 @@ class NotificationService {
     if (kIsWeb) return;
     await _plugin.cancel(_dailyReminderId);
     debugPrint('[NotificationService] Daily reminder cancelled');
+  }
+
+  // IDs this instance currently has scheduled via scheduleHabitReminders,
+  // so the next call can cancel exactly the ones that no longer apply
+  // (habit deleted, or its cue is no longer a fixed time) instead of
+  // leaving stale per-habit reminders behind. In-memory only — re-derived
+  // fresh from the current habit list on every cold start, since main.dart
+  // calls this with fireImmediately on the habit list provider.
+  final Set<int> _habitReminderIds = {};
+
+  int _habitReminderId(String habitId) => 5000 + habitId.hashCode.abs() % 1000;
+
+  /// Schedules one real reminder per habit that has a fixed clock-time cue
+  /// (see HabitCue.clockTime) — named for that habit, fired at that habit's
+  /// own time, instead of every habit sharing the single generic
+  /// [scheduleDailyReminder] ping. Habits with a routine-anchored cue
+  /// ('after Maghrib', 'before sleep') or no cue at all are left alone: we
+  /// don't have real prayer-time/schedule data to fire those accurately, and
+  /// a wrong-time reminder is worse than none. Safe to call any time the
+  /// habit list changes — replaces the previous set of schedules entirely.
+  Future<void> scheduleHabitReminders(
+    List<({String id, String name, TimeOfDay time})> reminders,
+  ) async {
+    if (kIsWeb) return;
+    await init();
+    final nextIds = <int>{};
+    for (final r in reminders) {
+      final id = _habitReminderId(r.id);
+      nextIds.add(id);
+      await _plugin.zonedSchedule(
+        id,
+        r.name,
+        'It\'s time — keep the streak going.',
+        _nextInstanceOf(r.time.hour, r.time.minute),
+        _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+    }
+    // Cancel anything scheduled last time that isn't in this round (habit
+    // deleted, cue changed away from a fixed time, etc).
+    for (final staleId in _habitReminderIds.difference(nextIds)) {
+      await _plugin.cancel(staleId);
+    }
+    _habitReminderIds
+      ..clear()
+      ..addAll(nextIds);
+    debugPrint(
+        '[NotificationService] ${nextIds.length} per-habit reminder(s) scheduled');
   }
 
   tz.TZDateTime _nextInstanceOf(int hour, int minute) {
