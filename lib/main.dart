@@ -8,6 +8,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import 'core/constants/game_constants.dart';
 import 'core/l10n/app_strings.dart';
+import 'core/providers/onboarding_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/game_theme.dart';
@@ -27,6 +28,7 @@ import 'features/intention/screens/intention_screen.dart';
 import 'features/language/screens/language_picker_screen.dart';
 import 'features/matrix/screens/matrix_screen.dart';
 import 'features/night_review/screens/night_review_screen.dart';
+import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/premium/screens/premium_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'firebase_options.dart';
@@ -53,6 +55,7 @@ Future<void> main() async {
   // screen (the provider's own default is always `false` in memory).
   final persistedGuestMode = await loadPersistedGuestMode();
   final persistedLocale = await loadPersistedLocale();
+  final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
   final persistedThemeMode = await loadPersistedThemeMode();
   // Also applies the preset's colors to GameColors immediately, so the
   // very first frame already renders in the right preset.
@@ -61,6 +64,7 @@ Future<void> main() async {
     overrides: [
       guestModeProvider.overrideWith((ref) => persistedGuestMode),
       ...localeProviderOverrides(persistedLocale),
+      onboardingSeenProvider.overrideWith((ref) => persistedOnboardingSeen),
       if (persistedThemeMode != null)
         themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
       if (persistedThemePreset != null)
@@ -206,12 +210,34 @@ class _AuthGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isGuest = ref.watch(guestModeProvider);
-    if (isGuest) return const GridScreen();
+    if (isGuest) return const _OnboardingOrGrid();
     final auth = ref.watch(authStateProvider);
     return auth.when(
-      data: (user) => user != null ? const GridScreen() : const AuthScreen(),
+      data: (user) =>
+          user != null ? const _OnboardingOrGrid() : const AuthScreen(),
       loading: () => const _SplashScreen(),
       error: (_, __) => const AuthScreen(),
+    );
+  }
+}
+
+/// Once someone's authenticated (or in guest mode), one more gate before the
+/// real app: the first-run walkthrough, shown exactly once per device. See
+/// [onboardingSeenProvider] — finishing or skipping it flips that flag, which
+/// is what actually reveals the Grid; this widget just reacts to it.
+class _OnboardingOrGrid extends ConsumerWidget {
+  const _OnboardingOrGrid();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final seen = ref.watch(onboardingSeenProvider);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 400),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: seen
+          ? const GridScreen(key: ValueKey('grid'))
+          : const OnboardingScreen(key: ValueKey('onboarding')),
     );
   }
 }
