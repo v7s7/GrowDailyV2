@@ -21,6 +21,11 @@ class MatrixScreen extends ConsumerStatefulWidget {
 
 class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   final Set<String> _selectedIds = {};
+  // Defaults to false (show everything) rather than true — this ships to
+  // people with existing tasks that all predate the isToday field, so
+  // defaulting to the Today filter would open on what looks like an empty
+  // board. Users opt into the filtered view themselves.
+  bool _todayOnly = false;
 
   bool get _selectionMode => _selectedIds.isNotEmpty;
 
@@ -102,8 +107,11 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final matrixState = ref.watch(matrixProvider);
-    final tasks = matrixState.tasks.where((t) => !t.isDone).toList();
-    final completedCount = matrixState.tasks.length - tasks.length;
+    final pending = matrixState.tasks.where((t) => !t.isDone).toList();
+    final completedCount = matrixState.tasks.length - pending.length;
+    final todayCount = pending.where((t) => t.isToday).length;
+    final tasks =
+        _todayOnly ? pending.where((t) => t.isToday).toList() : pending;
 
     if (matrixState.isLoading) {
       return Scaffold(
@@ -178,6 +186,17 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                 ],
               ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.05),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: _TodayFilterToggle(
+                  todayOnly: _todayOnly,
+                  todayCount: todayCount,
+                  onChanged: (v) => setState(() => _todayOnly = v),
+                ),
+              ),
+            ).animate(delay: 50.ms).fadeIn(duration: 300.ms),
             if (_selectionMode) ...[
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
@@ -245,6 +264,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     },
                                     onDelete: _deleteTask,
                                     onMove: _moveTask,
+                                    onToggleToday: (id) => ref
+                                        .read(matrixProvider.notifier)
+                                        .toggleToday(id),
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -278,6 +300,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     },
                                     onDelete: _deleteTask,
                                     onMove: _moveTask,
+                                    onToggleToday: (id) => ref
+                                        .read(matrixProvider.notifier)
+                                        .toggleToday(id),
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -317,6 +342,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     },
                                     onDelete: _deleteTask,
                                     onMove: _moveTask,
+                                    onToggleToday: (id) => ref
+                                        .read(matrixProvider.notifier)
+                                        .toggleToday(id),
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -350,6 +378,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     },
                                     onDelete: _deleteTask,
                                     onMove: _moveTask,
+                                    onToggleToday: (id) => ref
+                                        .read(matrixProvider.notifier)
+                                        .toggleToday(id),
                                     onAddTapped: () => _showAdd(
                                         context,
                                         ref,
@@ -448,6 +479,92 @@ class _SelectionBar extends StatelessWidget {
         ],
       ),
     ).animate().fadeIn(duration: 180.ms).slideY(begin: -0.15);
+  }
+}
+
+// ─── Today/All filter toggle ───────────────────────────────────────────────
+
+/// Filters all four quadrants down to just tasks flagged "today" — plain
+/// client-side filter over isToday, no separate query/screen. Defaults to
+/// All (see _MatrixScreenState._todayOnly) so nobody's existing board looks
+/// empty the first time they see this.
+class _TodayFilterToggle extends StatelessWidget {
+  final bool todayOnly;
+  final int todayCount;
+  final ValueChanged<bool> onChanged;
+
+  const _TodayFilterToggle({
+    required this.todayOnly,
+    required this.todayCount,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: gp.surfaceHL,
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _FilterSegment(
+            label: '${s.matrixToday} · $todayCount',
+            active: todayOnly,
+            onTap: () => onChanged(true),
+          ),
+          _FilterSegment(
+            label: s.matrixAll,
+            active: !todayOnly,
+            onTap: () => onChanged(false),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterSegment extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _FilterSegment({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Material(
+      color: active ? GameColors.gold.withOpacity(0.16) : Colors.transparent,
+      borderRadius: BorderRadius.circular(100),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(100),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: active ? GameColors.gold : gp.textSec,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
