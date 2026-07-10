@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter/widgets.dart';
 
 import '../../../core/l10n/app_strings.dart';
@@ -152,6 +153,14 @@ class HabitCue {
   }
 
   bool get isEmpty => _kind == _HabitCueKind.freeform && _raw.trim().isEmpty;
+
+  /// The exact clock time this cue resolves to, if the user picked one —
+  /// null for a preset routine anchor (e.g. 'maghrib', 'before_sleep') or
+  /// freeform text, since those don't have a fixed time without real
+  /// prayer-time/schedule data this app doesn't have yet. Used to schedule
+  /// a real per-habit reminder — see NotificationService.scheduleHabitReminders.
+  TimeOfDay? get clockTime =>
+      _kind == _HabitCueKind.time ? TimeOfDay(hour: _hour24!, minute: _minute!) : null;
 
   /// Value to persist to Firestore/Hive — always locale-independent, so it
   /// never needs to change again after a language switch.

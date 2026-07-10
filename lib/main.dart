@@ -15,6 +15,11 @@ import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
+import 'features/habits/catalog/islamic_habit_catalog.dart'
+    show IslamicHabitTemplate;
+import 'features/habits/models/habit_cue.dart';
+import 'features/habits/notifiers/custom_habits_notifier.dart'
+    show habitListProvider;
 import 'features/focus/screens/focus_screen.dart';
 import 'features/grid/screens/grid_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
@@ -74,6 +79,7 @@ class GrowDailyApp extends ConsumerStatefulWidget {
 
 class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
   ProviderSubscription<TimeOfDay?>? _reminderSub;
+  ProviderSubscription<List<IslamicHabitTemplate>>? _habitRemindersSub;
 
   @override
   void initState() {
@@ -90,11 +96,27 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp> {
             .scheduleDailyReminder(hour: next.hour, minute: next.minute);
       }
     }, fireImmediately: true);
+
+    // Give each habit with a fixed clock-time cue its own real reminder
+    // (see NotificationService.scheduleHabitReminders) instead of every
+    // habit sharing the one generic ping above. Re-runs on cold start and
+    // any time a habit is added/edited/removed or its cue changes.
+    _habitRemindersSub = ref.listenManual(habitListProvider, (previous, next) {
+      final reminders = <({String id, String name, TimeOfDay time})>[];
+      for (final habit in next) {
+        final time = HabitCue.fromStoredValue(habit.cueAfter).clockTime;
+        if (time != null) {
+          reminders.add((id: habit.id, name: habit.name, time: time));
+        }
+      }
+      NotificationService.instance.scheduleHabitReminders(reminders);
+    }, fireImmediately: true);
   }
 
   @override
   void dispose() {
     _reminderSub?.close();
+    _habitRemindersSub?.close();
     super.dispose();
   }
 
