@@ -62,6 +62,14 @@ class MatrixTask {
   // done/undone/done can't be used to farm repeat payouts, and finishing a
   // task never feels like it can be "taken away" again later.
   final bool rewarded;
+  // Manual sort rank within a quadrant — a plain double, not an int index,
+  // so dragging a task between two others (see MatrixNotifier.reorder) can
+  // just average its new neighbors' order values without ever having to
+  // rewrite every other task's rank. Higher sorts later. Defaults to a
+  // timestamp (see the factories below), so a board nobody has ever
+  // manually reordered still reads in creation order, same as before this
+  // field existed.
+  final double order;
 
   const MatrixTask({
     required this.id,
@@ -72,6 +80,7 @@ class MatrixTask {
     this.completedAt,
     this.isToday = false,
     this.rewarded = false,
+    required this.order,
   });
 
   factory MatrixTask.create(String title, MatrixQuadrant quadrant) =>
@@ -81,12 +90,15 @@ class MatrixTask {
         quadrant: quadrant,
         isDone: false,
         createdAt: DateTime.now(),
+        order: DateTime.now().millisecondsSinceEpoch.toDouble(),
       );
 
   factory MatrixTask.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final d = doc.data()!;
+    final createdAt =
+        (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
     return MatrixTask(
       id: doc.id,
       title: d['title'] as String,
@@ -95,19 +107,25 @@ class MatrixTask {
         orElse: () => MatrixQuadrant.doFirst,
       ),
       isDone: d['isDone'] as bool? ?? false,
-      createdAt:
-          (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdAt: createdAt,
       completedAt: (d['completedAt'] as Timestamp?)?.toDate(),
       // Both default false for tasks written before these fields existed —
       // an old task is neither flagged for today nor already rewarded.
       isToday: d['isToday'] as bool? ?? false,
       rewarded: d['rewarded'] as bool? ?? false,
+      // A task written before `order` existed falls back to its creation
+      // time, so an untouched board still reads in the same order it
+      // always has.
+      order: (d['order'] as num?)?.toDouble() ??
+          createdAt.millisecondsSinceEpoch.toDouble(),
     );
   }
 
   /// Plain-map (de)serialization for the guest's local Hive store — no
   /// Firestore Timestamp involved, so createdAt is a plain ISO-8601 string.
   factory MatrixTask.fromMap(Map<String, dynamic> d) {
+    final createdAt = DateTime.tryParse(d['createdAt'] as String? ?? '') ??
+        DateTime.now();
     return MatrixTask(
       id: d['id'] as String? ?? const Uuid().v4(),
       title: d['title'] as String? ?? '',
@@ -116,13 +134,14 @@ class MatrixTask {
         orElse: () => MatrixQuadrant.doFirst,
       ),
       isDone: d['isDone'] as bool? ?? false,
-      createdAt: DateTime.tryParse(d['createdAt'] as String? ?? '') ??
-          DateTime.now(),
+      createdAt: createdAt,
       completedAt: d['completedAt'] == null
           ? null
           : DateTime.tryParse(d['completedAt'] as String),
       isToday: d['isToday'] as bool? ?? false,
       rewarded: d['rewarded'] as bool? ?? false,
+      order: (d['order'] as num?)?.toDouble() ??
+          createdAt.millisecondsSinceEpoch.toDouble(),
     );
   }
 
@@ -136,6 +155,7 @@ class MatrixTask {
           'completedAt': completedAt!.toIso8601String(),
         'isToday': isToday,
         'rewarded': rewarded,
+        'order': order,
       };
 
   // `_persist` always writes with SetOptions(merge: true), so a restored
@@ -152,6 +172,7 @@ class MatrixTask {
             : FieldValue.delete(),
         'isToday': isToday,
         'rewarded': rewarded,
+        'order': order,
       };
 
   MatrixTask copyWith({
@@ -162,6 +183,7 @@ class MatrixTask {
     bool clearCompletedAt = false,
     bool? isToday,
     bool? rewarded,
+    double? order,
   }) =>
       MatrixTask(
         id: id,
@@ -174,6 +196,7 @@ class MatrixTask {
             : completedAt ?? this.completedAt,
         isToday: isToday ?? this.isToday,
         rewarded: rewarded ?? this.rewarded,
+        order: order ?? this.order,
       );
 
   @override

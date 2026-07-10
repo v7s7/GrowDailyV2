@@ -22,6 +22,32 @@ abstract final class GameConstants {
     100: 1500,
   };
 
+  // Per-habit streak milestone bonuses — same thresholds as [streakBonuses]
+  // for a consistent "meaningful day counts" vocabulary across the app, but
+  // scaled to roughly a third of the app-wide payout. A user can have many
+  // habits each independently crossing these thresholds, so paying the full
+  // app-wide amount per habit would inflate the XP economy fast; this keeps
+  // each one feeling like a genuine bonus without dwarfing everything else.
+  static const Map<int, int> habitStreakBonuses = {
+    3: 10,
+    7: 25,
+    14: 50,
+    30: 100,
+    60: 200,
+    100: 500,
+  };
+
+  // Chance (per habit completion, independent of streaks/milestones) of an
+  // occasional surprise bonus — the "variable reward" moment habit trackers
+  // like Duolingo/Habitica use to make completing something feel exciting
+  // rather than administrative. Deliberately modest on both axes: ~1-in-7
+  // completions (not rare enough to never show up, not common enough to
+  // become the expected baseline), capped at half again the habit's normal
+  // reward (see DashboardNotifier.completeHabit) — always a bonus on top of
+  // the real reward, never a substitute for it, and never a loss.
+  static const double surpriseBonusChance = 0.15;
+  static const double surpriseBonusMultiplier = 0.5;
+
   // Default XP/Gold rewards by habit category, keyed by HabitCategory.name.
   // Used as the reward for a user-created custom habit (catalog/preset
   // habits carry their own hand-tuned per-habit reward instead — see

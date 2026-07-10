@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -25,6 +27,24 @@ int milestoneXpBonus(int milestone) =>
 // S.milestoneTitle (app_strings.dart) since they're locale-dependent —
 // keeping them here would mean an English-only title bleeding into the
 // Arabic UI.
+
+/// A per-habit streak milestone just reached — carries enough context (which
+/// habit, by name) for the celebration dialog to reference it by name,
+/// unlike the app-wide [DashboardState.milestoneCelebration] which only
+/// needs the day count since there's only one app-wide streak to talk about.
+class HabitMilestoneEvent {
+  final String habitId;
+  final String habitName;
+  final int milestone;
+  final int bonusXp;
+
+  const HabitMilestoneEvent({
+    required this.habitId,
+    required this.habitName,
+    required this.milestone,
+    required this.bonusXp,
+  });
+}
 
 class DashboardState {
   final int level;
@@ -65,6 +85,32 @@ class DashboardState {
   /// evaluate [AchievementTrigger.habitMastery] achievements.
   final Map<String, int> categoryCompletions;
 
+  // ── Per-habit streaks ────────────────────────────────────────
+  //
+  // habitId → streak count as of habitLastCompletedDate[habitId]. This is
+  // the *raw* persisted value — it only ever changes when that habit is
+  // completed, so a habit that's gone stale (missed a day since) would keep
+  // showing its old streak forever if read directly. Always read
+  // [habitStreak] instead, which corrects for that.
+  final Map<String, int> habitStreakCounts;
+  final Map<String, int> habitLongestStreaks;
+  final Map<String, int> habitTotalCompletions;
+  // habitId → 'YYYY-MM-DD' of that habit's most recent completion.
+  final Map<String, String> habitLastCompletedDate;
+
+  /// Set the instant a per-habit streak crosses a milestone (see
+  /// [GameConstants.habitStreakBonuses]); cleared once the celebration
+  /// dialog is dismissed. Not persisted — this is a one-shot UI cue, not
+  /// data worth remembering across app restarts.
+  final HabitMilestoneEvent? habitMilestoneCelebration;
+
+  /// Bonus XP/Gold from the most recent completion's surprise-bonus roll
+  /// (see [GameConstants.surpriseBonusChance]) — 0 when that completion
+  /// didn't roll a bonus. Transient, like [lastCompletedId]: read once by
+  /// the completion toast, then irrelevant until the next completion.
+  final int lastCompletionBonusXp;
+  final int lastCompletionBonusGold;
+
   const DashboardState({
     required this.level,
     required this.currentLevelXp,
@@ -89,6 +135,13 @@ class DashboardState {
     this.gridActivityToday = false,
     this.dailyGreenCounts = const {},
     this.categoryCompletions = const {},
+    this.habitStreakCounts = const {},
+    this.habitLongestStreaks = const {},
+    this.habitTotalCompletions = const {},
+    this.habitLastCompletedDate = const {},
+    this.habitMilestoneCelebration,
+    this.lastCompletionBonusXp = 0,
+    this.lastCompletionBonusGold = 0,
   });
 
   factory DashboardState.initial() => const DashboardState(
@@ -111,6 +164,22 @@ class DashboardState {
   int get xpToNext => XpCalculator.xpToNextLevel(level);
   bool isCompleted(String habitId, int target) =>
       (completions[habitId] ?? 0) >= target;
+
+  /// The live current streak for a single habit — unlike reading
+  /// [habitStreakCounts] directly, this returns 0 once more than a day has
+  /// passed since [habitLastCompletedDate], so a habit that's actually been
+  /// abandoned never keeps showing an inflated, stale streak.
+  int habitStreak(String habitId) {
+    final lastKey = habitLastCompletedDate[habitId];
+    if (lastKey == null) return 0;
+    final last = DateTime.tryParse(lastKey);
+    if (last == null) return 0;
+    final today = DateTime.now();
+    final gap = DateTime(today.year, today.month, today.day)
+        .difference(DateTime(last.year, last.month, last.day))
+        .inDays;
+    return gap <= 1 ? (habitStreakCounts[habitId] ?? 0) : 0;
+  }
 
   DashboardState copyWith({
     int? level,
@@ -137,6 +206,14 @@ class DashboardState {
     bool? gridActivityToday,
     Map<String, int>? dailyGreenCounts,
     Map<String, int>? categoryCompletions,
+    Map<String, int>? habitStreakCounts,
+    Map<String, int>? habitLongestStreaks,
+    Map<String, int>? habitTotalCompletions,
+    Map<String, String>? habitLastCompletedDate,
+    HabitMilestoneEvent? setHabitMilestone,
+    bool clearHabitMilestone = false,
+    int? lastCompletionBonusXp,
+    int? lastCompletionBonusGold,
   }) =>
       DashboardState(
         level: level ?? this.level,
@@ -164,6 +241,19 @@ class DashboardState {
         gridActivityToday: gridActivityToday ?? this.gridActivityToday,
         dailyGreenCounts: dailyGreenCounts ?? this.dailyGreenCounts,
         categoryCompletions: categoryCompletions ?? this.categoryCompletions,
+        habitStreakCounts: habitStreakCounts ?? this.habitStreakCounts,
+        habitLongestStreaks: habitLongestStreaks ?? this.habitLongestStreaks,
+        habitTotalCompletions:
+            habitTotalCompletions ?? this.habitTotalCompletions,
+        habitLastCompletedDate:
+            habitLastCompletedDate ?? this.habitLastCompletedDate,
+        habitMilestoneCelebration: clearHabitMilestone
+            ? null
+            : (setHabitMilestone ?? this.habitMilestoneCelebration),
+        lastCompletionBonusXp:
+            lastCompletionBonusXp ?? this.lastCompletionBonusXp,
+        lastCompletionBonusGold:
+            lastCompletionBonusGold ?? this.lastCompletionBonusGold,
       );
 }
 
@@ -173,8 +263,13 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   static const int comebackBonusXp = 50;
 
   final String? _uid;
+  // Injectable for tests; defaults to a real Random in production — same
+  // pattern QuickWinsNotifier already uses for its own randomized picks.
+  final Random _random;
 
-  DashboardNotifier(this._uid) : super(DashboardState.initial()) {
+  DashboardNotifier(this._uid, {Random? random})
+      : _random = random ?? Random(),
+        super(DashboardState.initial()) {
     if (_uid != null) {
       _loadToday();
     } else {
@@ -227,6 +322,28 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       final categoryCompletions = rawCategoryCompletions.map(
         (key, value) => MapEntry(key, (value as num).toInt()),
       );
+      final rawHabitStreakCounts =
+          (saved['habitStreakCounts'] as Map?)?.cast<String, dynamic>() ??
+              {};
+      final habitStreakCounts = rawHabitStreakCounts.map(
+        (key, value) => MapEntry(key, (value as num).toInt()),
+      );
+      final rawHabitLongestStreaks =
+          (saved['habitLongestStreaks'] as Map?)?.cast<String, dynamic>() ??
+              {};
+      final habitLongestStreaks = rawHabitLongestStreaks.map(
+        (key, value) => MapEntry(key, (value as num).toInt()),
+      );
+      final rawHabitTotalCompletions =
+          (saved['habitTotalCompletions'] as Map?)?.cast<String, dynamic>() ??
+              {};
+      final habitTotalCompletions = rawHabitTotalCompletions.map(
+        (key, value) => MapEntry(key, (value as num).toInt()),
+      );
+      final habitLastCompletedDate = (saved['habitLastCompletedDate'] as Map?)
+              ?.cast<String, dynamic>()
+              .map((key, value) => MapEntry(key, value as String)) ??
+          {};
 
       int streak = (saved['currentStreak'] as int?) ?? 0;
       int streakFreezes = (saved['streakFreezes'] as int?) ?? 1;
@@ -287,6 +404,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         gridActivityToday: gridActivityToday,
         dailyGreenCounts: dailyGreenCounts,
         categoryCompletions: categoryCompletions,
+        habitStreakCounts: habitStreakCounts,
+        habitLongestStreaks: habitLongestStreaks,
+        habitTotalCompletions: habitTotalCompletions,
+        habitLastCompletedDate: habitLastCompletedDate,
       );
     } catch (_) {
       if (mounted) state = DashboardState.initial().copyWith(isLoading: false);
@@ -313,6 +434,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'totalGreenSquares': state.totalGreenSquares,
         'dailyGreenCounts': state.dailyGreenCounts,
         'categoryCompletions': state.categoryCompletions,
+        'habitStreakCounts': state.habitStreakCounts,
+        'habitLongestStreaks': state.habitLongestStreaks,
+        'habitTotalCompletions': state.habitTotalCompletions,
+        'habitLastCompletedDate': state.habitLastCompletedDate,
         if (lastActiveDate != null)
           'lastActiveDate': lastActiveDate.toIso8601String(),
       },
@@ -365,6 +490,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       int totalGreenSquares = 0;
       Map<String, int> dailyGreenCounts = {};
       Map<String, int> categoryCompletions = {};
+      Map<String, int> habitStreakCounts = {};
+      Map<String, int> habitLongestStreaks = {};
+      Map<String, int> habitTotalCompletions = {};
+      Map<String, String> habitLastCompletedDate = {};
 
       if (userSnap.exists) {
         final d = userSnap.data()!;
@@ -390,6 +519,26 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         categoryCompletions = rawCategoryCompletions.map(
           (key, value) => MapEntry(key, (value as num).toInt()),
         );
+        final rawHabitStreakCounts =
+            (d['habitStreakCounts'] as Map?)?.cast<String, dynamic>() ?? {};
+        habitStreakCounts = rawHabitStreakCounts.map(
+          (key, value) => MapEntry(key, (value as num).toInt()),
+        );
+        final rawHabitLongestStreaks =
+            (d['habitLongestStreaks'] as Map?)?.cast<String, dynamic>() ?? {};
+        habitLongestStreaks = rawHabitLongestStreaks.map(
+          (key, value) => MapEntry(key, (value as num).toInt()),
+        );
+        final rawHabitTotalCompletions =
+            (d['habitTotalCompletions'] as Map?)?.cast<String, dynamic>() ??
+                {};
+        habitTotalCompletions = rawHabitTotalCompletions.map(
+          (key, value) => MapEntry(key, (value as num).toInt()),
+        );
+        habitLastCompletedDate = (d['habitLastCompletedDate'] as Map?)
+                ?.cast<String, dynamic>()
+                .map((key, value) => MapEntry(key, value as String)) ??
+            {};
 
         final lastActiveTs = d['lastActiveDate'] as Timestamp?;
         if (lastActiveTs != null) {
@@ -461,6 +610,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           gridActivityToday: gridActivityToday,
           dailyGreenCounts: dailyGreenCounts,
           categoryCompletions: categoryCompletions,
+          habitStreakCounts: habitStreakCounts,
+          habitLongestStreaks: habitLongestStreaks,
+          habitTotalCompletions: habitTotalCompletions,
+          habitLastCompletedDate: habitLastCompletedDate,
         );
       }
     } catch (_) {
@@ -524,6 +677,69 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     final newCompletions = Map<String, int>.from(state.completions)
       ..[habitId] = current + 1;
 
+    // ── Per-habit streak bump ────────────────────────────────
+    //
+    // Fires once per habit per day — `current == 0` means this is the
+    // first completion of *this specific habit* today (mirrors the
+    // app-wide isFirstToday check below, just scoped to one habit id
+    // instead of "any habit"). A weekly habit tapped 3 separate days still
+    // bumps 3 times; nothing here double-counts a same-day multi-tap
+    // because current is already > 0 by the second tap.
+    final newHabitStreakCounts = {...state.habitStreakCounts};
+    final newHabitLongestStreaks = {...state.habitLongestStreaks};
+    final newHabitTotalCompletions = {...state.habitTotalCompletions};
+    final newHabitLastCompletedDate = {...state.habitLastCompletedDate};
+    // Set only when this completion just crossed one of
+    // GameConstants.habitStreakBonuses' thresholds — see below.
+    HabitMilestoneEvent? newHabitMilestoneEvent;
+    int habitMilestoneBonusXp = 0;
+    if (current == 0) {
+      final lastKey = state.habitLastCompletedDate[habitId];
+      final last = lastKey == null ? null : DateTime.tryParse(lastKey);
+      final gap = last == null
+          ? null
+          : _dateOnly(DateTime.now()).difference(_dateOnly(last)).inDays;
+      final prevStreak = state.habitStreakCounts[habitId] ?? 0;
+      // Only a same-day-yesterday completion continues the streak; a gap of
+      // 0 (shouldn't happen given the `current == 0` guard, but defensive),
+      // 2+, or no prior completion at all all restart it at 1.
+      final newHabitStreak = gap == 1 ? prevStreak + 1 : 1;
+      newHabitStreakCounts[habitId] = newHabitStreak;
+      final prevLongest = state.habitLongestStreaks[habitId] ?? 0;
+      newHabitLongestStreaks[habitId] =
+          newHabitStreak > prevLongest ? newHabitStreak : prevLongest;
+      newHabitTotalCompletions[habitId] =
+          (state.habitTotalCompletions[habitId] ?? 0) + 1;
+      newHabitLastCompletedDate[habitId] = _todayKey;
+
+      // ── Per-habit milestone ──────────────────────────────────
+      final habitBonus = GameConstants.habitStreakBonuses[newHabitStreak];
+      if (habitBonus != null) {
+        habitMilestoneBonusXp = habitBonus;
+        newHabitMilestoneEvent = HabitMilestoneEvent(
+          habitId: habitId,
+          habitName: habitName ?? habitId,
+          milestone: newHabitStreak,
+          bonusXp: habitBonus,
+        );
+      }
+    }
+
+    // ── Surprise bonus ───────────────────────────────────────────
+    //
+    // A small, independent chance on *every* completion (not gated to the
+    // day's first, unlike the streak logic above — this rewards the single
+    // action, not "did something today"). Always additive on top of the
+    // normal reward, capped at half again its size — see
+    // GameConstants.surpriseBonusChance for the reasoning.
+    final rolledBonus = _random.nextDouble() < GameConstants.surpriseBonusChance;
+    final surpriseBonusXp = rolledBonus
+        ? (xpReward * GameConstants.surpriseBonusMultiplier).ceil()
+        : 0;
+    final surpriseBonusGold = rolledBonus
+        ? (goldReward * GameConstants.surpriseBonusMultiplier).ceil()
+        : 0;
+
     // Only single-tap habits are synced with the Grid in this phase — see
     // the doc comment above.
     final isGridSyncable = frequencyTarget == 1;
@@ -546,9 +762,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
       cumulativeXp: state.cumulativeXp,
-      xpGained: xpReward + milestoneBonusXp,
+      xpGained:
+          xpReward + milestoneBonusXp + habitMilestoneBonusXp + surpriseBonusXp,
     );
-    final newGold = state.gold + goldReward;
+    final newGold = state.gold + goldReward + surpriseBonusGold;
     final newTotal = state.totalCompletions + 1;
 
     final newCategoryCompletions = {...state.categoryCompletions};
@@ -636,12 +853,22 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       categoryCompletions: newCategoryCompletions,
       totalGreenSquares: newTotalGreenSquares,
       dailyGreenCounts: newDailyGreenCounts,
+      habitStreakCounts: newHabitStreakCounts,
+      habitLongestStreaks: newHabitLongestStreaks,
+      habitTotalCompletions: newHabitTotalCompletions,
+      habitLastCompletedDate: newHabitLastCompletedDate,
+      setHabitMilestone: newHabitMilestoneEvent,
+      lastCompletionBonusXp: surpriseBonusXp,
+      lastCompletionBonusGold: surpriseBonusGold,
     );
 
     _fireCompletionNotifications(
       habitId: habitName ?? habitId,
-      xpEarned: xpReward + milestoneBonusXp,
-      goldEarned: goldReward,
+      xpEarned: xpReward +
+          milestoneBonusXp +
+          habitMilestoneBonusXp +
+          surpriseBonusXp,
+      goldEarned: goldReward + surpriseBonusGold,
       didLevelUp: didLevelUp,
       newLevel: bonusResult.newLevel,
       newlyUnlocked: newly,
@@ -676,6 +903,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           'unlockedAchievements': newUnlockedIds,
           'categoryCompletions': newCategoryCompletions,
           'lastActiveDate': Timestamp.fromDate(now),
+          'habitStreakCounts': newHabitStreakCounts,
+          'habitLongestStreaks': newHabitLongestStreaks,
+          'habitTotalCompletions': newHabitTotalCompletions,
+          'habitLastCompletedDate': newHabitLastCompletedDate,
           // Same fields Grid's own applyGridSquareChange writes — no new
           // schema, just a second (mutually-exclusive, see isGridSyncable
           // above) writer for the synced single-tap case.
@@ -1112,6 +1343,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
   void acknowledgeMilestone() {
     state = state.copyWith(clearMilestone: true);
+  }
+
+  void acknowledgeHabitMilestone() {
+    state = state.copyWith(clearHabitMilestone: true);
   }
 
   Future<void> setIntentionsDone({

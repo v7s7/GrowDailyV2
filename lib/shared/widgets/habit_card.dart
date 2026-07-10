@@ -14,12 +14,26 @@ class HabitCard extends StatefulWidget {
   final bool isDone;
   final VoidCallback? onComplete;
 
+  /// Current per-habit streak (already gap-corrected — see
+  /// `DashboardState.habitStreak`). 0 hides the streak chip entirely, so a
+  /// brand-new habit's card isn't cluttered with a "0" before it's ever
+  /// been completed.
+  final int streak;
+
+  /// Optional drag handle rendered in the header row — supplied by the
+  /// caller (see `_SwipeableHabitRow` in dashboard_screen.dart) rather than
+  /// built here, so this card stays decoupled from any particular
+  /// drag-and-drop implementation.
+  final Widget? trailingHandle;
+
   const HabitCard({
     super.key,
     required this.template,
     required this.completions,
     required this.isDone,
     this.onComplete,
+    this.streak = 0,
+    this.trailingHandle,
   });
 
   @override
@@ -148,6 +162,10 @@ class _HabitCardState extends State<HabitCard> {
                     total: widget.template.frequencyTarget,
                     filled: widget.completions,
                   ),
+                if (widget.trailingHandle != null) ...[
+                  const SizedBox(width: 8),
+                  widget.trailingHandle!,
+                ],
               ],
             ),
             const SizedBox(height: 14),
@@ -166,6 +184,14 @@ class _HabitCardState extends State<HabitCard> {
                   text: '+${widget.template.goldReward} G',
                   color: GameColors.gold,
                 ),
+                if (widget.streak > 0) ...[
+                  const SizedBox(width: 8),
+                  _RewardTag(
+                    icon: Icons.local_fire_department_rounded,
+                    text: '${widget.streak}',
+                    color: GameColors.streakOrange,
+                  ),
+                ],
                 const Spacer(),
                 GestureDetector(
                   onTapDown: widget.isDone

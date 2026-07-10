@@ -74,6 +74,19 @@ void registerDashboardReactions(
         }
       });
     }
+    if (next.habitMilestoneCelebration != null &&
+        prev.habitMilestoneCelebration == null) {
+      final event = next.habitMilestoneCelebration!;
+      // Slightly longer delay than the app-wide milestone above so that on
+      // the rare tick both fire together, this one settles in after it
+      // rather than the two dialogs racing.
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          showHabitMilestoneCelebration(context, event, ref);
+        }
+      });
+    }
   });
 }
 
@@ -286,6 +299,163 @@ class MilestoneCelebration extends StatelessWidget {
                   child: Text(s.keepGrowing),
                 ),
               ).animate(delay: 560.ms).fadeIn().slideY(begin: 0.2),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Habit Milestone Celebration ───────────────────────────────────────────
+//
+// The per-habit sibling of MilestoneCelebration above. Deliberately a
+// lighter, centered card rather than a full-Scaffold takeover — this can
+// fire once per habit per threshold (multiple times across a user's habit
+// list), so it needs to read as "special" without competing with the
+// app-wide streak milestone for the title of biggest celebration in the app.
+
+void showHabitMilestoneCelebration(
+    BuildContext context, HabitMilestoneEvent event, WidgetRef ref) {
+  HapticFeedback.heavyImpact();
+  showGeneralDialog(
+    context: context,
+    barrierDismissible: true,
+    barrierColor: Colors.black.withOpacity(0.7),
+    transitionDuration: const Duration(milliseconds: 300),
+    pageBuilder: (_, __, ___) => HabitMilestoneCelebration(event: event),
+    transitionBuilder: (_, anim, __, child) => FadeTransition(
+      opacity: anim,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: 0.9, end: 1.0).animate(
+            CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        child: child,
+      ),
+    ),
+  ).then((_) => ref.read(dashboardProvider.notifier).acknowledgeHabitMilestone());
+}
+
+class HabitMilestoneCelebration extends StatelessWidget {
+  final HabitMilestoneEvent event;
+  const HabitMilestoneCelebration({super.key, required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+          decoration: BoxDecoration(
+            color: gp.surfaceHigh,
+            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+            border: Border.all(
+                color: GameColors.streakOrange.withOpacity(0.4), width: 1),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              VictoryBurstOnMount(
+                colors: [
+                  GameColors.streakOrange,
+                  GameColors.gold,
+                  Colors.white,
+                ],
+                child: Container(
+                  width: 84,
+                  height: 84,
+                  decoration: BoxDecoration(
+                    color: GameColors.streakOrange.withOpacity(0.16),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: GameColors.streakOrange.withOpacity(0.32),
+                        blurRadius: 36,
+                        spreadRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: Icon(Icons.local_fire_department_rounded,
+                      size: 40, color: GameColors.streakOrange),
+                )
+                    .animate()
+                    .scale(
+                        begin: const Offset(0.3, 0.3),
+                        curve: Curves.elasticOut,
+                        duration: 700.ms)
+                    .fadeIn(duration: 250.ms),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                s.streakMilestoneLabel,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: GameColors.streakOrange,
+                  letterSpacing: s.isAr ? 0 : 2.5,
+                ),
+              ).animate(delay: 120.ms).fadeIn(),
+              const SizedBox(height: 8),
+              Text(
+                s.daysCount(event.milestone),
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  color: gp.textPrimary,
+                  letterSpacing: s.isAr ? 0 : -1,
+                  height: 1,
+                ),
+              ).animate(delay: 180.ms).fadeIn().slideY(begin: 0.2),
+              const SizedBox(height: 6),
+              Text(
+                event.habitName,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textSec,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ).animate(delay: 240.ms).fadeIn(),
+              const SizedBox(height: 22),
+              if (event.bonusXp > 0)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: GameColors.xpBlue.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(100),
+                    border:
+                        Border.all(color: GameColors.xpBlue.withOpacity(0.35)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bolt_rounded,
+                          size: 16, color: GameColors.xpBlue),
+                      const SizedBox(width: 6),
+                      Text(s.milestoneBonusXp(event.bonusXp),
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: GameColors.xpBlue)),
+                    ],
+                  ),
+                ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
+              const SizedBox(height: 26),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(context).pop();
+                  },
+                  child: Text(s.keepGrowing),
+                ),
+              ).animate(delay: 360.ms).fadeIn().slideY(begin: 0.2),
             ],
           ),
         ),

@@ -11,6 +11,10 @@ class QuadrantCard extends StatelessWidget {
   final void Function(String id) onToggle;
   final void Function(String id) onDelete;
   final void Function(String id, MatrixQuadrant q) onMove;
+  // Drag-and-drop landing spot: [beforeId] is the task to land in front of,
+  // or null for "dropped on empty space" (append to the end instead).
+  final void Function(String id, MatrixQuadrant q, String? beforeId)
+      onReorder;
   final void Function(String id) onToggleToday;
   final VoidCallback onAddTapped;
   final bool selectionMode;
@@ -25,6 +29,7 @@ class QuadrantCard extends StatelessWidget {
     required this.onToggle,
     required this.onDelete,
     required this.onMove,
+    required this.onReorder,
     required this.onToggleToday,
     required this.onAddTapped,
     this.selectionMode = false,
@@ -40,24 +45,41 @@ class QuadrantCard extends StatelessWidget {
         MatrixQuadrant.eliminate => GameColors.textTertiary,
       };
 
-  // `tasks` only ever holds pending tasks — the caller (MatrixScreen)
-  // filters out done ones before handing the list to this card, so a
-  // finished task disappears from the quadrant instead of sitting
-  // crossed-out forever. It isn't lost: it moves to the Completed history,
-  // reachable from the screen header.
-  int get _pending => tasks.length;
+  // `tasks` now holds pending tasks plus anything finished today — a done
+  // task stays right here, struck through, for the rest of the day it was
+  // finished on (see doneToday/visible in MatrixScreen) instead of
+  // vanishing the instant it's checked off. It only drops out of this list
+  // for good once the day rolls over, at which point it's still reachable
+  // in Completed history via the screen header. This badge counts only the
+  // still-pending ones, not the already-done-today ones sitting below them.
+  int get _pending => tasks.where((t) => !t.isDone).length;
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
-    final ordered = tasks;
+    // Still-pending tasks are sorted by their manual `order` rank (see
+    // MatrixNotifier.reorder) so a drag actually changes what's on screen;
+    // anything finished today sinks to the bottom instead of staying mixed
+    // in with what's left to do — and animates there (see
+    // _AnimatedTaskStack below), sliding back up to its old spot in that
+    // same order the moment it's unchecked.
+    final active = tasks.where((t) => !t.isDone).toList()
+      ..sort((a, b) => a.order.compareTo(b.order));
+    final done = tasks.where((t) => t.isDone).toList()
+      ..sort((a, b) => a.order.compareTo(b.order));
+    final ordered = [...active, ...done];
     // A dedicated drag-handle icon on each tile (see _TaskTile) is the only
     // thing that starts a drag, so this target never fights the card's own
     // tap/long-press/swipe handling.
     return DragTarget<String>(
-      onWillAcceptWithDetails: (details) => true,
-      onAcceptWithDetails: (details) => onMove(details.data, quadrant),
+      // Only steps in when this quadrant is empty — once it has rows of
+      // its own, each row (and the "add another" row) is its own drop
+      // target below, and letting both accept the same drop would fire
+      // onReorder twice for a single gesture.
+      onWillAcceptWithDetails: (details) => tasks.isEmpty,
+      onAcceptWithDetails: (details) =>
+          onReorder(details.data, quadrant, null),
       builder: (context, candidateData, rejectedData) {
         final isHovering = candidateData.isNotEmpty;
         return Container(
@@ -137,6 +159,20 @@ class QuadrantCard extends StatelessWidget {
               duration: const Duration(milliseconds: 400),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
+              // AnimatedSwitcher's default layoutBuilder stacks children
+              // with Alignment.center — fine when a child fills the space,
+              // but a short task list (or the list content inside the
+              // scroll view) doesn't, so it was floating dead-centered in
+              // the quadrant instead of starting at the top. Pin it to the
+              // top instead; the empty state still centers itself
+              // internally, so it's unaffected.
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                alignment: Alignment.topCenter,
+                children: [
+                  ...previousChildren,
+                  if (currentChild != null) currentChild,
+                ],
+              ),
               child: tasks.isEmpty
                 ? _EmptyQuadrantBody(
                     key: const ValueKey('empty'),
@@ -148,45 +184,342 @@ class QuadrantCard extends StatelessWidget {
                 // crossfade (switching between the empty state above and this
                 // list). Keying it on the joined ids meant every single
                 // toggle/add/delete re-faded the *entire* list instead of
-                // just the row that changed, since a done task drops out of
-                // `tasks` (filtered upstream) and changed the key every time.
-                : ListView.separated(
+                // just the row that changed.
+                : _AnimatedTaskStack(
                     key: const ValueKey('list'),
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    itemCount: ordered.length + 1,
-                    separatorBuilder: (_, __) =>
-                        Divider(height: 1, color: gp.divider, indent: 10, endIndent: 10),
-                    itemBuilder: (ctx, i) {
-                      if (i == ordered.length) {
-                        return _AddAnotherRow(
-                          color: _color,
-                          onTap: onAddTapped,
-                        );
-                      }
-                      final t = ordered[i];
-                      return _TaskTile(
-                        key: ValueKey(t.id),
-                        task: t,
-                        accentColor: _color,
-                        onToggle: () => onToggle(t.id),
-                        onDelete: () => onDelete(t.id),
-                        selectionMode: selectionMode,
-                        selected: selectedIds.contains(t.id),
-                        onSelectionToggle: () => onSelectionToggle(t.id),
-                        onSelectionStart: () => onSelectionStart(t.id),
-                        onMove: (q) => onMove(t.id, q),
-                        onToggleToday: () => onToggleToday(t.id),
-                      )
-                          .animate(delay: (i * 35).ms)
-                          .fadeIn(duration: 260.ms)
-                          .slideY(begin: -0.08, curve: Curves.easeOutCubic);
-                    },
+                    quadrant: quadrant,
+                    tasks: ordered,
+                    accentColor: _color,
+                    onToggle: onToggle,
+                    onDelete: onDelete,
+                    selectionMode: selectionMode,
+                    selectedIds: selectedIds,
+                    onSelectionToggle: onSelectionToggle,
+                    onSelectionStart: onSelectionStart,
+                    onMove: onMove,
+                    onReorder: onReorder,
+                    onToggleToday: onToggleToday,
+                    onAddTapped: onAddTapped,
                   ),
             ),
           ),
         ],
       ),
     );
+      },
+    );
+  }
+}
+
+// ─── Animated task stack ───────────────────────────────────────────────────
+
+/// Renders [tasks] (already ordered: still-pending first, anything finished
+/// today sunk to the bottom) as a scrollable stack of fixed-height rows,
+/// each positioned purely by its index in that order. A row's position is
+/// just "whatever index this task currently has" — so checking a task off
+/// (or undoing that) changes its index on the very next build, and
+/// AnimatedPositioned smoothly slides it, plus everything that shifts to
+/// fill the gap it left, to their new spots instead of the list silently
+/// re-sorting itself with no visible motion.
+class _AnimatedTaskStack extends StatefulWidget {
+  final MatrixQuadrant quadrant;
+  final List<MatrixTask> tasks;
+  final Color accentColor;
+  final void Function(String id) onToggle;
+  final void Function(String id) onDelete;
+  final bool selectionMode;
+  final Set<String> selectedIds;
+  final void Function(String id) onSelectionToggle;
+  final void Function(String id) onSelectionStart;
+  final void Function(String id, MatrixQuadrant q) onMove;
+  final void Function(String id, MatrixQuadrant q, String? beforeId)
+      onReorder;
+  final void Function(String id) onToggleToday;
+  final VoidCallback onAddTapped;
+
+  const _AnimatedTaskStack({
+    super.key,
+    required this.quadrant,
+    required this.tasks,
+    required this.accentColor,
+    required this.onToggle,
+    required this.onDelete,
+    required this.selectionMode,
+    required this.selectedIds,
+    required this.onSelectionToggle,
+    required this.onSelectionStart,
+    required this.onMove,
+    required this.onReorder,
+    required this.onToggleToday,
+    required this.onAddTapped,
+  });
+
+  @override
+  State<_AnimatedTaskStack> createState() => _AnimatedTaskStackState();
+}
+
+/// Owns two purely-visual, ephemeral pieces of state that never touch real
+/// task data: which row (if any) a drag is currently hovering over in
+/// *this* quadrant, and whether one of *this* quadrant's own tasks is the
+/// one currently being dragged. Both reset the moment a drag ends, however
+/// it ends — nothing here is written anywhere until onReorder actually
+/// fires on drop.
+class _AnimatedTaskStackState extends State<_AnimatedTaskStack> {
+  static const double _minRowHeight = 40;
+  // A little generous on purpose: overestimating how much width the row's
+  // checkbox/star/drag-handle/menu icons reserve (and so overestimating
+  // row height) just costs a few harmless extra pixels of padding;
+  // underestimating it risks measuring a title as "fits on one line" when
+  // the real row actually wraps it to two, clipping text.
+  static const double _rowChromeWidth = 130;
+  static const double _insertionGap = 16;
+  static const _titleStyle = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w500,
+    height: 1.35,
+  );
+
+  bool _isHovering = false;
+  // Meaningful only while _isHovering is true: which task a drop would
+  // land in front of, or null meaning "at the end."
+  String? _insertionBeforeId;
+  // Id of this quadrant's own task currently being dragged, if any —
+  // collapses its row here while its floating preview follows the drag
+  // elsewhere (possibly into another quadrant entirely).
+  String? _draggingId;
+
+  double _rowHeightFor(BuildContext context, String title, double maxWidth) {
+    final textWidth = maxWidth - _rowChromeWidth;
+    final tp = TextPainter(
+      text: TextSpan(text: title, style: _titleStyle),
+      maxLines: 2,
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: textWidth < 40 ? 40 : textWidth);
+    final height = tp.size.height + 16; // 8px top + 8px bottom padding
+    return height < _minRowHeight ? _minRowHeight : height;
+  }
+
+  void _beginDrag(String id) {
+    if (!mounted) return;
+    setState(() => _draggingId = id);
+  }
+
+  void _endDrag() {
+    if (!mounted) return;
+    setState(() {
+      _draggingId = null;
+      _isHovering = false;
+      _insertionBeforeId = null;
+    });
+  }
+
+  void _setHover(String? beforeId) {
+    if (!mounted || (_isHovering && _insertionBeforeId == beforeId)) return;
+    setState(() {
+      _isHovering = true;
+      _insertionBeforeId = beforeId;
+    });
+  }
+
+  void _clearHover(String? beforeId) {
+    if (!mounted || !_isHovering || _insertionBeforeId != beforeId) return;
+    setState(() {
+      _isHovering = false;
+      _insertionBeforeId = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final tasks = widget.tasks;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final heights = [
+          for (final t in tasks)
+            _rowHeightFor(context, t.title, constraints.maxWidth),
+        ];
+
+        int? insertionIndex;
+        if (_isHovering) {
+          insertionIndex = _insertionBeforeId == null
+              ? tasks.length
+              : tasks.indexWhere((t) => t.id == _insertionBeforeId);
+          if (insertionIndex == -1) insertionIndex = tasks.length;
+        }
+
+        // A single forward pass computes every row's top offset *and* the
+        // insertion line's position together: a row being dragged away
+        // contributes zero height (it's collapsed), and the hovered gap
+        // (if any) opens up exactly where it's about to land — so
+        // everything else visibly slides to make room before you've even
+        // let go.
+        final tops = <double>[];
+        var cursor = 0.0;
+        double? lineTop;
+        for (var i = 0; i < tasks.length; i++) {
+          if (insertionIndex == i) {
+            lineTop = cursor + _insertionGap / 2 - 1.5;
+            cursor += _insertionGap;
+          }
+          tops.add(cursor);
+          cursor += tasks[i].id == _draggingId ? 0 : heights[i];
+        }
+        if (insertionIndex == tasks.length) {
+          lineTop = cursor + _insertionGap / 2 - 1.5;
+          cursor += _insertionGap;
+        }
+        final totalHeight = cursor;
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                height: totalHeight,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    // Do NOT chain `.animate()` (flutter_animate) onto this
+                    // AnimatedPositioned, even for a harmless-looking
+                    // entrance fade. `Positioned`/`AnimatedPositioned` must
+                    // be a DIRECT Stack child with nothing but
+                    // Stateless/Stateful widgets between it and the Stack —
+                    // `.animate()` wraps it in a widget that paints its own
+                    // Opacity/Transform, which sits *between* this
+                    // AnimatedPositioned and the Stack. That silently
+                    // breaks positioning: every row falls back to being
+                    // laid out unpositioned, on top of the others, instead
+                    // of at tops[i] — which is exactly the "overlapping,
+                    // garbled" row bug from July 2026. If a row needs an
+                    // entrance effect, animate something *inside* this
+                    // subtree (e.g. wrap the Container below), never this
+                    // widget itself.
+                    for (var i = 0; i < tasks.length; i++)
+                      AnimatedPositioned(
+                        key: ValueKey(tasks[i].id),
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        top: tops[i],
+                        left: 0,
+                        right: 0,
+                        height: tasks[i].id == _draggingId ? 0 : heights[i],
+                        // Each row is its own drop target — dropping
+                        // another task here means "put it right before
+                        // this one," in this quadrant, regardless of
+                        // which quadrant it came from. Clipped so a
+                        // collapsing row's content shrinks cleanly rather
+                        // than overflowing its shrinking box.
+                        child: ClipRect(
+                          child: DragTarget<String>(
+                            onWillAcceptWithDetails: (details) =>
+                                details.data != tasks[i].id,
+                            onMove: (details) => _setHover(tasks[i].id),
+                            onLeave: (data) => _clearHover(tasks[i].id),
+                            onAcceptWithDetails: (details) {
+                              _endDrag();
+                              widget.onReorder(
+                                  details.data, widget.quadrant, tasks[i].id);
+                            },
+                            builder: (context, candidateData, rejectedData) {
+                              return AnimatedOpacity(
+                                duration: const Duration(milliseconds: 160),
+                                opacity: tasks[i].id == _draggingId ? 0 : 1,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      bottom: BorderSide(
+                                          color: gp.divider, width: 1),
+                                    ),
+                                  ),
+                                  child: _TaskTile(
+                                    task: tasks[i],
+                                    accentColor: widget.accentColor,
+                                    onToggle: () =>
+                                        widget.onToggle(tasks[i].id),
+                                    onDelete: () =>
+                                        widget.onDelete(tasks[i].id),
+                                    selectionMode: widget.selectionMode,
+                                    selected: widget.selectedIds
+                                        .contains(tasks[i].id),
+                                    onSelectionToggle: () => widget
+                                        .onSelectionToggle(tasks[i].id),
+                                    onSelectionStart: () => widget
+                                        .onSelectionStart(tasks[i].id),
+                                    onMove: (q) =>
+                                        widget.onMove(tasks[i].id, q),
+                                    onToggleToday: () =>
+                                        widget.onToggleToday(tasks[i].id),
+                                    onDragStart: () =>
+                                        _beginDrag(tasks[i].id),
+                                    onDragEnd: _endDrag,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    // Insertion line — marks exactly where a dropped task
+                    // will land, instead of tinting a whole existing row.
+                    // Explicitly keyed (unlike relying on list position) so
+                    // it's never confused with one of the per-task
+                    // AnimatedPositioned entries above as tasks.length
+                    // changes and shifts everyone's position in this list.
+                    AnimatedPositioned(
+                      key: const ValueKey('insertion-line'),
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutCubic,
+                      top: lineTop ?? 0,
+                      left: 4,
+                      right: 4,
+                      height: 3,
+                      child: IgnorePointer(
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 150),
+                          opacity: _isHovering ? 1 : 0,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: widget.accentColor,
+                              borderRadius: BorderRadius.circular(2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color:
+                                      widget.accentColor.withOpacity(0.5),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Dropping on the trailing "add another" row means "put it
+              // last" — same as dropping on empty space used to.
+              DragTarget<String>(
+                onWillAcceptWithDetails: (details) => true,
+                onMove: (details) => _setHover(null),
+                onLeave: (data) => _clearHover(null),
+                onAcceptWithDetails: (details) {
+                  _endDrag();
+                  widget.onReorder(details.data, widget.quadrant, null);
+                },
+                builder: (context, candidateData, rejectedData) =>
+                    _AddAnotherRow(
+                        color: widget.accentColor,
+                        onTap: widget.onAddTapped),
+              ),
+            ],
+          ),
+        );
       },
     );
   }
@@ -292,6 +625,11 @@ class _TaskTile extends StatefulWidget {
   final VoidCallback onSelectionStart;
   final void Function(MatrixQuadrant) onMove;
   final VoidCallback onToggleToday;
+  // Bubble a drag's start/end up to the enclosing list, which uses them to
+  // collapse this row out of the way while it's the one being dragged
+  // (see _AnimatedTaskStackState._draggingId).
+  final VoidCallback? onDragStart;
+  final VoidCallback? onDragEnd;
 
   const _TaskTile({
     super.key,
@@ -305,6 +643,8 @@ class _TaskTile extends StatefulWidget {
     required this.onSelectionStart,
     required this.onMove,
     required this.onToggleToday,
+    this.onDragStart,
+    this.onDragEnd,
   });
 
   @override
@@ -484,6 +824,16 @@ class _TaskTileState extends State<_TaskTile>
               if (!widget.selectionMode)
                 LongPressDraggable<String>(
                   data: widget.task.id,
+                  // Default long-press-to-drag takes 500ms, which reads as
+                  // sluggish for something you want to reorder quickly and
+                  // often — a third of that is still deliberate enough to
+                  // not fire on an ordinary tap.
+                  delay: const Duration(milliseconds: 150),
+                  onDragStarted: () {
+                    HapticFeedback.mediumImpact();
+                    widget.onDragStart?.call();
+                  },
+                  onDragEnd: (_) => widget.onDragEnd?.call(),
                   feedback: Material(
                     color: Colors.transparent,
                     child: ConstrainedBox(
@@ -495,7 +845,14 @@ class _TaskTileState extends State<_TaskTile>
                           color: gp.surfaceHigh,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                              color: widget.accentColor, width: 1),
+                              color: widget.accentColor, width: 1.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.18),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
                         ),
                         child: Text(widget.task.title,
                             maxLines: 1,

@@ -11,6 +11,7 @@ import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/habits/catalog/habit_plans.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
+import '../../../features/habits/notifiers/habit_order_notifier.dart';
 import '../../../features/habits/widgets/add_habit_hub_sheet.dart';
 import '../../../features/habits/widgets/add_habit_sheet.dart';
 import '../../../features/quick_wins/widgets/quick_wins_card.dart';
@@ -20,11 +21,22 @@ import '../../../shared/widgets/victory_burst.dart';
 import '../notifiers/dashboard_notifier.dart';
 import '../widgets/reaction_overlays.dart';
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  // Sentinel for "hovering the drop zone below the last habit" — distinct
+  // from any real habit id, so this one field tracks both "hovering row X"
+  // and "hovering past the end" without a second bool.
+  static const String _kDropAtEnd = '__drop_at_end__';
+  String? _hoverBeforeId;
+
+  @override
+  Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
 
@@ -39,7 +51,19 @@ class DashboardScreen extends ConsumerWidget {
                     orElse: () => IslamicHabitCatalog.templates.first,
                   );
           HapticFeedback.mediumImpact();
-          _showDone(context, t.name, t.xpReward, t.goldReward);
+          // lastCompletionBonus* only ever describes the completion that
+          // just happened (see DashboardState doc comment) — the id check
+          // guards against misattributing it if this loop ever iterates
+          // more than one changed entry in a single state update.
+          final isBonus = next.lastCompletedId == entry.key &&
+              next.lastCompletionBonusXp > 0;
+          _showDone(
+            context,
+            t.name,
+            t.xpReward + (isBonus ? next.lastCompletionBonusXp : 0),
+            t.goldReward + (isBonus ? next.lastCompletionBonusGold : 0),
+            isBonus: isBonus,
+          );
         }
       }
     });
@@ -170,28 +194,77 @@ class DashboardScreen extends ConsumerWidget {
                       final t = habits[i];
                       final done =
                           state.isCompleted(t.id, t.frequencyTarget);
+                      final habitIds = habits.map((h) => h.id).toList();
                       return Padding(
+                        key: ValueKey(t.id),
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: _SwipeableHabitRow(
-                          template: t,
-                          completions: state.completions[t.id] ?? 0,
-                          isDone: done,
-                          onComplete:
-                              done ? null : () => _completeHabit(ref, t),
-                          onDelete: () {
-                            if (customIds.contains(t.id)) {
-                              ref
-                                  .read(customHabitsProvider.notifier)
-                                  .remove(t.id);
-                            } else {
-                              ref
-                                  .read(activeCatalogProvider.notifier)
-                                  .toggle(t.id);
+                        // Each row is its own drop target — dropping another
+                        // habit here means "put it right before this one,"
+                        // mirroring the Tasks page's row-level DragTarget
+                        // pattern (see quadrant_card.dart).
+                        child: DragTarget<String>(
+                          onWillAcceptWithDetails: (details) =>
+                              details.data != t.id,
+                          onMove: (_) {
+                            if (_hoverBeforeId != t.id) {
+                              setState(() => _hoverBeforeId = t.id);
                             }
                           },
-                          onEdit: customIds.contains(t.id)
-                              ? () => _showEditHabit(context, t)
-                              : null,
+                          onLeave: (_) {
+                            if (_hoverBeforeId == t.id) {
+                              setState(() => _hoverBeforeId = null);
+                            }
+                          },
+                          onAcceptWithDetails: (details) {
+                            HapticFeedback.selectionClick();
+                            setState(() => _hoverBeforeId = null);
+                            ref.read(habitOrderProvider.notifier).reorder(
+                                  details.data,
+                                  habitIds,
+                                  beforeId: t.id,
+                                );
+                          },
+                          builder: (context, candidateData, rejectedData) {
+                            final hovering = _hoverBeforeId == t.id;
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.only(top: 3),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  top: BorderSide(
+                                    color: hovering
+                                        ? GameColors.gold
+                                        : Colors.transparent,
+                                    width: 2.5,
+                                  ),
+                                ),
+                              ),
+                              child: _SwipeableHabitRow(
+                                template: t,
+                                completions: state.completions[t.id] ?? 0,
+                                isDone: done,
+                                streak: state.habitStreak(t.id),
+                                isBonus: state.lastCompletedId == t.id &&
+                                    state.lastCompletionBonusXp > 0,
+                                onComplete:
+                                    done ? null : () => _completeHabit(ref, t),
+                                onDelete: () {
+                                  if (customIds.contains(t.id)) {
+                                    ref
+                                        .read(customHabitsProvider.notifier)
+                                        .remove(t.id);
+                                  } else {
+                                    ref
+                                        .read(activeCatalogProvider.notifier)
+                                        .toggle(t.id);
+                                  }
+                                },
+                                onEdit: customIds.contains(t.id)
+                                    ? () => _showEditHabit(context, t)
+                                    : null,
+                              ),
+                            );
+                          },
                         ),
                       )
                           .animate(delay: (i * 55).ms)
@@ -200,6 +273,55 @@ class DashboardScreen extends ConsumerWidget {
                     },
                   ),
                 ),
+                // Trailing drop zone — dropping a dragged habit below the
+                // last row means "put it last," same semantics as Tasks'
+                // "add another" row target.
+                if (habits.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                      child: DragTarget<String>(
+                        onWillAcceptWithDetails: (details) => true,
+                        onMove: (_) {
+                          if (_hoverBeforeId != _kDropAtEnd) {
+                            setState(() => _hoverBeforeId = _kDropAtEnd);
+                          }
+                        },
+                        onLeave: (_) {
+                          if (_hoverBeforeId == _kDropAtEnd) {
+                            setState(() => _hoverBeforeId = null);
+                          }
+                        },
+                        onAcceptWithDetails: (details) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _hoverBeforeId = null);
+                          ref.read(habitOrderProvider.notifier).reorder(
+                                details.data,
+                                habits.map((h) => h.id).toList(),
+                                beforeId: null,
+                              );
+                        },
+                        builder: (context, candidateData, rejectedData) {
+                          final hovering = _hoverBeforeId == _kDropAtEnd;
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            height: hovering ? 36 : 6,
+                            decoration: BoxDecoration(
+                              color: hovering
+                                  ? GameColors.gold.withOpacity(0.08)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              border: hovering
+                                  ? Border.all(
+                                      color: GameColors.gold.withOpacity(0.4),
+                                      width: 1.5)
+                                  : null,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                 // Empty state when no habits
                 if (habits.isEmpty)
                   SliverFillRemaining(
@@ -208,22 +330,22 @@ class DashboardScreen extends ConsumerWidget {
                       onBrowsePlans: () =>
                           showAddHabitHub(context, ref, initialTab: HubTab.plans),
                       onAddCustom: () =>
-                          showAddHabitHub(context, ref, initialTab: HubTab.quick),
+                          showAddHabitHub(context, ref, initialTab: HubTab.addGoal),
                     ),
                   ),
                 const SliverToBoxAdapter(child: SizedBox(height: 110)),
               ],
             ),
-      // One "+" entry point into the Add Habit Hub (Quick Add / Plans /
-      // Custom tabs) — previously this was two separate FABs (a small
-      // "Plans" button plus this one), which made a first-time user choose
-      // between two buttons before seeing what either did.
+      // One "+" entry point into the Add Habit Hub (Plan / Add Goal tabs) —
+      // previously this was two separate FABs (a small "Plans" button plus
+      // this one), which made a first-time user choose between two buttons
+      // before seeing what either did.
       floatingActionButton: habits.isEmpty
           ? null
           : FloatingActionButton.extended(
               heroTag: 'add',
               onPressed: () =>
-                  showAddHabitHub(context, ref, initialTab: HubTab.quick),
+                  showAddHabitHub(context, ref, initialTab: HubTab.addGoal),
               backgroundColor: GameColors.gold,
               foregroundColor: Colors.black,
               elevation: 0,
@@ -273,24 +395,60 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   void _showDone(
-      BuildContext context, String name, int xp, int gold) {
+      BuildContext context, String name, int xp, int gold,
+      {bool isBonus = false}) {
     final gp = context.gp;
+    final s = S.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(children: [
-          Icon(Icons.check_circle_rounded,
-              color: GameColors.gold, size: 18),
+          Icon(
+              isBonus
+                  ? Icons.auto_awesome_rounded
+                  : Icons.check_circle_rounded,
+              color: GameColors.gold,
+              size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(name,
-                    style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: gp.textPrimary)),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(name,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              color: gp.textPrimary)),
+                    ),
+                    // A plain, honest label — never a hidden or manipulated
+                    // moment, just a transparently-announced extra (see
+                    // GameConstants.surpriseBonusChance).
+                    if (isBonus) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: GameColors.gold.withOpacity(0.16),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          s.bonusTag,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: GameColors.gold,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
                 Text('+$xp XP  ·  +$gold Gold',
                     style: TextStyle(
                         fontSize: 11,
@@ -301,12 +459,13 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ]),
         backgroundColor: gp.surfaceHigh,
-        duration: const Duration(seconds: 2),
+        duration: Duration(seconds: isBonus ? 3 : 2),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: GameColors.gold, width: 0.5),
+          side: BorderSide(
+              color: GameColors.gold, width: isBonus ? 1.25 : 0.5),
         ),
       ),
     );
@@ -597,14 +756,23 @@ class _SwipeableHabitRow extends StatefulWidget {
   final IslamicHabitTemplate template;
   final int completions;
   final bool isDone;
+  final int streak;
+  // Whether the completion that just landed on this row rolled a surprise
+  // bonus (see GameConstants.surpriseBonusChance) — only ever true for the
+  // single instant isDone flips false→true from that specific completion,
+  // so it can't "stick" and fire an unearned bonus burst later.
+  final bool isBonus;
   final VoidCallback? onComplete;
   final VoidCallback? onDelete;
   final VoidCallback? onEdit;
 
   const _SwipeableHabitRow({
+    super.key,
     required this.template,
     required this.completions,
     required this.isDone,
+    this.streak = 0,
+    this.isBonus = false,
     this.onComplete,
     this.onDelete,
     this.onEdit,
@@ -654,13 +822,22 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
     // a post-frame callback is required, not optional: doing this inline
     // throws "setState() or markNeedsBuild() called during build."
     if (!old.isDone && widget.isDone) {
+      final isBonus = widget.isBonus;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final box = context.findRenderObject() as RenderBox?;
         if (box != null && box.attached) {
+          // A bonus completion gets a visibly bigger, gold-weighted burst —
+          // a quiet "this one was special" cue that reads honestly rather
+          // than dressing up an ordinary completion as something it wasn't.
           showVictoryBurst(
             context,
             box.localToGlobal(box.size.center(Offset.zero)),
+            particleCount: isBonus ? 28 : 16,
+            spread: isBonus ? 100 : 72,
+            colors: isBonus
+                ? [GameColors.gold, GameColors.gold, GameColors.streakOrange, Colors.white]
+                : null,
           );
         }
       });
@@ -770,6 +947,50 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
     );
   }
 
+  // Dragging is scoped to this small handle rather than the whole tile so
+  // it never fights the row's own horizontal swipe-to-complete or its
+  // long-press delete menu — same reasoning as the Tasks page's handle
+  // (see quadrant_card.dart's _TaskTile).
+  Widget _dragHandle(BuildContext context) {
+    final gp = context.gp;
+    return LongPressDraggable<String>(
+      data: widget.template.id,
+      delay: const Duration(milliseconds: 150),
+      onDragStarted: () => HapticFeedback.mediumImpact(),
+      feedback: Material(
+        color: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 220),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: gp.surfaceHigh,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: GameColors.gold, width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.18),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Text(widget.template.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: gp.textPrimary)),
+          ),
+        ),
+      ),
+      childWhenDragging: Icon(Icons.drag_indicator_rounded,
+          size: 18, color: gp.textTert.withOpacity(0.25)),
+      child: Icon(Icons.drag_indicator_rounded,
+          size: 18, color: gp.textTert.withOpacity(0.5)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final x = _x;
@@ -809,7 +1030,9 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
               template: widget.template,
               completions: widget.completions,
               isDone: widget.isDone,
+              streak: widget.streak,
               onComplete: widget.onComplete,
+              trailingHandle: _dragHandle(context),
             ),
           ),
         ],

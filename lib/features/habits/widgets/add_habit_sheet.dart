@@ -4,10 +4,12 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/constants/game_constants.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../../../shared/widgets/victory_burst.dart';
 import '../catalog/goal_suggestions.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_cue.dart';
@@ -19,9 +21,9 @@ enum _CueRelation { after, before }
 class AddHabitSheet extends ConsumerStatefulWidget {
   final IslamicHabitTemplate? existing;
 
-  /// When true, renders just the step content + footer — no drag handle,
-  /// no rounded card, no background. Used inside [AddHabitHub]'s "Custom"
-  /// tab, which already supplies that chrome once for all three tabs.
+  /// When true, renders just the form content + footer — no drag handle,
+  /// no rounded card, no background. Used inside [AddHabitHub]'s "Add
+  /// Goal" tab, which already supplies that chrome once for all tabs.
   /// Standalone (the default) keeps the full self-contained sheet used for
   /// editing an existing habit.
   final bool embedded;
@@ -58,12 +60,20 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   _CueRelation _cueRelation = _CueRelation.after;
   ReductionType _reductionType = ReductionType.avoid;
   LimitUnit _limitUnit = LimitUnit.minutes;
-  int _step = 0;
   bool _hasName = false;
   bool _didPickCategory = false;
   bool _cueLabelResolved = false;
+  // Frequency/cue/limit start collapsed behind "Customize timing" for a new
+  // goal — a name and category are enough to save, nothing else has to be
+  // decided first. Editing starts expanded instead, since there's already
+  // something specific worth reviewing.
+  bool _customizeExpanded = false;
+  // Where the confetti burst on submit fires from — see _submit().
+  final GlobalKey _createButtonKey = GlobalKey();
 
   bool get _isEditing => widget.existing != null;
+
+  int get _categoryXp => GameConstants.categoryXpRewards[_category.name] ?? 10;
 
   @override
   void initState() {
@@ -85,7 +95,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _limitUnit = existing.limitUnit ?? LimitUnit.minutes;
       _hasName = true;
       _didPickCategory = true;
-      _step = 1;
+      _customizeExpanded = true;
     }
     _nameCtrl.addListener(() {
       final text = _nameCtrl.text.trim();
@@ -123,6 +133,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       return;
     }
     HapticFeedback.mediumImpact();
+    // Celebrate starting something new — editing an existing goal is more
+    // of an administrative tweak than a win, so this is reserved for
+    // first-time creation only, fired from right where the tap landed.
+    if (existing == null) {
+      final box =
+          _createButtonKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box != null && box.attached) {
+        showVictoryBurst(context, box.localToGlobal(box.size.center(Offset.zero)));
+      }
+    }
     final cue = HabitCue.fromStoredValue(_cueWithRelation(_cueCtrl.text)).toStorageValue();
     final limitAmount = int.tryParse(_limitCtrl.text.trim());
     final notifier = ref.read(customHabitsProvider.notifier);
@@ -218,134 +238,123 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     );
   }
 
-  /// Header row + step content + footer buttons — everything except the
-  /// drag handle and outer card, so [embedded] mode can drop straight into
-  /// a host that already supplies those (see [AddHabitHub]).
+  bool get _canSubmit => _hasName;
+
+  /// Header + form + footer button — everything except the drag handle and
+  /// outer card, so [embedded] mode can drop straight into a host that
+  /// already supplies those (see [AddHabitHub]). One screen, not a wizard:
+  /// name and category are all that's required to save; frequency, cue,
+  /// and (quit-only) limit live inside [_customizeSection], collapsed by
+  /// default so deciding all of it up front is optional, not mandatory.
   Widget _content(BuildContext context, S s) {
     final gp = context.gp;
     return Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _isEditing ? s.editHabit : s.addGoalTitle,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: gp.textPrimary,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${_step + 1}/3',
-                  style: TextStyle(fontSize: 12, color: gp.textTert),
-                ),
-              ],
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+          child: Text(
+            _isEditing ? s.editHabit : s.addGoalTitle,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: gp.textPrimary,
             ),
           ),
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-              child: _step == 0 && !_isEditing
-                  ? _typeStep(s)
-                  : _step == 1
-                      ? _titleStep(s)
-                      : _timingStep(s),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(20, 10, 20, _isEditing ? 4 : 20),
-            child: Row(
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (_step > (_isEditing ? 1 : 0)) ...[
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => setState(() => _step--),
-                      child: Text(s.back),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
+                _goalTypeToggle(s)
+                    .animate()
+                    .fadeIn(duration: 280.ms)
+                    .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+                const SizedBox(height: 16),
+                _nameAndCategorySection(s)
+                    .animate(delay: 60.ms)
+                    .fadeIn(duration: 280.ms)
+                    .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+                const SizedBox(height: 16),
+                _customizeSection(s)
+                    .animate(delay: 120.ms)
+                    .fadeIn(duration: 280.ms)
+                    .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+                // Only once there's a name to actually preview — pops in
+                // fresh the moment typing crosses that line.
+                if (_hasName) ...[
+                  const SizedBox(height: 16),
+                  _goalPreviewCard(s)
+                      .animate()
+                      .fadeIn(duration: 220.ms)
+                      .slideY(begin: 0.08, curve: Curves.easeOutCubic),
                 ],
-                Expanded(
-                  flex: 2,
-                  child: FilledButton(
-                    onPressed: _canContinue ? _primaryAction : null,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: Text(
-                      _step < 2
-                          ? s.continueAction
-                          : (_isEditing ? s.saveChanges : s.createGoal),
-                    ),
-                  ),
-                ),
               ],
-            ).animate(delay: 60.ms).fadeIn(duration: 250.ms),
+            ),
           ),
-          if (_isEditing)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: TextButton(
-                onPressed: _deleteExisting,
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 44),
-                  foregroundColor: GameColors.error,
-                ),
-                child: Text(s.removeHabit),
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, 10, 20, _isEditing ? 4 : 20),
+          child: FilledButton(
+            key: _createButtonKey,
+            onPressed: _canSubmit ? _submit : null,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
-        ],
-      );
+            child: Text(_isEditing ? s.saveChanges : s.createGoal),
+          ).animate(delay: 60.ms).fadeIn(duration: 250.ms),
+        ),
+        if (_isEditing)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: TextButton(
+              onPressed: _deleteExisting,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(double.infinity, 44),
+                foregroundColor: GameColors.error,
+              ),
+              child: Text(s.removeHabit),
+            ),
+          ),
+      ],
+    );
   }
 
-  bool get _canContinue => _step == 0 || _hasName;
-
-  void _primaryAction() {
-    HapticFeedback.selectionClick();
-    if (_step < 2) {
-      setState(() => _step++);
-    } else {
-      _submit();
-    }
-  }
-
-  Widget _typeStep(S s) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget _goalTypeToggle(S s) => Row(
         children: [
-          _QuestionTitle(s.whatImprove),
-          const SizedBox(height: 14),
-          _GoalTypeCard(
-            title: s.buildHabitTitle,
-            subtitle: s.buildHabitSubtitle,
-            icon: Icons.add_task_rounded,
-            selected: _goalType == GoalType.build,
-            onTap: () => setState(() => _goalType = GoalType.build),
+          Expanded(
+            child: _SmallPick(
+              label: s.buildHabitTitle,
+              selected: _goalType == GoalType.build,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _goalType = GoalType.build);
+              },
+            ),
           ),
-          const SizedBox(height: 12),
-          _GoalTypeCard(
-            title: s.quitHabitTitle,
-            subtitle: s.quitHabitSubtitle,
-            icon: Icons.shield_rounded,
-            selected: _goalType == GoalType.quit,
-            onTap: () => setState(() => _goalType = GoalType.quit),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _SmallPick(
+              label: s.quitHabitTitle,
+              selected: _goalType == GoalType.quit,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _goalType = GoalType.quit);
+              },
+            ),
           ),
         ],
       );
 
-  Widget _titleStep(S s) => Column(
+  Widget _nameAndCategorySection(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _QuestionTitle(_goalType == GoalType.build ? s.whatHabitBuild : s.whatReduce),
-          const SizedBox(height: 12),
           TextField(
             controller: _nameCtrl,
             focusNode: _focus,
@@ -356,14 +365,14 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             ),
             textCapitalization: TextCapitalization.sentences,
             onSubmitted: (_) {
-              if (_hasName) setState(() => _step = 2);
+              if (_hasName) _submit();
             },
             decoration: InputDecoration(
-              hintText: s.goalTitleHint,
+              hintText: _goalType == GoalType.build ? s.whatHabitBuild : s.whatReduce,
               prefixIcon: const Icon(Icons.edit_note_rounded, size: 20),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           _SectionLabel(s.category),
           const SizedBox(height: 8),
           Wrap(
@@ -379,34 +388,216 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   size: 15,
                   color: selected ? GameColors.gold : context.gp.textSec,
                 ),
-                onTap: () => setState(() {
-                  _didPickCategory = true;
-                  _category = cat;
-                }),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() {
+                    _didPickCategory = true;
+                    _category = cat;
+                  });
+                },
               );
             }).toList(),
           ),
-          const SizedBox(height: 18),
-          _SectionLabel(s.smartSuggestions),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _suggestions().map((item) {
-              return _PlainActionChip(
-                label: item.name(s.isAr),
-                onTap: () => _applySuggestion(item),
-              );
-            }).toList(),
-          ),
+          // A shortcut to fill in the name field, so it's only useful
+          // before there's a name — once one's typed or picked, showing
+          // it below would just be duplicate noise. XP hinted right on the
+          // chip since tapping one is a one-tap "start earning" shortcut.
+          if (!_hasName) ...[
+            const SizedBox(height: 16),
+            _SectionLabel(s.smartSuggestions),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _suggestions().map((item) {
+                return _PlainActionChip(
+                  label: item.name(s.isAr),
+                  xp: GameConstants.categoryXpRewards[item.category.name] ?? 10,
+                  onTap: () => _applySuggestion(item),
+                );
+              }).toList(),
+            ),
+          ],
         ],
       );
 
-  Widget _timingStep(S s) => Column(
+  /// Frequency, cue, and (quit-only) limit, tucked behind one tap. Shows a
+  /// one-line summary of the current settings while collapsed, so what
+  /// you'd get by just saving now is never a mystery.
+  Widget _customizeSection(S s) {
+    final gp = context.gp;
+    return Container(
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _QuestionTitle(_goalType == GoalType.build ? s.timingBuildTitle : s.timingQuitTitle),
-          const SizedBox(height: 14),
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _customizeExpanded = !_customizeExpanded);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(Icons.tune_rounded, size: 17, color: gp.textSec),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s.customizeTiming,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: gp.textPrimary,
+                          ),
+                        ),
+                        if (!_customizeExpanded) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            _summary(s),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11.5, color: gp.textTert),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _customizeExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(Icons.expand_more_rounded, size: 20, color: gp.textTert),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _customizeExpanded
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    child: _timingFields(s),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _summary(S s) {
+    final freq = _selectedWeekdays.isNotEmpty || _freqType == HabitFrequencyType.weekly
+        ? s.habitWeeklyTimes(_freqTarget)
+        : s.daily;
+    final cue = _cueCtrl.text.trim();
+    return cue.isEmpty ? freq : '$freq · $cue';
+  }
+
+  /// A running "here's what you're about to create" confirmation — icon,
+  /// name, frequency, and the XP it'll pay out, so the reward is visible
+  /// before you commit, not just after. When there's a cue on a build goal,
+  /// the full "After Fajr, I will Read Quran" implementation-intention
+  /// sentence — the actual behavior-science reason the cue field exists —
+  /// appears below it too, exactly as it used to on its own card.
+  Widget _goalPreviewCard(S s) {
+    final gp = context.gp;
+    final color = _goalType == GoalType.build ? GameColors.gold : GameColors.xpBlue;
+    final cueText = _cueCtrl.text.trim();
+    final name = _nameCtrl.text.trim();
+    final showPlanSentence = _goalType == GoalType.build && cueText.isNotEmpty;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: CategoryIcon(category: _category, size: 17, color: color),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: gp.textPrimary),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _summary(s),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: Text(
+                  '+$_categoryXp XP',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: color),
+                ),
+              ),
+            ],
+          ),
+          if (showPlanSentence) ...[
+            const SizedBox(height: 10),
+            Container(height: 0.5, color: color.withOpacity(0.18)),
+            const SizedBox(height: 10),
+            Text(
+              s.planPreview(cueText, name),
+              style: TextStyle(
+                fontSize: 12.5,
+                fontStyle: FontStyle.italic,
+                fontWeight: FontWeight.w600,
+                color: gp.textSec,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _timingFields(S s) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           if (_goalType == GoalType.quit) ...[
             _SectionLabel(s.goalStyle),
             const SizedBox(height: 8),
@@ -483,10 +674,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               prefixIcon: const Icon(Icons.schedule_rounded, size: 18),
             ),
           ),
-          if (_goalType == GoalType.build && _hasName && _cueCtrl.text.trim().isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _PlanPreview(cue: _cueCtrl.text.trim(), habit: _nameCtrl.text.trim()),
-          ],
           const SizedBox(height: 18),
           _SectionLabel(s.repeat),
           const SizedBox(height: 8),
@@ -728,8 +915,13 @@ class _PlainChoiceChip extends StatelessWidget {
 class _PlainActionChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
+  // Set on suggestion chips only — a small reward preview to make tapping
+  // one feel like claiming a shortcut, not just filling in a text field.
+  // Left null for plain action chips (custom time/text) that aren't tied
+  // to any specific reward.
+  final int? xp;
 
-  const _PlainActionChip({required this.label, required this.onTap});
+  const _PlainActionChip({required this.label, required this.onTap, this.xp});
 
   @override
   Widget build(BuildContext context) {
@@ -744,25 +936,34 @@ class _PlainActionChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: gp.border.withOpacity(0.9), width: 0.8),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: gp.textPrimary,
-            height: 1.1,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: gp.textPrimary,
+                height: 1.1,
+              ),
+            ),
+            if (xp != null) ...[
+              const SizedBox(width: 6),
+              Text(
+                '+$xp',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: GameColors.gold,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
-}
-
-class _QuestionTitle extends StatelessWidget {
-  final String text;
-  const _QuestionTitle(this.text);
-  @override
-  Widget build(BuildContext context) => Text(text, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: context.gp.textPrimary, height: 1.2));
 }
 
 class _SectionLabel extends StatelessWidget {
@@ -770,42 +971,6 @@ class _SectionLabel extends StatelessWidget {
   const _SectionLabel(this.text);
   @override
   Widget build(BuildContext context) => Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: context.gp.textTert));
-}
-
-class _GoalTypeCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-  const _GoalTypeCard({required this.title, required this.subtitle, required this.icon, required this.selected, required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: selected ? GameColors.gold.withOpacity(0.12) : gp.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: selected ? GameColors.gold.withOpacity(0.6) : gp.border),
-        ),
-        child: Row(children: [
-          Icon(icon, color: selected ? GameColors.gold : gp.textSec),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: gp.textPrimary)),
-            const SizedBox(height: 4),
-            Text(subtitle, style: TextStyle(fontSize: 13, color: gp.textSec, height: 1.25)),
-          ])),
-          if (selected) Icon(Icons.check_circle_rounded, color: GameColors.gold),
-        ]),
-      ),
-    );
-  }
 }
 
 class _SmallPick extends StatelessWidget {
@@ -834,26 +999,3 @@ class _SmallPick extends StatelessWidget {
   }
 }
 
-class _PlanPreview extends StatelessWidget {
-  final String cue;
-  final String habit;
-  const _PlanPreview({required this.cue, required this.habit});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: GameColors.xpBlue.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: GameColors.xpBlue.withOpacity(0.18)),
-      ),
-      child: Text(
-        S.of(context).planPreview(cue, habit),
-        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: gp.textPrimary),
-      ),
-    );
-  }
-}

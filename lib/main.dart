@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'core/constants/game_constants.dart';
 import 'core/l10n/app_strings.dart';
@@ -43,6 +44,13 @@ Future<void> main() async {
   }
   SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
+  // Both supported locales, always — not just whichever one MaterialApp
+  // resolves to. Grid's dual-language day headers format dates in en AND
+  // ar regardless of the app's active language, and intl throws
+  // LocaleDataException on an uninitialized locale, so both must be ready
+  // before any screen can render.
+  await initializeDateFormatting('en');
+  await initializeDateFormatting('ar');
   await Hive.initFlutter();
   await Future.wait([
     Hive.openBox(GameConstants.boxSettings),

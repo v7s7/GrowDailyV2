@@ -173,6 +173,52 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     _persist(updated);
   }
 
+  /// Drag-and-drop reorder: drops [id] into [quadrant], immediately before
+  /// [beforeId] — or at the end of that quadrant if [beforeId] is null
+  /// (dropped on empty space rather than on a specific row). Changes
+  /// quadrant too, if it's moving from a different one, so this one method
+  /// covers both "reorder within the same group" and "move to a specific
+  /// spot in another group."
+  ///
+  /// Only [id]'s own `order` value changes — the new value is just the
+  /// midpoint between its new neighbors, so a single drag never has to
+  /// rewrite every other task in the quadrant to keep them all sorted.
+  void reorder(String id, MatrixQuadrant quadrant, {String? beforeId}) {
+    if (id == beforeId) return;
+    _mutatedBeforeLoad = true;
+    final tasks = state.tasks.toList();
+    final idx = tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return;
+
+    final siblings = tasks
+        .where((t) => t.quadrant == quadrant && t.id != id)
+        .toList()
+      ..sort((a, b) => a.order.compareTo(b.order));
+
+    double newOrder;
+    if (siblings.isEmpty) {
+      newOrder = 0;
+    } else {
+      final beforeIdx =
+          beforeId == null ? -1 : siblings.indexWhere((t) => t.id == beforeId);
+      if (beforeIdx == -1) {
+        // No target row (dropped on empty space / the "add another" row) —
+        // append after the last sibling.
+        newOrder = siblings.last.order + 1000;
+      } else {
+        final before = siblings[beforeIdx];
+        final prev = beforeIdx > 0 ? siblings[beforeIdx - 1] : null;
+        newOrder =
+            prev == null ? before.order - 1000 : (prev.order + before.order) / 2;
+      }
+    }
+
+    final updated = tasks[idx].copyWith(quadrant: quadrant, order: newOrder);
+    tasks[idx] = updated;
+    state = MatrixState(tasks: tasks, isLoading: false);
+    _persist(updated);
+  }
+
   /// Undoes a single delete — re-inserts the exact task that was removed.
   /// Guards against double-restore (e.g. a stale SnackBar action firing
   /// twice) by skipping if a task with that id is already present.

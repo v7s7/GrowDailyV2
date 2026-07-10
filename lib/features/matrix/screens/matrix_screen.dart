@@ -12,6 +12,9 @@ import '../widgets/add_task_sheet.dart';
 import '../widgets/quadrant_card.dart';
 import 'matrix_history_screen.dart';
 
+bool _isSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
 class MatrixScreen extends ConsumerStatefulWidget {
   const MatrixScreen({super.key});
 
@@ -84,6 +87,15 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     ref.read(matrixProvider.notifier).move(id, q);
   }
 
+  // Drag-and-drop specifically — unlike _moveTask (used by the "..." sheet's
+  // plain "move to quadrant" option, which always appends to the end),
+  // this carries *where* the task was dropped, so it can land at a precise
+  // row instead of always landing last.
+  void _reorderTask(String id, MatrixQuadrant q, String? beforeId) {
+    HapticFeedback.selectionClick();
+    ref.read(matrixProvider.notifier).reorder(id, q, beforeId: beforeId);
+  }
+
   void _showUndoSnackbar({
     required String message,
     required VoidCallback onUndo,
@@ -107,11 +119,23 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final matrixState = ref.watch(matrixProvider);
-    final pending = matrixState.tasks.where((t) => !t.isDone).toList();
-    final completedCount = matrixState.tasks.length - pending.length;
-    final todayCount = pending.where((t) => t.isToday).length;
-    final tasks =
-        _todayOnly ? pending.where((t) => t.isToday).toList() : pending;
+    final now = DateTime.now();
+    bool doneToday(MatrixTask t) =>
+        t.isDone && t.completedAt != null && _isSameDay(t.completedAt!, now);
+
+    // A task stays on its own board — struck through, not gone — for the
+    // rest of the day it was finished on. That's the "proof you did it"
+    // moment a lot of task apps lose by yanking the row away the instant
+    // you check it. Only once the local date rolls past midnight does it
+    // drop off here for good, at which point it's still reachable (forever)
+    // in Completed history via the header icon.
+    final visible =
+        matrixState.tasks.where((t) => !t.isDone || doneToday(t)).toList();
+    final completedCount = matrixState.tasks.where((t) => t.isDone).length;
+    final todayCount = visible.where((t) => t.isToday && !t.isDone).length;
+    final tasks = _todayOnly
+        ? visible.where((t) => t.isToday || t.isDone).toList()
+        : visible;
 
     if (matrixState.isLoading) {
       return Scaffold(
@@ -264,6 +288,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     },
                                     onDelete: _deleteTask,
                                     onMove: _moveTask,
+                                    onReorder: _reorderTask,
                                     onToggleToday: (id) => ref
                                         .read(matrixProvider.notifier)
                                         .toggleToday(id),
@@ -300,6 +325,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     },
                                     onDelete: _deleteTask,
                                     onMove: _moveTask,
+                                    onReorder: _reorderTask,
                                     onToggleToday: (id) => ref
                                         .read(matrixProvider.notifier)
                                         .toggleToday(id),
@@ -342,6 +368,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     },
                                     onDelete: _deleteTask,
                                     onMove: _moveTask,
+                                    onReorder: _reorderTask,
                                     onToggleToday: (id) => ref
                                         .read(matrixProvider.notifier)
                                         .toggleToday(id),
@@ -378,6 +405,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     },
                                     onDelete: _deleteTask,
                                     onMove: _moveTask,
+                                    onReorder: _reorderTask,
                                     onToggleToday: (id) => ref
                                         .read(matrixProvider.notifier)
                                         .toggleToday(id),
@@ -514,14 +542,24 @@ class _TodayFilterToggle extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           _FilterSegment(
-            label: '${s.matrixToday} · $todayCount',
             active: todayOnly,
             onTap: () => onChanged(true),
+            // Same star glyph used to flag a task on each row — ties this
+            // filter visually to "my starred tasks" instead of reading like
+            // a separate due-date/scheduling concept of its own.
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.star_rounded, size: 13),
+                const SizedBox(width: 4),
+                Text('${s.matrixToday} · $todayCount'),
+              ],
+            ),
           ),
           _FilterSegment(
-            label: s.matrixAll,
             active: !todayOnly,
             onTap: () => onChanged(false),
+            child: Text(s.matrixAll),
           ),
         ],
       ),
@@ -530,12 +568,12 @@ class _TodayFilterToggle extends StatelessWidget {
 }
 
 class _FilterSegment extends StatelessWidget {
-  final String label;
+  final Widget child;
   final bool active;
   final VoidCallback onTap;
 
   const _FilterSegment({
-    required this.label,
+    required this.child,
     required this.active,
     required this.onTap,
   });
@@ -543,8 +581,9 @@ class _FilterSegment extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final color = active ? GameColors.gold : gp.textSec;
     return Material(
-      color: active ? GameColors.gold.withOpacity(0.16) : Colors.transparent,
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(100),
       child: InkWell(
         borderRadius: BorderRadius.circular(100),
@@ -552,14 +591,38 @@ class _FilterSegment extends StatelessWidget {
           HapticFeedback.selectionClick();
           onTap();
         },
-        child: Padding(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: active ? GameColors.gold : gp.textSec,
+          decoration: BoxDecoration(
+            color: active
+                ? GameColors.gold.withOpacity(0.16)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(100),
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color: GameColors.gold.withOpacity(0.18),
+                      blurRadius: 8,
+                    ),
+                  ]
+                : null,
+          ),
+          child: IconTheme.merge(
+            data: IconThemeData(color: color, size: 13),
+            child: DefaultTextStyle.merge(
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+              child: AnimatedScale(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutBack,
+                scale: active ? 1.0 : 0.96,
+                child: child,
+              ),
             ),
           ),
         ),

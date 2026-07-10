@@ -201,7 +201,7 @@ class HabitCue {
     final raw12 = _hour24! % 12;
     final hour12 = raw12 == 0 ? 12 : raw12;
     final minute = _minute!.toString().padLeft(2, '0');
-    final isPm = _hour24! >= 12;
+    final isPm = _hour24 >= 12;
     final period = isAr ? (isPm ? 'م' : 'ص') : (isPm ? 'PM' : 'AM');
     return '$hour12:$minute $period';
   }

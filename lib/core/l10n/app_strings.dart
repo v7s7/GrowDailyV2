@@ -205,6 +205,9 @@ class S {
   String milestoneBonusXp(int bonus) =>
       isAr ? 'مكافأة الإنجاز: +$bonus XP' : '+$bonus XP milestone bonus';
   String get achievementUnlocked => isAr ? 'إنجاز مفتوح!' : 'ACHIEVEMENT UNLOCKED';
+  // Short inline tag on the completion toast when a surprise bonus rolled —
+  // see GameConstants.surpriseBonusChance.
+  String get bonusTag => isAr ? 'مكافأة مفاجئة' : 'Bonus';
   String get claimReward => isAr ? 'استلم المكافأة' : 'CLAIM REWARD';
   String get levelUpMsg => isAr ? 'ارتقاء مستوى' : 'LEVEL UP';
 
@@ -253,16 +256,9 @@ class S {
       ? '$current/$max جاهز · المستوى 5+ يُعيد الشحن أسبوعياً'
       : '$current/$max ready · Level 5+ refills weekly';
 
-  // ── Add Habit Hub (Quick / Plans / Custom tabs) ────────────────────────────
+  // ── Add Habit Hub (Plan / Add Goal tabs) ────────────────────────────────────
   String get hubTitle => isAr ? 'إضافة عادة' : 'Add a Habit';
-  String get quickAddTab => isAr ? 'سريعة' : 'Quick Add';
   String get plansTab => isAr ? 'خطط' : 'Plans';
-  String get customTab => isAr ? 'مخصص' : 'Custom';
-  String get quickAddSubtitle => isAr
-      ? 'اضغط على أي عادة لإضافتها فورًا.'
-      : 'Tap any habit to add it instantly.';
-  String get buildToggle => isAr ? 'أبني' : 'Build';
-  String get quitToggle => isAr ? 'أترك' : 'Quit';
 
   // ── Plan Picker ──────────────────────────────────────────────────────────
   String get choosePlan => isAr ? 'اختر خطتك' : 'Choose Your Plan';
@@ -325,6 +321,7 @@ class S {
   String get customText => isAr ? 'نص مخصص' : 'Custom text';
   String get repeat => isAr ? 'التكرار' : 'Repeat';
   String get goalStyle => isAr ? 'أسلوب الهدف' : 'Goal style';
+  String get customizeTiming => isAr ? 'تخصيص التوقيت' : 'Customize timing';
   String get avoidCompletely => isAr ? 'تجنّبه تمامًا' : 'Avoid completely';
   String get setLimit => isAr ? 'ضع حدًا' : 'Set a limit';
   String get maxAmount => isAr ? 'الحد الأقصى' : 'Max amount';

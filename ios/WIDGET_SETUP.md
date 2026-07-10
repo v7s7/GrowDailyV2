@@ -171,7 +171,7 @@ always read empty defaults.
   `home_widget_service.dart`, or the app hasn't been built/run at least
   once since adding the target.
 - **New target's deployment target:** Xcode will likely set the widget
-  extension's own minimum iOS version higher than Runner's (13.0) — that's
+  extension's own minimum iOS version higher than Runner's (14.0) — that's
   normal and fine, they're independent per-target settings. The Swift above
   deliberately uses `.background()` rather than the iOS-17-only
   `containerBackground` so it compiles regardless of what Xcode picks.

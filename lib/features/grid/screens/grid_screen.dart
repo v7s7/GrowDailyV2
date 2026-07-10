@@ -238,7 +238,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
           : FloatingActionButton.small(
               heroTag: 'grid-add',
               onPressed: () =>
-                  showAddHabitHub(context, ref, initialTab: HubTab.quick),
+                  showAddHabitHub(context, ref, initialTab: HubTab.addGoal),
               backgroundColor: gp.surfaceHigh,
               foregroundColor: gp.textPrimary,
               elevation: 0,
@@ -847,7 +847,7 @@ class _NightReviewPromptCard extends ConsumerWidget {
 
 // ─── The grid table itself ────────────────────────────────────────────────────
 
-class _GridTable extends ConsumerWidget {
+class _GridTable extends ConsumerStatefulWidget {
   final List<IslamicHabitTemplate> habits;
   final WeeklyGridState state;
   final bool selectionMode;
@@ -864,11 +864,41 @@ class _GridTable extends ConsumerWidget {
     required this.onSelectionStart,
   });
 
+  @override
+  ConsumerState<_GridTable> createState() => _GridTableState();
+}
+
+class _GridTableState extends ConsumerState<_GridTable> {
   static const double _habitCol = 96;
   static const double _gap = 5;
 
+  // Marks whichever header cell is "today", purely so the grid can scroll
+  // straight to it right after it first appears — see initState. This
+  // widget is rebuilt fresh (new State) every time the visible week
+  // changes, because the parent wraps it in
+  // KeyedSubtree(key: ValueKey(grid.weekStart)), so this naturally re-runs
+  // exactly when it should and never fights the user's own scrolling
+  // within a week they're already looking at.
+  final GlobalKey _todayKey = GlobalKey();
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _todayKey.currentContext;
+      // Nothing to do if today isn't in this particular week (a past week
+      // has no "today" cell at all) or the table isn't scrolled in the
+      // first place (everything already fits) — ensureVisible is a safe
+      // no-op either way, it only acts when there's an actual scrollable
+      // ancestor and the target isn't already fully in view.
+      if (ctx != null && mounted) {
+        Scrollable.ensureVisible(ctx, alignment: 1);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final gp = context.gp;
     return Container(
       padding: const EdgeInsets.all(12),
@@ -900,7 +930,7 @@ class _GridTable extends ConsumerWidget {
   }
 
   Widget _buildTable(BuildContext context, WidgetRef ref, double cell) {
-    final days = state.days;
+    final days = widget.state.days;
     // Fixed per-row height, shared by every row regardless of square size —
     // a 2-line habit name (long names wrap) used to make just that row
     // taller than its neighbors, so its squares sat lower than the squares
@@ -915,12 +945,12 @@ class _GridTable extends ConsumerWidget {
         const SizedBox(height: 12),
         // Rows cascade in on entrance; effects play once per screen visit
         // (rebuilds on square taps reuse the same elements, so no replay).
-        for (var i = 0; i < habits.length; i++) ...[
-          _habitRow(context, ref, habits[i], days, cell, rowHeight)
+        for (var i = 0; i < widget.habits.length; i++) ...[
+          _habitRow(context, ref, widget.habits[i], days, cell, rowHeight)
               .animate(delay: (i * 45).ms)
               .fadeIn(duration: 320.ms)
               .slideX(begin: 0.04, curve: Curves.easeOut),
-          if (i != habits.length - 1) const SizedBox(height: _gap),
+          if (i != widget.habits.length - 1) const SizedBox(height: _gap),
         ],
       ],
     );
@@ -928,7 +958,32 @@ class _GridTable extends ConsumerWidget {
 
   Widget _headerRow(BuildContext context, List<DateTime> days, double cell) {
     final gp = context.gp;
-    final locale = Localizations.localeOf(context).languageCode;
+    final isAr = S.of(context).isAr;
+
+    // Whichever language the app isn't currently in renders as a smaller
+    // second line underneath — so a date always reads in both, but the
+    // language you're actually using still leads.
+    Widget dayNameLine(String text, bool isToday, bool primary) {
+      return SizedBox(
+        height: primary ? 12 : 10,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            text,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: primary ? 10 : 8,
+              fontWeight: primary ? FontWeight.w700 : FontWeight.w600,
+              color: isToday
+                  ? GameColors.gold.withOpacity(primary ? 1 : 0.8)
+                  : gp.textTert.withOpacity(primary ? 1 : 0.75),
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Row(
       children: [
         SizedBox(width: _habitCol),
@@ -936,26 +991,22 @@ class _GridTable extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.only(left: _gap),
             child: SizedBox(
+              key: day.isToday ? _todayKey : null,
               width: cell,
               child: Column(
                 children: [
-                  SizedBox(
-                    height: 14,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        DateFormat('EEE', locale).format(day),
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: day.isToday ? GameColors.gold : gp.textTert,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ),
+                  dayNameLine(
+                    DateFormat('EEE', isAr ? 'ar' : 'en').format(day),
+                    day.isToday,
+                    true,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 1),
+                  dayNameLine(
+                    DateFormat('EEE', isAr ? 'en' : 'ar').format(day),
+                    day.isToday,
+                    false,
+                  ),
+                  const SizedBox(height: 3),
                   Container(
                     width: 22,
                     height: 22,
@@ -989,17 +1040,19 @@ class _GridTable extends ConsumerWidget {
       double rowHeight) {
     final gp = context.gp;
     final today = DateTime.now();
-    final selected = selectedIds.contains(habit.id);
+    final selected = widget.selectedIds.contains(habit.id);
     return SizedBox(
       height: rowHeight,
       child: Row(
         children: [
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: selectionMode ? () => onSelectionToggle(habit.id) : null,
+            onTap: widget.selectionMode
+                ? () => widget.onSelectionToggle(habit.id)
+                : null,
             onLongPress: () {
               HapticFeedback.mediumImpact();
-              onSelectionStart(habit.id);
+              widget.onSelectionStart(habit.id);
             },
             child: SizedBox(
               width: _habitCol,
@@ -1008,7 +1061,7 @@ class _GridTable extends ConsumerWidget {
                 child: Row(
                   children: [
                     Builder(builder: (_) {
-                      if (selectionMode) {
+                      if (widget.selectionMode) {
                         return AnimatedContainer(
                           duration: const Duration(milliseconds: 180),
                           width: 22,
@@ -1071,12 +1124,12 @@ class _GridTable extends ConsumerWidget {
                 day: day,
                 isToday: day.isToday,
                 isFuture: day.startOfDay.isAfter(today.startOfDay),
-                square: state.squareFor(habit.id, day),
-                hasNote: state.noteFor(habit.id, day).isNotEmpty,
-                onTap: selectionMode
+                square: widget.state.squareFor(habit.id, day),
+                hasNote: widget.state.noteFor(habit.id, day).isNotEmpty,
+                onTap: widget.selectionMode
                     ? null
                     : () => _handleSquareTap(ref, habit, day),
-                onLongPress: selectionMode
+                onLongPress: widget.selectionMode
                     ? null
                     : () {
                         HapticFeedback.mediumImpact();
@@ -1100,7 +1153,7 @@ class _GridTable extends ConsumerWidget {
   /// through to the original flat-rate tap-cycle, unchanged.
   Future<void> _handleSquareTap(
       WidgetRef ref, IslamicHabitTemplate habit, DateTime day) async {
-    final current = state.squareFor(habit.id, day);
+    final current = widget.state.squareFor(habit.id, day);
     final next = current.next;
     final isSyncable = day.isToday && habit.frequencyTarget == 1;
 
@@ -1747,7 +1800,7 @@ class _GridEmptyState extends ConsumerWidget {
             const SizedBox(height: 10),
             TextButton.icon(
               onPressed: () =>
-                  showAddHabitHub(context, ref, initialTab: HubTab.quick),
+                  showAddHabitHub(context, ref, initialTab: HubTab.addGoal),
               icon: const Icon(Icons.add_rounded, size: 16),
               label: Text(s.addHabit),
             ).animate(delay: 380.ms).fadeIn(),

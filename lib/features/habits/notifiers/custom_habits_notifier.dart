@@ -10,6 +10,7 @@ import '../../premium/notifiers/premium_notifier.dart';
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
+import 'habit_order_notifier.dart';
 
 class CustomHabitsNotifier
     extends StateNotifier<List<IslamicHabitTemplate>> {
@@ -188,14 +189,30 @@ final customHabitsProvider =
   return CustomHabitsNotifier(uid);
 });
 
-/// Combined list: user-activated catalog habits + user custom habits
+/// Combined list: user-activated catalog habits + user custom habits, sorted
+/// by the user's manual drag order where one exists.
+///
+/// A habit with no entry in [habitOrderProvider] (never dragged) keeps its
+/// original catalog-then-custom position — that position is used as its own
+/// fallback rank, so freshly added habits land after existing ones instead
+/// of jumping to the front, and dragged/undragged habits sort correctly
+/// against each other.
 final habitListProvider = Provider<List<IslamicHabitTemplate>>((ref) {
   final activeIds = ref.watch(activeCatalogProvider);
   final custom = ref.watch(customHabitsProvider);
   final activeTemplates = IslamicHabitCatalog.templates
       .where((t) => activeIds.contains(t.id))
       .toList();
-  return [...activeTemplates, ...custom];
+  final combined = [...activeTemplates, ...custom];
+
+  final order = ref.watch(habitOrderProvider);
+  final ranked = combined.asMap().entries.toList()
+    ..sort((a, b) {
+      final rankA = order[a.value.id] ?? a.key.toDouble();
+      final rankB = order[b.value.id] ?? b.key.toDouble();
+      return rankA.compareTo(rankB);
+    });
+  return [for (final entry in ranked) entry.value];
 });
 
 /// Guests get a 3-habit trial before being asked to create an account.
