@@ -27,7 +27,53 @@ class NotificationService {
   static const _channelName = 'GrowDaily';
   static const _channelDesc = 'Habit reminders and progress celebrations';
 
+  // ── Actionable notifications ─────────────────────────────────
+  //
+  // Both actions are registered with DarwinNotificationActionOption
+  // .foreground / AndroidNotificationAction(showsUserInterface: true) on
+  // purpose — that forces the tap through the normal, already-tested
+  // main-isolate onDidReceiveNotificationResponse path (or a cold-launch
+  // resolved via getNotificationAppLaunchDetails at startup), instead of
+  // iOS/Android's separate background-isolate path. That background path
+  // can act silently without opening the app, but it runs in a fresh
+  // Flutter engine with none of the app's state, and replicating
+  // completeHabit's XP/streak/gold logic there isn't something that can be
+  // verified without a device to test on. This trades a brief app-open for
+  // actions that are guaranteed to run through the real, working code.
+  static const _habitCategoryId = 'habitReminderCategory';
+  static const actionMarkDone = 'mark_done';
+  static const actionSnooze = 'snooze_1h';
+
   bool _initialized = false;
+
+  // A response that arrived before `onAction` was wired up — either a cold
+  // app-launch resolved during init(), or (in principle) a very early tap
+  // that raced main.dart's initState(). Flushed the moment onAction is set.
+  NotificationResponse? _pendingResponse;
+  void Function(String actionId, String? payload)? _onAction;
+
+  /// Set once, from main.dart's app-level State, after the provider tree
+  /// exists — so Mark Done/Snooze taps can call straight into the same
+  /// completeHabit/snooze logic the UI itself uses. Assigning this replays
+  /// any response that arrived first (e.g. the app was cold-launched by a
+  /// notification action before this was set).
+  set onAction(void Function(String actionId, String? payload)? callback) {
+    _onAction = callback;
+    final pending = _pendingResponse;
+    if (callback != null && pending != null) {
+      _pendingResponse = null;
+      callback(pending.actionId ?? '', pending.payload);
+    }
+  }
+
+  void _dispatch(NotificationResponse response) {
+    final callback = _onAction;
+    if (callback == null) {
+      _pendingResponse = response;
+      return;
+    }
+    callback(response.actionId ?? '', response.payload);
+  }
 
   Future<void> init() async {
     if (kIsWeb || _initialized) return;
@@ -43,14 +89,49 @@ class NotificationService {
     }
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings(
+    // Not const: DarwinNotificationAction.plain() below isn't a const
+    // constructor (confirmed by `flutter analyze`, not assumed), so nothing
+    // that contains it can be const either — built once at runtime instead
+    // of compile time, which is functionally identical for a one-shot
+    // init() call like this.
+    final iosInit = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
+      notificationCategories: [
+        DarwinNotificationCategory(
+          _habitCategoryId,
+          actions: [
+            DarwinNotificationAction.plain(
+              actionMarkDone,
+              'Mark Done',
+              options: {DarwinNotificationActionOption.foreground},
+            ),
+            DarwinNotificationAction.plain(
+              actionSnooze,
+              'Snooze 1h',
+              options: {DarwinNotificationActionOption.foreground},
+            ),
+          ],
+        ),
+      ],
     );
     await _plugin.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit),
+      InitializationSettings(android: androidInit, iOS: iosInit),
+      onDidReceiveNotificationResponse: _dispatch,
     );
+
+    // If a notification action cold-launched the app (it was fully
+    // terminated when tapped), the tap never reaches
+    // onDidReceiveNotificationResponse above — this recovers that case,
+    // queuing it the same as any other response until onAction is wired up.
+    final launchDetails = await _plugin.getNotificationAppLaunchDetails();
+    final launchResponse = launchDetails?.notificationResponse;
+    if (launchDetails?.didNotificationLaunchApp == true &&
+        launchResponse != null) {
+      _pendingResponse = launchResponse;
+    }
+
     _initialized = true;
     debugPrint('[NotificationService] Ready');
   }
@@ -82,16 +163,67 @@ class NotificationService {
         iOS: DarwinNotificationDetails(),
       );
 
+  /// Same as [_details] but tagged with the habit-reminder category/actions
+  /// so Mark Done + Snooze show up on the notification itself.
+  NotificationDetails get _habitReminderDetails => const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: _channelDesc,
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+          actions: [
+            AndroidNotificationAction(actionMarkDone, 'Mark Done',
+                showsUserInterface: true),
+            AndroidNotificationAction(actionSnooze, 'Snooze 1h',
+                showsUserInterface: true),
+          ],
+        ),
+        iOS: DarwinNotificationDetails(categoryIdentifier: _habitCategoryId),
+      );
+
+  // ── Rotating copy ────────────────────────────────────────────
+  //
+  // Picked by a fixed day-based index rather than random — varies day to
+  // day but won't visibly flicker between different lines if a reschedule
+  // happens to fire more than once on the same day (habit list edited
+  // twice, reminder time tweaked, etc).
+  static const _dailyLines = [
+    (
+      'Time for your habits',
+      "Don't break the streak — color today's square."
+    ),
+    (
+      'Your habits are waiting',
+      'A few minutes now, one more green square today.'
+    ),
+    ('Keep the streak alive', "You've come this far — don't stop now."),
+    ('Quick check-in', 'Which habit can you knock out right now?'),
+    ('Still time today', 'Small steps count. Go color your grid.'),
+  ];
+  static const _habitLines = [
+    "It's time — keep the streak going.",
+    'A few minutes for this one today.',
+    "Don't let today slip by.",
+    'Ready when you are.',
+  ];
+
+  int _dayIndex(int poolLength) {
+    final day = DateTime.now();
+    return (day.year * 400 + day.month * 31 + day.day) % poolLength;
+  }
+
   /// Schedules (or reschedules) a repeating daily reminder at [hour]:[minute]
   /// local time. Safe to call every time the user changes the time — it
   /// replaces the previous schedule under the same notification id.
   Future<void> scheduleDailyReminder({int hour = 20, int minute = 0}) async {
     if (kIsWeb) return;
     await init();
+    final (title, body) = _dailyLines[_dayIndex(_dailyLines.length)];
     await _plugin.zonedSchedule(
       _dailyReminderId,
-      'Time for your habits',
-      "Don't break the streak — color today's square.",
+      title,
+      body,
       _nextInstanceOf(hour, minute),
       _details,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -109,15 +241,18 @@ class NotificationService {
     debugPrint('[NotificationService] Daily reminder cancelled');
   }
 
-  // IDs this instance currently has scheduled via scheduleHabitReminders,
-  // so the next call can cancel exactly the ones that no longer apply
-  // (habit deleted, or its cue is no longer a fixed time) instead of
-  // leaving stale per-habit reminders behind. In-memory only — re-derived
-  // fresh from the current habit list on every cold start, since main.dart
-  // calls this with fireImmediately on the habit list provider.
-  final Set<int> _habitReminderIds = {};
+  // Habit ids this instance currently has a reminder scheduled for, so the
+  // next call can cancel exactly the ones that no longer apply (habit
+  // deleted, or its cue is no longer a fixed time) instead of leaving stale
+  // per-habit reminders — and any pending snooze for them — behind.
+  // In-memory only — re-derived fresh from the current habit list on every
+  // cold start, since main.dart calls this with fireImmediately on the
+  // habit list provider.
+  final Set<String> _habitReminderHabitIds = {};
 
-  int _habitReminderId(String habitId) => 5000 + habitId.hashCode.abs() % 1000;
+  int _habitReminderId(String habitId) =>
+      5000 + habitId.hashCode.abs() % 1000;
+  int _snoozeId(String habitId) => 6000 + habitId.hashCode.abs() % 1000;
 
   /// Schedules one real reminder per habit that has a fixed clock-time cue
   /// (see HabitCue.clockTime) — named for that habit, fired at that habit's
@@ -128,36 +263,63 @@ class NotificationService {
   /// a wrong-time reminder is worse than none. Safe to call any time the
   /// habit list changes — replaces the previous set of schedules entirely.
   Future<void> scheduleHabitReminders(
-    List<({String id, String name, TimeOfDay time})> reminders,
+    List<({String id, String name, TimeOfDay time, int streak})> reminders,
   ) async {
     if (kIsWeb) return;
     await init();
-    final nextIds = <int>{};
+    final nextHabitIds = <String>{};
     for (final r in reminders) {
+      nextHabitIds.add(r.id);
       final id = _habitReminderId(r.id);
-      nextIds.add(id);
+      final body = r.streak > 0
+          ? "Don't lose your ${r.streak}-day streak."
+          : _habitLines[_dayIndex(_habitLines.length)];
       await _plugin.zonedSchedule(
         id,
         r.name,
-        'It\'s time — keep the streak going.',
+        body,
         _nextInstanceOf(r.time.hour, r.time.minute),
-        _details,
+        _habitReminderDetails,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.time,
+        payload: r.id,
       );
     }
     // Cancel anything scheduled last time that isn't in this round (habit
-    // deleted, cue changed away from a fixed time, etc).
-    for (final staleId in _habitReminderIds.difference(nextIds)) {
-      await _plugin.cancel(staleId);
+    // deleted, cue changed away from a fixed time, etc) — both its regular
+    // reminder and any snooze that might still be pending for it.
+    for (final staleId in _habitReminderHabitIds.difference(nextHabitIds)) {
+      await _plugin.cancel(_habitReminderId(staleId));
+      await _plugin.cancel(_snoozeId(staleId));
     }
-    _habitReminderIds
+    _habitReminderHabitIds
       ..clear()
-      ..addAll(nextIds);
+      ..addAll(nextHabitIds);
     debugPrint(
-        '[NotificationService] ${nextIds.length} per-habit reminder(s) scheduled');
+        '[NotificationService] ${nextHabitIds.length} per-habit reminder(s) scheduled');
+  }
+
+  /// Reschedules habit [habitId]'s reminder for an hour from now, as a
+  /// one-off — uses a separate notification id from the regular recurring
+  /// per-habit reminder (see [_snoozeId]) so it doesn't clobber that
+  /// schedule.
+  Future<void> snoozeHabitReminder(String habitId, String habitName) async {
+    if (kIsWeb) return;
+    await init();
+    await _plugin.zonedSchedule(
+      _snoozeId(habitId),
+      habitName,
+      "Snoozed — it's time.",
+      tz.TZDateTime.now(tz.local).add(const Duration(hours: 1)),
+      _habitReminderDetails,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: habitId,
+    );
+    debugPrint('[NotificationService] Snoozed reminder for $habitId');
   }
 
   tz.TZDateTime _nextInstanceOf(int hour, int minute) {

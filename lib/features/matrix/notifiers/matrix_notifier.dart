@@ -81,10 +81,22 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     );
   }
 
-  void add(String title, MatrixQuadrant quadrant) {
+  void add(
+    String title,
+    MatrixQuadrant quadrant, {
+    String? description,
+    String? voiceNotePath,
+    int? voiceNoteDurationSeconds,
+  }) {
     if (title.trim().isEmpty) return;
     _mutatedBeforeLoad = true;
-    final task = MatrixTask.create(title, quadrant);
+    final task = MatrixTask.create(
+      title,
+      quadrant,
+      description: description,
+      voiceNotePath: voiceNotePath,
+      voiceNoteDurationSeconds: voiceNoteDurationSeconds,
+    );
     state = MatrixState(tasks: [...state.tasks, task], isLoading: false);
     _persist(task);
   }
@@ -118,20 +130,70 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     }
   }
 
-  /// Flags/unflags a task as one of today's — independent of isDone and of
-  /// quadrant. Powers the Today/All filter; no reward is attached to this,
-  /// only to actually finishing the task.
-  void toggleToday(String id) {
+  /// Flags/unflags a task as a favorite — independent of isDone and of
+  /// quadrant, and never expires on its own. Powers the Fav/All filter; no
+  /// reward is attached to this, only to actually finishing the task.
+  void toggleFav(String id) {
     _mutatedBeforeLoad = true;
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final updated = tasks[idx].copyWith(isToday: !tasks[idx].isToday);
+    final updated = tasks[idx].copyWith(isFav: !tasks[idx].isFav);
     tasks[idx] = updated;
     state = MatrixState(tasks: tasks, isLoading: false);
     _persist(updated);
   }
 
+  /// Renames a task from the pencil-icon TaskDetailSheet. A no-op on an
+  /// empty/whitespace title, same guard as add() — editing a task's title
+  /// down to nothing shouldn't silently blank it out.
+  void rename(String id, String title) {
+    if (title.trim().isEmpty) return;
+    _mutatedBeforeLoad = true;
+    final tasks = state.tasks.toList();
+    final idx = tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return;
+    final updated = tasks[idx].copyWith(title: title.trim());
+    tasks[idx] = updated;
+    state = MatrixState(tasks: tasks, isLoading: false);
+    _persist(updated);
+  }
+
+  /// Updates an existing task's description and/or voice note — the
+  /// pencil-icon TaskDetailSheet's edit action, as opposed to add()'s
+  /// optional "Add details" section at creation time. clearDescription/
+  /// clearVoiceNote remove a value entirely rather than leaving it
+  /// unchanged, since passing null for an already-unset field and passing
+  /// null to *clear* a set field need to mean different things.
+  void updateDetails(
+    String id, {
+    String? description,
+    bool clearDescription = false,
+    String? voiceNotePath,
+    int? voiceNoteDurationSeconds,
+    bool clearVoiceNote = false,
+  }) {
+    _mutatedBeforeLoad = true;
+    final tasks = state.tasks.toList();
+    final idx = tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return;
+    final updated = tasks[idx].copyWith(
+      description: description,
+      clearDescription: clearDescription,
+      voiceNotePath: voiceNotePath,
+      voiceNoteDurationSeconds: voiceNoteDurationSeconds,
+      clearVoiceNote: clearVoiceNote,
+    );
+    tasks[idx] = updated;
+    state = MatrixState(tasks: tasks, isLoading: false);
+    _persist(updated);
+  }
+
+  // Deliberately doesn't touch a deleted task's voiceNotePath file on disk:
+  // deletes here are undoable (see the SnackBar restore() call sites), and
+  // eagerly deleting the recording would leave a restored task pointing at
+  // a file that's already gone. The small amount of orphaned audio this
+  // can leave behind is a fine trade for undo actually working.
   void delete(String id) {
     _mutatedBeforeLoad = true;
     state = MatrixState(

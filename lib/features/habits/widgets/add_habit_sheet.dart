@@ -770,27 +770,27 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   Widget _prayerModeContent(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          _relationToggle(s),
+          const SizedBox(height: 12),
           _SectionLabel(s.pickAPrayer),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Row(
             children: [
-              for (final key in _prayerKeys)
-                _PlainChoiceChip(
-                  selected: _selectedPrayer == key,
-                  label: HabitCue.preset(key).labelFor(context),
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _selectedPrayer = key);
-                  },
+              for (final key in _prayerKeys) ...[
+                if (key != _prayerKeys.first) const SizedBox(width: 6),
+                Expanded(
+                  child: _EqualPill(
+                    selected: _selectedPrayer == key,
+                    label: HabitCue.preset(key).labelFor(context),
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _selectedPrayer = key);
+                    },
+                  ),
                 ),
+              ],
             ],
           ),
-          if (_selectedPrayer != null) ...[
-            const SizedBox(height: 12),
-            _relationToggle(s),
-          ],
         ],
       );
 
@@ -798,19 +798,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _relationToggle(s),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final cue in _textQuickFills())
-                _PlainChoiceChip(
-                  selected: _baseCue(_cueCtrl.text) == cue.labelFor(context),
-                  label: cue.labelFor(context),
-                  onTap: () => _applyCue(cue.labelFor(context)),
-                ),
-            ],
-          ),
           const SizedBox(height: 10),
           TextField(
             controller: _cueCtrl,
@@ -875,7 +862,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     HapticFeedback.selectionClick();
                     setState(() {
                       _freqType = HabitFrequencyType.weekly;
-                      _freqTarget = 3;
+                      _freqTarget = 1;
                       _selectedWeekdays.clear();
                     });
                   },
@@ -902,28 +889,30 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ),
           if (_selectedWeekdays.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
               children: [
-                for (final day in _weekdays(context))
-                  _PlainChoiceChip(
-                    selected: _selectedWeekdays.contains(day.$1),
-                    label: day.$2,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() {
-                        if (!_selectedWeekdays.remove(day.$1)) {
-                          _selectedWeekdays.add(day.$1);
-                        }
-                        if (_selectedWeekdays.isEmpty) {
-                          _selectedWeekdays.add(day.$1);
-                        }
-                        _freqType = HabitFrequencyType.weekly;
-                        _freqTarget = _selectedWeekdays.length;
-                      });
-                    },
+                for (final entry in _weekdays(context).asMap().entries) ...[
+                  if (entry.key > 0) const SizedBox(width: 6),
+                  Expanded(
+                    child: _EqualPill(
+                      selected: _selectedWeekdays.contains(entry.value.$1),
+                      label: entry.value.$2,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() {
+                          if (!_selectedWeekdays.remove(entry.value.$1)) {
+                            _selectedWeekdays.add(entry.value.$1);
+                          }
+                          if (_selectedWeekdays.isEmpty) {
+                            _selectedWeekdays.add(entry.value.$1);
+                          }
+                          _freqType = HabitFrequencyType.weekly;
+                          _freqTarget = _selectedWeekdays.length;
+                        });
+                      },
+                    ),
                   ),
+                ],
               ],
             ),
           ],
@@ -1051,11 +1040,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return S.of(context).isAr ? 'قبل $trimmed' : 'Before $trimmed';
   }
 
-  void _applyCue(String label) {
-    HapticFeedback.selectionClick();
-    setState(() => _cueCtrl.text = _cueWithRelation(label));
-  }
-
   void _setCueRelation(_CueRelation relation) {
     HapticFeedback.selectionClick();
     setState(() {
@@ -1100,29 +1084,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         _timingMode = _defaultModeFor(_category, _goalType);
       }
     });
-  }
-
-  /// Quick-fill chips for Custom Text mode — non-prayer routine anchors
-  /// only (prayers live in their own mode now). Tapping one fills the text
-  /// field; it's still ordinary custom text underneath, just a one-tap
-  /// shortcut to the common answers for each category.
-  List<HabitCue> _textQuickFills() {
-    if (_goalType == GoalType.quit) {
-      return [
-        HabitCue.preset('morning'),
-        HabitCue.preset('afternoon'),
-        HabitCue.preset('evening'),
-        HabitCue.preset('before_sleep'),
-      ];
-    }
-    return switch (_category) {
-      HabitCategory.faith => [HabitCue.preset('before_sleep'), HabitCue.preset('morning'), HabitCue.preset('evening')],
-      HabitCategory.health => [HabitCue.preset('morning'), HabitCue.preset('after_work_school'), HabitCue.preset('evening')],
-      HabitCategory.learning => [HabitCue.preset('morning'), HabitCue.preset('after_school_work'), HabitCue.preset('evening')],
-      HabitCategory.sleep => [HabitCue.preset('before_sleep')],
-      HabitCategory.focus => [HabitCue.preset('morning'), HabitCue.preset('work_block'), HabitCue.preset('evening')],
-      _ => [HabitCue.preset('morning'), HabitCue.preset('evening'), HabitCue.preset('before_sleep')],
-    };
   }
 
   List<GoalSuggestion> _suggestions() {
@@ -1176,6 +1137,56 @@ class _ProgressDots extends StatelessWidget {
       ));
     }
     return Row(mainAxisSize: MainAxisSize.min, children: dots);
+  }
+}
+
+// ─── Equal-width pill (fixed 1/n row share, centered, shrink-to-fit text) ──
+// Used wherever a fixed-size set of options (5 prayers, 7 weekdays) should
+// always fill exactly one row at uniform width, rather than wrap unevenly.
+
+class _EqualPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _EqualPill({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: TweenAnimationBuilder<double>(
+        key: ValueKey(selected),
+        tween: Tween(begin: selected ? 0.9 : 1.0, end: 1.0),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutBack,
+        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? GameColors.gold.withOpacity(0.12) : gp.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: selected ? GameColors.gold.withOpacity(0.5) : gp.border),
+          ),
+          alignment: Alignment.center,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected ? GameColors.gold : gp.textSec,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

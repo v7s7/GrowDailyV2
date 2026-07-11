@@ -26,6 +26,8 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>GrowDaily uses your microphone to record voice notes you attach to tasks. Recordings stay on this device and are never uploaded anywhere.</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

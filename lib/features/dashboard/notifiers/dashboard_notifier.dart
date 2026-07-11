@@ -47,6 +47,12 @@ class HabitMilestoneEvent {
 }
 
 class DashboardState {
+  /// User-chosen display name, stored on the 'displayName' Firestore field
+  /// that account creation already writes (defaulting to the email prefix —
+  /// see AuthNotifier._createUserDoc). Empty until loaded or for a guest who
+  /// hasn't set one yet; callers should fall back to something else (email
+  /// prefix, 'Warrior') when this is blank rather than showing nothing.
+  final String displayName;
   final int level;
   final int currentLevelXp;
   final int cumulativeXp;
@@ -112,6 +118,7 @@ class DashboardState {
   final int lastCompletionBonusGold;
 
   const DashboardState({
+    this.displayName = '',
     required this.level,
     required this.currentLevelXp,
     required this.cumulativeXp,
@@ -182,6 +189,7 @@ class DashboardState {
   }
 
   DashboardState copyWith({
+    String? displayName,
     int? level,
     int? currentLevelXp,
     int? cumulativeXp,
@@ -216,6 +224,7 @@ class DashboardState {
     int? lastCompletionBonusGold,
   }) =>
       DashboardState(
+        displayName: displayName ?? this.displayName,
         level: level ?? this.level,
         currentLevelXp: currentLevelXp ?? this.currentLevelXp,
         cumulativeXp: cumulativeXp ?? this.cumulativeXp,
@@ -384,6 +393,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
       if (!mounted) return;
       state = DashboardState(
+        displayName: (saved['displayName'] as String?) ?? '',
         level: (saved['level'] as int?) ?? 1,
         currentLevelXp: (saved['currentLevelXp'] as int?) ?? 0,
         cumulativeXp: (saved['cumulativeXp'] as int?) ?? 0,
@@ -422,6 +432,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       LocalStoreService.guestDashboardKey,
       {
         ...saved,
+        'displayName': state.displayName,
         'level': state.level,
         'currentLevelXp': state.currentLevelXp,
         'cumulativeXp': state.cumulativeXp,
@@ -472,6 +483,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       final userSnap = results[0];
       final dailySnap = results[1];
 
+      String displayName = '';
       int level = 1,
           currentLevelXp = 0,
           cumulativeXp = 0,
@@ -497,6 +509,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
       if (userSnap.exists) {
         final d = userSnap.data()!;
+        displayName = (d['displayName'] as String?) ?? '';
         level = (d['level'] as int?) ?? 1;
         currentLevelXp = (d['currentLevelXp'] as int?) ?? 0;
         cumulativeXp = (d['cumulativeXp'] as int?) ?? 0;
@@ -590,6 +603,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
       if (mounted) {
         state = DashboardState(
+          displayName: displayName,
           level: level,
           currentLevelXp: currentLevelXp,
           cumulativeXp: cumulativeXp,
@@ -1282,6 +1296,71 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       return false;
     }
     AnalyticsService.instance.track('streak_freeze_bought');
+    return true;
+  }
+
+  /// Generic gold spend for purchases outside the dashboard's own gold sinks
+  /// (currently just the character closet's accessory shop) — same
+  /// optimistic-update + rollback-on-failed-write pattern as
+  /// [buyStreakFreeze], minus the second field that one also touches.
+  /// Returns whether the spend actually persisted; callers should only apply
+  /// their own side effect (unlocking the item) once this returns true, so a
+  /// failed write can't grant an item the player didn't actually pay for.
+  Future<bool> spendGold(int amount) async {
+    if (amount <= 0 || state.gold < amount) return false;
+    final previousGold = state.gold;
+    final newGold = previousGold - amount;
+    state = state.copyWith(gold: newGold);
+    if (_uid == null) {
+      try {
+        await _saveGuestState();
+      } catch (_) {
+        state = state.copyWith(gold: previousGold);
+        return false;
+      }
+      return true;
+    }
+    try {
+      await _userRef.set({'gold': newGold}, SetOptions(merge: true));
+    } catch (_) {
+      state = state.copyWith(gold: previousGold);
+      return false;
+    }
+    return true;
+  }
+
+  /// Max length for a user-chosen display name — generous enough for most
+  /// real names while keeping the Profile hero header from wrapping.
+  static const int maxDisplayNameLength = 24;
+
+  /// Sets the stored display name (see [DashboardState.displayName]).
+  /// No-ops on an empty/whitespace name — same "don't let an edit blank
+  /// this out" guard MatrixNotifier.rename uses for task titles. Same
+  /// optimistic-update + rollback-on-failed-write shape as [spendGold].
+  Future<bool> setDisplayName(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return false;
+    final clamped = trimmed.length > maxDisplayNameLength
+        ? trimmed.substring(0, maxDisplayNameLength)
+        : trimmed;
+
+    final previous = state.displayName;
+    state = state.copyWith(displayName: clamped);
+    if (_uid == null) {
+      try {
+        await _saveGuestState();
+      } catch (_) {
+        state = state.copyWith(displayName: previous);
+        return false;
+      }
+      return true;
+    }
+    try {
+      await _userRef.set({'displayName': clamped}, SetOptions(merge: true));
+    } catch (_) {
+      state = state.copyWith(displayName: previous);
+      return false;
+    }
     return true;
   }
 

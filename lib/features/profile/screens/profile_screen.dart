@@ -11,12 +11,16 @@ import '../../../core/theme/game_theme.dart';
 import '../../../core/theme/theme_preset.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
+import '../../../features/character/notifiers/character_notifier.dart';
+import '../../../features/character/screens/character_closet_screen.dart';
+import '../../../features/character/widgets/character_avatar.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../widgets/delete_account_sheet.dart';
+import '../widgets/edit_name_sheet.dart';
 import 'achievements_screen.dart';
 import 'progress_screen.dart';
 import 'theme_preview_screen.dart';
@@ -30,7 +34,9 @@ class ProfileScreen extends ConsumerWidget {
     final s = S.of(context);
     final state = ref.watch(dashboardProvider);
     final user = FirebaseAuth.instance.currentUser;
-    final displayName = user?.email?.split('@').first ?? 'Warrior';
+    final savedName = state.displayName.trim();
+    final displayName =
+        savedName.isNotEmpty ? savedName : (user?.email?.split('@').first ?? 'Warrior');
     final unlockedCount = state.unlockedAchievements.length;
 
     return Scaffold(
@@ -101,14 +107,15 @@ class ProfileScreen extends ConsumerWidget {
 
 // ─── Hero Header ─────────────────────────────────────────────────────────────
 
-class _HeroHeader extends StatelessWidget {
+class _HeroHeader extends ConsumerWidget {
   final DashboardState state;
   final String displayName;
   const _HeroHeader({required this.state, required this.displayName});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
+    final charState = ref.watch(characterProvider);
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -118,51 +125,119 @@ class _HeroHeader extends StatelessWidget {
       ),
       child: Column(
         children: [
-          SizedBox(
-            width: 108,
-            height: 108,
-            child: CustomPaint(
-              painter: _RingPainter(
-                progress: state.levelProgress,
-                trackColor: gp.border,
-                arcColor: GameColors.gold,
-              ),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const CharacterClosetScreen()),
+                  );
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
                   children: [
-                    Text(
-                      '${state.level}',
-                      style: TextStyle(
-                        fontSize: 38,
-                        fontWeight: FontWeight.w900,
-                        color: GameColors.gold,
-                        height: 1,
-                        letterSpacing: -1.5,
-                      ),
-                    ),
-                    Text(
-                      S.of(context).level,
-                      style: TextStyle(
-                        fontSize: 8,
-                        fontWeight: FontWeight.w700,
-                        color: gp.textTert,
-                        letterSpacing: 1.5,
+                    if (!charState.isLoading)
+                      CharacterAvatar(
+                        character: charState.character,
+                        accessory: charState.equippedAccessory,
+                        height: 108,
+                      )
+                    else
+                      const SizedBox(width: 78, height: 108),
+                    Positioned(
+                      bottom: -2,
+                      right: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: gp.surface,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: gp.border, width: 0.5),
+                        ),
+                        child: Icon(Icons.edit_rounded,
+                            size: 12, color: gp.textSec),
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
+              const SizedBox(width: 20),
+              SizedBox(
+                width: 108,
+                height: 108,
+                child: CustomPaint(
+                  painter: _RingPainter(
+                    progress: state.levelProgress,
+                    trackColor: gp.border,
+                    arcColor: GameColors.gold,
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${state.level}',
+                          style: TextStyle(
+                            fontSize: 38,
+                            fontWeight: FontWeight.w900,
+                            color: GameColors.gold,
+                            height: 1,
+                            letterSpacing: -1.5,
+                          ),
+                        ),
+                        Text(
+                          S.of(context).level,
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            color: gp.textTert,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
-          Text(
-            displayName,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: gp.textPrimary,
-              letterSpacing: -0.4,
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => showEditNameSheet(context, ref, displayName),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Flexible (not a bare Text) so a long name truncates
+                  // with an ellipsis instead of overflowing past the card
+                  // edge on narrower phones — the pencil icon next to it
+                  // always stays visible either way.
+                  Flexible(
+                    child: Text(
+                      displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: gp.textPrimary,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(Icons.edit_rounded, size: 15, color: gp.textTert),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 5),
@@ -440,10 +515,6 @@ class _ProfileLinksSection extends StatelessWidget {
                     MaterialPageRoute(builder: (_) => const ProgressScreen()),
                   );
                 },
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(GameSpacing.cardRadius),
-                  bottomRight: Radius.circular(GameSpacing.cardRadius),
-                ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 14),
@@ -468,6 +539,41 @@ class _ProfileLinksSection extends StatelessWidget {
                               fontWeight: FontWeight.w700,
                               color: gp.textSec)),
                       const SizedBox(width: 6),
+                      Icon(Icons.chevron_right_rounded,
+                          size: 18, color: gp.textTert),
+                    ],
+                  ),
+                ),
+              ),
+              Container(height: 0.5, color: gp.divider),
+              InkWell(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const CharacterClosetScreen()),
+                  );
+                },
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(GameSpacing.cardRadius),
+                  bottomRight: Radius.circular(GameSpacing.cardRadius),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                  child: Row(
+                    children: [
+                      Icon(Icons.checkroom_rounded,
+                          size: 20, color: gp.textSec),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(s.closetProfileRow,
+                            style: TextStyle(
+                                fontSize: 15,
+                                color: gp.textPrimary,
+                                fontWeight: FontWeight.w500)),
+                      ),
                       Icon(Icons.chevron_right_rounded,
                           size: 18, color: gp.textTert),
                     ],

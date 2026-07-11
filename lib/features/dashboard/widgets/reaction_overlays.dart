@@ -11,33 +11,17 @@ import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../notifiers/dashboard_notifier.dart';
 
 /// The RPG feedback moments (level up, achievement unlock, streak milestone,
-/// streak-freeze protection, first-load intention prompt) are all reactions
-/// to [dashboardProvider] state changes. Both GridScreen (the app's home) and
-/// DashboardScreen register this so a square colored on the grid celebrates
-/// exactly like a habit completed the old way — progression is progression
-/// no matter which screen the player is looking at.
+/// streak-freeze protection) are all reactions to [dashboardProvider] state
+/// changes. Both GridScreen (the app's home) and DashboardScreen register
+/// this so a square colored on the grid celebrates exactly like a habit
+/// completed the old way — progression is progression no matter which
+/// screen the player is looking at.
 void registerDashboardReactions(
   BuildContext context,
-  WidgetRef ref, {
-  bool routeToIntentionOnFirstLoad = false,
-}) {
+  WidgetRef ref,
+) {
   ref.listen<DashboardState>(dashboardProvider, (prev, next) {
     if (prev == null) return;
-
-    // Brand-new users (no habits yet) skip the intention prompt — the empty
-    // grid with its "browse plans" call-to-action is the better first hello.
-    if (routeToIntentionOnFirstLoad &&
-        prev.isLoading &&
-        !next.isLoading &&
-        !next.intentionsSetToday &&
-        ref.read(habitListProvider).isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) {
-          Navigator.pushNamed(context, '/intention');
-        }
-      });
-      return;
-    }
 
     if (next.didUseStreakFreeze && !prev.didUseStreakFreeze) {
       HapticFeedback.mediumImpact();

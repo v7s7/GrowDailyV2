@@ -457,7 +457,12 @@ class S {
   String get matrixNotUrgent => isAr ? 'غير عاجل' : 'NOT URGENT';
   String get matrixImportant => isAr ? 'مهم' : 'IMPORTANT';
   String get matrixNotImportant => isAr ? 'غير مهم' : 'NOT IMPORTANT';
-  String get matrixToday => isAr ? 'اليوم' : 'Today';
+  String get matrixFav => isAr ? 'مفضلة' : 'Fav';
+  // Count-based label on the tap-to-filter chip for tasks left unfinished
+  // from before today (see MatrixScreen._carriedOverOnly) — deliberately
+  // not called "yesterday": a task could be several days old, not just one.
+  String matrixCarriedOverCount(int n) =>
+      isAr ? '$n مُرحّلة' : '$n carried over';
   String get matrixAll => isAr ? 'الكل' : 'All';
   String get matrixTapToAdd => isAr ? 'اضغط في أي مكان للإضافة' : 'Tap anywhere to add a goal';
   String get matrixAddAnother => isAr ? '+ أضف مهمة أخرى' : '+ Add another';
@@ -477,6 +482,13 @@ class S {
   String get matrixAddMultipleHint => isAr
       ? 'اكتب مهمة واضغط أدخل، ثم أضف التالية'
       : 'Type a task and hit enter, then add the next one';
+  String get matrixAddDetails => isAr ? 'أضف تفاصيل' : 'Add details';
+  String get matrixHideDetails => isAr ? 'إخفاء التفاصيل' : 'Hide details';
+  String get matrixDescriptionHint =>
+      isAr ? 'أضف وصفًا (اختياري)' : 'Add a description (optional)';
+  String get matrixTaskDetails => isAr ? 'تفاصيل المهمة' : 'Task details';
+  String get matrixNoDescription =>
+      isAr ? 'لا يوجد وصف' : 'No description yet';
   String get matrixDone => isAr ? 'تم' : 'Done';
   String get matrixUndo => isAr ? 'تراجع' : 'Undo';
   String get matrixTaskDeleted => isAr ? 'تم حذف المهمة' : 'Task deleted';
@@ -487,6 +499,39 @@ class S {
       : 'Tap a day above to see what you finished';
   String get matrixNoTasksThisDay =>
       isAr ? 'لا مهام مُنجزة في هذا اليوم' : 'Nothing finished on this day';
+
+  // ── Character Closet ────────────────────────────────────────────────────
+  String get closetProfileRow => isAr ? 'خزانة الشخصية' : 'Character Closet';
+  String get closetCustomize => isAr ? 'تخصيص' : 'Customize';
+  String get closetTitle => isAr ? 'خزانة الشخصية' : 'Character Closet';
+  String get closetSubtitle =>
+      isAr ? 'خصص رفيقك بشخصية وإكسسوار' : 'Customize your companion';
+  String get closetCharacterSection => isAr ? 'الشخصية' : 'CHARACTER';
+  String get closetOwned => isAr ? 'مملوك' : 'Owned';
+  String get closetEquipped => isAr ? 'مرتدى' : 'Equipped';
+  String get closetEquip => isAr ? 'ارتداء' : 'Equip';
+  String get closetUnequip => isAr ? 'خلع' : 'Remove';
+  String get closetBuy => isAr ? 'شراء' : 'Buy';
+  String get closetBuyConfirmTitle => isAr ? 'شراء هذه القطعة؟' : 'Buy this item?';
+  String closetBuyConfirmBody(int cost) => isAr
+      ? 'أنفق $cost ذهب لفتحها للأبد.'
+      : 'Spend $cost gold to unlock this forever.';
+  String get closetNotEnoughGold => isAr ? 'الذهب غير كافٍ' : 'Not enough gold';
+  String get closetPurchaseFailed =>
+      isAr ? 'تعذّر إتمام الشراء — حاول مرة أخرى' : "Couldn't complete the purchase — try again";
+  String get closetPurchased => isAr ? 'تم الفتح!' : 'Unlocked!';
+  String get closetCancel => isAr ? 'إلغاء' : 'Cancel';
+
+  // ── Edit display name (Profile) ─────────────────────────────────────────
+  String get profileEditNameTitle => isAr ? 'اسمك' : 'Your name';
+  String get profileEditNameBody => isAr
+      ? 'هكذا سيظهر اسمك في التطبيق.'
+      : "This is how you'll see yourself in the app.";
+  String get profileEditNameHint => isAr ? 'اكتب اسمك' : 'Enter your name';
+  String get profileEditNameSave => isAr ? 'حفظ' : 'Save';
+  String get profileEditNameCancel => isAr ? 'إلغاء' : 'Cancel';
+  String get profileEditNameError =>
+      isAr ? 'تعذّر الحفظ — حاول مرة أخرى' : "Couldn't save — try again";
 
   // ── Quick Wins ───────────────────────────────────────────────────────────
   String get quickWins => isAr ? 'مكاسب سريعة' : 'Quick Wins';
@@ -629,6 +674,19 @@ class S {
   String habitLimitBody(int limit) => isAr
       ? 'الخطة المجانية تشمل $limit عادات. افتح عادات غير محدودة مع بريميوم.'
       : 'The free plan includes $limit habits. Unlock unlimited habits with Premium.';
+
+  // ── Voice note gate ──────────────────────────────────────────────────────
+  String get voiceNoteGateTitle =>
+      isAr ? 'الملاحظات الصوتية ميزة بريميوم' : 'Voice notes are a Premium feature';
+  String get voiceNoteGateBody => isAr
+      ? 'سجّل ملاحظة صوتية سريعة لأي مهمة — متاحة مع بريميوم.'
+      : 'Record a quick voice note on any task — available with Premium.';
+  String get voiceNoteRecording => isAr ? 'جارٍ التسجيل…' : 'Recording…';
+  String get voiceNoteTapToRecord => isAr ? 'اضغط للتسجيل' : 'Tap to record';
+  String get voiceNoteTapToStop => isAr ? 'اضغط للإيقاف' : 'Tap to stop';
+  String get voiceNoteMicPermissionDenied => isAr
+      ? 'يحتاج التطبيق إذن الميكروفون لتسجيل الملاحظات الصوتية.'
+      : 'GrowDaily needs microphone access to record voice notes.';
 
   // ── Streak nudge ─────────────────────────────────────────────────────────
   String streakAtRiskTitle(int days) => isAr

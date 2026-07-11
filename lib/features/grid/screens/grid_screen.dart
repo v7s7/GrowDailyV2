@@ -112,7 +112,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
 
   @override
   Widget build(BuildContext context) {
-    registerDashboardReactions(context, ref, routeToIntentionOnFirstLoad: true);
+    registerDashboardReactions(context, ref);
 
     final gp = context.gp;
     final s = S.of(context);
