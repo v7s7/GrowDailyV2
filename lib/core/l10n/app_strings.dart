@@ -319,6 +319,8 @@ class S {
   String get whenQuestion => isAr ? 'متى؟' : 'When?';
   String get customTime => isAr ? 'وقت مخصص' : 'Custom time';
   String get customText => isAr ? 'نص مخصص' : 'Custom text';
+  String get cuePrayerOption => isAr ? 'وقت الصلاة' : 'Prayer time';
+  String get pickAPrayer => isAr ? 'اختر صلاة' : 'Pick a prayer';
   String get repeat => isAr ? 'التكرار' : 'Repeat';
   String get goalStyle => isAr ? 'أسلوب الهدف' : 'Goal style';
   String get customizeTiming => isAr ? 'تخصيص التوقيت' : 'Customize timing';

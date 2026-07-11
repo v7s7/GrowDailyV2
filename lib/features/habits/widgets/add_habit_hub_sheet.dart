@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../notifiers/custom_habits_notifier.dart';
 import 'add_habit_sheet.dart';
 import 'plan_picker_sheet.dart';
 
@@ -52,18 +53,23 @@ class _AddHabitHubState extends State<AddHabitHub> {
     final s = S.of(context);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     final screenHeight = MediaQuery.of(context).size.height;
-    // Fixed body height (rather than a maxHeight cap) so the IndexedStack
-    // below can give every tab's content a bounded height to lay out
-    // against — Add Goal's scrollable form and Plans' plan list both rely
-    // on that the same way the standalone sheets already do via their own
-    // ConstrainedBox(maxHeight:).
-    final bodyHeight = screenHeight * 0.86 - 150 < 280
-        ? 280.0
-        : screenHeight * 0.86 - 150;
+    // Chrome above the tab body: drag handle + title row + tab row + spacing.
+    const chromeHeight = 150.0;
+    const minBodyHeight = 220.0;
+    // Resting size (no keyboard) stays ~86% of the screen, same as before.
+    // Once the keyboard opens, shrink to whatever room is left above it
+    // instead, so the sheet — and the focused field inside it — never end
+    // up pushed off the top of the screen or hidden behind the keyboard.
+    final availableHeight = bottom > 0
+        ? screenHeight - bottom - chromeHeight - 16
+        : screenHeight * 0.86 - chromeHeight;
+    final bodyHeight = availableHeight < minBodyHeight ? minBodyHeight : availableHeight;
+    const keyboardAnim = Duration(milliseconds: 220);
+    const keyboardCurve = Curves.easeOutCubic;
 
     return AnimatedPadding(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
+      duration: keyboardAnim,
+      curve: keyboardCurve,
       padding: EdgeInsets.only(bottom: bottom),
       child: Container(
         decoration: BoxDecoration(
@@ -132,7 +138,9 @@ class _AddHabitHubState extends State<AddHabitHub> {
               ),
             ),
             const SizedBox(height: 12),
-            SizedBox(
+            AnimatedContainer(
+              duration: keyboardAnim,
+              curve: keyboardCurve,
               height: bodyHeight,
               child: IndexedStack(
                 index: _tab.index,

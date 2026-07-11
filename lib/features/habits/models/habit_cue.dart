@@ -154,6 +154,18 @@ class HabitCue {
 
   bool get isEmpty => _kind == _HabitCueKind.freeform && _raw.trim().isEmpty;
 
+  static const _prayerKeys = {'fajr', 'dhuhr', 'asr', 'maghrib', 'isha'};
+
+  /// Whether this cue resolved to one of the 5 daily prayers specifically
+  /// (as opposed to a non-prayer preset like 'before_sleep', a picked
+  /// clock time, or freeform text) — used by the Add Habit sheet's "Prayer"
+  /// timing mode to restore its selected-prayer chip when editing a habit.
+  bool get isPrayer =>
+      _kind == _HabitCueKind.preset && _prayerKeys.contains(_presetKey);
+
+  /// The canonical prayer key ('fajr'…'isha') if [isPrayer], else null.
+  String? get prayerKey => isPrayer ? _presetKey : null;
+
   /// The exact clock time this cue resolves to, if the user picked one —
   /// null for a preset routine anchor (e.g. 'maghrib', 'before_sleep') or
   /// freeform text, since those don't have a fixed time without real
