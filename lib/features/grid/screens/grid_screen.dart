@@ -211,7 +211,10 @@ class _GridScreenState extends ConsumerState<GridScreen> {
             // their actual list pops in and replaces it. See
             // habitsStillLoadingProvider's own doc comment.
             if (habits.isEmpty && ref.watch(habitsStillLoadingProvider))
-              const SliverFillRemaining(
+              // Not `const` — GameColors.gold is a mutable `static Color`
+              // (theme-preset system), not a compile-time constant. See
+              // BUILD_LESSONS.md #6.
+              SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(
                   child: CircularProgressIndicator(
