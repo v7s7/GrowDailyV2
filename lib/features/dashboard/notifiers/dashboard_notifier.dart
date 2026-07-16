@@ -23,6 +23,37 @@ final List<int> kStreakMilestones = GameConstants.streakBonuses.keys.toList();
 int milestoneXpBonus(int milestone) =>
     XpCalculator.streakMilestoneBonus(milestone);
 
+/// Whether completing [habitId] (today, toward [frequencyTarget]) leaves
+/// *every* one of today's scheduled habits done — the "100%" moment that
+/// earns the day's streak point (see [DashboardState.streakEarnedToday]
+/// and [DashboardNotifier.completeHabit]).
+///
+/// [todayHabits] is today's scheduled habit list reduced to just the two
+/// fields this needs (id + weekly target), passed in as records so this
+/// stays free of any dependency on the habit catalog type — every caller
+/// (DashboardScreen, the Grid screen, the notification action handler)
+/// already has the real habit list in scope and can map it down to this
+/// shape in one line.
+bool willCompleteAllHabitsToday({
+  required DashboardState state,
+  required Iterable<({String id, int frequencyTarget})> todayHabits,
+  required String habitId,
+  required int frequencyTarget,
+}) {
+  var sawTarget = false;
+  for (final h in todayHabits) {
+    final isTarget = h.id == habitId;
+    if (isTarget) sawTarget = true;
+    final done = isTarget
+        ? (state.completions[h.id] ?? 0) + 1 >= frequencyTarget
+        : state.isCompleted(h.id, h.frequencyTarget);
+    if (!done) return false;
+  }
+  // An empty (or habitId-missing) list is never "100%" — a day with
+  // nothing scheduled isn't a completed day, it's a day off.
+  return sawTarget;
+}
+
 // Milestone flavor titles ("3-Day Starter", "بداية النشامى", ...) live in
 // S.milestoneTitle (app_strings.dart) since they're locale-dependent —
 // keeping them here would mean an English-only title bleeding into the
@@ -43,6 +74,51 @@ class HabitMilestoneEvent {
     required this.habitName,
     required this.milestone,
     required this.bonusXp,
+  });
+}
+
+/// Exactly what a single habit's per-habit streak fields (and any bonus
+/// tied to that one completion) looked like the instant *before*
+/// [DashboardNotifier.completeHabit] changed them — kept around just long
+/// enough for a same-session [DashboardNotifier.uncompleteHabit] call to
+/// reverse them precisely instead of guessing.
+///
+/// Guessing is the thing this exists to avoid: [prevStreak] can't be
+/// recovered from the post-completion state once it's been overwritten
+/// (the streak-continuation rule needs to know the date/streak as they
+/// were *before* today's bump, and after the bump `habitLastCompletedDate`
+/// already reads as "today" either way). Without this snapshot, an undo
+/// has no way to tell "this habit was on a 6-day streak" apart from "this
+/// habit has never been completed before" — both look identical once
+/// `completeHabit` has already run.
+class _HabitCompletionSnapshot {
+  /// False when this habit had never been completed before today's tap —
+  /// [prevStreak]/[prevLongest]/[prevTotal] are meaningless zeros in that
+  /// case, and reversing means removing the map entries entirely rather
+  /// than restoring them to 0 (keeps a never-completed habit's maps free
+  /// of stray zero entries, same as they'd look if it were never tapped).
+  final bool hadPrior;
+  final int prevStreak;
+  final int prevLongest;
+  final int prevTotal;
+  final String? prevLastCompletedDate;
+
+  /// Surprise-bonus + per-habit-milestone XP/Gold this one completion
+  /// awarded on top of the habit's base xpReward/goldReward — deliberately
+  /// excludes any app-wide streak-milestone bonus, which stays
+  /// undo-proof by design (see [DashboardNotifier.uncompleteHabit]'s doc
+  /// comment).
+  final int bonusXp;
+  final int bonusGold;
+
+  const _HabitCompletionSnapshot({
+    required this.hadPrior,
+    required this.prevStreak,
+    required this.prevLongest,
+    required this.prevTotal,
+    required this.prevLastCompletedDate,
+    required this.bonusXp,
+    required this.bonusGold,
   });
 }
 
@@ -68,8 +144,26 @@ class DashboardState {
   final bool didUseStreakFreeze;
   final String? lastCompletedId;
   final bool isLoading;
-  final bool showComebackBonus;
+
+  /// The streak that was just lost to a missed day, still recoverable via
+  /// [DashboardNotifier.useStreakFreeze] — 0 when there's nothing pending.
+  /// Persisted (Firestore's 'previousStreak' field / the guest settings
+  /// map), unlike the old design where this was recomputed fresh on every
+  /// load and only "worked" for a single in-memory session: since
+  /// `refresh()` re-runs on every app resume, a value that could only ever
+  /// be derived once meant backgrounding the app before acting on the
+  /// comeback card silently and permanently lost the offer. Cleared (set
+  /// back to 0, both locally and in storage) by whichever comes first:
+  /// [DashboardNotifier.useStreakFreeze], [DashboardNotifier.acknowledgeComeback],
+  /// or simply earning a fresh streak day for real — see
+  /// [DashboardNotifier.completeHabit]'s `clearsPendingComeback`.
   final int previousStreak;
+
+  /// Whether the "you lost your streak" card should show — always exactly
+  /// [previousStreak] > 0, so this can never drift out of sync with the
+  /// value it's describing the way a separately-tracked bool could.
+  bool get showComebackBonus => previousStreak > 0;
+
   final int? milestoneCelebration;
   final bool intentionsSetToday;
 
@@ -77,10 +171,22 @@ class DashboardState {
   /// Victory Grid — the "100 green squares completed" style achievements.
   final int totalGreenSquares;
 
-  /// Whether the day's streak has already been credited by grid activity
-  /// (kept alongside [completions].isEmpty so a habit-card completion and a
-  /// grid square never double-count the same day's streak).
-  final bool gridActivityToday;
+  /// Whether *today* has already earned its once-per-day streak point.
+  /// Streak means a full day — every one of today's scheduled habits done
+  /// (see [willCompleteAllHabitsToday]) — not just "did something today",
+  /// so this is only ever set the instant that 100% is first reached. It's
+  /// the single explicit gate [completeHabit] checks before bumping the
+  /// streak, replacing what used to be three separate places each
+  /// re-guessing "did today already count" from [completions]/grid state;
+  /// one persisted boolean can't be fooled by reload timing the way an
+  /// inferred guess could, and — because it can only flip false→true once
+  /// per calendar day — it's also what guarantees the streak can never
+  /// climb by more than 1 per day (so, e.g., 7 real days can never produce
+  /// more than a 7-day streak). Deliberately sticky: once true, adding a
+  /// *new* habit later today (which lowers today's completion percentage
+  /// back below 100%) does not revoke it — see [completeHabit]'s doc
+  /// comment for why that's the intended behavior, not a bug.
+  final bool streakEarnedToday;
 
   /// dateKey ('YYYY-MM-DD') → green squares colored that day, across all
   /// history. Kept as a flat rollup on the user doc so the monthly heatmap
@@ -134,12 +240,11 @@ class DashboardState {
     this.didUseStreakFreeze = false,
     this.lastCompletedId,
     this.isLoading = false,
-    this.showComebackBonus = false,
     this.previousStreak = 0,
     this.milestoneCelebration,
     this.intentionsSetToday = false,
     this.totalGreenSquares = 0,
-    this.gridActivityToday = false,
+    this.streakEarnedToday = false,
     this.dailyGreenCounts = const {},
     this.categoryCompletions = const {},
     this.habitStreakCounts = const {},
@@ -181,8 +286,8 @@ class DashboardState {
     if (lastKey == null) return 0;
     final last = DateTime.tryParse(lastKey);
     if (last == null) return 0;
-    final today = DateTime.now();
-    final gap = DateTime(today.year, today.month, today.day)
+    final gap = DateTime.now()
+        .effectiveDay
         .difference(DateTime(last.year, last.month, last.day))
         .inDays;
     return gap <= 1 ? (habitStreakCounts[habitId] ?? 0) : 0;
@@ -205,13 +310,12 @@ class DashboardState {
     bool didUseStreakFreeze = false,
     String? lastCompletedId,
     bool? isLoading,
-    bool? showComebackBonus,
     int? previousStreak,
     int? setMilestone,
     bool clearMilestone = false,
     bool? intentionsSetToday,
     int? totalGreenSquares,
-    bool? gridActivityToday,
+    bool? streakEarnedToday,
     Map<String, int>? dailyGreenCounts,
     Map<String, int>? categoryCompletions,
     Map<String, int>? habitStreakCounts,
@@ -241,13 +345,12 @@ class DashboardState {
         didUseStreakFreeze: didUseStreakFreeze,
         lastCompletedId: lastCompletedId ?? this.lastCompletedId,
         isLoading: isLoading ?? this.isLoading,
-        showComebackBonus: showComebackBonus ?? this.showComebackBonus,
         previousStreak: previousStreak ?? this.previousStreak,
         milestoneCelebration:
             clearMilestone ? null : (setMilestone ?? this.milestoneCelebration),
         intentionsSetToday: intentionsSetToday ?? this.intentionsSetToday,
         totalGreenSquares: totalGreenSquares ?? this.totalGreenSquares,
-        gridActivityToday: gridActivityToday ?? this.gridActivityToday,
+        streakEarnedToday: streakEarnedToday ?? this.streakEarnedToday,
         dailyGreenCounts: dailyGreenCounts ?? this.dailyGreenCounts,
         categoryCompletions: categoryCompletions ?? this.categoryCompletions,
         habitStreakCounts: habitStreakCounts ?? this.habitStreakCounts,
@@ -276,6 +379,16 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   // pattern QuickWinsNotifier already uses for its own randomized picks.
   final Random _random;
 
+  /// habitId → snapshot of that habit's per-habit fields from the instant
+  /// before its most recent [completeHabit] call touched them — see
+  /// [_HabitCompletionSnapshot]. Deliberately in-memory only, never
+  /// persisted: it exists purely so a same-session [uncompleteHabit] can
+  /// reverse a completion precisely, and survives a plain app
+  /// background/resume (this notifier instance isn't recreated for that —
+  /// only a full app restart clears it), which is exactly the window a
+  /// mis-tap correction actually happens in.
+  final Map<String, _HabitCompletionSnapshot> _lastHabitCompletion = {};
+
   DashboardNotifier(this._uid, {Random? random})
       : _random = random ?? Random(),
         super(DashboardState.initial()) {
@@ -288,10 +401,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
   // ── Helpers ─────────────────────────────────────────────────
 
-  static String get _todayKey => DateTime.now().toDateKey();
+  static String get _todayKey => DateTime.now().effectiveDay.toDateKey();
 
   static String get _weekKey {
-    final today = _dateOnly(DateTime.now());
+    final today = DateTime.now().effectiveDay;
     final monday = today.subtract(Duration(days: today.weekday - DateTime.monday));
     return '${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}';
   }
@@ -318,7 +431,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       final completions = rawCompletions.map(
         (key, value) => MapEntry(key, (value as num).toInt()),
       );
-      final gridActivityToday = (daily['gridActivityLogged'] as bool?) ?? false;
+      final streakEarnedToday = (daily['streakEarnedToday'] as bool?) ?? false;
       final intentionsSetToday = (daily['intentionsSet'] as bool?) ?? false;
       final rawGreenCounts =
           (saved['dailyGreenCounts'] as Map?)?.cast<String, dynamic>() ?? {};
@@ -356,13 +469,14 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
       int streak = (saved['currentStreak'] as int?) ?? 0;
       int streakFreezes = (saved['streakFreezes'] as int?) ?? 1;
-      int previousStreak = 0;
+      // Persisted, not re-derived — see DashboardState.previousStreak's doc
+      // comment for why this can no longer be a fresh-every-load local.
+      int previousStreak = (saved['previousStreak'] as int?) ?? 0;
       bool didUseStreakFreeze = false;
-      bool showComebackBonus = false;
       final lastActive = DateTime.tryParse(saved['lastActiveDate'] as String? ?? '');
 
       if (lastActive != null) {
-        final today = _dateOnly(DateTime.now());
+        final today = DateTime.now().effectiveDay;
         final lastDay = _dateOnly(lastActive);
         final yesterday = today.subtract(const Duration(days: 1));
         final gapDays = today.difference(lastDay).inDays;
@@ -379,7 +493,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           } else {
             if (streak > 0) {
               previousStreak = streak;
-              showComebackBonus = true;
+              saved['previousStreak'] = previousStreak;
             }
             streak = 0;
             saved['currentStreak'] = 0;
@@ -406,12 +520,11 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         unlockedAchievements:
             List<String>.from(saved['unlockedAchievements'] as List? ?? []),
         didUseStreakFreeze: didUseStreakFreeze,
-        showComebackBonus: showComebackBonus,
         previousStreak: previousStreak,
         isLoading: false,
         intentionsSetToday: intentionsSetToday,
         totalGreenSquares: (saved['totalGreenSquares'] as int?) ?? 0,
-        gridActivityToday: gridActivityToday,
+        streakEarnedToday: streakEarnedToday,
         dailyGreenCounts: dailyGreenCounts,
         categoryCompletions: categoryCompletions,
         habitStreakCounts: habitStreakCounts,
@@ -441,6 +554,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'longestStreak': state.longestStreak,
         'totalHabitCompletions': state.totalCompletions,
         'streakFreezes': state.streakFreezes,
+        'previousStreak': state.previousStreak,
         'unlockedAchievements': state.unlockedAchievements,
         'totalGreenSquares': state.totalGreenSquares,
         'dailyGreenCounts': state.dailyGreenCounts,
@@ -455,25 +569,58 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     );
   }
 
-  Future<void> _saveGuestDaily(Map<String, int> completions) async {
+  Future<void> _saveGuestDaily(
+    Map<String, int> completions, {
+    bool? streakEarnedToday,
+  }) async {
     final existing = await LocalStoreService.getDailyMap(_todayKey);
     await LocalStoreService.putDailyMap(
       _todayKey,
       {
         ...existing,
         'habitCompletions': completions,
-        'date': DateTime.now().toIso8601String(),
+        'date': DateTime.now().effectiveDay.toIso8601String(),
+        if (streakEarnedToday != null) 'streakEarnedToday': streakEarnedToday,
       },
     );
   }
 
-  Future<void> _setGuestGridActivityLogged(bool value) async {
-    final existing = await LocalStoreService.getDailyMap(_todayKey);
-    await LocalStoreService.putDailyMap(_todayKey, {
-      ...existing,
-      'gridActivityLogged': value,
-      'date': DateTime.now().toIso8601String(),
-    });
+  // Fields left over from the old GrowDaily v1 schema (this project reused
+  // an existing Firebase database) — confirmed by a full search of this
+  // codebase that nothing anywhere reads any of these anymore. Kept as an
+  // explicit, named list rather than just deleting-and-forgetting so it's
+  // obvious later *why* a user doc briefly gets an extra merge-write on
+  // load: 'streak'/'name' in particular used to sit right next to the
+  // still-live 'currentStreak'/'displayName' and are exactly the kind of
+  // near-duplicate that misleads whoever reads this data next. See
+  // _scrubLegacyV1Fields below for how this list gets used.
+  static const _legacyV1Keys = [
+    'name', 'streak', 'totalPoints', 'availablePoints', 'lastStreakDate',
+    'plan', 'todoTasks', 'taskRepeats', 'completedTasks',
+    'dailyPointsEarned', 'dailySubmissions', 'eisenhowerColors',
+    'eisenhowerTasks', 'gym', 'gymPoints', 'quran', 'quranPoints', 'study',
+    'hydration', 'waterPoints', 'waterSubmissions', 'showerPoints',
+    'phonePoints', 'masaa_athkar', 'masaa_athkarPoints', 'sabah_athkar',
+    'sabah_athkarPoints',
+  ];
+
+  /// One-time cleanup, called from [_loadToday] right after reading the
+  /// user doc. Self-healing rather than a bulk migration script: every
+  /// signed-in user's next normal app open checks their own doc for any
+  /// of [_legacyV1Keys] and — only if at least one is actually still
+  /// present — fires a single merge-write deleting just those keys.
+  /// Nothing to do (and nothing written) once a doc's already been
+  /// cleaned, so this naturally stops costing anything after the first
+  /// successful run per user. Fire-and-forget like every other background
+  /// write in this method (streak-freeze grants, streak reset) — a v1
+  /// field lingering one extra app open because this particular write
+  /// failed isn't worth blocking the load over.
+  void _scrubLegacyV1Fields(Map<String, dynamic> d) {
+    final present = _legacyV1Keys.where(d.containsKey);
+    if (present.isEmpty) return;
+    _userRef.set({
+      for (final key in present) key: FieldValue.delete(),
+    }, SetOptions(merge: true)).ignore();
   }
 
   Future<void> _loadToday() async {
@@ -496,9 +643,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       bool didUseStreakFreeze = false;
       List<String> unlockedAchievements = [];
       Map<String, int> completions = {};
-      bool showComebackBonus = false;
       bool intentionsSetToday = false;
-      bool gridActivityToday = false;
+      bool streakEarnedToday = false;
       int totalGreenSquares = 0;
       Map<String, int> dailyGreenCounts = {};
       Map<String, int> categoryCompletions = {};
@@ -509,6 +655,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
       if (userSnap.exists) {
         final d = userSnap.data()!;
+        _scrubLegacyV1Fields(d);
         displayName = (d['displayName'] as String?) ?? '';
         level = (d['level'] as int?) ?? 1;
         currentLevelXp = (d['currentLevelXp'] as int?) ?? 0;
@@ -518,6 +665,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         longestStreak = (d['longestStreak'] as int?) ?? 0;
         totalCompletions = (d['totalHabitCompletions'] as int?) ?? 0;
         streakFreezes = (d['streakFreezes'] as int?) ?? 1;
+        // Persisted, not re-derived — see DashboardState.previousStreak's
+        // doc comment for why this can no longer be a fresh-every-load
+        // local.
+        previousStreak = (d['previousStreak'] as int?) ?? 0;
         final lastFreezeGrantWeek = d['lastFreezeGrantWeek'] as String?;
         unlockedAchievements =
             List<String>.from(d['unlockedAchievements'] as List? ?? []);
@@ -527,6 +678,36 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         dailyGreenCounts = rawGreenCounts.map(
           (key, value) => MapEntry(key, (value as num).toInt()),
         );
+        // ── One-time repair of the dotted-key heatmap bug ─────────
+        // dailyGreenCounts increments used to be written as
+        // 'dailyGreenCounts.<dateKey>' string keys inside set(merge:
+        // true) — but dot notation is only a field *path* in update();
+        // in set() it's a literal field name. So every completion landed
+        // on a junk top-level field literally named
+        // "dailyGreenCounts.2026-07-17" while the real map stayed empty,
+        // which is why the Monthly Heatmap blanked on every restart. The
+        // counts themselves are intact in those junk fields (the atomic
+        // increments worked fine, just against the wrong field name) —
+        // fold them back into the real map and delete the junk, healing
+        // the doc in place. After one pass this finds nothing and costs
+        // a single keys scan. FieldValue.delete() is valid inside
+        // set(merge: true), and set()'s literal-key handling is exactly
+        // what lets each delete target its dotted-name junk field.
+        final junkGreenKeys =
+            d.keys.where((k) => k.startsWith('dailyGreenCounts.')).toList();
+        if (junkGreenKeys.isNotEmpty) {
+          for (final junkKey in junkGreenKeys) {
+            final dateKey = junkKey.substring('dailyGreenCounts.'.length);
+            final junkCount = (d[junkKey] as num?)?.toInt() ?? 0;
+            final merged = (dailyGreenCounts[dateKey] ?? 0) + junkCount;
+            dailyGreenCounts[dateKey] = merged < 0 ? 0 : merged;
+          }
+          _userRef.set({
+            'dailyGreenCounts': dailyGreenCounts,
+            for (final junkKey in junkGreenKeys)
+              junkKey: FieldValue.delete(),
+          }, SetOptions(merge: true)).ignore();
+        }
         final rawCategoryCompletions =
             (d['categoryCompletions'] as Map?)?.cast<String, dynamic>() ?? {};
         categoryCompletions = rawCategoryCompletions.map(
@@ -555,7 +736,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
         final lastActiveTs = d['lastActiveDate'] as Timestamp?;
         if (lastActiveTs != null) {
-          final today = _dateOnly(DateTime.now());
+          final today = DateTime.now().effectiveDay;
           final lastDay = _dateOnly(lastActiveTs.toDate());
           final yesterday = today.subtract(const Duration(days: 1));
           final gapDays = today.difference(lastDay).inDays;
@@ -570,12 +751,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
             } else {
               if (streak > 0) {
                 previousStreak = streak;
-                showComebackBonus = true;
               }
               streak = 0;
-              _userRef
-                  .set({'currentStreak': 0}, SetOptions(merge: true))
-                  .ignore();
+              _userRef.set({
+                'currentStreak': 0,
+                if (previousStreak > 0) 'previousStreak': previousStreak,
+              }, SetOptions(merge: true)).ignore();
             }
           }
         }
@@ -598,7 +779,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         completions =
             raw.map((k, v) => MapEntry(k, (v as num).toInt()));
         intentionsSetToday = (d['intentionsSet'] as bool?) ?? false;
-        gridActivityToday = (d['gridActivityLogged'] as bool?) ?? false;
+        streakEarnedToday = (d['streakEarnedToday'] as bool?) ?? false;
       }
 
       if (mounted) {
@@ -617,11 +798,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           newlyUnlocked: const [],
           didUseStreakFreeze: didUseStreakFreeze,
           isLoading: false,
-          showComebackBonus: showComebackBonus,
           previousStreak: previousStreak,
           intentionsSetToday: intentionsSetToday,
           totalGreenSquares: totalGreenSquares,
-          gridActivityToday: gridActivityToday,
+          streakEarnedToday: streakEarnedToday,
           dailyGreenCounts: dailyGreenCounts,
           categoryCompletions: categoryCompletions,
           habitStreakCounts: habitStreakCounts,
@@ -638,8 +818,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   // ── Streak helper ────────────────────────────────────────────
 
   /// Advances the day-streak by one and reports any milestone crossed.
-  /// Shared by [completeHabit] and [applyGridSquareChange] so both entry
-  /// points to "did something today" agree on milestone semantics.
+  /// The only caller is [completeHabit], at the exact moment today's
+  /// habits first reach 100% — see [DashboardState.streakEarnedToday].
   ({int streak, int longestStreak, int? milestone, int milestoneBonusXp})
       _computeStreakBump() {
     final newStreak = state.streak + 1;
@@ -677,11 +857,21 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   /// Grid/Today sync is deferred for those and this always reports
   /// "nothing to mirror". Returns `false` if the habit was already done
   /// today (no new completion registered at all).
+  ///
+  /// [allHabitsDoneAfter] answers "once this completion lands, will every
+  /// one of today's scheduled habits be done?" — the caller computes this
+  /// (see [willCompleteAllHabitsToday]) because only it has today's full
+  /// habit list; this method only ever sees one habit at a time. That
+  /// answer is what decides whether *today* just earned its once-per-day
+  /// streak point (see [DashboardState.streakEarnedToday] for the full
+  /// reasoning) — completing your 1st of 3 habits today no longer bumps
+  /// the streak, only completing your 3rd does.
   Future<bool> completeHabit({
     required String habitId,
     required int xpReward,
     required int goldReward,
     required int frequencyTarget,
+    required bool allHabitsDoneAfter,
     String? category,
     String? habitName,
   }) async {
@@ -694,11 +884,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     // ── Per-habit streak bump ────────────────────────────────
     //
     // Fires once per habit per day — `current == 0` means this is the
-    // first completion of *this specific habit* today (mirrors the
-    // app-wide isFirstToday check below, just scoped to one habit id
-    // instead of "any habit"). A weekly habit tapped 3 separate days still
-    // bumps 3 times; nothing here double-counts a same-day multi-tap
-    // because current is already > 0 by the second tap.
+    // first completion of *this specific habit* today. Unlike the
+    // app-wide streak bump below (which needs *every* habit done), this
+    // per-habit one only cares about this one habit, so it still fires on
+    // habit 1 of 3. A weekly habit tapped 3 separate days still bumps 3
+    // times; nothing here double-counts a same-day multi-tap because
+    // current is already > 0 by the second tap.
     final newHabitStreakCounts = {...state.habitStreakCounts};
     final newHabitLongestStreaks = {...state.habitLongestStreaks};
     final newHabitTotalCompletions = {...state.habitTotalCompletions};
@@ -712,7 +903,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       final last = lastKey == null ? null : DateTime.tryParse(lastKey);
       final gap = last == null
           ? null
-          : _dateOnly(DateTime.now()).difference(_dateOnly(last)).inDays;
+          : DateTime.now().effectiveDay.difference(_dateOnly(last)).inDays;
       final prevStreak = state.habitStreakCounts[habitId] ?? 0;
       // Only a same-day-yesterday completion continues the streak; a gap of
       // 0 (shouldn't happen given the `current == 0` guard, but defensive),
@@ -754,12 +945,50 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         ? (goldReward * GameConstants.surpriseBonusMultiplier).ceil()
         : 0;
 
+    // ── Same-day-undo snapshot ───────────────────────────────────
+    //
+    // Only meaningful on the tap that actually changed the per-habit
+    // fields above (current == 0) — a later same-day tap on a multi-tap
+    // habit leaves them untouched, so it leaves whatever snapshot the
+    // day's first tap already recorded in place. uncompleteHabit's
+    // .remove() wipes the whole day's taps at once regardless of how many
+    // there were, so that first-tap snapshot is still the right one to
+    // reverse against — see uncompleteHabit's doc comment.
+    if (current == 0) {
+      _lastHabitCompletion[habitId] = _HabitCompletionSnapshot(
+        hadPrior: state.habitLastCompletedDate.containsKey(habitId),
+        prevStreak: state.habitStreakCounts[habitId] ?? 0,
+        prevLongest: state.habitLongestStreaks[habitId] ?? 0,
+        prevTotal: state.habitTotalCompletions[habitId] ?? 0,
+        prevLastCompletedDate: state.habitLastCompletedDate[habitId],
+        bonusXp: habitMilestoneBonusXp + surpriseBonusXp,
+        bonusGold: surpriseBonusGold,
+      );
+    }
+
     // Only single-tap habits are synced with the Grid in this phase — see
     // the doc comment above.
     final isGridSyncable = frequencyTarget == 1;
 
-    final isFirstToday = state.completions.isEmpty && !state.gridActivityToday;
-    final bump = isFirstToday
+    // ── App-wide streak bump ─────────────────────────────────────
+    //
+    // See [DashboardState.streakEarnedToday] for the full reasoning; in
+    // short, this only fires the instant today's habits go from "not all
+    // done" to "all done" (never on the 1st of N, only the Nth), it can
+    // only ever fire once per calendar day, and once it fires it stays
+    // earned for the rest of the day even if a new habit gets added later.
+    final justReachedAllDone =
+        allHabitsDoneAfter && !state.streakEarnedToday;
+    final newStreakEarnedToday = state.streakEarnedToday || justReachedAllDone;
+    // A real, freshly-earned streak day supersedes any stale "restore your
+    // old streak with a freeze" offer still sitting around from a past
+    // loss — see DashboardState.previousStreak's doc comment. Without
+    // this, someone who ignores the comeback card and just starts
+    // completing habits again would keep the offer dangling indefinitely,
+    // and using it later would clobber the real progress they've since
+    // rebuilt.
+    final clearsPendingComeback = justReachedAllDone && state.previousStreak > 0;
+    final bump = justReachedAllDone
         ? _computeStreakBump()
         : (
             streak: state.streak,
@@ -788,20 +1017,25 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           (newCategoryCompletions[category] ?? 0) + 1;
     }
 
-    // A synced single-tap completion counts exactly like Grid's own green
-    // square, using the same existing fields Grid already writes — no new
-    // schema. Forward-only: this only ever touches today's dateKey, never
-    // rewrites or backfills earlier days. The guard above (`current >=
-    // frequencyTarget`) already makes this at most a one-time bump per
-    // habit per day, same as everything else in this method.
-    final newTotalGreenSquares = isGridSyncable
-        ? state.totalGreenSquares + 1
-        : state.totalGreenSquares;
+    // Every completion counts toward the heatmap and the lifetime
+    // green-squares total — regardless of isGridSyncable. isGridSyncable
+    // only answers "can this mirror onto a *specific Grid square's
+    // color*" (a single square can't cleanly represent "2 of 3 this
+    // week" for a multi-tap habit — see the doc comment above); it was
+    // never meant to also gate whether the day *happened* at all. Gating
+    // this increment on it too was a real bug: a habit tracked purely
+    // through Today (never touching its Grid square directly) with a
+    // frequencyTarget > 1 silently never showed up on the Monthly
+    // Heatmap, on any day, ever — "I did my habits but the heatmap is
+    // blank" with no obvious cause. Forward-only: this only ever touches
+    // today's dateKey, never rewrites or backfills earlier days. The
+    // guard above (`current >= frequencyTarget`) already makes this at
+    // most a one-time bump per habit per day, same as everything else in
+    // this method.
+    final newTotalGreenSquares = state.totalGreenSquares + 1;
     final newDailyGreenCounts = {...state.dailyGreenCounts};
-    if (isGridSyncable) {
-      newDailyGreenCounts[_todayKey] =
-          (newDailyGreenCounts[_todayKey] ?? 0) + 1;
-    }
+    newDailyGreenCounts[_todayKey] =
+        (newDailyGreenCounts[_todayKey] ?? 0) + 1;
 
     // ── Achievement check ────────────────────────────────────
     final newly = AchievementCatalog.locked(state.unlockedAchievements)
@@ -844,7 +1078,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     AnalyticsService.instance.track('habit_completed', props: {
       'habitId': habitId,
       'streak': newStreak,
-      'isFirstToday': isFirstToday,
+      'allHabitsDoneAfter': allHabitsDoneAfter,
+      'streakJustEarned': justReachedAllDone,
       'milestone': newMilestone,
     });
 
@@ -857,6 +1092,8 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       gold: newGold + bonusGold,
       streak: newStreak,
       longestStreak: newLongest,
+      streakEarnedToday: newStreakEarnedToday,
+      previousStreak: clearsPendingComeback ? 0 : null,
       totalCompletions: newTotal,
       completions: newCompletions,
       unlockedAchievements: newUnlockedIds,
@@ -889,18 +1126,27 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     );
 
     if (_uid == null) {
-      await _saveGuestDaily(newCompletions);
-      await _saveGuestState(lastActiveDate: DateTime.now());
+      await _saveGuestDaily(newCompletions, streakEarnedToday: newStreakEarnedToday);
+      await _saveGuestState(lastActiveDate: DateTime.now().effectiveDay);
       return isGridSyncable;
     }
 
     try {
-      final now = DateTime.now();
+      // .effectiveDay, not the raw instant — this feeds 'lastActiveDate',
+      // which the streak-gap comparisons above (habitStreak,
+      // completeHabit's per-habit gap, _loadToday/_loadGuestToday's
+      // app-wide gap) all read back assuming it's already day-cutoff
+      // aligned. See DateTimeGameExt.effectiveDay's doc comment.
+      final now = DateTime.now().effectiveDay;
       final batch = FirebaseFirestore.instance.batch();
 
       batch.set(
         _dailyRef,
-        {'habitCompletions': newCompletions, 'date': Timestamp.fromDate(now)},
+        {
+          'habitCompletions': newCompletions,
+          'date': Timestamp.fromDate(now),
+          'streakEarnedToday': newStreakEarnedToday,
+        },
         SetOptions(merge: true),
       );
 
@@ -913,6 +1159,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           'gold': newGold + bonusGold,
           'currentStreak': newStreak,
           'longestStreak': newLongest,
+          if (clearsPendingComeback) 'previousStreak': 0,
           'totalHabitCompletions': newTotal,
           'unlockedAchievements': newUnlockedIds,
           'categoryCompletions': newCategoryCompletions,
@@ -922,10 +1169,23 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           'habitTotalCompletions': newHabitTotalCompletions,
           'habitLastCompletedDate': newHabitLastCompletedDate,
           // Same fields Grid's own applyGridSquareChange writes — no new
-          // schema, just a second (mutually-exclusive, see isGridSyncable
-          // above) writer for the synced single-tap case.
-          if (isGridSyncable) 'totalGreenSquares': FieldValue.increment(1),
-          if (isGridSyncable) 'dailyGreenCounts.$_todayKey': FieldValue.increment(1),
+          // schema, just a second writer here. Unconditional (every
+          // completion, not just isGridSyncable ones — see the doc
+          // comment above newTotalGreenSquares) so a multi-tap habit
+          // tracked only through Today still shows up on the heatmap.
+          //
+          // A nested map, NOT a dotted 'dailyGreenCounts.$_todayKey' key:
+          // dot notation is only a field *path* in update() — inside
+          // set(merge: true) it's a literal field name, so the dotted
+          // form was creating junk top-level fields named
+          // "dailyGreenCounts.2026-07-17" that the loader (which reads
+          // the real map) never saw. That was the whole "heatmap is
+          // empty after every restart" bug; _load's one-time repair
+          // folds the stranded junk fields back in. merge: true merges
+          // maps per-leaf-field, so this increments just today's entry
+          // without touching other days.
+          'totalGreenSquares': FieldValue.increment(1),
+          'dailyGreenCounts': {_todayKey: FieldValue.increment(1)},
         },
         SetOptions(merge: true),
       );
@@ -937,22 +1197,40 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
   /// Reverses a same-day completion made via [completeHabit] — the "I
   /// completed this by mistake" correction available from Grid's
-  /// long-press editor on a synced, completed-today square. Always
-  /// operates on *today* (there's no "edit yesterday's completion"
-  /// concept anywhere in this app).
+  /// long-press editor on a synced, completed-today square, and from
+  /// quit-habit's affirm→slip mis-tap correction. Always operates on
+  /// *today* (there's no "edit yesterday's completion" concept anywhere in
+  /// this app).
   ///
-  /// Reverses what's safe to reverse: XP, gold, `completions[habitId]`
-  /// (back to not-done so Today un-checks it too), `categoryCompletions`,
-  /// `totalCompletions`, and the `totalGreenSquares`/`dailyGreenCounts`
-  /// counters this phase added for synced completions.
+  /// Reverses what's safe to reverse: the base XP/gold the caller passes
+  /// in, plus — via [_lastHabitCompletion], when a same-session record of
+  /// this exact completion exists — the surprise-bonus/per-habit-milestone
+  /// XP/Gold it awarded, and the `habitStreakCounts` /
+  /// `habitLongestStreaks` / `habitTotalCompletions` /
+  /// `habitLastCompletedDate` bump for this one habit. Also always
+  /// reverses `completions[habitId]` (back to not-done so Today un-checks
+  /// it too), `categoryCompletions`, `totalCompletions`, and the
+  /// `totalGreenSquares`/`dailyGreenCounts` counters this phase added for
+  /// synced completions.
+  ///
+  /// Without a snapshot (the app was fully restarted between the
+  /// completion and the undo, so [_lastHabitCompletion] lost it) the
+  /// per-habit streak fields and their bonus are left untouched rather
+  /// than guessed at — guessing wrong would silently corrupt a real streak
+  /// count (e.g. resetting a 6-day streak to 1 because "completed again
+  /// today" looks identical to "completed for the first time"), which is
+  /// worse than occasionally leaving a few stray XP/gold uncorrected.
   ///
   /// Deliberately does **not** touch `unlockedAchievements` — nothing in
   /// this app ever revokes an unlocked achievement, the same way a real
   /// trophy doesn't get taken back once earned — or
-  /// `streak`/`longestStreak`/`gridActivityToday`: safely re-deriving
-  /// "was this really the day's only source of today's streak point" is
-  /// fragile, so an already-earned streak day is left alone. Both are the
-  /// same conservative bias `completeHabit` already takes.
+  /// `streak`/`longestStreak`/`streakEarnedToday`/its milestone bonus:
+  /// once today has been credited as a full 100% day, undoing one habit
+  /// again is left alone rather than un-crediting it. This is the same
+  /// one-way, conservative bias [DashboardState.streakEarnedToday]
+  /// documents for the "add a new habit after 100%" case — today's
+  /// *whole-day* credit only ever moves forward, even though this one
+  /// habit's own reward and per-habit streak now reverse precisely.
   Future<void> uncompleteHabit({
     required String habitId,
     required int xpReward,
@@ -965,13 +1243,45 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     final newCompletions = Map<String, int>.from(state.completions)
       ..remove(habitId);
 
+    final snapshot = _lastHabitCompletion.remove(habitId);
+
+    Map<String, int>? newHabitStreakCounts;
+    Map<String, int>? newHabitLongestStreaks;
+    Map<String, int>? newHabitTotalCompletions;
+    Map<String, String>? newHabitLastCompletedDate;
+    if (snapshot != null) {
+      newHabitStreakCounts = {...state.habitStreakCounts};
+      newHabitLongestStreaks = {...state.habitLongestStreaks};
+      newHabitTotalCompletions = {...state.habitTotalCompletions};
+      newHabitLastCompletedDate = {...state.habitLastCompletedDate};
+      if (snapshot.hadPrior) {
+        newHabitStreakCounts[habitId] = snapshot.prevStreak;
+        newHabitLongestStreaks[habitId] = snapshot.prevLongest;
+        newHabitTotalCompletions[habitId] = snapshot.prevTotal;
+        final prevDate = snapshot.prevLastCompletedDate;
+        if (prevDate != null) {
+          newHabitLastCompletedDate[habitId] = prevDate;
+        } else {
+          newHabitLastCompletedDate.remove(habitId);
+        }
+      } else {
+        newHabitStreakCounts.remove(habitId);
+        newHabitLongestStreaks.remove(habitId);
+        newHabitTotalCompletions.remove(habitId);
+        newHabitLastCompletedDate.remove(habitId);
+      }
+    }
+
+    final totalXpReward = xpReward + (snapshot?.bonusXp ?? 0);
+    final totalGoldReward = goldReward + (snapshot?.bonusGold ?? 0);
+
     final xpResult = XpCalculator.applyXpDelta(
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
       cumulativeXp: state.cumulativeXp,
-      xpDelta: -xpReward,
+      xpDelta: -totalXpReward,
     );
-    final rawGold = state.gold - goldReward;
+    final rawGold = state.gold - totalGoldReward;
     final newGold = rawGold < 0 ? 0 : rawGold;
 
     final newCategoryCompletions = {...state.categoryCompletions};
@@ -998,6 +1308,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       categoryCompletions: newCategoryCompletions,
       totalGreenSquares: newTotalGreenSquares,
       dailyGreenCounts: newDailyGreenCounts,
+      habitStreakCounts: newHabitStreakCounts,
+      habitLongestStreaks: newHabitLongestStreaks,
+      habitTotalCompletions: newHabitTotalCompletions,
+      habitLastCompletedDate: newHabitLastCompletedDate,
     );
 
     if (_uid == null) {
@@ -1029,9 +1343,17 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
           // Atomic increments, matching completeHabit's own writes to
           // these same two fields — both Grid's applyGridSquareChange and
           // this method can touch them, so an absolute local value would
-          // risk a lost update.
+          // risk a lost update. Nested map, not a dotted key — see
+          // completeHabit's identical write for why (dot notation is a
+          // literal field name inside set(merge: true), not a path).
           'totalGreenSquares': FieldValue.increment(-1),
-          'dailyGreenCounts.$_todayKey': FieldValue.increment(-1),
+          'dailyGreenCounts': {_todayKey: FieldValue.increment(-1)},
+          if (snapshot != null) ...{
+            'habitStreakCounts': newHabitStreakCounts,
+            'habitLongestStreaks': newHabitLongestStreaks,
+            'habitTotalCompletions': newHabitTotalCompletions,
+            'habitLastCompletedDate': newHabitLastCompletedDate,
+          },
         },
         SetOptions(merge: true),
       );
@@ -1067,24 +1389,26 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   }
 
   /// Applies the progression fallout of a single Victory Grid square
-  /// changing color: fixed XP per the color (see [SquareState.xpValue]),
-  /// a lifetime green-square counter that drives grid achievements, a daily
-  /// rollup for the monthly heatmap, and — only for a green mark logged on
-  /// *today* — the same once-per-day streak bump [completeHabit] uses.
+  /// changing color: fixed XP per the color (see [SquareState.xpValue]), a
+  /// lifetime green-square counter that drives grid achievements, and a
+  /// daily rollup for the monthly heatmap.
   ///
-  /// [stillGreenToday] tells us whether any square is still green today
-  /// *after* this change — needed to catch the inverse case: a user marks
-  /// today's only green square (streak bumps +1), then un-marks that same
-  /// square. Nothing here used to roll that streak point back, so tapping a
-  /// square and immediately un-tapping it was a free, repeatable +1 to the
-  /// streak with none of the actual daily activity it's supposed to
-  /// represent.
+  /// Deliberately does **not** touch the streak. Streak means a full,
+  /// 100%-of-today's-habits day (see [DashboardState.streakEarnedToday]),
+  /// and that's only knowable from the real habit list, which this
+  /// habit-agnostic, color-only method never sees — a lone bonus-colored
+  /// square, a partial mark, or a multi-tap habit's Grid-only progress
+  /// isn't "today done", so none of those should hand out the day's streak
+  /// point on their own. The one case that legitimately *should* streak —
+  /// finishing a real single-tap habit's square to `complete` — is already
+  /// special-cased at the call site to go through [completeHabit] instead
+  /// (see grid_screen.dart's `_handleSquareTap`/`_handlePaletteTap`), so by
+  /// the time a color change reaches here, it was never going to be the
+  /// day's 100% moment.
   Future<void> applyGridSquareChange({
     required int xpDelta,
     required int greenDelta,
-    required bool isToday,
     required String dateKey,
-    bool stillGreenToday = true,
   }) async {
     var newLevel = state.level;
     var newCurrentLevelXp = state.currentLevelXp;
@@ -1110,58 +1434,9 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       newDailyGreenCounts[dateKey] = rawDay < 0 ? 0 : rawDay;
     }
 
-    var newStreak = state.streak;
-    var newLongest = state.longestStreak;
-    var newGridActivityToday = state.gridActivityToday;
-    int? newMilestone;
-
-    final earnsStreakToday = isToday &&
-        greenDelta > 0 &&
-        state.completions.isEmpty &&
-        !state.gridActivityToday;
-    // The mirror image of earnsStreakToday: this grid action was the only
-    // reason today's streak point was earned (no habit-list completions
-    // today either), and after this change there's no green square left
-    // today to justify keeping it.
-    final losesStreakToday = isToday &&
-        greenDelta < 0 &&
-        !stillGreenToday &&
-        state.completions.isEmpty &&
-        state.gridActivityToday &&
-        state.streak > 0;
-    if (earnsStreakToday) {
-      final bump = _computeStreakBump();
-      newStreak = bump.streak;
-      newLongest = bump.longestStreak;
-      newMilestone = bump.milestone;
-      newGridActivityToday = true;
-      if (bump.milestoneBonusXp > 0) {
-        final bumped = XpCalculator.applyXpGain(
-          currentLevel: newLevel,
-          currentLevelXp: newCurrentLevelXp,
-          cumulativeXp: newCumulativeXp,
-          xpGained: bump.milestoneBonusXp,
-        );
-        newLevel = bumped.newLevel;
-        newCurrentLevelXp = bumped.newCurrentLevelXp;
-        newCumulativeXp = bumped.newCumulativeXp;
-      }
-    } else if (losesStreakToday) {
-      newStreak = state.streak - 1;
-      // If the current streak was tied with the record, that record was
-      // set by the very point we're now taking back — pull it back too.
-      // Otherwise the record was earned on a previous, already-broken
-      // streak and stays put.
-      newLongest = state.longestStreak == state.streak
-          ? state.longestStreak - 1
-          : state.longestStreak;
-      newGridActivityToday = false;
-    }
-
     // ── Achievement check ────────────────────────────────────
     final newly = AchievementCatalog.locked(state.unlockedAchievements)
         .where((a) => switch (a.trigger) {
-              AchievementTrigger.streak => newStreak >= a.threshold,
               AchievementTrigger.level => newLevel >= a.threshold,
               AchievementTrigger.greenSquares =>
                 newTotalGreen >= a.threshold,
@@ -1195,15 +1470,11 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       currentLevelXp: newCurrentLevelXp,
       cumulativeXp: newCumulativeXp,
       gold: newGold,
-      streak: newStreak,
-      longestStreak: newLongest,
       totalGreenSquares: newTotalGreen,
-      gridActivityToday: newGridActivityToday,
       dailyGreenCounts: newDailyGreenCounts,
       unlockedAchievements: newUnlockedIds,
       newlyUnlocked: newly,
       didJustLevelUp: didLevelUp,
-      setMilestone: newMilestone,
     );
 
     if (didLevelUp) NotificationService.instance.showLevelUp(newLevel);
@@ -1213,13 +1484,16 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
     if (_uid == null) {
       await _saveGuestState();
-      if (earnsStreakToday) await _setGuestGridActivityLogged(true);
-      if (losesStreakToday) await _setGuestGridActivityLogged(false);
       return;
     }
 
     try {
-      final now = DateTime.now();
+      // .effectiveDay, not the raw instant — this feeds 'lastActiveDate',
+      // which the streak-gap comparisons above (habitStreak,
+      // completeHabit's per-habit gap, _loadToday/_loadGuestToday's
+      // app-wide gap) all read back assuming it's already day-cutoff
+      // aligned. See DateTimeGameExt.effectiveDay's doc comment.
+      final now = DateTime.now().effectiveDay;
       final batch = FirebaseFirestore.instance.batch();
 
       final userUpdate = <String, dynamic>{
@@ -1227,34 +1501,58 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'currentLevelXp': newCurrentLevelXp,
         'cumulativeXp': newCumulativeXp,
         'gold': newGold,
-        'currentStreak': newStreak,
-        'longestStreak': newLongest,
         'unlockedAchievements': newUnlockedIds,
         'lastActiveDate': Timestamp.fromDate(now),
       };
       if (greenDelta != 0) {
         userUpdate['totalGreenSquares'] = FieldValue.increment(greenDelta);
-        userUpdate['dailyGreenCounts.$dateKey'] =
-            FieldValue.increment(greenDelta);
+        // Nested map, not a dotted key — see completeHabit's identical
+        // write for why (dot notation is a literal field name inside
+        // set(merge: true), not a path).
+        userUpdate['dailyGreenCounts'] = {
+          dateKey: FieldValue.increment(greenDelta),
+        };
       }
       batch.set(_userRef, userUpdate, SetOptions(merge: true));
 
-      if (earnsStreakToday) {
-        batch.set(
-          _dailyRef,
-          {'gridActivityLogged': true},
-          SetOptions(merge: true),
-        );
-      } else if (losesStreakToday) {
-        batch.set(
-          _dailyRef,
-          {'gridActivityLogged': false},
-          SetOptions(merge: true),
-        );
-      }
-
       await batch.commit();
     } catch (_) {}
+  }
+
+  /// Keeps the heatmap's day rollup honest when a *past* day's square is
+  /// backfilled. WeeklyGridNotifier.setSquare intentionally never calls
+  /// [applyGridSquareChange] for a non-today day — that guard exists so
+  /// navigating to an old week and coloring squares green can't farm real
+  /// XP, gold, streak, or achievement progress for a day that wasn't
+  /// actually lived through. But the Monthly Heatmap (see
+  /// MonthlyHeatmapScreen) reads *only* from [dailyGreenCounts], so
+  /// skipping that field too meant a backfilled square colored correctly
+  /// on the Grid itself but silently never showed up on the heatmap — the
+  /// exact "doesn't save the previous days" gap. This method updates
+  /// *only* dailyGreenCounts, nothing else: no XP, no gold, no streak, no
+  /// totalGreenSquares, no achievement checks. It's deliberately the
+  /// narrowest possible fix, so the anti-farming guard everywhere else
+  /// stays exactly as strict as it already was.
+  void recordPastDayGreenDelta(String dateKey, int greenDelta) {
+    if (greenDelta == 0) return;
+    final newDailyGreenCounts = {...state.dailyGreenCounts};
+    final raw = (newDailyGreenCounts[dateKey] ?? 0) + greenDelta;
+    newDailyGreenCounts[dateKey] = raw < 0 ? 0 : raw;
+    state = state.copyWith(dailyGreenCounts: newDailyGreenCounts);
+
+    if (_uid == null) {
+      _saveGuestState().ignore();
+      return;
+    }
+    // Nested map, not a dotted key — see completeHabit's identical write
+    // for why (dot notation is a literal field name inside
+    // set(merge: true), not a path).
+    _userRef.set(
+      {
+        'dailyGreenCounts': {dateKey: FieldValue.increment(greenDelta)},
+      },
+      SetOptions(merge: true),
+    ).ignore();
   }
 
   /// Spends gold for an extra streak freeze. Returns whether the purchase
@@ -1377,16 +1675,23 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       streak: restoredStreak,
       longestStreak: newLongest,
       streakFreezes: newFreezes,
-      showComebackBonus: false,
       previousStreak: 0,
     );
 
-    if (_uid == null) return;
+    if (_uid == null) {
+      // This was previously missing entirely — the restore only ever
+      // updated in-memory state and guests would see their streak silently
+      // revert to lost on next launch. Same guest-save-on-mutation pattern
+      // every other method in this class already follows.
+      await _saveGuestState();
+      return;
+    }
     _userRef.set({
       'currentStreak': restoredStreak,
       'longestStreak': newLongest,
       'streakFreezes': newFreezes,
-      'lastActiveDate': Timestamp.fromDate(DateTime.now()),
+      'previousStreak': 0,
+      'lastActiveDate': Timestamp.fromDate(DateTime.now().effectiveDay),
     }, SetOptions(merge: true)).ignore();
   }
 
@@ -1401,7 +1706,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     );
     AnalyticsService.instance.track('comeback_bonus_claimed');
     state = state.copyWith(
-      showComebackBonus: false,
+      previousStreak: 0,
       level: result.newLevel,
       currentLevelXp: result.newCurrentLevelXp,
       cumulativeXp: result.newCumulativeXp,
@@ -1416,6 +1721,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'level': result.newLevel,
         'currentLevelXp': result.newCurrentLevelXp,
         'cumulativeXp': result.newCumulativeXp,
+        'previousStreak': 0,
       }, SetOptions(merge: true));
     } catch (_) {}
   }
@@ -1444,7 +1750,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         'priorities': priorities,
         'intentionAnchor': anchor,
         'intentionAction': intention,
-        'date': DateTime.now().toIso8601String(),
+        'date': DateTime.now().effectiveDay.toIso8601String(),
       });
       return;
     }
@@ -1495,7 +1801,24 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     state = state.copyWith(newlyUnlocked: []);
   }
 
-  Future<void> refresh() => _loadToday();
+  /// Re-reads gold/XP/level/streak/achievements/dailyGreenCounts from
+  /// Firestore/local storage. [_loadToday]/[_loadGuestToday] only ever run
+  /// once, at construction — every other change flows through this app's
+  /// own optimistic-update methods, so nothing normally calls this again.
+  /// It's what picks up a change made *outside* that path, e.g. a field
+  /// like `gold` edited by hand in the Firebase console while testing —
+  /// without it, the app just keeps showing whatever it last loaded until
+  /// a full restart. Called on app resume — see main.dart.
+  ///
+  /// This also matters for the day-cutoff feature (see
+  /// DateTimeGameExt.effectiveDay): if the app is simply left open and
+  /// backgrounded across the cutoff hour, `state` would otherwise keep
+  /// showing yesterday's `_todayKey` document — streakEarnedToday,
+  /// intentionsSetToday, completions — until a full restart. Routing
+  /// guests through [_loadGuestToday] here too (previously this only ever
+  /// called the signed-in path, silently no-op-ing for guests) means an
+  /// app-resume after the cutoff correctly picks up the new day for both.
+  Future<void> refresh() => _uid != null ? _loadToday() : _loadGuestToday();
 }
 
 final dashboardProvider =

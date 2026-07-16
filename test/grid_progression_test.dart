@@ -123,8 +123,7 @@ void main() {
       await tmp.delete(recursive: true);
     });
 
-    test(
-        'the first green square awards +10 XP, the First Victory achievement, and today\'s streak',
+    test('the first green square awards +10 XP and the First Victory achievement',
         () async {
       final today = DateTime.now();
       container
@@ -138,15 +137,20 @@ void main() {
       expect(dash.unlockedAchievements, contains('green_1'));
       expect(dash.gold, 10);
       expect(dash.totalGreenSquares, 1);
-      expect(dash.streak, 1);
-      expect(dash.gridActivityToday, isTrue);
+      // A raw Grid color change never earns the streak on its own anymore —
+      // streak means 100% of *today's real habits* done (see
+      // DashboardState.streakEarnedToday), which only DashboardNotifier.
+      // completeHabit can determine (it's the only caller with the actual
+      // habit list). This test never touches completeHabit, so streak stays
+      // untouched at its initial 0.
+      expect(dash.streak, 0);
 
       final key =
           '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       expect(dash.dailyGreenCounts[key], 1);
     });
 
-    test('cycling a square back and forth cannot farm XP or streaks',
+    test('cycling a square back and forth cannot farm XP, and never touches streak',
         () async {
       final today = DateTime.now();
       final grid = container.read(weeklyGridProvider.notifier);
@@ -163,8 +167,11 @@ void main() {
       // one-time First Victory) — the achievement never re-unlocks.
       expect(dash.cumulativeXp, 35);
       expect(dash.totalGreenSquares, 1);
-      // The streak bumped exactly once despite three changes.
-      expect(dash.streak, 1);
+      // Grid color changes alone never grant a streak point (see the test
+      // above) — asserted again here as a regression guard against the
+      // original bug report (a Grid/habit-list action was independently
+      // bumping the streak, letting a single day rack up several points).
+      expect(dash.streak, 0);
     });
 
     test('a red square costs 3 XP but the floor is zero', () async {
@@ -314,12 +321,16 @@ void main() {
 
     test(
         "Today's habit-list completion (DashboardNotifier.completeHabit) "
-        'awards XP, gold, and a streak point', () async {
+        'awards XP, gold, and a streak point when it is the only habit '
+        'scheduled today', () async {
       final ok = await container.read(dashboardProvider.notifier).completeHabit(
             habitId: 'habit_today',
             xpReward: 20,
             goldReward: 8,
             frequencyTarget: 1,
+            // habit_today is the only habit scheduled, so finishing it is
+            // by definition 100% of today.
+            allHabitsDoneAfter: true,
             category: 'custom',
             habitName: 'Test Habit',
           );
@@ -334,6 +345,7 @@ void main() {
       expect(dash.gold, 18);
       expect(dash.unlockedAchievements, contains('green_1'));
       expect(dash.streak, 1);
+      expect(dash.streakEarnedToday, isTrue);
       expect(dash.completions['habit_today'], 1);
       expect(dash.categoryCompletions['custom'], 1);
     });
@@ -346,6 +358,7 @@ void main() {
         xpReward: 20,
         goldReward: 8,
         frequencyTarget: 1,
+        allHabitsDoneAfter: true,
         category: 'custom',
         habitName: 'Test Habit',
       );
@@ -355,6 +368,7 @@ void main() {
         xpReward: 20,
         goldReward: 8,
         frequencyTarget: 1,
+        allHabitsDoneAfter: true,
         category: 'custom',
         habitName: 'Test Habit',
       );
@@ -366,34 +380,162 @@ void main() {
     });
 
     test(
-        'completing two different habits the same day bumps the streak at '
-        'most once', () async {
+        'streak means 100%: the first of two habits does not bump the '
+        "streak, only the second (last) one does — this is today's real "
+        'behavior for the reported "3-day streak on day 1" bug (it used to '
+        'bump on the very first completion, regardless of how many habits '
+        'were still left)', () async {
       final notifier = container.read(dashboardProvider.notifier);
       await notifier.completeHabit(
         habitId: 'habit_1',
         xpReward: 10,
         goldReward: 5,
         frequencyTarget: 1,
+        allHabitsDoneAfter: false, // habit_2 is still pending
         category: 'custom',
         habitName: 'Habit One',
       );
       final afterFirst = container.read(dashboardProvider);
+      expect(afterFirst.streak, 0);
+      expect(afterFirst.streakEarnedToday, isFalse);
+
       await notifier.completeHabit(
         habitId: 'habit_2',
         xpReward: 10,
         goldReward: 5,
         frequencyTarget: 1,
+        allHabitsDoneAfter: true, // habit_1 already done — this is the last
         category: 'custom',
         habitName: 'Habit Two',
       );
 
       final dash = container.read(dashboardProvider);
       expect(dash.streak, 1);
-      expect(afterFirst.streak, 1); // the streak point came from habit_1...
-      // ...and habit_2 still pays its own +10 XP/+5 gold, just with no
-      // second streak point and no repeat of the one-time achievement bonus.
+      expect(dash.streakEarnedToday, isTrue);
+      // Each completion still pays its own XP/gold, independent of streak.
       expect(dash.cumulativeXp, afterFirst.cumulativeXp + 10);
       expect(dash.gold, afterFirst.gold + 5);
+    });
+
+    test(
+        'three habits completed the same day still produce exactly a '
+        '1-day streak, never 3 (direct regression test for the reported '
+        'bug)', () async {
+      final notifier = container.read(dashboardProvider.notifier);
+      final ids = ['h1', 'h2', 'h3'];
+      for (var i = 0; i < ids.length; i++) {
+        await notifier.completeHabit(
+          habitId: ids[i],
+          xpReward: 5,
+          goldReward: 2,
+          frequencyTarget: 1,
+          allHabitsDoneAfter: i == ids.length - 1,
+          category: 'custom',
+          habitName: 'Habit ${i + 1}',
+        );
+      }
+      expect(container.read(dashboardProvider).streak, 1);
+    });
+
+    test(
+        'streak stays sticky at 1 even if a habit added after 100% is also '
+        "completed — adding/finishing a new habit after today's streak "
+        'point is earned must never re-trigger or double it', () async {
+      final notifier = container.read(dashboardProvider.notifier);
+      await notifier.completeHabit(
+        habitId: 'h1',
+        xpReward: 5,
+        goldReward: 2,
+        frequencyTarget: 1,
+        allHabitsDoneAfter: true,
+        category: 'custom',
+        habitName: 'Habit One',
+      );
+      expect(container.read(dashboardProvider).streak, 1);
+
+      // A brand-new habit added after 100% and then completed — the caller
+      // may honestly (re)report allHabitsDoneAfter: true (it again is 100%
+      // of the now-larger list), but streakEarnedToday's stickiness must
+      // stop this from paying out a second streak point today.
+      await notifier.completeHabit(
+        habitId: 'h2',
+        xpReward: 5,
+        goldReward: 2,
+        frequencyTarget: 1,
+        allHabitsDoneAfter: true,
+        category: 'custom',
+        habitName: 'Habit Two (added after 100%)',
+      );
+      expect(container.read(dashboardProvider).streak, 1);
+    });
+  });
+
+  group('willCompleteAllHabitsToday', () {
+    test('only true once every scheduled habit is done', () {
+      const todayHabits = [
+        (id: 'a', frequencyTarget: 1),
+        (id: 'b', frequencyTarget: 1),
+      ];
+
+      // Nothing done yet — completing 'a' still leaves 'b' pending.
+      expect(
+        willCompleteAllHabitsToday(
+          state: DashboardState.initial(),
+          todayHabits: todayHabits,
+          habitId: 'a',
+          frequencyTarget: 1,
+        ),
+        isFalse,
+      );
+
+      // 'a' already done — completing 'b' is the last piece.
+      final aDone = DashboardState.initial().copyWith(completions: {'a': 1});
+      expect(
+        willCompleteAllHabitsToday(
+          state: aDone,
+          todayHabits: todayHabits,
+          habitId: 'b',
+          frequencyTarget: 1,
+        ),
+        isTrue,
+      );
+    });
+
+    test('a multi-tap habit only counts done on its final tap', () {
+      const todayHabits = [(id: 'weekly', frequencyTarget: 3)];
+      final twoOfThree =
+          DashboardState.initial().copyWith(completions: {'weekly': 2});
+
+      expect(
+        willCompleteAllHabitsToday(
+          state: DashboardState.initial(),
+          todayHabits: todayHabits,
+          habitId: 'weekly',
+          frequencyTarget: 3,
+        ),
+        isFalse, // 1st of 3 taps
+      );
+      expect(
+        willCompleteAllHabitsToday(
+          state: twoOfThree,
+          todayHabits: todayHabits,
+          habitId: 'weekly',
+          frequencyTarget: 3,
+        ),
+        isTrue, // 3rd of 3 taps
+      );
+    });
+
+    test('an empty habit list is never "100%"', () {
+      expect(
+        willCompleteAllHabitsToday(
+          state: DashboardState.initial(),
+          todayHabits: const <({String id, int frequencyTarget})>[],
+          habitId: 'a',
+          frequencyTarget: 1,
+        ),
+        isFalse,
+      );
     });
   });
 }

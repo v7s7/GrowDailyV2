@@ -1,5 +1,11 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+# 15.0, not just the 13.0 purchases_flutter itself needs - the hosted
+# Paywall/Customer Center UI (purchases_ui_flutter, RevenueCatUI - see
+# PurchaseService) only renders on iOS 15.0+; older devices would silently
+# get nothing if this stayed at 13.0. Explicit rather than relying on
+# Flutter's own default deployment target, so this doesn't silently drift
+# on a future `flutter create`/template update. Trade-off: drops iOS 13/14
+# support, a vanishingly small slice of the install base by mid-2026.
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

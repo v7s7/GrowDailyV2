@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart';
@@ -158,7 +159,7 @@ class QuickWinsNotifier extends StateNotifier<QuickWinsState> {
   }
 
   QuickWinsState _ensureDaily(QuickWinsState s) {
-    final todayKey = _dateKey(DateTime.now());
+    final todayKey = _dateKey(DateTime.now().effectiveDay);
     if (s.dailyWinId != null && s.dailyDateKey == todayKey) return s;
     final picked = _pick(
       pool: QuickWinCatalog.daily,
@@ -175,7 +176,7 @@ class QuickWinsNotifier extends StateNotifier<QuickWinsState> {
   }
 
   QuickWinsState _ensureWeekly(QuickWinsState s) {
-    final weekKey = _dateKey(startOfGridWeek(DateTime.now()));
+    final weekKey = _dateKey(startOfGridWeek(DateTime.now().effectiveDay));
     if (s.weeklyWinId != null && s.weeklyWeekKey == weekKey) return s;
     final picked = _pick(
       pool: QuickWinCatalog.weekly,

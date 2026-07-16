@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
@@ -16,10 +17,20 @@ class ProgressPoint {
   const ProgressPoint({required this.date, required this.completions});
 }
 
-final progressReportProvider = FutureProvider<List<ProgressPoint>>((ref) async {
+// autoDispose: this screen is only ever reached via Navigator.push from
+// Profile, so it fully unmounts on pop. Without autoDispose this plain
+// FutureProvider would compute once, cache forever, and never refetch —
+// complete a habit on Dashboard, come back to Progress & Streak, and the
+// chart (including "today") would still show whatever was true the first
+// time this was ever opened this session, since the only thing that would
+// invalidate it is authStateProvider changing (sign in/out), not new
+// completions. autoDispose means it's torn down the moment this screen is
+// popped, so reopening it always re-fetches fresh instead.
+final progressReportProvider =
+    FutureProvider.autoDispose<List<ProgressPoint>>((ref) async {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
 
-  final today = DateTime.now();
+  final today = DateTime.now().effectiveDay;
   final days = List.generate(14, (i) {
     final d = today.subtract(Duration(days: 13 - i));
     return DateTime(d.year, d.month, d.day);
@@ -132,7 +143,7 @@ class _ProgressReportCard extends ConsumerWidget {
   }
 
   List<ProgressPoint> _guestPoints(int todayCompletions) {
-    final today = DateTime.now();
+    final today = DateTime.now().effectiveDay;
     return List.generate(14, (i) {
       final date = today.subtract(Duration(days: 13 - i));
       return ProgressPoint(
@@ -185,7 +196,7 @@ class _ProgressReportBody extends StatelessWidget {
                   color: GameColors.success.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.show_chart_rounded,
+                child: Icon(Icons.show_chart_rounded,
                     color: GameColors.success),
               ),
               const SizedBox(width: 12),
@@ -391,7 +402,7 @@ class _StreakFreezeCard extends ConsumerWidget {
       decoration: BoxDecoration(
         color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: GameColors.xpBlue.withOpacity(0.24)),
+        border: Border.all(color: GameColors.iconXp.withOpacity(0.24)),
       ),
       child: Row(
         children: [
@@ -399,10 +410,10 @@ class _StreakFreezeCard extends ConsumerWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: GameColors.xpBlue.withOpacity(0.12),
+              color: GameColors.iconXp.withOpacity(0.12),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(Icons.ac_unit_rounded, color: GameColors.xpBlue),
+            child: Icon(Icons.ac_unit_rounded, color: GameColors.iconXp),
           ),
           const SizedBox(width: 12),
           Expanded(

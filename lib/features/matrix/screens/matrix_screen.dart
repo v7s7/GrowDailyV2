@@ -3,18 +3,26 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../widgets/add_task_sheet.dart';
+import '../widgets/edit_quadrant_sheet.dart';
 import '../widgets/quadrant_card.dart';
 import '../widgets/task_detail_sheet.dart';
 import 'matrix_history_screen.dart';
 
 bool _isSameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// The three top-level lenses on the board — see _MatrixScreenState._filter.
+/// Deliberately just three plain client-side filters over one already-loaded
+/// task list, not three separate queries: nothing here needs a network round
+/// trip to switch.
+enum _MatrixFilter { today, fav, all }
 
 class MatrixScreen extends ConsumerStatefulWidget {
   const MatrixScreen({super.key});
@@ -25,17 +33,20 @@ class MatrixScreen extends ConsumerStatefulWidget {
 
 class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   final Set<String> _selectedIds = {};
-  // Defaults to false (show everything) rather than true — this ships to
-  // people with existing tasks that all predate the isFav field, so
-  // defaulting to the Fav filter would open on what looks like an empty
-  // board. Users opt into the filtered view themselves.
-  bool _favOnly = false;
-  // A second, independent filter layered on top of "All" (mutually
-  // exclusive with _favOnly — see the toggle's onChanged below): tasks
-  // that are still open and were created before today. Unlike isFav, this
-  // one really is date-based, computed fresh from createdAt/isDone on
-  // every build rather than stored on the task — nothing to migrate, and
-  // it can never go stale the way a stored flag could.
+  // Today is the default lens: today's fresh tasks plus anything finished
+  // today, same set a brand-new user with nothing carried over would expect
+  // to land on. Nothing to migrate for existing boards either — this is
+  // computed fresh from createdAt/completedAt on every build (see
+  // _MatrixScreenState.build's `today` local below), never stored, so it
+  // can't disagree with what's actually on the board the way a saved
+  // preference could.
+  _MatrixFilter _filter = _MatrixFilter.today;
+  // A second, independent filter layered on top of Today/All (mutually
+  // exclusive with them — see the toggle's onChanged below): tasks that are
+  // still open and were created before today. Unlike isFav, this one really
+  // is date-based, computed fresh from createdAt/isDone on every build
+  // rather than stored on the task — nothing to migrate, and it can never
+  // go stale the way a stored flag could.
   bool _carriedOverOnly = false;
 
   bool get _selectionMode => _selectedIds.isNotEmpty;
@@ -104,6 +115,101 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     ref.read(matrixProvider.notifier).reorder(id, q, beforeId: beforeId);
   }
 
+  /// Whether [t] is currently visible under the active Today/Fav/All +
+  /// carried-over lens — exactly the rule build() uses below to compute its
+  /// on-screen `tasks` list, factored out into a standalone predicate so
+  /// QuadrantExpandedScreen can apply the same lens and stay live (it
+  /// re-filters matrixProvider's data on every rebuild) instead of freezing
+  /// on a snapshot from the moment it was opened.
+  bool _isVisibleUnderFilter(MatrixTask t) {
+    final now = DateTime.now().effectiveDay;
+    bool doneToday(MatrixTask x) =>
+        x.isDone &&
+        x.completedAt != null &&
+        _isSameDay(x.completedAt!.effectiveDay, now);
+    if (t.isDone && !doneToday(t)) return false;
+    if (_carriedOverOnly) {
+      return !t.isDone && !_isSameDay(t.createdAt.effectiveDay, now);
+    }
+    return switch (_filter) {
+      _MatrixFilter.today =>
+        (!t.isDone && _isSameDay(t.createdAt.effectiveDay, now)) || doneToday(t),
+      _MatrixFilter.fav => t.isFav || t.isDone,
+      _MatrixFilter.all => true,
+    };
+  }
+
+  /// Pushes QuadrantExpandedScreen for [quadrant] — a near-fullscreen view
+  /// of just that quadrant's tasks, opened from its header (see
+  /// quadrant_card.dart's new onExpand). A plain custom PageRouteBuilder
+  /// rather than Hero: this app has no compiler/device in the loop while
+  /// building it, and a scale+fade of the whole incoming screen is far
+  /// harder to get subtly wrong (mismatched Hero tags, RTL-mirrored
+  /// alignment, etc.) than it is smooth and clean — which is exactly what
+  /// was asked for. Every callback below is the *exact same* one already
+  /// wired to this quadrant's compact QuadrantCard, so completing, adding,
+  /// moving, or deleting a task behaves identically whichever screen it's
+  /// done from.
+  void _openQuadrantExpanded(
+      BuildContext context, WidgetRef ref, MatrixQuadrant quadrant) {
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 320),
+        reverseTransitionDuration: const Duration(milliseconds: 260),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            QuadrantExpandedScreen(
+          quadrant: quadrant,
+          isVisible: _isVisibleUnderFilter,
+          onToggle: (id) {
+            HapticFeedback.lightImpact();
+            ref.read(matrixProvider.notifier).toggle(id);
+          },
+          onDelete: _deleteTask,
+          onMove: _moveTask,
+          onReorder: _reorderTask,
+          onToggleFav: (id) =>
+              ref.read(matrixProvider.notifier).toggleFav(id),
+          onAddTapped: () => _showAdd(context, ref, quadrant),
+          onOpenDetails: (task) => _openTaskDetails(context, ref, task),
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.94, end: 1.0).animate(curved),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Opens the rename/recolor sheet for [quadrant] — wired to a long-press
+  /// on QuadrantCard's header (see the four instantiations below). Reads
+  /// matrixProvider fresh via `ref.read` rather than the already-watched
+  /// `matrixState` local in build(), since this is only ever called from
+  /// an event handler, never from inside build() itself.
+  void _editQuadrant(
+      BuildContext context, WidgetRef ref, MatrixQuadrant quadrant) {
+    final matrixState = ref.read(matrixProvider);
+    final isAr = S.of(context).isAr;
+    showEditQuadrantSheet(
+      context,
+      ref,
+      quadrant: quadrant,
+      currentTitle: matrixState.titleFor(quadrant, isAr),
+      currentColorHex: matrixState.quadrantColors[quadrant.name],
+    );
+  }
+
   void _showUndoSnackbar({
     required String message,
     required VoidCallback onUndo,
@@ -127,16 +233,19 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final matrixState = ref.watch(matrixProvider);
-    final now = DateTime.now();
+    final now = DateTime.now().effectiveDay;
     bool doneToday(MatrixTask t) =>
-        t.isDone && t.completedAt != null && _isSameDay(t.completedAt!, now);
+        t.isDone &&
+        t.completedAt != null &&
+        _isSameDay(t.completedAt!.effectiveDay, now);
 
     // A task stays on its own board — struck through, not gone — for the
     // rest of the day it was finished on. That's the "proof you did it"
     // moment a lot of task apps lose by yanking the row away the instant
-    // you check it. Only once the local date rolls past midnight does it
-    // drop off here for good, at which point it's still reachable (forever)
-    // in Completed history via the header icon.
+    // you check it. Only once the app day rolls over (see
+    // DateTimeGameExt.effectiveDay — the cutoff hour, not raw midnight)
+    // does it drop off here for good, at which point it's still reachable
+    // (forever) in Completed history via the header icon.
     final visible =
         matrixState.tasks.where((t) => !t.isDone || doneToday(t)).toList();
     final completedCount = matrixState.tasks.where((t) => t.isDone).length;
@@ -147,13 +256,26 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     // protect it from going stale, and this is meant to catch exactly that,
     // starred or not.
     final carriedOver = visible
-        .where((t) => !t.isDone && !_isSameDay(t.createdAt, now))
+        .where((t) => !t.isDone && !_isSameDay(t.createdAt.effectiveDay, now))
         .toList();
-    final tasks = _favOnly
-        ? visible.where((t) => t.isFav || t.isDone).toList()
-        : _carriedOverOnly
-            ? carriedOver
-            : visible;
+    // The default lens: today's own tasks (not yet done) plus anything
+    // finished today. Deliberately excludes carriedOver — that's what the
+    // chip below is for — so Today reads as "what's fresh right now"
+    // instead of quietly re-showing every stale task All already covers.
+    // `now` (and therefore this whole set) is re-derived from the device's
+    // clock on every build, so it rolls over on its own at the app day's
+    // cutoff hour (DateTimeGameExt.effectiveDay), not raw local midnight —
+    // a user in Bahrain resets on Bahrain's cutoff, no timer required.
+    final todayTasks = visible
+        .where((t) => (!t.isDone && _isSameDay(t.createdAt.effectiveDay, now)) || doneToday(t))
+        .toList();
+    final tasks = _carriedOverOnly
+        ? carriedOver
+        : switch (_filter) {
+            _MatrixFilter.today => todayTasks,
+            _MatrixFilter.fav => visible.where((t) => t.isFav || t.isDone).toList(),
+            _MatrixFilter.all => visible,
+          };
 
     if (matrixState.isLoading) {
       return Scaffold(
@@ -181,29 +303,19 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Subtitle removed to give the board itself more room —
+                  // the title alone is enough to orient the screen, and
+                  // this was the only header on any main tab carrying a
+                  // second explanatory line.
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          s.goalsMatrix,
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            color: gp.textPrimary,
-                            letterSpacing: -0.4,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          s.matrixSubtitle,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: gp.textSec,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      s.goalsMatrix,
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: gp.textPrimary,
+                        letterSpacing: -0.4,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -237,19 +349,18 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                   runSpacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    _FavFilterToggle(
-                      favOnly: _favOnly,
+                    _MatrixFilterToggle(
+                      filter: _filter,
                       favCount: favCount,
                       onChanged: (v) => setState(() {
-                        _favOnly = v;
-                        // Fav and carried-over are two separate lenses on
-                        // the same board — switching either segment backs
-                        // out of the other one instead of trying to
-                        // combine them.
+                        _filter = v;
+                        // Each segment and carried-over are separate lenses
+                        // on the same board — switching one backs out of
+                        // the other instead of trying to combine them.
                         _carriedOverOnly = false;
                       }),
                     ),
-                    if (!_favOnly && carriedOver.isNotEmpty)
+                    if (_filter != _MatrixFilter.fav && carriedOver.isNotEmpty)
                       _CarriedOverChip(
                         count: carriedOver.length,
                         active: _carriedOverOnly,
@@ -341,6 +452,14 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     selectedIds: _selectedIds,
                                     onSelectionToggle: _toggleSelection,
                                     onSelectionStart: _startSelection,
+                                    onExpand: () => _openQuadrantExpanded(
+                                        context, ref, MatrixQuadrant.doFirst),
+                                    title: matrixState.titleFor(
+                                        MatrixQuadrant.doFirst, s.isAr),
+                                    color: matrixState
+                                        .colorFor(MatrixQuadrant.doFirst),
+                                    onEditQuadrant: () => _editQuadrant(
+                                        context, ref, MatrixQuadrant.doFirst),
                                   )
                                       .animate(delay: 150.ms)
                                       .fadeIn(duration: 350.ms)
@@ -380,6 +499,14 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     selectedIds: _selectedIds,
                                     onSelectionToggle: _toggleSelection,
                                     onSelectionStart: _startSelection,
+                                    onExpand: () => _openQuadrantExpanded(
+                                        context, ref, MatrixQuadrant.schedule),
+                                    title: matrixState.titleFor(
+                                        MatrixQuadrant.schedule, s.isAr),
+                                    color: matrixState
+                                        .colorFor(MatrixQuadrant.schedule),
+                                    onEditQuadrant: () => _editQuadrant(context,
+                                        ref, MatrixQuadrant.schedule),
                                   )
                                       .animate(delay: 200.ms)
                                       .fadeIn(duration: 350.ms)
@@ -425,6 +552,14 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     selectedIds: _selectedIds,
                                     onSelectionToggle: _toggleSelection,
                                     onSelectionStart: _startSelection,
+                                    onExpand: () => _openQuadrantExpanded(
+                                        context, ref, MatrixQuadrant.delegate),
+                                    title: matrixState.titleFor(
+                                        MatrixQuadrant.delegate, s.isAr),
+                                    color: matrixState
+                                        .colorFor(MatrixQuadrant.delegate),
+                                    onEditQuadrant: () => _editQuadrant(context,
+                                        ref, MatrixQuadrant.delegate),
                                   )
                                       .animate(delay: 250.ms)
                                       .fadeIn(duration: 350.ms)
@@ -464,6 +599,14 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                     selectedIds: _selectedIds,
                                     onSelectionToggle: _toggleSelection,
                                     onSelectionStart: _startSelection,
+                                    onExpand: () => _openQuadrantExpanded(context,
+                                        ref, MatrixQuadrant.eliminate),
+                                    title: matrixState.titleFor(
+                                        MatrixQuadrant.eliminate, s.isAr),
+                                    color: matrixState
+                                        .colorFor(MatrixQuadrant.eliminate),
+                                    onEditQuadrant: () => _editQuadrant(context,
+                                        ref, MatrixQuadrant.eliminate),
                                   )
                                       .animate(delay: 300.ms)
                                       .fadeIn(duration: 350.ms)
@@ -496,15 +639,14 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => AddTaskSheet(
         quadrant: quadrant,
-        onAdd: (title,
-            {description, voiceNotePath, voiceNoteDurationSeconds}) {
+        onAdd: (title, {description, voiceNotes, reminderAt}) {
           HapticFeedback.mediumImpact();
           ref.read(matrixProvider.notifier).add(
                 title,
                 quadrant,
                 description: description,
-                voiceNotePath: voiceNotePath,
-                voiceNoteDurationSeconds: voiceNoteDurationSeconds,
+                voiceNotes: voiceNotes ?? const [],
+                reminderAt: reminderAt,
               );
         },
       ),
@@ -529,22 +671,21 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
         task: task,
         onRename: (id, title) =>
             ref.read(matrixProvider.notifier).rename(id, title),
-        onUpdateDetails: (
-          id, {
-          description,
-          clearDescription,
-          voiceNotePath,
-          voiceNoteDurationSeconds,
-          clearVoiceNote,
-        }) =>
+        onUpdateDetails: (id, {description, clearDescription}) =>
             ref.read(matrixProvider.notifier).updateDetails(
                   id,
                   description: description,
                   clearDescription: clearDescription ?? false,
-                  voiceNotePath: voiceNotePath,
-                  voiceNoteDurationSeconds: voiceNoteDurationSeconds,
-                  clearVoiceNote: clearVoiceNote ?? false,
                 ),
+        onAddVoiceNote: (id, note) =>
+            ref.read(matrixProvider.notifier).addVoiceNote(id, note),
+        onRenameVoiceNote: (id, noteId, name) => ref
+            .read(matrixProvider.notifier)
+            .renameVoiceNote(id, noteId, name),
+        onRemoveVoiceNote: (id, noteId) =>
+            ref.read(matrixProvider.notifier).removeVoiceNote(id, noteId),
+        onSetReminder: (id, reminderAt) =>
+            ref.read(matrixProvider.notifier).setReminder(id, reminderAt),
         onDelete: () => _deleteTask(task.id),
         onMove: (q) => _moveTask(task.id, q),
       ),
@@ -604,19 +745,19 @@ class _SelectionBar extends StatelessWidget {
   }
 }
 
-// ─── Fav/All filter toggle ──────────────────────────────────────────────────
+// ─── Today/Fav/All filter toggle ────────────────────────────────────────────
 
-/// Filters all four quadrants down to just tasks flagged as favorites —
-/// plain client-side filter over isFav, no separate query/screen. Defaults
-/// to All (see _MatrixScreenState._favOnly) so nobody's existing board
-/// looks empty the first time they see this.
-class _FavFilterToggle extends StatelessWidget {
-  final bool favOnly;
+/// Three plain client-side filters over one already-loaded task list — see
+/// _MatrixFilter. Defaults to Today (see _MatrixScreenState._filter), which
+/// still shows a brand-new board with nothing on it yet exactly as before;
+/// switching to Fav or All never requires a network round trip.
+class _MatrixFilterToggle extends StatelessWidget {
+  final _MatrixFilter filter;
   final int favCount;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<_MatrixFilter> onChanged;
 
-  const _FavFilterToggle({
-    required this.favOnly,
+  const _MatrixFilterToggle({
+    required this.filter,
     required this.favCount,
     required this.onChanged,
   });
@@ -635,9 +776,17 @@ class _FavFilterToggle extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Default segment — today's own board. No count badge, unlike
+          // Fav: the number would just restate what's already visible below
+          // it, since this is the primary view rather than a narrowed one.
           _FilterSegment(
-            active: favOnly,
-            onTap: () => onChanged(true),
+            active: filter == _MatrixFilter.today,
+            onTap: () => onChanged(_MatrixFilter.today),
+            child: Text(s.matrixToday),
+          ),
+          _FilterSegment(
+            active: filter == _MatrixFilter.fav,
+            onTap: () => onChanged(_MatrixFilter.fav),
             // Same star glyph used to flag a task on each row — ties this
             // filter visually to "my starred tasks" instead of reading like
             // a separate due-date/scheduling concept of its own.
@@ -651,8 +800,8 @@ class _FavFilterToggle extends StatelessWidget {
             ),
           ),
           _FilterSegment(
-            active: !favOnly,
-            onTap: () => onChanged(false),
+            active: filter == _MatrixFilter.all,
+            onTap: () => onChanged(_MatrixFilter.all),
             child: Text(s.matrixAll),
           ),
         ],
@@ -663,11 +812,14 @@ class _FavFilterToggle extends StatelessWidget {
 
 // ─── Carried-over chip ──────────────────────────────────────────────────────
 
-/// Sits beside the Fav/All toggle, only when there's actually something to
-/// show — a task left unfinished from before today is worth a nudge, but an
-/// empty chip every single day would just be noise. Tapping it filters the
-/// board to exactly that set (see _MatrixScreenState._carriedOverOnly);
-/// tapping again (or switching the Fav/All toggle) clears it.
+/// Sits beside the Today/Fav/All toggle, only when there's actually
+/// something to show — a task left unfinished from before today is worth a
+/// nudge, but an empty chip every single day would just be noise. Doubly
+/// important now that Today (the default) doesn't include these by default:
+/// this chip is what keeps them from actually disappearing. Tapping it
+/// filters the board to exactly that set (see
+/// _MatrixScreenState._carriedOverOnly); tapping again (or switching the
+/// Today/Fav/All toggle) clears it.
 class _CarriedOverChip extends StatelessWidget {
   final int count;
   final bool active;
@@ -683,9 +835,9 @@ class _CarriedOverChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    // Not `const` — GameColors.streakOrange is a mutable `static Color`
+    // Not `const` — GameColors.iconStreak is a mutable `static Color`
     // (preset-driven), not a compile-time constant.
-    final color = GameColors.streakOrange;
+    final color = GameColors.iconStreak;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(100),
@@ -799,18 +951,22 @@ class _AxisLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    // Icon and label sized to match (was icon:11/text:9 — bigger than the
+    // text it sits next to, which read as slightly heavy/unbalanced next
+    // to such a small caption). Equal sizing plus a touch more breathing
+    // room between them reads calmer at this scale.
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(icon, size: 11, color: gp.textTert),
-        const SizedBox(width: 4),
+        Icon(icon, size: 10, color: gp.textTert),
+        const SizedBox(width: 5),
         Text(
           label,
           style: TextStyle(
-            fontSize: 9,
+            fontSize: 10,
             fontWeight: FontWeight.w700,
             color: gp.textTert,
-            letterSpacing: 1.2,
+            letterSpacing: 1.0,
           ),
         ),
       ],

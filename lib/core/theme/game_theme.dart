@@ -6,43 +6,87 @@ import 'theme_preset.dart';
 
 // ─── Gamification Colors ──────────────────────────────────────────────────
 //
-// `gold`/`xpBlue`/`streakOrange` (+ Dim variants) and the light-mode
-// structural neutrals below are preset-driven and mutable — call
-// `GameColors.applyPreset(...)` to swap the whole app's look. Everything
-// else (emerald/success, error, warning, dark-mode structural colors) stays
-// fixed across every preset so semantic meaning (green = success, red =
-// error) and dark mode's shared identity never change.
+// Most colors below are preset-driven and mutable — call
+// `GameColors.applyPreset(...)` to swap the whole app's look: background,
+// surfaces, borders, body text, gold, xp blue, streak orange, and the grid
+// green, in both light mode and dark mode. `error`/`warning` and the
+// `icon*` set stay fixed across every preset instead — see the `icon*`
+// doc comment below for why.
 
 abstract final class GameColors {
   static Color gold = ThemePresets.byId(ThemePresets.defaultId).gold;
   static Color goldDim = ThemePresets.byId(ThemePresets.defaultId).goldDim;
-  static const Color emerald = Color(0xFF2ECF8F);
-  static const Color emeraldDim = Color(0xFF188A61);
+  static Color emerald = ThemePresets.byId(ThemePresets.defaultId).emerald;
+  static Color emeraldDim =
+      ThemePresets.byId(ThemePresets.defaultId).emeraldDim;
   static Color xpBlue = ThemePresets.byId(ThemePresets.defaultId).xpBlue;
   static Color xpBlueDim = ThemePresets.byId(ThemePresets.defaultId).xpBlueDim;
   static Color streakOrange =
       ThemePresets.byId(ThemePresets.defaultId).streakOrange;
   static Color streakOrangeDim =
       ThemePresets.byId(ThemePresets.defaultId).streakOrangeDim;
-  static const Color success = emerald;
+  static Color get success => emerald;
+
+  /// Black or white, whichever reads better on top of a *solid* emerald
+  /// fill (e.g. the quit-habit pill in habit_card.dart) — not needed for
+  /// emerald used as a translucent tint, text color, or icon color on the
+  /// app's own surface, only where emerald itself is the background a
+  /// fixed-color glyph/label sits on. Every original green emerald was
+  /// bright enough for black to always win here, so this used to just be
+  /// `Colors.black` outright; the signature-color presets (see
+  /// ThemePreset's doc comment) include some genuinely dark, moody hues —
+  /// Rose & Ink, Nour Violet, and Navy all fall low enough on luminance
+  /// that black text on them would be hard to read, so this now actually
+  /// picks per preset instead of assuming. 0.1791 is the luminance where
+  /// black and white give exactly equal WCAG contrast — above it black
+  /// wins, below it white does.
+  static Color get onEmerald =>
+      emerald.computeLuminance() > 0.1791 ? Colors.black : Colors.white;
+
   static const Color error = Color(0xFFFF5A52);
   static const Color warning = Color(0xFFF7C948);
+
+  // Fixed semantic icon colors — never swapped by a preset, unlike
+  // gold/xpBlue/streakOrange above (which are now just tint/shade touches
+  // of one accent hue, so a preset like Nour Violet renders all three as
+  // near-identical purple). A "Gold" stat, a streak flame, an XP bolt, and
+  // a done/correct checkmark each carry a real-world color meaning that a
+  // theme swap shouldn't erase — gold should always look gold, a checkmark
+  // should always look green, no matter which preset is active. Use these
+  // for small dashboard icons that name a specific stat; keep using
+  // gold/xpBlue/streakOrange/emerald for actual theme chrome (buttons,
+  // highlights, tab indicators) that's meant to track the preset.
+  static const Color iconGold = Color(0xFFE4B45F);
+  static const Color iconGoldDim = Color(0xFF9C7436);
+  static const Color iconStreak = Color(0xFFFF8A4C);
+  static const Color iconStreakDim = Color(0xFFC95B22);
+  static const Color iconXp = Color(0xFF5DADEC);
+  static const Color iconXpDim = Color(0xFF236EA8);
+  static const Color iconSuccess = Color(0xFF2ECF8F);
+  static const Color iconSuccessDim = Color(0xFF188A61);
+
   static const Color rarityCommon = Color(0xFF8C9A92);
-  static const Color rarityUncommon = emerald;
+  static Color get rarityUncommon => emerald;
   static Color get rarityRare => xpBlue;
   static const Color rarityEpic = Color(0xFFB982FF);
   static Color get rarityLegendary => gold;
 
-  // Dark-mode structural — shared by every preset, kept const.
-  static const Color background = Color(0xFF07100D);
-  static const Color surface = Color(0xFF101B17);
-  static const Color surfaceElevated = Color(0xFF17251F);
-  static const Color surfaceHighlight = Color(0xFF20332B);
-  static const Color textPrimary = Color(0xFFF7F3E8);
-  static const Color textSecondary = Color(0xFFB5BCA8);
-  static const Color textTertiary = Color(0xFF6F7A70);
-  static const Color border = Color(0xFF2D4037);
-  static const Color divider = Color(0xFF22352D);
+  // Dark-mode structural — preset-driven, mutable.
+  static Color background = ThemePresets.byId(ThemePresets.defaultId).darkBg;
+  static Color surface = ThemePresets.byId(ThemePresets.defaultId).darkSurface;
+  static Color surfaceElevated =
+      ThemePresets.byId(ThemePresets.defaultId).darkSurfaceElevated;
+  static Color surfaceHighlight =
+      ThemePresets.byId(ThemePresets.defaultId).darkSurfaceHighlight;
+  static Color textPrimary =
+      ThemePresets.byId(ThemePresets.defaultId).darkTextPrimary;
+  static Color textSecondary =
+      ThemePresets.byId(ThemePresets.defaultId).darkTextSecondary;
+  static Color textTertiary =
+      ThemePresets.byId(ThemePresets.defaultId).darkTextTertiary;
+  static Color border = ThemePresets.byId(ThemePresets.defaultId).darkBorder;
+  static Color divider =
+      ThemePresets.byId(ThemePresets.defaultId).darkDivider;
 
   // Light-mode structural — preset-driven, mutable.
   static Color lightBg = ThemePresets.byId(ThemePresets.defaultId).lightBg;
@@ -69,10 +113,21 @@ abstract final class GameColors {
   static void applyPreset(ThemePreset preset) {
     gold = preset.gold;
     goldDim = preset.goldDim;
+    emerald = preset.emerald;
+    emeraldDim = preset.emeraldDim;
     xpBlue = preset.xpBlue;
     xpBlueDim = preset.xpBlueDim;
     streakOrange = preset.streakOrange;
     streakOrangeDim = preset.streakOrangeDim;
+    background = preset.darkBg;
+    surface = preset.darkSurface;
+    surfaceElevated = preset.darkSurfaceElevated;
+    surfaceHighlight = preset.darkSurfaceHighlight;
+    textPrimary = preset.darkTextPrimary;
+    textSecondary = preset.darkTextSecondary;
+    textTertiary = preset.darkTextTertiary;
+    border = preset.darkBorder;
+    divider = preset.darkDivider;
     lightBg = preset.lightBg;
     lightSurface = preset.lightSurface;
     lightSurfaceHigh = preset.lightSurfaceHigh;
@@ -114,19 +169,65 @@ extension BuildContextGameTheme on BuildContext {
 
 // ─── Typography ──────────────────────────────────────────────────────────────
 
-abstract final class GameTextStyles {
-  /// Cairo (Google Fonts) — one typeface purpose-drawn to cover both Arabic
-  /// and Latin script, so switching the app's language never also changes
-  /// the *feel* of the type the way pairing two unrelated fonts would.
-  /// Replaces relying on the OS's own system font: the previous
-  /// `.SF Pro Text` + generic-name fallback stack only actually rendered as
-  /// intended on iOS — Android has no bundled high-quality Arabic typeface
-  /// to fall back to, so Arabic text there was at the mercy of whatever
-  /// the device happened to ship.
-  static String get fontFamily => GoogleFonts.cairo().fontFamily!;
+/// The set of user-selectable app-wide typefaces — see [GameTextStyles].
+/// Both are free Google Fonts with real, matched Arabic + Latin cuts (not
+/// just a Latin face with a generic Arabic fallback bolted on), so neither
+/// choice degrades the other script the way most "Arabic-friendly" Latin
+/// fonts do.
+enum AppFont {
+  /// IBM's UI-first family — the most neutral, highest-legibility option,
+  /// closer to a system font than a stylized one. The app-wide default.
+  ibmPlexSansArabic,
 
-  /// Last-resort names for the rare case Cairo hasn't finished loading yet
-  /// (first launch, no network) — still legible on every platform.
+  /// Same friendly, geometric feel as the app's original Cairo, but with
+  /// more open counters/joins — the clearer of the two at small sizes.
+  tajawal;
+
+  /// The exact family name Google Fonts (and [GoogleFonts.getFont]) expects
+  /// — not the Dart method name.
+  String get googleFontsFamily => switch (this) {
+        AppFont.ibmPlexSansArabic => 'IBM Plex Sans Arabic',
+        AppFont.tajawal => 'Tajawal',
+      };
+
+  /// Font names are proper nouns/brand names — shown the same in both
+  /// languages rather than transliterated.
+  String get label => switch (this) {
+        AppFont.ibmPlexSansArabic => 'IBM Plex Sans Arabic',
+        AppFont.tajawal => 'Tajawal',
+      };
+}
+
+abstract final class GameTextStyles {
+  /// The active typeface — defaults to IBM Plex Sans Arabic. Every getter
+  /// below reads this, so changing it (via [applyFont]) and triggering a
+  /// rebuild (see `appFontProvider` in theme_provider.dart) re-skins every
+  /// screen in one shot, the same way [GameColors.applyPreset] re-skins
+  /// colors.
+  static AppFont _active = AppFont.ibmPlexSansArabic;
+
+  static AppFont get activeFont => _active;
+
+  /// Swaps the active typeface in place. Callers must rebuild
+  /// (`setState`/provider notify) after calling this — it doesn't trigger
+  /// any rebuild itself. See [GameColors.applyPreset] for the same pattern.
+  static void applyFont(AppFont font) {
+    _active = font;
+  }
+
+  /// Covers both Arabic and Latin script in the *same* typeface, so
+  /// switching the app's language never also changes the *feel* of the
+  /// type the way pairing two unrelated fonts would. Replaces relying on
+  /// the OS's own system font: a `.SF Pro Text` + generic-name fallback
+  /// stack only actually renders as intended on iOS — Android has no
+  /// bundled high-quality Arabic typeface to fall back to, so Arabic text
+  /// there was at the mercy of whatever the device happened to ship.
+  static String get fontFamily =>
+      GoogleFonts.getFont(_active.googleFontsFamily).fontFamily!;
+
+  /// Last-resort names for the rare case the active font hasn't finished
+  /// loading yet (first launch, no network) — still legible on every
+  /// platform.
   static const List<String> fontFallback = <String>[
     'Noto Sans Arabic',
     'Segoe UI',
@@ -135,26 +236,26 @@ abstract final class GameTextStyles {
     'sans-serif',
   ];
 
-  static TextStyle get displayLarge => GoogleFonts.cairo(fontSize: 34, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.5, height: 1.12).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get displayMedium => GoogleFonts.cairo(fontSize: 28, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.3, height: 1.15).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get headlineLarge => GoogleFonts.cairo(fontSize: 22, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.2, height: 1.22).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get headlineMedium => GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get titleLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get titleMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.28).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get bodyLarge => GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get bodyMedium => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get bodySmall => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary, height: 1.42).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get labelLarge => GoogleFonts.cairo(fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: 0.1, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get labelSmall => GoogleFonts.cairo(fontSize: 11, fontWeight: FontWeight.w600, color: GameColors.textSecondary, letterSpacing: 0.5, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get displayLarge => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 34, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.5, height: 1.12).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get displayMedium => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 28, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.3, height: 1.15).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get headlineLarge => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 22, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: -0.2, height: 1.22).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get headlineMedium => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 18, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get titleLarge => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 17, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get titleMedium => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.28).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodyLarge => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 17, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodyMedium => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 15, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get bodySmall => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 13, fontWeight: FontWeight.w400, color: GameColors.textSecondary, height: 1.42).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get labelLarge => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 15, fontWeight: FontWeight.w700, color: GameColors.textPrimary, letterSpacing: 0.1, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get labelSmall => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 11, fontWeight: FontWeight.w600, color: GameColors.textSecondary, letterSpacing: 0.5, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
 
-  static TextStyle get xpLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get goldLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get levelDisplay => GoogleFonts.cairo(fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get streakDisplay => GoogleFonts.cairo(fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get xpLabel => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get goldLabel => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get levelDisplay => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get streakDisplay => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
 
-  static TextStyle get arabicTitle => GoogleFonts.cairo(fontSize: 24, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.55).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get arabicBody => GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.65).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get arabicLabel => GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get arabicTitle => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 24, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.55).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get arabicBody => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 16, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.65).copyWith(fontFamilyFallback: fontFallback);
+  static TextStyle get arabicLabel => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
 }
 // ─── Spacing & Radii ─────────────────────────────────────────────────────────
 
@@ -247,7 +348,7 @@ abstract final class GameTheme {
           statusBarBrightness: Brightness.dark,
         ),
         titleTextStyle: GameTextStyles.titleLarge,
-        iconTheme: const IconThemeData(color: GameColors.textPrimary),
+        iconTheme: IconThemeData(color: GameColors.textPrimary),
         actionsIconTheme: IconThemeData(color: GameColors.gold),
       ),
       cardTheme: CardThemeData(
@@ -256,7 +357,7 @@ abstract final class GameTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-          side: const BorderSide(color: GameColors.border, width: 0.5),
+          side: BorderSide(color: GameColors.border, width: 0.5),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -293,14 +394,14 @@ abstract final class GameTheme {
         indicatorColor: GameColors.gold.withAlpha(46),
         iconTheme: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
             ? IconThemeData(color: GameColors.gold, size: 24)
-            : const IconThemeData(color: GameColors.textTertiary, size: 24)),
+            : IconThemeData(color: GameColors.textTertiary, size: 24)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
             ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)
             : TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: GameColors.textTertiary, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)),
         elevation: 0,
         height: 72,
       ),
-      dividerTheme: const DividerThemeData(color: GameColors.divider, space: 1, thickness: 0.5),
+      dividerTheme: DividerThemeData(color: GameColors.divider, space: 1, thickness: 0.5),
       dialogTheme: DialogThemeData(
         backgroundColor: GameColors.surfaceElevated,
         surfaceTintColor: Colors.transparent,
@@ -474,9 +575,10 @@ abstract final class GameTheme {
             s.contains(WidgetState.selected) ? GameColors.gold : lHL),
       ),
       inputDecorationTheme: _inputTheme(false),
-      // Cairo everywhere: one Google Font that covers Arabic and Latin
-      // script natively, so the two languages read as one consistent
-      // typeface instead of an OS-dependent system-font/fallback guess.
+      // The active AppFont everywhere: one Google Font that covers Arabic
+      // and Latin script natively, so the two languages read as one
+      // consistent typeface instead of an OS-dependent system-font/
+      // fallback guess.
       textTheme: TextTheme(
           displayLarge: GameTextStyles.displayLarge,
           displayMedium: GameTextStyles.displayMedium,

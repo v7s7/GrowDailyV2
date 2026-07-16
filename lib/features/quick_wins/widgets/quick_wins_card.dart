@@ -147,7 +147,7 @@ class _QuickWinRow extends StatelessWidget {
                   progressText!,
                   style: TextStyle(
                     fontSize: 11,
-                    color: GameColors.xpBlue,
+                    color: GameColors.iconXp,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -157,7 +157,7 @@ class _QuickWinRow extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         if (done)
-          const Icon(Icons.check_circle_rounded, color: GameColors.success, size: 20)
+          Icon(Icons.check_circle_rounded, color: GameColors.success, size: 20)
         else ...[
           TextButton(
             onPressed: onSwap,

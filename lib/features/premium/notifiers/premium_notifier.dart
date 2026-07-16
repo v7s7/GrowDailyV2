@@ -1,81 +1,80 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' show CustomerInfo;
 
 import '../../../core/services/analytics_service.dart';
-import '../../../core/services/local_store_service.dart';
-import '../../auth/notifiers/auth_notifier.dart';
+import '../../../core/services/purchase_service.dart';
 
 /// Free-tier limits. Guests keep their existing 3-habit trial; signed-in
 /// free accounts get a generous cap that most users won't hit for weeks —
 /// the paywall should feel like an invitation, not a wall.
 const int kFreeHabitLimit = 10;
 
-const String _kGuestPremiumKey = 'premium_active_v1';
-
 /// Whether the account has GrowDaily Premium.
 ///
-/// This is the single entitlement seam for the whole app: UI gates read
-/// this provider, and the store SDK (in_app_purchase / RevenueCat) only has
-/// to call [PremiumNotifier.activate] on a verified purchase and
-/// [PremiumNotifier.deactivate] on expiry. Until the store is wired, the
-/// paywall's purchase button reports "not yet available" and nothing here
-/// grants access — no fake unlocks.
+/// This is the single entitlement seam for the whole app: every UI gate
+/// (habit cap, voice notes, heatmap history, ...) reads this provider, and
+/// it's driven entirely by [PurchaseService] — RevenueCat's verified
+/// CustomerInfo, never a value this client could set on its own. There's
+/// deliberately no Firestore field behind this anymore (see
+/// firestore.rules' premiumFieldOk() comment, now historical): RevenueCat
+/// tracks entitlement per App User ID and [PurchaseService.logIn]/[logOut]
+/// (wired to authStateProvider — see main.dart) ties that id to this
+/// account, so the same purchase already follows the account across
+/// devices/reinstalls without this notifier needing to sync anything
+/// itself.
 class PremiumNotifier extends StateNotifier<bool> {
-  final String? _uid;
+  StreamSubscription<CustomerInfo>? _sub;
 
-  PremiumNotifier(this._uid) : super(false) {
-    _load();
+  PremiumNotifier() : super(false) {
+    // Live updates for anything that happens *after* construction — a
+    // purchase completing, a renewal or refund picked up on next launch,
+    // a restore. See PurchaseService.customerInfoUpdates' doc comment.
+    _sub = PurchaseService.instance.customerInfoUpdates.listen(applyCustomerInfo);
+    // Plus an immediate one-time look so state isn't just `false` until the
+    // first update happens to arrive — mirrors every other notifier here
+    // that seeds itself at construction.
+    refresh();
   }
 
-  DocumentReference<Map<String, dynamic>> get _userRef =>
-      FirebaseFirestore.instance.collection('users').doc(_uid);
-
-  Future<void> _load() async {
-    try {
-      if (_uid == null) {
-        final saved = await LocalStoreService.getSettingsMap(_kGuestPremiumKey);
-        if (mounted) state = (saved['active'] as bool?) ?? false;
-        return;
-      }
-      final snap = await _userRef.get();
-      if (mounted) {
-        state = (snap.data()?['premiumActive'] as bool?) ?? false;
-      }
-    } catch (_) {}
-  }
-
-  /// Grant premium — call ONLY after the store SDK verifies a purchase.
-  Future<void> activate() async {
-    state = true;
-    AnalyticsService.instance.track('premium_activated');
-    await _persist(true);
-  }
-
-  /// Revoke premium — expiry, refund, or verified downgrade.
-  Future<void> deactivate() async {
-    state = false;
-    await _persist(false);
-  }
-
-  Future<void> _persist(bool active) async {
-    if (_uid == null) {
-      final saved = await LocalStoreService.getSettingsMap(_kGuestPremiumKey);
-      await LocalStoreService.putSettingsMap(
-        _kGuestPremiumKey,
-        {...saved, 'active': active},
-      );
-      return;
+  /// Applies [info] to [state] right now, synchronously - no waiting on
+  /// the async stream above. PremiumScreen calls this immediately after a
+  /// successful purchase/restore with the CustomerInfo RevenueCat already
+  /// handed back in that same call, rather than trusting that
+  /// [PurchaseService.customerInfoUpdates] has delivered the same update
+  /// yet. Both paths carry the same already-verified CustomerInfo -
+  /// calling this early is just removing a race between "the purchase
+  /// call resolved" and "the separate listener happened to fire", not a
+  /// second source of truth. Safe to call redundantly (idempotent): if
+  /// the stream listener above also reports the same info moments later,
+  /// `entitled == state` and nothing changes.
+  void applyCustomerInfo(CustomerInfo info) {
+    if (!mounted) return;
+    final entitled = PurchaseService.instance.isEntitled(info);
+    if (entitled && !state) {
+      AnalyticsService.instance.track('premium_activated');
     }
-    try {
-      await _userRef.set(
-        {'premiumActive': active},
-        SetOptions(merge: true),
-      );
-    } catch (_) {}
+    state = entitled;
+  }
+
+  /// Forces a fresh look at RevenueCat's cached entitlement. Cheap and
+  /// safe to call often (see PurchaseService.getCustomerInfo's doc
+  /// comment) — kept for main.dart's app-resume hook, same as every other
+  /// notifier's refresh() here.
+  Future<void> refresh() async {
+    final info = await PurchaseService.instance.getCustomerInfo();
+    if (info != null && mounted) {
+      state = PurchaseService.instance.isEntitled(info);
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 }
 
-final premiumProvider = StateNotifierProvider<PremiumNotifier, bool>((ref) {
-  final uid = ref.watch(authStateProvider).asData?.value?.uid;
-  return PremiumNotifier(uid);
-});
+final premiumProvider =
+    StateNotifierProvider<PremiumNotifier, bool>((ref) => PremiumNotifier());

@@ -80,7 +80,7 @@ void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Row(children: [
-        Icon(Icons.ac_unit_rounded, color: GameColors.xpBlue, size: 18),
+        Icon(Icons.ac_unit_rounded, color: GameColors.iconXp, size: 18),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
@@ -188,18 +188,18 @@ class MilestoneCelebration extends StatelessWidget {
                 width: 120,
                 height: 120,
                 decoration: BoxDecoration(
-                  color: GameColors.streakOrange.withOpacity(0.16),
+                  color: GameColors.iconStreak.withOpacity(0.16),
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: GameColors.streakOrange.withOpacity(0.35),
+                      color: GameColors.iconStreak.withOpacity(0.35),
                       blurRadius: 50,
                       spreadRadius: 8,
                     ),
                   ],
                 ),
                 child: Icon(Icons.local_fire_department_rounded,
-                    size: 56, color: GameColors.streakOrange),
+                    size: 56, color: GameColors.iconStreak),
               )
                   .animate()
                   .scale(
@@ -213,7 +213,7 @@ class MilestoneCelebration extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: GameColors.streakOrange,
+                  color: GameColors.iconStreak,
                   // Wide/negative letter-spacing is a Latin-typography trick
                   // (all-caps eyebrow labels, tight display numerals) — on
                   // Arabic's cursive, joined script it forces gaps between
@@ -254,20 +254,20 @@ class MilestoneCelebration extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                   decoration: BoxDecoration(
-                    color: GameColors.xpBlue.withOpacity(0.16),
+                    color: GameColors.iconXp.withOpacity(0.16),
                     borderRadius: BorderRadius.circular(100),
-                    border: Border.all(color: GameColors.xpBlue.withOpacity(0.35)),
+                    border: Border.all(color: GameColors.iconXp.withOpacity(0.35)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.bolt_rounded, size: 16, color: GameColors.xpBlue),
+                      Icon(Icons.bolt_rounded, size: 16, color: GameColors.iconXp),
                       const SizedBox(width: 6),
                       Text(s.milestoneBonusXp(bonus),
                           style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
-                              color: GameColors.xpBlue)),
+                              color: GameColors.iconXp)),
                     ],
                   ),
                 ).animate(delay: 480.ms).fadeIn().slideY(begin: 0.2),
@@ -336,14 +336,14 @@ class HabitMilestoneCelebration extends StatelessWidget {
             color: gp.surfaceHigh,
             borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
             border: Border.all(
-                color: GameColors.streakOrange.withOpacity(0.4), width: 1),
+                color: GameColors.iconStreak.withOpacity(0.4), width: 1),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               VictoryBurstOnMount(
                 colors: [
-                  GameColors.streakOrange,
+                  GameColors.iconStreak,
                   GameColors.gold,
                   Colors.white,
                 ],
@@ -351,18 +351,18 @@ class HabitMilestoneCelebration extends StatelessWidget {
                   width: 84,
                   height: 84,
                   decoration: BoxDecoration(
-                    color: GameColors.streakOrange.withOpacity(0.16),
+                    color: GameColors.iconStreak.withOpacity(0.16),
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: GameColors.streakOrange.withOpacity(0.32),
+                        color: GameColors.iconStreak.withOpacity(0.32),
                         blurRadius: 36,
                         spreadRadius: 6,
                       ),
                     ],
                   ),
                   child: Icon(Icons.local_fire_department_rounded,
-                      size: 40, color: GameColors.streakOrange),
+                      size: 40, color: GameColors.iconStreak),
                 )
                     .animate()
                     .scale(
@@ -377,7 +377,7 @@ class HabitMilestoneCelebration extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: GameColors.streakOrange,
+                  color: GameColors.iconStreak,
                   letterSpacing: s.isAr ? 0 : 2.5,
                 ),
               ).animate(delay: 120.ms).fadeIn(),
@@ -410,22 +410,22 @@ class HabitMilestoneCelebration extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                   decoration: BoxDecoration(
-                    color: GameColors.xpBlue.withOpacity(0.16),
+                    color: GameColors.iconXp.withOpacity(0.16),
                     borderRadius: BorderRadius.circular(100),
                     border:
-                        Border.all(color: GameColors.xpBlue.withOpacity(0.35)),
+                        Border.all(color: GameColors.iconXp.withOpacity(0.35)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.bolt_rounded,
-                          size: 16, color: GameColors.xpBlue),
+                          size: 16, color: GameColors.iconXp),
                       const SizedBox(width: 6),
                       Text(s.milestoneBonusXp(event.bonusXp),
                           style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
-                              color: GameColors.xpBlue)),
+                              color: GameColors.iconXp)),
                     ],
                   ),
                 ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
@@ -555,7 +555,7 @@ class AchievementUnlockSheet extends StatelessWidget {
                   _RewardChip(
                     icon: Icons.bolt_rounded,
                     label: '+${achievement.xpReward} XP',
-                    color: GameColors.xpBlue,
+                    color: GameColors.iconXp,
                   ),
                   const SizedBox(width: 10),
                 ],

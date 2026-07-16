@@ -37,7 +37,7 @@ void showVictoryBurst(
           [
             GameColors.emerald,
             GameColors.gold,
-            GameColors.xpBlue,
+            GameColors.iconXp,
             Colors.white,
           ],
       onCompleted: () => entry.remove(),

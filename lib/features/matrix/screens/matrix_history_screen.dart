@@ -4,12 +4,12 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/safe_wrap_text.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
-
-DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
 /// Saturday-start, matching the Victory Grid's own week convention
 /// (`startOfGridWeek` in weekly_grid_notifier.dart) so the app doesn't mix
@@ -35,7 +35,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
   @override
   void initState() {
     super.initState();
-    final today = _dateOnly(DateTime.now());
+    final today = DateTime.now().effectiveDay;
     _visibleMonth = DateTime(today.year, today.month);
     _selectedDate = today;
   }
@@ -58,7 +58,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
     final s = S.of(context);
     final isAr = s.isAr;
     final locale = Localizations.localeOf(context).languageCode;
-    final today = _dateOnly(DateTime.now());
+    final today = DateTime.now().effectiveDay;
 
     final doneTasks =
         ref.watch(matrixProvider).tasks.where((t) => t.isDone).toList();
@@ -79,9 +79,13 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
       );
     }
 
+    // effectiveDay, not a raw calendar date — a task finished at 12:40 AM
+    // groups under the day that hadn't ended yet (matching the calendar
+    // cell it'll actually appear under below), not the next morning's
+    // date. See DateTimeGameExt.effectiveDay.
     final Map<DateTime, List<MatrixTask>> byDate = {};
     for (final t in doneTasks) {
-      final d = _dateOnly(t.completedAt ?? t.createdAt);
+      final d = (t.completedAt ?? t.createdAt).effectiveDay;
       byDate.putIfAbsent(d, () => []).add(t);
     }
 
@@ -326,10 +330,24 @@ class _MonthGrid extends StatelessWidget {
                 return const Expanded(child: SizedBox());
               }
               final date = DateTime(month.year, month.month, dayNum);
-              final isFuture = date.isAfter(today);
+              // Same exemption as the Grid's own _SquareCell.isFuture: the
+              // real calendar day during the 3-hour window right after
+              // midnight isn't "future" just because effectiveDay (`today`
+              // here) hasn't caught up to it yet — see DateTimeGameExt.
+              // isRealToday. This view is read-only (selecting a day just
+              // shows its completed tasks, never edits anything), so
+              // there's no reward question here at all — purely about not
+              // needlessly blocking the tap.
+              final isFuture = date.isAfter(today) && !date.isRealToday;
               return _DayCell(
                 day: dayNum,
-                isToday: date == today,
+                // isRealToday, not date == today: purely the "today"
+                // marker (bold ring) — see DateTimeGameExt.isRealToday's
+                // doc comment. `selectedDate`'s own initial seed stays on
+                // `today` (effectiveDay) elsewhere, unchanged, since that's
+                // about which day's completed-tasks list loads by default,
+                // not a visual marker.
+                isToday: date.isRealToday,
                 isSelected: selectedDate != null && date == selectedDate,
                 hasCompleted: completedDates.contains(date),
                 isFuture: isFuture,
@@ -520,17 +538,17 @@ class _HistoryRow extends ConsumerWidget {
   final bool isAr;
   const _HistoryRow({required this.task, required this.isAr});
 
-  Color get _color => switch (task.quadrant) {
-        MatrixQuadrant.doFirst => GameColors.error,
-        MatrixQuadrant.schedule => GameColors.xpBlue,
-        MatrixQuadrant.delegate => GameColors.streakOrange,
-        MatrixQuadrant.eliminate => GameColors.textTertiary,
-      };
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
+    // ConsumerWidget only exposes ref as a build() param (unlike
+    // ConsumerState, which keeps it as an instance field), so — unlike
+    // AddTaskSheet/TaskDetailSheet's equivalent getters — color/title are
+    // resolved here as plain locals instead.
+    final matrixState = ref.watch(matrixProvider);
+    final color = matrixState.colorFor(task.quadrant);
+    final title = matrixState.titleFor(task.quadrant, isAr);
     final locale = Localizations.localeOf(context).languageCode;
     // Just the time-of-day — the date itself is already implied by which
     // calendar day is selected above, so repeating it here would be noise.
@@ -579,17 +597,16 @@ class _HistoryRow extends ConsumerWidget {
               width: 8,
               height: 8,
               decoration:
-                  BoxDecoration(color: _color, shape: BoxShape.circle),
+                  BoxDecoration(color: color, shape: BoxShape.circle),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  SafeWrapText(
                     task.title,
                     maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w600,
@@ -601,8 +618,8 @@ class _HistoryRow extends ConsumerWidget {
                   const SizedBox(height: 3),
                   Text(
                     completedLabel.isEmpty
-                        ? task.quadrant.localLabel(isAr)
-                        : '${task.quadrant.localLabel(isAr)} · $completedLabel',
+                        ? title
+                        : '$title · $completedLabel',
                     style: TextStyle(fontSize: 11, color: gp.textTert),
                   ),
                 ],

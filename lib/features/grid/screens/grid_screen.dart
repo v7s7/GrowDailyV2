@@ -9,6 +9,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
+import '../../../shared/widgets/safe_wrap_text.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
@@ -19,6 +20,7 @@ import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/widgets/add_habit_hub_sheet.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
 import '../../night_review/notifiers/night_review_notifier.dart';
+import '../../rooms/notifiers/rooms_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 
@@ -31,10 +33,10 @@ import '../notifiers/weekly_grid_notifier.dart';
       HabitCategory.faith || HabitCategory.quran || HabitCategory.athkar =>
         (Icons.menu_book_rounded, GameColors.emerald),
       HabitCategory.health || HabitCategory.fitness =>
-        (Icons.fitness_center_rounded, GameColors.streakOrange),
-      HabitCategory.learning => (Icons.school_rounded, GameColors.xpBlue),
+        (Icons.fitness_center_rounded, GameColors.iconStreak),
+      HabitCategory.learning => (Icons.school_rounded, GameColors.iconXp),
       HabitCategory.focus || HabitCategory.fasting =>
-        (Icons.center_focus_strong_rounded, GameColors.xpBlue),
+        (Icons.center_focus_strong_rounded, GameColors.iconXp),
       HabitCategory.money || HabitCategory.sadaqah =>
         (Icons.savings_rounded, GameColors.warning),
       HabitCategory.mind => (Icons.psychology_rounded, GameColors.rarityEpic),
@@ -42,6 +44,18 @@ import '../notifiers/weekly_grid_notifier.dart';
       HabitCategory.sleep => (Icons.bedtime_rounded, GameColors.rarityEpic),
       HabitCategory.custom => (Icons.star_rounded, GameColors.gold),
     };
+
+/// Pushes this tap's *today* result to any Room tracking [habitId] - a
+/// cheap no-op for the overwhelmingly common case where it isn't linked to
+/// any room. Reads the already-updated local Grid state (rather than
+/// re-reading Firestore) since Grid's own square write is fire-and-forget -
+/// see RoomsController.syncTodayForHabit's doc comment for why that matters.
+void _syncRoomToday(WidgetRef ref, String habitId, DateTime day) {
+  if (!day.isToday) return;
+  final todayRow =
+      ref.read(weeklyGridProvider).states[day.toDateKey()] ?? const {};
+  ref.read(roomsControllerProvider).syncTodayForHabit(habitId, todayRow).ignore();
+}
 
 /// The Weekly Victory Grid — the flagship "color your life" experience.
 ///
@@ -79,12 +93,46 @@ class _GridScreenState extends ConsumerState<GridScreen> {
   /// Custom habits are deleted outright; preset habits are deactivated
   /// (reversible via Plans/the catalog) rather than destroyed — same split
   /// Today's own single-habit delete and Grid's old action sheet used.
-  void _deleteSelected() {
+  /// Either way, anything still counted toward an open room gets unlinked
+  /// from it as part of the same action (see RoomsController.
+  /// unlinkHabitEverywhere) - with a heads-up dialog first if that applies
+  /// to any of the selection, so a multi-select sweep never quietly breaks
+  /// a room in the background.
+  Future<void> _deleteSelected() async {
     if (_selectedIds.isEmpty) return;
+    final linked = ref.read(myLinkedRoomHabitsProvider);
+    final affectedRoomCodes = <String>{
+      for (final id in _selectedIds)
+        for (final room in linked[id] ?? const []) room.code,
+    };
+    if (affectedRoomCodes.isNotEmpty) {
+      final s = S.of(context);
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text(s.habitLinkedRoomWarningTitle),
+          content: Text(s.habitLinkedRoomWarningBody(affectedRoomCodes.length)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(s.habitDeleteLinkedRoomCancel),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: GameColors.error),
+              child: Text(s.habitDeleteAnywayAction),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
     HapticFeedback.mediumImpact();
     final customIds =
         ref.read(customHabitsProvider).map((h) => h.id).toSet();
+    final rooms = ref.read(roomsControllerProvider);
     for (final id in _selectedIds) {
+      rooms.unlinkHabitEverywhere(id).ignore();
       if (customIds.contains(id)) {
         ref.read(customHabitsProvider.notifier).remove(id);
       } else {
@@ -156,7 +204,21 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                   ),
                 ),
               ),
-            if (habits.isEmpty)
+            // Loading is checked before "empty" - without it, a returning
+            // user with a real habit list would see "no habits yet, add
+            // one!" flash for however long CustomHabitsNotifier/
+            // ActiveCatalogNotifier's own first read takes, right before
+            // their actual list pops in and replaces it. See
+            // habitsStillLoadingProvider's own doc comment.
+            if (habits.isEmpty && ref.watch(habitsStillLoadingProvider))
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: CircularProgressIndicator(
+                      color: GameColors.gold, strokeWidth: 2),
+                ),
+              )
+            else if (habits.isEmpty)
               const SliverFillRemaining(
                 hasScrollBody: false,
                 child: _GridEmptyState(),
@@ -360,11 +422,30 @@ class _GridHeader extends ConsumerWidget {
                 },
               ),
               IconButton(
-                icon: Icon(Icons.nightlight_round, color: gp.textSec),
+                // Not a moon: Sleep already uses a crescent
+                // (Icons.bedtime_rounded, see HabitCategory.icon) and a
+                // second moon here read as "toggle dark mode" more than
+                // "review my day". An open book reads as the daily
+                // journal/reflection this actually opens.
+                icon: Icon(Icons.auto_stories_rounded, color: gp.textSec),
                 tooltip: s.nightReviewTitle,
                 onPressed: () {
                   HapticFeedback.selectionClick();
                   Navigator.pushNamed(context, '/night-review');
+                },
+              ),
+              IconButton(
+                // Distinct from the open book above on purpose: that one is
+                // Night Review's single daily mood/reflection, this is the
+                // per-habit notes and Skipped/Failed/Bonus marks left from
+                // *this* screen's own long-press editor (see
+                // grid_journal_notifier.dart's doc comment for the full
+                // "why a separate screen" reasoning).
+                icon: Icon(Icons.edit_note_rounded, color: gp.textSec),
+                tooltip: s.gridJournalTitle,
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pushNamed(context, '/grid-journal');
                 },
               ),
             ],
@@ -475,7 +556,7 @@ class _SummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final today = DateTime.now();
+    final today = DateTime.now().effectiveDay;
     final habitIds = habits.map((h) => h.id).toList();
     final scheduledTodayIds = habits
         .where((h) => h.isScheduledFor(today))
@@ -536,7 +617,7 @@ class _SummaryCard extends StatelessWidget {
                       curve: Curves.easeOutCubic,
                       builder: (_, v, __) => Text(
                         '${v.round()}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 40,
                           fontWeight: FontWeight.w900,
                           color: GameColors.emerald,
@@ -593,7 +674,7 @@ class _SummaryCard extends StatelessWidget {
                       icon: Icons.percent_rounded,
                       value: '${(ratio * 100).round()}%',
                       label: s.gridComplete,
-                      color: GameColors.xpBlue,
+                      color: GameColors.iconXp,
                     ),
                   ],
                 ),
@@ -637,7 +718,7 @@ class _RingStat extends StatelessWidget {
                 strokeWidth: 6,
                 backgroundColor: gp.surfaceHL,
                 valueColor:
-                    const AlwaysStoppedAnimation(GameColors.emerald),
+                    AlwaysStoppedAnimation(GameColors.emerald),
                 strokeCap: StrokeCap.round,
               ),
             ),
@@ -694,8 +775,9 @@ class _MiniStat extends StatelessWidget {
 // ─── Streak-at-risk nudge ──────────────────────────────────────────────────
 
 /// The retention loop's most important message: from 6pm, if the user has a
-/// live streak and hasn't colored anything green today, warn them warmly —
-/// one square keeps the streak alive. Disappears the moment they earn green.
+/// live streak and hasn't finished today's habits yet (streak means a full
+/// 100% day — see [DashboardState.streakEarnedToday]), warn them warmly.
+/// Disappears the moment today's streak point is earned.
 class _StreakAtRiskBanner extends ConsumerWidget {
   const _StreakAtRiskBanner();
 
@@ -706,14 +788,11 @@ class _StreakAtRiskBanner extends ConsumerWidget {
     final habits = ref.watch(habitListProvider);
 
     final isEvening = DateTime.now().hour >= 18;
-    if (!isEvening || dash.streak <= 0 || habits.isEmpty || grid.isLoading) {
-      return const SizedBox.shrink();
-    }
-    final today = DateTime.now();
-    final row = grid.states[today.toDateKey()];
-    final hasGreenToday = row != null &&
-        habits.any((h) => (row[h.id] ?? SquareState.none).isGreen);
-    if (hasGreenToday || dash.gridActivityToday || dash.completions.isNotEmpty) {
+    if (!isEvening ||
+        dash.streak <= 0 ||
+        habits.isEmpty ||
+        grid.isLoading ||
+        dash.streakEarnedToday) {
       return const SizedBox.shrink();
     }
 
@@ -724,15 +803,15 @@ class _StreakAtRiskBanner extends ConsumerWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: GameColors.streakOrange.withOpacity(gp.dark ? 0.10 : 0.08),
+          color: GameColors.iconStreak.withOpacity(gp.dark ? 0.10 : 0.08),
           borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
           border:
-              Border.all(color: GameColors.streakOrange.withOpacity(0.4)),
+              Border.all(color: GameColors.iconStreak.withOpacity(0.4)),
         ),
         child: Row(
           children: [
             Icon(Icons.local_fire_department_rounded,
-                    color: GameColors.streakOrange, size: 26)
+                    color: GameColors.iconStreak, size: 26)
                 .animate(onPlay: (c) => c.repeat(reverse: true))
                 .scaleXY(
                   begin: 0.88,
@@ -750,7 +829,7 @@ class _StreakAtRiskBanner extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w800,
-                      color: GameColors.streakOrange,
+                      color: GameColors.iconStreak,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -799,7 +878,7 @@ class _NightReviewPromptCard extends ConsumerWidget {
           decoration: BoxDecoration(
             color: gp.surface,
             borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-            border: Border.all(color: GameColors.xpBlue.withOpacity(0.22)),
+            border: Border.all(color: GameColors.iconXp.withOpacity(0.22)),
           ),
           child: Row(
             children: [
@@ -807,11 +886,11 @@ class _NightReviewPromptCard extends ConsumerWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: GameColors.xpBlue.withOpacity(0.12),
+                  color: GameColors.iconXp.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(Icons.nightlight_round,
-                    color: GameColors.xpBlue),
+                child: Icon(Icons.auto_stories_rounded,
+                    color: GameColors.iconXp),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -836,7 +915,7 @@ class _NightReviewPromptCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: GameColors.xpBlue),
+              Icon(Icons.chevron_right_rounded, color: GameColors.iconXp),
             ],
           ),
         ),
@@ -991,19 +1070,24 @@ class _GridTableState extends ConsumerState<_GridTable> {
           Padding(
             padding: const EdgeInsets.only(left: _gap),
             child: SizedBox(
-              key: day.isToday ? _todayKey : null,
+              // isRealToday, not isToday: this circle is purely the "which
+              // date is today on the calendar" marker, so it follows the
+              // real clock and moves at midnight even during the 3-hour
+              // window where the *editable* square (below) is still
+              // yesterday's — see DateTimeGameExt.isRealToday.
+              key: day.isRealToday ? _todayKey : null,
               width: cell,
               child: Column(
                 children: [
                   dayNameLine(
                     DateFormat('EEE', isAr ? 'ar' : 'en').format(day),
-                    day.isToday,
+                    day.isRealToday,
                     true,
                   ),
                   const SizedBox(height: 1),
                   dayNameLine(
                     DateFormat('EEE', isAr ? 'en' : 'ar').format(day),
-                    day.isToday,
+                    day.isRealToday,
                     false,
                   ),
                   const SizedBox(height: 3),
@@ -1011,7 +1095,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                     width: 22,
                     height: 22,
                     alignment: Alignment.center,
-                    decoration: day.isToday
+                    decoration: day.isRealToday
                         ? BoxDecoration(
                             color: GameColors.gold.withOpacity(0.16),
                             shape: BoxShape.circle,
@@ -1021,9 +1105,10 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       '${day.day}',
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight:
-                            day.isToday ? FontWeight.w800 : FontWeight.w600,
-                        color: day.isToday ? GameColors.gold : gp.textSec,
+                        fontWeight: day.isRealToday
+                            ? FontWeight.w800
+                            : FontWeight.w600,
+                        color: day.isRealToday ? GameColors.gold : gp.textSec,
                       ),
                     ),
                   ),
@@ -1039,7 +1124,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
       IslamicHabitTemplate habit, List<DateTime> days, double cell,
       double rowHeight) {
     final gp = context.gp;
-    final today = DateTime.now();
+    final isAr = S.of(context).isAr;
+    final today = DateTime.now().effectiveDay;
     final selected = widget.selectedIds.contains(habit.id);
     return SizedBox(
       height: rowHeight,
@@ -1082,27 +1168,58 @@ class _GridTableState extends ConsumerState<_GridTable> {
                               : null,
                         );
                       }
-                      final (_, color) = categoryVisual(habit.category);
-                      return Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: color.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(7),
-                        ),
-                        child: CategoryIcon(
-                          category: habit.category,
-                          size: 13,
-                          color: color,
-                        ),
+                      final (_, categoryColor) = categoryVisual(habit.category);
+                      final color = habit.customColor ?? categoryColor;
+                      // A gold ring + small trophy badge marks a habit
+                      // that's part of a Room's plan (see
+                      // myLinkedRoomHabitsProvider) - an inline highlight
+                      // rather than a separate "event habits" screen, so
+                      // Grid stays the one place every habit lives.
+                      final inRoom =
+                          ref.watch(myLinkedRoomHabitsProvider).containsKey(habit.id);
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(7),
+                              border: inRoom
+                                  ? Border.all(color: GameColors.gold, width: 1.4)
+                                  : null,
+                            ),
+                            child: CategoryIcon(
+                              category: habit.category,
+                              size: 13,
+                              color: color,
+                            ),
+                          ),
+                          if (inRoom)
+                            Positioned(
+                              right: -3,
+                              bottom: -3,
+                              child: Container(
+                                width: 11,
+                                height: 11,
+                                decoration: BoxDecoration(
+                                  color: GameColors.gold,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: gp.surface, width: 1.2),
+                                ),
+                                child: const Icon(Icons.emoji_events_rounded,
+                                    size: 7, color: Colors.black),
+                              ),
+                            ),
+                        ],
                       );
                     }),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: Text(
-                        habit.name,
+                      child: SafeWrapText(
+                        habit.localName(isAr),
                         maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
@@ -1122,8 +1239,26 @@ class _GridTableState extends ConsumerState<_GridTable> {
               child: _SquareCell(
                 size: cell,
                 day: day,
-                isToday: day.isToday,
-                isFuture: day.startOfDay.isAfter(today.startOfDay),
+                // isRealToday, not isToday: purely which square gets the
+                // gold "today" ring — see DateTimeGameExt.isRealToday. The
+                // square that's actually *editable*/reward-eligible is
+                // decided independently inside _handleSquareTap/
+                // _handlePaletteTap (still day.isToday, unchanged) and by
+                // isFuture below, so this is cosmetic only.
+                isToday: day.isRealToday,
+                // A day after the reward day (`today` = effectiveDay) is
+                // future and stays locked — *except* the real calendar day
+                // itself during the 3-hour window right after midnight
+                // (day.isRealToday true, today/effectiveDay still
+                // yesterday): that one is allowed to open and be colored in
+                // like any other non-reward day (flat XP only, same as
+                // backfilling any past square — see WeeklyGridNotifier.
+                // setSquare's anti-backdating doc comment), instead of
+                // sitting dimmed and untappable for 3 hours for no reason.
+                // A day beyond that (tomorrow-of-tomorrow, etc.) still
+                // isn't isRealToday either, so it stays correctly locked.
+                isFuture: day.startOfDay.isAfter(today) && !day.isRealToday,
+                isScheduled: habit.isScheduledFor(day),
                 square: widget.state.squareFor(habit.id, day),
                 hasNote: widget.state.noteFor(habit.id, day).isNotEmpty,
                 onTap: widget.selectionMode
@@ -1166,24 +1301,37 @@ class _GridTableState extends ConsumerState<_GridTable> {
         // Already rewarded (e.g. completed from Today and the mirror
         // hasn't caught up) — just repair the visual state, no reward call.
         ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
+        _syncRoomToday(ref, habit.id, day);
       } else {
         // Canonical reward first. Only mirror the square if it actually
         // succeeded — a failed or no-op completeHabit call must never
         // leave the Grid square green while Today/rewards/streak didn't
         // update.
+        final dashState = ref.read(dashboardProvider);
+        final todayHabits = ref
+            .read(habitListProvider)
+            .where((h) => h.isScheduledFor(day))
+            .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
         final justCompleted =
             await ref.read(dashboardProvider.notifier).completeHabit(
                   habitId: habit.id,
                   xpReward: habit.xpReward,
                   goldReward: habit.goldReward,
                   frequencyTarget: habit.frequencyTarget,
+                  allHabitsDoneAfter: willCompleteAllHabitsToday(
+                    state: dashState,
+                    todayHabits: todayHabits,
+                    habitId: habit.id,
+                    frequencyTarget: habit.frequencyTarget,
+                  ),
                   category: habit.category.name,
-                  habitName: habit.name,
+                  habitName: habit.localName(S.of(context).isAr),
                 );
         if (justCompleted) {
           ref
               .read(weeklyGridProvider.notifier)
               .markCompleteFromHabit(habit.id, day);
+          _syncRoomToday(ref, habit.id, day);
         }
       }
       return;
@@ -1209,6 +1357,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
       ref
           .read(weeklyGridProvider.notifier)
           .setSquareStateOnly(habit.id, day, next);
+      _syncRoomToday(ref, habit.id, day);
       return;
     }
 
@@ -1220,6 +1369,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
       HapticFeedback.selectionClick();
     }
     ref.read(weeklyGridProvider.notifier).cycleSquare(habit.id, day);
+    _syncRoomToday(ref, habit.id, day);
   }
 
   void _openEditor(BuildContext context, WidgetRef ref,
@@ -1239,6 +1389,14 @@ class _SquareCell extends StatelessWidget {
   final DateTime day;
   final bool isToday;
   final bool isFuture;
+  // False when this habit's scheduledWeekdays is non-empty and doesn't
+  // include this cell's weekday (see HabitModel/IslamicHabitTemplate — empty
+  // means every day). Gets the exact same dimmed, inert treatment as a
+  // future day: a habit set to "Sun/Mon only" can't be tapped, long-pressed,
+  // or otherwise marked done on any other day. Doesn't hide history — a
+  // square already completed before the habit's schedule was narrowed still
+  // shows its real color, just dimmed and no longer editable.
+  final bool isScheduled;
   final SquareState square;
   final bool hasNote;
   // Nullable: null while Grid's multi-select mode is active, so squares
@@ -1252,6 +1410,7 @@ class _SquareCell extends StatelessWidget {
     required this.day,
     required this.isToday,
     required this.isFuture,
+    required this.isScheduled,
     required this.square,
     required this.hasNote,
     required this.onTap,
@@ -1261,6 +1420,7 @@ class _SquareCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = context.gp.dark;
+    final disabled = isFuture || !isScheduled;
     // Keying the pulse on the square state replays it on every color change:
     // marked cells get a satisfying pop, clearing back to white stays quiet.
     Widget cell = AnimatedContainer(
@@ -1343,7 +1503,7 @@ class _SquareCell extends StatelessWidget {
     }
     final tap = onTap;
     return GestureDetector(
-      onTap: (isFuture || tap == null)
+      onTap: (disabled || tap == null)
           ? null
           : () {
               // Confetti fires from the cell itself the instant the tap
@@ -1359,9 +1519,9 @@ class _SquareCell extends StatelessWidget {
               }
               tap();
             },
-      onLongPress: isFuture ? null : onLongPress,
+      onLongPress: disabled ? null : onLongPress,
       child: Opacity(
-        opacity: isFuture ? 0.35 : 1,
+        opacity: disabled ? 0.35 : 1,
         child: cell,
       ),
     );
@@ -1461,7 +1621,9 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             Row(
               children: [
                 Builder(builder: (_) {
-                  final (_, color) = categoryVisual(widget.habit.category);
+                  final (_, categoryColor) =
+                      categoryVisual(widget.habit.category);
+                  final color = widget.habit.customColor ?? categoryColor;
                   return Container(
                     width: 34,
                     height: 34,
@@ -1482,7 +1644,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.habit.name,
+                        widget.habit.localName(isAr),
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -1523,7 +1685,16 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      s.gridPastDayHint,
+                      // The real calendar day during the 3-hour window
+                      // right after midnight isn't a "past" day (it just
+                      // hasn't become the official reward day yet) —
+                      // saying so here would be actively wrong, not just
+                      // imprecise, so it gets its own copy instead of
+                      // reusing gridPastDayHint. See DateTimeGameExt.
+                      // isRealToday/isToday's doc comments.
+                      widget.day.isRealToday
+                          ? s.gridNotYetActiveHint
+                          : s.gridPastDayHint,
                       style: TextStyle(fontSize: 12, color: gp.textSec),
                     ),
                   ),
@@ -1628,6 +1799,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       ref
           .read(weeklyGridProvider.notifier)
           .setSquareStateOnly(habit.id, day, picked);
+      _syncRoomToday(ref, habit.id, day);
       return;
     }
 
@@ -1636,24 +1808,37 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         .read(dashboardProvider)
         .isCompleted(habit.id, habit.frequencyTarget);
     if (isSyncable && picked == SquareState.complete && !alreadyDoneToday) {
+      final dashState = ref.read(dashboardProvider);
+      final todayHabits = ref
+          .read(habitListProvider)
+          .where((h) => h.isScheduledFor(day))
+          .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
       final justCompleted =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
                 xpReward: habit.xpReward,
                 goldReward: habit.goldReward,
                 frequencyTarget: habit.frequencyTarget,
+                allHabitsDoneAfter: willCompleteAllHabitsToday(
+                  state: dashState,
+                  todayHabits: todayHabits,
+                  habitId: habit.id,
+                  frequencyTarget: habit.frequencyTarget,
+                ),
                 category: habit.category.name,
-                habitName: habit.name,
+                habitName: habit.localName(S.of(context).isAr),
               );
       if (justCompleted) {
         ref
             .read(weeklyGridProvider.notifier)
             .setSquareStateOnly(habit.id, day, SquareState.complete);
+        _syncRoomToday(ref, habit.id, day);
       }
       return;
     }
 
     ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked);
+    _syncRoomToday(ref, habit.id, day);
   }
 }
 
@@ -1726,7 +1911,7 @@ class _GridSkeleton extends StatelessWidget {
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(color: gp.border, width: 0.5),
       ),
-      child: const Center(
+      child: Center(
         child: SizedBox(
           width: 22,
           height: 22,
@@ -1760,7 +1945,7 @@ class _GridEmptyState extends ConsumerWidget {
                 color: GameColors.emerald.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.grid_view_rounded,
+              child: Icon(Icons.grid_view_rounded,
                   size: 36, color: GameColors.emerald),
             )
                 .animate()

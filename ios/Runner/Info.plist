@@ -22,12 +22,34 @@
 		<string>$(FLUTTER_BUILD_NAME)</string>
 		<key>CFBundleSignature</key>
 		<string>????</string>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleURLName</key>
+				<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>growdaily</string>
+				</array>
+			</dict>
+		</array>
 		<key>CFBundleVersion</key>
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
+		<key>FlutterDeepLinkingEnabled</key>
+		<false/>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>GrowDaily uses your microphone to record voice notes you attach to tasks. Recordings stay on this device and are never uploaded anywhere.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>GrowDaily uses your location once to calculate accurate prayer times for reminders. Your location is never uploaded or stored on a server.</string>
+		<!-- Not actually requested anywhere in this app (DeviceLocationService
+		     only ever asks for "when in use" — see its doc comment); required
+		     anyway because the geolocator package's compiled iOS binary
+		     references CLLocationManager's "Always" authorization API, which
+		     trips Apple's static analysis (ITMS-90683) even when unused. -->
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>GrowDaily uses your location once to calculate accurate prayer times for reminders. Your location is never uploaded or stored on a server, and GrowDaily never tracks your location in the background.</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

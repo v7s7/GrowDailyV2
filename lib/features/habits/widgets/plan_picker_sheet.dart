@@ -190,6 +190,21 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
             HapticFeedback.mediumImpact();
             ref.read(activeCatalogProvider.notifier).activatePlan(plan);
           },
+          // Lets someone cherry-pick just some of a plan's habits instead of
+          // the all-or-nothing Start/Deactivate button below - same habit-
+          // limit gate as a full activation, just for one habit at a time
+          // (see canAddHabits' doc comment on why guests/free accounts need
+          // this check at all). Deactivating a single already-active habit
+          // never needs the gate - removing something never runs into a cap.
+          onToggleHabit: (habitId) {
+            if (!activeIds.contains(habitId) &&
+                !canAddHabits(ref, additionalCount: 1)) {
+              showHabitLimitGate(context, ref);
+              return;
+            }
+            HapticFeedback.selectionClick();
+            ref.read(activeCatalogProvider.notifier).toggle(habitId);
+          },
         ).animate(delay: (i * 60).ms).fadeIn(duration: 350.ms).slideY(begin: 0.1);
       },
     );
@@ -206,6 +221,7 @@ class _PlanCard extends StatelessWidget {
   final Set<String> activeIds;
   final VoidCallback onTap;
   final VoidCallback onActivate;
+  final void Function(String habitId) onToggleHabit;
 
   const _PlanCard({
     required this.plan,
@@ -215,6 +231,7 @@ class _PlanCard extends StatelessWidget {
     required this.activeIds,
     required this.onTap,
     required this.onActivate,
+    required this.onToggleHabit,
   });
 
   @override
@@ -222,6 +239,14 @@ class _PlanCard extends StatelessWidget {
     final gp = context.gp;
     final c = plan.color;
     final s = S.of(context);
+    // Neither fully off nor fully on - some of this plan's habits were
+    // individually picked via a chip tap (see onToggleHabit) without ever
+    // going through the all-or-nothing Start/Deactivate button. Surfaced
+    // both collapsed (the count badge below, instead of [isActive]'s plain
+    // checkmark) and expanded (the button label) so that state is never
+    // just invisible between the two known ones.
+    final activeCount = plan.catalogIds.where(activeIds.contains).length;
+    final isPartiallyActive = activeCount > 0 && !isActive;
 
     return GestureDetector(
       onTap: onTap,
@@ -300,6 +325,24 @@ class _PlanCard extends StatelessWidget {
                     if (isActive) ...[
                       const SizedBox(height: 4),
                       Icon(Icons.check_circle_rounded, color: c, size: 18),
+                    ] else if (isPartiallyActive) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: c.withOpacity(0.16),
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        child: Text(
+                          '$activeCount/${plan.catalogIds.length}',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: c,
+                          ),
+                        ),
+                      ),
                     ],
                   ],
                 ),
@@ -317,6 +360,11 @@ class _PlanCard extends StatelessWidget {
                         const SizedBox(height: 14),
                         Container(height: 0.5, color: gp.border),
                         const SizedBox(height: 12),
+                        Text(
+                          s.planPickHabitsHint,
+                          style: TextStyle(fontSize: 10.5, color: gp.textTert),
+                        ),
+                        const SizedBox(height: 8),
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
@@ -326,6 +374,8 @@ class _PlanCard extends StatelessWidget {
                               habit: h,
                               isActive: habitActive,
                               planColor: c,
+                              isAr: isAr,
+                              onTap: () => onToggleHabit(h.id),
                             );
                           }).toList(),
                         ),
@@ -348,7 +398,12 @@ class _PlanCard extends StatelessWidget {
                                   : BorderSide.none,
                             ),
                             child: Text(
-                              isActive ? s.deactivatePlan : s.startPlan,
+                              isActive
+                                  ? s.deactivatePlan
+                                  : isPartiallyActive
+                                      ? s.addRemainingPlanHabits(
+                                          plan.catalogIds.length - activeCount)
+                                      : s.startPlan,
                               style: const TextStyle(
                                   fontSize: 13, fontWeight: FontWeight.w700),
                             ),
@@ -402,53 +457,83 @@ class _PlanCard extends StatelessWidget {
   }
 }
 
+/// One habit within an expanded plan card - tappable on its own (see
+/// [_PlanCard.onToggleHabit]) so picking just some of a plan's habits is a
+/// direct tap on the thing itself, not a separate checkbox bolted beside
+/// it. The trailing icon is the only visual cue that these aren't just a
+/// read-only preview anymore; [_PlanCard]'s planPickHabitsHint caption
+/// above the whole row is the other.
 class _HabitChip extends StatelessWidget {
   final IslamicHabitTemplate habit;
   final bool isActive;
   final Color planColor;
+  final bool isAr;
+  final VoidCallback onTap;
 
-  const _HabitChip(
-      {required this.habit, required this.isActive, required this.planColor});
+  const _HabitChip({
+    required this.habit,
+    required this.isActive,
+    required this.planColor,
+    required this.isAr,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: isActive
-            ? planColor.withOpacity(0.12)
-            : gp.surfaceHigh,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isActive ? planColor.withOpacity(0.4) : gp.border,
-          width: 0.5,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(habit.category.icon,
-              size: 13, color: isActive ? planColor : gp.textSec),
-          const SizedBox(width: 6),
-          Text(
-            habit.name,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isActive ? planColor : gp.textSec,
-            ),
+    // GestureDetector, not InkWell - matches _PlanCard/_ReminderRow just
+    // below in this same file, which both avoid InkWell for the same
+    // reason: this sheet renders both as a bare showModalBottomSheet child
+    // and embedded inside AddHabitHub's tab view, and only the first of
+    // those is guaranteed to sit under a Material ancestor for ink splashes
+    // to paint into.
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isActive
+              ? planColor.withOpacity(0.12)
+              : gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isActive ? planColor.withOpacity(0.4) : gp.border,
+            width: 0.5,
           ),
-          const SizedBox(width: 6),
-          Text(
-            '+${habit.xpReward} XP',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(habit.category.icon,
+                size: 13, color: isActive ? planColor : gp.textSec),
+            const SizedBox(width: 6),
+            Text(
+              habit.localName(isAr),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isActive ? planColor : gp.textSec,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '+${habit.xpReward} XP',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: isActive ? planColor : gp.textTert,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Icon(
+              isActive
+                  ? Icons.check_circle_rounded
+                  : Icons.add_circle_outline_rounded,
+              size: 14,
               color: isActive ? planColor : gp.textTert,
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

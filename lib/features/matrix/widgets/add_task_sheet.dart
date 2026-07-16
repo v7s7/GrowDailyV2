@@ -5,11 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/services/voice_note_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/voice_note_gate.dart';
+import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
+import '../notifiers/matrix_notifier.dart';
+import 'reminder_picker.dart' show ReminderRow, pickReminderMoment;
+import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
 
 /// Stays open after each add so a quick brain-dump ("buy milk" ⏎ "wash car"
 /// ⏎ "call mom" ⏎ …) doesn't mean reopening this sheet for every single
@@ -20,11 +26,13 @@ import '../models/matrix_task.dart';
 ///
 /// Title-only by default, on purpose — that's the fast path and it stays
 /// exactly as fast as it's always been. "Add details" is an explicit,
-/// collapsed-by-default opt-in that reveals a description field and a
-/// voice-note recorder (Premium only; see voice_note_gate.dart) for
-/// whoever wants to attach more to *this* item before submitting it.
-/// Collapses back to the fast default after every submit, so choosing to
-/// add details once doesn't slow down the rest of a rapid multi-add.
+/// collapsed-by-default opt-in that reveals a description field, a
+/// reminder-time picker, and a voice-note recorder (Premium only; see
+/// voice_note_gate.dart) for whoever wants to attach more to *this* item
+/// before submitting it. Collapses back to the fast default after every
+/// submit, so choosing to add details once doesn't slow down the rest of a
+/// rapid multi-add — including the reminder: it's a per-item choice, not a
+/// sticky one, so the next quick-added task starts with no reminder again.
 /// Editing details on a task already in the matrix happens from its pencil
 /// icon (see TaskDetailSheet) instead — this sheet is only ever about
 /// what's being added right now.
@@ -33,8 +41,8 @@ class AddTaskSheet extends ConsumerStatefulWidget {
   final void Function(
     String title, {
     String? description,
-    String? voiceNotePath,
-    int? voiceNoteDurationSeconds,
+    List<VoiceNote>? voiceNotes,
+    DateTime? reminderAt,
   }) onAdd;
 
   const AddTaskSheet({
@@ -56,17 +64,31 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   bool _detailsExpanded = false;
 
   bool _recording = false;
-  String? _voiceNotePath;
-  int? _voiceNoteDurationSeconds;
+  // Every note recorded on this sheet before the task exists yet — each
+  // already a full, named-or-not VoiceNote (same client-generates-the-id
+  // pattern TaskDetailSheet uses for a note added after the fact), so
+  // _submit() can just hand the whole list to widget.onAdd instead of
+  // juggling a single path/duration pair.
+  List<VoiceNote> _pendingNotes = [];
   Duration _elapsed = Duration.zero;
   Timer? _timer;
 
-  Color get _color => switch (widget.quadrant) {
-        MatrixQuadrant.doFirst => GameColors.error,
-        MatrixQuadrant.schedule => GameColors.xpBlue,
-        MatrixQuadrant.delegate => GameColors.streakOrange,
-        MatrixQuadrant.eliminate => GameColors.textTertiary,
-      };
+  // Reminder picked for the *next* item to be submitted — same per-item,
+  // resets-after-submit treatment as _pendingNotes/_descCtrl, not a sticky
+  // setting across the whole rapid multi-add session. See ReminderRow /
+  // pickReminderMoment in reminder_picker.dart for the shared picking UI.
+  DateTime? _reminderAt;
+
+  // ref.watch here (inside a getter, not directly in build()) is safe
+  // specifically because every call site below is itself inside build() —
+  // same synchronous frame, so the dependency still registers correctly.
+  // Resolves to the user's own custom color for this quadrant if they've
+  // set one (see MatrixState.colorFor), else the same built-in default
+  // this switch used to hardcode.
+  Color get _color => ref.watch(matrixProvider).colorFor(widget.quadrant);
+
+  String _title(bool isAr) =>
+      ref.watch(matrixProvider).titleFor(widget.quadrant, isAr);
 
   @override
   void initState() {
@@ -89,10 +111,18 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       // Sheet dismissed mid-recording — stop and discard rather than
       // leaving the recorder running against a screen that's gone.
       VoiceNoteService.instance.cancelRecording().ignore();
-    } else if (_voiceNotePath != null) {
-      // Recorded but never attached to a submitted task — delete it so it
-      // doesn't sit orphaned in the voice_notes folder forever.
-      File(_voiceNotePath!).delete().ignore();
+    } else {
+      // Recorded but never attached to a submitted task (the sheet closed
+      // before the current item was added) — delete them so they don't sit
+      // orphaned in the voice_notes folder forever. Guards against leaving
+      // the floating global player pointed at a file that's about to
+      // vanish, same as TaskDetailSheet's _removeNote does.
+      for (final note in _pendingNotes) {
+        if (VoiceNoteService.instance.nowPlaying.value?.noteId == note.id) {
+          VoiceNoteService.instance.stopPlayback().ignore();
+        }
+        File(note.path).delete().ignore();
+      }
     }
     super.dispose();
   }
@@ -103,7 +133,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   /// pressing "go" does at any given moment. A no-op while actively
   /// recording — stop the recording first, so a stray Enter can't submit a
   /// text-only task and orphan the in-progress note.
-  void _submit() {
+  Future<void> _submit() async {
     if (_recording) return;
     final text = _ctrl.text.trim();
     if (text.isEmpty) {
@@ -111,24 +141,44 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       return;
     }
     final description = _descCtrl.text.trim();
+    final reminderAt = _reminderAt;
     HapticFeedback.mediumImpact();
     widget.onAdd(
       text,
       description: description.isEmpty ? null : description,
-      voiceNotePath: _voiceNotePath,
-      voiceNoteDurationSeconds: _voiceNoteDurationSeconds,
+      voiceNotes: _pendingNotes,
+      reminderAt: reminderAt,
     );
+    if (!mounted) return;
     setState(() {
       _addedTitles.add(text);
       _ctrl.clear();
       _descCtrl.clear();
-      _voiceNotePath = null;
-      _voiceNoteDurationSeconds = null;
+      // These notes now belong to the task just handed to widget.onAdd —
+      // only the *reference* to them resets here, same as _voiceNotePath
+      // used to just go back to null without deleting anything.
+      _pendingNotes = [];
+      _reminderAt = null;
       // Back to the fast title-only default for the next item — adding
       // details is a deliberate, per-item choice, not a sticky mode.
       _detailsExpanded = false;
     });
     _focus.requestFocus();
+    // Checked after the task is already handed off and the UI's reset back
+    // to the fast-add state — actual scheduling happens unconditionally
+    // inside MatrixNotifier.add regardless of permission (flutter_local_
+    // notifications just silently won't display it if denied), so this is
+    // purely a courtesy warning, not a gate, and shouldn't hold up the next
+    // item in a rapid multi-add. Same request-then-warn-on-false contract
+    // as _DailyReminderRow in notification_settings_screen.dart.
+    if (reminderAt != null) {
+      final granted = await NotificationService.instance.requestPermissions();
+      if (!granted && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
+        );
+      }
+    }
   }
 
   Future<void> _toggleRecording() async {
@@ -140,13 +190,39 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       final result = await VoiceNoteService.instance.stopRecording();
       _timer?.cancel();
       if (!mounted) return;
-      setState(() {
-        _recording = false;
-        if (result != null) {
-          _voiceNotePath = result.path;
-          _voiceNoteDurationSeconds = result.durationSeconds;
+      setState(() => _recording = false);
+      if (result != null) {
+        // Signed-in users get this note's audio embedded as base64 too, so
+        // it can sync to a second device (see VoiceNote.audioBase64) —
+        // guests have no second device to sync to, so skip the extra
+        // encode/storage work entirely for them.
+        final uid = ref.read(authStateProvider).asData?.value?.uid;
+        String? audioBase64;
+        if (uid != null) {
+          final existingSyncedBytes = _pendingNotes.fold<int>(
+              0, (sum, n) => sum + (n.audioBase64?.length ?? 0));
+          audioBase64 = await VoiceNoteService.instance.encodeForSync(
+            result.path,
+            existingSyncedBytes: existingSyncedBytes,
+          );
+          if (!mounted) return;
         }
-      });
+        final note = VoiceNote(
+          id: const Uuid().v4(),
+          path: result.path,
+          name: '',
+          durationSeconds: result.durationSeconds,
+          createdAt: DateTime.now(),
+          audioBase64: audioBase64,
+        );
+        setState(() => _pendingNotes = [..._pendingNotes, note]);
+        // Prompts a name right away, same as TaskDetailSheet — "step1" is
+        // far more likely to actually get typed the moment the recording
+        // is fresh than if naming means hunting down the pencil icon
+        // later. Dismissing this without saving just leaves it as the
+        // "Recording N" placeholder, still fully usable.
+        _renameNote(note);
+      }
       return;
     }
     final granted = await VoiceNoteService.instance.hasPermission();
@@ -158,39 +234,76 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       }
       return;
     }
-    // A fresh recording replaces any earlier one still pending on this
-    // sheet — only one note can be attached to the next submitted task.
-    if (_voiceNotePath != null) {
-      File(_voiceNotePath!).delete().ignore();
-    }
+    // Unlike before, a fresh recording no longer replaces an earlier one —
+    // a task can carry several notes now, so this just adds another.
     HapticFeedback.mediumImpact();
     await VoiceNoteService.instance.startRecording();
     if (!mounted) return;
     setState(() {
       _recording = true;
-      _voiceNotePath = null;
-      _voiceNoteDurationSeconds = null;
       _elapsed = Duration.zero;
     });
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() => _elapsed += const Duration(seconds: 1));
+      final next = _elapsed + const Duration(seconds: 1);
+      setState(() => _elapsed = next);
+      // Auto-stop at the cap instead of letting a note grow past what
+      // encodeForSync budgets a synced recording for — same effect as
+      // tapping the mic button again, just triggered by the clock instead
+      // of a tap.
+      if (next.inSeconds >= VoiceNoteService.maxRecordingSeconds) {
+        _toggleRecording();
+      }
     });
   }
 
-  void _discardPendingVoiceNote() {
+  /// The note's own name if it has one, otherwise "Recording N" — N is
+  /// this note's 1-based position among the notes pending on this sheet,
+  /// computed at display time same as TaskDetailSheet's _displayName.
+  String _displayName(VoiceNote note) {
+    if (note.name.isNotEmpty) return note.name;
+    final index = _pendingNotes.indexWhere((n) => n.id == note.id);
+    return S
+        .of(context)
+        .voiceNoteDefaultName(index < 0 ? _pendingNotes.length : index + 1);
+  }
+
+  void _renameNote(VoiceNote note) {
+    showRenameVoiceNoteSheet(
+      context,
+      currentName: _displayName(note),
+      onSave: (name) {
+        setState(() {
+          _pendingNotes = _pendingNotes
+              .map((n) => n.id == note.id ? n.copyWith(name: name) : n)
+              .toList();
+        });
+      },
+    );
+  }
+
+  void _removeNote(VoiceNote note) {
     HapticFeedback.lightImpact();
-    final path = _voiceNotePath;
+    // Otherwise the floating player could keep "playing" a file that's
+    // about to be deleted out from under it.
+    if (VoiceNoteService.instance.nowPlaying.value?.noteId == note.id) {
+      VoiceNoteService.instance.stopPlayback().ignore();
+    }
     setState(() {
-      _voiceNotePath = null;
-      _voiceNoteDurationSeconds = null;
+      _pendingNotes = _pendingNotes.where((n) => n.id != note.id).toList();
     });
-    if (path != null) File(path).delete().ignore();
+    File(note.path).delete().ignore();
   }
 
   void _toggleDetails() {
     HapticFeedback.selectionClick();
     setState(() => _detailsExpanded = !_detailsExpanded);
+  }
+
+  Future<void> _pickReminder() async {
+    final picked = await pickReminderMoment(context, initial: _reminderAt);
+    if (picked == null || !mounted) return;
+    setState(() => _reminderAt = picked);
   }
 
   @override
@@ -245,7 +358,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                             decoration: BoxDecoration(
                                 color: _color, shape: BoxShape.circle)),
                         const SizedBox(width: 6),
-                        Text(widget.quadrant.localLabel(isAr),
+                        Text(_title(isAr),
                             style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w800,
@@ -378,33 +491,65 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
               const SizedBox(height: 10),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
+                child: ReminderRow(
+                  value: _reminderAt,
+                  color: _color,
+                  isAr: isAr,
+                  onTap: _pickReminder,
+                  onClear: () => setState(() => _reminderAt = null),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    MicRecordButton(
-                      recording: _recording,
-                      elapsed: _elapsed,
-                      color: _color,
-                      onTap: _toggleRecording,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            s.voiceNotesTitle,
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: gp.textTert,
+                                letterSpacing: isAr ? 0 : 1.0),
+                          ),
+                        ),
+                        MicRecordButton(
+                          recording: _recording,
+                          elapsed: _elapsed,
+                          color: _color,
+                          onTap: _toggleRecording,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(height: 8),
                     if (_recording)
                       Text(s.voiceNoteRecording,
                           style: TextStyle(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w600,
                               color: GameColors.error))
-                    else if (_voiceNotePath != null)
-                      Expanded(
-                        child: VoiceNoteChip(
-                          color: _color,
-                          durationSeconds: _voiceNoteDurationSeconds ?? 0,
-                          onRemove: _discardPendingVoiceNote,
-                        ),
-                      )
-                    else
+                    else if (_pendingNotes.isEmpty)
                       Text(s.voiceNoteTapToRecord,
                           style:
-                              TextStyle(fontSize: 11.5, color: gp.textTert)),
+                              TextStyle(fontSize: 11.5, color: gp.textTert))
+                    else
+                      for (var i = 0; i < _pendingNotes.length; i++)
+                        Padding(
+                          padding: EdgeInsets.only(
+                              bottom:
+                                  i == _pendingNotes.length - 1 ? 0 : 8),
+                          child: VoiceNoteRow(
+                            note: _pendingNotes[i],
+                            displayName: _displayName(_pendingNotes[i]),
+                            color: _color,
+                            onRename: () => _renameNote(_pendingNotes[i]),
+                            onDelete: () => _removeNote(_pendingNotes[i]),
+                          ),
+                        ),
                   ],
                 ),
               ),
@@ -568,58 +713,6 @@ class MicRecordButton extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Shows a recorded voice note with a way to drop it. Used both for the
-/// note pending on AddTaskSheet (not yet attached to a submitted task) and
-/// for an already-attached one being replaced from TaskDetailSheet — public
-/// for the same cross-file reuse reason as MicRecordButton.
-class VoiceNoteChip extends StatelessWidget {
-  final Color color;
-  final int durationSeconds;
-  final VoidCallback onRemove;
-
-  const VoiceNoteChip({
-    super.key,
-    required this.color,
-    required this.durationSeconds,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final mm = (durationSeconds ~/ 60).toString().padLeft(2, '0');
-    final ss = (durationSeconds % 60).toString().padLeft(2, '0');
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.graphic_eq_rounded, size: 16, color: color),
-          const SizedBox(width: 8),
-          Text(
-            '$mm:$ss',
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: color,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: onRemove,
-            behavior: HitTestBehavior.opaque,
-            child: Icon(Icons.close_rounded,
-                size: 16, color: context.gp.textTert),
-          ),
-        ],
       ),
     );
   }

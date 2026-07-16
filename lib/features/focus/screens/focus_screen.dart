@@ -218,11 +218,11 @@ class _Header extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: GameColors.xpBlue.withOpacity(0.12),
+                color: GameColors.iconXp.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(Icons.center_focus_strong_rounded,
-                  color: GameColors.xpBlue),
+                  color: GameColors.iconXp),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -353,9 +353,9 @@ class _FocusCaptureCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: GameColors.xpBlue.withOpacity(0.08),
+                color: GameColors.iconXp.withOpacity(0.08),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: GameColors.xpBlue.withOpacity(0.18)),
+                border: Border.all(color: GameColors.iconXp.withOpacity(0.18)),
               ),
               child: Text(
                 '${s.focusCuePrefix}${plan.cue}, ${s.focusActionPrefix}${plan.action}.',
@@ -413,7 +413,7 @@ class _FocusTimerCard extends StatelessWidget {
             icon: Icons.timer_rounded,
             title: s.focusTimerTitle,
             subtitle: s.focusTimerSubtitle,
-            color: GameColors.xpBlue,
+            color: GameColors.iconXp,
           ),
           const SizedBox(height: 16),
           Row(
@@ -447,7 +447,7 @@ class _FocusTimerCard extends StatelessWidget {
                   arcColor: isDone
                       ? GameColors.success
                       : isRunning
-                          ? GameColors.xpBlue
+                          ? GameColors.iconXp
                           : GameColors.gold,
                 ),
                 child: Center(
@@ -474,7 +474,7 @@ class _FocusTimerCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           color: isDone
                               ? GameColors.success
-                              : (isRunning ? GameColors.xpBlue : gp.textTert),
+                              : (isRunning ? GameColors.iconXp : gp.textTert),
                           letterSpacing: 1.6,
                         ),
                       ),
@@ -506,7 +506,7 @@ class _FocusTimerCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
+              Icon(Icons.bolt_rounded, size: 14, color: GameColors.iconXp),
               const SizedBox(width: 4),
               Text(
                 s.focusXpOnCompletion(duration.xpReward),
@@ -608,7 +608,7 @@ class _FocusCompleteSheet extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Icon(Icons.check_rounded, size: 34, color: GameColors.success),
+              child: Icon(Icons.check_rounded, size: 34, color: GameColors.success),
             )
                 .animate()
                 .scale(
@@ -619,7 +619,7 @@ class _FocusCompleteSheet extends StatelessWidget {
             const SizedBox(height: 18),
             Text(
               s.focusSessionCompleteTitle,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
                 color: GameColors.success,
@@ -646,21 +646,21 @@ class _FocusCompleteSheet extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: GameColors.xpBlue.withOpacity(0.12),
+                color: GameColors.iconXp.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(100),
-                border: Border.all(color: GameColors.xpBlue.withOpacity(0.3), width: 0.5),
+                border: Border.all(color: GameColors.iconXp.withOpacity(0.3), width: 0.5),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
+                  Icon(Icons.bolt_rounded, size: 14, color: GameColors.iconXp),
                   const SizedBox(width: 5),
                   Text(
                     '+${duration.xpReward} XP',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: GameColors.xpBlue,
+                      color: GameColors.iconXp,
                     ),
                   ),
                 ],
@@ -762,7 +762,7 @@ class _EvidenceCard extends StatelessWidget {
             icon: Icons.psychology_rounded,
             title: s.focusWhyTitle,
             subtitle: s.focusWhySubtitle,
-            color: GameColors.xpBlue,
+            color: GameColors.iconXp,
           ),
           const SizedBox(height: 14),
           _EvidenceChip(
@@ -889,7 +889,7 @@ class _EvidenceChip extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: GameColors.xpBlue),
+          Icon(icon, size: 18, color: GameColors.iconXp),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

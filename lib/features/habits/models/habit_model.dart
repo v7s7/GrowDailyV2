@@ -136,6 +136,7 @@ class HabitModel {
   final ReductionType reductionType;
   final int? limitAmount;
   final LimitUnit? limitUnit;
+  final String? customUnitLabel;
 
   // ── Frequency ────────────────────────────────────────────────
   final HabitFrequencyType frequencyType;
@@ -173,6 +174,7 @@ class HabitModel {
     this.reductionType = ReductionType.avoid,
     this.limitAmount,
     this.limitUnit,
+    this.customUnitLabel,
     required this.frequencyType,
     required this.frequencyTarget,
     this.scheduledWeekdays = const [],
@@ -209,6 +211,7 @@ class HabitModel {
       limitUnit: d['limitUnit'] == null
           ? null
           : LimitUnit.fromJson(d['limitUnit'] as String?),
+      customUnitLabel: d['customUnitLabel'] as String?,
       frequencyType: HabitFrequencyType.fromJson(
         d['frequencyType'] as String? ?? 'daily',
       ),
@@ -249,6 +252,12 @@ class HabitModel {
             reductionType == ReductionType.limit &&
             limitUnit != null)
           'limitUnit': limitUnit!.toJson(),
+        if (goalType == GoalType.quit &&
+            reductionType == ReductionType.limit &&
+            limitUnit == LimitUnit.custom &&
+            customUnitLabel != null &&
+            customUnitLabel!.trim().isNotEmpty)
+          'customUnitLabel': customUnitLabel!.trim(),
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
         if (scheduledWeekdays.isNotEmpty) 'scheduledWeekdays': scheduledWeekdays,
@@ -275,6 +284,7 @@ class HabitModel {
     ReductionType? reductionType,
     int? limitAmount,
     LimitUnit? limitUnit,
+    String? customUnitLabel,
     HabitFrequencyType? frequencyType,
     int? frequencyTarget,
     List<int>? scheduledWeekdays,
@@ -298,6 +308,7 @@ class HabitModel {
         reductionType: reductionType ?? this.reductionType,
         limitAmount: limitAmount ?? this.limitAmount,
         limitUnit: limitUnit ?? this.limitUnit,
+        customUnitLabel: customUnitLabel ?? this.customUnitLabel,
         frequencyType: frequencyType ?? this.frequencyType,
         frequencyTarget: frequencyTarget ?? this.frequencyTarget,
         scheduledWeekdays: scheduledWeekdays ?? this.scheduledWeekdays,

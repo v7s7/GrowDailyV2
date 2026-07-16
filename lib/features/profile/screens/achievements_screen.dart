@@ -240,13 +240,13 @@ class _AchievementCard extends StatelessWidget {
               Row(children: [
                 if (achievement.xpReward > 0) ...[
                   Icon(Icons.bolt_rounded,
-                      size: 11, color: GameColors.xpBlue),
+                      size: 11, color: GameColors.iconXp),
                   const SizedBox(width: 2),
                   Text('+${achievement.xpReward}',
                       style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          color: GameColors.xpBlue)),
+                          color: GameColors.iconXp)),
                   const SizedBox(width: 8),
                 ],
                 if (achievement.goldReward > 0) ...[

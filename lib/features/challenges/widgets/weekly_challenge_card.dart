@@ -48,11 +48,11 @@ class WeeklyChallengeCard extends ConsumerWidget {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: GameColors.xpBlue.withOpacity(0.14),
+                  color: GameColors.iconXp.withOpacity(0.14),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(_challengeIcon(c.iconType),
-                    size: 18, color: GameColors.xpBlue),
+                    size: 18, color: GameColors.iconXp),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -101,7 +101,7 @@ class WeeklyChallengeCard extends ConsumerWidget {
               value: progress,
               backgroundColor: gp.border,
               valueColor: AlwaysStoppedAnimation(
-                  state.isCompleted ? GameColors.success : GameColors.xpBlue),
+                  state.isCompleted ? GameColors.success : GameColors.iconXp),
               minHeight: 6,
             ),
           ),
@@ -116,13 +116,13 @@ class WeeklyChallengeCard extends ConsumerWidget {
                     fontWeight: FontWeight.w600),
               ),
               const Spacer(),
-              Icon(Icons.bolt_rounded, size: 12, color: GameColors.xpBlue),
+              Icon(Icons.bolt_rounded, size: 12, color: GameColors.iconXp),
               const SizedBox(width: 2),
               Text('+${c.xpReward}',
                   style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: GameColors.xpBlue)),
+                      color: GameColors.iconXp)),
               const SizedBox(width: 8),
               Icon(Icons.toll_rounded, size: 12, color: GameColors.gold),
               const SizedBox(width: 2),

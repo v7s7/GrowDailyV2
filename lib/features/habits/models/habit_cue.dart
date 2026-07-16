@@ -168,9 +168,13 @@ class HabitCue {
 
   /// The exact clock time this cue resolves to, if the user picked one —
   /// null for a preset routine anchor (e.g. 'maghrib', 'before_sleep') or
-  /// freeform text, since those don't have a fixed time without real
-  /// prayer-time/schedule data this app doesn't have yet. Used to schedule
-  /// a real per-habit reminder — see NotificationService.scheduleHabitReminders.
+  /// freeform text. A prayer preset resolves to a real time too, but through
+  /// [prayerKey] + PrayerTimesService instead of this getter (it needs a
+  /// saved location to compute from, which this pure class has no way to
+  /// hold); the handful of non-prayer presets ('before_sleep', 'morning', …)
+  /// still have no fixed time this app can derive on its own. Used to
+  /// schedule a real per-habit reminder — see
+  /// NotificationService.scheduleSmartReminders.
   TimeOfDay? get clockTime =>
       _kind == _HabitCueKind.time ? TimeOfDay(hour: _hour24!, minute: _minute!) : null;
 

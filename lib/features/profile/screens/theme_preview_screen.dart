@@ -456,7 +456,7 @@ class _FocusMock extends StatelessWidget {
                     CircularProgressIndicator(
                       value: 0.42,
                       strokeWidth: 8,
-                      color: GameColors.xpBlue,
+                      color: GameColors.iconXp,
                       backgroundColor: gp.surfaceHL,
                     ),
                     Text(
@@ -547,9 +547,9 @@ class _ProfileMock extends StatelessWidget {
         Row(
           children: [
             for (final c in [
-              GameColors.streakOrange,
+              GameColors.iconStreak,
               GameColors.gold,
-              GameColors.xpBlue,
+              GameColors.iconXp,
             ])
               Expanded(
                 child: Padding(

@@ -4,18 +4,20 @@ import '../../../core/theme/game_theme.dart';
 
 /// The colored state of a single square in the Weekly Victory Grid.
 ///
-/// The whole product revolves around one idea: every completed action colors a
-/// square, and the goal is to fill the week with green. States map to colors:
+/// The whole product revolves around one idea: every completed action colors
+/// a square, and the goal is to fill the week. States map to colors:
 ///
-///   none     → white  (not completed)
-///   partial  → yellow (partially completed)
-///   complete → green  (completed)
-///   failed   → red    (attempted but failed)
-///   bonus    → blue   (bonus achievement)
-///   skipped  → gray   (intentionally skipped)
+///   none     → white   (not completed)
+///   partial  → yellow  (partially completed)
+///   complete → emerald (completed) — green for most presets, or the
+///              theme's own signature color for a few (see ThemePreset's
+///              doc comment)
+///   failed   → red     (attempted but failed)
+///   bonus    → blue    (bonus achievement)
+///   skipped  → gray    (intentionally skipped)
 ///
-/// A tap cycles white → yellow → green → white. A long-press opens the full
-/// palette (including the red / blue / gray "advanced" states).
+/// A tap cycles white → yellow → complete → white. A long-press opens the
+/// full palette (including the red / blue / gray "advanced" states).
 enum SquareState {
   none,
   partial,
@@ -85,7 +87,7 @@ enum SquareState {
         partial => GameColors.warning,
         complete => GameColors.emerald,
         failed => GameColors.error,
-        bonus => GameColors.xpBlue,
+        bonus => GameColors.iconXp,
         skipped => const Color(0xFF8C9A92),
       };
 
@@ -103,7 +105,7 @@ enum SquareState {
         partial => GameColors.warning.withOpacity(dark ? 0.30 : 0.28),
         complete => GameColors.emerald.withOpacity(dark ? 0.34 : 0.26),
         failed => GameColors.error.withOpacity(dark ? 0.30 : 0.22),
-        bonus => GameColors.xpBlue.withOpacity(dark ? 0.32 : 0.24),
+        bonus => GameColors.iconXp.withOpacity(dark ? 0.32 : 0.24),
         skipped => (dark ? const Color(0xFF3A463F) : const Color(0xFFDCD5C5))
             .withOpacity(dark ? 0.6 : 1),
       };

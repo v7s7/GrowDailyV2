@@ -87,7 +87,7 @@ class HomeWidgetService {
   /// JSON-friendly maps — same underlying data the Monthly Heatmap screen
   /// reads, just windowed to what a widget has room to draw.
   List<Map<String, Object?>> _recentHeatmap(Map<String, int> dailyGreenCounts) {
-    final today = DateTime.now();
+    final today = DateTime.now().effectiveDay;
     return List.generate(28, (i) {
       final day = today.subtract(Duration(days: 27 - i));
       return {'date': day.toDateKey(), 'count': dailyGreenCounts[day.toDateKey()] ?? 0};

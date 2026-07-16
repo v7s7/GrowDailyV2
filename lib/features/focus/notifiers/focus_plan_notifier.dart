@@ -26,7 +26,7 @@ class FocusPlanNotifier extends StateNotifier<FocusPlanState> {
   FocusPlanNotifier(this._uid)
       : super(
           FocusPlanState(
-            plan: DailyFocusPlan.empty(DateTime.now().toDateKey()),
+            plan: DailyFocusPlan.empty(DateTime.now().effectiveDay.toDateKey()),
             isLoading: _uid != null,
           ),
         ) {

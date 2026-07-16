@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/theme_provider.dart';
@@ -15,9 +16,10 @@ import '../../../features/character/notifiers/character_notifier.dart';
 import '../../../features/character/screens/character_closet_screen.dart';
 import '../../../features/character/widgets/character_avatar.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
-import '../../../features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
+import '../../../features/rooms/notifiers/rooms_notifier.dart';
+import '../../../features/rooms/screens/rooms_hub_screen.dart';
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../widgets/delete_account_sheet.dart';
 import '../widgets/edit_name_sheet.dart';
@@ -328,31 +330,31 @@ class _StatsRow extends StatelessWidget {
       children: [
         _StatCell(
             icon: Icons.local_fire_department_rounded,
-            color: GameColors.streakOrange,
+            color: GameColors.iconStreak,
             value: '${state.streak}',
             label: s.streak),
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.emoji_events_rounded,
-            color: GameColors.gold,
+            color: GameColors.iconGold,
             value: '${state.longestStreak}',
             label: s.best),
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.check_circle_rounded,
-            color: GameColors.xpBlue,
+            color: GameColors.iconSuccess,
             value: '${state.totalCompletions}',
             label: s.total),
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.toll_rounded,
-            color: GameColors.gold,
+            color: GameColors.iconGold,
             value: '${state.gold}',
             label: s.gold),
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.bolt_rounded,
-            color: GameColors.xpBlue,
+            color: GameColors.iconXp,
             value: '${state.cumulativeXp}',
             label: s.totalXp),
       ],
@@ -419,7 +421,7 @@ class _StatCell extends StatelessWidget {
 /// each now opens its own screen, so Profile itself reads like a settings
 /// page (a short list of rows) under the profile header, not a scroll of
 /// stacked cards.
-class _ProfileLinksSection extends StatelessWidget {
+class _ProfileLinksSection extends ConsumerWidget {
   final int unlockedCount;
   final int totalAchievements;
   final int streak;
@@ -431,9 +433,13 @@ class _ProfileLinksSection extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
+    // Guests never have rooms (they require an account - see
+    // RoomsHubScreen's own gate), so this stays 0 and the badge below just
+    // never shows for them rather than needing a separate guest branch here.
+    final roomCount = ref.watch(myRoomCodesProvider).valueOrNull?.length ?? 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,7 +478,7 @@ class _ProfileLinksSection extends StatelessWidget {
                   child: Row(
                     children: [
                       Icon(Icons.emoji_events_rounded,
-                          size: 20, color: GameColors.gold),
+                          size: 20, color: GameColors.iconGold),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(s.achievementsRowTitle,
@@ -485,10 +491,10 @@ class _ProfileLinksSection extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: GameColors.gold.withOpacity(0.12),
+                          color: GameColors.iconGold.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(100),
                           border: Border.all(
-                              color: GameColors.gold.withOpacity(0.3),
+                              color: GameColors.iconGold.withOpacity(0.3),
                               width: 0.5),
                         ),
                         child: Text(
@@ -496,7 +502,7 @@ class _ProfileLinksSection extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
-                              color: GameColors.gold),
+                              color: GameColors.iconGold),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -531,7 +537,7 @@ class _ProfileLinksSection extends StatelessWidget {
                                 fontWeight: FontWeight.w500)),
                       ),
                       Icon(Icons.local_fire_department_rounded,
-                          size: 15, color: GameColors.streakOrange),
+                          size: 15, color: GameColors.iconStreak),
                       const SizedBox(width: 3),
                       Text('$streak',
                           style: TextStyle(
@@ -555,10 +561,6 @@ class _ProfileLinksSection extends StatelessWidget {
                         builder: (_) => const CharacterClosetScreen()),
                   );
                 },
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(GameSpacing.cardRadius),
-                  bottomRight: Radius.circular(GameSpacing.cardRadius),
-                ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 14),
@@ -574,6 +576,65 @@ class _ProfileLinksSection extends StatelessWidget {
                                 color: gp.textPrimary,
                                 fontWeight: FontWeight.w500)),
                       ),
+                      Icon(Icons.chevron_right_rounded,
+                          size: 18, color: gp.textTert),
+                    ],
+                  ),
+                ),
+              ),
+              Container(height: 0.5, color: gp.divider),
+              // Rooms: group challenges with friends - a room's own screen
+              // handles the guest-account gate itself (see
+              // RoomsHubScreen._GuestGate), so this row is always tappable
+              // regardless of sign-in state, same as every other row here.
+              InkWell(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const RoomsHubScreen()),
+                  );
+                },
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(GameSpacing.cardRadius),
+                  bottomRight: Radius.circular(GameSpacing.cardRadius),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                  child: Row(
+                    children: [
+                      Icon(Icons.emoji_events_outlined,
+                          size: 20, color: gp.textSec),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(s.roomsTitle,
+                            style: TextStyle(
+                                fontSize: 15,
+                                color: gp.textPrimary,
+                                fontWeight: FontWeight.w500)),
+                      ),
+                      if (roomCount > 0) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: GameColors.gold.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(100),
+                            border: Border.all(
+                                color: GameColors.gold.withOpacity(0.3),
+                                width: 0.5),
+                          ),
+                          child: Text(
+                            '$roomCount',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: GameColors.gold),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       Icon(Icons.chevron_right_rounded,
                           size: 18, color: gp.textTert),
                     ],
@@ -677,6 +738,12 @@ void _showThemePresetSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
+    // The preset list no longer fits every screen size unscrolled now that
+    // there are 7 presets instead of the original 4 — isScrollControlled
+    // lets the sheet grow past the default ~half-screen cap, and the
+    // Flexible+ScrollView below handles the case where it still doesn't
+    // fit (small phones, split-screen, a future 8th/9th preset).
+    isScrollControlled: true,
     builder: (ctx) => const _ThemePresetSheet(),
   );
 }
@@ -698,82 +765,100 @@ class _ThemePresetSheet extends ConsumerWidget {
         right: 16,
         bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-        decoration: BoxDecoration(
-          color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: gp.border, width: 0.5),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.82,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: gp.border,
-                  borderRadius: BorderRadius.circular(100),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          decoration: BoxDecoration(
+            color: gp.surfaceHigh,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: gp.border, width: 0.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: gp.border,
+                    borderRadius: BorderRadius.circular(100),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              s.appearanceSheetTitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: gp.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              s.appearancePremiumHint,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: gp.textSec),
-            ),
-            const SizedBox(height: 18),
-            ...ThemePresets.all.map((preset) {
-              final selected = preset.id == selectedId;
-              final locked = preset.isPremium && !isPremium;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _ThemePresetTile(
-                  preset: preset,
-                  selected: selected,
-                  locked: locked,
-                  label: isAr ? preset.nameAr : preset.nameEn,
-                  onTap: () {
-                    if (locked) {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/premium');
-                      return;
-                    }
-                    HapticFeedback.selectionClick();
-                    ref.read(themePresetProvider.notifier).set(preset.id);
-                    Navigator.pop(context);
-                  },
-                  // Preview works even for locked/premium presets — trying
-                  // the look on the real screens is not the same as
-                  // unlocking it, so it doesn't need the premium gate onTap
-                  // above uses.
-                  onPreview: () {
-                    HapticFeedback.selectionClick();
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ThemePreviewScreen(preset: preset),
-                      ),
-                    );
-                  },
+              const SizedBox(height: 18),
+              Text(
+                s.appearanceSheetTitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textPrimary,
                 ),
-              );
-            }),
-          ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                s.appearancePremiumHint,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: gp.textSec),
+              ),
+              const SizedBox(height: 18),
+              Flexible(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ...ThemePresets.all.map((preset) {
+                        final selected = preset.id == selectedId;
+                        final locked = preset.isPremium && !isPremium;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _ThemePresetTile(
+                            preset: preset,
+                            selected: selected,
+                            locked: locked,
+                            label: isAr ? preset.nameAr : preset.nameEn,
+                            onTap: () {
+                              if (locked) {
+                                Navigator.pop(context);
+                                Navigator.pushNamed(context, '/premium');
+                                return;
+                              }
+                              HapticFeedback.selectionClick();
+                              ref
+                                  .read(themePresetProvider.notifier)
+                                  .set(preset.id);
+                              Navigator.pop(context);
+                            },
+                            // Preview works even for locked/premium presets —
+                            // trying the look on the real screens is not the
+                            // same as unlocking it, so it doesn't need the
+                            // premium gate onTap above uses.
+                            onPreview: () {
+                              HapticFeedback.selectionClick();
+                              Navigator.pop(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      ThemePreviewScreen(preset: preset),
+                                ),
+                              );
+                            },
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -815,11 +900,12 @@ class _ThemePresetTile extends StatelessWidget {
         ),
         child: Row(
           children: [
+            // Just the two real hues a preset is built from — xpBlue/
+            // streakOrange are only tint/shade "touches" of gold now, so
+            // showing them as separate dots would just repeat this one.
             _PresetDot(color: preset.gold, size: 18),
-            const SizedBox(width: 4),
-            _PresetDot(color: preset.xpBlue, size: 18),
-            const SizedBox(width: 4),
-            _PresetDot(color: preset.streakOrange, size: 18),
+            const SizedBox(width: 5),
+            _PresetDot(color: preset.emerald, size: 18),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -889,6 +975,154 @@ class _PresetDot extends StatelessWidget {
   }
 }
 
+/// Opens the app-wide font picker from Settings.
+void _showFontSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => const _FontSheet(),
+  );
+}
+
+class _FontSheet extends ConsumerWidget {
+  const _FontSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final selected = ref.watch(appFontProvider);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              s.appFontSheetTitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: gp.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 18),
+            ...AppFont.values.map((font) {
+              final isSelected = font == selected;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _FontTile(
+                  font: font,
+                  selected: isSelected,
+                  onTap: () {
+                    if (isSelected) {
+                      Navigator.pop(context);
+                      return;
+                    }
+                    HapticFeedback.selectionClick();
+                    ref.read(appFontProvider.notifier).set(font);
+                    Navigator.pop(context);
+                  },
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FontTile extends StatelessWidget {
+  final AppFont font;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FontTile({
+    required this.font,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    // Rendered in the candidate font itself — regardless of which one is
+    // currently active — so the tile doubles as a live preview, the same
+    // idea as the comparison shown in chat before this got wired up.
+    final sampleStyle = GoogleFonts.getFont(
+      font.googleFontsFamily,
+      fontSize: 17,
+      fontWeight: FontWeight.w700,
+      color: gp.textPrimary,
+      height: 1.4,
+    );
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected ? GameColors.gold.withOpacity(0.08) : gp.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? GameColors.gold.withOpacity(0.5) : gp.border,
+            width: selected ? 1.2 : 0.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(font.label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: gp.textSec,
+                      )),
+                  const SizedBox(height: 6),
+                  Text('المشي 10 دقائق',
+                      textDirection: TextDirection.rtl, style: sampleStyle),
+                  const SizedBox(height: 2),
+                  Text('Walk 10 minutes', style: sampleStyle.copyWith(fontSize: 14)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            if (selected)
+              Icon(Icons.check_circle_rounded, size: 18, color: GameColors.gold),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SettingsSection extends ConsumerWidget {
   const _SettingsSection();
 
@@ -899,7 +1133,6 @@ class _SettingsSection extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final locale = ref.watch(localeProvider);
     final isAr = locale.languageCode == 'ar';
-    final reminderTime = ref.watch(reminderTimeProvider);
     final isGuest = ref.watch(guestModeProvider);
     final currentUser = ref.watch(authStateProvider).asData?.value;
     final canDeleteAccount = !isGuest && currentUser != null;
@@ -1012,9 +1245,7 @@ class _SettingsSection extends ConsumerWidget {
                             children: [
                               _PresetDot(color: preset.gold),
                               const SizedBox(width: 4),
-                              _PresetDot(color: preset.xpBlue),
-                              const SizedBox(width: 4),
-                              _PresetDot(color: preset.streakOrange),
+                              _PresetDot(color: preset.emerald),
                               const SizedBox(width: 8),
                               Text(
                                 isAr ? preset.nameAr : preset.nameEn,
@@ -1025,6 +1256,44 @@ class _SettingsSection extends ConsumerWidget {
                                 ),
                               ),
                             ],
+                          );
+                        }),
+                        const SizedBox(width: 6),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 18, color: gp.textTert),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(height: 0.5, color: gp.divider),
+                // Font
+                InkWell(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    _showFontSheet(context);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    child: Row(
+                      children: [
+                        Icon(Icons.text_fields_rounded, size: 20, color: gp.textSec),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(s.appFont,
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  color: gp.textPrimary,
+                                  fontWeight: FontWeight.w500)),
+                        ),
+                        Consumer(builder: (context, ref, _) {
+                          final font = ref.watch(appFontProvider);
+                          return Text(
+                            font.label,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: gp.textSec,
+                              fontWeight: FontWeight.w600,
+                            ),
                           );
                         }),
                         const SizedBox(width: 6),
@@ -1076,34 +1345,17 @@ class _SettingsSection extends ConsumerWidget {
                   ),
                 ),
                 Container(height: 0.5, color: gp.divider),
-                // Daily Reminder
+                // Notifications — see NotificationSettingsScreen for the
+                // full surface (habit reminders, prayer-time setup, quiet
+                // hours, streak-risk nudge, celebrations, matrix nudge).
+                // The old inline Daily Reminder row that used to live here
+                // now lives inside that screen instead, alongside every
+                // other notification setting rather than off on its own.
                 InkWell(
-                  onTap: () async {
+                  onTap: () {
                     HapticFeedback.selectionClick();
-                    final picked = await showTimePicker(
-                      context: context,
-                      initialTime: reminderTime ?? const TimeOfDay(hour: 20, minute: 0),
-                    );
-                    if (picked != null) {
-                      final granted = await ref
-                          .read(reminderTimeProvider.notifier)
-                          .set(picked);
-                      if (!granted && context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(s.reminderPermissionDenied),
-                            duration: const Duration(seconds: 4),
-                          ),
-                        );
-                      }
-                    }
+                    Navigator.pushNamed(context, '/notification-settings');
                   },
-                  onLongPress: reminderTime == null
-                      ? null
-                      : () async {
-                          HapticFeedback.mediumImpact();
-                          await ref.read(reminderTimeProvider.notifier).clear();
-                        },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     child: Row(
@@ -1111,27 +1363,14 @@ class _SettingsSection extends ConsumerWidget {
                         Icon(Icons.notifications_rounded, size: 20, color: gp.textSec),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Text(s.dailyReminder,
+                          child: Text(s.notificationsTitle,
                               style: TextStyle(
                                   fontSize: 15,
                                   color: gp.textPrimary,
                                   fontWeight: FontWeight.w500)),
                         ),
-                        Flexible(
-                          child: Text(
-                            reminderTime != null
-                                ? reminderTime.format(context)
-                                : s.tapToSetReminder,
-                            textAlign: TextAlign.end,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: reminderTime != null ? GameColors.gold : gp.textTert,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
+                        Icon(Icons.arrow_forward_ios_rounded,
+                            size: 14, color: gp.textTert),
                       ],
                     ),
                   ),

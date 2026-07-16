@@ -2,19 +2,49 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' show Offering, Package;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/analytics_service.dart';
+import '../../../core/services/purchase_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../notifiers/premium_notifier.dart';
 
+/// Which plan card is selected — monthly (auto-renewing subscription) or
+/// lifetime (one-time, non-consumable purchase). Both map to the same
+/// RevenueCat entitlement (see PurchaseService.entitlementId), so nothing
+/// past this screen ever needs to know which one someone bought.
+enum _PlanKind { monthly, lifetime }
+
+/// Apple's standard EULA - used as-is since GrowDaily hasn't set a custom
+/// License Agreement in App Store Connect (App Information -> License
+/// Agreement). Required reading here regardless: App Store Guideline
+/// 3.1.2 requires a functional Terms of Use link on any subscription
+/// purchase screen, and if you're relying on the standard EULA, Apple
+/// requires this exact link in your App Description too.
+const String _termsOfUseUrl =
+    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+
+/// GrowDaily's actual Privacy Policy - published Google Doc. Guideline
+/// 3.1.2 requires this alongside the Terms link above. If this ever moves
+/// to a custom domain, this is the only line that needs to change.
+const String _privacyPolicyUrl =
+    'https://docs.google.com/document/d/e/2PACX-1vT1weIyykC2Bdbz6aVMBae9PNtCXoFNdfUnpFZ1Po9A87pseQFOfogWPV4CLytHwolFhVKcaLrw-4aD/pub';
+
 /// The GrowDaily Premium paywall.
 ///
-/// Purchase flow: this screen is intentionally store-agnostic. When the
-/// in_app_purchase (or RevenueCat) SDK is wired, replace [_startPurchase]
-/// with the real flow and call `premiumProvider.notifier.activate()` on a
-/// verified transaction. Until then the CTA is honest about availability
-/// and tracks intent so launch pricing can be data-informed.
+/// Real purchase flow, backed by RevenueCat (see PurchaseService): this
+/// screen fetches the live Offering (real, store-localized prices — never
+/// hardcoded strings, since Apple requires the displayed price to match
+/// what StoreKit will actually charge), and PremiumScreen itself never
+/// decides whether someone is Premium — a successful purchase/restore just
+/// updates PurchaseService's CustomerInfo stream, which premiumProvider
+/// (and therefore every gate in the app) reacts to on its own. If
+/// PurchaseService.isConfigured is still false (see its doc comment for
+/// the one-time RevenueCat/App Store Connect setup that only a human with
+/// those accounts can do), or the Offering has no usable packages yet,
+/// this honestly shows "not available yet" instead of a broken paywall.
 class PremiumScreen extends ConsumerStatefulWidget {
   const PremiumScreen({super.key});
 
@@ -23,20 +53,139 @@ class PremiumScreen extends ConsumerStatefulWidget {
 }
 
 class _PremiumScreenState extends ConsumerState<PremiumScreen> {
-  bool _yearly = true;
+  _PlanKind _selected = _PlanKind.monthly;
+  bool _loadingOffering = true;
+  Offering? _offering;
+  bool _isPurchasing = false;
+  bool _isRestoring = false;
+  bool _isOpeningCustomerCenter = false;
 
-  void _startPurchase() {
+  @override
+  void initState() {
+    super.initState();
+    _loadOffering();
+  }
+
+  Future<void> _loadOffering() async {
+    final offering = await PurchaseService.instance.getCurrentOffering();
+    if (!mounted) return;
+    setState(() {
+      _offering = offering;
+      _loadingOffering = false;
+      // Default to whichever plan actually exists, in case only one of
+      // the two was configured — see [_selectedPackage].
+      if (offering?.monthly == null && offering?.lifetime != null) {
+        _selected = _PlanKind.lifetime;
+      }
+    });
+  }
+
+  Package? get _selectedPackage {
+    final offering = _offering;
+    if (offering == null) return null;
+    return _selected == _PlanKind.monthly ? offering.monthly : offering.lifetime;
+  }
+
+  Future<void> _startPurchase() async {
+    final package = _selectedPackage;
+    if (package == null || _isPurchasing) return;
     HapticFeedback.mediumImpact();
     AnalyticsService.instance.track('premium_purchase_intent', props: {
-      'plan': _yearly ? 'yearly' : 'monthly',
+      'plan': _selected == _PlanKind.monthly ? 'monthly' : 'lifetime',
     });
-    // TODO(store): launch the platform purchase flow here and call
-    // ref.read(premiumProvider.notifier).activate() once verified.
-    final s = S.of(context);
+    setState(() => _isPurchasing = true);
+    final outcome = await PurchaseService.instance.purchase(package);
+    if (!mounted) return;
+    setState(() => _isPurchasing = false);
+    if (outcome.cancelled) return; // Silent — the user just backed out.
+    if (outcome.success) {
+      HapticFeedback.mediumImpact();
+      // Flip premiumProvider right now with the CustomerInfo this call
+      // already has, instead of waiting on the separate update stream —
+      // see PremiumNotifier.applyCustomerInfo's doc comment. This is what
+      // makes "Premium is active" appear the instant the purchase clears,
+      // with no gap where someone who just paid still sees the paywall.
+      ref.read(premiumProvider.notifier).applyCustomerInfo(outcome.customerInfo!);
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(s.premiumComingSoon),
-        duration: const Duration(seconds: 3),
+        content: Text(S.of(context).premiumPurchaseError),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      ),
+    );
+  }
+
+  Future<void> _restore() async {
+    if (_isRestoring) return;
+    HapticFeedback.lightImpact();
+    AnalyticsService.instance.track('premium_restore_intent');
+    setState(() => _isRestoring = true);
+    final outcome = await PurchaseService.instance.restore();
+    if (!mounted) return;
+    setState(() => _isRestoring = false);
+    final s = S.of(context);
+    final info = outcome.customerInfo;
+    // Same reasoning as _startPurchase: apply now rather than waiting on
+    // the separate update stream, so a successful restore is reflected
+    // immediately instead of on whatever the listener's timing happens to be.
+    if (info != null) {
+      ref.read(premiumProvider.notifier).applyCustomerInfo(info);
+    }
+    final message = !outcome.success
+        ? s.premiumPurchaseError
+        : (info != null && PurchaseService.instance.isEntitled(info))
+            ? s.premiumRestoreSuccess
+            : s.premiumRestoreNothingFound;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      ),
+    );
+  }
+
+  /// Opens RevenueCat's hosted Customer Center (see
+  /// PurchaseService.presentCustomerCenter) so an existing Premium member
+  /// can view their renewal date, cancel, or switch plans without leaving
+  /// the app — Apple requires this kind of self-serve management to be
+  /// reachable from inside the app, not just via the OS Settings app.
+  Future<void> _manageSubscription() async {
+    if (_isOpeningCustomerCenter) return;
+    HapticFeedback.lightImpact();
+    AnalyticsService.instance.track('premium_manage_subscription_tap');
+    setState(() => _isOpeningCustomerCenter = true);
+    final opened = await PurchaseService.instance.presentCustomerCenter();
+    if (!mounted) return;
+    setState(() => _isOpeningCustomerCenter = false);
+    if (opened) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(S.of(context).premiumPurchaseError),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      ),
+    );
+  }
+
+  /// Opens a legal link (Terms of Use / Privacy Policy) in the system
+  /// browser. Both are plain https URLs so this never needs the
+  /// LSApplicationQueriesSchemes entry url_launcher's README calls out —
+  /// that's only required for scheme checks like tel:/sms:, not a plain
+  /// launchUrl on http(s).
+  Future<void> _openLink(String url) async {
+    bool ok;
+    try {
+      ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {
+      ok = false;
+    }
+    if (ok || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(S.of(context).premiumLinkOpenError),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       ),
@@ -48,6 +197,9 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final isPremium = ref.watch(premiumProvider);
+    final monthly = _offering?.monthly;
+    final lifetime = _offering?.lifetime;
+    final hasPlans = monthly != null || lifetime != null;
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -145,7 +297,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   ),
               const SizedBox(height: 12),
 
-              if (isPremium)
+              if (isPremium) ...[
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -157,13 +309,13 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.verified_rounded,
+                      Icon(Icons.verified_rounded,
                           color: GameColors.emerald),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           s.premiumActive,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w700,
                             color: GameColors.emerald,
                           ),
@@ -171,68 +323,143 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                       ),
                     ],
                   ),
-                )
-              else ...[
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed:
+                      _isOpeningCustomerCenter ? null : _manageSubscription,
+                  child: _isOpeningCustomerCenter
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        )
+                      : Text(s.premiumManageSubscription),
+                ),
+              ] else if (_loadingOffering) ...[
+                const SizedBox(height: 32),
+                const Center(child: CircularProgressIndicator()),
+                const SizedBox(height: 32),
+              ] else if (!hasPlans) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: gp.surface,
+                    borderRadius:
+                        BorderRadius.circular(GameSpacing.cardRadius),
+                    border: Border.all(color: gp.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded,
+                          size: 18, color: gp.textTert),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(s.premiumComingSoon,
+                            style: TextStyle(fontSize: 12.5, color: gp.textSec)),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
                 // Plan picker
                 Row(
                   children: [
-                    Expanded(
-                      child: _PlanCard(
-                        label: s.premiumMonthly,
-                        price: r'$2.99',
-                        period: s.premiumPerMonth,
-                        selected: !_yearly,
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _yearly = false);
-                        },
+                    if (monthly != null)
+                      Expanded(
+                        child: _PlanCard(
+                          label: s.premiumMonthly,
+                          price: monthly.storeProduct.priceString,
+                          period: s.premiumPerMonth,
+                          selected: _selected == _PlanKind.monthly,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _selected = _PlanKind.monthly);
+                          },
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _PlanCard(
-                        label: s.premiumYearly,
-                        price: r'$19.99',
-                        period: s.premiumPerYear,
-                        badge: s.premiumSave('44%'),
-                        selected: _yearly,
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _yearly = true);
-                        },
+                    if (monthly != null && lifetime != null)
+                      const SizedBox(width: 12),
+                    if (lifetime != null)
+                      Expanded(
+                        child: _PlanCard(
+                          label: s.premiumLifetime,
+                          price: lifetime.storeProduct.priceString,
+                          period: s.premiumOneTime,
+                          badge: s.premiumBestValueBadge,
+                          selected: _selected == _PlanKind.lifetime,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _selected = _PlanKind.lifetime);
+                          },
+                        ),
                       ),
-                    ),
                   ],
                 ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.1),
                 const SizedBox(height: 18),
                 FilledButton(
-                  onPressed: _startPurchase,
+                  onPressed:
+                      _isPurchasing || _selectedPackage == null ? null : _startPurchase,
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(double.infinity, 54),
                   ),
-                  child: Text(s.premiumCta),
+                  child: _isPurchasing
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2.4),
+                        )
+                      : Text(s.premiumCta),
                 ).animate(delay: 580.ms).fadeIn().slideY(begin: 0.2),
                 const SizedBox(height: 10),
                 TextButton(
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    AnalyticsService.instance.track('premium_restore_intent');
-                    // TODO(store): restore purchases via the store SDK.
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(s.premiumComingSoon),
-                        behavior: SnackBarBehavior.floating,
-                        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      ),
-                    );
-                  },
-                  child: Text(s.premiumRestore),
+                  onPressed: _isRestoring ? null : _restore,
+                  child: _isRestoring
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        )
+                      : Text(s.premiumRestore),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   s.premiumFinePrint,
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: gp.textTert),
+                ),
+                const SizedBox(height: 6),
+                // Required alongside the subscription itself, not just
+                // somewhere in Settings — see App Store Guideline 3.1.2 and
+                // _termsOfUseUrl/_privacyPolicyUrl's doc comments above.
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    GestureDetector(
+                      onTap: () => _openLink(_termsOfUseUrl),
+                      child: Text(
+                        s.premiumTermsOfUse,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: gp.textSec,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                    Text('  ·  ',
+                        style: TextStyle(fontSize: 11, color: gp.textTert)),
+                    GestureDetector(
+                      onTap: () => _openLink(_privacyPolicyUrl),
+                      child: Text(
+                        s.premiumPrivacyPolicy,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: gp.textSec,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ],
@@ -375,7 +602,7 @@ class _PlanCard extends StatelessWidget {
                     ),
                     child: Text(
                       badge!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w800,
                         color: GameColors.emerald,

@@ -48,7 +48,7 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
     // how many habits someone keeps.
     final habits = ref.watch(habitListProvider);
 
-    final currentWeekStart = startOfGridWeek(DateTime.now());
+    final currentWeekStart = startOfGridWeek(DateTime.now().effectiveDay);
     final firstWeekStart = currentWeekStart
         .subtract(Duration(days: 7 * (weeksToShow - 1)));
     final weekStarts = List.generate(
@@ -313,7 +313,12 @@ class _HeatCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isFuture = day.startOfDay.isAfter(DateTime.now().startOfDay);
+    // Same exemption as the Grid's own _SquareCell.isFuture: the real
+    // calendar day during the 3-hour window right after midnight isn't
+    // "future" just because effectiveDay hasn't caught up to it yet — see
+    // DateTimeGameExt.isRealToday.
+    final isFuture = day.startOfDay.isAfter(DateTime.now().effectiveDay) &&
+        !day.isRealToday;
     final level = heatLevel(count, totalHabits);
     return GestureDetector(
       onTap: isFuture ? null : () => onTap(day, count),
@@ -325,7 +330,9 @@ class _HeatCell extends StatelessWidget {
           decoration: BoxDecoration(
             color: heatColor(level, dark),
             borderRadius: BorderRadius.circular(4),
-            border: day.isToday
+            // isRealToday, not isToday: purely the "today" marker — see
+            // DateTimeGameExt.isRealToday's doc comment.
+            border: day.isRealToday
                 ? Border.all(color: GameColors.gold, width: 1.4)
                 : null,
           ),

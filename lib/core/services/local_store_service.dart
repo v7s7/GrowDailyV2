@@ -9,6 +9,7 @@ class LocalStoreService {
   static const String guestFocusPrefix = 'guest_focus_plan_';
   static const String guestCustomHabitsKey = 'guest_custom_habits';
   static const String guestMatrixTasksKey = 'guest_matrix_tasks';
+  static const String guestMatrixQuadrantsKey = 'guest_matrix_quadrants';
   static const String guestCharacterKey = 'guest_character_state';
 
   static Future<Box<dynamic>> settingsBox() => _open(GameConstants.boxSettings);

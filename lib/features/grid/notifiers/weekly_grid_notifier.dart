@@ -37,7 +37,7 @@ class WeeklyGridState {
   });
 
   factory WeeklyGridState.initial() => WeeklyGridState(
-        weekStart: startOfGridWeek(DateTime.now()),
+        weekStart: startOfGridWeek(DateTime.now().effectiveDay),
         states: const {},
         notes: const {},
         isLoading: true,
@@ -48,7 +48,7 @@ class WeeklyGridState {
       List.generate(7, (i) => weekStart.add(Duration(days: i)));
 
   bool get isCurrentWeek =>
-      weekStart.isSameDayAs(startOfGridWeek(DateTime.now()));
+      weekStart.isSameDayAs(startOfGridWeek(DateTime.now().effectiveDay));
 
   /// The next week is in the future — never let the user log ahead of time.
   bool get canGoForward => !isCurrentWeek;
@@ -83,7 +83,7 @@ class WeeklyGridState {
     final ids = habitIds.toList(growable: false);
     if (ids.isEmpty) return 0;
 
-    final today = DateTime.now();
+    final today = DateTime.now().effectiveDay;
     if (!isCurrentWeek || !days.any((d) => d.isSameDayAs(today))) return 0;
 
     final row = states[today.toDateKey()];
@@ -106,7 +106,7 @@ class WeeklyGridState {
   /// look like banked XP in the Grid summary. Only today's row in the current
   /// week can award progression, matching [setSquare]'s anti-backdating guard.
   int rewardEligiblePoints(Iterable<String> habitIds) {
-    final today = DateTime.now();
+    final today = DateTime.now().effectiveDay;
     if (!isCurrentWeek || !days.any((d) => d.isSameDayAs(today))) return 0;
 
     final row = states[today.toDateKey()];
@@ -222,7 +222,8 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     _goToWeek(state.weekStart.add(const Duration(days: 7)));
   }
 
-  void goToCurrentWeek() => _goToWeek(startOfGridWeek(DateTime.now()));
+  void goToCurrentWeek() =>
+      _goToWeek(startOfGridWeek(DateTime.now().effectiveDay));
 
   void _goToWeek(DateTime newStart) {
     final start = startOfGridWeek(newStart);
@@ -246,12 +247,13 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
 
   /// Set a square to an explicit state (used by the long-press palette).
   ///
-  /// Every color change feeds the app's single progression system: the fixed
-  /// XP for the new color minus the XP the old color already banked, and —
-  /// only for a square newly turned green on *today* — the once-per-day
-  /// streak bump. This is delta-based so cycling a square back and forth
-  /// nets to exactly what a single direct change would have earned; nothing
-  /// to farm by tapping repeatedly.
+  /// Every color change feeds the app's XP/green-square progression: the
+  /// fixed XP for the new color minus the XP the old color already banked.
+  /// This is delta-based so cycling a square back and forth nets to exactly
+  /// what a single direct change would have earned; nothing to farm by
+  /// tapping repeatedly. Does *not* touch the streak — see
+  /// [DashboardNotifier.applyGridSquareChange]'s doc comment for why a Grid
+  /// color change alone never earns today's streak point.
   void setSquare(String habitId, DateTime day, SquareState value) {
     final old = state.squareFor(habitId, day);
     final key = day.toDateKey();
@@ -262,29 +264,38 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     state = state.copyWith(states: states);
     _persistSquare(habitId, day, value);
 
+    final greenDelta = (value.isGreen ? 1 : 0) - (old.isGreen ? 1 : 0);
+
     // Anti-backdating: a square for any day other than today still colors
-    // and saves normally — Grid stays an honest visual record of what you
-    // did — but never reaches the reward system. Without this, navigating
-    // to a past week and coloring squares green would be a free, repeatable
-    // way to farm XP, gold, and achievement/green-square progress for days
-    // that were never actually lived through.
-    if (!day.isToday) return;
+    // and saves normally, and now also correctly updates the heatmap's day
+    // rollup (see DashboardNotifier.recordPastDayGreenDelta) — Grid and the
+    // heatmap both stay an honest visual record of what you did. What a
+    // past day never reaches is the actual reward system: no XP, no gold,
+    // no streak, no achievement/green-square progress. Without that split,
+    // navigating to a past week and coloring squares green would be a
+    // free, repeatable way to farm real progress for days that were never
+    // actually lived through.
+    //
+    // day.isToday itself is cutoff-aware (see DateTimeGameExt.effectiveDay)
+    // — a 1:30 AM tap on yesterday's square still passes this guard,
+    // because the app day genuinely hasn't ended yet. The moment the
+    // cutoff hour passes, that same square starts being treated as a past
+    // day here, exactly like any other backdated square.
+    if (!day.isToday) {
+      if (greenDelta != 0) {
+        _ref
+            .read(dashboardProvider.notifier)
+            .recordPastDayGreenDelta(key, greenDelta);
+      }
+      return;
+    }
 
     final xpDelta = value.xpValue - old.xpValue;
-    final greenDelta = (value.isGreen ? 1 : 0) - (old.isGreen ? 1 : 0);
     if (xpDelta != 0 || greenDelta != 0) {
-      // Whether any square is still green today after this change — lets
-      // the dashboard tell a "still earned it some other way today" edit
-      // apart from "the only green square today just got un-marked", which
-      // should give the once-per-day streak point back.
-      final stillGreenToday =
-          (states[key] ?? const {}).values.any((s) => s.isGreen);
       _ref.read(dashboardProvider.notifier).applyGridSquareChange(
             xpDelta: xpDelta,
             greenDelta: greenDelta,
-            isToday: day.isToday,
             dateKey: key,
-            stillGreenToday: stillGreenToday,
           );
     }
   }
@@ -308,9 +319,23 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// `DashboardNotifier.completeHabit` onto today's Grid square. A no-op
   /// if the square is already `complete` (e.g. repairing the mirror after
   /// `completeHabit` succeeded but the visual write hadn't landed yet).
-  void markCompleteFromHabit(String habitId, DateTime day) {
-    if (state.squareFor(habitId, day) == SquareState.complete) return;
-    setSquareStateOnly(habitId, day, SquareState.complete);
+  void markCompleteFromHabit(String habitId, DateTime day) =>
+      markResultFromHabit(habitId, day, SquareState.complete);
+
+  /// General form of [markCompleteFromHabit] — mirrors *any* outcome
+  /// (not just a green complete) onto a Grid square without touching the
+  /// reward system, same division of labor as [setSquareStateOnly]: the
+  /// caller (e.g. `DashboardNotifier.completeHabit`/`uncompleteHabit`) is
+  /// always the one place a habit-day's XP/gold/streak actually changes.
+  ///
+  /// Added for quit-habit slip/over-limit days, which need a square color
+  /// distinct from both "green" and "never touched" (`SquareState.failed`,
+  /// the grid's existing red state) — see `HabitCard`'s quit-goal action
+  /// row. A no-op if the square already shows [value], mirroring
+  /// [markCompleteFromHabit]'s own repair-safe guard.
+  void markResultFromHabit(String habitId, DateTime day, SquareState value) {
+    if (state.squareFor(habitId, day) == value) return;
+    setSquareStateOnly(habitId, day, value);
   }
 
   /// Attach (or clear) a daily reflection note for a habit's square.
@@ -374,8 +399,76 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     await LocalStoreService.putDailyMap(key, map);
   }
 
+  /// Retroactively marks [day]'s square green for each quit habit in
+  /// [habitIds] whose square is still untouched — the "silence means
+  /// clean" half of the quit-habit evening check-in flow (see
+  /// NotificationService.scheduleQuitCheckIns for the other half). A quit
+  /// habit's success is *not doing* something, so an unanswered day
+  /// shouldn't quietly read as a hole in the record the way a build
+  /// habit's genuinely does.
+  ///
+  /// Deliberately visual-record only, same anti-backdating stance as
+  /// [setSquare]'s past-day branch: no XP, no gold, no streak — those
+  /// stay exclusive to same-day actions (the check-in's On Track button,
+  /// or the card's own pill). Reads the day straight from Firestore/Hive
+  /// rather than [state], since [day] (typically yesterday) can fall
+  /// outside the visible week — e.g. every Saturday, when the grid week
+  /// rolls over. Only ever writes over [SquareState.none]: an explicit
+  /// slip, skip, or anything else the user (or a past pass) already said
+  /// about that day always wins over an assumption.
+  ///
+  /// Callers decide *which* habits qualify — see
+  /// [isQuitAutoCleanEligible] for the shared rule.
+  Future<void> autoCleanQuitDay(List<String> habitIds, DateTime day) async {
+    if (habitIds.isEmpty) return;
+    Map<String, dynamic> data;
+    try {
+      if (_uid != null) {
+        final snap = await _dayRef(day).get();
+        data = snap.data() ?? const {};
+      } else {
+        data = await LocalStoreService.getDailyMap(day.toDateKey());
+      }
+    } catch (_) {
+      // Offline with no cached doc — skip rather than risk overwriting a
+      // slip logged on another device that just hasn't synced here yet.
+      return;
+    }
+    if (!mounted) return;
+    final raw = (data['squareStates'] as Map?) ?? const {};
+    for (final id in habitIds) {
+      final existing = SquareState.fromJson(raw[id]?.toString());
+      if (existing != SquareState.none) continue;
+      setSquareStateOnly(id, day, SquareState.complete);
+    }
+  }
+
   Future<void> refresh() => _loadWeek();
 }
+
+/// Whether a habit qualifies for [WeeklyGridNotifier.autoCleanQuitDay]'s
+/// "an unanswered day counts as clean" treatment. Pure so the rule is
+/// unit-testable — see test/features/grid/quit_auto_clean_test.dart.
+///
+/// All four must hold:
+///  - [isQuit]: build habits genuinely require action, silence IS a miss;
+///  - [isSingleTap]: weekly-target quit habits never sync per-day squares
+///    anywhere else either (same rule as HabitCard's slip link and
+///    completeHabit's Grid mirror);
+///  - [wasScheduled]: a day the habit wasn't even scheduled for has
+///    nothing to be clean *about*;
+///  - [hasEverCompleted]: auto-clean only continues an established record,
+///    it never invents the first day — a freshly created quit habit that's
+///    never once been affirmed shouldn't wake up to auto-greened history
+///    (this also covers "created today, don't green the day before it
+///    existed", since the app doesn't store a per-habit creation date).
+bool isQuitAutoCleanEligible({
+  required bool isQuit,
+  required bool isSingleTap,
+  required bool wasScheduled,
+  required bool hasEverCompleted,
+}) =>
+    isQuit && isSingleTap && wasScheduled && hasEverCompleted;
 
 final weeklyGridProvider =
     StateNotifierProvider<WeeklyGridNotifier, WeeklyGridState>((ref) {

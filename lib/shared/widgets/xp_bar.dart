@@ -27,7 +27,7 @@ class XpBar extends StatelessWidget {
                 width: fillWidth,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [GameColors.xpBlueDim, GameColors.xpBlue],
+                    colors: [GameColors.iconXpDim, GameColors.iconXp],
                   ),
                 ),
               ),

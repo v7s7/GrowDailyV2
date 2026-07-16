@@ -16,6 +16,18 @@ class CustomHabitsNotifier
     extends StateNotifier<List<IslamicHabitTemplate>> {
   final String? _uid;
 
+  /// True until the very first Firestore/Hive read resolves - a plain
+  /// instance field rather than folding it into [state] itself, since
+  /// [state]'s type (a bare List) is read directly by a wide swath of the
+  /// app (habitListProvider, Grid, AddHabitSheet, tests, ...) and wrapping
+  /// it in a loading-aware class would mean updating every one of those
+  /// call sites for a change that's really only about the first second of
+  /// app launch. [habitsStillLoadingProvider] below is what screens should
+  /// actually watch - it combines this with [ActiveCatalogNotifier.
+  /// isLoading] into the one signal "is the habit list still settling"
+  /// question actually needs.
+  bool isLoading = true;
+
   CustomHabitsNotifier(this._uid) : super([]) {
     if (_uid != null) {
       _load();
@@ -42,6 +54,7 @@ class CustomHabitsNotifier
               item,
             ))
         .toList();
+    isLoading = false;
   }
 
   Future<void> _saveGuest() async {
@@ -61,7 +74,20 @@ class CustomHabitsNotifier
             .map((d) => IslamicHabitTemplate.fromFirestore(d))
             .toList();
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      // Guards a redundant second notification on the success path above
+      // (which already reassigned `state` once) while still guaranteeing
+      // one happens on the error path, where `state` never changed at all
+      // - habitsStillLoadingProvider only re-reads this field when
+      // [customHabitsProvider]'s own state changes, so a silent flip with
+      // no accompanying change would leave a "still loading" screen
+      // spinning forever after a failed read.
+      if (mounted && isLoading) {
+        isLoading = false;
+        state = List.of(state);
+      }
+    }
   }
 
   /// Returns the created template so callers that add several habits back
@@ -78,6 +104,9 @@ class CustomHabitsNotifier
     ReductionType reductionType = ReductionType.avoid,
     int? limitAmount,
     LimitUnit? limitUnit,
+    String? customUnitLabel,
+    String? iconColorHex,
+    int reminderLeadMinutes = 0,
   }) {
     final rewards = _rewards(category);
     final template = IslamicHabitTemplate(
@@ -95,9 +124,12 @@ class CustomHabitsNotifier
       reductionType: reductionType,
       limitAmount: limitAmount,
       limitUnit: limitUnit,
+      customUnitLabel: limitUnit == LimitUnit.custom ? customUnitLabel : null,
       hasTimer: false,
       xpReward: rewards.$1,
       goldReward: rewards.$2,
+      iconColorHex: iconColorHex,
+      reminderLeadMinutes: reminderLeadMinutes,
     );
     state = [...state, template];
     if (_uid != null) {
@@ -123,6 +155,16 @@ class CustomHabitsNotifier
     ReductionType? reductionType,
     int? limitAmount,
     LimitUnit? limitUnit,
+    String? customUnitLabel,
+    String? iconColorHex,
+    int? reminderLeadMinutes,
+    // Distinguishes "leave the current icon color alone" (the default —
+    // every other caller that doesn't touch color just omits iconColorHex)
+    // from "the user explicitly chose to go back to the default color" —
+    // AddHabitSheet's "Use default color" action sets this instead of just
+    // passing a null iconColorHex, which `iconColorHex ?? existing.
+    // iconColorHex` below would otherwise silently ignore.
+    bool clearIconColor = false,
   }) {
     final existing = state.firstWhere((h) => h.id == id);
     final rewards = _rewards(category);
@@ -137,6 +179,11 @@ class CustomHabitsNotifier
             effectiveReductionType == ReductionType.limit
         ? limitUnit ?? existing.limitUnit
         : null;
+    final effectiveCustomUnitLabel = effectiveLimitUnit == LimitUnit.custom
+        ? customUnitLabel ?? existing.customUnitLabel
+        : null;
+    final effectiveIconColorHex =
+        clearIconColor ? null : (iconColorHex ?? existing.iconColorHex);
     final updated = IslamicHabitTemplate(
       id: id,
       name: name,
@@ -149,10 +196,13 @@ class CustomHabitsNotifier
       reductionType: effectiveReductionType,
       limitAmount: effectiveLimitAmount,
       limitUnit: effectiveLimitUnit,
+      customUnitLabel: effectiveCustomUnitLabel,
       hasTimer: existing.hasTimer,
       timerDurationSeconds: existing.timerDurationSeconds,
       xpReward: rewards.$1,
       goldReward: rewards.$2,
+      iconColorHex: effectiveIconColorHex,
+      reminderLeadMinutes: reminderLeadMinutes ?? existing.reminderLeadMinutes,
     );
     state = [
       for (final h in state) h.id == id ? updated : h,
@@ -213,6 +263,33 @@ final habitListProvider = Provider<List<IslamicHabitTemplate>>((ref) {
       return rankA.compareTo(rankB);
     });
   return [for (final entry in ranked) entry.value];
+});
+
+/// Whether [habitListProvider]'s two sources (custom habits + the active
+/// catalog set) are still on their very first Firestore/Hive read. False
+/// for the rest of the app's lifetime after that - this is purely a cold-
+/// start signal, never true again once both have loaded once.
+///
+/// Screens that show an empty-state prompt ("no habits yet, add one!")
+/// when the list is empty should check this *first* and show a neutral
+/// loading spinner instead while it's still true - without it, a returning
+/// user with a real habit list sees a flash of "you have nothing" for
+/// however long the read takes, right before their actual habits appear
+/// and silently replace it. See DashboardScreen/GridScreen's own body
+/// gates for the two places that actually matter.
+///
+/// Watches both providers' plain state (to know *when* to re-check - a
+/// StateNotifier's own instance fields aren't reactive on their own) and
+/// then reads [CustomHabitsNotifier.isLoading]/[ActiveCatalogNotifier.
+/// isLoading] off each notifier instance directly, since neither's `state`
+/// type can safely carry a loading flag of its own without changing what
+/// every existing reader of [customHabitsProvider]/[activeCatalogProvider]
+/// gets back.
+final habitsStillLoadingProvider = Provider<bool>((ref) {
+  ref.watch(customHabitsProvider);
+  ref.watch(activeCatalogProvider);
+  return ref.watch(customHabitsProvider.notifier).isLoading ||
+      ref.watch(activeCatalogProvider.notifier).isLoading;
 });
 
 /// Guests get a 3-habit trial before being asked to create an account.

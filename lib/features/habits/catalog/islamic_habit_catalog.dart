@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart' show Color;
 import 'package:uuid/uuid.dart';
 
 import '../models/habit_model.dart';
@@ -9,6 +10,15 @@ class IslamicHabitTemplate {
   final String id;
   final String name;
   final String description;
+  // Arabic counterparts for the built-in catalog's [name]/[description] —
+  // null for every user-created custom habit (those come from whatever the
+  // user actually typed, in whichever language, so there's nothing to
+  // translate) and populated for every entry in [IslamicHabitCatalog.
+  // templates]. Read through [localName]/[localDescription] rather than
+  // these directly, so a missing translation always falls back to the
+  // English text instead of showing a blank.
+  final String? nameAr;
+  final String? descriptionAr;
   final String? cueAfter;
   final HabitCategory category;
   final HabitFrequencyType frequencyType;
@@ -18,15 +28,40 @@ class IslamicHabitTemplate {
   final ReductionType reductionType;
   final int? limitAmount;
   final LimitUnit? limitUnit;
+  // Free-text label for LimitUnit.custom (e.g. "cigarettes", "swipes") —
+  // null/empty for every other unit, which already have a stock translated
+  // label (see S.limitUnitLabel). Without this, "custom" had no way to say
+  // what it actually meant: a limit of 5 with unit "custom" just rendered
+  // the literal word "Custom" everywhere instead of the thing being limited.
+  final String? customUnitLabel;
   final bool hasTimer;
   final int? timerDurationSeconds;
   final int xpReward;
   final int goldReward;
+  // A user-picked override for this one habit's icon color — 6 hex digits,
+  // no leading '#' (e.g. 'E4819A'), or null to keep using whatever color
+  // the render site would otherwise fall back to (categoryVisual's
+  // category color in Grid, the done/goal-type accent in HabitCard). Stored
+  // as a plain hex string rather than an ARGB int specifically so this
+  // never has to touch Color's own (Flutter-version-sensitive) component
+  // accessors — every read site just does
+  // `Color(0xFF000000 | int.parse(iconColorHex, radix: 16))`.
+  final String? iconColorHex;
+  // How many minutes *before* the resolved cue moment (the picked clock
+  // time, or prayer time + the global after-prayer offset) the reminder
+  // should actually fire — 0 means "right at that moment," matching every
+  // habit's behavior before this field existed, so old data with no stored
+  // value is completely unaffected. Meaningless (and never surfaced in the
+  // UI) for a freeform-text cue, since that has no resolved moment to count
+  // back from in the first place. See NotificationService.scheduleSmartReminders.
+  final int reminderLeadMinutes;
 
   const IslamicHabitTemplate({
     required this.id,
     required this.name,
     required this.description,
+    this.nameAr,
+    this.descriptionAr,
     this.cueAfter,
     required this.category,
     required this.frequencyType,
@@ -36,11 +71,26 @@ class IslamicHabitTemplate {
     this.reductionType = ReductionType.avoid,
     this.limitAmount,
     this.limitUnit,
+    this.customUnitLabel,
     required this.hasTimer,
     this.timerDurationSeconds,
     required this.xpReward,
     required this.goldReward,
+    this.iconColorHex,
+    this.reminderLeadMinutes = 0,
   });
+
+  /// This habit's own icon color, or null to fall back to the category/
+  /// state-driven default the call site already computes. Defensive about
+  /// a malformed stored value (shouldn't happen — the picker only ever
+  /// saves a validated 6-digit hex — but a bad manual Firestore edit
+  /// shouldn't crash a render) by falling back to null instead of throwing.
+  Color? get customColor {
+    final hex = iconColorHex;
+    if (hex == null || hex.length != 6) return null;
+    final parsed = int.tryParse(hex, radix: 16);
+    return parsed == null ? null : Color(0xFF000000 | parsed);
+  }
 
   HabitModel toHabitModel(String uid) => HabitModel(
         id: const Uuid().v4(),
@@ -56,6 +106,7 @@ class IslamicHabitTemplate {
         reductionType: reductionType,
         limitAmount: limitAmount,
         limitUnit: limitUnit,
+        customUnitLabel: customUnitLabel,
         isPreset: true,
         catalogId: id,
         hasTimer: hasTimer,
@@ -83,11 +134,19 @@ class IslamicHabitTemplate {
             reductionType == ReductionType.limit &&
             limitUnit != null)
           'limitUnit': limitUnit!.toJson(),
+        if (goalType == GoalType.quit &&
+            reductionType == ReductionType.limit &&
+            limitUnit == LimitUnit.custom &&
+            customUnitLabel != null &&
+            customUnitLabel!.trim().isNotEmpty)
+          'customUnitLabel': customUnitLabel!.trim(),
         'hasTimer': hasTimer,
         if (timerDurationSeconds != null)
           'timerDurationSeconds': timerDurationSeconds,
         'xpReward': xpReward,
         'goldReward': goldReward,
+        if (iconColorHex != null) 'iconColorHex': iconColorHex,
+        if (reminderLeadMinutes > 0) 'reminderLeadMinutes': reminderLeadMinutes,
       };
 
   factory IslamicHabitTemplate.fromMap(String id, Map<String, dynamic> d) =>
@@ -112,14 +171,42 @@ class IslamicHabitTemplate {
         limitUnit: d['limitUnit'] == null
             ? null
             : LimitUnit.fromJson(d['limitUnit'] as String?),
+        customUnitLabel: d['customUnitLabel'] as String?,
         hasTimer: d['hasTimer'] as bool? ?? false,
         timerDurationSeconds: d['timerDurationSeconds'] as int?,
         xpReward: d['xpReward'] as int? ?? 20,
         goldReward: d['goldReward'] as int? ?? 8,
+        iconColorHex: d['iconColorHex'] as String?,
+        reminderLeadMinutes: d['reminderLeadMinutes'] as int? ?? 0,
       );
 
   bool isScheduledFor(DateTime day) =>
       scheduledWeekdays.isEmpty || scheduledWeekdays.contains(day.weekday);
+
+  /// Locale-aware display name — mirrors [HabitPlan.localName]. Falls back
+  /// to [name] whenever [nameAr] is missing or blank, which is exactly the
+  /// case for every user-created custom habit (no Arabic counterpart to
+  /// fall back *to* would mean silently showing nothing).
+  String localName(bool isAr) =>
+      isAr && nameAr != null && nameAr!.trim().isNotEmpty ? nameAr! : name;
+
+  /// Locale-aware description — mirrors [HabitPlan.localDesc].
+  String localDescription(bool isAr) => isAr &&
+          descriptionAr != null &&
+          descriptionAr!.trim().isNotEmpty
+      ? descriptionAr!
+      : description;
+
+  /// Display text for [limitUnit] — the free-text [customUnitLabel] when
+  /// the unit is [LimitUnit.custom] and one was actually typed in ("5
+  /// cigarettes" instead of "5 Custom"), otherwise [fallback] (the caller's
+  /// translated stock label, e.g. S.limitUnitLabel('cups') → "cups").
+  String unitLabel(String fallback) =>
+      limitUnit == LimitUnit.custom &&
+              customUnitLabel != null &&
+              customUnitLabel!.trim().isNotEmpty
+          ? customUnitLabel!.trim()
+          : fallback;
 
   factory IslamicHabitTemplate.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
@@ -133,6 +220,8 @@ abstract final class IslamicHabitCatalog {
       id: 'quran_daily_page',
       name: 'Quran Daily Page',
       description: 'Read at least one page of the Quran every day',
+      nameAr: 'ورد القرآن اليومي',
+      descriptionAr: 'اقرأ صفحة واحدة على الأقل من القرآن كل يوم',
       cueAfter: 'Fajr',
       category: HabitCategory.quran,
       frequencyType: HabitFrequencyType.daily,
@@ -146,7 +235,14 @@ abstract final class IslamicHabitCatalog {
       id: 'quran_memorization',
       name: 'Quran Memorization',
       description: 'Memorize and review verses of the Quran',
-      cueAfter: 'your quiet study block',
+      nameAr: 'حفظ القرآن',
+      descriptionAr: 'احفظ وراجع آيات من القرآن الكريم',
+      // 'your quiet study block' was pure freeform text — HabitCue only
+      // localizes its ~12 recognized presets (see habit_cue.dart), so this
+      // showed as literal English even in Arabic mode. 'work_block'
+      // ("Work block" / "وقت العمل") is the closest recognized preset to
+      // "a dedicated quiet slot," and gets full EN/AR display for free.
+      cueAfter: 'work_block',
       category: HabitCategory.quran,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -159,6 +255,8 @@ abstract final class IslamicHabitCatalog {
       id: 'morning_athkar',
       name: 'Morning Athkar',
       description: 'Recite the morning remembrances after Fajr',
+      nameAr: 'أذكار الصباح',
+      descriptionAr: 'اقرأ أذكار الصباح بعد صلاة الفجر',
       cueAfter: 'Fajr',
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.daily,
@@ -171,6 +269,8 @@ abstract final class IslamicHabitCatalog {
       id: 'evening_athkar',
       name: 'Evening Athkar',
       description: 'Recite the evening remembrances after Asr',
+      nameAr: 'أذكار المساء',
+      descriptionAr: 'اقرأ أذكار المساء بعد صلاة العصر',
       cueAfter: 'Asr',
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.daily,
@@ -183,7 +283,18 @@ abstract final class IslamicHabitCatalog {
       id: 'tahajjud',
       name: 'Tahajjud Prayer',
       description: 'Rise before Fajr for the voluntary night prayer',
-      cueAfter: 'waking before Fajr',
+      nameAr: 'صلاة التهجد',
+      descriptionAr: 'قم قبل الفجر لأداء صلاة الليل التطوعية',
+      // 'waking before Fajr' was freeform (see quran_memorization's note
+      // above) — 'fajr' is a recognized HabitCue preset and reads just as
+      // naturally for a habit that's anchored to right before that prayer.
+      cueAfter: 'fajr',
+      // Tahajjud's window CLOSES at Fajr — a reminder at Fajr itself is
+      // already too late. 45 minutes before Fajr lands inside the last
+      // third of the night (its sunnah time) with enough room to actually
+      // pray. See NotificationService.scheduleSmartReminders' lead-time
+      // handling.
+      reminderLeadMinutes: 45,
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 3,
@@ -195,6 +306,12 @@ abstract final class IslamicHabitCatalog {
       id: 'gym_consistency',
       name: 'Gym Consistency',
       description: 'Maintain fitness — your body is an amanah',
+      nameAr: 'الالتزام بالرياضة',
+      descriptionAr: 'حافظ على لياقتك — جسمك أمانة',
+      // Late afternoon is both the physiological strength/performance peak
+      // and the Gulf's own pre-Maghrib gym hour — anchoring to Asr gives a
+      // real prayer-timed reminder instead of none at all.
+      cueAfter: 'asr',
       category: HabitCategory.fitness,
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 3,
@@ -206,6 +323,12 @@ abstract final class IslamicHabitCatalog {
       id: 'sunnah_fasting',
       name: 'Monday & Thursday Fast',
       description: 'Follow the sunnah of fasting on Mondays and Thursdays',
+      nameAr: 'صيام الاثنين والخميس',
+      descriptionAr: 'اتبع سنة الصيام يومي الاثنين والخميس',
+      // Pinned to the actual sunnah days — before this, the habit showed
+      // up (and could be checked off) any day of the week, contradicting
+      // its own name. Now Grid/Today only present it on Mon + Thu.
+      scheduledWeekdays: [DateTime.monday, DateTime.thursday],
       category: HabitCategory.fasting,
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 2,
@@ -217,6 +340,12 @@ abstract final class IslamicHabitCatalog {
       id: 'daily_sadaqah',
       name: 'Daily Sadaqah',
       description: 'Give in charity daily — even a smile counts',
+      nameAr: 'صدقة يومية',
+      descriptionAr: 'تصدّق كل يوم — حتى الابتسامة صدقة',
+      // Morning giving is the timing with actual textual basis — the two
+      // angels' daily dua for the one who gives comes each morning (صحيح
+      // البخاري ١٤٤٢) — and it front-loads the habit before the day fills up.
+      cueAfter: 'fajr',
       category: HabitCategory.sadaqah,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -228,6 +357,13 @@ abstract final class IslamicHabitCatalog {
       id: 'sleep_schedule',
       name: 'Sleep Before Midnight',
       description: 'Protect your Fajr by sleeping before midnight',
+      nameAr: 'النوم قبل منتصف الليل',
+      descriptionAr: 'احمِ صلاة فجرك بالنوم قبل منتصف الليل',
+      // A fixed 10:30 PM wind-down reminder, not an Isha anchor — Isha
+      // drifts seasonally (as early as ~7 PM in winter) while "before
+      // midnight" doesn't, and sleep-hygiene guidance is a consistent
+      // wind-down cue ~1 hour before the target bedtime.
+      cueAfter: 'custom_time:22:30',
       category: HabitCategory.sleep,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -235,11 +371,14 @@ abstract final class IslamicHabitCatalog {
       xpReward: 15,
       goldReward: 5,
     ),
-    // ── Marriage Preparation ─────────────────────────────────────
+    // ── Marriage Preparation (pre-marriage — see the plan's own comment
+    //    in habit_plans.dart for the prophetic basis) ────────────────────
     IslamicHabitTemplate(
       id: 'marriage_dua',
-      name: 'Dua for Your Spouse',
-      description: 'Make a sincere dua for your spouse (or future spouse)',
+      name: 'Dua for a Righteous Spouse',
+      description: 'Ask Allah sincerely to grant you a righteous spouse',
+      nameAr: 'دعاء الزوج الصالح',
+      descriptionAr: 'ادعُ الله بصدق أن يرزقك شريك حياة صالح',
       cueAfter: 'Isha',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
@@ -249,9 +388,47 @@ abstract final class IslamicHabitCatalog {
       goldReward: 5,
     ),
     IslamicHabitTemplate(
+      id: 'marriage_savings',
+      name: 'Save for Your Marriage',
+      description:
+          'Put something aside for the mahr and married life, however small',
+      nameAr: 'وفّر لزواجك',
+      descriptionAr: 'حط مبلغ جانبًا للمهر وبيت الزوجية، حتى لو شي بسيط',
+      category: HabitCategory.money,
+      frequencyType: HabitFrequencyType.weekly,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 25,
+      goldReward: 10,
+    ),
+    IslamicHabitTemplate(
+      id: 'lower_gaze',
+      name: 'Guard Your Gaze',
+      description: 'Lower your gaze and protect your chastity today',
+      nameAr: 'غض البصر',
+      descriptionAr: 'غض بصرك وصُن نفسك اليوم',
+      // A quit-style habit (avoid, all day) rather than a one-tap task —
+      // success is the *absence* of something, so it gets the full quit
+      // flow for free: the emerald "stayed on track" pill, the quiet slip
+      // log, and the evening check-in (see scheduleQuitCheckIns).
+      goalType: GoalType.quit,
+      category: HabitCategory.faith,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 20,
+      goldReward: 8,
+    ),
+    IslamicHabitTemplate(
       id: 'marriage_gratitude',
       name: 'Gratitude Note to Spouse',
       description: 'Write or say one thing you appreciate about them today',
+      nameAr: 'رسالة امتنان لزوجك',
+      descriptionAr: 'اكتب أو قل شيئًا واحدًا تقدّره فيهم اليوم',
+      // Evening: the day has actually happened by then, so there's
+      // something real to be grateful about (a morning cue would ask
+      // for gratitude about a day that hasn't occurred yet).
+      cueAfter: 'evening',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -263,6 +440,11 @@ abstract final class IslamicHabitCatalog {
       id: 'marriage_read',
       name: 'Read About Marriage',
       description: 'Study the rights and etiquette of marriage in Islam',
+      nameAr: 'اقرأ عن الزواج',
+      descriptionAr: 'تعرّف على حقوق وآداب الزواج في الإسلام',
+      // Reading slots naturally into the pre-sleep wind-down (and pairs
+      // with sleep_schedule's own 10:30 PM nudge to get off the phone).
+      cueAfter: 'before_sleep',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -276,6 +458,12 @@ abstract final class IslamicHabitCatalog {
       name: 'Weekly Marriage Check-in',
       description:
           'Sit together and talk honestly about how the week went',
+      nameAr: 'لقاء أسبوعي مع زوجك',
+      descriptionAr: 'اجلسا معًا وتحدثا بصراحة عن أسبوعكما',
+      // Pinned to Friday — the Gulf weekend's family day, when both
+      // people are actually home and unhurried. Before this it floated
+      // across the whole week with no anchor at all.
+      scheduledWeekdays: [DateTime.friday],
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 1,
@@ -288,6 +476,9 @@ abstract final class IslamicHabitCatalog {
       id: 'deep_work_block',
       name: 'Deep Work Block',
       description: 'One uninterrupted block of focused work, phone away',
+      nameAr: 'فترة تركيز عميق',
+      descriptionAr: 'فترة عمل مركّزة بلا مقاطعات، والهاتف بعيدًا',
+      cueAfter: 'work_block',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -300,6 +491,12 @@ abstract final class IslamicHabitCatalog {
       id: 'inbox_zero',
       name: 'Inbox Zero',
       description: 'Clear or triage every message in your inbox',
+      nameAr: 'تفريغ صندوق الوارد',
+      descriptionAr: 'راجع وأنهِ كل رسالة في بريدك الوارد',
+      // End of the workday, not morning — triaging first thing invites
+      // the inbox to set the day's agenda, the opposite of Deep Focus's
+      // whole point.
+      cueAfter: 'after_work_school',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -311,6 +508,9 @@ abstract final class IslamicHabitCatalog {
       id: 'daily_planning',
       name: 'Plan Tomorrow Tonight',
       description: 'Write tomorrow\'s top 3 priorities before you sleep',
+      nameAr: 'خطط ليوم الغد الليلة',
+      descriptionAr: 'اكتب أهم 3 أولويات لغدك قبل النوم',
+      cueAfter: 'before_sleep',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -322,6 +522,9 @@ abstract final class IslamicHabitCatalog {
       id: 'no_phone_morning',
       name: 'No Phone First Hour',
       description: 'No screens in the first hour after waking up',
+      nameAr: 'بلا هاتف في أول ساعة',
+      descriptionAr: 'بدون شاشات في أول ساعة بعد الاستيقاظ',
+      cueAfter: 'morning',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -334,6 +537,9 @@ abstract final class IslamicHabitCatalog {
       id: 'cold_shower',
       name: 'Cold Shower',
       description: 'End your shower with at least 60 seconds of cold water',
+      nameAr: 'دش بارد',
+      descriptionAr: 'أنهِ استحمامك بـ 60 ثانية على الأقل من الماء البارد',
+      cueAfter: 'morning',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -345,6 +551,11 @@ abstract final class IslamicHabitCatalog {
       id: 'wake_early',
       name: 'Wake Before 6AM',
       description: 'Rise before 6AM and get straight out of bed',
+      nameAr: 'استيقظ قبل الساعة 6 صباحًا',
+      descriptionAr: 'انهض قبل الساعة 6 صباحًا واخرج من الفراش مباشرة',
+      // A fixed 5:30 AM reminder — the one habit whose whole promise IS a
+      // clock time, so it gets one, with a half hour of margin before 6.
+      cueAfter: 'custom_time:05:30',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
@@ -356,6 +567,8 @@ abstract final class IslamicHabitCatalog {
       id: 'no_sugar',
       name: 'No Added Sugar',
       description: 'Go the whole day without any added sugar',
+      nameAr: 'بدون سكر مضاف',
+      descriptionAr: 'اقضِ يومك كاملاً بدون أي سكر مضاف',
       category: HabitCategory.custom,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,

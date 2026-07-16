@@ -44,6 +44,14 @@ class GameNavBar extends StatelessWidget {
     // there.
     final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
 
+    // The floating voice-note player used to live here, docked above
+    // whichever of these two bars was on screen. It's now a single
+    // GlobalVoiceNotePlayerOverlay mounted once in main.dart's
+    // MaterialApp.builder instead — see that widget's doc comment for why:
+    // a modal sheet or pushed route sits in the same Navigator as this bar
+    // and paints over the whole screen (bar included), so anything docked
+    // in here would go invisible the moment one opened even though
+    // playback kept going. Nothing else about this bar changes.
     return isIOS
         ? _GlassNavBar(
             currentIndex: currentIndex,

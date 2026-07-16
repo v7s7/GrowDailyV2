@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 
@@ -80,12 +81,12 @@ int _isoWeekNumber(DateTime date) {
 }
 
 WeeklyChallenge currentWeeklyChallenge() {
-  final week = _isoWeekNumber(DateTime.now());
+  final week = _isoWeekNumber(DateTime.now().effectiveDay);
   return weeklyChallengeCatalog[week % weeklyChallengeCatalog.length];
 }
 
 String _weekKey() {
-  final now = DateTime.now();
+  final now = DateTime.now().effectiveDay;
   return '${now.year}-W${_isoWeekNumber(now).toString().padLeft(2, '0')}';
 }
 

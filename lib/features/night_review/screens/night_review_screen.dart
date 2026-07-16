@@ -11,8 +11,10 @@ import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../matrix/notifiers/matrix_notifier.dart';
 import '../models/mood.dart';
 import '../notifiers/night_review_notifier.dart';
+import 'night_review_history_screen.dart';
 
 /// The evening counterpart to the morning IntentionScreen: pick a mood,
 /// write a short reflection, and see the day distilled into the numbers
@@ -65,7 +67,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
     final habits = ref.watch(habitListProvider);
     final dash = ref.watch(dashboardProvider);
     final grid = ref.watch(weeklyGridProvider);
-    final today = DateTime.now();
+    final today = DateTime.now().effectiveDay;
 
     var gridXpToday = 0;
     var greenToday = 0;
@@ -83,9 +85,46 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
     }
     final totalXpToday = gridXpToday + habitListXpToday;
 
+    // "How many of today's habits did I actually finish?" — completed
+    // against each habit's own frequencyTarget (same isCompleted rule
+    // Today's list itself uses), out of the ones scheduled for today at
+    // all, so a Tuesday-only habit doesn't drag Monday's review down.
+    final todayHabits =
+        habits.where((h) => h.isScheduledFor(today)).toList();
+    final habitsDoneToday = todayHabits
+        .where((h) => dash.isCompleted(h.id, h.frequencyTarget))
+        .length;
+    // Goals Matrix tasks checked off today — completedAt is day-cutoff
+    // aligned via effectiveDay, same grouping MatrixHistoryScreen uses,
+    // so both screens always agree on which day a task belongs to.
+    final tasksDoneToday = ref
+        .watch(matrixProvider)
+        .tasks
+        .where((t) =>
+            t.isDone &&
+            t.completedAt != null &&
+            t.completedAt!.effectiveDay.isSameDayAs(today))
+        .length;
+
     return Scaffold(
       backgroundColor: gp.bg,
-      appBar: AppBar(title: Text(s.nightReviewTitle)),
+      appBar: AppBar(
+        title: Text(s.nightReviewTitle),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month_rounded),
+            tooltip: s.nightReviewHistoryTitle,
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const NightReviewHistoryScreen()),
+              );
+            },
+          ),
+        ],
+      ),
       body: SafeArea(
         child: review.isLoading
             ? Center(
@@ -103,11 +142,13 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            color: GameColors.xpBlue.withOpacity(0.14),
+                            color: GameColors.iconXp.withOpacity(0.14),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Icon(Icons.nightlight_round,
-                              color: GameColors.xpBlue, size: 22),
+                          // Open book, not a moon — see grid_screen.dart's
+                          // matching IconButton for why.
+                          child: Icon(Icons.auto_stories_rounded,
+                              color: GameColors.iconXp, size: 22),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -144,7 +185,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                             ),
                             child: Text(
                               s.nightReviewDoneBadge,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
                                 color: GameColors.emerald,
@@ -218,35 +259,65 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                             BorderRadius.circular(GameSpacing.cardRadius),
                         border: Border.all(color: gp.border, width: 0.5),
                       ),
-                      child: Row(
+                      child: Column(
                         children: [
-                          _SummaryStat(
-                            icon: Icons.bolt_rounded,
-                            color: GameColors.xpBlue,
-                            value: '$totalXpToday',
-                            label: s.nightReviewXpEarned,
+                          // Row 1: what today's work actually was — habits
+                          // finished, tasks checked off, squares colored.
+                          Row(
+                            children: [
+                              _SummaryStat(
+                                icon: Icons.check_circle_rounded,
+                                color: GameColors.emerald,
+                                value:
+                                    '$habitsDoneToday/${todayHabits.length}',
+                                label: s.nightReviewHabitsDoneLabel,
+                              ),
+                              _SummaryDivider(),
+                              _SummaryStat(
+                                icon: Icons.task_alt_rounded,
+                                color: GameColors.iconXp,
+                                value: '$tasksDoneToday',
+                                label: s.nightReviewTasksDoneLabel,
+                              ),
+                              _SummaryDivider(),
+                              _SummaryStat(
+                                icon: Icons.grid_view_rounded,
+                                color: GameColors.emerald,
+                                value: '$greenToday',
+                                label: s.nightReviewGreenSquares,
+                              ),
+                            ],
                           ),
-                          _SummaryDivider(),
-                          _SummaryStat(
-                            icon: Icons.grid_view_rounded,
-                            color: GameColors.emerald,
-                            value: '$greenToday',
-                            label: s.nightReviewGreenSquares,
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child:
+                                Container(height: 0.5, color: gp.border),
                           ),
-                          _SummaryDivider(),
-                          _SummaryStat(
-                            icon: Icons.local_fire_department_rounded,
-                            color: GameColors.streakOrange,
-                            value: '${dash.streak}',
-                            label: s.nightReviewStreak,
-                          ),
-                          _SummaryDivider(),
-                          _SummaryStat(
-                            icon: Icons.emoji_events_rounded,
-                            color: GameColors.gold,
-                            value:
-                                '${dash.unlockedAchievements.length}/${AchievementCatalog.all.length}',
-                            label: s.achievements,
+                          // Row 2: what today's work adds up to over time.
+                          Row(
+                            children: [
+                              _SummaryStat(
+                                icon: Icons.bolt_rounded,
+                                color: GameColors.iconXp,
+                                value: '$totalXpToday',
+                                label: s.nightReviewXpEarned,
+                              ),
+                              _SummaryDivider(),
+                              _SummaryStat(
+                                icon: Icons.local_fire_department_rounded,
+                                color: GameColors.iconStreak,
+                                value: '${dash.streak}',
+                                label: s.nightReviewStreak,
+                              ),
+                              _SummaryDivider(),
+                              _SummaryStat(
+                                icon: Icons.emoji_events_rounded,
+                                color: GameColors.gold,
+                                value:
+                                    '${dash.unlockedAchievements.length}/${AchievementCatalog.all.length}',
+                                label: s.achievements,
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -283,23 +354,11 @@ class _MoodButton extends StatelessWidget {
   const _MoodButton(
       {required this.mood, required this.selected, required this.onTap});
 
-  /// Each mood gets its own tinted Material face — icon-based, not emoji.
-  (IconData, Color) get _visual => switch (mood) {
-        Mood.great =>
-          (Icons.sentiment_very_satisfied_rounded, GameColors.emerald),
-        Mood.good => (Icons.sentiment_satisfied_rounded, GameColors.xpBlue),
-        Mood.neutral => (Icons.sentiment_neutral_rounded, GameColors.warning),
-        Mood.sad =>
-          (Icons.sentiment_dissatisfied_rounded, GameColors.streakOrange),
-        Mood.exhausted =>
-          (Icons.sentiment_very_dissatisfied_rounded, GameColors.error),
-      };
-
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final (icon, color) = _visual;
+    final (icon, color) = mood.visual;
     return GestureDetector(
       onTap: onTap,
       child: Column(

@@ -36,6 +36,11 @@ class NightReviewState {
 /// Tonight's mood + reflection check-in. Scoped only to *today* — there is
 /// no history browsing here, just "how was today", mirroring the simplicity
 /// of the morning IntentionScreen this pairs with.
+///
+/// "Today" here is the cutoff-aware app day (see DateTimeGameExt.
+/// effectiveDay), not the raw calendar date — doing tonight's review at
+/// 1 AM still saves against the day that's ending, not the next morning's
+/// empty slate.
 class NightReviewNotifier extends StateNotifier<NightReviewState> {
   final String? _uid;
 
@@ -43,7 +48,7 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
     _load();
   }
 
-  static String get _todayKey => DateTime.now().toDateKey();
+  static String get _todayKey => DateTime.now().effectiveDay.toDateKey();
 
   DocumentReference<Map<String, dynamic>> get _dailyRef => FirebaseFirestore
       .instance
@@ -102,7 +107,7 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
         await LocalStoreService.putDailyMap(_todayKey, {
           ...existing,
           ...data,
-          'date': DateTime.now().toIso8601String(),
+          'date': DateTime.now().effectiveDay.toIso8601String(),
         });
         return true;
       } catch (_) {

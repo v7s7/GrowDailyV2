@@ -30,7 +30,9 @@ enum AchievementTrigger {
   level, // level reaches threshold
   totalCompletions, // total lifetime completions (any habit)
   habitMastery, // single habit totalCompletions reaches threshold
-  greenSquares, // lifetime green (complete/bonus) squares colored on the grid
+  greenSquares, // lifetime green/bonus grid squares + every habit
+  // completion that doesn't get its own square (multi-tap habits — see
+  // DashboardNotifier.completeHabit's doc comment on newTotalGreenSquares)
   special; // manually awarded
 }
 
@@ -173,7 +175,7 @@ abstract final class AchievementCatalog {
     AchievementModel(
       id: 'green_1',
       name: 'First Victory',
-      description: 'Color your very first green square',
+      description: 'Color your very first square on the Victory Grid',
       rarity: AchievementRarity.common,
       trigger: AchievementTrigger.greenSquares,
       threshold: 1,
@@ -183,7 +185,7 @@ abstract final class AchievementCatalog {
     AchievementModel(
       id: 'green_100',
       name: 'Grid Painter',
-      description: 'Color 100 green squares on your Victory Grid',
+      description: 'Color 100 squares on your Victory Grid',
       rarity: AchievementRarity.uncommon,
       trigger: AchievementTrigger.greenSquares,
       threshold: 100,
@@ -193,7 +195,7 @@ abstract final class AchievementCatalog {
     AchievementModel(
       id: 'green_500',
       name: 'Grid Master',
-      description: 'Color 500 green squares on your Victory Grid',
+      description: 'Color 500 squares on your Victory Grid',
       rarity: AchievementRarity.rare,
       trigger: AchievementTrigger.greenSquares,
       threshold: 500,
@@ -203,7 +205,7 @@ abstract final class AchievementCatalog {
     AchievementModel(
       id: 'green_2000',
       name: 'Living Canvas',
-      description: 'Color 2000 green squares on your Victory Grid',
+      description: 'Color 2000 squares on your Victory Grid',
       rarity: AchievementRarity.legendary,
       trigger: AchievementTrigger.greenSquares,
       threshold: 2000,

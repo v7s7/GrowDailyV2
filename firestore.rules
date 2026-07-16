@@ -5,7 +5,7 @@ rules_version = '2';
 // Data model (all confirmed against the actual app code):
 //   /users/{uid}                          — profile, XP, gold, streaks,
 //                                            unlockedAchievements,
-//                                            categoryCompletions, premiumActive
+//                                            categoryCompletions
 //   /users/{uid}/daily/{dateKey}           — daily habit completions, grid
 //                                            activity, intentions, night
 //                                            review mood + reflection text
@@ -13,27 +13,36 @@ rules_version = '2';
 //   /users/{uid}/focus_plans/{dateKey}     — focus timer sessions
 //   /users/{uid}/matrix_tasks/{taskId}     — Eisenhower matrix tasks
 //   /users/{uid}/weekly_challenges/{weekKey}
+//   /rooms/{roomId}                        — a group challenge (see below)
+//   /rooms/{roomId}/participants/{uid}     — one member's progress in it
 //
 // Every document under /users/{uid} belongs to exactly one account and is
 // never shared, so the rule is simple: you can only read/write your own
-// tree, and nothing else exists in the database.
+// tree, and nothing else exists in the database. /rooms/{roomId} is the one
+// deliberate exception — it's read by every member, not just its owner, see
+// its own match block below for why.
 //
-// One deliberate exception: a client is NOT allowed to flip its own
-// `premiumActive` field to true. `PremiumNotifier.activate()` currently
-// writes this field directly from the client — that's fine during
-// development, but once real purchases are wired, entitlement must be
-// granted by a trusted backend (a Cloud Function verifying the App
-// Store/Play/RevenueCat webhook, using the Admin SDK, which bypasses these
-// rules entirely). Until that Cloud Function exists, this rule stops any
-// user from just editing the field client-side to unlock Premium for free.
-// Deactivating (setting it to false) is left client-writable since that
-// direction can't be used to steal anything.
+// One historical note: `premiumActive` used to live on this doc and this
+// rule block (premiumFieldOk()) still stops a client from ever flipping it
+// to true, but nothing writes it anymore. Premium entitlement is now owned
+// entirely by RevenueCat (see PurchaseService's doc comment) - it verifies
+// the App Store receipt directly with Apple on its own servers and tracks
+// entitlement per App User ID (this account's Firebase uid, once signed
+// in - see PurchaseService.logIn), not a field in this database at all.
+// premiumFieldOk() is kept as harmless defense-in-depth (a stray write to
+// `premiumActive` still can't grant Premium for free) rather than removed,
+// since deleting a security rule is a change worth deploying deliberately,
+// not as a side effect of the field going unused.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function isOwner(uid) {
       return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
     }
 
     function premiumFieldOk() {
@@ -55,6 +64,42 @@ service cloud.firestore {
 
       match /{subcollection}/{docId} {
         allow read, write: if isOwner(uid);
+      }
+    }
+
+    // A room is a multi-user group challenge (create/join by a short code
+    // from Profile → Rooms) - the one place in this app where a document is
+    // meant to be read by more than its own owner, so it can't reuse the
+    // isOwner-only rule above. Knowing the code is what stands in for an
+    // invite here: anyone signed in can read a room and its roster (there's
+    // no way to discover a code except being told it), but can only ever
+    // write their own participant entry.
+    match /rooms/{roomId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == request.auth.uid;
+      // Deliberately not owner-only: memberCount has to increment/decrement
+      // from whoever's actually joining or leaving, not just the leader.
+      // Looser than every other rule in this file by necessity, not
+      // oversight - a per-field version of this (only memberCount may
+      // change) is possible later if that gap ever matters more than
+      // staying simple does.
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+
+      match /participants/{uid} {
+        allow read: if isSignedIn();
+        allow create, update: if isOwner(uid);
+        // A participant can always delete their own entry (leaving - see
+        // RoomsController.leaveRoom). The room's own creator can also
+        // delete *any* participant's entry, needed for
+        // RoomsController.deleteRoom's full-room teardown, which removes
+        // every member's doc, not just the leader's own - see that
+        // method's doc comment for why plain isOwner(uid) alone isn't
+        // enough for that to work.
+        allow delete: if isOwner(uid) ||
+            get(/databases/$(database)/documents/rooms/$(roomId)).data.createdBy
+                == request.auth.uid;
       }
     }
 

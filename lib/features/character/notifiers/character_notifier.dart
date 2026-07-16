@@ -57,6 +57,18 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
   final Ref _ref;
   final String? _uid;
 
+  // A rapid tap right after this screen opens (pick a character, equip or
+  // buy an accessory) can land before the initial Firestore/Hive read in
+  // _load()/_loadGuest() resolves — both fire in the same tick right after
+  // construction. Without this guard the disk read wins the race and
+  // silently discards that just-made choice the moment it lands a beat
+  // later — the same failure mode MatrixNotifier's own
+  // _mutatedBeforeLoad guards against for its task list. One flag covers
+  // all three mutators here (unlike Matrix's two separate flags): selecting
+  // a character, equipping, and buying are all similarly quick, single-tap
+  // actions, so there's no fast-vs-slow asymmetry worth splitting them for.
+  bool _mutatedBeforeLoad = false;
+
   CharacterNotifier(this._ref, this._uid) : super(const CharacterState()) {
     if (_uid != null) {
       _load();
@@ -82,6 +94,15 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
     try {
       final snap = await _userRef.get();
       if (!mounted) return;
+      if (_mutatedBeforeLoad) {
+        // A selectCharacter/equipAccessory/buyAccessory call already landed
+        // before this resolved - that optimistic state is more current
+        // than whatever's on disk (buyAccessory's own write may not have
+        // even reached Firestore yet), so just clear the loading flag and
+        // leave the rest of state alone.
+        state = state.copyWith(isLoading: false);
+        return;
+      }
       final data = snap.data();
       if (data == null) {
         state = state.copyWith(isLoading: false);
@@ -105,6 +126,10 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
         LocalStoreService.guestCharacterKey,
       );
       if (!mounted) return;
+      if (_mutatedBeforeLoad) {
+        state = state.copyWith(isLoading: false);
+        return;
+      }
       if (saved.isEmpty) {
         state = state.copyWith(isLoading: false);
         return;
@@ -144,6 +169,7 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
   /// Free and instant — characters are never gold-gated.
   void selectCharacter(String id) {
     if (CharacterCatalog.findByIdOrDefault(id).id != id) return;
+    _mutatedBeforeLoad = true;
     state = state.copyWith(characterId: id);
     _persist();
   }
@@ -153,6 +179,7 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
   /// tap (e.g. a double-tap racing a revoke) should never crash.
   void equipAccessory(String? id) {
     if (id != null && !state.owns(id)) return;
+    _mutatedBeforeLoad = true;
     state = id == null
         ? state.copyWith(clearEquipped: true)
         : state.copyWith(equippedAccessoryId: id);
@@ -176,6 +203,7 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
         await _ref.read(dashboardProvider.notifier).spendGold(accessory.goldCost);
     if (!spent) return false;
 
+    _mutatedBeforeLoad = true;
     state = state.copyWith(
       ownedAccessoryIds: {...state.ownedAccessoryIds, id},
       equippedAccessoryId: id,

@@ -4,12 +4,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
+import '../../../features/grid/models/square_state.dart';
 import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/habits/catalog/habit_plans.dart';
 import '../../../features/habits/catalog/islamic_habit_catalog.dart';
+import '../../../features/habits/models/habit_model.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/habits/notifiers/habit_order_notifier.dart';
 import '../../../features/habits/widgets/add_habit_hub_sheet.dart';
@@ -59,7 +62,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               next.lastCompletionBonusXp > 0;
           _showDone(
             context,
-            t.name,
+            t.localName(s.isAr),
             t.xpReward + (isBonus ? next.lastCompletionBonusXp : 0),
             t.goldReward + (isBonus ? next.lastCompletionBonusGold : 0),
             isBonus: isBonus,
@@ -69,7 +72,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     });
 
     final state = ref.watch(dashboardProvider);
-    final today = DateTime.now();
+    final grid = ref.watch(weeklyGridProvider);
+    final today = DateTime.now().effectiveDay;
     final habits = ref.watch(habitListProvider).where((h) => h.isScheduledFor(today)).toList();
     final customHabits = ref.watch(customHabitsProvider);
     final customIds = customHabits.map((h) => h.id).toSet();
@@ -79,7 +83,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Scaffold(
       backgroundColor: gp.bg,
       bottomNavigationBar: const GameNavBar(currentIndex: 1),
-      body: state.isLoading
+      // Also gated on habitsStillLoadingProvider, not just this screen's
+      // own dashboardProvider - the two load independently (separate
+      // Firestore reads with no coordination between them), so
+      // dashboardProvider finishing first used to let the habit list's
+      // still-empty state through for a moment, showing "no habits yet"
+      // right before the real list popped in and replaced it. See
+      // habitsStillLoadingProvider's own doc comment.
+      body: (state.isLoading || ref.watch(habitsStillLoadingProvider))
           ? Center(
               child: CircularProgressIndicator(
                   color: GameColors.gold, strokeWidth: 2))
@@ -248,6 +259,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     state.lastCompletionBonusXp > 0,
                                 onComplete:
                                     done ? null : () => _completeHabit(ref, t),
+                                // Quit habits' secondary "log a slip" action —
+                                // only wired for single-tap (frequencyTarget
+                                // == 1) habits, matching completeHabit's own
+                                // "only single-tap habits sync with Grid"
+                                // rule (see its doc comment). A weekly-target
+                                // quit habit still gets the emerald/shield
+                                // styling from HabitCard, just not this link.
+                                isFailedToday: t.goalType == GoalType.quit &&
+                                    t.frequencyTarget == 1 &&
+                                    grid.squareFor(t.id, today) ==
+                                        SquareState.failed,
+                                onSlip: t.goalType == GoalType.quit &&
+                                        t.frequencyTarget == 1
+                                    ? () => _slipHabit(ref, t)
+                                    : null,
+                                onUndoSlip: t.goalType == GoalType.quit &&
+                                        t.frequencyTarget == 1
+                                    ? () => _undoSlipHabit(ref, t)
+                                    : null,
                                 onDelete: () {
                                   if (customIds.contains(t.id)) {
                                     ref
@@ -368,20 +398,65 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   /// this habit-day. Multi-tap habits report `false` here and are left
   /// exactly as they behave today (see `completeHabit`'s doc comment).
   Future<void> _completeHabit(WidgetRef ref, IslamicHabitTemplate t) async {
+    final dashState = ref.read(dashboardProvider);
+    final todayHabits = ref
+        .read(habitListProvider)
+        .where((h) => h.isScheduledFor(DateTime.now().effectiveDay))
+        .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
     final justFinishedSingleTap =
         await ref.read(dashboardProvider.notifier).completeHabit(
               habitId: t.id,
               xpReward: t.xpReward,
               goldReward: t.goldReward,
               frequencyTarget: t.frequencyTarget,
+              allHabitsDoneAfter: willCompleteAllHabitsToday(
+                state: dashState,
+                todayHabits: todayHabits,
+                habitId: t.id,
+                frequencyTarget: t.frequencyTarget,
+              ),
               category: t.category.name,
-              habitName: t.name,
+              habitName: t.localName(S.of(context).isAr),
             );
     if (justFinishedSingleTap) {
       ref
           .read(weeklyGridProvider.notifier)
-          .markCompleteFromHabit(t.id, DateTime.now());
+          .markCompleteFromHabit(t.id, DateTime.now().effectiveDay);
     }
+  }
+
+  /// Logs today as a slip (avoid-completely) or over-limit day (set-a-
+  /// limit) for a quit habit — HabitCard's quiet secondary action next to
+  /// its primary affirm button. `uncompleteHabit` is always safe to call
+  /// here even if nothing was completed yet today (it no-ops on
+  /// `completions[habitId] <= 0` — see its own doc comment), which covers
+  /// the "tapped affirm, then realized it was a slip" mis-order without a
+  /// separate branch. No new reward-system plumbing: this only ever
+  /// reverses what [_completeHabit] already granted, then mirrors the same
+  /// red `failed` square Grid's long-press palette already has a color and
+  /// meaning for.
+  Future<void> _slipHabit(WidgetRef ref, IslamicHabitTemplate t) async {
+    HapticFeedback.mediumImpact();
+    await ref.read(dashboardProvider.notifier).uncompleteHabit(
+          habitId: t.id,
+          xpReward: t.xpReward,
+          goldReward: t.goldReward,
+          category: t.category.name,
+        );
+    ref
+        .read(weeklyGridProvider.notifier)
+        .markResultFromHabit(t.id, DateTime.now().effectiveDay, SquareState.failed);
+  }
+
+  /// Reverses a mis-tapped [_slipHabit] for today. Nothing to reverse on
+  /// the reward side — a slip never granted one — so this just clears
+  /// today's Grid square back to blank, which brings HabitCard's primary
+  /// affirm button back.
+  void _undoSlipHabit(WidgetRef ref, IslamicHabitTemplate t) {
+    HapticFeedback.selectionClick();
+    ref
+        .read(weeklyGridProvider.notifier)
+        .markResultFromHabit(t.id, DateTime.now().effectiveDay, SquareState.none);
   }
 
   void _showEditHabit(BuildContext context, IslamicHabitTemplate habit) {
@@ -569,7 +644,7 @@ class _ComebackCard extends ConsumerWidget {
       decoration: BoxDecoration(
         color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: GameColors.xpBlue.withOpacity(0.35), width: 1),
+        border: Border.all(color: GameColors.iconXp.withOpacity(0.35), width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -580,11 +655,11 @@ class _ComebackCard extends ConsumerWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: GameColors.xpBlue.withOpacity(0.14),
+                  color: GameColors.iconXp.withOpacity(0.14),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.wb_twilight_rounded,
-                    color: GameColors.xpBlue, size: 22),
+                    color: GameColors.iconXp, size: 22),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -609,19 +684,19 @@ class _ComebackCard extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: GameColors.xpBlue.withOpacity(0.1),
+              color: GameColors.iconXp.withOpacity(0.1),
               borderRadius: BorderRadius.circular(100),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.bolt_rounded, size: 14, color: GameColors.xpBlue),
+                Icon(Icons.bolt_rounded, size: 14, color: GameColors.iconXp),
                 const SizedBox(width: 6),
                 Text(s.comebackBonusHint,
                     style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: GameColors.xpBlue)),
+                        color: GameColors.iconXp)),
               ],
             ),
           ),
@@ -643,7 +718,7 @@ class _ComebackCard extends ConsumerWidget {
                     icon: const Icon(Icons.ac_unit_rounded, size: 16),
                     label: Text(s.restoreStreakCta(state.streakFreezes)),
                     style: FilledButton.styleFrom(
-                        backgroundColor: GameColors.xpBlue,
+                        backgroundColor: GameColors.iconXp,
                         foregroundColor: Colors.white,
                         minimumSize: const Size.fromHeight(46)),
                   ),
@@ -763,6 +838,9 @@ class _SwipeableHabitRow extends StatefulWidget {
   // so it can't "stick" and fire an unearned bonus burst later.
   final bool isBonus;
   final VoidCallback? onComplete;
+  final bool isFailedToday;
+  final VoidCallback? onSlip;
+  final VoidCallback? onUndoSlip;
   final VoidCallback? onDelete;
   final VoidCallback? onEdit;
 
@@ -774,6 +852,9 @@ class _SwipeableHabitRow extends StatefulWidget {
     this.streak = 0,
     this.isBonus = false,
     this.onComplete,
+    this.isFailedToday = false,
+    this.onSlip,
+    this.onUndoSlip,
     this.onDelete,
     this.onEdit,
   });
@@ -836,7 +917,7 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
             particleCount: isBonus ? 28 : 16,
             spread: isBonus ? 100 : 72,
             colors: isBonus
-                ? [GameColors.gold, GameColors.gold, GameColors.streakOrange, Colors.white]
+                ? [GameColors.gold, GameColors.gold, GameColors.iconStreak, Colors.white]
                 : null,
           );
         }
@@ -901,7 +982,7 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
                 child: Text(
-                  widget.template.name,
+                  widget.template.localName(s.isAr),
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -953,6 +1034,7 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
   // (see quadrant_card.dart's _TaskTile).
   Widget _dragHandle(BuildContext context) {
     final gp = context.gp;
+    final isAr = S.of(context).isAr;
     return LongPressDraggable<String>(
       data: widget.template.id,
       delay: const Duration(milliseconds: 150),
@@ -976,7 +1058,7 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
                 ),
               ],
             ),
-            child: Text(widget.template.name,
+            child: Text(widget.template.localName(isAr),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style:
@@ -1017,7 +1099,7 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
                 opacity: progress,
                 child: Transform.scale(
                   scale: 0.5 + 0.5 * progress,
-                  child: const Icon(Icons.check_rounded,
+                  child: Icon(Icons.check_rounded,
                       color: GameColors.success, size: 22),
                 ),
               ),
@@ -1032,6 +1114,9 @@ class _SwipeableHabitRowState extends State<_SwipeableHabitRow>
               isDone: widget.isDone,
               streak: widget.streak,
               onComplete: widget.onComplete,
+              isFailedToday: widget.isFailedToday,
+              onSlip: widget.onSlip,
+              onUndoSlip: widget.onUndoSlip,
               trailingHandle: _dragHandle(context),
             ),
           ),

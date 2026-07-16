@@ -170,3 +170,65 @@ from the outermost declaration that contains the offending call (here,
 hunting for a workaround to keep it const — the object is only built once
 per `init()` call, so the runtime-vs-compile-time construction cost is
 irrelevant here.
+
+## 9. Checking a package's *latest* SDK floor on pub.dev isn't enough — check the *pinned* version's floor
+
+**What broke:** `app_links: ^7.2.1` was added (pinning to what was then the
+latest release) after confirming its README/API docs matched the code
+written against it. `flutter pub get` failed anyway:
+```
+The current Dart SDK version is 3.11.3.
+Because grow_daily_v2 depends on app_links >=7.1.1 which requires SDK
+version >=3.12.0 <4.0.0, version solving failed.
+```
+`app_links` 7.1.0 quietly bumped its own minimum to Flutter 3.44/Dart 3.12
+— newer than this machine's actual installed Dart (3.11.3). Reading the
+changelog/API docs (which pub.dev serves from the *latest* version by
+default) confirmed the API shape was right, but never confirmed *that
+specific version's* SDK floor against the real local toolchain — the same
+gap that caused lesson #4 (`google_fonts`), just from the opposite
+direction (a package that got *newer*, not a Flutter SDK that's *older*
+than assumed).
+
+**Rule:** before pinning any package version in `pubspec.yaml`, check
+`pub.dev/packages/<name>/versions` (the "Min Dart SDK" column) for the
+*exact* version being pinned — not just its latest release's docs/README —
+and compare it against this project's real installed Dart SDK (run
+`dart --version` if unknown; don't assume it matches whatever an old
+comment elsewhere in this file says, since that can drift — this incident's
+"3.41.5 as of July 2026" assumption elsewhere in `pubspec.yaml` turned out
+to be stale/wrong the moment a real `flutter pub get` ran). If the newest
+version's floor is too high, walk the versions table down to the newest one
+that still fits, then re-check that its API/changelog didn't drop anything
+the code relies on before pinning to it. Fixed here by pinning to
+`app_links: ^7.0.0` (needs only Dart 3.10, same `AppLinks()`/
+`uriLinkStream`/`getInitialLink()` API — unchanged since 6.0.0).
+
+## 10. Firestore dot-notation field paths only work in `update()` — inside `set(merge: true)` a dotted key is a *literal field name*
+
+**What broke:** every heatmap day-count increment was written as
+```dart
+batch.set(_userRef, {
+  'dailyGreenCounts.$_todayKey': FieldValue.increment(1),
+}, SetOptions(merge: true));
+```
+expecting the dotted key to target `dailyGreenCounts → 2026-07-17` the way
+it would in `update()`. It doesn't: `set()` treats the whole string as one
+literal field name, so each completion created a junk **top-level** field
+literally named `dailyGreenCounts.2026-07-17`, while the real
+`dailyGreenCounts` map — the only thing the loader reads back — stayed
+empty forever. Symptom: the Monthly Heatmap (and the home-widget heatmap)
+worked in-memory during a session, then blanked to zero on every app
+restart. No error anywhere, ever — the writes "succeeded".
+
+**Rule:** dot notation as a nested-field path is an `update()`-only
+feature. In `set(..., SetOptions(merge: true))`, express nesting as an
+actual nested map — `{'dailyGreenCounts': {dateKey: FieldValue.increment(1)}}`
+— which merge:true merges per-leaf-field without clobbering sibling days.
+(`FieldValue` sentinels like `increment`/`delete` are fine at any nesting
+depth in a merge-set; and conversely, `set()`'s literal-key behavior is
+exactly how the one-time repair in `DashboardNotifier._loadToday` targets
+and deletes the old junk fields.) When touching any Firestore write, check
+which method it's inside before using a dotted key — and grep for
+`'\w+\.\$` across `lib/` afterward, since this mistake reads completely
+fine in review and only surfaces as silently-missing data across restarts.
