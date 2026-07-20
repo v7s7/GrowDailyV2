@@ -365,4 +365,67 @@ void main() {
       expect(p.currentStreak(activeRoom), 2);
     });
   });
+
+  group('room lifecycle (lobby / countdown / live)', () {
+    test('missing status defaults to active — pre-lobby rooms unchanged', () {
+      final room = _fixedRoom(
+        start: DateTime(2020, 1, 1),
+        end: DateTime(2020, 1, 7),
+      );
+      expect(room.isLobby, isFalse);
+      // Started long ago and ended long ago: started but not live.
+      expect(room.hasStarted, isTrue);
+      expect(room.isLive, isFalse);
+      expect(room.isEnded, isTrue);
+    });
+
+    test('a lobby room is never started, counting down, or live', () {
+      final room = RoomModel(
+        code: 'LOBBY1',
+        name: 'Lobby Room',
+        createdBy: 'leader-uid',
+        createdByName: 'Leader',
+        createdAt: DateTime(2020, 1, 1),
+        habitMode: RoomHabitMode.own,
+        duration: RoomDuration.fixed,
+        startDate: DateTime(2020, 1, 1),
+        status: 'lobby',
+        lengthDays: 7,
+      );
+      expect(room.isLobby, isTrue);
+      expect(room.isCountingDown, isFalse);
+      expect(room.hasStarted, isFalse);
+      expect(room.isLive, isFalse);
+    });
+
+    test('started with a future startDate counts down, not live yet', () {
+      final tomorrow =
+          DateTime.now().effectiveDay.add(const Duration(days: 1));
+      final room = RoomModel(
+        code: 'SOON01',
+        name: 'Starting Soon',
+        createdBy: 'leader-uid',
+        createdByName: 'Leader',
+        createdAt: DateTime.now(),
+        habitMode: RoomHabitMode.own,
+        duration: RoomDuration.fixed,
+        startDate: tomorrow,
+        endDate: tomorrow.add(const Duration(days: 6)),
+      );
+      expect(room.isLobby, isFalse);
+      expect(room.isCountingDown, isTrue);
+      expect(room.hasStarted, isFalse);
+      expect(room.isLive, isFalse);
+    });
+
+    test('a started, unended room is live', () {
+      final today = DateTime.now().effectiveDay;
+      final room = _fixedRoom(
+        start: today.subtract(const Duration(days: 1)),
+        end: today.add(const Duration(days: 5)),
+      );
+      expect(room.hasStarted, isTrue);
+      expect(room.isLive, isTrue);
+    });
+  });
 }

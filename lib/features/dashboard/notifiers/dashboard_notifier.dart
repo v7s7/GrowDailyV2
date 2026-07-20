@@ -142,6 +142,16 @@ class DashboardState {
   final List<AchievementModel> newlyUnlocked;
   final bool didJustLevelUp;
   final bool didUseStreakFreeze;
+
+  /// One-shot "every habit scheduled today is now done" event — set by
+  /// [DashboardNotifier.completeHabit] on exactly the completion that
+  /// finishes the day (the same justReachedAllDone moment that earns the
+  /// streak point, so it can fire at most once per day and never from a
+  /// backfilled past square). Same reset-by-default copyWith semantics as
+  /// [didJustLevelUp]: any other state change clears it, so it can't stick
+  /// and replay. Consumed by registerDashboardReactions' perfect-day
+  /// celebration.
+  final bool perfectDayCelebration;
   final String? lastCompletedId;
   final bool isLoading;
 
@@ -238,6 +248,7 @@ class DashboardState {
     this.newlyUnlocked = const [],
     this.didJustLevelUp = false,
     this.didUseStreakFreeze = false,
+    this.perfectDayCelebration = false,
     this.lastCompletedId,
     this.isLoading = false,
     this.previousStreak = 0,
@@ -308,6 +319,7 @@ class DashboardState {
     List<AchievementModel>? newlyUnlocked,
     bool didJustLevelUp = false,
     bool didUseStreakFreeze = false,
+    bool perfectDayCelebration = false,
     String? lastCompletedId,
     bool? isLoading,
     int? previousStreak,
@@ -343,6 +355,7 @@ class DashboardState {
         newlyUnlocked: newlyUnlocked ?? this.newlyUnlocked,
         didJustLevelUp: didJustLevelUp,
         didUseStreakFreeze: didUseStreakFreeze,
+        perfectDayCelebration: perfectDayCelebration,
         lastCompletedId: lastCompletedId ?? this.lastCompletedId,
         isLoading: isLoading ?? this.isLoading,
         previousStreak: previousStreak ?? this.previousStreak,
@@ -1099,6 +1112,10 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       unlockedAchievements: newUnlockedIds,
       newlyUnlocked: newly,
       didJustLevelUp: didLevelUp,
+      // The exact completion that finished today's whole list — same
+      // justReachedAllDone moment that earns the streak point, so this can
+      // fire at most once per day and never from a backfilled past square.
+      perfectDayCelebration: justReachedAllDone,
       lastCompletedId: habitId,
       setMilestone: newMilestone,
       categoryCompletions: newCategoryCompletions,

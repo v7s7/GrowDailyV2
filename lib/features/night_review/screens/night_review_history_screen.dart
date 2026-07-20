@@ -7,8 +7,10 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/history_locked_snackbar.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../matrix/notifiers/matrix_notifier.dart';
+import '../../premium/notifiers/premium_notifier.dart';
 import '../notifiers/night_review_history_notifier.dart';
 
 /// A month calendar of past mood/reflection check-ins, color-coded by mood —
@@ -41,7 +43,22 @@ class NightReviewHistoryScreen extends ConsumerWidget {
                     icon: Icons.chevron_left_rounded,
                     onTap: () {
                       HapticFeedback.selectionClick();
-                      ref.read(nightReviewHistoryProvider.notifier).previousMonth();
+                      // Free browses 3 months (current + 2 back), matching
+                      // the heatmap's free window — going further is the
+                      // Premium history story. See canBrowseHistoryMonth.
+                      final m = state.monthStart;
+                      final target = DateTime(m.year, m.month - 1, 1);
+                      if (!canBrowseHistoryMonth(
+                        monthStart: target,
+                        now: DateTime.now().effectiveDay,
+                        isPremium: ref.read(premiumProvider),
+                      )) {
+                        showHistoryLockedSnackBar(context);
+                        return;
+                      }
+                      ref
+                          .read(nightReviewHistoryProvider.notifier)
+                          .previousMonth();
                     },
                   ),
                   Expanded(

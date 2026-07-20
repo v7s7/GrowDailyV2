@@ -27,6 +27,22 @@ void registerDashboardReactions(
       HapticFeedback.mediumImpact();
       showStreakFreezeProtectedSnackBar(context, next.streakFreezes);
     }
+    if (next.perfectDayCelebration && !prev.perfectDayCelebration) {
+      HapticFeedback.heavyImpact();
+      // Small beat after the completing square's own confetti so the two
+      // moments read as separate: "that square" ... "and that's the whole
+      // day". If a level-up/achievement also lands this tick, those still
+      // take over afterwards (the achievement sheet clears snackbars).
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (!context.mounted) return;
+        final size = MediaQuery.of(context).size;
+        showVictoryBurst(
+          context,
+          Offset(size.width / 2, size.height * 0.35),
+        );
+        showPerfectDaySnackBar(context);
+      });
+    }
     if (next.didJustLevelUp) {
       HapticFeedback.heavyImpact();
       showLevelUpSnackBar(context, next.level);
@@ -98,6 +114,44 @@ void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+  );
+}
+
+/// "Every habit green today" — the day's own completion moment, distinct
+/// from level/achievement rewards: emerald (the grid's color), not gold,
+/// because what's being celebrated is the colored board itself.
+void showPerfectDaySnackBar(BuildContext context) {
+  final gp = context.gp;
+  final s = S.of(context);
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.auto_awesome_rounded,
+              color: GameColors.emerald, size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              s.perfectDayMsg,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: GameColors.emerald,
+              ),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: gp.surface,
+      duration: const Duration(seconds: 3),
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: GameColors.emerald, width: 1),
+      ),
     ),
   );
 }

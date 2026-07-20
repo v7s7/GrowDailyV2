@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../shared/widgets/game_nav_bar.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../widgets/add_task_sheet.dart';
@@ -293,7 +292,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 2),
+      // Nav bar now owned by HomeShell — see that widget's doc comment.
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

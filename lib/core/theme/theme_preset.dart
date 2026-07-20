@@ -430,7 +430,10 @@ const _babyPink = ThemePreset(
   id: 'baby_pink',
   nameEn: 'Baby Pink',
   nameAr: 'وردي فاتح',
-  isPremium: true,
+  // The one non-default free preset (product decision: two free looks —
+  // the original Emerald & Gold plus this one; everything else is
+  // Premium). Free on purpose, not oversight.
+  isPremium: false,
   gold: Color(0xFFE4819A),
   goldDim: Color(0xFFBA3959),
   xpBlue: Color(0xFFE0486E),

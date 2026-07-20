@@ -18,6 +18,8 @@ import '../../../features/habits/notifiers/habit_order_notifier.dart';
 import '../../../features/habits/widgets/add_habit_hub_sheet.dart';
 import '../../../features/habits/widgets/add_habit_sheet.dart';
 import '../../../features/quick_wins/widgets/quick_wins_card.dart';
+import '../../../features/rooms/notifiers/rooms_notifier.dart'
+    show roomBoostedReward, syncRoomToday;
 import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/habit_card.dart';
 import '../../../shared/widgets/victory_burst.dart';
@@ -82,7 +84,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 1),
+      // Today isn't one of the three shell tabs (it's a pushed screen,
+      // opened from notifications and links) — highlight Grid, the home
+      // tab it conceptually belongs to, so a bar tap on "Habits" reads as
+      // "back home" instead of the old, wrong Profile highlight.
+      bottomNavigationBar: const GameNavBar(currentIndex: 0),
       // Also gated on habitsStillLoadingProvider, not just this screen's
       // own dashboardProvider - the two load independently (separate
       // Firestore reads with no coordination between them), so
@@ -406,8 +412,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final justFinishedSingleTap =
         await ref.read(dashboardProvider.notifier).completeHabit(
               habitId: t.id,
-              xpReward: t.xpReward,
-              goldReward: t.goldReward,
+              // 2x while a linked room is live — see roomBoostedReward.
+              xpReward: roomBoostedReward(ref, t.id, t.xpReward),
+              goldReward: roomBoostedReward(ref, t.id, t.goldReward),
               frequencyTarget: t.frequencyTarget,
               allHabitsDoneAfter: willCompleteAllHabitsToday(
                 state: dashState,
@@ -419,9 +426,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               habitName: t.localName(S.of(context).isAr),
             );
     if (justFinishedSingleTap) {
-      ref
-          .read(weeklyGridProvider.notifier)
-          .markCompleteFromHabit(t.id, DateTime.now().effectiveDay);
+      final today = DateTime.now().effectiveDay;
+      ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(t.id, today);
+      // Today never used to reach a linked room at all - only Grid's own
+      // square taps did - so completing a room habit from here could sit
+      // uncounted until Room Detail's next full resync. See syncRoomToday's
+      // doc comment.
+      syncRoomToday(ref, t.id, today);
     }
   }
 
@@ -439,13 +450,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     HapticFeedback.mediumImpact();
     await ref.read(dashboardProvider.notifier).uncompleteHabit(
           habitId: t.id,
-          xpReward: t.xpReward,
-          goldReward: t.goldReward,
+          // Mirror completeHabit's boost so a boosted completion refunds
+          // exactly what it paid — see roomBoostedReward's doc comment.
+          xpReward: roomBoostedReward(ref, t.id, t.xpReward),
+          goldReward: roomBoostedReward(ref, t.id, t.goldReward),
           category: t.category.name,
         );
+    final today = DateTime.now().effectiveDay;
     ref
         .read(weeklyGridProvider.notifier)
-        .markResultFromHabit(t.id, DateTime.now().effectiveDay, SquareState.failed);
+        .markResultFromHabit(t.id, today, SquareState.failed);
+    // See syncRoomToday's doc comment - Today's actions need this too, not
+    // just Grid's. A slip clears any green this room was crediting today.
+    syncRoomToday(ref, t.id, today);
   }
 
   /// Reverses a mis-tapped [_slipHabit] for today. Nothing to reverse on
@@ -454,9 +471,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   /// affirm button back.
   void _undoSlipHabit(WidgetRef ref, IslamicHabitTemplate t) {
     HapticFeedback.selectionClick();
+    final today = DateTime.now().effectiveDay;
     ref
         .read(weeklyGridProvider.notifier)
-        .markResultFromHabit(t.id, DateTime.now().effectiveDay, SquareState.none);
+        .markResultFromHabit(t.id, today, SquareState.none);
+    syncRoomToday(ref, t.id, today);
   }
 
   void _showEditHabit(BuildContext context, IslamicHabitTemplate habit) {

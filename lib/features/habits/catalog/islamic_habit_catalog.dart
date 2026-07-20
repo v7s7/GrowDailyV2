@@ -56,6 +56,19 @@ class IslamicHabitTemplate {
   // back from in the first place. See NotificationService.scheduleSmartReminders.
   final int reminderLeadMinutes;
 
+  /// The day this habit came into the user's life — creation day for a
+  /// custom habit, activation day for a catalog habit (stamped in by
+  /// habitListProvider from ActiveCatalogNotifier.activatedAt). Null for
+  /// the const catalog templates themselves and for anything created
+  /// before this field existed — null means "no birth date known," which
+  /// [isScheduledFor] treats as always-existed, exactly the old behavior,
+  /// so legacy habits change nothing. What this fixes: every surface that
+  /// asks "was this habit scheduled on day X" (Grid squares, the heatmap
+  /// day sheet, insights, the weekly recap, quit auto-clean, room credit)
+  /// used to answer yes for days BEFORE the habit even existed, painting
+  /// yesterday as a miss for a habit created this morning.
+  final DateTime? createdAt;
+
   const IslamicHabitTemplate({
     required this.id,
     required this.name,
@@ -78,6 +91,7 @@ class IslamicHabitTemplate {
     required this.goldReward,
     this.iconColorHex,
     this.reminderLeadMinutes = 0,
+    this.createdAt,
   });
 
   /// This habit's own icon color, or null to fall back to the category/
@@ -147,6 +161,10 @@ class IslamicHabitTemplate {
         'goldReward': goldReward,
         if (iconColorHex != null) 'iconColorHex': iconColorHex,
         if (reminderLeadMinutes > 0) 'reminderLeadMinutes': reminderLeadMinutes,
+        // ISO string, not a Timestamp, on purpose: this exact map also
+        // goes into Hive for guests (see CustomHabitsNotifier._saveGuest),
+        // and Hive can't serialize Firestore Timestamps.
+        if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
       };
 
   factory IslamicHabitTemplate.fromMap(String id, Map<String, dynamic> d) =>
@@ -178,10 +196,50 @@ class IslamicHabitTemplate {
         goldReward: d['goldReward'] as int? ?? 8,
         iconColorHex: d['iconColorHex'] as String?,
         reminderLeadMinutes: d['reminderLeadMinutes'] as int? ?? 0,
+        createdAt: DateTime.tryParse(d['createdAt'] as String? ?? ''),
       );
 
-  bool isScheduledFor(DateTime day) =>
-      scheduledWeekdays.isEmpty || scheduledWeekdays.contains(day.weekday);
+  /// Whether this habit exists-and-is-due on [day]: never before its
+  /// birth date (see [createdAt] — a habit created this morning was not
+  /// "missed" yesterday), and on scheduled weekdays only when a specific
+  /// schedule is set. This is the single seam every surface reads, so the
+  /// birth-date rule holds everywhere at once.
+  bool isScheduledFor(DateTime day) {
+    final born = createdAt;
+    if (born != null &&
+        day.isBefore(DateTime(born.year, born.month, born.day))) {
+      return false;
+    }
+    return scheduledWeekdays.isEmpty || scheduledWeekdays.contains(day.weekday);
+  }
+
+  /// A full copy with [createdAt] swapped in — how habitListProvider
+  /// stamps a const catalog template with its activation date without the
+  /// template itself carrying per-user state.
+  IslamicHabitTemplate withCreatedAt(DateTime? date) => IslamicHabitTemplate(
+        id: id,
+        name: name,
+        description: description,
+        nameAr: nameAr,
+        descriptionAr: descriptionAr,
+        cueAfter: cueAfter,
+        category: category,
+        frequencyType: frequencyType,
+        frequencyTarget: frequencyTarget,
+        scheduledWeekdays: scheduledWeekdays,
+        goalType: goalType,
+        reductionType: reductionType,
+        limitAmount: limitAmount,
+        limitUnit: limitUnit,
+        customUnitLabel: customUnitLabel,
+        hasTimer: hasTimer,
+        timerDurationSeconds: timerDurationSeconds,
+        xpReward: xpReward,
+        goldReward: goldReward,
+        iconColorHex: iconColorHex,
+        reminderLeadMinutes: reminderLeadMinutes,
+        createdAt: date,
+      );
 
   /// Locale-aware display name — mirrors [HabitPlan.localName]. Falls back
   /// to [name] whenever [nameAr] is missing or blank, which is exactly the

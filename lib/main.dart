@@ -14,6 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/game_constants.dart';
 import 'core/extensions/datetime_ext.dart';
 import 'core/l10n/app_strings.dart';
+import 'core/providers/home_spotlight_provider.dart';
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/app_badge_service.dart';
@@ -29,33 +30,35 @@ import 'features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import 'features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitCatalog, IslamicHabitTemplate;
 import 'features/habits/models/habit_cue.dart';
+import 'features/insights/insights_screen.dart';
 import 'features/habits/models/habit_model.dart' show GoalType, ReductionType;
 import 'features/habits/notifiers/custom_habits_notifier.dart'
     show customHabitsProvider, habitListProvider, habitsStillLoadingProvider;
-import 'features/focus/screens/focus_screen.dart';
 import 'features/grid/models/square_state.dart' show SquareState;
 import 'features/grid/notifiers/weekly_grid_notifier.dart'
     show WeeklyGridState, isQuitAutoCleanEligible, weeklyGridProvider;
 import 'features/grid/screens/grid_journal_screen.dart';
-import 'features/grid/screens/grid_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
 import 'features/language/screens/language_picker_screen.dart';
 import 'features/matrix/models/matrix_task.dart' show MatrixQuadrant;
 import 'features/matrix/notifiers/matrix_notifier.dart' show matrixProvider;
-import 'features/matrix/screens/matrix_screen.dart';
 import 'features/matrix/widgets/voice_note_player.dart'
     show GlobalVoiceNotePlayerOverlay;
 import 'features/night_review/screens/night_review_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/premium/notifiers/premium_notifier.dart';
 import 'features/premium/screens/premium_screen.dart';
-import 'features/profile/screens/profile_screen.dart';
 import 'features/rooms/notifiers/rooms_notifier.dart'
-    show pendingJoinCodeProvider, parseRoomJoinLink;
+    show
+        pendingJoinCodeProvider,
+        parseRoomJoinLink,
+        roomBoostedReward,
+        syncRoomToday;
 import 'features/rooms/screens/room_detail_screen.dart';
 import 'features/rooms/screens/rooms_hub_screen.dart';
 import 'features/rooms/widgets/join_room_sheet.dart' show showJoinRoomSheet;
 import 'features/settings/models/notification_settings.dart';
+import 'shared/widgets/home_shell.dart';
 import 'features/settings/notifiers/notification_settings_notifier.dart'
     show notificationSettingsProvider;
 import 'features/settings/screens/notification_settings_screen.dart';
@@ -105,6 +108,7 @@ Future<void> main() async {
   final persistedGuestMode = await loadPersistedGuestMode();
   final persistedLocale = await loadPersistedLocale();
   final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
+  final persistedHomeSpotlightSeen = await loadPersistedHomeSpotlightSeen();
   final persistedThemeMode = await loadPersistedThemeMode();
   // Also applies the preset's colors to GameColors immediately, so the
   // very first frame already renders in the right preset.
@@ -118,6 +122,7 @@ Future<void> main() async {
       guestModeProvider.overrideWith((ref) => persistedGuestMode),
       ...localeProviderOverrides(persistedLocale),
       onboardingSeenProvider.overrideWith((ref) => persistedOnboardingSeen),
+      homeSpotlightSeenProvider.overrideWith((ref) => persistedHomeSpotlightSeen),
       if (persistedThemeMode != null)
         themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
       if (persistedThemePreset != null)
@@ -146,6 +151,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   ProviderSubscription<AsyncValue<User?>>? _authSub;
   StreamSubscription<Uri>? _linkSub;
   final _appLinks = AppLinks();
+
+  // Lets notification body-taps navigate without a BuildContext of their
+  // own — see _handleNotificationBodyTap. Attached to MaterialApp below.
+  final _navKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -567,6 +576,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// there instead of trying to resolve a habit that isn't specified.
   Future<void> _handleNotificationAction(
       String actionId, String? habitId) async {
+    // A plain body tap (no action button) carries an empty actionId — that
+    // used to just open the app wherever it last was. Now it lands where
+    // the notification actually points: see _handleNotificationBodyTap.
+    if (actionId.isEmpty) {
+      _handleNotificationBodyTap(habitId);
+      return;
+    }
     if (habitId == null || habitId.isEmpty) return;
     final habit = _resolveHabit(habitId);
     if (habit == null) return;
@@ -585,12 +601,18 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // into its slipped-today state.
       await ref.read(dashboardProvider.notifier).uncompleteHabit(
             habitId: habit.id,
-            xpReward: habit.xpReward,
-            goldReward: habit.goldReward,
+            // Mirrors the completion's boost — see roomBoostedReward.
+            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
             category: habit.category.name,
           );
+      final today = DateTime.now().effectiveDay;
       ref.read(weeklyGridProvider.notifier).markResultFromHabit(
-          habit.id, DateTime.now().effectiveDay, SquareState.failed);
+          habit.id, today, SquareState.failed);
+      // A notification action is a third way to change today's square,
+      // alongside Grid and Today — see syncRoomToday's doc comment for why
+      // every one of them has to call this.
+      syncRoomToday(ref, habit.id, today);
       return;
     }
     // The quit check-in's "On Track" button affirms the day through the
@@ -610,8 +632,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       final justFinishedSingleTap =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
-                xpReward: habit.xpReward,
-                goldReward: habit.goldReward,
+                // 2x while a linked room is live — see roomBoostedReward.
+                xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+                goldReward:
+                    roomBoostedReward(ref, habit.id, habit.goldReward),
                 frequencyTarget: habit.frequencyTarget,
                 allHabitsDoneAfter: willCompleteAllHabitsToday(
                   state: dashState,
@@ -623,11 +647,44 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 habitName: habit.localName(isAr),
               );
       if (justFinishedSingleTap) {
+        final today = DateTime.now().effectiveDay;
         ref
             .read(weeklyGridProvider.notifier)
-            .markCompleteFromHabit(habit.id, DateTime.now().effectiveDay);
+            .markCompleteFromHabit(habit.id, today);
+        syncRoomToday(ref, habit.id, today);
       }
     }
+  }
+
+  /// Routes a notification's plain body tap to where its action lives:
+  /// the daily reminder and streak-risk nudge carry
+  /// [NotificationService.openTodayPayload] and open Today; a habit
+  /// reminder / quit check-in carries its habit id and opens Today too
+  /// (that's where the habit's card, pill, and slip controls sit); a
+  /// Matrix task reminder carries its task id and opens the Tasks tab.
+  /// Anything unrecognized just opens the app, same as before.
+  void _handleNotificationBodyTap(String? payload) {
+    if (payload == null || payload.isEmpty) return;
+    final String route;
+    if (payload == NotificationService.openTodayPayload ||
+        _resolveHabit(payload) != null) {
+      route = '/dashboard';
+    } else if (ref.read(matrixProvider).tasks.any((t) => t.id == payload)) {
+      route = '/matrix';
+    } else {
+      return;
+    }
+    final nav = _navKey.currentState;
+    if (nav != null) {
+      nav.pushNamed(route);
+      return;
+    }
+    // Cold launch replay can arrive before MaterialApp has built its
+    // navigator (NotificationService.onAction flushes the pending tap the
+    // moment it's assigned, in initState) — defer one frame and try again.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _navKey.currentState?.pushNamed(route);
+    });
   }
 
   @override
@@ -659,6 +716,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
 
     return MaterialApp(
       title: 'GrowDaily',
+      navigatorKey: _navKey,
       debugShowCheckedModeBanner: false,
       supportedLocales: const [Locale('en'), Locale('ar')],
       localizationsDelegates: const [
@@ -690,24 +748,23 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         '/heatmap': (_) => const MonthlyHeatmapScreen(),
         '/night-review': (_) => const NightReviewScreen(),
         '/grid-journal': (_) => const GridJournalScreen(),
+        '/insights': (_) => const InsightsScreen(),
         '/premium': (_) => const PremiumScreen(),
         '/auth': (_) => const AuthScreen(),
-        // Focus is still available as a normal pushed screen, while Matrix is
-        // restored as the bottom-nav peer tab below.
-        '/focus': (_) => const FocusScreen(),
         '/notification-settings': (_) => const NotificationSettingsScreen(),
       },
       onGenerateRoute: (settings) {
-        // The bottom nav bar's four tabs are peers, not a hierarchy, so
+        // The bottom nav bar's tabs are peers, not a hierarchy, so
         // switching between them shouldn't play a "pushing a new screen"
-        // transition. Other apps (Instagram, Spotify, WhatsApp, ...) swap
-        // bottom-tab content instantly — everything else still gets the
-        // normal platform push/pop animation via the `routes` map above.
+        // transition. All three tab routes resolve to the same HomeShell
+        // (a swipeable PageView) at different starting pages — see
+        // HomeShell's doc comment — so an old pushReplacementNamed call
+        // from anywhere in the app still lands exactly where it expects.
         final WidgetBuilder? builder = switch (settings.name) {
           '/dashboard' => (_) => const DashboardScreen(),
-          '/grid' => (_) => const GridScreen(),
-          '/matrix' => (_) => const MatrixScreen(),
-          '/profile' => (_) => const ProfileScreen(),
+          '/grid' => (_) => const HomeShell(initialIndex: 0),
+          '/profile' => (_) => const HomeShell(initialIndex: 1),
+          '/matrix' => (_) => const HomeShell(initialIndex: 2),
           _ => null,
         };
         if (builder == null) return null;
@@ -805,7 +862,7 @@ class _OnboardingOrGrid extends ConsumerWidget {
       switchInCurve: Curves.easeOut,
       switchOutCurve: Curves.easeIn,
       child: seen
-          ? const GridScreen(key: ValueKey('grid'))
+          ? const HomeShell(key: ValueKey('home'))
           : const OnboardingScreen(key: ValueKey('onboarding')),
     );
   }

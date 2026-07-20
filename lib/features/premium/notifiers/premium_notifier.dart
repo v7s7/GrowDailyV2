@@ -11,6 +11,28 @@ import '../../../core/services/purchase_service.dart';
 /// the paywall should feel like an invitation, not a wall.
 const int kFreeHabitLimit = 10;
 
+/// How many months of any history surface the free tier can browse — the
+/// current month plus two before it, matching the Monthly Heatmap's free
+/// window exactly so the whole app tells one consistent story: free sees
+/// the recent past, Premium owns its whole history.
+const int kFreeHistoryMonths = 3;
+
+/// Whether a history screen (Night Review calendar, Habit Notes journal)
+/// may browse to the month starting at [monthStart]. Pure so it's
+/// unit-testable — see test/features/premium/history_gate_test.dart.
+/// [now] is any date inside the current month (callers pass
+/// `DateTime.now().effectiveDay`).
+bool canBrowseHistoryMonth({
+  required DateTime monthStart,
+  required DateTime now,
+  required bool isPremium,
+}) {
+  if (isPremium) return true;
+  final monthsBack =
+      (now.year - monthStart.year) * 12 + (now.month - monthStart.month);
+  return monthsBack < kFreeHistoryMonths;
+}
+
 /// Whether the account has GrowDaily Premium.
 ///
 /// This is the single entitlement seam for the whole app: every UI gate

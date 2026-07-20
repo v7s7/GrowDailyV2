@@ -297,20 +297,37 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = room.duration == RoomDuration.open
-        ? s.roomOngoing
-        : room.isEnded
-            ? s.roomEnded
-            : s.roomDaysLeft(room.daysRemaining);
+    // Lifecycle first: a lobby/countdown room isn't "N days left" of
+    // anything yet — say what it's actually doing. A lobby with a picked
+    // start time gets its own compact "starts in ___" (see
+    // formatCompactRemaining) instead of the generic Lobby label, so this
+    // list already hints at the live countdown RoomDetailScreen shows in
+    // full.
+    final scheduledAt = room.scheduledStartAt;
+    final label = room.isLobby
+        ? (scheduledAt != null
+            ? s.roomStartsInCompact(formatCompactRemaining(
+                scheduledAt.difference(DateTime.now()),
+                isAr: s.isAr,
+              ))
+            : s.roomLobbyPill)
+        : room.isCountingDown
+            ? s.roomStartsTomorrowPill
+            : room.duration == RoomDuration.open
+                ? s.roomOngoing
+                : room.isEnded
+                    ? s.roomEnded
+                    : s.roomDaysLeft(room.daysRemaining);
+    final color = room.isLobby ? GameColors.emerald : GameColors.gold;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: GameColors.gold.withOpacity(0.14),
+        color: color.withOpacity(0.14),
         borderRadius: BorderRadius.circular(100),
       ),
       child: Text(label,
           style: TextStyle(
-              fontSize: 10.5, fontWeight: FontWeight.w700, color: GameColors.gold)),
+              fontSize: 10.5, fontWeight: FontWeight.w700, color: color)),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
@@ -129,6 +130,7 @@ const habitPlans = <HabitPlan>[
 // ─── Active catalog provider ──────────────────────────────────────────────────
 
 const _kActiveKey = 'active_catalog_ids_v1';
+const _kActivatedAtKey = 'active_catalog_activated_at_v1';
 const _kReminderKey = 'daily_reminder_time_v1';
 
 /// Which Islamic Habit Catalog templates the user has turned on — the
@@ -154,6 +156,17 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   /// where the two combine into the one signal a screen actually watches.
   bool isLoading = true;
 
+  /// catalogId → the day it was switched on — the catalog habits' "birth
+  /// date" (see IslamicHabitTemplate.createdAt), stamped onto each active
+  /// template by habitListProvider so activating a habit today never
+  /// paints yesterday as a miss. Plain field like [isLoading] (updates
+  /// always ride along with a [state] change, which is what triggers
+  /// watchers). Missing ids — everything activated before this map
+  /// existed — just get no birth date, i.e. the exact old behavior.
+  /// Toggling a habit OFF removes its entry, so re-activating later is a
+  /// fresh start, not a resurrection of old missed days.
+  Map<String, DateTime> activatedAt = {};
+
   ActiveCatalogNotifier(this._uid) : super(const {}) {
     if (_uid != null) {
       _load();
@@ -165,9 +178,17 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   DocumentReference<Map<String, dynamic>> get _userRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid);
 
+  static Map<String, DateTime> _parseActivatedAt(dynamic raw) => {
+        if (raw is Map)
+          for (final e in raw.entries)
+            if (DateTime.tryParse('${e.value}') != null)
+              e.key.toString(): DateTime.parse('${e.value}'),
+      };
+
   Future<void> _loadGuest() async {
     final box = await LocalStoreService.settingsBox();
     final raw = box.get(_kActiveKey);
+    activatedAt = _parseActivatedAt(box.get(_kActivatedAtKey));
     if (!mounted) return;
     if (raw is List) {
       state = Set<String>.from(raw.whereType<String>());
@@ -185,6 +206,8 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     try {
       final snap = await _userRef.get();
       if (!mounted) return;
+      activatedAt =
+          _parseActivatedAt(snap.data()?['activeCatalogActivatedAt']);
       final raw = snap.data()?['activeCatalogIds'];
       if (raw is List) {
         state = Set<String>.from(raw.whereType<String>());
@@ -220,31 +243,70 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   }
 
   Future<void> _save() async {
+    // ISO strings both paths (Hive can't hold Timestamps; Firestore holds
+    // strings fine) — and always the WHOLE map as one nested field, never
+    // dotted 'field.key' entries (see BUILD_LESSONS.md #10).
+    final atMap = {
+      for (final e in activatedAt.entries) e.key: e.value.toIso8601String(),
+    };
     if (_uid != null) {
-      _userRef
-          .set({'activeCatalogIds': state.toList()}, SetOptions(merge: true))
-          .ignore();
+      _userRef.set({
+        'activeCatalogIds': state.toList(),
+        'activeCatalogActivatedAt': atMap,
+      }, SetOptions(merge: true)).ignore();
       return;
     }
     final box = await LocalStoreService.settingsBox();
     await box.put(_kActiveKey, state.toList());
+    await box.put(_kActivatedAtKey, atMap);
   }
 
   void toggle(String catalogId) {
     if (state.contains(catalogId)) {
+      activatedAt = {...activatedAt}..remove(catalogId);
       state = Set.of(state)..remove(catalogId);
     } else {
+      activatedAt = {
+        ...activatedAt,
+        catalogId: DateTime.now().effectiveDay,
+      };
       state = {...state, catalogId};
     }
     _save();
   }
 
-  void activatePlan(HabitPlan plan) {
-    state = {...state, ...plan.catalogIds};
+  /// Commits exactly [selected] as this account's active habits for
+  /// [plan] — every id in [selected] ends up active (whether it already
+  /// was or not), and every one of the plan's *other* catalog ids gets
+  /// deactivated if it happened to be active already. This is what
+  /// PlanPickerSheet's Start/"Add Selected" button actually calls: its
+  /// checklist starts every habit checked, so pressing Start the moment a
+  /// plan opens passes the *whole* plan (same result the old always-full
+  /// activatePlan used to give unconditionally) — unchecking some first
+  /// and then pressing it passes only what's still checked instead, which
+  /// is the one thing the old method could never do (it only ever added,
+  /// never reconciled a subset down).
+  void applyPlanSelection(HabitPlan plan, Set<String> selected) {
+    final today = DateTime.now().effectiveDay;
+    final toDeactivate = plan.catalogIds
+        .where((id) => !selected.contains(id) && state.contains(id))
+        .toSet();
+    activatedAt = {
+      ...activatedAt,
+      // Only ids that are genuinely NEW get today's date — re-picking an
+      // already-active habit must not move its birth date forward.
+      for (final id in selected)
+        if (!state.contains(id)) id: today,
+    }..removeWhere((id, _) => toDeactivate.contains(id));
+    state = {...state}
+      ..removeAll(toDeactivate)
+      ..addAll(selected);
     _save();
   }
 
   void deactivatePlan(HabitPlan plan) {
+    activatedAt = {...activatedAt}
+      ..removeWhere((id, _) => plan.catalogIds.contains(id));
     state = state.difference(plan.catalogIds.toSet());
     _save();
   }

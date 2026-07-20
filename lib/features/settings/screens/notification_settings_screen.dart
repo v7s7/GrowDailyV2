@@ -380,15 +380,21 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
 
     if (outcome.isSuccess) {
       final fix = outcome.fix!;
+      // Coordinates are NEVER shown to the user — the label starts as a
+      // localized "finding your location…" placeholder, becomes the real
+      // «المنامة، البحرين» name the moment the reverse lookup resolves,
+      // and degrades to a plain "Location set" if that lookup fails. The
+      // raw lat/lng still power every calculation underneath; they just
+      // never appear as text.
       ref.read(notificationSettingsProvider.notifier).update((c) => c.copyWith(
             location: NotificationLocation(
               lat: fix.latitude,
               lng: fix.longitude,
-              label:
-                  '${fix.latitude.toStringAsFixed(2)}, ${fix.longitude.toStringAsFixed(2)}',
+              label: S.of(context).notifLocationResolving,
             ),
           ));
-      _resolveCountryInBackground(fix.latitude, fix.longitude);
+      _resolveCountryInBackground(fix.latitude, fix.longitude,
+          updateLabel: true);
       return;
     }
 
@@ -416,14 +422,28 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
   /// immediately followed by a manual re-search, before the first lookup
   /// has returned). Silently a no-op on a failed lookup too — see
   /// CountryLookupService.lookup's doc comment.
-  Future<void> _resolveCountryInBackground(double lat, double lng) async {
-    final code = await CountryLookupService.lookup(lat, lng);
-    if (!mounted || code == null) return;
+  /// [updateLabel] is true only for the GPS-detect path, whose initial
+  /// label is a raw-coordinates placeholder worth replacing with the
+  /// resolved "City, Country" name; a manually-searched city keeps the
+  /// exact label the user picked.
+  Future<void> _resolveCountryInBackground(double lat, double lng,
+      {bool updateLabel = false}) async {
+    final s = S.of(context);
+    final place = await CountryLookupService.lookupPlace(lat, lng,
+        languageCode: s.isAr ? 'ar' : 'en');
+    if (!mounted) return;
     final current = ref.read(notificationSettingsProvider).location;
     if (current == null || current.lat != lat || current.lng != lng) return;
-    ref
-        .read(notificationSettingsProvider.notifier)
-        .update((c) => c.copyWith(resolvedCountryCode: code));
+    // Whatever happens, the "finding your location…" placeholder must not
+    // survive: real place name when the lookup succeeded, a plain
+    // "Location set" when it didn't — never raw coordinates.
+    final newLabel = place.label ?? s.notifLocationSetGeneric;
+    ref.read(notificationSettingsProvider.notifier).update((c) => c.copyWith(
+          resolvedCountryCode: place.code ?? c.resolvedCountryCode,
+          location: updateLabel
+              ? NotificationLocation(lat: lat, lng: lng, label: newLabel)
+              : c.location,
+        ));
   }
 
   @override

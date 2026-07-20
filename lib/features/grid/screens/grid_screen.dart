@@ -8,7 +8,6 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/category_icon.dart';
-import '../../../shared/widgets/game_nav_bar.dart';
 import '../../../shared/widgets/safe_wrap_text.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
@@ -19,7 +18,6 @@ import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/widgets/add_habit_hub_sheet.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
-import '../../night_review/notifiers/night_review_notifier.dart';
 import '../../rooms/notifiers/rooms_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
@@ -44,18 +42,6 @@ import '../notifiers/weekly_grid_notifier.dart';
       HabitCategory.sleep => (Icons.bedtime_rounded, GameColors.rarityEpic),
       HabitCategory.custom => (Icons.star_rounded, GameColors.gold),
     };
-
-/// Pushes this tap's *today* result to any Room tracking [habitId] - a
-/// cheap no-op for the overwhelmingly common case where it isn't linked to
-/// any room. Reads the already-updated local Grid state (rather than
-/// re-reading Firestore) since Grid's own square write is fire-and-forget -
-/// see RoomsController.syncTodayForHabit's doc comment for why that matters.
-void _syncRoomToday(WidgetRef ref, String habitId, DateTime day) {
-  if (!day.isToday) return;
-  final todayRow =
-      ref.read(weeklyGridProvider).states[day.toDateKey()] ?? const {};
-  ref.read(roomsControllerProvider).syncTodayForHabit(habitId, todayRow).ignore();
-}
 
 /// The Weekly Victory Grid — the flagship "color your life" experience.
 ///
@@ -167,6 +153,23 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     final habits = ref.watch(habitListProvider);
     final grid = ref.watch(weeklyGridProvider);
 
+    // Build habits and quit habits render as two separate boards — coloring
+    // a square means opposite things across the two ("I did it" vs "I
+    // stayed away from it"), so mixing them in one table made the eye do
+    // that translation row by row. Split lists, same row widgets. When one
+    // list is empty the split (and its headers) disappears entirely, so
+    // anyone not using quit habits sees exactly the single board they
+    // always had.
+    final buildHabits = [
+      for (final h in habits)
+        if (h.goalType != GoalType.quit) h,
+    ];
+    final quitHabits = [
+      for (final h in habits)
+        if (h.goalType == GoalType.quit) h,
+    ];
+    final showSplit = buildHabits.isNotEmpty && quitHabits.isNotEmpty;
+
     IslamicHabitTemplate? singleEditableSelection;
     if (_selectedIds.length == 1) {
       final id = _selectedIds.first;
@@ -182,7 +185,8 @@ class _GridScreenState extends ConsumerState<GridScreen> {
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 0),
+      // No nav bar here anymore — HomeShell (the swipeable 3-tab PageView
+      // this screen now always lives inside) owns the single GameNavBar.
       body: SafeArea(
         bottom: false,
         child: CustomScrollView(
@@ -236,8 +240,6 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                       .slideY(begin: -0.05, curve: Curves.easeOut),
                 ),
               ),
-              const SliverToBoxAdapter(child: _StreakAtRiskBanner()),
-              const SliverToBoxAdapter(child: _NightReviewPromptCard()),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -261,14 +263,54 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                         ? const _GridSkeleton()
                         : KeyedSubtree(
                             key: ValueKey(grid.weekStart),
-                            child: _GridTable(
-                              habits: habits,
-                              state: grid,
-                              selectionMode: _selectionMode,
-                              selectedIds: _selectedIds,
-                              onSelectionToggle: _toggleSelection,
-                              onSelectionStart: _startSelection,
-                            ),
+                            child: !showSplit
+                                ? _GridTable(
+                                    habits: habits,
+                                    state: grid,
+                                    selectionMode: _selectionMode,
+                                    selectedIds: _selectedIds,
+                                    onSelectionToggle: _toggleSelection,
+                                    onSelectionStart: _startSelection,
+                                  )
+                                : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      _GridSectionHeader(
+                                        icon: Icons.bolt_rounded,
+                                        color: GameColors.gold,
+                                        label: s.gridSectionBuild,
+                                        count: buildHabits.length,
+                                      ),
+                                      _GridTable(
+                                        habits: buildHabits,
+                                        state: grid,
+                                        selectionMode: _selectionMode,
+                                        selectedIds: _selectedIds,
+                                        onSelectionToggle: _toggleSelection,
+                                        onSelectionStart: _startSelection,
+                                      ),
+                                      const SizedBox(height: 18),
+                                      // Shield + emerald, matching the quit
+                                      // pill's own visual language on
+                                      // HabitCard — the same "staying clean"
+                                      // identity everywhere it appears.
+                                      _GridSectionHeader(
+                                        icon: Icons.shield_rounded,
+                                        color: GameColors.emerald,
+                                        label: s.gridSectionQuit,
+                                        count: quitHabits.length,
+                                      ),
+                                      _GridTable(
+                                        habits: quitHabits,
+                                        state: grid,
+                                        selectionMode: _selectionMode,
+                                        selectedIds: _selectedIds,
+                                        onSelectionToggle: _toggleSelection,
+                                        onSelectionStart: _startSelection,
+                                      ),
+                                    ],
+                                  ),
                           ),
                   ),
                 ),
@@ -437,20 +479,16 @@ class _GridHeader extends ConsumerWidget {
                   Navigator.pushNamed(context, '/night-review');
                 },
               ),
-              IconButton(
-                // Distinct from the open book above on purpose: that one is
-                // Night Review's single daily mood/reflection, this is the
-                // per-habit notes and Skipped/Failed/Bonus marks left from
-                // *this* screen's own long-press editor (see
-                // grid_journal_notifier.dart's doc comment for the full
-                // "why a separate screen" reasoning).
-                icon: Icon(Icons.edit_note_rounded, color: gp.textSec),
-                tooltip: s.gridJournalTitle,
-                onPressed: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.pushNamed(context, '/grid-journal');
-                },
-              ),
+              // A third icon used to live here for Habit Notes (per-habit
+              // notes and Skipped/Failed/Bonus marks left from this
+              // screen's own long-press editor) - moved to Dashboard's
+              // Habit Notes preview section instead (see
+              // ProgressHubScreen's _JournalPreviewSection), alongside
+              // Achievements/Insights, since browsing *past* entries is a
+              // "look back at my details" action like those, not something
+              // that needed a third icon crowding the row above the grid
+              // someone's actively coloring today. Still reachable at the
+              // exact same '/grid-journal' route either way.
             ],
           ),
           const SizedBox(height: 10),
@@ -775,158 +813,6 @@ class _MiniStat extends StatelessWidget {
   }
 }
 
-// ─── Streak-at-risk nudge ──────────────────────────────────────────────────
-
-/// The retention loop's most important message: from 6pm, if the user has a
-/// live streak and hasn't finished today's habits yet (streak means a full
-/// 100% day — see [DashboardState.streakEarnedToday]), warn them warmly.
-/// Disappears the moment today's streak point is earned.
-class _StreakAtRiskBanner extends ConsumerWidget {
-  const _StreakAtRiskBanner();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final dash = ref.watch(dashboardProvider);
-    final grid = ref.watch(weeklyGridProvider);
-    final habits = ref.watch(habitListProvider);
-
-    final isEvening = DateTime.now().hour >= 18;
-    if (!isEvening ||
-        dash.streak <= 0 ||
-        habits.isEmpty ||
-        grid.isLoading ||
-        dash.streakEarnedToday) {
-      return const SizedBox.shrink();
-    }
-
-    final gp = context.gp;
-    final s = S.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: GameColors.iconStreak.withOpacity(gp.dark ? 0.10 : 0.08),
-          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-          border:
-              Border.all(color: GameColors.iconStreak.withOpacity(0.4)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.local_fire_department_rounded,
-                    color: GameColors.iconStreak, size: 26)
-                .animate(onPlay: (c) => c.repeat(reverse: true))
-                .scaleXY(
-                  begin: 0.88,
-                  end: 1.05,
-                  duration: 900.ms,
-                  curve: Curves.easeInOut,
-                ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    s.streakAtRiskTitle(dash.streak),
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w800,
-                      color: GameColors.iconStreak,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    s.streakAtRiskBody,
-                    style: TextStyle(fontSize: 12, color: gp.textSec),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08);
-  }
-}
-
-// ─── Night Review prompt ───────────────────────────────────────────────────
-
-/// A gentle evening nudge toward Night Review — visible any time after 6pm
-/// until tonight's check-in is saved. Dismissible via the Grid header's moon
-/// icon at any hour; this card just makes the invitation hard to miss when
-/// it matters most.
-class _NightReviewPromptCard extends ConsumerWidget {
-  const _NightReviewPromptCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final review = ref.watch(nightReviewProvider);
-    final isEvening = DateTime.now().hour >= 18;
-    if (review.isLoading || review.saved || !isEvening) {
-      return const SizedBox.shrink();
-    }
-    final gp = context.gp;
-    final s = S.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          Navigator.pushNamed(context, '/night-review');
-        },
-        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: gp.surface,
-            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-            border: Border.all(color: GameColors.iconXp.withOpacity(0.22)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: GameColors.iconXp.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(Icons.auto_stories_rounded,
-                    color: GameColors.iconXp),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      s.nightReviewPromptTitle,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: gp.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      s.nightReviewPromptDesc,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: gp.textSec),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: GameColors.iconXp),
-            ],
-          ),
-        ),
-      ),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08);
-  }
-}
-
 // ─── The grid table itself ────────────────────────────────────────────────────
 
 class _GridTable extends ConsumerStatefulWidget {
@@ -1025,13 +911,16 @@ class _GridTableState extends ConsumerState<_GridTable> {
       children: [
         _headerRow(context, days, cell),
         const SizedBox(height: 12),
-        // Rows cascade in on entrance; effects play once per screen visit
-        // (rebuilds on square taps reuse the same elements, so no replay).
+        // Rows fade in on entrance — fade ONLY, no slideX: the staggered
+        // horizontal slide meant every row sat at a slightly different
+        // x-offset while entering, which read as "the columns don't line
+        // up" in any glance (or screenshot) taken during those first
+        // moments. Opacity can't move layout, so alignment is now
+        // guaranteed from the very first frame.
         for (var i = 0; i < widget.habits.length; i++) ...[
           _habitRow(context, ref, widget.habits[i], days, cell, rowHeight)
               .animate(delay: (i * 45).ms)
-              .fadeIn(duration: 320.ms)
-              .slideX(begin: 0.04, curve: Curves.easeOut),
+              .fadeIn(duration: 320.ms),
           if (i != widget.habits.length - 1) const SizedBox(height: _gap),
         ],
       ],
@@ -1180,6 +1069,20 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       // Grid stays the one place every habit lives.
                       final inRoom =
                           ref.watch(myLinkedRoomHabitsProvider).containsKey(habit.id);
+                      // 2x while a linked room is LIVE — the visible promise
+                      // behind roomBoostedReward's doubled XP/gold. This is
+                      // a Positioned overlay on the icon, not a Row sibling
+                      // next to the name, on purpose: a Row sibling only
+                      // shows up on boosted rows, which quietly narrows the
+                      // Expanded name's width *just for those rows* — the
+                      // exact same habit name can then wrap to a different
+                      // number of lines purely because a room went live,
+                      // with nothing about the text itself changing. Every
+                      // row's icon box and name column are now identically
+                      // sized whether or not this badge is showing.
+                      final boosted = ref
+                          .watch(roomBoostedHabitsProvider)
+                          .contains(habit.id);
                       return Stack(
                         clipBehavior: Clip.none,
                         children: [
@@ -1214,6 +1117,13 @@ class _GridTableState extends ConsumerState<_GridTable> {
                                 child: const Icon(Icons.emoji_events_rounded,
                                     size: 7, color: Colors.black),
                               ),
+                            ),
+                          if (boosted)
+                            Positioned(
+                              top: -9,
+                              left: -8,
+                              right: -8,
+                              child: Center(child: const _BoostBadge()),
                             ),
                         ],
                       );
@@ -1304,7 +1214,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
         // Already rewarded (e.g. completed from Today and the mirror
         // hasn't caught up) — just repair the visual state, no reward call.
         ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
-        _syncRoomToday(ref, habit.id, day);
+        syncRoomToday(ref, habit.id, day);
       } else {
         // Canonical reward first. Only mirror the square if it actually
         // succeeded — a failed or no-op completeHabit call must never
@@ -1318,8 +1228,10 @@ class _GridTableState extends ConsumerState<_GridTable> {
         final justCompleted =
             await ref.read(dashboardProvider.notifier).completeHabit(
                   habitId: habit.id,
-                  xpReward: habit.xpReward,
-                  goldReward: habit.goldReward,
+                  // 2x while a linked room is live — see roomBoostedReward.
+                  xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+                  goldReward:
+                      roomBoostedReward(ref, habit.id, habit.goldReward),
                   frequencyTarget: habit.frequencyTarget,
                   allHabitsDoneAfter: willCompleteAllHabitsToday(
                     state: dashState,
@@ -1334,7 +1246,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
           ref
               .read(weeklyGridProvider.notifier)
               .markCompleteFromHabit(habit.id, day);
-          _syncRoomToday(ref, habit.id, day);
+          syncRoomToday(ref, habit.id, day);
+          _maybeCelebrateFullRow(ref, habit);
         }
       }
       return;
@@ -1353,14 +1266,15 @@ class _GridTableState extends ConsumerState<_GridTable> {
       HapticFeedback.selectionClick();
       await ref.read(dashboardProvider.notifier).uncompleteHabit(
             habitId: habit.id,
-            xpReward: habit.xpReward,
-            goldReward: habit.goldReward,
+            // Mirrors the completion's boost — see roomBoostedReward.
+            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
             category: habit.category.name,
           );
       ref
           .read(weeklyGridProvider.notifier)
           .setSquareStateOnly(habit.id, day, next);
-      _syncRoomToday(ref, habit.id, day);
+      syncRoomToday(ref, habit.id, day);
       return;
     }
 
@@ -1372,7 +1286,60 @@ class _GridTableState extends ConsumerState<_GridTable> {
       HapticFeedback.selectionClick();
     }
     ref.read(weeklyGridProvider.notifier).cycleSquare(habit.id, day);
-    _syncRoomToday(ref, habit.id, day);
+    syncRoomToday(ref, habit.id, day);
+    if (next.isGreen) _maybeCelebrateFullRow(ref, habit);
+  }
+
+  /// Fires the "full row" moment: the green that just landed completed
+  /// every scheduled day of this habit's visible week. Visual + haptic
+  /// celebration ONLY, deliberately no XP/gold — a full row can also be
+  /// assembled by backfilling past squares, and the anti-backdating rule
+  /// (see WeeklyGridNotifier.setSquare) means past days must never reach
+  /// the reward system; a rewarded row would reopen exactly that farm.
+  /// Toggling a square off and back on can replay it — that's a deliberate
+  /// pair of taps, not a loop, and it still grants nothing.
+  void _maybeCelebrateFullRow(WidgetRef ref, IslamicHabitTemplate habit) {
+    if (!mounted) return;
+    final grid = ref.read(weeklyGridProvider);
+    if (!isHabitRowComplete(
+      days: grid.days,
+      isScheduled: habit.isScheduledFor,
+      squareFor: (d) => grid.squareFor(habit.id, d),
+    )) {
+      return;
+    }
+    HapticFeedback.heavyImpact();
+    final s = S.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.grid_view_rounded,
+                color: GameColors.emerald, size: 18),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                s.gridFullRow(habit.localName(s.isAr)),
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                  color: GameColors.emerald,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: context.gp.surface,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: GameColors.emerald, width: 1),
+        ),
+      ),
+    );
   }
 
   void _openEditor(BuildContext context, WidgetRef ref,
@@ -1385,6 +1352,64 @@ class _GridTableState extends ConsumerState<_GridTable> {
     );
   }
 
+}
+
+// ─── Boost badge ────────────────────────────────────────────────────────────
+
+/// The "2x" flag that hovers above a habit's icon while a linked room is
+/// live — a small piece of fire, literally: the flame repeats a gentle
+/// scale pulse for as long as the boost lasts, the same motion
+/// _StreakAtRiskBanner's own flame uses, so "flame = something's hot right
+/// now" reads the same everywhere it shows up in the app. Fixed content
+/// (a flame glyph + the literal string "2x") means this badge is always the
+/// exact same size, so it never nudges the row layout around it — see the
+/// doc comment where it's placed in _GridTableState.
+class _BoostBadge extends StatelessWidget {
+  const _BoostBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: GameColors.gold,
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: gp.surface, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: GameColors.gold.withOpacity(0.45),
+            blurRadius: 5,
+            spreadRadius: 0.5,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.local_fire_department_rounded,
+                  size: 9, color: Colors.black)
+              .animate(onPlay: (c) => c.repeat(reverse: true))
+              .scaleXY(
+                begin: 0.8,
+                end: 1.2,
+                duration: 650.ms,
+                curve: Curves.easeInOut,
+              ),
+          const SizedBox(width: 1.5),
+          const Text(
+            '2x',
+            style: TextStyle(
+              fontSize: 8.5,
+              fontWeight: FontWeight.w900,
+              color: Colors.black,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SquareCell extends StatelessWidget {
@@ -1479,17 +1504,16 @@ class _SquareCell extends StatelessWidget {
         ],
       ),
     );
+    // Deliberately NO scale/elastic effects on squares, ever: every
+    // geometric pop (0.7→1 elasticOut overshoots past 100%, 0.82→1 eases)
+    // made a square transiently a different size than its neighbors — and
+    // because each cell replays independently the moment its state lands
+    // (ValueKey(square)), the whole board read as misaligned/mis-sized on
+    // every week load and every tap. Squares are now always exactly
+    // `size`×`size`, no exceptions; celebration stays as light-only
+    // effects (shimmer/fade) that never move a pixel of layout.
     if (square.isGreen) {
-      // Green is the reward moment: elastic pop + a quick light sweep.
-      cell = cell
-          .animate(key: ValueKey(square))
-          .scale(
-            begin: const Offset(0.7, 0.7),
-            end: const Offset(1, 1),
-            duration: 320.ms,
-            curve: Curves.elasticOut,
-          )
-          .shimmer(
+      cell = cell.animate(key: ValueKey(square)).shimmer(
             delay: 80.ms,
             duration: 450.ms,
             color: Colors.white.withOpacity(0.55),
@@ -1497,12 +1521,7 @@ class _SquareCell extends StatelessWidget {
     } else if (square.isMarked) {
       cell = cell
           .animate(key: ValueKey(square))
-          .scale(
-            begin: const Offset(0.82, 0.82),
-            end: const Offset(1, 1),
-            duration: 220.ms,
-            curve: Curves.easeOutBack,
-          );
+          .fadeIn(duration: 180.ms, begin: 0.6);
     }
     final tap = onTap;
     return GestureDetector(
@@ -1795,14 +1814,15 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     if (isLocked && picked != SquareState.complete) {
       ref.read(dashboardProvider.notifier).uncompleteHabit(
             habitId: habit.id,
-            xpReward: habit.xpReward,
-            goldReward: habit.goldReward,
+            // Mirrors the completion's boost — see roomBoostedReward.
+            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
             category: habit.category.name,
           );
       ref
           .read(weeklyGridProvider.notifier)
           .setSquareStateOnly(habit.id, day, picked);
-      _syncRoomToday(ref, habit.id, day);
+      syncRoomToday(ref, habit.id, day);
       return;
     }
 
@@ -1819,8 +1839,10 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       final justCompleted =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
-                xpReward: habit.xpReward,
-                goldReward: habit.goldReward,
+                // 2x while a linked room is live — see roomBoostedReward.
+                xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+                goldReward:
+                    roomBoostedReward(ref, habit.id, habit.goldReward),
                 frequencyTarget: habit.frequencyTarget,
                 allHabitsDoneAfter: willCompleteAllHabitsToday(
                   state: dashState,
@@ -1835,13 +1857,13 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         ref
             .read(weeklyGridProvider.notifier)
             .setSquareStateOnly(habit.id, day, SquareState.complete);
-        _syncRoomToday(ref, habit.id, day);
+        syncRoomToday(ref, habit.id, day);
       }
       return;
     }
 
     ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked);
-    _syncRoomToday(ref, habit.id, day);
+    syncRoomToday(ref, habit.id, day);
   }
 }
 
@@ -1927,6 +1949,69 @@ class _GridSkeleton extends StatelessWidget {
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
+
+/// Quiet label row above each of the Grid's two boards (build vs quit) —
+/// small icon, uppercase-style label, and a count chip, deliberately far
+/// lighter than a card header so the boards themselves stay the loudest
+/// thing on screen. Only rendered when both boards exist; see the build
+/// method's split comment.
+class _GridSectionHeader extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final int count;
+
+  const _GridSectionHeader({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    // Letter-spacing zeroed for Arabic, same as HabitCard's pills — spaced
+    // Arabic glyphs read broken, not emphasized.
+    final isAr = S.of(context).isAr;
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(bottom: 8, start: 2),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: isAr ? 0 : 0.6,
+              color: gp.textSec,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(100),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Container(height: 0.5, color: gp.border)),
+        ],
+      ),
+    );
+  }
+}
 
 class _GridEmptyState extends ConsumerWidget {
   const _GridEmptyState();

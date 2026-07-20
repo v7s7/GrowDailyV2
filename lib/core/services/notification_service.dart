@@ -125,6 +125,12 @@ class NotificationService {
   static const actionStayedClean = 'quit_on_track';
   static const actionSlipped = 'quit_slipped';
 
+  /// Body-tap payload for notifications whose natural landing place is the
+  /// Today screen (daily reminder, streak-risk nudge) — deliberately a
+  /// value that can never collide with a habit/task id, which are UUIDs or
+  /// snake_case catalog ids, never colon-prefixed.
+  static const openTodayPayload = 'open:today';
+
   bool _initialized = false;
 
   // A response that arrived before `onAction` was wired up — either a cold
@@ -381,6 +387,9 @@ class NotificationService {
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,
+      // Body-tap routing: land on Today, where the habits this reminder is
+      // about actually live — see main.dart's _handleNotificationBodyTap.
+      payload: openTodayPayload,
     );
     debugPrint(
         '[NotificationService] Daily reminder set — $hour:${minute.toString().padLeft(2, '0')}');
@@ -731,6 +740,9 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      // Body-tap routing: what's pending lives on Today — see main.dart's
+      // _handleNotificationBodyTap.
+      payload: openTodayPayload,
     );
   }
 
@@ -749,6 +761,15 @@ class NotificationService {
   /// instead of only nagging at a cue time, the day gets settled in the
   /// evening: On Track / Slipped action buttons resolve it straight from
   /// the lock screen (see main.dart's _handleNotificationAction).
+  ///
+  /// Title is always the general "Evening check-in" — never the habit's own
+  /// name (that used to be the title, with the reflective "how did today
+  /// go?" question as the body; a bare habit name sitting alone above a
+  /// question about *the day* read like a mismatched, half-finished
+  /// notification, especially with more than one quit habit stacking up
+  /// several same-titled-differently notifications). The habit is still
+  /// named — right inside the body now, so tapping still makes it obvious
+  /// which one this is about, it just isn't doing double duty as the title.
   ///
   /// Fires at [NotificationSettings.streakRiskTime] — deliberately the
   /// same user-configurable "evening reflection" moment as
@@ -801,16 +822,16 @@ class NotificationService {
       }
       await _plugin.zonedSchedule(
         _quitCheckInId(habit.id),
-        habit.name,
+        isAr ? 'تسجيل المساء' : 'Evening check-in',
         // Arabic phrasing chosen by the user himself (Bahraini) — «جريب»
         // not «قريب», plain comma, no em-dash anywhere in user copy.
         habit.isLimit
             ? (isAr
-                ? 'اليوم جريب يخلص، بقيت ضمن الحد؟'
-                : "Day's almost done. Still within your limit?")
+                ? '${habit.name} · اليوم جريب يخلص، بقيت ضمن الحد؟'
+                : "${habit.name} · Day's almost done. Still within your limit?")
             : (isAr
-                ? 'اليوم جريب يخلص، شلون امورك؟'
-                : "Day's almost done. How's it going?"),
+                ? '${habit.name} · اليوم جريب يخلص، شلون امورك؟'
+                : "${habit.name} · Day's almost done. How's it going?"),
         fireTime,
         _quitCheckInDetails,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,

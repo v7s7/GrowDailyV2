@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/victory_burst.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../character/models/accessory.dart';
 import '../../character/models/character_option.dart';
@@ -271,6 +276,22 @@ class _RoomBody extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
               children: [
+                // Lifecycle banners come first — they're the answer to
+                // "what is this room doing right now?".
+                if (room.isLobby) ...[
+                  _LobbyCard(
+                    room: room,
+                    isLeader: isLeader,
+                    memberCount: participants.length,
+                  ),
+                  const SizedBox(height: 14),
+                ] else if (room.isCountingDown) ...[
+                  _CountdownCard(),
+                  const SizedBox(height: 14),
+                ] else if (room.isEnded) ...[
+                  _FinaleCard(sorted: sorted, room: room),
+                  const SizedBox(height: 14),
+                ],
                 _RoomHeaderCard(room: room),
                 if (mine != null && mine.linkedHabitIds.isNotEmpty) ...[
                   const SizedBox(height: 14),
@@ -295,6 +316,703 @@ class _RoomBody extends ConsumerWidget {
           );
         },
       ),
+    );
+  }
+}
+
+/// The gathering state: who's in, and — for the leader only — the controls
+/// to pick exactly when it begins. Two very different looks depending on
+/// whether a moment's been picked yet: calm emerald "come gather" framing
+/// before ([_EmptyLobbyCard]), the same gold "something's about to happen"
+/// framing every other countdown on this screen already uses, after (see
+/// [_ScheduledLobbyCard]). Stateful now (it used to be a plain
+/// ConsumerWidget) purely to drive the live per-second countdown and the
+/// client-side auto-start check — see [_LobbyCardState._onTick].
+class _LobbyCard extends ConsumerStatefulWidget {
+  final RoomModel room;
+  final bool isLeader;
+  final int memberCount;
+  const _LobbyCard({
+    required this.room,
+    required this.isLeader,
+    required this.memberCount,
+  });
+
+  @override
+  ConsumerState<_LobbyCard> createState() => _LobbyCardState();
+}
+
+class _LobbyCardState extends ConsumerState<_LobbyCard> {
+  Timer? _ticker;
+  // Guards against re-sending RoomsController.autoStartIfDue's write on
+  // every remaining tick while this device waits for its own write to
+  // round-trip back through roomProvider's stream — without this, a slow
+  // connection could fire the same write several times in the second or
+  // two before the snapshot updates and widget.room.isLobby finally flips.
+  bool _autoStartRequested = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LobbyCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A freshly picked or changed moment needs a fresh countdown and a
+    // fresh chance to auto-start — reusing the old timer as-is would keep
+    // counting down to whatever was picked first.
+    if (oldWidget.room.scheduledStartAt != widget.room.scheduledStartAt) {
+      _autoStartRequested = false;
+      _syncTicker();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  void _syncTicker() {
+    _ticker?.cancel();
+    _ticker = null;
+    if (widget.room.scheduledStartAt == null) return;
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
+    // Check right away too, rather than waiting a full second — covers
+    // reopening this screen after the moment already passed while nobody
+    // else's device happened to be watching at the time.
+    _onTick();
+  }
+
+  void _onTick() {
+    if (!mounted) return;
+    if (widget.room.scheduledStartDue && !_autoStartRequested) {
+      _autoStartRequested = true;
+      ref.read(roomsControllerProvider).autoStartIfDue(widget.room).ignore();
+    }
+    setState(() {}); // Repaints the countdown digits for the new second.
+  }
+
+  Future<void> _openScheduleSheet() async {
+    HapticFeedback.selectionClick();
+    final picked = await showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const _ScheduleStartSheet(),
+    );
+    if (picked == null || !mounted) return;
+    HapticFeedback.mediumImpact();
+    await ref.read(roomsControllerProvider).scheduleStart(widget.room, picked);
+  }
+
+  Future<void> _confirmStartNow() async {
+    HapticFeedback.mediumImpact();
+    final s = S.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(s.roomStartConfirmTitle),
+        content: Text(s.roomStartConfirmBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(s.habitDeleteLinkedRoomCancel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: GameColors.emerald,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(s.roomStartAction),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    HapticFeedback.heavyImpact();
+    await ref.read(roomsControllerProvider).startRoom(widget.room);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final room = widget.room;
+    if (room.scheduledStartAt == null) {
+      return _EmptyLobbyCard(
+        memberCount: widget.memberCount,
+        isLeader: widget.isLeader,
+        onPickTime: _openScheduleSheet,
+      );
+    }
+    return _ScheduledLobbyCard(
+      scheduledStartAt: room.scheduledStartAt!,
+      isLeader: widget.isLeader,
+      onChangeTime: _openScheduleSheet,
+      onStartNow: _confirmStartNow,
+    );
+  }
+}
+
+/// Before a start time is picked: who's in, and — leader only — the CTA
+/// that opens [_ScheduleStartSheet]. Everyone else now gets an explicit
+/// "waiting on the leader" line instead of the banner simply trailing off
+/// with nothing else on screen.
+class _EmptyLobbyCard extends StatelessWidget {
+  final int memberCount;
+  final bool isLeader;
+  final VoidCallback onPickTime;
+  const _EmptyLobbyCard({
+    required this.memberCount,
+    required this.isLeader,
+    required this.onPickTime,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: GameColors.emerald.withOpacity(gp.dark ? 0.10 : 0.08),
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: GameColors.emerald.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.groups_rounded,
+                  size: 20, color: GameColors.emerald),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  s.roomLobbyBanner(memberCount),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textPrimary,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isLeader ? s.roomLobbyLeaderHint : s.roomWaitingForLeaderSchedule,
+            style: TextStyle(fontSize: 12, color: gp.textSec, height: 1.4),
+          ),
+          if (isLeader) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: GameColors.emerald,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: onPickTime,
+                icon: const Icon(Icons.schedule_rounded, size: 20),
+                label: Text(
+                  s.roomPickStartTimeAction,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Once the leader's picked a moment: a live, ticking, gamified countdown
+/// every member watches update in real time. "Synced" purely because it's
+/// recomputed fresh from the same Firestore-streamed [scheduledStartAt] on
+/// every device each second (via _LobbyCardState's Timer) — the countdown
+/// value itself is never written anywhere, only the target moment is.
+class _ScheduledLobbyCard extends StatelessWidget {
+  final DateTime scheduledStartAt;
+  final bool isLeader;
+  final VoidCallback onChangeTime;
+  final VoidCallback onStartNow;
+  const _ScheduledLobbyCard({
+    required this.scheduledStartAt,
+    required this.isLeader,
+    required this.onChangeTime,
+    required this.onStartNow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    var remaining = scheduledStartAt.difference(DateTime.now());
+    if (remaining.isNegative) remaining = Duration.zero;
+    final days = remaining.inDays;
+    final hours = remaining.inHours % 24;
+    final minutes = remaining.inMinutes % 60;
+    final seconds = remaining.inSeconds % 60;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      decoration: BoxDecoration(
+        color: GameColors.gold.withOpacity(gp.dark ? 0.10 : 0.08),
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.bolt_rounded, size: 15, color: GameColors.gold)
+                  .animate(onPlay: (c) => c.repeat(reverse: true))
+                  .fadeIn(duration: 700.ms, begin: 0.4),
+              const SizedBox(width: 6),
+              Text(
+                s.roomCountdownTitle,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  color: gp.textPrimary,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (days > 0) ...[
+                _CountdownBox(value: days, label: s.roomCountdownDaysLabel),
+                const SizedBox(width: 8),
+              ],
+              _CountdownBox(value: hours, label: s.roomCountdownHoursLabel),
+              const SizedBox(width: 8),
+              _CountdownBox(value: minutes, label: s.roomCountdownMinLabel),
+              const SizedBox(width: 8),
+              _CountdownBox(value: seconds, label: s.roomCountdownSecLabel),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            s.roomCountdownAt(_formatScheduledMoment(scheduledStartAt, s.isAr)),
+            style: TextStyle(
+                fontSize: 12, color: gp.textSec, fontWeight: FontWeight.w600),
+          ),
+          if (isLeader) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    onChangeTime();
+                  },
+                  child: Text(s.roomChangeTimeAction),
+                ),
+                Container(
+                  width: 1,
+                  height: 14,
+                  color: gp.border,
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                ),
+                TextButton(
+                  onPressed: onStartNow,
+                  child: Text(s.roomStartNowAction),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One digit box in [_ScheduledLobbyCard]'s countdown — a zero-padded
+/// number that pops with a quick scale+fade whenever it changes (mostly
+/// every second, on the seconds box) — the one deliberate bit of "fun"
+/// motion on this otherwise-static screen, echoing the pulsing-glow idiom
+/// already established elsewhere (see home_shell.dart's _NavBarWithGlow).
+class _CountdownBox extends StatelessWidget {
+  final int value;
+  final String label;
+  const _CountdownBox({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final text = value.toString().padLeft(2, '0');
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 50,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: GameColors.gold.withOpacity(gp.dark ? 0.16 : 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+          ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            transitionBuilder: (child, anim) => ScaleTransition(
+              scale: anim,
+              child: FadeTransition(opacity: anim, child: child),
+            ),
+            child: Text(
+              text,
+              key: ValueKey(text),
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+                color: GameColors.gold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+              fontSize: 9.5, fontWeight: FontWeight.w700, color: gp.textTert),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Today · 8:00 PM" / "Tomorrow · 8:00 PM" / "Tue, Jul 21 · 8:00 PM" — the
+/// absolute-time caption under the countdown digits, so it always has a
+/// concrete anchor next to it instead of making everyone do the math
+/// themselves. Deliberately not a reuse of matrix/widgets/reminder_picker.
+/// dart's formatReminderMoment (same three-tier shape) even though it's a
+/// near-identical need — that helper is marked @visibleForTesting for
+/// Matrix's own reminder copy specifically, and three duplicated lines
+/// here keeps this screen free to word a room's start moment differently
+/// later without touching an unrelated feature's test-pinned helper.
+String _formatScheduledMoment(DateTime dt, bool isAr) {
+  final now = DateTime.now();
+  final locale = isAr ? 'ar' : 'en';
+  final time = DateFormat('h:mm a', locale).format(dt);
+  if (dt.isSameDayAs(now)) return isAr ? 'اليوم · $time' : 'Today · $time';
+  if (dt.isSameDayAs(now.add(const Duration(days: 1)))) {
+    return isAr ? 'غدًا · $time' : 'Tomorrow · $time';
+  }
+  final date = DateFormat('EEE, MMM d', locale).format(dt);
+  return '$date · $time';
+}
+
+/// Leader-only sheet for picking — or re-picking — this lobby's start
+/// moment. Offered from both _EmptyLobbyCard's first-ever pick and
+/// _ScheduledLobbyCard's "Change time", so there's exactly one place this
+/// decision gets made. Shape mirrors _ExtendRoomSheet further down (quick
+/// chips + one custom escape hatch) on purpose — same kind of leader-only,
+/// lobby-adjacent scheduling decision, so it should feel like the same
+/// control, not a new one to learn. Pops the picked moment, or null if
+/// dismissed without picking (swiped away, or backed out of the custom
+/// date/time dialogs) — _LobbyCardState._openScheduleSheet already treats
+/// null as "nothing changed."
+class _ScheduleStartSheet extends StatelessWidget {
+  const _ScheduleStartSheet();
+
+  static DateTime _tomorrowAt(int hour) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day + 1, hour);
+  }
+
+  Future<void> _pickCustom(BuildContext context) async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 90)),
+    );
+    if (date == null || !context.mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+    );
+    if (time == null || !context.mounted) return;
+    final picked =
+        DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (!picked.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.of(context).roomScheduleNotFuture)),
+      );
+      return;
+    }
+    if (context.mounted) Navigator.pop(context, picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(s.roomScheduleTitle,
+                style: TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w800, color: gp.textPrimary)),
+            const SizedBox(height: 6),
+            Text(s.roomScheduleBody,
+                style: TextStyle(fontSize: 12.5, color: gp.textSec, height: 1.35)),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _ExtendOptionChip(
+                  label: s.roomScheduleQuick1Hour,
+                  onTap: () => Navigator.pop(
+                      context, DateTime.now().add(const Duration(hours: 1))),
+                ),
+                _ExtendOptionChip(
+                  label: s.roomScheduleTomorrowMorning,
+                  onTap: () => Navigator.pop(context, _tomorrowAt(8)),
+                ),
+                _ExtendOptionChip(
+                  label: s.roomScheduleTomorrowEvening,
+                  onTap: () => Navigator.pop(context, _tomorrowAt(20)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () => _pickCustom(context),
+              icon: const Icon(Icons.calendar_month_rounded, size: 16),
+              label: Text(s.roomScheduleCustomAction),
+              style:
+                  OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Between Start and the first counted day: one gold line of anticipation,
+/// including the 2x promise so tomorrow starts with intent.
+class _CountdownCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: GameColors.gold.withOpacity(gp.dark ? 0.10 : 0.08),
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.hourglass_top_rounded,
+              size: 20, color: GameColors.gold),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              s.roomStartsTomorrowBanner,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: gp.textPrimary,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The ending the room deserves: a real podium for the top three (center
+/// column tallest, crown on first), one confetti burst on first build, and
+/// a warm closing line. Ties and small rooms degrade gracefully — with 2
+/// members there are 2 podium spots, with 1 there's just the winner.
+class _FinaleCard extends StatefulWidget {
+  final List<RoomParticipant> sorted;
+  final RoomModel room;
+  const _FinaleCard({required this.sorted, required this.room});
+
+  @override
+  State<_FinaleCard> createState() => _FinaleCardState();
+}
+
+class _FinaleCardState extends State<_FinaleCard> {
+  @override
+  void initState() {
+    super.initState();
+    // One burst per screen open — a finale, not a fireworks loop.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final size = MediaQuery.of(context).size;
+      showVictoryBurst(context, Offset(size.width / 2, size.height * 0.3));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final top = widget.sorted.take(3).toList();
+    // Visual order: 2nd, 1st, 3rd — the classic podium silhouette. RTL
+    // flips the Row automatically, which keeps 1st in the middle either way.
+    final order = [
+      if (top.length > 1) (top[1], 2),
+      if (top.isNotEmpty) (top[0], 1),
+      if (top.length > 2) (top[2], 3),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: GameColors.gold.withOpacity(0.45)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            s.roomEndedTitle,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: gp.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            s.roomEndedBody,
+            style: TextStyle(fontSize: 12, color: gp.textSec),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final (p, rank) in order)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: _PodiumColumn(
+                    participant: p,
+                    rank: rank,
+                    room: widget.room,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PodiumColumn extends StatelessWidget {
+  final RoomParticipant participant;
+  final int rank;
+  final RoomModel room;
+  const _PodiumColumn({
+    required this.participant,
+    required this.rank,
+    required this.room,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final (height, color) = switch (rank) {
+      1 => (64.0, GameColors.gold),
+      2 => (46.0, const Color(0xFFB9C0C7)),
+      _ => (34.0, const Color(0xFFC98A5E)),
+    };
+    final pct = (participant.progressRatio(room) * 100).round();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (rank == 1)
+          Icon(Icons.emoji_events_rounded, size: 20, color: GameColors.gold),
+        const SizedBox(height: 3),
+        SizedBox(
+          width: 72,
+          child: Text(
+            participant.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: rank == 1 ? FontWeight.w800 : FontWeight.w600,
+              color: gp.textPrimary,
+            ),
+          ),
+        ),
+        Text(
+          '$pct%',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: 64,
+          height: height,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.18),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+            border: Border.all(color: color.withOpacity(0.5), width: 0.5),
+          ),
+          child: Text(
+            '$rank',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

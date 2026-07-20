@@ -24,6 +24,18 @@ class PlanPickerSheet extends ConsumerStatefulWidget {
 class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
   String? _expandedPlanId;
 
+  /// This account's in-progress checklist for whichever plan
+  /// [_expandedPlanId] currently points at - which of that one plan's
+  /// catalog ids are checked right now. Reset to *every* id the plan has
+  /// (see _planList's onTap) each time a plan is opened, regardless of
+  /// what's already really active on the account - "everything's included
+  /// until you say otherwise" is the one thing Start/"Add Selected" always
+  /// means, whether this plan's never been touched or half of it already
+  /// is. Purely local UI state until the button's actually pressed (see
+  /// onActivate) - unlike the old design, tapping a chip here no longer
+  /// writes to activeCatalogProvider by itself.
+  Set<String> _stagedHabitIds = {};
+
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
@@ -169,10 +181,18 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
           isExpanded: isExpanded,
           isAr: isAr,
           activeIds: activeIds,
+          stagedHabitIds: _stagedHabitIds,
           onTap: () {
             HapticFeedback.selectionClick();
             setState(() {
-              _expandedPlanId = isExpanded ? null : plan.id;
+              if (isExpanded) {
+                _expandedPlanId = null;
+              } else {
+                // Every open starts fully checked - see _stagedHabitIds'
+                // doc comment.
+                _expandedPlanId = plan.id;
+                _stagedHabitIds = plan.catalogIds.toSet();
+              }
             });
           },
           onActivate: () {
@@ -181,29 +201,28 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
               ref.read(activeCatalogProvider.notifier).deactivatePlan(plan);
               return;
             }
-            final newCount =
-                plan.catalogIds.where((id) => !activeIds.contains(id)).length;
-            if (!canAddHabits(ref, additionalCount: newCount)) {
+            final toAdd =
+                _stagedHabitIds.where((id) => !activeIds.contains(id)).length;
+            if (toAdd > 0 && !canAddHabits(ref, additionalCount: toAdd)) {
               showHabitLimitGate(context, ref);
               return;
             }
             HapticFeedback.mediumImpact();
-            ref.read(activeCatalogProvider.notifier).activatePlan(plan);
+            ref
+                .read(activeCatalogProvider.notifier)
+                .applyPlanSelection(plan, _stagedHabitIds);
           },
           // Lets someone cherry-pick just some of a plan's habits instead of
-          // the all-or-nothing Start/Deactivate button below - same habit-
-          // limit gate as a full activation, just for one habit at a time
-          // (see canAddHabits' doc comment on why guests/free accounts need
-          // this check at all). Deactivating a single already-active habit
-          // never needs the gate - removing something never runs into a cap.
+          // committing the whole thing - purely local until Start/"Add
+          // Selected" is actually pressed (see onActivate above), so there's
+          // no habit-limit check here anymore; that only matters once
+          // something's genuinely about to be added for real.
           onToggleHabit: (habitId) {
-            if (!activeIds.contains(habitId) &&
-                !canAddHabits(ref, additionalCount: 1)) {
-              showHabitLimitGate(context, ref);
-              return;
-            }
-            HapticFeedback.selectionClick();
-            ref.read(activeCatalogProvider.notifier).toggle(habitId);
+            setState(() {
+              _stagedHabitIds = _stagedHabitIds.contains(habitId)
+                  ? (Set.of(_stagedHabitIds)..remove(habitId))
+                  : {..._stagedHabitIds, habitId};
+            });
           },
         ).animate(delay: (i * 60).ms).fadeIn(duration: 350.ms).slideY(begin: 0.1);
       },
@@ -219,6 +238,7 @@ class _PlanCard extends StatelessWidget {
   final bool isExpanded;
   final bool isAr;
   final Set<String> activeIds;
+  final Set<String> stagedHabitIds;
   final VoidCallback onTap;
   final VoidCallback onActivate;
   final void Function(String habitId) onToggleHabit;
@@ -229,6 +249,7 @@ class _PlanCard extends StatelessWidget {
     required this.isExpanded,
     required this.isAr,
     required this.activeIds,
+    required this.stagedHabitIds,
     required this.onTap,
     required this.onActivate,
     required this.onToggleHabit,
@@ -239,14 +260,29 @@ class _PlanCard extends StatelessWidget {
     final gp = context.gp;
     final c = plan.color;
     final s = S.of(context);
-    // Neither fully off nor fully on - some of this plan's habits were
-    // individually picked via a chip tap (see onToggleHabit) without ever
-    // going through the all-or-nothing Start/Deactivate button. Surfaced
-    // both collapsed (the count badge below, instead of [isActive]'s plain
-    // checkmark) and expanded (the button label) so that state is never
-    // just invisible between the two known ones.
+    // Neither fully off nor fully on - a previous visit left some of this
+    // plan's habits active without the rest (unchecked some in the
+    // checklist before pressing Start/Add Selected - see onToggleHabit).
+    // Surfaced on the collapsed card as the count badge below, instead of
+    // [isActive]'s plain checkmark, so that state is never just invisible
+    // between the two known ones.
     final activeCount = plan.catalogIds.where(activeIds.contains).length;
     final isPartiallyActive = activeCount > 0 && !isActive;
+    // How many of this plan's habits are currently checked in the
+    // in-progress checklist - only meaningful while [isExpanded] (see
+    // _stagedHabitIds' doc comment), which is the only state that reads it
+    // below.
+    final stagedCount = stagedHabitIds.length;
+    // The XP badge follows the checklist while it's open, so unchecking a
+    // habit visibly lowers it instead of always quoting the full plan's
+    // total regardless of what's actually about to be added - collapsed,
+    // there's no checklist in progress, so it falls back to the plan's
+    // full total the way it always has.
+    final displayedXp = isExpanded
+        ? plan.habits
+            .where((h) => stagedHabitIds.contains(h.id))
+            .fold(0, (sum, h) => sum + h.xpReward)
+        : plan.totalDailyXp;
 
     return GestureDetector(
       onTap: onTap,
@@ -314,7 +350,7 @@ class _PlanCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(100),
                       ),
                       child: Text(
-                        '+${plan.totalDailyXp} XP',
+                        '+$displayedXp XP',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -369,10 +405,10 @@ class _PlanCard extends StatelessWidget {
                           spacing: 8,
                           runSpacing: 8,
                           children: plan.habits.map((h) {
-                            final habitActive = activeIds.contains(h.id);
+                            final checked = stagedHabitIds.contains(h.id);
                             return _HabitChip(
                               habit: h,
-                              isActive: habitActive,
+                              isChecked: checked,
                               planColor: c,
                               isAr: isAr,
                               onTap: () => onToggleHabit(h.id),
@@ -383,7 +419,9 @@ class _PlanCard extends StatelessWidget {
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton(
-                            onPressed: onActivate,
+                            onPressed: isActive
+                                ? onActivate
+                                : (stagedCount == 0 ? null : onActivate),
                             style: FilledButton.styleFrom(
                               backgroundColor:
                                   isActive ? gp.surfaceHL : c,
@@ -396,13 +434,14 @@ class _PlanCard extends StatelessWidget {
                                   ? BorderSide(
                                       color: c.withOpacity(0.4), width: 1)
                                   : BorderSide.none,
+                              disabledBackgroundColor: gp.surfaceHL,
+                              disabledForegroundColor: gp.textTert,
                             ),
                             child: Text(
                               isActive
                                   ? s.deactivatePlan
-                                  : isPartiallyActive
-                                      ? s.addRemainingPlanHabits(
-                                          plan.catalogIds.length - activeCount)
+                                  : stagedCount < plan.catalogIds.length
+                                      ? s.addRemainingPlanHabits(stagedCount)
                                       : s.startPlan,
                               style: const TextStyle(
                                   fontSize: 13, fontWeight: FontWeight.w700),
@@ -457,22 +496,23 @@ class _PlanCard extends StatelessWidget {
   }
 }
 
-/// One habit within an expanded plan card - tappable on its own (see
-/// [_PlanCard.onToggleHabit]) so picking just some of a plan's habits is a
-/// direct tap on the thing itself, not a separate checkbox bolted beside
-/// it. The trailing icon is the only visual cue that these aren't just a
-/// read-only preview anymore; [_PlanCard]'s planPickHabitsHint caption
-/// above the whole row is the other.
+/// One habit within an expanded plan card's checklist - tappable on its own
+/// (see [_PlanCard.onToggleHabit]) to check/uncheck it, a direct tap on the
+/// thing itself rather than a separate checkbox bolted beside it. Starts
+/// checked (see [_PlanPickerSheetState._stagedHabitIds]); the trailing icon
+/// is the only visual cue these are real checkboxes and not just a
+/// read-only preview, alongside [_PlanCard]'s planPickHabitsHint caption
+/// above the whole row.
 class _HabitChip extends StatelessWidget {
   final IslamicHabitTemplate habit;
-  final bool isActive;
+  final bool isChecked;
   final Color planColor;
   final bool isAr;
   final VoidCallback onTap;
 
   const _HabitChip({
     required this.habit,
-    required this.isActive,
+    required this.isChecked,
     required this.planColor,
     required this.isAr,
     required this.onTap,
@@ -492,12 +532,12 @@ class _HabitChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isActive
+          color: isChecked
               ? planColor.withOpacity(0.12)
               : gp.surfaceHigh,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isActive ? planColor.withOpacity(0.4) : gp.border,
+            color: isChecked ? planColor.withOpacity(0.4) : gp.border,
             width: 0.5,
           ),
         ),
@@ -505,14 +545,14 @@ class _HabitChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(habit.category.icon,
-                size: 13, color: isActive ? planColor : gp.textSec),
+                size: 13, color: isChecked ? planColor : gp.textSec),
             const SizedBox(width: 6),
             Text(
               habit.localName(isAr),
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: isActive ? planColor : gp.textSec,
+                color: isChecked ? planColor : gp.textSec,
               ),
             ),
             const SizedBox(width: 6),
@@ -521,16 +561,16 @@ class _HabitChip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
-                color: isActive ? planColor : gp.textTert,
+                color: isChecked ? planColor : gp.textTert,
               ),
             ),
             const SizedBox(width: 5),
             Icon(
-              isActive
+              isChecked
                   ? Icons.check_circle_rounded
-                  : Icons.add_circle_outline_rounded,
+                  : Icons.circle_outlined,
               size: 14,
-              color: isActive ? planColor : gp.textTert,
+              color: isChecked ? planColor : gp.textTert,
             ),
           ],
         ),

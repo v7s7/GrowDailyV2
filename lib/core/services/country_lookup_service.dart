@@ -27,17 +27,62 @@ class CountryLookupService {
   /// Pulled out as its own `@visibleForTesting` function — mirrors
   /// PrayerTimesService.aladhanRequestUri — so the request shape (host,
   /// path, params) can be asserted on directly without a live network
-  /// call.
+  /// call. [languageCode] localizes the place names BigDataCloud returns
+  /// ('ar' gives «المنامة»/«البحرين» instead of Manama/Bahrain) — used by
+  /// [lookupPlace]'s human-readable label; the country CODE it also
+  /// returns is language-independent either way.
   @visibleForTesting
-  static Uri requestUri(double latitude, double longitude) => Uri.https(
+  static Uri requestUri(double latitude, double longitude,
+          {String languageCode = 'en'}) =>
+      Uri.https(
         'api.bigdatacloud.net',
         '/data/reverse-geocode-client',
         {
           'latitude': '$latitude',
           'longitude': '$longitude',
-          'localityLanguage': 'en',
+          'localityLanguage': languageCode,
         },
       );
+
+  /// Like [lookup], but also builds a human-readable "City, Country" label
+  /// from the same single response — what the Location row shows instead
+  /// of raw coordinates (nobody thinks in "26.23, 50.59"; they think in
+  /// «المنامة، البحرين»). Either half can be null independently: a label
+  /// with no code still improves the display, a code with no label still
+  /// improves the calculation.
+  static Future<({String? code, String? label})> lookupPlace(
+    double latitude,
+    double longitude, {
+    String languageCode = 'en',
+  }) async {
+    try {
+      final response = await http
+          .get(requestUri(latitude, longitude, languageCode: languageCode))
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return (code: null, label: null);
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) return (code: null, label: null);
+      final rawCode = decoded['countryCode'] as String?;
+      final code = (rawCode == null || rawCode.isEmpty)
+          ? null
+          : rawCode.toUpperCase();
+      String? part(String key) {
+        final v = decoded[key] as String?;
+        return (v == null || v.trim().isEmpty) ? null : v.trim();
+      }
+
+      final place =
+          part('city') ?? part('locality') ?? part('principalSubdivision');
+      final country = part('countryName');
+      final label = [
+        if (place != null) place,
+        if (country != null) country,
+      ].join(languageCode == 'ar' ? '، ' : ', ');
+      return (code: code, label: label.isEmpty ? null : label);
+    } catch (_) {
+      return (code: null, label: null);
+    }
+  }
 
   /// Returns an uppercase ISO 3166-1 alpha-2 code (e.g. `'BH'`, `'EG'`), or
   /// null on any failure — no connection, a timeout, a non-200 response, a

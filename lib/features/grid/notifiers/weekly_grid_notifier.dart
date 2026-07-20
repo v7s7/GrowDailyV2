@@ -37,7 +37,15 @@ class WeeklyGridState {
   });
 
   factory WeeklyGridState.initial() => WeeklyGridState(
-        weekStart: startOfGridWeek(DateTime.now().effectiveDay),
+        // The real calendar week, not the reward-day's (effectiveDay) week
+        // — see [canGoForward]'s doc comment for why those two can briefly
+        // disagree. Opening the app during the 3-hour grace window right
+        // after a week boundary (say, 1am Saturday — one hour into a brand
+        // new Sat→Fri week) should land on the week Saturday actually
+        // belongs to, not the previous one just because Friday's reward
+        // day hasn't technically closed out yet. Friday is still one tap
+        // back away and still fully editable there.
+        weekStart: startOfGridWeek(DateTime.now()),
         states: const {},
         notes: const {},
         isLoading: true,
@@ -50,8 +58,17 @@ class WeeklyGridState {
   bool get isCurrentWeek =>
       weekStart.isSameDayAs(startOfGridWeek(DateTime.now().effectiveDay));
 
-  /// The next week is in the future — never let the user log ahead of time.
-  bool get canGoForward => !isCurrentWeek;
+  /// Whether there's a later week worth arrowing into — compared against
+  /// the *real* calendar week (see DateTimeGameExt.isRealToday), not
+  /// [isCurrentWeek]'s reward-eligible one. Those two agree all but a few
+  /// hours a week: right after a week boundary, effectiveDay can still be
+  /// pointing at last week (its 3-hour grace period hasn't run out) while
+  /// the real calendar has already moved into the new one. Gating forward
+  /// navigation on [isCurrentWeek] there would trap the user on last
+  /// week's board with no way to arrow into the new one — the exact bug
+  /// this exists to avoid. Still never lets anyone go further than the
+  /// real week — no logging ahead of time.
+  bool get canGoForward => weekStart.isBefore(startOfGridWeek(DateTime.now()));
 
   SquareState squareFor(String habitId, DateTime day) =>
       states[day.toDateKey()]?[habitId] ?? SquareState.none;
@@ -222,8 +239,10 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     _goToWeek(state.weekStart.add(const Duration(days: 7)));
   }
 
-  void goToCurrentWeek() =>
-      _goToWeek(startOfGridWeek(DateTime.now().effectiveDay));
+  /// Jumps to the real calendar's current week — see [WeeklyGridState.
+  /// canGoForward]'s doc comment for why that's real-today's week and not
+  /// effectiveDay's.
+  void goToCurrentWeek() => _goToWeek(startOfGridWeek(DateTime.now()));
 
   void _goToWeek(DateTime newStart) {
     final start = startOfGridWeek(newStart);
@@ -469,6 +488,28 @@ bool isQuitAutoCleanEligible({
   required bool hasEverCompleted,
 }) =>
     isQuit && isSingleTap && wasScheduled && hasEverCompleted;
+
+/// Whether a habit's entire visible-week row is green — the "full row"
+/// celebration trigger (see GridScreen's _maybeCelebrateFullRow). Only the
+/// days the habit is actually scheduled for count; future days can't be
+/// green (they're locked), so this naturally only ever becomes true on the
+/// week's last scheduled day — the moment the row genuinely completes.
+/// Requires at least 2 scheduled days: a once-a-week habit's single square
+/// isn't a "row" story worth a fanfare every week. Pure so it's
+/// unit-testable — see test/features/grid/weekly_recap_test.dart.
+bool isHabitRowComplete({
+  required List<DateTime> days,
+  required bool Function(DateTime day) isScheduled,
+  required SquareState Function(DateTime day) squareFor,
+}) {
+  var scheduled = 0;
+  for (final day in days) {
+    if (!isScheduled(day)) continue;
+    scheduled++;
+    if (!squareFor(day).isGreen) return false;
+  }
+  return scheduled >= 2;
+}
 
 final weeklyGridProvider =
     StateNotifierProvider<WeeklyGridNotifier, WeeklyGridState>((ref) {

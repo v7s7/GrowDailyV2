@@ -22,11 +22,24 @@ const _kRoutes = ['/grid', '/profile', '/matrix'];
 
 class GameNavBar extends StatelessWidget {
   final int currentIndex;
-  const GameNavBar({super.key, required this.currentIndex});
+
+  /// When set, tab taps call this instead of navigating routes — HomeShell
+  /// passes its PageView animator here so taps and swipes share one page
+  /// stack. When null (any screen still using the bar standalone, e.g.
+  /// Today), taps keep the original pushReplacementNamed behavior, which
+  /// now lands on HomeShell anyway.
+  final ValueChanged<int>? onSelect;
+
+  const GameNavBar({super.key, required this.currentIndex, this.onSelect});
 
   void _select(BuildContext context, int i) {
     if (i == currentIndex) return;
     HapticFeedback.selectionClick();
+    final override = onSelect;
+    if (override != null) {
+      override(i);
+      return;
+    }
     Navigator.pushReplacementNamed(context, _kRoutes[i]);
   }
 

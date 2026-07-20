@@ -103,7 +103,10 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
       NotificationLocation(
         lat: lat,
         lng: lng,
-        label: label.isEmpty ? '${lat.toStringAsFixed(2)}, ${lng.toStringAsFixed(2)}' : label,
+        // Never surface raw coordinates as the display label — someone who
+        // typed coordinates by hand without naming them still sees a
+        // human phrase, not numbers.
+        label: label.isEmpty ? s.notifLocationSetGeneric : label,
       ),
     );
   }

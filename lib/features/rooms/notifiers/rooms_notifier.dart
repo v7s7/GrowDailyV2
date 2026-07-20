@@ -8,6 +8,7 @@ import '../../auth/notifiers/auth_notifier.dart';
 import '../../character/notifiers/character_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../grid/models/square_state.dart';
+import '../../grid/notifiers/weekly_grid_notifier.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
@@ -86,6 +87,53 @@ final myLinkedRoomHabitsProvider =
   }
   return result;
 });
+
+/// Habit ids currently earning the 2x room boost: linked to at least one
+/// room that's LIVE (leader started it, first day arrived, not ended).
+/// Deliberately not lobby/countdown rooms — the boost is the reward for
+/// competing, and competition hasn't begun yet there. Read by every
+/// completeHabit/uncompleteHabit call site via [roomBoostedReward], and by
+/// the Grid row's 2x badge.
+final roomBoostedHabitsProvider = Provider<Set<String>>((ref) {
+  final linked = ref.watch(myLinkedRoomHabitsProvider);
+  return {
+    for (final e in linked.entries)
+      if (e.value.any((r) => r.isLive)) e.key,
+  };
+});
+
+/// The one seam that turns a habit's base XP/gold into its room-boosted
+/// value — used symmetrically by every complete AND uncomplete call site,
+/// so a boosted completion undone the same day refunds exactly what it
+/// paid (both reads happen under the same live-room state; rooms only
+/// change state at day boundaries).
+int roomBoostedReward(WidgetRef ref, String habitId, int base) =>
+    ref.read(roomBoostedHabitsProvider).contains(habitId) ? base * 2 : base;
+
+/// Pushes this tap's *today* result to any Room tracking [habitId] — a
+/// cheap no-op for the overwhelmingly common case where it isn't linked to
+/// any room. Reads the already-updated local Grid state (rather than
+/// re-reading Firestore) since Grid's own square write is fire-and-forget —
+/// see [RoomsController.syncTodayForHabit]'s doc comment for why that
+/// matters.
+///
+/// A shared top-level function (not private to one screen) specifically
+/// because completing *and* uncompleting a habit both need to reach here
+/// from more than one place: Grid's own square taps, and Dashboard/Today's
+/// complete/slip/undo-slip actions (see dashboard_screen.dart's
+/// _completeHabit/_slipHabit/_undoSlipHabit). Before this existed, only
+/// Grid called the equivalent private helper — completing or removing a
+/// completion from Today never reached a linked room at all, so a count
+/// set from Today could only ever be corrected by the next full
+/// [RoomsController.syncLinkedHabitsProgress] resync (Room Detail's own
+/// screen-open sync), not live. Every screen that can flip a habit's today
+/// state must call this right after doing so.
+void syncRoomToday(WidgetRef ref, String habitId, DateTime day) {
+  if (!day.isToday) return;
+  final todayRow =
+      ref.read(weeklyGridProvider).states[day.toDateKey()] ?? const {};
+  ref.read(roomsControllerProvider).syncTodayForHabit(habitId, todayRow).ignore();
+}
 
 /// Set the instant a `growdaily://join/CODE` deep link arrives (see
 /// main.dart's AppLinks wiring + [parseRoomJoinLink]), consumed exactly
@@ -214,6 +262,37 @@ RoomParticipant? nextLeaderAfter(
   return (ids, names);
 }
 
+/// Compact "starts in ___" fragment for a countdown too small to spend a
+/// full row on - RoomsHubScreen's list pill, next to every other room's
+/// one-line status. Picks the single coarsest unit that still says
+/// something useful (days, else hours, else minutes) rather than a full
+/// breakdown - a list tile has room for "2d" or "45m", not "2d 03h 12m
+/// 08s" the way RoomDetailScreen's own big countdown affords. A plain
+/// top-level function (not part of the `S` l10n class) since a unit
+/// letter/word glued straight onto a digit ("2d", "45m") isn't sentence
+/// text needing grammatical agreement the way a full phrase would - same
+/// reasoning as [_levenshtein]/[suggestExistingMatch] above for keeping
+/// pure computation out of the controller and out of `S`. Never ticks on
+/// its own (unlike RoomDetailScreen's per-second Timer) - a list of many
+/// rooms re-renders this from scratch on every Firestore snapshot anyway,
+/// which is coarse enough for a list.
+String formatCompactRemaining(Duration remaining, {required bool isAr}) {
+  final clamped = remaining.isNegative ? Duration.zero : remaining;
+  final days = clamped.inDays;
+  if (days > 0) {
+    final hours = clamped.inHours % 24;
+    return isAr ? '$daysي $hoursس' : '${days}d ${hours}h';
+  }
+  final hours = clamped.inHours;
+  if (hours > 0) {
+    final minutes = clamped.inMinutes % 60;
+    return isAr ? '$hoursس $minutesد' : '${hours}h ${minutes}m';
+  }
+  final minutes = clamped.inMinutes;
+  if (minutes > 0) return isAr ? '$minutesد' : '${minutes}m';
+  return isAr ? 'أقل من دقيقة' : '<1m';
+}
+
 /// Every write in this feature goes through here rather than sitting on a
 /// StateNotifier: there's no single piece of UI state to own (the stream
 /// providers above already give every screen a live view), just a set of
@@ -289,10 +368,13 @@ class RoomsController {
     final uid = _uid;
     if (uid == null) return null;
     final code = await _newUniqueCode();
+    // Rooms are now born in the LOBBY: members gather, nothing counts, and
+    // the real dates get written when the leader presses Start (see
+    // [startRoom]) — everyone begins the same fair, full first day instead
+    // of late joiners entering a race that started without them. startDate
+    // here is a placeholder that startRoom overwrites; endDate stays null
+    // until then (lengthDays rides along on the doc for fixed rooms).
     final startDate = DateTime.now().effectiveDay;
-    final endDate = duration == RoomDuration.fixed && lengthDays != null
-        ? startDate.add(Duration(days: lengthDays - 1))
-        : null;
     final profile = _profileFields();
 
     final myHabits = _ref.read(habitListProvider);
@@ -322,7 +404,9 @@ class RoomsController {
           .toList(),
       duration: duration,
       startDate: startDate,
-      endDate: endDate,
+      endDate: null,
+      status: 'lobby',
+      lengthDays: duration == RoomDuration.fixed ? lengthDays : null,
     );
     final participant = RoomParticipant(
       uid: uid,
@@ -566,6 +650,84 @@ class RoomsController {
     }, SetOptions(merge: true));
   }
 
+  /// Leader-only: leaves the lobby and starts the challenge right now, for
+  /// everyone, on the same starting line - the manual "skip the wait"
+  /// escape hatch offered next to a running countdown (see
+  /// RoomDetailScreen's _ScheduledLobbyCard). Shares its actual write with
+  /// [autoStartIfDue] via [_beginChallenge] - see that method's doc
+  /// comment for why "today" is correct here, not the moment that was
+  /// originally scheduled. A no-op for non-leaders, already-started rooms,
+  /// or a missing room.
+  Future<void> startRoom(RoomModel room) async {
+    final uid = _uid;
+    if (uid == null || uid != room.createdBy || !room.isLobby) return;
+    await _beginChallenge(room);
+  }
+
+  /// Leader-only: sets (or changes) this lobby's scheduled start moment -
+  /// the exact instant the room should flip to active, shown to every
+  /// member as a live countdown (see RoomDetailScreen's
+  /// _ScheduledLobbyCard). Safe to call again before it fires: the leader
+  /// changing their mind just overwrites the old moment on the room doc,
+  /// and every device watching [roomProvider] picks up the new value on
+  /// its next snapshot - there's nothing to explicitly cancel first, and
+  /// nothing else to keep in sync (the countdown itself is derived, never
+  /// stored). A no-op for non-leaders or a room that's already left the
+  /// lobby.
+  Future<void> scheduleStart(RoomModel room, DateTime startAt) async {
+    final uid = _uid;
+    if (uid == null || uid != room.createdBy || !room.isLobby) return;
+    await _rooms.doc(room.code).set({
+      'scheduledStartAt': Timestamp.fromDate(startAt),
+    }, SetOptions(merge: true));
+  }
+
+  /// Fires the moment a lobby's [RoomModel.scheduledStartAt] actually
+  /// arrives (see [RoomModel.scheduledStartDue]) - called by *every*
+  /// device currently watching this room's countdown tick down (see
+  /// RoomDetailScreen's _LobbyCardState), not just the leader's, so the
+  /// room still flips on time even if the leader's own app isn't open
+  /// right at that second. Deliberately not leader-gated, unlike every
+  /// other write in this controller: firestore.rules' /rooms/{roomId}
+  /// update rule is already open to any signed-in member for exactly this
+  /// kind of reason (memberCount's increment faces the same need). Safe to
+  /// call repeatedly, or from several members' devices at once - the
+  /// isLobby guard inside [_beginChallenge]'s caller check here makes
+  /// every call after the first a no-op, so racing devices can never
+  /// re-run the transition or stomp on each other.
+  Future<void> autoStartIfDue(RoomModel room) async {
+    if (!room.isLobby || !room.scheduledStartDue) return;
+    await _beginChallenge(room);
+  }
+
+  /// The one write that actually leaves the lobby - shared by the leader's
+  /// manual [startRoom] override and [autoStartIfDue]'s automatic trigger,
+  /// since both mean the exact same thing (start the challenge, first day
+  /// is today) and differ only in *who* may call them and *when*. Always
+  /// uses *today's* effectiveDay as [RoomModel.startDate], never the
+  /// originally-scheduled moment's own day: by the time this runs, "now"
+  /// either already more or less *is* the scheduled moment (the ordinary
+  /// auto-start case), or the leader has deliberately chosen to start
+  /// early (the manual override case, where waiting for the day the old
+  /// schedule pointed at would leave the room stuck showing a stale
+  /// day-level countdown even after status flips to active). Everyone
+  /// already had advance notice via the countdown itself before this ever
+  /// fires, which is what makes "today" safe here - unlike the old
+  /// no-warning-at-all instant Start button this replaced, where day one
+  /// was always forced to tomorrow specifically to avoid surprising
+  /// latecomers with a day that had already mostly happened.
+  Future<void> _beginChallenge(RoomModel room) async {
+    final start = DateTime.now().effectiveDay;
+    final days = room.lengthDays;
+    await _rooms.doc(room.code).set({
+      'status': 'active',
+      'startDate': Timestamp.fromDate(start),
+      'scheduledStartAt': FieldValue.delete(),
+      if (room.duration == RoomDuration.fixed && days != null)
+        'endDate': Timestamp.fromDate(start.add(Duration(days: days - 1))),
+    }, SetOptions(merge: true));
+  }
+
   /// Leader-only: pushes a fixed-duration room's end date forward, starting
   /// a fresh [lengthDays]-day countdown from today - or switches it
   /// open-ended (never locks again) when [lengthDays] is null. The one way
@@ -690,6 +852,10 @@ class RoomsController {
   Future<void> syncLinkedHabitsProgress(RoomModel room) async {
     final uid = _uid;
     if (uid == null) return;
+    // Nothing counts before the leader starts the room and its first day
+    // arrives — a lobby room's placeholder startDate must never credit
+    // the gathering days as challenge days.
+    if (!room.hasStarted) return;
     final participantRef =
         _rooms.doc(room.code).collection('participants').doc(uid);
     final participantSnap = await participantRef.get();
@@ -759,23 +925,26 @@ class RoomsController {
     }, SetOptions(merge: true));
   }
 
-  /// Called right after a Grid tap changes *today's* square for [habitId] -
-  /// if that habit is linked to any still-open room (see
-  /// [myLinkedRoomHabitsProvider] - it already filters out ended rooms, so
-  /// a room that finished never gets a fresh "today" write from here),
-  /// updates just today's entry in that room's dailyDoneCount using
-  /// [todaySquares] (habitId -> SquareState for every habit, read straight
-  /// from weeklyGridProvider's already-updated local state right after the
-  /// tap) rather than re-reading Firestore. Grid's own square write is
-  /// fire-and-forget (see WeeklyGridNotifier._persistSquare's `.ignore()`),
-  /// so reading it back immediately could still see the pre-tap value; the
-  /// local state right after a tap never can, since it's updated
-  /// synchronously before that write is even dispatched. This is deliberately
-  /// a smaller, cheaper operation than [syncLinkedHabitsProgress] - just
-  /// today's count, one participant-doc read/write per linked room, no
-  /// day-range history re-fetch - since it fires on every single tap. A
-  /// silent no-op for the (overwhelmingly common) case where [habitId] isn't
-  /// linked to any open room at all.
+  /// Called right after *any* screen changes *today's* square for
+  /// [habitId] — Grid's own square taps, and Dashboard/Today's complete/
+  /// slip/undo-slip actions alike (see [syncRoomToday], the shared
+  /// call-site wrapper every one of them actually calls) - if that habit is
+  /// linked to any still-open room (see [myLinkedRoomHabitsProvider] - it
+  /// already filters out ended rooms, so a room that finished never gets a
+  /// fresh "today" write from here), updates just today's entry in that
+  /// room's dailyDoneCount using [todaySquares] (habitId -> SquareState for
+  /// every habit, read straight from weeklyGridProvider's already-updated
+  /// local state right after the change) rather than re-reading Firestore.
+  /// Grid's own square write is fire-and-forget (see
+  /// WeeklyGridNotifier._persistSquare's `.ignore()`), so reading it back
+  /// immediately could still see the pre-change value; the local state
+  /// right after a change never can, since it's updated synchronously
+  /// before that write is even dispatched. This is deliberately a smaller,
+  /// cheaper operation than [syncLinkedHabitsProgress] - just today's
+  /// count, one participant-doc transaction per linked room, no day-range
+  /// history re-fetch - since it fires on every single tap. A silent no-op
+  /// for the (overwhelmingly common) case where [habitId] isn't linked to
+  /// any open room at all.
   Future<void> syncTodayForHabit(
     String habitId,
     Map<String, SquareState> todaySquares,
@@ -789,58 +958,74 @@ class RoomsController {
     final habitById = {for (final h in _ref.read(habitListProvider)) h.id: h};
 
     for (final room in rooms) {
+      // Same guard as syncLinkedHabitsProgress: lobby/countdown days never
+      // count.
+      if (!room.hasStarted) continue;
       final participantRef =
           _rooms.doc(room.code).collection('participants').doc(uid);
-      final snap = await participantRef.get();
-      if (!snap.exists) continue;
-      final linkedIds = (snap.data()?['linkedHabitIds'] as List?)
-              ?.whereType<String>()
-              .toList() ??
-          const [];
-      if (linkedIds.isEmpty) continue;
-      // Same "excuse today's unscheduled habits" logic as
-      // syncLinkedHabitsProgress - see that method's doc comment.
-      final scheduledIds = linkedIds
-          .where((id) => habitById[id]?.isScheduledFor(todayDate) ?? true)
-          .toList();
-      final doneCount = scheduledIds
-          .where((id) => (todaySquares[id] ?? SquareState.none).isGreen)
-          .length;
-      final existingCounts = (snap.data()?['dailyDoneCount'] as Map?)?.map(
-            (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
-          ) ??
-          const <String, int>{};
-      final existingScheduled =
-          (snap.data()?['dailyScheduledCount'] as Map?)?.map(
-                (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
-              ) ??
-              const <String, int>{};
-      // null means "fully scheduled, nothing excused" - the same sparse
-      // convention syncLinkedHabitsProgress writes, so an absent key and
-      // an explicit null both mean the same thing here.
-      final newScheduled =
-          scheduledIds.length == linkedIds.length ? null : scheduledIds.length;
-      if ((existingCounts[today] ?? 0) == doneCount &&
-          existingScheduled[today] == newScheduled) {
-        continue; // Already correct - skip the write.
-      }
-      final updatedCounts = {...existingCounts};
-      if (doneCount > 0) {
-        updatedCounts[today] = doneCount;
-      } else {
-        updatedCounts.remove(today);
-      }
-      final updatedScheduled = {...existingScheduled};
-      if (newScheduled != null) {
-        updatedScheduled[today] = newScheduled;
-      } else {
-        updatedScheduled.remove(today);
-      }
-      await participantRef.set({
-        'dailyDoneCount': updatedCounts,
-        'dailyScheduledCount': updatedScheduled,
-        'lastUpdated': Timestamp.now(),
-      }, SetOptions(merge: true));
+      // A transaction, not a bare get()-then-set(): marking a habit done
+      // and then immediately undoing it (exactly the "refund" case this
+      // exists for) fires this twice in quick succession, each its own
+      // async round-trip. Without a transaction, the second write to land
+      // can be built from a read taken *before* the first write committed
+      // - silently resurrecting the count the second call was supposed to
+      // correct down. Firestore reruns this whole callback automatically
+      // if the doc changes between its read and its write, so whatever
+      // count this settles on is always computed from the latest data,
+      // never a stale one.
+      await FirebaseFirestore.instance.runTransaction((txn) async {
+        final snap = await txn.get(participantRef);
+        if (!snap.exists) return;
+        final linkedIds = (snap.data()?['linkedHabitIds'] as List?)
+                ?.whereType<String>()
+                .toList() ??
+            const [];
+        if (linkedIds.isEmpty) return;
+        // Same "excuse today's unscheduled habits" logic as
+        // syncLinkedHabitsProgress - see that method's doc comment.
+        final scheduledIds = linkedIds
+            .where((id) => habitById[id]?.isScheduledFor(todayDate) ?? true)
+            .toList();
+        final doneCount = scheduledIds
+            .where((id) => (todaySquares[id] ?? SquareState.none).isGreen)
+            .length;
+        final existingCounts = (snap.data()?['dailyDoneCount'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+            ) ??
+            const <String, int>{};
+        final existingScheduled =
+            (snap.data()?['dailyScheduledCount'] as Map?)?.map(
+                  (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+                ) ??
+                const <String, int>{};
+        // null means "fully scheduled, nothing excused" - the same sparse
+        // convention syncLinkedHabitsProgress writes, so an absent key and
+        // an explicit null both mean the same thing here.
+        final newScheduled = scheduledIds.length == linkedIds.length
+            ? null
+            : scheduledIds.length;
+        if ((existingCounts[today] ?? 0) == doneCount &&
+            existingScheduled[today] == newScheduled) {
+          return; // Already correct - skip the write.
+        }
+        final updatedCounts = {...existingCounts};
+        if (doneCount > 0) {
+          updatedCounts[today] = doneCount;
+        } else {
+          updatedCounts.remove(today);
+        }
+        final updatedScheduled = {...existingScheduled};
+        if (newScheduled != null) {
+          updatedScheduled[today] = newScheduled;
+        } else {
+          updatedScheduled.remove(today);
+        }
+        txn.set(participantRef, {
+          'dailyDoneCount': updatedCounts,
+          'dailyScheduledCount': updatedScheduled,
+          'lastUpdated': Timestamp.now(),
+        }, SetOptions(merge: true));
+      });
     }
   }
 }

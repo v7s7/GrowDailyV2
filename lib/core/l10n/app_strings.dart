@@ -220,6 +220,18 @@ class S {
   String get achievementsRowTitle => isAr ? 'الإنجازات' : 'Achievements';
   String get progressStreakTitle =>
       isAr ? 'التقدم والسلسلة' : 'Progress & Streak';
+  // Merged Profile row + screen title replacing the old separate
+  // Achievements / Habit Insights / Progress & Streak rows — see
+  // ProgressHubScreen's doc comment.
+  String get dashboardTitle => isAr ? 'لوحة التقدم' : 'Dashboard';
+  String get dashboardViewFullInsights =>
+      isAr ? 'عرض الرؤى كاملة' : 'View full Insights';
+  String get dashboardViewFullJournal =>
+      isAr ? 'عرض كل الملاحظات' : 'View all Habit Notes';
+  // Home for the evening/weekly nudges relocated off the Grid screen (see
+  // ProfileScreen's _DashboardSection) — streak-at-risk, night-review
+  // prompt, and the Friday recap card all now live under this header.
+  String get profileDashboardSection => isAr ? 'نظرة عامة' : 'OVERVIEW';
   String get settings => isAr ? 'الإعدادات' : 'SETTINGS';
   String get darkMode => isAr ? 'الوضع الداكن' : 'Dark Mode';
   String get appearance => isAr ? 'المظهر' : 'Appearance';
@@ -270,19 +282,23 @@ class S {
       : 'Start with a ready-made habit bundle.';
   String get startPlan => isAr ? 'ابدأ الخطة' : 'Start Plan';
   String get deactivatePlan => isAr ? 'إيقاف الخطة' : 'Deactivate';
-  /// Small caption shown above a plan's expanded habit chips - the only
-  /// hint that they're individually tappable (see PlanPickerSheet's
-  /// _HabitChip), not just a read-only preview of what "Start Plan" adds.
+  /// Small caption shown above a plan's expanded habit checklist (see
+  /// PlanPickerSheet's _HabitChip) - every habit starts checked, this is
+  /// the only hint that tapping one unchecks it instead of this being a
+  /// read-only preview of what Start adds.
   String get planPickHabitsHint => isAr
-      ? 'اضغط على أي عادة لإضافتها أو إزالتها بمفردها'
-      : 'Tap any habit to add or remove just that one';
-  /// Bottom-button label when some but not all of a plan's habits are
-  /// already active (see _PlanCard's isPartiallyActive) - tapping it still
-  /// runs the same activatePlan union as [startPlan] always has (safe for
-  /// already-active habits), just phrased for "finish the rest" instead of
-  /// "start from zero" since some were already deliberately picked.
+      ? 'كل العادات محددة تلقائيًا — اضغط على أي وحدة عشان تستبعدها'
+      : 'Everything is checked by default — tap any habit to leave it out';
+  /// Bottom-button label once at least one (but not all) of a plan's
+  /// checklist habits is still checked (see _PlanCard's stagedCount) -
+  /// tapping it commits exactly the checked set via
+  /// ActiveCatalogNotifier.applyPlanSelection, adding whichever of those
+  /// aren't already active and deactivating any unchecked one that
+  /// happened to be. [n] is how many are checked right now, not how many
+  /// are left to reach the full plan - unchecking habits lowers this
+  /// count, it never means "the rest.".
   String addRemainingPlanHabits(int n) =>
-      isAr ? 'أضف الباقي ($n)' : 'Add Remaining ($n)';
+      isAr ? 'أضف المحدد ($n)' : 'Add Selected ($n)';
   String get browsePlans => isAr ? 'استعرض الخطط' : 'Browse Plans';
   String get dailyReminder => isAr ? 'تذكير يومي' : 'Daily Reminder';
   String get tapToSetReminder => isAr ? 'اضغط لتعيين وقت التذكير' : 'Tap to set reminder time';
@@ -647,6 +663,15 @@ class S {
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
   String get navProfile => isAr ? 'ملفي' : 'Profile';
 
+  // One-time nav spotlight (HomeShell, right after onboarding/on first
+  // launch with this feature) — names the three real tab labels above by
+  // name, same convention the onboarding hints already use ("Tasks tab",
+  // "Profile tab") rather than a generic "the tabs below".
+  String get homeSpotlightBody => isAr
+      ? 'مرر أو اضغط تحت للتنقل بين العادات والملف الشخصي والمهام. أضف أول عادة أي وقت من تبويب العادات.'
+      : 'Swipe or tap below to explore Habits, Profile, and Tasks. Add your first habit anytime from the Habits tab.';
+  String get homeSpotlightGotIt => isAr ? 'تمام' : 'Got it';
+
   // ── Victory Grid ─────────────────────────────────────────────────────────
   String get gridTitle => isAr ? 'شبكة الانتصارات' : 'Victory Grid';
   String get gridSlogan =>
@@ -682,10 +707,14 @@ class S {
       ? 'لم يصبح هذا اليوم رسميًا بعد: يمكنك تلوينه، لكن دون مكافآت حتى الساعة ٣ فجرًا.'
       : "This day isn't official yet — you can color it in, but no rewards until 3 AM.";
   String get gridEmptyTitle => isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
+  // Points at the literal button just below it ("Browse Plans" / "استعرض
+  // الخطط") rather than the old "Today" tab, which the bottom nav retired
+  // when Grid became the app's home screen (see GameNavBar's doc comment) —
+  // this used to send brand-new users looking for a tab that no longer
+  // exists, on the very first real screen they land on.
   String get gridEmptyDesc => isAr
-      ? 'أضف عادات من تبويب اليوم لتبدأ بتلوين أسبوعك.'
-      : 'Add a few habits from Today to start coloring your week.';
-  String get gridGoToDashboard => isAr ? 'الذهاب لليوم' : 'Go to Today';
+      ? 'اضغط "استعرض الخطط" تحت عشان تضيف أول عادة وتبدأ تلوّن أسبوعك.'
+      : 'Tap Browse Plans below to add your first habit and start coloring your week.';
   String get gridEditSquare => isAr ? 'حدّد المربّع' : 'Set this square';
   String get gridNoteLabel => isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
   String get gridNoteHint =>
@@ -723,11 +752,140 @@ class S {
   String get heatmapBestDay => isAr ? 'أفضل يوم' : 'Best day';
   String get heatmapLess => isAr ? 'أقل' : 'Less';
   String get heatmapMore => isAr ? 'أكثر' : 'More';
+  String get gridSectionBuild => isAr ? 'عادات البناء' : 'Build habits';
+  String get gridSectionQuit => isAr ? 'الإقلاع والتقليل' : 'Quit & reduce';
+  String gridFullRow(String name) => isAr
+      ? 'صف كامل! أسبوع $name كله أخضر.'
+      : 'Full row! A whole green week of $name.';
+  String get perfectDayMsg => isAr
+      ? 'يوم كامل! كل عاداتك خضرا اليوم.'
+      : 'Perfect day! Every habit green today.';
+  // ── Weekly recap (Friday card on the Grid) ────────────────────────────────
+  String get weeklyRecapTitle => isAr ? 'حصاد الأسبوع' : 'Weekly recap';
+  String get weeklyRecapThisWeek => isAr ? 'هالأسبوع' : 'This week';
+  String get weeklyRecapLastWeek => isAr ? 'الأسبوع اللي طاف' : 'Last week';
+  String weeklyRecapNeedsLove(String name) => isAr
+      ? 'يبيلها شوية اهتمام: $name'
+      : 'Needs a little love: $name';
+  String get weeklyRecapUp =>
+      isAr ? 'أقوى من الأسبوع اللي طاف. استمر.' : 'Stronger than last week. Keep it going.';
+  String get weeklyRecapSame =>
+      isAr ? 'ثابت على مستواك، والثبات ذهب.' : 'Steady as last week. Consistency is gold.';
+  String get weeklyRecapDown =>
+      isAr ? 'أسبوع أهدى من اللي قبله. الجاي لك.' : 'A quieter week. The next one is yours.';
+  String get weeklyRecapFirst =>
+      isAr ? 'أول أسبوع مسجل لك. بداية حلوة.' : 'Your first recorded week. A sweet start.';
+  String get weeklyRecapPerHabit =>
+      isAr ? 'عاداتك هالأسبوع' : 'Your habits this week';
+  String get weeklyRecapTrend => isAr ? 'آخر ٤ أسابيع' : 'Last 4 weeks';
+  String get weeklyRecapPremiumTeaser => isAr
+      ? 'تفاصيل أعمق لكل عادة، مع Premium'
+      : 'Deeper per-habit detail, with Premium';
+  // ── Habit Insights (Premium) ──────────────────────────────────────────────
+  String get insightsTitle => isAr ? 'رؤى العادات' : 'Habit Insights';
+  String get insightsWindow =>
+      isAr ? 'من آخر ٨ أسابيع' : 'From your last 8 weeks';
+  String insightWeekdayMiss(String habit, String weekday) => isAr
+      ? '$habit تفوتك أكثر شي يوم $weekday.'
+      : '$habit slips most on ${weekday}s.';
+  String insightStrongestDay(String weekday) =>
+      isAr ? 'أقوى أيامك: $weekday.' : 'Your strongest day: $weekday.';
+  String insightMostConsistent(String habit) =>
+      isAr ? 'أثبت عادة عندك: $habit.' : 'Your most consistent habit: $habit.';
+  String insightNeedsPush(String habit) =>
+      isAr ? 'تحتاج دفعة: $habit.' : 'Needs a push: $habit.';
+  String get insightsEmpty => isAr
+      ? 'كمّل أسبوعين على الأقل وبتشوف أنماطك هني.'
+      : 'Track a couple of weeks and your patterns will show up here.';
+  String get insightsPremiumTitle =>
+      isAr ? 'الرؤى ميزة Premium' : 'Insights is a Premium feature';
+  String get insightsPremiumBody => isAr
+      ? 'أنماطك الشخصية: أي عادة تفوتك، وأي يوم تضعف فيه، وأي وحدة أثبت. كلها من سجلك أنت.'
+      : 'Your personal patterns: which habit slips, which day is weakest, which one holds strong. All from your own record.';
+  // The free-tier teaser under the one real (unlocked) habit row — see
+  // InsightsScreen's doc comment on why this replaced the old all-or-
+  // nothing gate.
+  String get insightsBreakdownTeaser => isAr
+      ? 'شوف تفاصيل كل عاداتك، مع Premium'
+      : 'See the full breakdown for every habit, with Premium';
+  String get historyLockedCta => isAr ? 'افتح' : 'Unlock';
+  // ── Rooms lifecycle (lobby, start, finale) ────────────────────────────────
+  String get roomLobbyPill => isAr ? 'في الانتظار' : 'Lobby';
+  String get roomStartsTomorrowPill => isAr ? 'يبدأ بكرة' : 'Starts tomorrow';
+  String roomLobbyBanner(int count) => isAr
+      ? 'الغرفة جاهزة و$count منضمين. القائد يحدد وقت البداية.'
+      : 'The room is ready with $count in. The leader picks when it begins.';
+  String get roomLobbyLeaderHint => isAr
+      ? 'اختر وقت البداية تحت. الكل بيشوف نفس العد التنازلي، ويبدأ التحدي فور ما يوصل الصفر.'
+      : 'Pick a start time below. Everyone sees the same countdown, and it kicks off the moment it hits zero.';
+  // Leader-only: opens _ScheduleStartSheet for the first-ever pick — see
+  // _EmptyLobbyCard.
+  String get roomPickStartTimeAction => isAr ? 'اختر وقت البداية' : 'Choose a start time';
+  String get roomWaitingForLeaderSchedule => isAr
+      ? 'بانتظار القائد يحدد وقت البداية'
+      : 'Waiting for the leader to pick a start time';
+  // _ScheduleStartSheet — quick chips + one custom escape hatch, same shape
+  // as _ExtendRoomSheet's own length picker.
+  String get roomScheduleTitle => isAr ? 'متى يبدأ التحدي؟' : 'When should it start?';
+  String get roomScheduleBody => isAr
+      ? 'الكل بيشوف عد تنازلي حي لهذا الوقت. تقدر تغيّره وقتما تبي قبل ما يحين.'
+      : 'Everyone sees a live countdown to this moment. Change it anytime before it fires.';
+  String get roomScheduleQuick1Hour => isAr ? 'بعد ساعة' : 'In 1 hour';
+  String get roomScheduleTomorrowMorning => isAr ? 'بكرة الصبح' : 'Tomorrow morning';
+  String get roomScheduleTomorrowEvening => isAr ? 'بكرة المساء' : 'Tomorrow evening';
+  String get roomScheduleCustomAction =>
+      isAr ? 'اختر تاريخ ووقت مخصص' : 'Pick a custom date & time';
+  String get roomScheduleNotFuture =>
+      isAr ? 'اختر وقتًا في المستقبل' : "Pick a time that hasn't already passed";
+  // _ScheduledLobbyCard's live countdown — roomCountdownDaysLabel/
+  // HoursLabel/MinLabel/SecLabel are fixed captions under each digit box
+  // (like a digital timer's "HRS/MIN/SEC"), never pluralized against the
+  // number above them.
+  String get roomCountdownTitle => isAr ? 'يبدأ خلال' : 'Starts in';
+  String roomCountdownAt(String when) => isAr ? 'يبدأ $when' : 'Starts $when';
+  String get roomCountdownDaysLabel => isAr ? 'أيام' : 'Days';
+  String get roomCountdownHoursLabel => isAr ? 'ساعات' : 'Hours';
+  String get roomCountdownMinLabel => isAr ? 'دقائق' : 'Min';
+  String get roomCountdownSecLabel => isAr ? 'ثواني' : 'Sec';
+  String get roomChangeTimeAction => isAr ? 'غيّر الوقت' : 'Change time';
+  // Leader-only override that skips the wait — see _confirmStartNow, which
+  // reuses roomStartConfirmTitle/roomStartConfirmBody/roomStartAction
+  // below for the actual confirm dialog.
+  String get roomStartNowAction => isAr ? 'ابدأ الآن' : 'Start now';
+  // RoomsHubScreen's list pill, once a lobby has a picked start time — see
+  // formatCompactRemaining (rooms_notifier.dart) for the "2h 15m" part.
+  String roomStartsInCompact(String compact) =>
+      isAr ? 'يبدأ خلال $compact' : 'Starts in $compact';
+  String get roomStartAction => isAr ? 'ابدأ التحدي' : 'Start the challenge';
+  String get roomStartConfirmTitle =>
+      isAr ? 'نبدأ التحدي؟' : 'Start the challenge?';
+  String get roomStartConfirmBody => isAr
+      ? 'أول يوم يبدأ الآن، للجميع، وما ينرجع عنها.'
+      : 'Day one starts right now, for everyone, and this cannot be undone.';
+  String get roomStartsTomorrowBanner => isAr
+      ? 'التحدي يبدأ بكرة الصبح. جهز نفسك، وكل إنجاز له ضعف النقاط والذهب.'
+      : 'The challenge starts tomorrow morning. Get ready, every completion pays double XP and gold.';
+  String get roomEndedTitle => isAr ? 'انتهى التحدي' : 'Challenge complete';
+  String get roomEndedBody => isAr
+      ? 'ما قصرتوا. هذي النتيجة النهائية.'
+      : 'Well done, all of you. Here is the final result.';
+  String get notifLocationResolving =>
+      isAr ? 'جاري التعرف على موقعك…' : 'Finding your location…';
+  String get notifLocationSetGeneric =>
+      isAr ? 'تم تحديد الموقع' : 'Location set';
+  String get roomBoostHint => isAr
+      ? 'عادات هذي الغرفة تدفع 2x نقاط وذهب وهي شغالة'
+      : 'This room\'s habits pay 2x XP and gold while it runs';
+  String get historyLockedBody => isAr
+      ? 'الحساب المجاني يرجع ٣ أشهر. Premium يفتح سجلك كامل، من أول يوم.'
+      : 'Free goes back 3 months. Premium opens your whole history, from day one.';
+  String get heatmapDayEmpty =>
+      isAr ? 'ما في نشاط مسجل هاليوم' : 'Nothing recorded on this day';
   String get heatmapUpgradeTitle =>
       isAr ? 'افتح سجلّك الكامل' : 'Unlock your full history';
-  String heatmapUpgradeBody(int freeWeeks) => isAr
-      ? 'الحساب المجاني يعرض آخر ${freeWeeks ~/ 4} أشهر تقريبًا. GrowDaily Premium يفتح سنة كاملة من خريطة تقدّمك.'
-      : "Free shows your last ~${freeWeeks ~/ 4} months. Premium unlocks a full rolling year of your heatmap.";
+  String heatmapUpgradeBody(int freeMonths) => isAr
+      ? 'الحساب المجاني يعرض آخر $freeMonths أشهر. GrowDaily Premium يفتح خريطتك كاملة، من أول يوم.'
+      : 'Free shows your last $freeMonths months. Premium unlocks your whole map, from day one.';
 
   // ── Night Review ─────────────────────────────────────────────────────────
   String get nightReviewTitle => isAr ? 'مراجعة الليل' : 'Night Review';

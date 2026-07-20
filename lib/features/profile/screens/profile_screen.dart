@@ -6,25 +6,27 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/theme/theme_preset.dart';
-import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/character/notifiers/character_notifier.dart';
 import '../../../features/character/screens/character_closet_screen.dart';
 import '../../../features/character/widgets/character_avatar.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
+import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
+import '../../../features/grid/widgets/weekly_recap_card.dart';
+import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/language/widgets/language_option_card.dart';
+import '../../../features/night_review/notifiers/night_review_notifier.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../features/rooms/notifiers/rooms_notifier.dart';
 import '../../../features/rooms/screens/rooms_hub_screen.dart';
-import '../../../shared/widgets/game_nav_bar.dart';
 import '../widgets/delete_account_sheet.dart';
 import '../widgets/edit_name_sheet.dart';
-import 'achievements_screen.dart';
-import 'progress_screen.dart';
+import 'progress_hub_screen.dart';
 import 'theme_preview_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -39,11 +41,10 @@ class ProfileScreen extends ConsumerWidget {
     final savedName = state.displayName.trim();
     final displayName =
         savedName.isNotEmpty ? savedName : (user?.email?.split('@').first ?? 'Warrior');
-    final unlockedCount = state.unlockedAchievements.length;
 
     return Scaffold(
       backgroundColor: gp.bg,
-      bottomNavigationBar: const GameNavBar(currentIndex: 1),
+      // Nav bar now owned by HomeShell — see that widget's doc comment.
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
@@ -89,12 +90,15 @@ class ProfileScreen extends ConsumerWidget {
               child: _StatsRow(state: state),
             ).animate(delay: 100.ms).fadeIn(duration: 400.ms),
           ),
+          // Streak-at-risk, night-review prompt, and the Friday recap card —
+          // relocated here from the Grid screen so Grid can lead with the
+          // habit squares themselves. Renders nothing (zero height, no
+          // header) on a quiet morning with nothing to say.
+          const SliverToBoxAdapter(child: _DashboardSection()),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
               child: _ProfileLinksSection(
-                unlockedCount: unlockedCount,
-                totalAchievements: AchievementCatalog.all.length,
                 streak: state.streak,
               ),
             ).animate(delay: 150.ms).fadeIn(duration: 400.ms),
@@ -414,21 +418,234 @@ class _StatCell extends StatelessWidget {
   }
 }
 
+// ─── Dashboard (today's nudges) ────────────────────────────────────────────
+
+/// The streak-at-risk banner, night-review prompt, and Friday recap card
+/// used to sit above the grid on the Grid screen, pushing the habit squares
+/// — the whole point of that screen — below the fold. They live here now
+/// instead: Grid stays laser-focused on the squares, and Profile becomes
+/// the place for "how's my week going" nudges.
+///
+/// Each child below still gates its own visibility exactly as it did on
+/// Grid (evening hour, unsaved review, Friday + non-zero week). This
+/// wrapper re-checks those same conditions so the "OVERVIEW" header itself
+/// never renders over an empty column on a day none of them have anything
+/// to say — which, by design, is most days.
+class _DashboardSection extends ConsumerWidget {
+  const _DashboardSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dash = ref.watch(dashboardProvider);
+    final grid = ref.watch(weeklyGridProvider);
+    final habits = ref.watch(habitListProvider);
+    final review = ref.watch(nightReviewProvider);
+    final today = DateTime.now().effectiveDay;
+    final isEvening = DateTime.now().hour >= 18;
+
+    final showStreak = isEvening &&
+        dash.streak > 0 &&
+        habits.isNotEmpty &&
+        !grid.isLoading &&
+        !dash.streakEarnedToday;
+    final showNightReview = !review.isLoading && !review.saved && isEvening;
+
+    // Mirrors WeeklyRecapCard's own zero-data gate exactly, so this section
+    // never shows a header over a recap card that would silently render
+    // nothing (e.g. a brand-new user's very first Friday).
+    final showRecap = () {
+      if (today.weekday != DateTime.friday || habits.isEmpty) return false;
+      final recap = computeWeeklyRecap(
+        dailyGreenCounts: dash.dailyGreenCounts,
+        weekStart: startOfGridWeek(today),
+      );
+      return recap.thisWeekTotal != 0 || recap.lastWeekTotal != 0;
+    }();
+
+    if (!showStreak && !showNightReview && !showRecap) {
+      return const SizedBox.shrink();
+    }
+
+    final gp = context.gp;
+    final s = S.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
+          child: Text(s.profileDashboardSection,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textSec,
+                  letterSpacing: 1.5)),
+        ),
+        if (showStreak) const _StreakAtRiskBanner(),
+        if (showNightReview) const _NightReviewPromptCard(),
+        if (showRecap) const WeeklyRecapCard(),
+      ],
+    );
+  }
+}
+
+/// The retention loop's most important message: from 6pm, if the user has a
+/// live streak and hasn't finished today's habits yet (streak means a full
+/// 100% day — see [DashboardState.streakEarnedToday]), warn them warmly.
+/// Disappears the moment today's streak point is earned.
+class _StreakAtRiskBanner extends ConsumerWidget {
+  const _StreakAtRiskBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dash = ref.watch(dashboardProvider);
+    final grid = ref.watch(weeklyGridProvider);
+    final habits = ref.watch(habitListProvider);
+
+    final isEvening = DateTime.now().hour >= 18;
+    if (!isEvening ||
+        dash.streak <= 0 ||
+        habits.isEmpty ||
+        grid.isLoading ||
+        dash.streakEarnedToday) {
+      return const SizedBox.shrink();
+    }
+
+    final gp = context.gp;
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: GameColors.iconStreak.withOpacity(gp.dark ? 0.10 : 0.08),
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border:
+              Border.all(color: GameColors.iconStreak.withOpacity(0.4)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.local_fire_department_rounded,
+                    color: GameColors.iconStreak, size: 26)
+                .animate(onPlay: (c) => c.repeat(reverse: true))
+                .scaleXY(
+                  begin: 0.88,
+                  end: 1.05,
+                  duration: 900.ms,
+                  curve: Curves.easeInOut,
+                ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.streakAtRiskTitle(dash.streak),
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: GameColors.iconStreak,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    s.streakAtRiskBody,
+                    style: TextStyle(fontSize: 12, color: gp.textSec),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08);
+  }
+}
+
+/// A gentle evening nudge toward Night Review — visible any time after 6pm
+/// until tonight's check-in is saved. Dismissible via the Grid header's moon
+/// icon at any hour; this card just makes the invitation hard to miss when
+/// it matters most.
+class _NightReviewPromptCard extends ConsumerWidget {
+  const _NightReviewPromptCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final review = ref.watch(nightReviewProvider);
+    final isEvening = DateTime.now().hour >= 18;
+    if (review.isLoading || review.saved || !isEvening) {
+      return const SizedBox.shrink();
+    }
+    final gp = context.gp;
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          Navigator.pushNamed(context, '/night-review');
+        },
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: gp.surface,
+            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+            border: Border.all(color: GameColors.iconXp.withOpacity(0.22)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: GameColors.iconXp.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.auto_stories_rounded,
+                    color: GameColors.iconXp),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.nightReviewPromptTitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: gp.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      s.nightReviewPromptDesc,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: gp.textSec),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: GameColors.iconXp),
+            ],
+          ),
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08);
+  }
+}
+
 // ─── Profile Links (Achievements, Progress & Streak) ──────────────────────────
 
-/// Two tap-through rows replacing what used to be a full achievements grid,
-/// a 14-day chart, and a streak-freeze shop card living inline on Profile —
-/// each now opens its own screen, so Profile itself reads like a settings
-/// page (a short list of rows) under the profile header, not a scroll of
-/// stacked cards.
+/// Three tap-through rows: Dashboard (Progress + Achievements + Habit
+/// Insights, merged — see ProgressHubScreen's doc comment), Closet, and
+/// Rooms. Keeps Profile itself reading like a settings page (a short list
+/// of rows) under the profile header, not a scroll of stacked cards.
 class _ProfileLinksSection extends ConsumerWidget {
-  final int unlockedCount;
-  final int totalAchievements;
   final int streak;
 
   const _ProfileLinksSection({
-    required this.unlockedCount,
-    required this.totalAchievements,
     required this.streak,
   });
 
@@ -459,13 +676,19 @@ class _ProfileLinksSection extends ConsumerWidget {
           ),
           child: Column(
             children: [
+              // Dashboard — merged Achievements + Habit Insights + Progress
+              // & Streak into one destination (see ProgressHubScreen's doc
+              // comment for why). Shows for everyone; the gold PRO chip is
+              // the same honest signposting the old standalone Habit
+              // Insights row used, since Premium content still lives one
+              // tap inside.
               InkWell(
                 onTap: () {
                   HapticFeedback.selectionClick();
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const AchievementsScreen()),
+                        builder: (_) => const ProgressHubScreen()),
                   );
                 },
                 borderRadius: const BorderRadius.only(
@@ -477,60 +700,11 @@ class _ProfileLinksSection extends ConsumerWidget {
                       horizontal: 16, vertical: 14),
                   child: Row(
                     children: [
-                      Icon(Icons.emoji_events_rounded,
+                      Icon(Icons.dashboard_rounded,
                           size: 20, color: GameColors.iconGold),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(s.achievementsRowTitle,
-                            style: TextStyle(
-                                fontSize: 15,
-                                color: gp.textPrimary,
-                                fontWeight: FontWeight.w500)),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: GameColors.iconGold.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(100),
-                          border: Border.all(
-                              color: GameColors.iconGold.withOpacity(0.3),
-                              width: 0.5),
-                        ),
-                        child: Text(
-                          '$unlockedCount / $totalAchievements',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: GameColors.iconGold),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 18, color: gp.textTert),
-                    ],
-                  ),
-                ),
-              ),
-              Container(height: 0.5, color: gp.divider),
-              InkWell(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ProgressScreen()),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
-                  child: Row(
-                    children: [
-                      Icon(Icons.show_chart_rounded,
-                          size: 20, color: gp.textSec),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(s.progressStreakTitle,
+                        child: Text(s.dashboardTitle,
                             style: TextStyle(
                                 fontSize: 15,
                                 color: gp.textPrimary,
@@ -544,6 +718,23 @@ class _ProfileLinksSection extends ConsumerWidget {
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
                               color: gp.textSec)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: GameColors.gold.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        child: Text(
+                          'PRO',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: GameColors.gold,
+                          ),
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       Icon(Icons.chevron_right_rounded,
                           size: 18, color: gp.textTert),

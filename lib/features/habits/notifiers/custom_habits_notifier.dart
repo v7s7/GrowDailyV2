@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/constants/game_constants.dart';
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/utils/intention_phrase.dart';
 import '../../auth/notifiers/auth_notifier.dart';
@@ -130,6 +131,10 @@ class CustomHabitsNotifier
       goldReward: rewards.$2,
       iconColorHex: iconColorHex,
       reminderLeadMinutes: reminderLeadMinutes,
+      // Birth date — what stops every history surface from painting the
+      // days before this habit existed as misses. effectiveDay so a habit
+      // created at 1 AM belongs to the app-day actually in progress.
+      createdAt: DateTime.now().effectiveDay,
     );
     state = [...state, template];
     if (_uid != null) {
@@ -203,6 +208,8 @@ class CustomHabitsNotifier
       goldReward: rewards.$2,
       iconColorHex: effectiveIconColorHex,
       reminderLeadMinutes: reminderLeadMinutes ?? existing.reminderLeadMinutes,
+      // Editing a habit never changes when it was born.
+      createdAt: existing.createdAt,
     );
     state = [
       for (final h in state) h.id == id ? updated : h,
@@ -250,9 +257,18 @@ final customHabitsProvider =
 final habitListProvider = Provider<List<IslamicHabitTemplate>>((ref) {
   final activeIds = ref.watch(activeCatalogProvider);
   final custom = ref.watch(customHabitsProvider);
+  // Stamp each active catalog template with its activation day — the
+  // habit's birth date, which isScheduledFor uses to stop pre-activation
+  // days reading as misses. Read off the notifier (same isLoading
+  // pattern): the map only ever changes alongside a state change, which
+  // the watch above already reacts to.
+  final activatedAt = ref.watch(activeCatalogProvider.notifier).activatedAt;
   final activeTemplates = IslamicHabitCatalog.templates
       .where((t) => activeIds.contains(t.id))
-      .toList();
+      .map((t) {
+    final born = activatedAt[t.id];
+    return born == null ? t : t.withCreatedAt(born);
+  }).toList();
   final combined = [...activeTemplates, ...custom];
 
   final order = ref.watch(habitOrderProvider);

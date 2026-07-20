@@ -327,15 +327,20 @@ class PrayerTimesService {
   static final List<_PrayerRegion> _regions = [
     (
       name: 'Bahrain',
-      // Manama + Muharraq + Sitra + Hawar — verified against Bahrain's
-      // official Ministry of Justice, Islamic Affairs & Waqf calendar for
-      // 2026-07-16 (see PrayerTimesService's class doc comment history /
-      // git blame for the full derivation): Karachi/Shafi matches sunrise,
-      // dhuhr, asr, maghrib and isha exactly; fajr needs +9 minutes.
+      // Manama + Muharraq + Sitra + Hawar — RE-verified against the
+      // official Bahrain times the user supplied for 2026-07-17 (Fajr
+      // 3:27, Sunrise 4:56, Dhuhr 11:44, Asr 3:11, Maghrib 6:32, Isha
+      // 8:00): plain Karachi/Shafi matches ALL SIX values to the minute
+      // with no correction (confirmed live against Aladhan method=1 for
+      // Manama on that exact date). The earlier +9-minute Fajr correction
+      // — from a 2026-07-16 comparison — made Fajr 9 minutes late against
+      // this newer, fully self-consistent ground truth, so it's removed;
+      // if a future official calendar disagrees again, re-verify a full
+      // day's six values before touching this, not Fajr alone.
       contains: (lat, lng) =>
           lat >= 25.5 && lat <= 26.5 && lng >= 50.3 && lng <= 50.9,
       method: PrayerCalcMethod.karachi,
-      fajrCorrectionMinutes: 9,
+      fajrCorrectionMinutes: 0,
     ),
     (
       name: 'Qatar',

@@ -110,6 +110,32 @@ class RoomModel {
   /// leaveRoom via FieldValue.increment.
   final int memberCount;
 
+  /// Lifecycle: 'lobby' (created, members gathering, nothing counts yet)
+  /// or 'active' (the leader hit Start). Missing on any room created
+  /// before this field existed - those were born active, so the default
+  /// keeps them exactly as they were. There's deliberately no 'ended'
+  /// value: ending is derived from [endDate] (see [isEnded]) so a room
+  /// can never claim to be over on a different day than its dates say.
+  final String status;
+
+  /// For a fixed-length room created in the lobby, the chosen length is
+  /// held here until the leader starts it - [endDate] can't be computed
+  /// at create time anymore, since nobody knows yet which day Start gets
+  /// pressed. Null for open-ended rooms and for pre-lobby-era rooms
+  /// (whose endDate was computed at create and is already set).
+  final int? lengthDays;
+
+  /// The leader's chosen "go live" moment, set while still [isLobby] (see
+  /// RoomsController.scheduleStart) - a precise clock time, unlike
+  /// [startDate]'s always-midnight day granularity, so every member can
+  /// watch a real ticking countdown to it (see RoomDetailScreen's
+  /// _LobbyCard) instead of just knowing "sometime tomorrow." Null until
+  /// the leader picks a time, and cleared the moment the room actually
+  /// starts (see RoomsController's shared _beginChallenge) - once
+  /// [isLobby] is false this is meaningless leftover state, not something
+  /// any getter here should still read.
+  final DateTime? scheduledStartAt;
+
   const RoomModel({
     required this.code,
     required this.name,
@@ -122,7 +148,33 @@ class RoomModel {
     required this.startDate,
     this.endDate,
     this.memberCount = 1,
+    this.status = 'active',
+    this.lengthDays,
+    this.scheduledStartAt,
   });
+
+  bool get isLobby => status == 'lobby';
+
+  /// True the instant a leader-picked [scheduledStartAt] actually arrives -
+  /// the signal every device watching this room's countdown uses to fire
+  /// RoomsController.autoStartIfDue, whichever of them happens to have the
+  /// screen open first. Always false before a time's been picked.
+  bool get scheduledStartDue =>
+      scheduledStartAt != null && !DateTime.now().isBefore(scheduledStartAt!);
+
+  /// Started, but the first counted day hasn't arrived yet — the "starts
+  /// tomorrow morning" window between the leader pressing Start and the
+  /// next app-day beginning. Everyone sees the countdown; nothing counts.
+  bool get isCountingDown =>
+      !isLobby && DateTime.now().effectiveDay.isBefore(startDate);
+
+  /// The challenge is actually running: started, first day reached.
+  bool get hasStarted =>
+      !isLobby && !DateTime.now().effectiveDay.isBefore(startDate);
+
+  /// Running right now — the 2x reward window (see
+  /// roomBoostedHabitsProvider) and the "progress counts" window.
+  bool get isLive => hasStarted && !isEnded;
 
   bool get isEnded {
     final end = endDate;
@@ -181,6 +233,10 @@ class RoomModel {
           DateTime.now().effectiveDay,
       endDate: (d['endDate'] as Timestamp?)?.toDate(),
       memberCount: (d['memberCount'] as int?) ?? 1,
+      // Pre-lobby-era rooms have no status field and were born active.
+      status: (d['status'] as String?) ?? 'active',
+      lengthDays: d['lengthDays'] as int?,
+      scheduledStartAt: (d['scheduledStartAt'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -196,6 +252,10 @@ class RoomModel {
         'startDate': Timestamp.fromDate(startDate),
         if (endDate != null) 'endDate': Timestamp.fromDate(endDate!),
         'memberCount': memberCount,
+        'status': status,
+        if (lengthDays != null) 'lengthDays': lengthDays,
+        if (scheduledStartAt != null)
+          'scheduledStartAt': Timestamp.fromDate(scheduledStartAt!),
       };
 }
 

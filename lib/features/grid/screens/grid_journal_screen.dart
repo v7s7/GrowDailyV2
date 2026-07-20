@@ -4,10 +4,13 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/history_locked_snackbar.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider;
+import '../../premium/notifiers/premium_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/grid_journal_notifier.dart';
 
@@ -71,6 +74,19 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                     icon: Icons.chevron_left_rounded,
                     onTap: () {
                       HapticFeedback.selectionClick();
+                      // Same 3-month free window as the heatmap and Night
+                      // Review calendar — one consistent Premium history
+                      // story. See canBrowseHistoryMonth.
+                      final m = journal.monthStart;
+                      final target = DateTime(m.year, m.month - 1, 1);
+                      if (!canBrowseHistoryMonth(
+                        monthStart: target,
+                        now: DateTime.now().effectiveDay,
+                        isPremium: ref.read(premiumProvider),
+                      )) {
+                        showHistoryLockedSnackBar(context);
+                        return;
+                      }
                       ref.read(gridJournalProvider.notifier).previousMonth();
                     },
                   ),
