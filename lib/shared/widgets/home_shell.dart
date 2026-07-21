@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/l10n/app_strings.dart';
 import '../../core/providers/home_spotlight_provider.dart';
+import '../../core/providers/home_tab_provider.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/grid/screens/grid_screen.dart';
 import '../../features/matrix/screens/matrix_screen.dart';
@@ -34,6 +35,13 @@ import 'game_nav_bar.dart';
 /// shows on a device, pointing at the real, live nav bar instead of a
 /// slide mock, since that's the concrete thing people actually navigate
 /// with afterward.
+///
+/// Also listens for [requestedHomeTabProvider]: GetStartedChecklistCard's
+/// "other domain" row (e.g. "Add your first task" while looking at Grid)
+/// can't reach across sibling pages of this same PageView directly, so it
+/// just requests a tab switch here instead of trying to poke Matrix's
+/// private state from outside - the checklist re-appears on the new tab
+/// with its own, screen-owned "add" action already wired.
 class HomeShell extends ConsumerStatefulWidget {
   final int initialIndex;
   const HomeShell({super.key, this.initialIndex = 0});
@@ -88,6 +96,21 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    // See requestedHomeTabProvider's doc comment. ref.listen (not read/
+    // watch) since this is a one-shot side effect, not something the build
+    // method's own output depends on - and it's safe to call unconditionally
+    // on every build the way ConsumerStatefulWidget's build allows.
+    ref.listen<int?>(requestedHomeTabProvider, (previous, next) {
+      if (next == null) return;
+      HapticFeedback.selectionClick();
+      if (_showSpotlight) _dismissSpotlight();
+      _controller.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+      ref.read(requestedHomeTabProvider.notifier).state = null;
+    });
     return Scaffold(
       // The shell owns the one nav bar; each page keeps its own Scaffold
       // (FABs, app bars, backgrounds) minus the bar it used to carry.

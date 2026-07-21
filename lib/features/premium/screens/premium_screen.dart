@@ -211,21 +211,6 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Illustration banner — kept on a fixed light card regardless
-              // of theme, since the art has soft gradients baked in that
-              // only read cleanly against its original cream backing.
-              ClipRRect(
-                borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-                child: Container(
-                  color: const Color(0xFFFEFAF0),
-                  child: Image.asset(
-                    'assets/images/premium_upgrade_hero.png',
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08),
-              const SizedBox(height: 16),
               // Hero
               Container(
                 padding: const EdgeInsets.all(24),
@@ -469,6 +454,15 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     );
   }
 
+  // Every bullet still maps to a real, currently-enforced gate — see each
+  // string's doc comment in app_strings.dart for exactly which file/check
+  // backs it. Copy was rewritten shorter and warmer per user feedback
+  // (previous two-clause descriptions read as "a lot of details"). The
+  // appearance bullet (was "themes") now also carries a brief, honestly
+  // future-tense mention of premium-exclusive character looks — folded
+  // into this bullet rather than given its own, per user direction. Still
+  // deliberately doesn't include a "Family grids" bullet: that one has no
+  // user-directed exception and remains unbuilt with no mention anywhere.
   List<(IconData, String, String)> _benefits(S s) => [
         (
           Icons.grid_on_rounded,
@@ -476,14 +470,24 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           s.premiumBenefitHabitsDesc,
         ),
         (
-          Icons.insights_rounded,
+          Icons.history_rounded,
           s.premiumBenefitHistoryTitle,
           s.premiumBenefitHistoryDesc,
         ),
         (
-          Icons.family_restroom_rounded,
-          s.premiumBenefitFamilyTitle,
-          s.premiumBenefitFamilyDesc,
+          Icons.insights_rounded,
+          s.premiumBenefitInsightsTitle,
+          s.premiumBenefitInsightsDesc,
+        ),
+        (
+          Icons.palette_rounded,
+          s.premiumBenefitAppearanceTitle,
+          s.premiumBenefitAppearanceDesc,
+        ),
+        (
+          Icons.mic_rounded,
+          s.premiumBenefitVoiceTitle,
+          s.premiumBenefitVoiceDesc,
         ),
         (
           Icons.favorite_rounded,

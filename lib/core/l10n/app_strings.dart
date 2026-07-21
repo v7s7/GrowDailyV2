@@ -672,6 +672,17 @@ class S {
       : 'Swipe or tap below to explore Habits, Profile, and Tasks. Add your first habit anytime from the Habits tab.';
   String get homeSpotlightGotIt => isAr ? 'تمام' : 'Got it';
 
+  // GetStartedChecklistCard (Grid + Matrix, disappears once both are done —
+  // see that widget's own doc comment for why this replaces leaning on the
+  // spotlight/slide-tour alone to teach this). "Habit"/"Task" match navGrid/
+  // navMatrix's own wording on purpose, not "Grid"/"Goal" — the checklist
+  // is about the real-world thing being added, not the screen it lives on.
+  String get getStartedTitle => isAr ? 'ابدأ الآن' : 'Get Started';
+  String get getStartedAddHabit =>
+      isAr ? 'أضف أول عادة لك' : 'Add your first habit';
+  String get getStartedAddTask =>
+      isAr ? 'أضف أول مهمة لك' : 'Add your first task';
+
   // ── Victory Grid ─────────────────────────────────────────────────────────
   String get gridTitle => isAr ? 'شبكة الانتصارات' : 'Victory Grid';
   String get gridSlogan =>
@@ -785,15 +796,17 @@ class S {
   String get insightsTitle => isAr ? 'رؤى العادات' : 'Habit Insights';
   String get insightsWindow =>
       isAr ? 'من آخر ٨ أسابيع' : 'From your last 8 weeks';
+  // Habit names are quoted ("$habit") to set them visually apart from the
+  // surrounding sentence — easier to scan a list of these at a glance.
   String insightWeekdayMiss(String habit, String weekday) => isAr
-      ? '$habit تفوتك أكثر شي يوم $weekday.'
-      : '$habit slips most on ${weekday}s.';
+      ? '"$habit" تفوتك أكثر شي يوم $weekday.'
+      : '"$habit" slips most on ${weekday}s.';
   String insightStrongestDay(String weekday) =>
       isAr ? 'أقوى أيامك: $weekday.' : 'Your strongest day: $weekday.';
   String insightMostConsistent(String habit) =>
-      isAr ? 'أثبت عادة عندك: $habit.' : 'Your most consistent habit: $habit.';
+      isAr ? 'أثبت عادة عندك: "$habit".' : 'Your most consistent habit: "$habit".';
   String insightNeedsPush(String habit) =>
-      isAr ? 'تحتاج دفعة: $habit.' : 'Needs a push: $habit.';
+      isAr ? 'تحتاج دفعة: "$habit".' : 'Needs a push: "$habit".';
   String get insightsEmpty => isAr
       ? 'كمّل أسبوعين على الأقل وبتشوف أنماطك هني.'
       : 'Track a couple of weeks and your patterns will show up here.';
@@ -808,6 +821,48 @@ class S {
   String get insightsBreakdownTeaser => isAr
       ? 'شوف تفاصيل كل عاداتك، مع Premium'
       : 'See the full breakdown for every habit, with Premium';
+  // ── Habit Insights detail sheet (tap any headline card) ────────────────────
+  String insightDetailRate(int completed, int scheduled) => isAr
+      ? '$completed من $scheduled يوم'
+      : '$completed of $scheduled days';
+  String get insightDetailByDay =>
+      isAr ? 'حسب أيام الأسبوع' : 'By day of the week';
+  String get insightDetailCompare =>
+      isAr ? 'بالمقارنة مع عاداتك الأخرى' : 'Compared to your other habits';
+  String get insightTipMostConsistent => isAr
+      ? 'عادتك الأقوى — كمّل عليها.'
+      : 'Your strongest habit. Keep the streak going.';
+  String get insightTipNeedsPush => isAr
+      ? 'تركيز بسيط هنا ممكن يفرق كثير.'
+      : 'A little extra focus here could make a real difference.';
+  String insightTipWeekdayMiss(String weekday) => isAr
+      ? 'جرّب تذكيرًا ليوم $weekday.'
+      : 'Try setting a reminder for $weekday.';
+  String get insightTipStrongestDay => isAr
+      ? 'يوم ممتاز لتضيف عليه شيء جديد.'
+      : 'A great day to build something new on top.';
+  // The concrete date range behind "last 8 weeks" — shown once at the top
+  // of the detail sheet since, several taps deep in a modal, "last 8
+  // weeks" alone doesn't say *which* 8 weeks.
+  String insightWindowWithDates(String start, String end) => isAr
+      ? 'آخر ٨ أسابيع · $start – $end'
+      : 'Last 8 weeks · $start – $end';
+  // "Most consistent" / "needs a push" are inherently habit-vs-habit
+  // claims, not day-vs-day ones — these compare the named habit against
+  // the next-nearest one instead of forcing it through a weekday lens
+  // that doesn't answer "why this habit."
+  String insightPerfectRecord(int n) => isAr
+      ? 'ما فوّتّ ولا يوم — $n من $n.'
+      : 'You didn\'t miss a single day — $n for $n.';
+  String insightMostConsistentCompare(String habit, int points) => isAr
+      ? 'متقدم بـ$points نقطة عن أقرب عادة لك، "$habit".'
+      : '$points points ahead of your next closest habit, "$habit".';
+  String insightNeedsPushCompare(String habit, int points) => isAr
+      ? 'أقل بـ$points نقطة من أثبت عاداتك، "$habit".'
+      : '$points points behind your most consistent habit, "$habit".';
+  String get insightOnlyHabitTracked => isAr
+      ? 'عادتك الوحيدة اللي عندها بيانات كافية لين الحين.'
+      : 'Your only habit with enough data to compare yet.';
   String get historyLockedCta => isAr ? 'افتح' : 'Unlock';
   // ── Rooms lifecycle (lobby, start, finale) ────────────────────────────────
   String get roomLobbyPill => isAr ? 'في الانتظار' : 'Lobby';
@@ -929,28 +984,70 @@ class S {
   String get premiumHeadline =>
       isAr ? 'املأ حياتك بالألوان، بلا حدود' : 'Fill your life with color, without limits';
   String get premiumSubhead => isAr
-      ? 'ادعم تطوير GrowDaily وافتح كل قوتها.'
-      : 'Support GrowDaily\'s development and unlock its full power.';
+      ? 'كل ما يقدّمه GrowDaily، بلا حدود.'
+      : 'Everything GrowDaily has to offer, without the limits.';
+  // This whole block was rewritten short and warm per user feedback that
+  // the previous (accurate but spec-sheet-like) two-clause descriptions
+  // read as "a lot of details." Every line below still maps to the exact
+  // same real, currently-enforced gate as before — only the wording
+  // changed, not the underlying claim.
   String get premiumBenefitHabitsTitle =>
       isAr ? 'عادات غير محدودة' : 'Unlimited habits';
+  // Real gate: kFreeHabitLimit (10) in custom_habits_notifier.dart.
   String get premiumBenefitHabitsDesc => isAr
-      ? 'تتبّع كل جوانب حياتك على شبكة واحدة، بلا سقف.'
-      : 'Track every corner of your life on one grid — no cap.';
+      ? 'ابنِ كل عادة تهمّك، بلا أي قيود.'
+      : 'Build every habit you care about, with nothing holding you back.';
   String get premiumBenefitHistoryTitle =>
-      isAr ? 'إحصاءات متقدمة' : 'Advanced insights';
+      isAr ? 'سجلّك الكامل' : 'Your full history';
+  // Real gate: canBrowseHistoryMonth (premium_notifier.dart), kFreeHistoryMonths
+  // (3), enforced identically on the Monthly Heatmap, Grid Journal, and Night
+  // Review History screens. Dropped the old screen-by-screen list
+  // (heatmap/journal/reflections) — accurate, but read like a feature spec.
   String get premiumBenefitHistoryDesc => isAr
-      ? 'سنوات من الخرائط الحرارية والاتجاهات بين مزاجك وعاداتك.'
-      : 'Years of heatmaps and trends between your mood and your habits.';
-  String get premiumBenefitFamilyTitle =>
-      isAr ? 'شبكات العائلة (قريبًا)' : 'Family grids (coming soon)';
-  String get premiumBenefitFamilyDesc => isAr
-      ? 'أهداف مشتركة وتحديات مع من تحب — أولوية الوصول للمشتركين.'
-      : 'Shared goals and challenges with the people you love — subscribers get first access.';
+      ? 'رحلتك كاملة منذ أول يوم، دائمًا بين يديك.'
+      : 'Every day since you started, always within reach.';
+  String get premiumBenefitInsightsTitle =>
+      isAr ? 'الصورة الكاملة' : 'The complete picture';
+  // Real gate: Insights (insights_screen.dart) shows free accounts only
+  // their single strongest habit; Premium shows every habit. Weekly Recap
+  // (weekly_recap_card.dart) adds a 4-week trend on top — still true, just
+  // no longer spelled out here for length.
+  String get premiumBenefitInsightsDesc => isAr
+      ? 'صورة كاملة عن كل عادة تبنيها.'
+      : 'A complete view of every habit you\'re building.';
+  // Renamed from premiumBenefitThemes* — this bullet now covers appearance
+  // broadly (themes today, character looks on the way) rather than just
+  // themes, per user request to fold a premium-characters mention into
+  // this bullet instead of giving it its own.
+  String get premiumBenefitAppearanceTitle =>
+      isAr ? 'لمستك الخاصة' : 'Make it yours';
+  // Themes half is a real, live gate: ThemePresets.all (theme_preset.dart),
+  // 9 of 11 presets premium-only, enforced in profile_screen.dart. The
+  // "character looks on the way" half is NOT built yet — CharacterOption /
+  // CharacterCatalog (character_option.dart) has no isPremium field today
+  // and its doc comment currently says characters are never gated. Included
+  // here at the user's explicit direction as a short forward-looking
+  // clause (not the bullet's main claim), phrased as "on the way" so
+  // nothing false is implied about what exists today. Only some characters
+  // are meant to end up Premium-exclusive, mirroring the free/premium
+  // theme split — not the whole roster.
+  String get premiumBenefitAppearanceDesc => isAr
+      ? '9 سمات حصرية لإعادة تصميم التطبيق، مع إطلالات شخصيات حصرية قريبًا.'
+      : '9 exclusive themes to restyle the app, with premium character looks coming soon.';
+  String get premiumBenefitVoiceTitle =>
+      isAr ? 'ملاحظات صوتية' : 'Voice notes';
+  // Real gate: hasVoiceNoteAccess (voice_note_gate.dart), flat premium-only
+  // check, no free tier.
+  String get premiumBenefitVoiceDesc => isAr
+      ? 'سجّل تأملاتك بصوتك. لا حاجة للكتابة.'
+      : 'Speak your reflections. No typing required.';
   String get premiumBenefitSupportTitle =>
       isAr ? 'ادعم صانعًا مستقلًا' : 'Support an independent maker';
+  // No ad SDK exists anywhere in this codebase (verified by grep) —
+  // GrowDaily has never shown ads to anyone, free or Premium.
   String get premiumBenefitSupportDesc => isAr
-      ? 'لا إعلانات، لا بيع بيانات — اشتراكك هو ما يبقي التطبيق حيًا.'
-      : 'No ads, no data selling — your subscription is what keeps the app alive.';
+      ? 'بلا إعلانات، ولا بيع بيانات، إلى الأبد.'
+      : 'No ads, no data selling, ever.';
   String get premiumMonthly => isAr ? 'شهري' : 'MONTHLY';
   String get premiumYearly => isAr ? 'سنوي' : 'YEARLY';
   String get premiumLifetime => isAr ? 'مدى الحياة' : 'LIFETIME';
@@ -1274,6 +1371,20 @@ class S {
           : "This habit counts toward your progress in $roomCount shared rooms. Deleting it will unlink it from all of them right away.");
   String get habitDeleteAnywayAction => isAr ? 'حذف على أي حال' : 'Delete Anyway';
   String get habitDeleteLinkedRoomCancel => isAr ? 'إلغاء' : 'Cancel';
+  /// Snackbar shown right after a habit is removed (see
+  /// AddHabitSheet._deleteExisting/GridScreen._deleteSelected) — removal
+  /// is now an archive under the hood (IslamicHabitTemplate.archivedAt),
+  /// not a hard delete, so this is reassurance rather than a warning:
+  /// nothing about the Heatmap or Insights actually goes blank.
+  String get habitArchivedConfirmation => isAr
+      ? 'تمت إزالتها من قائمتك. سجلك السابق باقٍ في الإحصائيات وخريطة الحرارة.'
+      : 'Removed from your list. Your past stats stay in Insights and the Heatmap.';
+  /// Plural counterpart for GridScreen's multi-select delete — [count] is
+  /// always >= 2 at the one call site that uses this (the ==1 case uses
+  /// [habitArchivedConfirmation] instead).
+  String habitsArchivedConfirmation(int count) => isAr
+      ? 'تمت إزالة $count عادات من قائمتك. سجلها السابق باقٍ في الإحصائيات وخريطة الحرارة.'
+      : 'Removed $count habits from your list. Their past stats stay in Insights and the Heatmap.';
   /// "3/5 days" when [done] is whole, "2.5/5 days" when a multi-habit
   /// room's partial-credit days (see RoomParticipant.daysCompleted) leave
   /// it fractional - shows the exact number either way rather than

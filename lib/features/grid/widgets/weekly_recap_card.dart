@@ -102,7 +102,11 @@ class WeeklyRecapCard extends ConsumerWidget {
     final today = DateTime.now().effectiveDay;
     if (today.weekday != DateTime.friday) return const SizedBox.shrink();
 
-    final habits = ref.watch(habitListProvider);
+    // allHabitsEverProvider: the "most missed" scan below walks the whole
+    // visible week day by day, so a habit archived partway through it
+    // should still count for the days before it was archived, not vanish
+    // from the tally the instant it's gone from the active list.
+    final habits = ref.watch(allHabitsEverProvider);
     if (habits.isEmpty) return const SizedBox.shrink();
 
     final counts = ref.watch(dashboardProvider).dailyGreenCounts;

@@ -69,6 +69,18 @@ class IslamicHabitTemplate {
   /// yesterday as a miss for a habit created this morning.
   final DateTime? createdAt;
 
+  /// The day this habit was archived (deleted from the active list /
+  /// deactivated) — null while still active. Symmetric with [createdAt]:
+  /// together they bound the exact window a habit was real for, so a
+  /// history surface that looks back across many days (Heatmap, Insights)
+  /// can keep counting every day inside that window instead of losing the
+  /// habit's whole past the instant it's removed from today's list. See
+  /// [isScheduledFor] and allHabitsEverProvider (custom_habits_notifier.
+  /// dart) for how this actually gets used — [habitListProvider] itself
+  /// stays "active right now" only and never surfaces an archived habit,
+  /// so nothing about today's Grid, Add sheet, or streak check changes.
+  final DateTime? archivedAt;
+
   const IslamicHabitTemplate({
     required this.id,
     required this.name,
@@ -92,6 +104,7 @@ class IslamicHabitTemplate {
     this.iconColorHex,
     this.reminderLeadMinutes = 0,
     this.createdAt,
+    this.archivedAt,
   });
 
   /// This habit's own icon color, or null to fall back to the category/
@@ -165,6 +178,7 @@ class IslamicHabitTemplate {
         // goes into Hive for guests (see CustomHabitsNotifier._saveGuest),
         // and Hive can't serialize Firestore Timestamps.
         if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+        if (archivedAt != null) 'archivedAt': archivedAt!.toIso8601String(),
       };
 
   factory IslamicHabitTemplate.fromMap(String id, Map<String, dynamic> d) =>
@@ -197,17 +211,26 @@ class IslamicHabitTemplate {
         iconColorHex: d['iconColorHex'] as String?,
         reminderLeadMinutes: d['reminderLeadMinutes'] as int? ?? 0,
         createdAt: DateTime.tryParse(d['createdAt'] as String? ?? ''),
+        archivedAt: DateTime.tryParse(d['archivedAt'] as String? ?? ''),
       );
 
   /// Whether this habit exists-and-is-due on [day]: never before its
   /// birth date (see [createdAt] — a habit created this morning was not
-  /// "missed" yesterday), and on scheduled weekdays only when a specific
-  /// schedule is set. This is the single seam every surface reads, so the
-  /// birth-date rule holds everywhere at once.
+  /// "missed" yesterday), never after it was archived (see [archivedAt] —
+  /// the archive day itself still counts, only days strictly after it
+  /// don't, so archiving a habit today can't retroactively excuse today's
+  /// own "all habits done" streak check), and on scheduled weekdays only
+  /// when a specific schedule is set. This is the single seam every
+  /// surface reads, so both rules hold everywhere at once.
   bool isScheduledFor(DateTime day) {
     final born = createdAt;
     if (born != null &&
         day.isBefore(DateTime(born.year, born.month, born.day))) {
+      return false;
+    }
+    final died = archivedAt;
+    if (died != null &&
+        day.isAfter(DateTime(died.year, died.month, died.day))) {
       return false;
     }
     return scheduledWeekdays.isEmpty || scheduledWeekdays.contains(day.weekday);
@@ -239,6 +262,39 @@ class IslamicHabitTemplate {
         iconColorHex: iconColorHex,
         reminderLeadMinutes: reminderLeadMinutes,
         createdAt: date,
+      );
+
+  /// A full copy with both [createdAt] and [archivedAt] swapped in — how
+  /// allHabitsEverProvider (custom_habits_notifier.dart) stamps a const
+  /// catalog template with the exact window a past activation covered.
+  /// Kept separate from [withCreatedAt] rather than extending it, so every
+  /// existing [withCreatedAt] call site (habitListProvider's "active right
+  /// now" list) is guaranteed untouched by this addition.
+  IslamicHabitTemplate withDates({DateTime? createdAt, DateTime? archivedAt}) =>
+      IslamicHabitTemplate(
+        id: id,
+        name: name,
+        description: description,
+        nameAr: nameAr,
+        descriptionAr: descriptionAr,
+        cueAfter: cueAfter,
+        category: category,
+        frequencyType: frequencyType,
+        frequencyTarget: frequencyTarget,
+        scheduledWeekdays: scheduledWeekdays,
+        goalType: goalType,
+        reductionType: reductionType,
+        limitAmount: limitAmount,
+        limitUnit: limitUnit,
+        customUnitLabel: customUnitLabel,
+        hasTimer: hasTimer,
+        timerDurationSeconds: timerDurationSeconds,
+        xpReward: xpReward,
+        goldReward: goldReward,
+        iconColorHex: iconColorHex,
+        reminderLeadMinutes: reminderLeadMinutes,
+        createdAt: createdAt,
+        archivedAt: archivedAt,
       );
 
   /// Locale-aware display name — mirrors [HabitPlan.localName]. Falls back

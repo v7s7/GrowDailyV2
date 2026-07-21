@@ -10,7 +10,7 @@ import 'package:grow_daily_v2/features/habits/models/habit_cue.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
 
-/// Covers the same add/edit/remove path Grid's long-press habit sheet and
+/// Covers the same add/edit/archive path Grid's long-press habit sheet and
 /// Today's habit menu both drive — this is the model layer under
 /// `AddHabitSheet(existing: habit)`, so a bug here would break "edit a
 /// habit" everywhere it's exposed, not just in one screen.
@@ -171,8 +171,9 @@ void main() {
       expect(habit.cueAfter, 'before_sleep');
     });
 
-    test('remove deletes the habit and it no longer appears in the list',
-        () async {
+    test(
+        'archive removes the habit from the active list but keeps it, '
+        'dated, in the archived list', () async {
       final notifier = container.read(customHabitsProvider.notifier);
       notifier.add(
         name: 'Temp habit',
@@ -182,9 +183,28 @@ void main() {
       );
       final id = container.read(customHabitsProvider).first.id;
 
-      notifier.remove(id);
+      notifier.archive(id);
 
+      // Gone from the active list — same observable effect the old
+      // hard-delete ("remove") had on every "what's active right now"
+      // surface (Grid rows, the Add sheet, today's streak check).
       expect(container.read(customHabitsProvider), isEmpty);
+      // Unlike the old remove(), the habit itself isn't gone — it's what
+      // allHabitsEverProvider (custom_habits_notifier.dart) reads to keep
+      // this habit's real name and schedule available to the Heatmap and
+      // Insights for every day up to and including today. See
+      // IslamicHabitTemplate.archivedAt.
+      expect(notifier.archived, hasLength(1));
+      expect(notifier.archived.first.id, id);
+      expect(notifier.archived.first.name, 'Temp habit');
+      expect(notifier.archived.first.archivedAt, isNotNull);
+    });
+
+    test('archiving an unknown id is a harmless no-op', () async {
+      final notifier = container.read(customHabitsProvider.notifier);
+      notifier.archive('does-not-exist');
+      expect(container.read(customHabitsProvider), isEmpty);
+      expect(notifier.archived, isEmpty);
     });
 
     test('editing one habit does not touch a second habit', () async {

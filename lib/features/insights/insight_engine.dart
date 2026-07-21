@@ -43,6 +43,14 @@ class InsightsResult {
   /// rate, or null when there isn't enough data to say.
   final int? strongestWeekday;
 
+  /// Account-wide (every habit combined) scheduled/completed counts per
+  /// weekday — the same aggregates [strongestWeekday] is picked from, kept
+  /// here too so the "Your strongest day" headline can open a detail view
+  /// showing the full week, not just announce the one winning day. Same
+  /// DateTime.monday..sunday keys as [HabitPattern.scheduledByWeekday].
+  final Map<int, int> overallScheduledByWeekday;
+  final Map<int, int> overallCompletedByWeekday;
+
   /// Highest/lowest completion-rate habits (need >= 7 scheduled samples
   /// each, so a habit added two days ago can't claim either title).
   final String? mostConsistentHabitId;
@@ -55,6 +63,8 @@ class InsightsResult {
   const InsightsResult({
     required this.patterns,
     required this.strongestWeekday,
+    required this.overallScheduledByWeekday,
+    required this.overallCompletedByWeekday,
     required this.mostConsistentHabitId,
     required this.needsPushHabitId,
     required this.totalSamples,
@@ -149,6 +159,8 @@ InsightsResult computeInsights({
   return InsightsResult(
     patterns: patterns,
     strongestWeekday: strongest,
+    overallScheduledByWeekday: weekdayScheduled,
+    overallCompletedByWeekday: weekdayCompleted,
     mostConsistentHabitId: best,
     needsPushHabitId: worst,
     totalSamples: totalSamples,

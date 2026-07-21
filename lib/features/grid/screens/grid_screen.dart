@@ -7,7 +7,9 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/providers/home_tab_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
+import '../../../shared/widgets/get_started_checklist_card.dart';
 import '../../../shared/widgets/safe_wrap_text.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
@@ -76,14 +78,17 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     setState(_selectedIds.clear);
   }
 
-  /// Custom habits are deleted outright; preset habits are deactivated
-  /// (reversible via Plans/the catalog) rather than destroyed — same split
+  /// Custom habits are archived (CustomHabitsNotifier.archive); preset
+  /// habits are deactivated (ActiveCatalogNotifier.toggle) — same split
   /// Today's own single-habit delete and Grid's old action sheet used.
-  /// Either way, anything still counted toward an open room gets unlinked
-  /// from it as part of the same action (see RoomsController.
-  /// unlinkHabitEverywhere) - with a heads-up dialog first if that applies
-  /// to any of the selection, so a multi-select sweep never quietly breaks
-  /// a room in the background.
+  /// Neither one is a hard delete any more: both leave the habit's real
+  /// history (name, schedule, past completions) intact for the Heatmap
+  /// and Insights, they just stop showing up as active starting now. See
+  /// IslamicHabitTemplate.archivedAt. Either way, anything still counted
+  /// toward an open room gets unlinked from it as part of the same action
+  /// (see RoomsController.unlinkHabitEverywhere) - with a heads-up dialog
+  /// first if that applies to any of the selection, so a multi-select
+  /// sweep never quietly breaks a room in the background.
   Future<void> _deleteSelected() async {
     if (_selectedIds.isEmpty) return;
     final linked = ref.read(myLinkedRoomHabitsProvider);
@@ -114,18 +119,33 @@ class _GridScreenState extends ConsumerState<GridScreen> {
       if (confirmed != true || !mounted) return;
     }
     HapticFeedback.mediumImpact();
+    final count = _selectedIds.length;
+    // Captured before _clearSelection/the loop below triggers rebuilds —
+    // this Scaffold's messenger stays valid regardless.
+    final messenger = ScaffoldMessenger.of(context);
+    final s = S.of(context);
     final customIds =
         ref.read(customHabitsProvider).map((h) => h.id).toSet();
     final rooms = ref.read(roomsControllerProvider);
     for (final id in _selectedIds) {
       rooms.unlinkHabitEverywhere(id).ignore();
       if (customIds.contains(id)) {
-        ref.read(customHabitsProvider.notifier).remove(id);
+        ref.read(customHabitsProvider.notifier).archive(id);
       } else {
         ref.read(activeCatalogProvider.notifier).toggle(id);
       }
     }
     _clearSelection();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          count == 1
+              ? s.habitArchivedConfirmation
+              : s.habitsArchivedConfirmation(count),
+        ),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   /// Opens the full edit sheet for the single selected habit — kept so
@@ -194,6 +214,18 @@ class _GridScreenState extends ConsumerState<GridScreen> {
               parent: AlwaysScrollableScrollPhysics()),
           slivers: [
             SliverToBoxAdapter(child: _GridHeader(state: grid)),
+            SliverToBoxAdapter(
+              child: GetStartedChecklistCard(
+                onAddHabit: () =>
+                    showAddHabitHub(context, ref, initialTab: HubTab.plans),
+                // Matrix's own screen owns the actual "add a task" action
+                // (see matrix_screen.dart's _showAdd) - from here, the
+                // right move is just getting there. See
+                // requestedHomeTabProvider's doc comment.
+                onAddTask: () =>
+                    ref.read(requestedHomeTabProvider.notifier).state = 2,
+              ),
+            ),
             if (_selectionMode)
               SliverToBoxAdapter(
                 child: Padding(
@@ -1192,18 +1224,29 @@ class _GridTableState extends ConsumerState<_GridTable> {
 
   /// Handles a plain tap on a habit's square.
   ///
-  /// Today's square reaching "complete" for a real single-tap habit is
-  /// special-cased to route through the exact same canonical reward path
-  /// Today's own "Done" button uses (`DashboardNotifier.completeHabit`),
-  /// instead of Grid's own flat per-square XP — one reward, ever, for a
-  /// given habit-day, regardless of which screen it's completed from.
-  /// Everything else (other days, other colors, multi-tap habits) falls
-  /// through to the original flat-rate tap-cycle, unchanged.
+  /// Today's square reaching "complete" is special-cased to route through
+  /// the exact same canonical reward path Today's own "Done" button uses
+  /// (`DashboardNotifier.completeHabit`), instead of Grid's own flat
+  /// per-square XP — one reward, ever, for a given habit-day, regardless of
+  /// which screen it's completed from. This covers every habit, not just
+  /// single-tap ones: it used to be gated to `frequencyTarget == 1`
+  /// (mirroring `completeHabit`'s own Today→Grid mirror restriction), but
+  /// that gate was copied into the wrong direction here. Today→Grid really
+  /// does need it (a single square can't show "2 of 3 this week" yet — see
+  /// `completeHabit`'s doc comment), but Grid→completions never had that
+  /// problem: tapping today's square green is always a one-day fact ("I
+  /// did this today"), exactly like one tap of Today's own button, so it
+  /// should always register — the old gate just meant a multi-target
+  /// habit's square could go fully green and pay out XP/gold on the Grid
+  /// while `completions` (and therefore Night Review's "done today" count,
+  /// Today's own checkbox, and everything else reading `isCompleted`)
+  /// never heard about it. Everything else (other days, other colors)
+  /// falls through to the original flat-rate tap-cycle, unchanged.
   Future<void> _handleSquareTap(
       WidgetRef ref, IslamicHabitTemplate habit, DateTime day) async {
     final current = widget.state.squareFor(habit.id, day);
     final next = current.next;
-    final isSyncable = day.isToday && habit.frequencyTarget == 1;
+    final isSyncable = day.isToday;
 
     if (isSyncable && next == SquareState.complete) {
       final alreadyDoneToday = ref
@@ -1216,53 +1259,60 @@ class _GridTableState extends ConsumerState<_GridTable> {
         ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
         syncRoomToday(ref, habit.id, day);
       } else {
-        // Canonical reward first. Only mirror the square if it actually
-        // succeeded — a failed or no-op completeHabit call must never
-        // leave the Grid square green while Today/rewards/streak didn't
-        // update.
+        // Canonical reward first, then mirror the square. No need to
+        // branch on completeHabit's return value here — the
+        // alreadyDoneToday check above already guarantees completions is
+        // under target, so this call can't be a same-day no-op.
+        // completeHabit's return value only ever signals
+        // `frequencyTarget == 1`, a flag its *other* callers (Today,
+        // notification actions) use to decide whether *their* completion
+        // should paint the Grid square — not relevant here, since the
+        // user just painted this square themselves.
         final dashState = ref.read(dashboardProvider);
         final todayHabits = ref
             .read(habitListProvider)
             .where((h) => h.isScheduledFor(day))
             .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
-        final justCompleted =
-            await ref.read(dashboardProvider.notifier).completeHabit(
-                  habitId: habit.id,
-                  // 2x while a linked room is live — see roomBoostedReward.
-                  xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-                  goldReward:
-                      roomBoostedReward(ref, habit.id, habit.goldReward),
-                  frequencyTarget: habit.frequencyTarget,
-                  allHabitsDoneAfter: willCompleteAllHabitsToday(
-                    state: dashState,
-                    todayHabits: todayHabits,
-                    habitId: habit.id,
-                    frequencyTarget: habit.frequencyTarget,
-                  ),
-                  category: habit.category.name,
-                  habitName: habit.localName(S.of(context).isAr),
-                );
-        if (justCompleted) {
-          ref
-              .read(weeklyGridProvider.notifier)
-              .markCompleteFromHabit(habit.id, day);
-          syncRoomToday(ref, habit.id, day);
-          _maybeCelebrateFullRow(ref, habit);
-        }
+        await ref.read(dashboardProvider.notifier).completeHabit(
+              habitId: habit.id,
+              // 2x while a linked room is live — see roomBoostedReward.
+              xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+              goldReward:
+                  roomBoostedReward(ref, habit.id, habit.goldReward),
+              frequencyTarget: habit.frequencyTarget,
+              allHabitsDoneAfter: willCompleteAllHabitsToday(
+                state: dashState,
+                todayHabits: todayHabits,
+                habitId: habit.id,
+                frequencyTarget: habit.frequencyTarget,
+              ),
+              category: habit.category.name,
+              habitName: habit.localName(S.of(context).isAr),
+            );
+        ref
+            .read(weeklyGridProvider.notifier)
+            .markCompleteFromHabit(habit.id, day);
+        syncRoomToday(ref, habit.id, day);
+        _maybeCelebrateFullRow(ref, habit);
       }
       return;
     }
 
     if (isSyncable &&
         current == SquareState.complete &&
-        ref.read(dashboardProvider).isCompleted(habit.id, habit.frequencyTarget)) {
+        (ref.read(dashboardProvider).completions[habit.id] ?? 0) > 0) {
       // Today's completed, synced squares should still behave like every
       // other editable square: tapping green cycles it back to empty, and
       // long-press still opens the explicit palette. Because this green
       // state was rewarded through DashboardNotifier.completeHabit, undo
       // that canonical completion first so Today un-checks the task and
       // XP/gold/green counters are refunded before the visual square is
-      // cleared.
+      // cleared. Checks completions[habitId] > 0 directly rather than
+      // isCompleted (completions >= frequencyTarget): for a multi-target
+      // habit, one Grid-driven tap only ever registers one completion,
+      // which alone can sit well under its weekly target — isCompleted
+      // would stay false and this whole branch would be skipped, leaving
+      // a phantom completions entry this square could never undo again.
       HapticFeedback.selectionClick();
       await ref.read(dashboardProvider.notifier).uncompleteHabit(
             habitId: habit.id,
@@ -1594,13 +1644,13 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     // _handlePaletteTap), not an accidental undo. Pre-existing green
     // squares from before this sync existed aren't caught by this check
     // (never recorded in `completions`) and behave via the plain
-    // flat-rate palette path below, unaffected.
+    // flat-rate palette path below, unaffected. Checks completions
+    // directly rather than isCompleted/frequencyTarget == 1 — covers
+    // multi-target habits too now that _handleSquareTap/_handlePaletteTap
+    // sync those as well; see _handleSquareTap's doc comment.
     final isLocked = widget.day.isToday &&
-        widget.habit.frequencyTarget == 1 &&
         current == SquareState.complete &&
-        ref
-            .watch(dashboardProvider)
-            .isCompleted(widget.habit.id, widget.habit.frequencyTarget);
+        (ref.watch(dashboardProvider).completions[widget.habit.id] ?? 0) > 0;
     final palette = [
       SquareState.complete,
       SquareState.partial,
@@ -1799,11 +1849,11 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
   ///   (`isLocked`) and [picked] isn't `complete`, this is a correction:
   ///   reverse the canonical reward first (`uncompleteHabit`), then
   ///   update the visual state only.
-  /// - If the square isn't done yet and [picked] is `complete` for a
-  ///   real, single-tap, today's habit, this is the same canonical
-  ///   completion tapping the square or Today's button would do — reward
-  ///   first, then mirror the visual state only if the reward actually
-  ///   landed, so a failed/no-op reward never leaves the square green.
+  /// - If the square isn't done yet and [picked] is `complete` for
+  ///   today's habit, this is the same canonical completion tapping the
+  ///   square or Today's button would do — reward first, then mirror the
+  ///   visual state (see _handleSquareTap's doc comment for why every
+  ///   habit syncs here now, not just single-tap ones).
   /// - Everything else falls through to the original flat-rate
   ///   `setSquare` path, unchanged.
   Future<void> _handlePaletteTap(bool isLocked, SquareState picked) async {
@@ -1826,7 +1876,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       return;
     }
 
-    final isSyncable = day.isToday && habit.frequencyTarget == 1;
+    final isSyncable = day.isToday;
     final alreadyDoneToday = ref
         .read(dashboardProvider)
         .isCompleted(habit.id, habit.frequencyTarget);
@@ -1836,29 +1886,27 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
           .read(habitListProvider)
           .where((h) => h.isScheduledFor(day))
           .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
-      final justCompleted =
-          await ref.read(dashboardProvider.notifier).completeHabit(
-                habitId: habit.id,
-                // 2x while a linked room is live — see roomBoostedReward.
-                xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-                goldReward:
-                    roomBoostedReward(ref, habit.id, habit.goldReward),
-                frequencyTarget: habit.frequencyTarget,
-                allHabitsDoneAfter: willCompleteAllHabitsToday(
-                  state: dashState,
-                  todayHabits: todayHabits,
-                  habitId: habit.id,
-                  frequencyTarget: habit.frequencyTarget,
-                ),
-                category: habit.category.name,
-                habitName: habit.localName(S.of(context).isAr),
-              );
-      if (justCompleted) {
-        ref
-            .read(weeklyGridProvider.notifier)
-            .setSquareStateOnly(habit.id, day, SquareState.complete);
-        syncRoomToday(ref, habit.id, day);
-      }
+      // No branch on the return value — see _handleSquareTap's doc
+      // comment; alreadyDoneToday above already guarantees this lands.
+      await ref.read(dashboardProvider.notifier).completeHabit(
+            habitId: habit.id,
+            // 2x while a linked room is live — see roomBoostedReward.
+            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+            frequencyTarget: habit.frequencyTarget,
+            allHabitsDoneAfter: willCompleteAllHabitsToday(
+              state: dashState,
+              todayHabits: todayHabits,
+              habitId: habit.id,
+              frequencyTarget: habit.frequencyTarget,
+            ),
+            category: habit.category.name,
+            habitName: habit.localName(S.of(context).isAr),
+          );
+      ref
+          .read(weeklyGridProvider.notifier)
+          .setSquareStateOnly(habit.id, day, SquareState.complete);
+      syncRoomToday(ref, habit.id, day);
       return;
     }
 

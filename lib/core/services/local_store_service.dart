@@ -8,6 +8,8 @@ class LocalStoreService {
   static const String guestDashboardKey = 'guest_dashboard_state';
   static const String guestFocusPrefix = 'guest_focus_plan_';
   static const String guestCustomHabitsKey = 'guest_custom_habits';
+  static const String guestArchivedCustomHabitsKey =
+      'guest_archived_custom_habits';
   static const String guestMatrixTasksKey = 'guest_matrix_tasks';
   static const String guestMatrixQuadrantsKey = 'guest_matrix_quadrants';
   static const String guestCharacterKey = 'guest_character_state';

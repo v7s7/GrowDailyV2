@@ -94,6 +94,64 @@ class HomeWidgetService {
     });
   }
 
+  /// Name of the Room Race widget's SwiftUI provider struct — must exactly
+  /// match `struct GrowDailyRoomRaceWidget: Widget` in GrowDailyWidget.swift,
+  /// same convention as [_iOSWidgetName] above.
+  static const _iOSRoomRaceWidgetName = 'GrowDailyRoomRaceWidget';
+
+  /// Pushes the widget's Room Race face and asks iOS to redraw it. See
+  /// rooms_notifier.dart's `myRoomRaceSnapshotProvider` for how "the one
+  /// room" to show and its ranking get computed — this only ever writes
+  /// the already-finished result, same division of labor as
+  /// [updateWidgetData] (today's habits/heatmap computed elsewhere,
+  /// this just serializes and pushes).
+  ///
+  /// Takes plain primitives/records rather than RoomRaceSnapshot/
+  /// RoomRaceRow directly, on purpose — this file has no other dependency
+  /// on the rooms feature's model classes, and staying that way means a
+  /// change to Rooms' internals can never silently break widget syncing
+  /// through an import neither file's own tests would think to check.
+  ///
+  /// Call with `hasRoom: false` (the rest of the arguments default to
+  /// empty) whenever [myRoomRaceSnapshotProvider] is null — leaving a
+  /// room, or every room this account is in ending, needs to actively
+  /// clear the widget's race face back to its own placeholder, not leave
+  /// the last real snapshot frozen there forever.
+  Future<void> updateRoomRaceData({
+    required bool hasRoom,
+    String roomName = '',
+    bool isLive = false,
+    int daysRemaining = 0,
+    List<({String name, int rank, int percent, bool isMe})> rows = const [],
+  }) async {
+    if (kIsWeb) return;
+    try {
+      await HomeWidget.saveWidgetData<String>(
+        'roomRaceJson',
+        jsonEncode({
+          'hasRoom': hasRoom,
+          'roomName': roomName,
+          'isLive': isLive,
+          'daysRemaining': daysRemaining,
+          'rows': rows
+              .map((r) => {
+                    'name': r.name,
+                    'rank': r.rank,
+                    'percent': r.percent,
+                    'isMe': r.isMe,
+                  })
+              .toList(),
+        }),
+      );
+      await HomeWidget.updateWidget(iOSName: _iOSRoomRaceWidgetName);
+    } catch (e) {
+      // Same reasoning as updateWidgetData's catch — silently no-ops until
+      // the widget target/this widget kind exists, never worth crashing
+      // the app over.
+      debugPrint('[HomeWidgetService] room-race update skipped: $e');
+    }
+  }
+
   /// Habit ids the widget's Mark Done button queued while the app wasn't
   /// open to actually process them — see the AppIntent in WIDGET_SETUP.md.
   /// The widget shows a tapped habit as done immediately (its AppIntent

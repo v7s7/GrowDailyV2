@@ -53,7 +53,16 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
     // quiet one at 8. Color by percentage of that day's scheduled habit
     // list, not the raw count, so a 100% day is always the deepest green
     // regardless of how many habits someone keeps.
-    final habits = ref.watch(habitListProvider);
+    //
+    // allHabitsEverProvider, not habitListProvider: this screen renders
+    // months of past days, and habitListProvider only ever holds what's
+    // active *today*. Reading that here would mean deleting a habit
+    // silently rewrites every past month's percentages the instant it's
+    // removed — the denominator would shrink to today's habit count while
+    // dailyGreenCounts (the numerator) stays a frozen historical rollup,
+    // so the two would stop agreeing. allHabitsEverProvider keeps an
+    // archived habit counted for exactly the days it was really active.
+    final habits = ref.watch(allHabitsEverProvider);
 
     final today = DateTime.now().effectiveDay;
     final currentMonth = DateTime(today.year, today.month, 1);
@@ -551,7 +560,10 @@ class _HeatDayDetailSheet extends ConsumerWidget {
     final locale = Localizations.localeOf(context).languageCode;
     final dateLabel = DateFormat('EEEE, MMM d', locale).format(day);
     final uid = ref.watch(authStateProvider).asData?.value?.uid;
-    final habits = ref.watch(habitListProvider);
+    // allHabitsEverProvider so an archived (not hard-deleted) habit still
+    // resolves to its real name here instead of falling all the way back
+    // to [deletedLabel] — see [_outcomesFor]'s isDeleted union above.
+    final habits = ref.watch(allHabitsEverProvider);
 
     return SafeArea(
       child: Container(

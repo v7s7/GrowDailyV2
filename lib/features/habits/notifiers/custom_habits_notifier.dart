@@ -29,6 +29,16 @@ class CustomHabitsNotifier
   /// question actually needs.
   bool isLoading = true;
 
+  /// Archived custom habits — everything [archive] has ever removed from
+  /// [state]. Plain field, same isLoading/activatedAt pattern used
+  /// throughout this file: it only ever changes alongside a [state]
+  /// change (see [archive]), which is what actually notifies watchers, so
+  /// reading it straight off the notifier instance right after a rebuild
+  /// always sees the current value. This is what allHabitsEverProvider
+  /// reads to keep an archived habit's history alive in the Heatmap and
+  /// Insights after it's gone from every "active" list.
+  List<IslamicHabitTemplate> archived = [];
+
   CustomHabitsNotifier(this._uid) : super([]) {
     if (_uid != null) {
       _load();
@@ -48,8 +58,17 @@ class CustomHabitsNotifier
     final raw = LocalStoreService.asMapList(
       box.get(LocalStoreService.guestCustomHabitsKey),
     );
+    final rawArchived = LocalStoreService.asMapList(
+      box.get(LocalStoreService.guestArchivedCustomHabitsKey),
+    );
     if (!mounted) return;
     state = raw
+        .map((item) => IslamicHabitTemplate.fromMap(
+              item['id'] as String? ?? const Uuid().v4(),
+              item,
+            ))
+        .toList();
+    archived = rawArchived
         .map((item) => IslamicHabitTemplate.fromMap(
               item['id'] as String? ?? const Uuid().v4(),
               item,
@@ -66,14 +85,26 @@ class CustomHabitsNotifier
     );
   }
 
+  Future<void> _saveGuestArchived() async {
+    final box = await LocalStoreService.habitsBox();
+    await box.put(
+      LocalStoreService.guestArchivedCustomHabitsKey,
+      archived.map((habit) => {'id': habit.id, ...habit.toFirestore()}).toList(),
+    );
+  }
+
   Future<void> _load() async {
     if (_uid == null) return;
     try {
       final snap = await _col.get();
       if (mounted) {
-        state = snap.docs
-            .map((d) => IslamicHabitTemplate.fromFirestore(d))
-            .toList();
+        // Same collection for both — an archived habit's doc survives
+        // with archivedAt stamped on it (see [archive]) rather than being
+        // deleted, so one read splits cleanly into the two lists.
+        final all =
+            snap.docs.map((d) => IslamicHabitTemplate.fromFirestore(d));
+        state = all.where((h) => h.archivedAt == null).toList();
+        archived = all.where((h) => h.archivedAt != null).toList();
       }
     } catch (_) {
     } finally {
@@ -221,12 +252,32 @@ class CustomHabitsNotifier
     }
   }
 
-  void remove(String id) {
+  /// Archives a custom habit instead of hard-deleting it: it leaves
+  /// [state] immediately, exactly like the old delete did, so today's
+  /// Grid, the Add sheet, and today's streak requirement all stop seeing
+  /// it right away. What's different is the Firestore doc/guest record
+  /// itself survives with archivedAt stamped on it instead of being
+  /// erased, which is what lets allHabitsEverProvider (below) keep this
+  /// habit's real name and schedule available for every day up to and
+  /// including today — so the Heatmap and Insights don't silently rewrite
+  /// history the moment it's removed. See IslamicHabitTemplate.archivedAt.
+  void archive(String id) {
+    final existing = state.where((h) => h.id == id).toList();
+    if (existing.isEmpty) return;
+    final archivedTemplate = existing.first.withDates(
+      createdAt: existing.first.createdAt,
+      archivedAt: DateTime.now().effectiveDay,
+    );
     state = state.where((h) => h.id != id).toList();
+    archived = [...archived, archivedTemplate];
     if (_uid != null) {
-      _col.doc(id).delete().ignore();
+      _col
+          .doc(id)
+          .set(archivedTemplate.toFirestore(), SetOptions(merge: true))
+          .ignore();
     } else {
       _saveGuest().ignore();
+      _saveGuestArchived().ignore();
     }
   }
 
@@ -279,6 +330,66 @@ final habitListProvider = Provider<List<IslamicHabitTemplate>>((ref) {
       return rankA.compareTo(rankB);
     });
   return [for (final entry in ranked) entry.value];
+});
+
+/// Every habit this account has EVER had active, including ones since
+/// archived — unlike [habitListProvider], which only ever shows what's
+/// active *right now*. Order is unspecified (unlike habitListProvider,
+/// nothing here needs the user's manual drag order) and archived entries
+/// are included alongside active ones with no special marker; callers
+/// that need to tell them apart can check [IslamicHabitTemplate.
+/// archivedAt] directly, or just rely on [IslamicHabitTemplate.
+/// isScheduledFor] to naturally exclude an archived habit from any day
+/// after it was archived.
+///
+/// This is what history surfaces that look backward across many days (the
+/// Heatmap, Insights) should read instead of [habitListProvider] —
+/// reading the active-only list there would silently drop an archived
+/// habit's entire past from their math the instant it's archived, even
+/// for days from months ago when it was real and being tracked every day.
+/// See [CustomHabitsNotifier.archive] and [ActiveCatalogNotifier.toggle]
+/// for where archiving actually happens.
+///
+/// A catalog habit toggled on/off more than once emits one synthetic
+/// template *per stint* here (see [ActiveCatalogNotifier.
+/// catalogStintHistory]), all sharing the same id — that's deliberate,
+/// not a bug: every consumer of this list (Heatmap, Insights, the weekly
+/// recap card) already gates day-by-day via [IslamicHabitTemplate.
+/// isScheduledFor], and real stints never overlap in time, so at most one
+/// of the duplicates ever claims any given day. No consumer needed to
+/// change to support this.
+final allHabitsEverProvider = Provider<List<IslamicHabitTemplate>>((ref) {
+  final activeIds = ref.watch(activeCatalogProvider);
+  final catalogNotifier = ref.watch(activeCatalogProvider.notifier);
+  final activatedAt = catalogNotifier.activatedAt;
+  final catalogArchivedAt = catalogNotifier.catalogArchivedAt;
+  final stintHistory = catalogNotifier.catalogStintHistory;
+  final everActivatedIds = {
+    ...activeIds,
+    ...activatedAt.keys,
+    ...catalogArchivedAt.keys,
+    ...stintHistory.keys,
+  };
+  final catalogEver = <IslamicHabitTemplate>[
+    for (final t in IslamicHabitCatalog.templates)
+      if (everActivatedIds.contains(t.id)) ...[
+        // The current-or-most-recent window.
+        t.withDates(
+          createdAt: activatedAt[t.id],
+          archivedAt: catalogArchivedAt[t.id],
+        ),
+        // Every earlier, fully-closed stint — see catalogStintHistory's
+        // doc comment for why a repeatedly toggled habit needs more than
+        // just the one window above to keep its whole history alive.
+        for (final stint in stintHistory[t.id] ?? const [])
+          t.withDates(createdAt: stint.$1, archivedAt: stint.$2),
+      ],
+  ];
+
+  final customActive = ref.watch(customHabitsProvider);
+  final customArchived = ref.watch(customHabitsProvider.notifier).archived;
+
+  return [...catalogEver, ...customActive, ...customArchived];
 });
 
 /// Whether [habitListProvider]'s two sources (custom habits + the active

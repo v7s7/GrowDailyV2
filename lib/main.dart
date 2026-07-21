@@ -14,6 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/game_constants.dart';
 import 'core/extensions/datetime_ext.dart';
 import 'core/l10n/app_strings.dart';
+import 'core/providers/get_started_checklist_provider.dart';
 import 'core/providers/home_spotlight_provider.dart';
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/theme_provider.dart';
@@ -50,6 +51,8 @@ import 'features/premium/notifiers/premium_notifier.dart';
 import 'features/premium/screens/premium_screen.dart';
 import 'features/rooms/notifiers/rooms_notifier.dart'
     show
+        RoomRaceSnapshot,
+        myRoomRaceSnapshotProvider,
         pendingJoinCodeProvider,
         parseRoomJoinLink,
         roomBoostedReward,
@@ -109,6 +112,7 @@ Future<void> main() async {
   final persistedLocale = await loadPersistedLocale();
   final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
   final persistedHomeSpotlightSeen = await loadPersistedHomeSpotlightSeen();
+  final persistedGetStartedDismissed = await loadPersistedGetStartedDismissed();
   final persistedThemeMode = await loadPersistedThemeMode();
   // Also applies the preset's colors to GameColors immediately, so the
   // very first frame already renders in the right preset.
@@ -123,6 +127,7 @@ Future<void> main() async {
       ...localeProviderOverrides(persistedLocale),
       onboardingSeenProvider.overrideWith((ref) => persistedOnboardingSeen),
       homeSpotlightSeenProvider.overrideWith((ref) => persistedHomeSpotlightSeen),
+      getStartedDismissedProvider.overrideWith((ref) => persistedGetStartedDismissed),
       if (persistedThemeMode != null)
         themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
       if (persistedThemePreset != null)
@@ -149,6 +154,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   ProviderSubscription<NotificationSettings>? _notificationSettingsSub;
   ProviderSubscription<WeeklyGridState>? _gridSub;
   ProviderSubscription<AsyncValue<User?>>? _authSub;
+  ProviderSubscription<RoomRaceSnapshot?>? _roomRaceSub;
   StreamSubscription<Uri>? _linkSub;
   final _appLinks = AppLinks();
 
@@ -310,6 +316,25 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _gridSub = ref.listenManual(weeklyGridProvider, (previous, next) {
       _recomputeNotifications();
       _maybeAutoCleanQuitYesterday();
+    }, fireImmediately: true);
+
+    // Keeps the widget's opt-in Room Race face current — see
+    // rooms_notifier.dart's myRoomRaceSnapshotProvider for how "the one
+    // room" to show and its ranking get picked. fireImmediately so a cold
+    // start with an already-live room doesn't leave the widget on stale
+    // data (or its placeholder) until something in Rooms happens to change.
+    _roomRaceSub = ref.listenManual(myRoomRaceSnapshotProvider,
+        (previous, next) {
+      HomeWidgetService.instance.updateRoomRaceData(
+        hasRoom: next != null,
+        roomName: next?.roomName ?? '',
+        isLive: next?.isLive ?? false,
+        daysRemaining: next?.daysRemaining ?? 0,
+        rows: [
+          for (final r in next?.rows ?? const [])
+            (name: r.name, rank: r.rank, percent: r.percent, isMe: r.isMe),
+        ],
+      );
     }, fireImmediately: true);
   }
 
@@ -696,6 +721,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _notificationSettingsSub?.close();
     _gridSub?.close();
     _authSub?.close();
+    _roomRaceSub?.close();
     _linkSub?.cancel();
     super.dispose();
   }

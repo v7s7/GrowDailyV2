@@ -57,6 +57,101 @@ final roomParticipantsProvider =
       .map((snap) => snap.docs.map(RoomParticipant.fromFirestore).toList());
 });
 
+/// One ranked row of the widget's Room Race face - a trimmed, JSON-ready
+/// view of a single participant. See [myRoomRaceSnapshotProvider].
+class RoomRaceRow {
+  final String name;
+  final int rank; // 1-based
+  final int percent; // 0-100, rounded RoomParticipant.progressRatio
+  final bool isMe;
+  const RoomRaceRow({
+    required this.name,
+    required this.rank,
+    required this.percent,
+    required this.isMe,
+  });
+}
+
+/// Everything the widget's Room Race face needs for the one room
+/// [myRoomRaceSnapshotProvider] picked - already ranked, so the widget
+/// itself never has to touch RoomParticipant.progressRatio or Firestore.
+class RoomRaceSnapshot {
+  final String roomName;
+  final bool isLive;
+  final int daysRemaining; // matches RoomModel.daysRemaining - 0 if open-ended
+  final List<RoomRaceRow> rows; // sorted by rank already
+  const RoomRaceSnapshot({
+    required this.roomName,
+    required this.isLive,
+    required this.daysRemaining,
+    required this.rows,
+  });
+}
+
+/// Picks one room for the widget's Room Race face and ranks its roster -
+/// the source HomeWidgetService.updateRoomRaceData pushes to the widget
+/// (wired from main.dart's _roomRaceSub, same ref.listenManual pattern as
+/// every other widget-sync listener there).
+///
+/// When someone's in more than one room, a live one (started, not ended -
+/// the actually-racing state) wins outright; otherwise the first room
+/// found (e.g. still in its lobby) shows instead, so there's always
+/// something on the widget rather than nothing just because the "best"
+/// room hasn't started yet. Null when there's no room to show at all (no
+/// rooms, or every room this account is in has ended) -
+/// updateRoomRaceData treats null as "clear the widget's room face back to
+/// its own join-or-create placeholder", not "leave whatever was there".
+///
+/// Deliberately doesn't let someone pick *which* room shows when they're
+/// in several live ones at once - WidgetKit supports that via a proper
+/// AppIntent-backed configurable widget, but that's real extra surface
+/// (an AppEntity + EntityQuery that can enumerate rooms from inside the
+/// widget process, which can't reach Firestore directly - see
+/// GrowDailyWidget.swift) for what's a rare case; most people race in one
+/// room at a time.
+final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
+  final uid = ref.watch(authStateProvider).asData?.value?.uid;
+  if (uid == null) return null;
+  final codes = ref.watch(myRoomCodesProvider).valueOrNull ?? const [];
+
+  RoomModel? picked;
+  for (final code in codes) {
+    final room = ref.watch(roomProvider(code)).valueOrNull;
+    if (room == null || room.isEnded) continue;
+    if (room.isLive) {
+      picked = room;
+      break;
+    }
+    picked ??= room;
+  }
+  if (picked == null) return null;
+  final bestRoom = picked; // final capture - safe to use inside closures below
+
+  final participants =
+      ref.watch(roomParticipantsProvider(bestRoom.code)).valueOrNull ??
+          const [];
+  if (participants.isEmpty) return null;
+
+  final ranked = [...participants]
+    ..sort((a, b) =>
+        b.progressRatio(bestRoom).compareTo(a.progressRatio(bestRoom)));
+
+  return RoomRaceSnapshot(
+    roomName: bestRoom.name,
+    isLive: bestRoom.isLive,
+    daysRemaining: bestRoom.daysRemaining,
+    rows: [
+      for (var i = 0; i < ranked.length; i++)
+        RoomRaceRow(
+          name: ranked[i].displayName,
+          rank: i + 1,
+          percent: (ranked[i].progressRatio(bestRoom) * 100).round(),
+          isMe: ranked[i].uid == uid,
+        ),
+    ],
+  );
+});
+
 /// habitId -> rooms (this account only, and only rooms still accepting
 /// progress - see [RoomModel.isEnded]) currently tracking it - the reverse
 /// index Grid needs both for its "part of a Room" badge and for pushing a

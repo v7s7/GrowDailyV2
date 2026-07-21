@@ -5,13 +5,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../achievements/models/achievement_model.dart';
+import '../../achievements/widgets/achievement_medal.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 
 /// Full achievement catalog — pushed from Profile's "Achievements" row so
-/// the grid (a dozen-plus cards) doesn't have to live inline on Profile.
-/// Unlocked achievements sort first; nothing here needs the "preview +
-/// view all" collapse Profile used to do, since this screen has nothing
-/// else competing for space.
+/// the family ladders (five cards, each a full bronze-to-platinum climb)
+/// don't have to live inline on Profile.
+///
+/// Redesigned from a flat 2-column grid of 20 same-ish cards into five
+/// family cards, each showing all four medals in one row — the flat grid
+/// answered "what have I unlocked", but never "what's actually next and
+/// how far away is it" without opening every single card's own progress
+/// bar one at a time. A family card answers both at a glance: the medal
+/// row shows the whole climb, and the text underneath names exactly what
+/// the next rung costs.
 class AchievementsScreen extends ConsumerWidget {
   const AchievementsScreen({super.key});
 
@@ -21,10 +28,7 @@ class AchievementsScreen extends ConsumerWidget {
     final s = S.of(context);
     final state = ref.watch(dashboardProvider);
     final unlockedIds = state.unlockedAchievements;
-    final sorted = [
-      ...AchievementCatalog.all.where((a) => unlockedIds.contains(a.id)),
-      ...AchievementCatalog.all.where((a) => !unlockedIds.contains(a.id)),
-    ];
+    final families = AchievementCatalog.families;
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -91,21 +95,15 @@ class AchievementsScreen extends ConsumerWidget {
           ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 0.78,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, i) => _AchievementCard(
-                  achievement: sorted[i],
-                  isUnlocked: unlockedIds.contains(sorted[i].id),
-                  state: state,
-                ).animate(delay: (i * 35).ms).fadeIn(duration: 300.ms).slideY(begin: 0.08),
-                childCount: sorted.length,
-              ),
+            sliver: SliverList.separated(
+              itemCount: families.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, i) => _FamilyCard(
+                family: families[i],
+                tiers: AchievementCatalog.tiersFor(families[i].id),
+                unlockedIds: unlockedIds,
+                state: state,
+              ).animate(delay: (i * 60).ms).fadeIn(duration: 320.ms).slideY(begin: 0.06),
             ),
           ),
         ],
@@ -114,174 +112,175 @@ class AchievementsScreen extends ConsumerWidget {
   }
 }
 
-// ─── Achievement Card ─────────────────────────────────────────────────────────
+// ─── Family ladder card ───────────────────────────────────────────────────
 
-class _AchievementCard extends StatelessWidget {
-  final AchievementModel achievement;
-  final bool isUnlocked;
+class _FamilyCard extends StatelessWidget {
+  final AchievementFamily family;
+  final List<AchievementModel> tiers; // bronze → platinum, length 4
+  final List<String> unlockedIds;
   final DashboardState state;
-  const _AchievementCard(
-      {required this.achievement,
-      required this.isUnlocked,
-      required this.state});
 
-  Color get _color => switch (achievement.rarity) {
-        AchievementRarity.common => GameColors.rarityCommon,
-        AchievementRarity.uncommon => GameColors.rarityUncommon,
-        AchievementRarity.rare => GameColors.rarityRare,
-        AchievementRarity.epic => GameColors.rarityEpic,
-        AchievementRarity.legendary => GameColors.rarityLegendary,
-      };
+  const _FamilyCard({
+    required this.family,
+    required this.tiers,
+    required this.unlockedIds,
+    required this.state,
+  });
 
-  IconData get _icon => switch (achievement.trigger) {
-        AchievementTrigger.streak =>
-          Icons.local_fire_department_rounded,
-        AchievementTrigger.level => Icons.bolt_rounded,
-        AchievementTrigger.totalCompletions =>
-          Icons.check_circle_rounded,
-        AchievementTrigger.habitMastery => Icons.menu_book_rounded,
-        AchievementTrigger.greenSquares => Icons.grid_view_rounded,
-        _ => Icons.stars_rounded,
-      };
-
-  double get _progress => switch (achievement.trigger) {
-        AchievementTrigger.streak =>
-          (state.streak / achievement.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.level =>
-          (state.level / achievement.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.totalCompletions =>
-          (state.totalCompletions / achievement.threshold)
-              .clamp(0.0, 1.0),
-        AchievementTrigger.greenSquares =>
-          (state.totalGreenSquares / achievement.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.habitMastery =>
-          ((state.categoryCompletions[achievement.targetCategory] ?? 0) /
-                  achievement.threshold)
-              .clamp(0.0, 1.0),
-        _ => 0.0,
-      };
-
-  int get _current => switch (achievement.trigger) {
+  int _currentFor(AchievementModel a) => switch (a.trigger) {
         AchievementTrigger.streak => state.streak,
         AchievementTrigger.level => state.level,
         AchievementTrigger.totalCompletions => state.totalCompletions,
         AchievementTrigger.greenSquares => state.totalGreenSquares,
         AchievementTrigger.habitMastery =>
-          state.categoryCompletions[achievement.targetCategory] ?? 0,
-        _ => 0,
+          state.categoryCompletions[a.targetCategory] ?? 0,
+        AchievementTrigger.special => 0,
       };
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final c = _color;
+    final isAr = s.isAr;
+    final unlockedCount = tiers.where((t) => unlockedIds.contains(t.id)).length;
+    // The tier the card's text focuses on: the next locked one, or the
+    // last (platinum) tier once every rung is climbed — there's always
+    // something to show, never a dead "nothing to say" state.
+    final activeTier = unlockedCount < tiers.length
+        ? tiers[unlockedCount]
+        : tiers.last;
+    final mastered = unlockedCount == tiers.length;
+    final current = _currentFor(activeTier);
+    final progress = (current / activeTier.threshold).clamp(0.0, 1.0);
+    final activeColor = switch (activeTier.tier) {
+      AchievementTier.bronze => GameColors.tierBronze,
+      AchievementTier.silver => GameColors.tierSilver,
+      AchievementTier.gold => GameColors.tierGold,
+      AchievementTier.platinum => GameColors.tierPlatinum,
+    };
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(
-          color: isUnlocked ? c.withOpacity(0.5) : gp.border,
-          width: isUnlocked ? 1 : 0.5,
+          color: mastered ? activeColor.withOpacity(0.45) : gp.border,
+          width: mastered ? 1 : 0.5,
         ),
       ),
-      child: Opacity(
-        opacity: isUnlocked ? 1.0 : 0.55,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: (isUnlocked ? c : gp.textTert)
-                        .withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(_icon,
-                      size: 18,
-                      color: isUnlocked ? c : gp.textTert),
-                ),
-                const Spacer(),
-                if (isUnlocked)
-                  Icon(Icons.verified_rounded, size: 16, color: c),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              achievement.name,
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: gp.textPrimary,
-                  height: 1.25),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              s.isAr
-                  ? achievement.rarity.localizedName(true)
-                  : achievement.rarity.localizedName(false).toUpperCase(),
-              style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: c,
-                  // Same reasoning as the milestone-celebration fix: wide
-                  // letter-spacing breaks Arabic cursive letter-joining.
-                  letterSpacing: s.isAr ? 0 : 1.2),
-            ),
-            const SizedBox(height: 10),
-            if (isUnlocked)
-              Row(children: [
-                if (achievement.xpReward > 0) ...[
-                  Icon(Icons.bolt_rounded,
-                      size: 11, color: GameColors.iconXp),
-                  const SizedBox(width: 2),
-                  Text('+${achievement.xpReward}',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: GameColors.iconXp)),
-                  const SizedBox(width: 8),
-                ],
-                if (achievement.goldReward > 0) ...[
-                  Icon(Icons.toll_rounded,
-                      size: 11, color: GameColors.gold),
-                  const SizedBox(width: 2),
-                  Text('+${achievement.goldReward}',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: GameColors.gold)),
-                ],
-              ])
-            else ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(100),
-                child: LinearProgressIndicator(
-                  value: _progress,
-                  backgroundColor: gp.border,
-                  valueColor:
-                      AlwaysStoppedAnimation(c.withOpacity(0.5)),
-                  minHeight: 3,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(family.icon, size: 16, color: gp.textSec),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  family.localTitle(isAr),
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary),
                 ),
               ),
-              const SizedBox(height: 5),
-              Text(
-                '$_current / ${achievement.threshold}',
-                style: TextStyle(
-                    fontSize: 10,
-                    color: gp.textTert,
-                    fontWeight: FontWeight.w500),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: (mastered ? activeColor : gp.textTert)
+                      .withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: Text(
+                  '$unlockedCount/${tiers.length}',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: mastered ? activeColor : gp.textSec),
+                ),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (final tier in tiers)
+                AchievementMedal(
+                  tier: tier.tier,
+                  icon: achievementIconFor(tier.trigger),
+                  size: 50,
+                  state: unlockedIds.contains(tier.id)
+                      ? MedalState.unlocked
+                      : tier.id == activeTier.id
+                          ? MedalState.inProgress
+                          : MedalState.locked,
+                  progress: tier.id == activeTier.id ? progress : 0,
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(height: 0.5, color: gp.border),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      activeTier.tier.localizedName(isAr).toUpperCase(),
+                      style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: activeColor,
+                          letterSpacing: isAr ? 0 : 1.2),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      activeTier.localName(isAr),
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: gp.textPrimary),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      activeTier.localDescription(isAr),
+                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (mastered)
+                Icon(Icons.verified_rounded, size: 20, color: activeColor)
+              else
+                Text(
+                  '$current / ${activeTier.threshold}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textSec),
+                ),
+            ],
+          ),
+          if (!mastered) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(100),
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: gp.border,
+                valueColor: AlwaysStoppedAnimation(activeColor.withOpacity(0.7)),
+                minHeight: 4,
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

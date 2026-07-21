@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/get_started_checklist_card.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../widgets/add_task_sheet.dart';
@@ -338,6 +340,15 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                   ),
                 ],
               ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.05),
+            ),
+            GetStartedChecklistCard(
+              // Grid's own screen owns the actual "add a habit" action (see
+              // grid_screen.dart's showAddHabitHub call) - from here, the
+              // right move is just getting there. See
+              // requestedHomeTabProvider's doc comment.
+              onAddHabit: () =>
+                  ref.read(requestedHomeTabProvider.notifier).state = 0,
+              onAddTask: () => _showAdd(context, ref, MatrixQuadrant.doFirst),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),

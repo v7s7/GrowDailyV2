@@ -288,7 +288,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   if (customIds.contains(t.id)) {
                                     ref
                                         .read(customHabitsProvider.notifier)
-                                        .remove(t.id);
+                                        .archive(t.id);
                                   } else {
                                     ref
                                         .read(activeCatalogProvider.notifier)

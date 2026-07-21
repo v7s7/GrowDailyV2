@@ -9,6 +9,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../features/achievements/models/achievement_model.dart';
+import '../../../features/achievements/widgets/achievement_medal.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/grid/notifiers/grid_journal_notifier.dart';
@@ -133,8 +134,20 @@ class ProgressHubScreen extends ConsumerWidget {
         children: [
           _SectionHeader(s.progressStreakTitle),
           const SizedBox(height: 12),
-          _StreakFreezeCard(state: state),
-          const SizedBox(height: 14),
+          // Only shown once there's an actual streak worth protecting.
+          // Every account starts with a free freeze already in the bank
+          // (see DashboardNotifier's `?? 1` default), so surfacing the shop
+          // card from day one was pitching insurance before there was
+          // anything to insure — the single most prominent thing on this
+          // screen for a brand-new user, despite being neither urgent nor,
+          // per usage, popular. Gating on a real 3-day streak instead of
+          // account age since there's no signup-date field anywhere in this
+          // codebase, and streak length is the more meaningful signal for
+          // this specific card anyway.
+          if (state.streak >= 3) ...[
+            _StreakFreezeCard(state: state),
+            const SizedBox(height: 14),
+          ],
           _ProgressReportCard(state: state),
           const SizedBox(height: 28),
           _AchievementsPreviewSection(state: state),
@@ -658,23 +671,6 @@ class _MiniAchievementCard extends StatelessWidget {
     required this.state,
   });
 
-  Color get _color => switch (achievement.rarity) {
-        AchievementRarity.common => GameColors.rarityCommon,
-        AchievementRarity.uncommon => GameColors.rarityUncommon,
-        AchievementRarity.rare => GameColors.rarityRare,
-        AchievementRarity.epic => GameColors.rarityEpic,
-        AchievementRarity.legendary => GameColors.rarityLegendary,
-      };
-
-  IconData get _icon => switch (achievement.trigger) {
-        AchievementTrigger.streak => Icons.local_fire_department_rounded,
-        AchievementTrigger.level => Icons.bolt_rounded,
-        AchievementTrigger.totalCompletions => Icons.check_circle_rounded,
-        AchievementTrigger.habitMastery => Icons.menu_book_rounded,
-        AchievementTrigger.greenSquares => Icons.grid_view_rounded,
-        _ => Icons.stars_rounded,
-      };
-
   double get _progress => switch (achievement.trigger) {
         AchievementTrigger.streak =>
           (state.streak / achievement.threshold).clamp(0.0, 1.0),
@@ -688,66 +684,45 @@ class _MiniAchievementCard extends StatelessWidget {
           ((state.categoryCompletions[achievement.targetCategory] ?? 0) /
                   achievement.threshold)
               .clamp(0.0, 1.0),
-        _ => 0.0,
+        AchievementTrigger.special => 0.0,
       };
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final c = _color;
+    final isAr = S.of(context).isAr;
     return Container(
       width: 96,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(
-          color: isUnlocked ? c.withOpacity(0.5) : gp.border,
-          width: isUnlocked ? 1 : 0.5,
-        ),
+        border: Border.all(color: gp.border, width: 0.5),
       ),
-      child: Opacity(
-        opacity: isUnlocked ? 1.0 : 0.55,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: (isUnlocked ? c : gp.textTert).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child:
-                  Icon(_icon, size: 16, color: isUnlocked ? c : gp.textTert),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              achievement.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: gp.textPrimary,
-                  height: 1.2),
-            ),
-            const Spacer(),
-            if (isUnlocked)
-              Icon(Icons.verified_rounded, size: 14, color: c)
-            else
-              ClipRRect(
-                borderRadius: BorderRadius.circular(100),
-                child: LinearProgressIndicator(
-                  value: _progress,
-                  backgroundColor: gp.border,
-                  valueColor: AlwaysStoppedAnimation(c.withOpacity(0.5)),
-                  minHeight: 3,
-                ),
-              ),
-          ],
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AchievementMedal(
+            tier: achievement.tier,
+            icon: achievementIconFor(achievement.trigger),
+            size: 40,
+            state: isUnlocked ? MedalState.unlocked : MedalState.inProgress,
+            progress: _progress,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            achievement.localName(isAr),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: gp.textPrimary,
+                height: 1.2),
+          ),
+        ],
       ),
     );
   }

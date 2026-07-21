@@ -131,6 +131,8 @@ const habitPlans = <HabitPlan>[
 
 const _kActiveKey = 'active_catalog_ids_v1';
 const _kActivatedAtKey = 'active_catalog_activated_at_v1';
+const _kArchivedAtKey = 'active_catalog_archived_at_v1';
+const _kStintHistoryKey = 'active_catalog_stint_history_v1';
 const _kReminderKey = 'daily_reminder_time_v1';
 
 /// Which Islamic Habit Catalog templates the user has turned on — the
@@ -163,9 +165,46 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   /// always ride along with a [state] change, which is what triggers
   /// watchers). Missing ids — everything activated before this map
   /// existed — just get no birth date, i.e. the exact old behavior.
-  /// Toggling a habit OFF removes its entry, so re-activating later is a
-  /// fresh start, not a resurrection of old missed days.
+  /// Toggling a habit OFF now *keeps* its entry here (see
+  /// [catalogArchivedAt] for why — this used to be erased on deactivation,
+  /// which is exactly what made a toggled-off habit's history vanish from
+  /// the Heatmap/Insights). Re-activating still overwrites it with a
+  /// fresh date, though, so re-activating later is a fresh start, not a
+  /// resurrection of the old stint's misses.
   Map<String, DateTime> activatedAt = {};
+
+  /// catalogId → the day it was toggled off — the archive-side
+  /// counterpart to [activatedAt]. Together the two bound the exact
+  /// window a past activation covered, which is what lets
+  /// allHabitsEverProvider (custom_habits_notifier.dart) keep a
+  /// deactivated catalog habit's history alive in the Heatmap and
+  /// Insights instead of losing it the instant it's toggled off — same
+  /// reasoning as IslamicHabitTemplate.archivedAt, just stored the way
+  /// this class already stores activation dates (a flat map, not a field
+  /// on the immutable template itself). Only ever holds the *most
+  /// recent* deactivation for a given id: if a habit is toggled on/off
+  /// more than once, earlier stints aren't separately preserved, only
+  /// the latest complete window. Cleared the moment a habit is active
+  /// again (see [toggle]) — an active id is never also archived.
+  Map<String, DateTime> catalogArchivedAt = {};
+
+  /// catalogId → every fully-closed stint STRICTLY BEFORE the current-or-
+  /// most-recent one — (start, end) pairs, oldest first. [activatedAt]/
+  /// [catalogArchivedAt] only ever describe *one* window per id (the
+  /// current one if active, otherwise the most recent), so without this
+  /// a habit toggled on, off, on, off again would silently lose its
+  /// first stint's dates the moment it's reactivated: the second
+  /// [toggle] call overwrites [activatedAt] with a fresh date before the
+  /// first stint's window is recorded anywhere else. [toggle] and
+  /// [applyPlanSelection] both push the *outgoing* current-or-most-recent
+  /// window in here right before they'd otherwise clobber it by
+  /// reactivating — see [toggle]'s own comment. allHabitsEverProvider
+  /// (custom_habits_notifier.dart) reads this to emit one synthetic
+  /// template per stint, not just the last, so the Heatmap/Insights can
+  /// credit every window a habit was ever really active for. A custom
+  /// habit never needs this: it's a real, distinct Firestore document per
+  /// archive, not a map slot that gets reused.
+  Map<String, List<(DateTime, DateTime)>> catalogStintHistory = {};
 
   ActiveCatalogNotifier(this._uid) : super(const {}) {
     if (_uid != null) {
@@ -185,10 +224,50 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
               e.key.toString(): DateTime.parse('${e.value}'),
       };
 
+  /// Parses [catalogStintHistory] back from its stored shape: catalogId →
+  /// a list of {'start': iso, 'end': iso} maps. Any entry missing either
+  /// date, or not shaped like a map at all, is silently dropped rather
+  /// than crashing the whole read — the same defensiveness every other
+  /// parse helper in this class already has toward hand-edited/corrupt
+  /// data.
+  static Map<String, List<(DateTime, DateTime)>> _parseStintHistory(
+      dynamic raw) {
+    final result = <String, List<(DateTime, DateTime)>>{};
+    if (raw is! Map) return result;
+    for (final entry in raw.entries) {
+      final rawStints = entry.value;
+      if (rawStints is! List) continue;
+      final stints = <(DateTime, DateTime)>[];
+      for (final item in rawStints) {
+        if (item is! Map) continue;
+        final start = DateTime.tryParse('${item['start']}');
+        final end = DateTime.tryParse('${item['end']}');
+        if (start != null && end != null) stints.add((start, end));
+      }
+      if (stints.isNotEmpty) result[entry.key.toString()] = stints;
+    }
+    return result;
+  }
+
+  static Map<String, List<Map<String, String>>> _stintHistoryToRaw(
+          Map<String, List<(DateTime, DateTime)>> history) =>
+      {
+        for (final e in history.entries)
+          e.key: [
+            for (final stint in e.value)
+              {
+                'start': stint.$1.toIso8601String(),
+                'end': stint.$2.toIso8601String(),
+              },
+          ],
+      };
+
   Future<void> _loadGuest() async {
     final box = await LocalStoreService.settingsBox();
     final raw = box.get(_kActiveKey);
     activatedAt = _parseActivatedAt(box.get(_kActivatedAtKey));
+    catalogArchivedAt = _parseActivatedAt(box.get(_kArchivedAtKey));
+    catalogStintHistory = _parseStintHistory(box.get(_kStintHistoryKey));
     if (!mounted) return;
     if (raw is List) {
       state = Set<String>.from(raw.whereType<String>());
@@ -208,6 +287,10 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       if (!mounted) return;
       activatedAt =
           _parseActivatedAt(snap.data()?['activeCatalogActivatedAt']);
+      catalogArchivedAt =
+          _parseActivatedAt(snap.data()?['activeCatalogArchivedAt']);
+      catalogStintHistory =
+          _parseStintHistory(snap.data()?['activeCatalogStintHistory']);
       final raw = snap.data()?['activeCatalogIds'];
       if (raw is List) {
         state = Set<String>.from(raw.whereType<String>());
@@ -249,27 +332,62 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     final atMap = {
       for (final e in activatedAt.entries) e.key: e.value.toIso8601String(),
     };
+    final archivedMap = {
+      for (final e in catalogArchivedAt.entries)
+        e.key: e.value.toIso8601String(),
+    };
+    final stintHistoryRaw = _stintHistoryToRaw(catalogStintHistory);
     if (_uid != null) {
       _userRef.set({
         'activeCatalogIds': state.toList(),
         'activeCatalogActivatedAt': atMap,
+        'activeCatalogArchivedAt': archivedMap,
+        'activeCatalogStintHistory': stintHistoryRaw,
       }, SetOptions(merge: true)).ignore();
       return;
     }
     final box = await LocalStoreService.settingsBox();
     await box.put(_kActiveKey, state.toList());
     await box.put(_kActivatedAtKey, atMap);
+    await box.put(_kArchivedAtKey, archivedMap);
+    await box.put(_kStintHistoryKey, stintHistoryRaw);
   }
 
   void toggle(String catalogId) {
     if (state.contains(catalogId)) {
-      activatedAt = {...activatedAt}..remove(catalogId);
+      // Archive, don't erase: [activatedAt] keeps this stint's start
+      // date exactly as-is, and this just records today as when it
+      // ended — together they're the window allHabitsEverProvider needs
+      // to keep crediting (see [catalogArchivedAt]'s own doc comment).
+      catalogArchivedAt = {
+        ...catalogArchivedAt,
+        catalogId: DateTime.now().effectiveDay,
+      };
       state = Set.of(state)..remove(catalogId);
     } else {
+      // The stint that's about to be overwritten below (if any) is real,
+      // closed history — push it into catalogStintHistory before its
+      // dates are gone for good. Only fires on a genuine re-activation:
+      // the very first activation has no priorStart/priorEnd yet.
+      final priorStart = activatedAt[catalogId];
+      final priorEnd = catalogArchivedAt[catalogId];
+      if (priorStart != null && priorEnd != null) {
+        catalogStintHistory = {
+          ...catalogStintHistory,
+          catalogId: [
+            ...(catalogStintHistory[catalogId] ?? const []),
+            (priorStart, priorEnd),
+          ],
+        };
+      }
       activatedAt = {
         ...activatedAt,
         catalogId: DateTime.now().effectiveDay,
       };
+      // Re-activating is a fresh start (see [activatedAt]'s doc comment)
+      // — clear any archive record from a previous stint so this id
+      // reads as plainly active again, not active-and-archived at once.
+      catalogArchivedAt = {...catalogArchivedAt}..remove(catalogId);
       state = {...state, catalogId};
     }
     _save();
@@ -291,13 +409,35 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     final toDeactivate = plan.catalogIds
         .where((id) => !selected.contains(id) && state.contains(id))
         .toSet();
+    // Ids genuinely coming back to life here — same set activatedAt's own
+    // comprehension below already isolates via !state.contains(id).
+    final reactivating =
+        selected.where((id) => !state.contains(id)).toSet();
+    // Same "push the outgoing stint into history before it's overwritten"
+    // step as [toggle]'s reactivation branch — see that doc comment.
+    catalogStintHistory = {
+      ...catalogStintHistory,
+      for (final id in reactivating)
+        if (activatedAt[id] != null && catalogArchivedAt[id] != null)
+          id: [
+            ...(catalogStintHistory[id] ?? const []),
+            (activatedAt[id]!, catalogArchivedAt[id]!),
+          ],
+    };
     activatedAt = {
       ...activatedAt,
       // Only ids that are genuinely NEW get today's date — re-picking an
       // already-active habit must not move its birth date forward.
-      for (final id in selected)
-        if (!state.contains(id)) id: today,
-    }..removeWhere((id, _) => toDeactivate.contains(id));
+      for (final id in reactivating) id: today,
+    };
+    // Archive, don't erase — same reasoning as [toggle]: keep
+    // activatedAt as-is for anything being deactivated (it's still that
+    // stint's real start date) and just record today as when it ended,
+    // while anything freshly selected loses any stale archive record.
+    catalogArchivedAt = {
+      ...catalogArchivedAt,
+      for (final id in toDeactivate) id: today,
+    }..removeWhere((id, _) => selected.contains(id));
     state = {...state}
       ..removeAll(toDeactivate)
       ..addAll(selected);
@@ -305,8 +445,13 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   }
 
   void deactivatePlan(HabitPlan plan) {
-    activatedAt = {...activatedAt}
-      ..removeWhere((id, _) => plan.catalogIds.contains(id));
+    final today = DateTime.now().effectiveDay;
+    final deactivating = plan.catalogIds.where(state.contains);
+    // Archive, don't erase — see [toggle]'s doc comment.
+    catalogArchivedAt = {
+      ...catalogArchivedAt,
+      for (final id in deactivating) id: today,
+    };
     state = state.difference(plan.catalogIds.toSet());
     _save();
   }

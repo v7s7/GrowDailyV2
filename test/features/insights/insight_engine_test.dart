@@ -103,5 +103,81 @@ void main() {
       expect(result.strongestWeekday, isNull);
       expect(result.mostConsistentHabitId, isNull);
     });
+
+    // These four guard the exact thing the Habit Insights detail sheet's
+    // day-by-day wave chart depends on: that scheduledByWeekday /
+    // completedByWeekday are keyed by real DateTime.monday..sunday values
+    // matching the actual calendar day, for both a single habit's pattern
+    // and the account-wide totals. The chart widget itself (which also had
+    // to get RTL mirroring right so Arabic labels land over the correct
+    // point) isn't reachable from here — it's a private class in a Flutter
+    // widget file, out of reach for a plain logic test — but if this data
+    // is wrong, no amount of correct widget code fixes what gets drawn.
+    test('scheduledByWeekday/completedByWeekday key by the real calendar weekday', () {
+      final h = habit('a');
+      final result = computeInsights(
+        habits: [h],
+        days: [
+          (DateTime(2026, 6, 1), {'squareStates': {'a': 'complete'}}), // Monday, done
+          (DateTime(2026, 6, 2), const <String, dynamic>{}), // Tuesday, missed
+        ],
+      );
+      final p = result.patterns['a']!;
+      expect(p.scheduledByWeekday[DateTime.monday], 1);
+      expect(p.completedByWeekday[DateTime.monday], 1);
+      expect(p.scheduledByWeekday[DateTime.tuesday], 1);
+      // Tuesday was scheduled but never completed - completedByWeekday only
+      // ever gets a key written on a real completion (see computeInsights'
+      // `if (done)` block), so a missed day leaves the key entirely absent
+      // rather than present-and-zero. Every real caller already reads this
+      // map through `?? 0` (see _WeekdayWaveChart), so this is the actual
+      // contract they depend on, not just an implementation detail.
+      expect(p.completedByWeekday.containsKey(DateTime.tuesday), isFalse);
+      // No Wednesday in the window at all - same absent-key contract.
+      expect(p.scheduledByWeekday.containsKey(DateTime.wednesday), isFalse);
+    });
+
+    test('overallScheduledByWeekday/overallCompletedByWeekday sum every habit, same weekday keys', () {
+      final a = habit('a');
+      final b = habit('b');
+      final result = computeInsights(
+        habits: [a, b],
+        days: [
+          (
+            DateTime(2026, 6, 1), // Monday
+            {
+              'squareStates': {'a': 'complete'},
+              'habitCompletions': {'b': 1},
+            },
+          ),
+        ],
+      );
+      expect(result.overallScheduledByWeekday[DateTime.monday], 2);
+      expect(result.overallCompletedByWeekday[DateTime.monday], 2);
+      expect(result.overallScheduledByWeekday.containsKey(DateTime.tuesday), isFalse);
+    });
+
+    test('strongestWeekday names the weekday that actually has the highest rate', () {
+      final h = habit('a');
+      // 4 full weeks from a Monday: every weekday gets exactly 4 samples,
+      // clearing the >=4 floor strongestWeekday requires. Only Mondays are
+      // marked done, so Monday should win outright, not by coincidence of
+      // list order.
+      final windowDays =
+          List.generate(28, (i) => DateTime(2026, 6, 1).add(Duration(days: i)));
+      final result = computeInsights(
+        habits: [h],
+        days: [
+          for (final d in windowDays)
+            (
+              d,
+              d.weekday == DateTime.monday
+                  ? {'squareStates': {'a': 'complete'}}
+                  : const <String, dynamic>{},
+            ),
+        ],
+      );
+      expect(result.strongestWeekday, DateTime.monday);
+    });
   });
 }

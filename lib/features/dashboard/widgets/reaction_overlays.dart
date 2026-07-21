@@ -7,6 +7,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../achievements/models/achievement_model.dart';
+import '../../achievements/widgets/achievement_medal.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../notifiers/dashboard_notifier.dart';
 
@@ -508,28 +509,17 @@ class AchievementUnlockSheet extends StatelessWidget {
   final AchievementModel achievement;
   const AchievementUnlockSheet({super.key, required this.achievement});
 
-  Color get _color => switch (achievement.rarity) {
-        AchievementRarity.common => GameColors.rarityCommon,
-        AchievementRarity.uncommon => GameColors.rarityUncommon,
-        AchievementRarity.rare => GameColors.rarityRare,
-        AchievementRarity.epic => GameColors.rarityEpic,
-        AchievementRarity.legendary => GameColors.rarityLegendary,
-      };
-
-  IconData get _icon => switch (achievement.trigger) {
-        AchievementTrigger.streak =>
-          Icons.local_fire_department_rounded,
-        AchievementTrigger.level => Icons.bolt_rounded,
-        AchievementTrigger.totalCompletions =>
-          Icons.check_circle_rounded,
-        AchievementTrigger.habitMastery => Icons.menu_book_rounded,
-        AchievementTrigger.greenSquares => Icons.grid_view_rounded,
-        _ => Icons.stars_rounded,
+  Color get _color => switch (achievement.tier) {
+        AchievementTier.bronze => GameColors.tierBronze,
+        AchievementTier.silver => GameColors.tierSilver,
+        AchievementTier.gold => GameColors.tierGold,
+        AchievementTier.platinum => GameColors.tierPlatinum,
       };
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final isAr = S.of(context).isAr;
     final c = _color;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
@@ -554,20 +544,12 @@ class AchievementUnlockSheet extends StatelessWidget {
             const SizedBox(height: 28),
             VictoryBurstOnMount(
               colors: [c, GameColors.gold, Colors.white],
-              child: Container(
-                width: 76,
-                height: 76,
-                decoration: BoxDecoration(
-                  color: c.withOpacity(0.14),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                        color: c.withOpacity(0.28),
-                        blurRadius: 28,
-                        spreadRadius: 4),
-                  ],
-                ),
-                child: Icon(_icon, size: 34, color: c),
+              child: AchievementMedal(
+                tier: achievement.tier,
+                icon: achievementIconFor(achievement.trigger),
+                size: 88,
+                state: MedalState.unlocked,
+                loopShimmer: true,
               )
                   .animate()
                   .scale(
@@ -585,9 +567,26 @@ class AchievementUnlockSheet extends StatelessWidget {
                   color: c,
                   letterSpacing: 2),
             )).animate(delay: 200.ms).fadeIn(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: c.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Text(
+                achievement.tier.localizedName(isAr).toUpperCase(),
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: c,
+                    letterSpacing: isAr ? 0 : 1.5),
+              ),
+            ).animate(delay: 240.ms).fadeIn(),
+            const SizedBox(height: 12),
             Text(
-              achievement.name,
+              achievement.localName(isAr),
               style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
@@ -597,7 +596,7 @@ class AchievementUnlockSheet extends StatelessWidget {
             ).animate(delay: 280.ms).fadeIn().slideY(begin: 0.2),
             const SizedBox(height: 6),
             Text(
-              achievement.description,
+              achievement.localDescription(isAr),
               style: TextStyle(fontSize: 14, color: gp.textSec),
               textAlign: TextAlign.center,
             ).animate(delay: 320.ms).fadeIn(),

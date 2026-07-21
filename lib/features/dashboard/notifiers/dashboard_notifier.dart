@@ -862,14 +862,19 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   /// for the visual-only mirror the other screen uses).
   ///
   /// Returns whether this call just finished a *single-tap*
-  /// (`frequencyTarget == 1`) habit — the signal callers use to decide
-  /// whether to mirror today's Grid square to green. Multi-tap
-  /// (`frequencyTarget > 1`, e.g. "3x this week") habits intentionally
-  /// return `false` here even on their final completing tap: a single
-  /// day's Grid square can't cleanly represent "2 of 3 this week" yet, so
-  /// Grid/Today sync is deferred for those and this always reports
-  /// "nothing to mirror". Returns `false` if the habit was already done
-  /// today (no new completion registered at all).
+  /// (`frequencyTarget == 1`) habit. This is narrower than "did it
+  /// succeed" — Today's own button and the notification action handler
+  /// use it to decide whether *their* completion should also paint
+  /// today's Grid square green, which only makes sense for single-tap
+  /// habits: a multi-tap (`frequencyTarget > 1`, e.g. "3x this week")
+  /// habit finishing one tap from Today shouldn't turn the square fully
+  /// green, since a single square can't cleanly represent "2 of 3 this
+  /// week". Grid's own square tap (grid_screen.dart) doesn't read this
+  /// return value at all — it already knows the user just painted that
+  /// exact square, for any frequencyTarget, so it mirrors unconditionally
+  /// once its own pre-check confirms the completion isn't a no-op. Also
+  /// returns `false` if the habit was already done today (no new
+  /// completion registered at all).
   ///
   /// [allHabitsDoneAfter] answers "once this completion lands, will every
   /// one of today's scheduled habits be done?" — the caller computes this

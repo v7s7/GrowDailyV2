@@ -91,17 +91,34 @@ enum SquareState {
         skipped => const Color(0xFF8C9A92),
       };
 
+  // Dark-mode fill for the empty state — deliberately flat, hue-free gray,
+  // not derived from the active ThemePreset. GameColors.surfaceHighlight
+  // (the old source for this) is every preset's own "elevated surface"
+  // tone reused all over the app, and for every single one of the 11
+  // presets it's a green-leaning color by design (e.g. the default preset's
+  // is #20332B — green channel visibly higher than red or blue) — a
+  // reasonable choice for a generic card background, but here it's filling
+  // the exact same squares that turn actual-green on completion, so an
+  // empty square and a barely-there heatmap day both read as "a little bit
+  // green" instead of "nothing happened." Picked to sit at roughly the same
+  // brightness as the old #20332B (so nothing about contrast/visibility
+  // regresses — see the fill() doc comment below on why that matters) with
+  // the color pulled out entirely, R == G == B.
+  static const Color _noneFillDark = Color(0xFF2B2B2B);
+
   /// Fill color for the square, adapted to light/dark so the "empty" state
-  /// reads correctly in both themes. Uses the theme's own highlight-surface
-  /// tone (not the card's plain surface color, and not a one-off hardcoded
-  /// value) — the previous fill was only a few RGB units off the card
-  /// background behind it, so an empty square was almost invisible except
-  /// for its thin border. That low-contrast outline then reads to the eye
-  /// as smaller/inset than a solidly-filled square of the exact same size,
-  /// which is what made whole columns look misaligned even though every
-  /// square shares the same fixed dimensions.
+  /// reads correctly in both themes. In dark mode this is a fixed neutral
+  /// gray (see _noneFillDark) rather than a one-off hardcoded value close
+  /// to the background — the previous fill was only a few RGB units off
+  /// the card background behind it, so an empty square was almost
+  /// invisible except for its thin border. That low-contrast outline then
+  /// reads to the eye as smaller/inset than a solidly-filled square of the
+  /// exact same size, which is what made whole columns look misaligned
+  /// even though every square shares the same fixed dimensions. Light
+  /// mode is untouched: GameColors.lightSurfaceHL is a warm cream tone,
+  /// not a green one, so it was never the thing being reported here.
   Color fill(bool dark) => switch (this) {
-        none => dark ? GameColors.surfaceHighlight : GameColors.lightSurfaceHL,
+        none => dark ? _noneFillDark : GameColors.lightSurfaceHL,
         partial => GameColors.warning.withOpacity(dark ? 0.30 : 0.28),
         complete => GameColors.emerald.withOpacity(dark ? 0.34 : 0.26),
         failed => GameColors.error.withOpacity(dark ? 0.30 : 0.22),

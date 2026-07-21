@@ -71,6 +71,27 @@ abstract final class GameColors {
   static const Color rarityEpic = Color(0xFFB982FF);
   static Color get rarityLegendary => gold;
 
+  // ── Achievement medal tiers ──────────────────────────────────
+  //
+  // Fixed, not preset-driven, on purpose: bronze/silver/platinum are real
+  // metals with a real-world color the same way iconGold/iconStreak above
+  // are fixed rather than tracking the active theme — a Bronze medal
+  // should always look like bronze no matter which of the 11 presets is
+  // active. Gold is the one exception: it deliberately reuses the app's
+  // own [gold] (preset-driven) so a Gold-tier medal stays visually the
+  // same "gold" as every coin/XP-adjacent gold accent elsewhere in the
+  // app, rather than introducing a second, slightly-different yellow.
+  // Each tier also carries a lighter `*Shine` shade for the medal
+  // widget's metallic highlight/shimmer — see AchievementMedal.
+  static const Color tierBronze = Color(0xFFCD7F32);
+  static const Color tierBronzeShine = Color(0xFFEFAD6D);
+  static const Color tierSilver = Color(0xFFB8C0C8);
+  static const Color tierSilverShine = Color(0xFFF2F5F7);
+  static Color get tierGold => gold;
+  static const Color tierGoldShine = Color(0xFFFFE9A8);
+  static const Color tierPlatinum = Color(0xFF6E8CA0);
+  static const Color tierPlatinumShine = Color(0xFFDCEEF9);
+
   // Dark-mode structural — preset-driven, mutable.
   static Color background = ThemePresets.byId(ThemePresets.defaultId).darkBg;
   static Color surface = ThemePresets.byId(ThemePresets.defaultId).darkSurface;

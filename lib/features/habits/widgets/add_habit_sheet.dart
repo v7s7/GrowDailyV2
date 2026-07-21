@@ -367,9 +367,23 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       if (confirmed != true || !mounted) return;
     }
     HapticFeedback.mediumImpact();
+    // Captured before the pop below closes this sheet's own context — the
+    // messenger lives on the ancestor Scaffold (Grid), so it's still good
+    // for showing the confirmation after this sheet is gone.
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmationText = S.of(context).habitArchivedConfirmation;
     ref.read(roomsControllerProvider).unlinkHabitEverywhere(existing.id).ignore();
-    ref.read(customHabitsProvider.notifier).remove(existing.id);
+    // archive(), not a hard delete — see CustomHabitsNotifier.archive's
+    // doc comment. Leaves this sheet/the Grid/today's streak exactly as
+    // fast as the old remove() did; only the Firestore doc's fate changed.
+    ref.read(customHabitsProvider.notifier).archive(existing.id);
     if (mounted) Navigator.pop(context);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(confirmationText),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
