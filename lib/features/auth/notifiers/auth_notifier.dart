@@ -46,8 +46,9 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
         email: email.trim(),
         password: password,
       );
-      // Ensure user document exists (handles v1 migrations)
-      await _ensureUserDoc(cred.user!.uid, email);
+      // Ensure user document exists (handles v1 migrations) and carries an
+      // `email` field (handles v2 migrations - see _ensureUserDoc).
+      await _ensureUserDoc(cred.user!.uid, cred.user?.email ?? email.trim());
       AnalyticsService.instance.track('auth_signed_in');
     });
   }
@@ -62,7 +63,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       );
       try {
         // Create Firestore profile on first registration
-        await _createUserDoc(cred.user!.uid, email);
+        await _createUserDoc(cred.user!.uid, cred.user?.email ?? email.trim());
       } catch (_) {
         // The Auth account exists but has no profile doc. _AuthGate routes
         // on authStateChanges() alone, so leaving this account signed in
@@ -146,6 +147,11 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
         FirebaseFirestore.instance.collection('users').doc(uid);
     await ref.set({
       'uid': uid,
+      // Kept alongside `createdAt` specifically so an admin can open the
+      // Firebase console's Firestore Data tab and filter/sort the `users`
+      // collection by email or signup date directly - Firebase Auth's own
+      // user list supports neither, and doesn't join with this collection.
+      'email': email.trim(),
       'displayName': email.split('@')[0],
       'level': 1,
       'currentLevelXp': 0,
@@ -164,7 +170,18 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     final ref =
         FirebaseFirestore.instance.collection('users').doc(uid);
     final snap = await ref.get();
-    if (!snap.exists) await _createUserDoc(uid, email);
+    if (!snap.exists) {
+      await _createUserDoc(uid, email);
+      return;
+    }
+    // Backfill accounts created before `email` was stored on this doc (see
+    // _createUserDoc's doc comment) - merge-write only touches this one
+    // field, so createdAt and everything else already on the doc is left
+    // exactly as-is. Runs at most once per account: every sign-in after
+    // this either finds the field already set, or just set it.
+    if ((snap.data()?['email'] as String?)?.isNotEmpty != true) {
+      await ref.set({'email': email.trim()}, SetOptions(merge: true));
+    }
   }
 }
 

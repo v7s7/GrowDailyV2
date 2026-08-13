@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,19 +16,23 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/game_constants.dart';
 import 'core/extensions/datetime_ext.dart';
 import 'core/l10n/app_strings.dart';
+import 'core/providers/app_guide_provider.dart';
 import 'core/providers/get_started_checklist_provider.dart';
-import 'core/providers/home_spotlight_provider.dart';
+import 'core/providers/home_tab_provider.dart'
+    show requestedHomeTabProvider, requestedMatrixQuickAddProvider;
 import 'core/providers/onboarding_provider.dart';
+import 'core/providers/room_finale_seen_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/services/analytics_service.dart';
 import 'core/services/app_badge_service.dart';
 import 'core/services/home_widget_service.dart';
 import 'core/services/notification_service.dart';
+import 'core/services/push_notification_service.dart';
 import 'core/services/purchase_service.dart';
 import 'core/theme/game_theme.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/notifiers/dashboard_notifier.dart';
-import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import 'features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitCatalog, IslamicHabitTemplate;
@@ -42,23 +48,35 @@ import 'features/grid/screens/grid_journal_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
 import 'features/language/screens/language_picker_screen.dart';
 import 'features/matrix/models/matrix_task.dart' show MatrixQuadrant;
-import 'features/matrix/notifiers/matrix_notifier.dart' show matrixProvider;
+import 'features/matrix/notifiers/matrix_notifier.dart'
+    show MatrixState, isMatrixQuickAddLink, matrixProvider;
 import 'features/matrix/widgets/voice_note_player.dart'
     show GlobalVoiceNotePlayerOverlay;
 import 'features/night_review/screens/night_review_screen.dart';
+import 'features/onboarding/screens/app_guide_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/premium/notifiers/premium_notifier.dart';
 import 'features/premium/screens/premium_screen.dart';
+import 'features/profile/screens/help_support_screen.dart';
+import 'features/profile/screens/profile_screen.dart' show SettingsScreen;
 import 'features/rooms/notifiers/rooms_notifier.dart'
     show
         RoomRaceSnapshot,
         myRoomRaceSnapshotProvider,
         pendingJoinCodeProvider,
+        pendingOpenRoomCodeProvider,
         parseRoomJoinLink,
         roomBoostedReward,
-        syncRoomToday;
+        syncRoomToday,
+        // _resyncMyRooms (didChangeAppLifecycleState) - keeps this account's
+        // own room progress fresh for everyone else without needing anyone to
+        // open the Rooms tab. See that method's doc comment.
+        myRoomCodesProvider,
+        roomProvider,
+        roomsControllerProvider;
 import 'features/rooms/screens/room_detail_screen.dart';
 import 'features/rooms/screens/rooms_hub_screen.dart';
+import 'features/rooms/widgets/room_finale_announcer.dart';
 import 'features/rooms/widgets/join_room_sheet.dart' show showJoinRoomSheet;
 import 'features/settings/models/notification_settings.dart';
 import 'shared/widgets/home_shell.dart';
@@ -77,66 +95,115 @@ typedef _TodayHabitStats = ({
 });
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  if (!kIsWeb) {
-    await SystemChrome.setPreferredOrientations(
-        [DeviceOrientation.portraitUp]);
-  }
-  SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
-  // Both supported locales, always — not just whichever one MaterialApp
-  // resolves to. Grid's dual-language day headers format dates in en AND
-  // ar regardless of the app's active language, and intl throws
-  // LocaleDataException on an uninitialized locale, so both must be ready
-  // before any screen can render.
-  await initializeDateFormatting('en');
-  await initializeDateFormatting('ar');
-  await Hive.initFlutter();
-  await Future.wait([
-    Hive.openBox(GameConstants.boxSettings),
-    Hive.openBox(GameConstants.boxDailyLogs),
-    Hive.openBox(GameConstants.boxHabits),
-  ]);
-  await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform);
-  await NotificationService.instance.init();
-  await HomeWidgetService.instance.init();
-  // Configures the RevenueCat SDK with the production API key (see
-  // PurchaseService's doc comment). Safe to call unconditionally even if
-  // it were ever unset — [PurchaseService.configure] never throws.
-  await PurchaseService.instance.configure();
-  // Seed guestModeProvider from Hive so a returning guest with intact local
-  // data lands back on their grid instead of being bounced to the auth
-  // screen (the provider's own default is always `false` in memory).
-  final persistedGuestMode = await loadPersistedGuestMode();
-  final persistedLocale = await loadPersistedLocale();
-  final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
-  final persistedHomeSpotlightSeen = await loadPersistedHomeSpotlightSeen();
-  final persistedGetStartedDismissed = await loadPersistedGetStartedDismissed();
-  final persistedThemeMode = await loadPersistedThemeMode();
-  // Also applies the preset's colors to GameColors immediately, so the
-  // very first frame already renders in the right preset.
-  final persistedThemePreset = await loadPersistedThemePreset();
-  // Also applies the font to GameTextStyles immediately, so the very first
-  // frame already renders in the right typeface instead of flashing the
-  // default and then swapping.
-  final persistedFont = await loadPersistedFont();
-  runApp(ProviderScope(
-    overrides: [
-      guestModeProvider.overrideWith((ref) => persistedGuestMode),
-      ...localeProviderOverrides(persistedLocale),
-      onboardingSeenProvider.overrideWith((ref) => persistedOnboardingSeen),
-      homeSpotlightSeenProvider.overrideWith((ref) => persistedHomeSpotlightSeen),
-      getStartedDismissedProvider.overrideWith((ref) => persistedGetStartedDismissed),
-      if (persistedThemeMode != null)
-        themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
-      if (persistedThemePreset != null)
-        themePresetProvider.overrideWith((ref) => ThemePresetNotifier(persistedThemePreset)),
-      if (persistedFont != null)
-        appFontProvider.overrideWith((ref) => AppFontNotifier(persistedFont)),
-    ],
-    child: const GrowDailyApp(),
-  ));
+  // Everything below is wrapped in runZonedGuarded rather than left as a
+  // plain `Future<void> main() async {...}` body — see the crash-reporting
+  // block a few lines in for why: its own onError (below) is the final
+  // backstop of the three-layer setup that block describes, catching
+  // anything that reaches neither FlutterError.onError nor
+  // PlatformDispatcher.instance.onError (a fire-and-forget Future nobody
+  // ever awaited or attached a catchError to, for instance).
+  await runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    if (!kIsWeb) {
+      await SystemChrome.setPreferredOrientations(
+          [DeviceOrientation.portraitUp]);
+    }
+    SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
+    // Both supported locales, always — not just whichever one MaterialApp
+    // resolves to. Grid's dual-language day headers format dates in en AND
+    // ar regardless of the app's active language, and intl throws
+    // LocaleDataException on an uninitialized locale, so both must be ready
+    // before any screen can render.
+    await initializeDateFormatting('en');
+    await initializeDateFormatting('ar');
+    await Hive.initFlutter();
+    await Future.wait([
+      Hive.openBox(GameConstants.boxSettings),
+      Hive.openBox(GameConstants.boxDailyLogs),
+      Hive.openBox(GameConstants.boxHabits),
+    ]);
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
+
+    // Crash reporting: three layers, matching Firebase's own documented
+    // Flutter setup, since no single one of them catches everything on its
+    // own.
+    //   - FlutterError.onError catches errors *inside* the Flutter
+    //     framework itself (a widget build/layout/paint error) —
+    //     recordFlutterFatalError is Crashlytics' own recommended handler,
+    //     not a custom one, so it also forwards to whatever default
+    //     handling FlutterError.onError already did (red screen in debug).
+    //   - PlatformDispatcher.instance.onError catches everything else in
+    //     this isolate that isn't already inside a try/catch — a bad
+    //     `late` field, a failed cast, a plugin's platform-channel error —
+    //     including cases Flutter's own error zone doesn't see.
+    //   - runZonedGuarded's own onError, at the bottom of this function,
+    //     is the final backstop: a fire-and-forget Future nobody ever
+    //     awaited or attached a catchError to surfaces here instead of
+    //     vanishing as an "Unhandled exception" in the console with zero
+    //     record anywhere — the actual gap this whole change closes (see
+    //     the empty `catch (_) {}` blocks this same pass fixed in
+    //     dashboard_notifier.dart for the same underlying problem).
+    // Collection disabled for local `flutter run` debug sessions
+    // (kDebugMode) so a developer's own hot-reload/dev-loop errors don't
+    // pollute the real dashboard — every real distribution path
+    // (TestFlight via RELEASE.md's `flutter build ipa`) is a release build
+    // regardless, so this never silences a build anyone outside the dev
+    // machine will ever run.
+    await FirebaseCrashlytics.instance
+        .setCrashlyticsCollectionEnabled(!kDebugMode);
+    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    PlatformDispatcher.instance.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    };
+
+    await NotificationService.instance.init();
+    await HomeWidgetService.instance.init();
+    // Configures the RevenueCat SDK with the production API key (see
+    // PurchaseService's doc comment). Safe to call unconditionally even if
+    // it were ever unset — [PurchaseService.configure] never throws.
+    await PurchaseService.instance.configure();
+    // Seed guestModeProvider from Hive so a returning guest with intact local
+    // data lands back on their grid instead of being bounced to the auth
+    // screen (the provider's own default is always `false` in memory).
+    final persistedGuestMode = await loadPersistedGuestMode();
+    final persistedLocale = await loadPersistedLocale();
+    final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
+    final persistedGetStartedDismissed = await loadPersistedGetStartedDismissed();
+    final persistedAppGuideRoomsSeen = await loadPersistedAppGuideRoomsSeen();
+    final persistedRoomFinaleSeen = await loadPersistedRoomFinaleSeen();
+    final persistedAppGuideBadgeSeen = await loadPersistedAppGuideBadgeSeen();
+    final persistedThemeMode = await loadPersistedThemeMode();
+    // Also applies the preset's colors to GameColors immediately, so the
+    // very first frame already renders in the right preset.
+    final persistedThemePreset = await loadPersistedThemePreset();
+    // Also applies the font to GameTextStyles immediately, so the very first
+    // frame already renders in the right typeface instead of flashing the
+    // default and then swapping.
+    final persistedFont = await loadPersistedFont();
+    runApp(ProviderScope(
+      overrides: [
+        guestModeProvider.overrideWith((ref) => persistedGuestMode),
+        ...localeProviderOverrides(persistedLocale),
+        onboardingSeenProvider.overrideWith((ref) => persistedOnboardingSeen),
+        getStartedDismissedProvider.overrideWith((ref) => persistedGetStartedDismissed),
+        appGuideRoomsSeenProvider.overrideWith((ref) => persistedAppGuideRoomsSeen),
+        roomFinaleSeenProvider.overrideWith((ref) => persistedRoomFinaleSeen),
+        appGuideBadgeSeenProvider.overrideWith((ref) => persistedAppGuideBadgeSeen),
+        if (persistedThemeMode != null)
+          themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
+        if (persistedThemePreset != null)
+          themePresetProvider.overrideWith((ref) => ThemePresetNotifier(persistedThemePreset)),
+        if (persistedFont != null)
+          appFontProvider.overrideWith((ref) => AppFontNotifier(persistedFont)),
+      ],
+      child: const GrowDailyApp(),
+    ));
+  }, (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  });
 }
 
 class GrowDailyApp extends ConsumerStatefulWidget {
@@ -155,6 +222,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   ProviderSubscription<WeeklyGridState>? _gridSub;
   ProviderSubscription<AsyncValue<User?>>? _authSub;
   ProviderSubscription<RoomRaceSnapshot?>? _roomRaceSub;
+  ProviderSubscription<MatrixState>? _matrixWidgetSub;
   StreamSubscription<Uri>? _linkSub;
   final _appLinks = AppLinks();
 
@@ -169,6 +237,18 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // comment for why: draining whatever the widget's Mark Done button
     // queued while the app was closed.
     WidgetsBinding.instance.addObserver(this);
+
+    // Routes a tapped room-finish push to the right room - the actual
+    // navigation happens through pendingOpenRoomCodeProvider (see
+    // _OnboardingOrGrid's listener), same "hand it to something that can
+    // safely navigate" indirection NotificationService.onAction already
+    // uses for a tapped local-notification action. Set unconditionally,
+    // not just for signed-in users - harmless either way, since a push
+    // only ever reaches a device that registered a token in the first
+    // place (see PushNotificationService.registerForUser).
+    PushNotificationService.instance.onOpenRoom = (code) {
+      ref.read(pendingOpenRoomCodeProvider.notifier).state = code;
+    };
 
     // Once sign-in resolves — including "already signed in" on a warm
     // boot — pull each of these settings' account-level value, if the
@@ -191,12 +271,29 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // it.
     _authSub = ref.listenManual(authStateProvider, (previous, next) {
       final uid = next.asData?.value?.uid;
+      // Ties analytics to the real account instead of leaving every
+      // session anonymous, same as PurchaseService.logIn below for
+      // RevenueCat's identity — see AnalyticsService.setUserId's doc
+      // comment.
+      AnalyticsService.instance.setUserId(uid);
+      // Same idea for crash reports — a crash correlated to a real uid
+      // (rather than an anonymous device) is the difference between
+      // "something broke for someone" and "I can look up this exact
+      // account's data to reproduce it." Cleared to '' on sign-out rather
+      // than left stale, same as this block's detachAccount() calls below.
+      FirebaseCrashlytics.instance.setUserIdentifier(uid ?? '');
       if (uid != null) {
         ref.read(themeModeProvider.notifier).pullFromAccount(uid);
         ref.read(themePresetProvider.notifier).pullFromAccount(uid);
         ref.read(appFontProvider.notifier).pullFromAccount(uid);
         ref.read(reminderTimeProvider.notifier).pullFromAccount(uid);
         ref.read(notificationSettingsProvider.notifier).pullFromAccount(uid);
+        _syncAmbientAccountFacts(uid);
+        // Keeps this device's FCM token mirrored to this account for the
+        // room-finish push (see PushNotificationService's own doc comment)
+        // - a no-op token-wise if nothing's changed since the last sync,
+        // same as every other call in this branch.
+        PushNotificationService.instance.registerForUser(uid);
         // Apply this identity's CustomerInfo the moment it's back, instead
         // of letting PremiumNotifier's own constructor-time refresh() race
         // it — see PurchaseService.logIn's doc comment for the cold-start
@@ -216,6 +313,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         ref.read(reminderTimeProvider.notifier).detachAccount();
         ref.read(notificationSettingsProvider.notifier).detachAccount();
         PurchaseService.instance.logOut();
+        // Drops this device's own token doc so a shared/reset device stops
+        // being a room-finish push target for the account that just left it.
+        PushNotificationService.instance.clearForSignOut();
       }
     }, fireImmediately: true);
 
@@ -231,6 +331,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // Catch anything the widget queued between the last time the app was
     // open and this cold start (see _processPendingWidgetCompletions).
     _processPendingWidgetCompletions();
+    _processPendingWidgetTaskCompletions();
 
     // Catch a growdaily://join/CODE link that cold-launched the app, and
     // keep listening for one arriving while the app's already running (a
@@ -332,11 +433,65 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         daysRemaining: next?.daysRemaining ?? 0,
         rows: [
           for (final r in next?.rows ?? const [])
-            (name: r.name, rank: r.rank, percent: r.percent, isMe: r.isMe),
+            (
+              name: r.name,
+              rank: r.rank,
+              percent: r.percent,
+              isMe: r.isMe,
+              uid: r.uid,
+              daysDone: r.daysDone,
+              daysTotal: r.daysTotal,
+              heatmap: r.heatmap,
+            ),
         ],
       );
     }, fireImmediately: true);
+
+    // Keeps the Matrix widget's task list current — see HomeWidgetService.
+    // updateMatrixWidgetData's doc comment for why this pushes every open
+    // task, sorted, rather than a pre-capped handful: the Swift side decides
+    // how many rows a given widget size actually has room to draw.
+    // fireImmediately so a cold start with tasks already on the board
+    // doesn't leave the widget on stale data (or its placeholder) until the
+    // very first edit.
+    _matrixWidgetSub = ref.listenManual(matrixProvider, (previous, next) {
+      final now = DateTime.now();
+      final open = next.tasks.where((t) => !t.isDone).toList()
+        ..sort((a, b) {
+          final byQuadrant = _matrixQuadrantRank(a.quadrant)
+              .compareTo(_matrixQuadrantRank(b.quadrant));
+          return byQuadrant != 0 ? byQuadrant : a.order.compareTo(b.order);
+        });
+      HomeWidgetService.instance.updateMatrixWidgetData([
+        for (final t in open)
+          (
+            id: t.id,
+            title: t.title,
+            quadrant: t.quadrant.name,
+            isDone: t.isDone,
+            isFav: t.isFav,
+            // Same "overdue" definition as MatrixNotifier's
+            // isOverdueButStillRelevant (reminder set, in the past, task
+            // still open) — deliberately NOT gated on the notifications
+            // master switch the way that one is, since this just marks the
+            // task as late, it doesn't fire anything.
+            isLate: t.reminderAt != null && !t.reminderAt!.isAfter(now),
+          ),
+      ]);
+    }, fireImmediately: true);
   }
+
+  /// Do First → Schedule → Delegate → Eliminate, the same triage order the
+  /// in-app board itself reads top to bottom — see [_matrixWidgetSub]. A
+  /// widget only has room for a handful of rows, so this decides which open
+  /// tasks are worth those rows when there are more open tasks than space
+  /// to show them.
+  int _matrixQuadrantRank(MatrixQuadrant q) => switch (q) {
+        MatrixQuadrant.doFirst => 0,
+        MatrixQuadrant.schedule => 1,
+        MatrixQuadrant.delegate => 2,
+        MatrixQuadrant.eliminate => 3,
+      };
 
   // Once-per-app-day guard for _maybeAutoCleanQuitYesterday — in-memory
   // only on purpose: autoCleanQuitDay is idempotent (only ever writes over
@@ -424,7 +579,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         prayerKey: cue.prayerKey,
         streak: dash.habitStreak(habit.id),
         isDoneToday: done,
-        reminderLeadMinutes: habit.reminderLeadMinutes,
+        reminderOffsetMinutes: habit.reminderOffsetMinutes,
+        ignoreQuietHours: habit.ignoreQuietHours,
       ));
     }
     NotificationService.instance
@@ -449,6 +605,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       urgentMatrixCount: urgentMatrixCount,
       isAr: isAr,
     );
+
+    // Matrix task reminders previously only resynced once, at cold start/
+    // sign-in — every other reminder type above already gets re-derived on
+    // every call to this method (including a plain resume, see
+    // didChangeAppLifecycleState), so a Matrix reminder that silently
+    // failed to schedule earlier (e.g. notification permission was off,
+    // then granted later from system Settings) had no chance to self-heal
+    // short of the user manually re-touching that exact task. See
+    // MatrixNotifier.resyncReminders' own doc comment.
+    ref.read(matrixProvider.notifier).resyncReminders();
 
     // Quit habits resolve in the evening, not (only) at a cue time — their
     // success is the absence of something, so the day gets settled by an
@@ -475,6 +641,27 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     NotificationService.instance
         .scheduleQuitCheckIns(quitCheckIns, settings, isAr: isAr);
 
+    // Weekly digest content ("N of 7 days colored") comes straight off the
+    // same grid read above — only recomputed (and rescheduled) once that
+    // grid is actually showing the current week and done loading; a stale
+    // or mid-load read would either undercount or briefly show 0, so this
+    // cycle just leaves the previous schedule alone and lets the next
+    // recompute (moments later, once the real data lands) correct it —
+    // same eventually-consistent pattern as the quit check-ins above.
+    if (grid.isCurrentWeek && !grid.isLoading) {
+      final greenDaysThisWeek = grid.days
+          .where((d) => (grid.states[d.toDateKey()] ?? const {})
+              .values
+              .any((s) => s.isGreen))
+          .length;
+      NotificationService.instance.scheduleWeeklyDigest(
+        settings: settings,
+        greenDays: greenDaysThisWeek,
+        streak: dash.streak,
+        isAr: isAr,
+      );
+    }
+
     NotificationService.instance.celebrationsEnabled =
         settings.masterEnabled && settings.celebrationsEnabled;
 
@@ -493,6 +680,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _processPendingWidgetCompletions();
+      _processPendingWidgetTaskCompletions();
       ref.read(dashboardProvider.notifier).refresh();
       ref.read(premiumProvider.notifier).refresh();
       // The Grid's visible week is otherwise only computed once, at
@@ -507,7 +695,80 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // keeps reminders self-healing for a day-cutoff rollover or a
       // yesterday-completed habit that happened while the app was closed.
       _recomputeNotifications();
+      // Same self-healing idea for the ambient facts the room-finish push
+      // Cloud Function reads (see _syncAmbientAccountFacts) — a trip across
+      // time zones mid-session should be reflected by the next resume, not
+      // require a fresh sign-in.
+      final uid = ref.read(authStateProvider).asData?.value?.uid;
+      if (uid != null) {
+        _syncAmbientAccountFacts(uid);
+        // Same self-healing idea as _syncAmbientAccountFacts right above -
+        // catches a token that rotated while this device was backgrounded
+        // (registerForUser's onTokenRefresh listener already catches one
+        // that rotates while the app is actually running).
+        PushNotificationService.instance.registerForUser(uid);
+        _resyncMyRooms();
+      }
     }
+  }
+
+  /// Pushes this account's own room progress up for every room it's in, on
+  /// every resume.
+  ///
+  /// Why this has to exist: a room's leaderboard is assembled from each
+  /// participant's OWN doc, and only that person's device may write it -
+  /// nobody can compute a teammate's progress, because nobody else is
+  /// allowed to read their habit history (see firestore.rules). So a
+  /// teammate's row is only ever as fresh as the last time THEIR app synced.
+  ///
+  /// Before this, the only full resync ran when someone actually opened a
+  /// room's detail screen, plus a per-tap fast path for habits already
+  /// linked to a live room. That left an obvious hole: finish your habits,
+  /// never open the Rooms tab, and everyone else keeps seeing you on zero -
+  /// which reads as "the room is broken" rather than "her phone hasn't
+  /// spoken to the server yet". Syncing on resume closes it without anyone
+  /// needing to visit the room at all.
+  ///
+  /// Fire-and-forget and deliberately unawaited: it's a background freshening
+  /// nothing on screen is waiting for, and a failure just means the next
+  /// resume tries again.
+  void _resyncMyRooms() {
+    final codes = ref.read(myRoomCodesProvider).valueOrNull;
+    if (codes == null || codes.isEmpty) return;
+    final controller = ref.read(roomsControllerProvider);
+    for (final code in codes) {
+      final room = ref.read(roomProvider(code)).valueOrNull;
+      // Skipped for a room that hasn't started or has already finished -
+      // syncLinkedHabitsProgress would no-op on the first anyway, and the
+      // second can't gain new progress.
+      if (room == null || !room.hasStarted || room.isEnded) continue;
+      controller.syncLinkedHabitsProgress(room).ignore();
+    }
+  }
+
+  /// Best-effort mirror of two small device facts to `users/{uid}` that
+  /// only exist for a server (never read anywhere else client-side): the
+  /// active locale, and this device's current UTC offset in minutes. Both
+  /// are for functions/index.js's room-finish push trigger, which has no
+  /// other way to know which language a recipient reads or what "quiet
+  /// hours" means in their local clock — see NotificationSettings.
+  /// roomActivityEnabled's doc comment for the feature this feeds. A
+  /// plain int offset (not a full IANA timezone id) is a deliberate
+  /// simplification: good enough for a soft courtesy check like quiet
+  /// hours, at the cost of being off by an hour during the couple of weeks
+  /// a year DST transitions don't line up with the recipient's — an
+  /// acceptable trade for not needing a timezone database in the function.
+  /// Never awaited by its caller and never throws outward — a failed or
+  /// offline write here just leaves the function's copy stale until the
+  /// next successful sync, exactly like every other pullFromAccount-
+  /// adjacent call in this listener.
+  void _syncAmbientAccountFacts(String uid) {
+    final locale = ref.read(localeProvider).languageCode;
+    final tzOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+    unawaited(FirebaseFirestore.instance.collection('users').doc(uid).set({
+      'locale': locale,
+      'tzOffsetMinutes': tzOffsetMinutes,
+    }, SetOptions(merge: true)).catchError((_) {}));
   }
 
   /// Drains habit ids the large widget's Mark Done button queued (see the
@@ -526,26 +787,65 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     if (ids.isNotEmpty) _syncBadge();
   }
 
+  /// Same idea as [_processPendingWidgetCompletions], for the Matrix
+  /// widget's checkmark instead of a habit's — see MarkTaskDoneIntent in
+  /// GrowDailyWidget.swift. Guards on the task still being open before
+  /// toggling: MatrixNotifier.toggle is a plain flip (not an idempotent
+  /// "mark done"), so without this guard, a task the user already finished
+  /// in-app before this queue drained would get silently un-done instead of
+  /// safely no-op'd — the exact double-credit-shaped bug
+  /// takePendingCompletions' habit path avoids by calling a real "mark
+  /// done" action instead of a toggle. A missing id (task deleted before
+  /// this drained) is skipped the same way.
+  Future<void> _processPendingWidgetTaskCompletions() async {
+    final ids = await HomeWidgetService.instance.takePendingTaskCompletions();
+    if (ids.isEmpty) return;
+    final tasks = ref.read(matrixProvider).tasks;
+    final notifier = ref.read(matrixProvider.notifier);
+    for (final id in ids) {
+      final matches = tasks.where((t) => t.id == id);
+      if (matches.isNotEmpty && !matches.first.isDone) {
+        notifier.toggle(id);
+      }
+    }
+  }
+
   /// Reads whatever link cold-launched the app (if any), then subscribes
-  /// for further ones - both paths just parse and stash a room code onto
-  /// [pendingJoinCodeProvider]; see _OnboardingOrGrid for where that
-  /// actually turns into navigation. Wrapped in try/catch since the initial
-  /// -link platform channel can throw before the native side is fully
-  /// ready on some launches - the live stream subscribed to right after
-  /// still catches anything real, so a failure here is never fatal to deep
-  /// linking as a whole, just to that one cold-start link.
+  /// for further ones - both paths just hand off to [_handleDeepLink]. See
+  /// _OnboardingOrGrid for where a stashed room code turns into navigation,
+  /// and MatrixScreen's own ref.listen for where the Matrix quick-add flag
+  /// does. Wrapped in try/catch since the initial-link platform channel can
+  /// throw before the native side is fully ready on some launches - the
+  /// live stream subscribed to right after still catches anything real, so
+  /// a failure here is never fatal to deep linking as a whole, just to that
+  /// one cold-start link.
   Future<void> _initDeepLinks() async {
     try {
       final initial = await _appLinks.getInitialLink();
-      final code = initial == null ? null : parseRoomJoinLink(initial);
-      if (code != null) ref.read(pendingJoinCodeProvider.notifier).state = code;
+      if (initial != null) _handleDeepLink(initial);
     } catch (_) {
       // Ignored - see doc comment above.
     }
-    _linkSub = _appLinks.uriLinkStream.listen((uri) {
-      final code = parseRoomJoinLink(uri);
-      if (code != null) ref.read(pendingJoinCodeProvider.notifier).state = code;
-    }, onError: (_) {});
+    _linkSub =
+        _appLinks.uriLinkStream.listen(_handleDeepLink, onError: (_) {});
+  }
+
+  /// Every `growdaily://...` link this app currently recognizes, in one
+  /// place — a room invite (see [parseRoomJoinLink]) or the Matrix widget's
+  /// "+" button (see [isMatrixQuickAddLink]). A link matching neither is
+  /// just ignored, same as before this was split out of [_initDeepLinks]:
+  /// some other feature, or the OS itself, can hand this app a link for a
+  /// reason unrelated to either of these, and that's fine.
+  void _handleDeepLink(Uri uri) {
+    final code = parseRoomJoinLink(uri);
+    if (code != null) {
+      ref.read(pendingJoinCodeProvider.notifier).state = code;
+      return;
+    }
+    if (isMatrixQuickAddLink(uri)) {
+      ref.read(requestedHomeTabProvider.notifier).state = 2;
+      ref.read(requestedMatrixQuickAddProvider.notifier).state = true;
+    }
   }
 
   /// Today's scheduled habits vs. how many are already complete, plus the
@@ -681,19 +981,23 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     }
   }
 
-  /// Routes a notification's plain body tap to where its action lives:
-  /// the daily reminder and streak-risk nudge carry
-  /// [NotificationService.openTodayPayload] and open Today; a habit
-  /// reminder / quit check-in carries its habit id and opens Today too
-  /// (that's where the habit's card, pill, and slip controls sit); a
-  /// Matrix task reminder carries its task id and opens the Tasks tab.
-  /// Anything unrecognized just opens the app, same as before.
+  /// Routes a notification's plain body tap to where its action lives: a
+  /// daily reminder, streak-risk nudge, habit reminder or quit check-in all
+  /// open the Grid — the app's home, where the habit's own row and squares
+  /// are; a Matrix task reminder opens the Tasks tab. Anything unrecognized
+  /// just opens the app, same as before.
+  ///
+  /// These used to open `/dashboard`, the standalone Today screen. That
+  /// screen was reachable by no other route in the entire app — not a tab,
+  /// not a link from anywhere — so tapping a reminder dropped someone onto a
+  /// screen they had never seen and could not get back to on purpose. It's
+  /// gone now; everything it did for a habit, the Grid row does.
   void _handleNotificationBodyTap(String? payload) {
     if (payload == null || payload.isEmpty) return;
     final String route;
     if (payload == NotificationService.openTodayPayload ||
         _resolveHabit(payload) != null) {
-      route = '/dashboard';
+      route = '/grid';
     } else if (ref.read(matrixProvider).tasks.any((t) => t.id == payload)) {
       route = '/matrix';
     } else {
@@ -722,6 +1026,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _gridSub?.close();
     _authSub?.close();
     _roomRaceSub?.close();
+    _matrixWidgetSub?.close();
     _linkSub?.cancel();
     super.dispose();
   }
@@ -741,7 +1046,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     ref.watch(appFontProvider);
 
     return MaterialApp(
-      title: 'GrowDaily',
+      title: 'Grow Daily',
       navigatorKey: _navKey,
       debugShowCheckedModeBanner: false,
       supportedLocales: const [Locale('en'), Locale('ar')],
@@ -762,11 +1067,35 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // the fully-built Navigator — whatever route or modal is currently on
       // top of it — so stacking the overlay after it here guarantees the
       // player paints above literally everything else in the app.
-      builder: (context, child) => Stack(
-        children: [
-          if (child != null) child,
-          const GlobalVoiceNotePlayerOverlay(),
-        ],
+      //
+      // The transparent Material around that Stack is the app-wide safety
+      // net for the "yellow double-underlined text" bug. MaterialApp hands
+      // WidgetsApp a fallback `_errorTextStyle` (red 48px monospace,
+      // double yellow underline) as the root DefaultTextStyle, and
+      // WidgetsApp installs it *above* this builder — so anything rendered
+      // without a Material/Scaffold above it inherits that decoration.
+      // Explicit color/fontSize on a Text override the red and the size but
+      // never the decoration, which is why the symptom shows up as bare
+      // yellow lines under otherwise correct-looking text. It is not
+      // debug-only either: MaterialApp passes _errorTextStyle
+      // unconditionally, so it ships to users.
+      //
+      // Wrapping here fixes it once for everything below: the Navigator
+      // (hence every route, dialog, and showGeneralDialog page) and the
+      // overlay siblings stacked next to it. `MaterialType.transparency`
+      // paints nothing — no color, no elevation, no clip — it only supplies
+      // the DefaultTextStyle that was missing. Individual widgets that can
+      // render outside a Material still wrap themselves too (see
+      // VoiceNotePlayer, HabitMilestoneCelebration, the LongPressDraggable
+      // feedbacks); this is the backstop, not a replacement for those.
+      builder: (context, child) => Material(
+        type: MaterialType.transparency,
+        child: Stack(
+          children: [
+            if (child != null) child,
+            const GlobalVoiceNotePlayerOverlay(),
+          ],
+        ),
       ),
       initialRoute: '/',
       routes: {
@@ -778,6 +1107,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         '/premium': (_) => const PremiumScreen(),
         '/auth': (_) => const AuthScreen(),
         '/notification-settings': (_) => const NotificationSettingsScreen(),
+        '/help-support': (_) => const HelpSupportScreen(),
+        '/settings': (_) => const SettingsScreen(),
+        '/app-guide': (_) => const AppGuideScreen(),
       },
       onGenerateRoute: (settings) {
         // The bottom nav bar's tabs are peers, not a hierarchy, so
@@ -787,7 +1119,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // HomeShell's doc comment — so an old pushReplacementNamed call
         // from anywhere in the app still lands exactly where it expects.
         final WidgetBuilder? builder = switch (settings.name) {
-          '/dashboard' => (_) => const DashboardScreen(),
+          // '/dashboard' deliberately absent: the standalone Today screen it
+          // pointed at is gone (see _handleNotificationBodyTap). A stale
+          // payload naming it now falls through to null below and simply
+          // opens the app, which is the right outcome for a route that no
+          // longer describes anywhere.
           '/grid' => (_) => const HomeShell(initialIndex: 0),
           '/profile' => (_) => const HomeShell(initialIndex: 1),
           '/matrix' => (_) => const HomeShell(initialIndex: 2),
@@ -883,13 +1219,53 @@ class _OnboardingOrGrid extends ConsumerWidget {
         }
       });
     });
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 400),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      child: seen
-          ? const HomeShell(key: ValueKey('home'))
-          : const OnboardingScreen(key: ValueKey('onboarding')),
+
+    // A tapped room-finish push notification (see
+    // PushNotificationService.onOpenRoom, wired below in _MyAppState) may
+    // similarly have arrived before this widget existed - same guard, same
+    // "first safe point to navigate" reasoning as pendingJoinCodeProvider
+    // right above, just straight to the room itself with no join sheet in
+    // between (see pendingOpenRoomCodeProvider's own doc comment for why).
+    ref.listen(pendingOpenRoomCodeProvider, (previous, code) {
+      if (code == null) return;
+      ref.read(pendingOpenRoomCodeProvider.notifier).state = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => RoomDetailScreen(code: code)));
+      });
+    });
+
+    // App Guide is NOT auto-opened for a new user any more.
+    //
+    // Finishing onboarding used to push the whole App Guide screen on top of
+    // the Grid half a second after arriving — so a first-time user reached
+    // their new board and immediately had a four-lesson guide land over it,
+    // with a dimming spotlight and the Get Started checklist waiting
+    // underneath. Four teaching surfaces before a single tap, which is what
+    // made starting the app feel like work.
+    //
+    // The guide keeps doing the job its own doc comment describes: a
+    // replayable reference you open from Settings when you actually want it.
+    // Discovery is handled by the "new" dot on that Settings row
+    // (appGuideBadgeSeenProvider), which is a nudge rather than an
+    // interruption. The first run itself is taught by one thing now — the
+    // Get Started checklist on the Grid.
+
+    // Announces any room that finished while the app was closed, once, on
+    // the next open — see RoomFinaleAnnouncer for why this is state-driven
+    // rather than a scheduled notification. Wrapped here rather than inside
+    // HomeShell so it survives the crossfade below without remounting (and
+    // re-asking) every time onboarding flips.
+    return RoomFinaleAnnouncer(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 400),
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeIn,
+        child: seen
+            ? const HomeShell(key: ValueKey('home'))
+            : const OnboardingScreen(key: ValueKey('onboarding')),
+      ),
     );
   }
 }
@@ -911,7 +1287,7 @@ class _SplashScreen extends StatelessWidget {
                 size: 48, color: GameColors.gold),
             const SizedBox(height: 16),
             Text(
-              'GrowDaily',
+              'Grow Daily',
               style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.w800,

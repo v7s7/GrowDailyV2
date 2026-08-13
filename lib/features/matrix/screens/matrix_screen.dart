@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../../shared/widgets/get_started_checklist_card.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
@@ -18,6 +20,18 @@ import 'matrix_history_screen.dart';
 
 bool _isSameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// The day [t] should be judged against for the Today lens and the Carried
+/// Over chip: its reminder's day if it has one, otherwise the day it was
+/// created. A task created today with a reminder set two days out is a
+/// deliberate "not now" — it shouldn't read as fresh in Today (it isn't,
+/// yet), and it shouldn't read as stale in Carried Over either (it's not
+/// overdue, it just hasn't arrived) until that reminder day itself has come
+/// and gone without the task being done. A task with no reminder falls back
+/// to createdAt, exactly the old behavior. See _isVisibleUnderFilter and
+/// build()'s carriedOver/todayTasks below — the only three places this is
+/// used.
+DateTime _anchorDay(MatrixTask t) => (t.reminderAt ?? t.createdAt).effectiveDay;
 
 /// The three top-level lenses on the board — see _MatrixScreenState._filter.
 /// Deliberately just three plain client-side filters over one already-loaded
@@ -34,6 +48,11 @@ class MatrixScreen extends ConsumerStatefulWidget {
 
 class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   final Set<String> _selectedIds = {};
+  // App Guide's "Add a task" coach-mark target — see the CoachMarkOverlay
+  // near the end of build(). The Do First quadrant is the canonical "add a
+  // task" spot here, same choice GetStartedChecklistCard's onAddTask above
+  // already makes.
+  final GlobalKey _addTaskCardKey = GlobalKey();
   // Today is the default lens: today's fresh tasks plus anything finished
   // today, same set a brand-new user with nothing carried over would expect
   // to land on. Nothing to migrate for existing boards either — this is
@@ -97,7 +116,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     HapticFeedback.mediumImpact();
     ref.read(matrixProvider.notifier).delete(id);
     _showUndoSnackbar(
-      message: S.of(context).matrixTaskDeleted,
+      message: S.of(context).matrixTaskDeleted(task.title),
       onUndo: () => ref.read(matrixProvider.notifier).restore(task),
     );
   }
@@ -130,11 +149,11 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
         _isSameDay(x.completedAt!.effectiveDay, now);
     if (t.isDone && !doneToday(t)) return false;
     if (_carriedOverOnly) {
-      return !t.isDone && !_isSameDay(t.createdAt.effectiveDay, now);
+      return !t.isDone && _anchorDay(t).isBefore(now);
     }
     return switch (_filter) {
       _MatrixFilter.today =>
-        (!t.isDone && _isSameDay(t.createdAt.effectiveDay, now)) || doneToday(t),
+        (!t.isDone && _isSameDay(_anchorDay(t), now)) || doneToday(t),
       _MatrixFilter.fav => t.isFav || t.isDone,
       _MatrixFilter.all => true,
     };
@@ -224,7 +243,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
           label: S.of(context).matrixUndo,
           onPressed: onUndo,
         ),
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 5),
       ),
     );
   }
@@ -234,6 +253,36 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final matrixState = ref.watch(matrixProvider);
+
+    // The Matrix widget's "+" button (see requestedMatrixQuickAddProvider's
+    // doc comment) — consumed exactly once, same one-shot pattern as
+    // _OnboardingOrGrid's pendingJoinCodeProvider listener in main.dart.
+    // Safe unconditionally on every build, same reasoning as HomeShell's own
+    // ref.listen(requestedHomeTabProvider, ...). MatrixScreen is always
+    // mounted (one of HomeShell's PageView children, never rebuilt away),
+    // so this fires whether Matrix happens to be the visible tab yet or
+    // not — the tab switch itself is requestedHomeTabProvider's job, set
+    // alongside this one by the same deep-link handler.
+    ref.listen<bool>(requestedMatrixQuickAddProvider, (previous, next) {
+      if (!next) return;
+      ref.read(requestedMatrixQuickAddProvider.notifier).state = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        _showAdd(context, ref, MatrixQuadrant.doFirst);
+      });
+    });
+
+    // Auto-dismiss App Guide's "Add a task" coach-mark the instant a task
+    // actually exists, however it got added — same reasoning as Grid's own
+    // habitListProvider/dashboardProvider listeners (see grid_screen.dart).
+    ref.listen<MatrixState>(matrixProvider, (previous, next) {
+      if ((previous?.tasks.isEmpty ?? true) &&
+          next.tasks.isNotEmpty &&
+          ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addTask) {
+        ref.read(activeAppGuideLessonProvider.notifier).state = null;
+      }
+    });
+
     final now = DateTime.now().effectiveDay;
     bool doneToday(MatrixTask t) =>
         t.isDone &&
@@ -251,13 +300,16 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
         matrixState.tasks.where((t) => !t.isDone || doneToday(t)).toList();
     final completedCount = matrixState.tasks.where((t) => t.isDone).length;
     final favCount = visible.where((t) => t.isFav && !t.isDone).length;
-    // Still open, and was already sitting on the board before today — the
-    // stuff that's easy to lose track of in a long "All" list. Based on
-    // createdAt rather than isFav on purpose: favoriting something doesn't
+    // Still open, and its anchor day — reminderAt's day if it has one,
+    // else createdAt, see _anchorDay — has already passed. The stuff
+    // that's easy to lose track of in a long "All" list. Based on the
+    // anchor rather than isFav on purpose: favoriting something doesn't
     // protect it from going stale, and this is meant to catch exactly that,
-    // starred or not.
+    // starred or not. A task deliberately deferred with a future reminder
+    // is excluded here on purpose — it hasn't arrived yet, so it isn't
+    // stale.
     final carriedOver = visible
-        .where((t) => !t.isDone && !_isSameDay(t.createdAt.effectiveDay, now))
+        .where((t) => !t.isDone && _anchorDay(t).isBefore(now))
         .toList();
     // The default lens: today's own tasks (not yet done) plus anything
     // finished today. Deliberately excludes carriedOver — that's what the
@@ -268,7 +320,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     // cutoff hour (DateTimeGameExt.effectiveDay), not raw local midnight —
     // a user in Bahrain resets on Bahrain's cutoff, no timer required.
     final todayTasks = visible
-        .where((t) => (!t.isDone && _isSameDay(t.createdAt.effectiveDay, now)) || doneToday(t))
+        .where((t) => (!t.isDone && _isSameDay(_anchorDay(t), now)) || doneToday(t))
         .toList();
     final tasks = _carriedOverOnly
         ? carriedOver
@@ -295,7 +347,19 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     return Scaffold(
       backgroundColor: gp.bg,
       // Nav bar now owned by HomeShell — see that widget's doc comment.
-      body: SafeArea(
+      //
+      // body is a Stack (not just SafeArea) so App Guide's "Add a task"
+      // coach-mark can render as a sibling overlay above the real board —
+      // see the CoachMarkOverlay conditional right after this Column's
+      // closing brackets, near the end of this method. Everything between
+      // here and there (the untouched ~300-line Column below) is
+      // deliberately left at its original indentation rather than reflowed
+      // two spaces deeper: Dart doesn't care about indentation, and
+      // reindenting that much already-working layout code was pure risk
+      // for zero behavior change.
+      body: Stack(
+        children: [
+          SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -434,6 +498,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                               children: [
                                 Expanded(
                                   child: QuadrantCard(
+                                    key: _addTaskCardKey,
                                     quadrant: MatrixQuadrant.doFirst,
                                     tasks: tasks
                                         .where((t) =>
@@ -637,6 +702,17 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
             ),
           ],
         ),
+          ),
+          if (ref.watch(activeAppGuideLessonProvider) == AppGuideLesson.addTask)
+            CoachMarkOverlay(
+              targetKey: _addTaskCardKey,
+              title: appGuideLessonCoachTitle(AppGuideLesson.addTask, s.isAr),
+              body: appGuideLessonCoachBody(AppGuideLesson.addTask, s.isAr),
+              onDismiss: () => ref
+                  .read(activeAppGuideLessonProvider.notifier)
+                  .state = null,
+            ),
+        ],
       ),
     );
   }
@@ -647,6 +723,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      // Without this, the sheet ignores the iPhone home-indicator inset and
+      // its footer button can render flush with (or under) the gesture bar.
+      useSafeArea: true,
       builder: (_) => AddTaskSheet(
         quadrant: quadrant,
         onAdd: (title, {description, voiceNotes, reminderAt}) {
@@ -677,6 +756,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      // Without this, the sheet ignores the iPhone home-indicator inset and
+      // its footer button can render flush with (or under) the gesture bar.
+      useSafeArea: true,
       builder: (_) => TaskDetailSheet(
         task: task,
         onRename: (id, title) =>
@@ -780,7 +862,7 @@ class _MatrixFilterToggle extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: gp.surfaceHL,
-        borderRadius: BorderRadius.circular(100),
+        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
         border: Border.all(color: gp.border, width: 0.5),
       ),
       child: Row(
@@ -850,19 +932,19 @@ class _CarriedOverChip extends StatelessWidget {
     final color = GameColors.iconStreak;
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(100),
+      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(100),
+        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
         onTap: () {
           HapticFeedback.selectionClick();
           onTap();
         },
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: GameMotion.standard,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: active ? color.withOpacity(0.18) : color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(100),
+            borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
             border: Border.all(
               color: color.withOpacity(active ? 0.6 : 0.3),
               width: active ? 1.2 : 0.5,
@@ -906,22 +988,22 @@ class _FilterSegment extends StatelessWidget {
     final color = active ? GameColors.gold : gp.textSec;
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(100),
+      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(100),
+        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
         onTap: () {
           HapticFeedback.selectionClick();
           onTap();
         },
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
+          duration: GameMotion.relaxed,
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: active
                 ? GameColors.gold.withOpacity(0.16)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(100),
+            borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
             boxShadow: active
                 ? [
                     BoxShadow(
@@ -940,7 +1022,7 @@ class _FilterSegment extends StatelessWidget {
                 color: color,
               ),
               child: AnimatedScale(
-                duration: const Duration(milliseconds: 260),
+                duration: GameMotion.relaxed,
                 curve: Curves.easeOutBack,
                 scale: active ? 1.0 : 0.96,
                 child: child,

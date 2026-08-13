@@ -76,6 +76,10 @@ Future<DateTime?> pickReminderMoment(
     initialTime: initial != null
         ? TimeOfDay(hour: initial.hour, minute: initial.minute)
         : TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+      child: child!,
+    ),
   );
   if (time == null || !context.mounted) return null;
 

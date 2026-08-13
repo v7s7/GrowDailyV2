@@ -75,26 +75,33 @@ void main() {
     test(
         'Karachi/Shafi raw output for Manama, Bahrain — before the region '
         "correction PrayerTimesService.calculate layers on top", () {
-      // calculateOffline itself is now fully region-unaware — it applies no
-      // correction at all, for anywhere (see the resolveRegion group below
-      // for where the +9 minute Bahrain fajr margin actually lives now).
-      // This locks down the *raw* adhan_dart number these coordinates
-      // produce: verified against Bahrain's official Ministry of Justice,
-      // Islamic Affairs & Waqf published times for Manama on this exact
-      // date, sunrise/asr/maghrib/isha are exact matches and fajr is
-      // exactly 9 minutes earlier than the official 03:36 (i.e. this is the
-      // same 9-minute gap [resolveRegion] returns for these coordinates).
-      // dhuhr is 1 minute later here than the official 11:44 regardless — a
-      // known cross-library rounding difference between adhan_dart's
-      // solar-noon calculation and Aladhan's (whose *live* result, unlike
-      // this offline one, does land on 11:44 exactly — see the
-      // aladhanRequestUri group below and PrayerTimesService.calculate's
-      // class doc comment for why this offline path is the fallback, not
-      // the primary result).
+      // calculateOffline is fully region-unaware — it applies no correction
+      // at all, anywhere. This locks down the *raw* adhan_dart numbers these
+      // coordinates produce, so a dependency bump that shifts them is
+      // noticed rather than shipped silently.
+      //
+      // The date is 2026-07-17 deliberately: that is the day
+      // [PrayerTimesService._regions]' Bahrain entry was verified against,
+      // using official Ministry of Justice, Islamic Affairs & Waqf times the
+      // app's own user supplied (Fajr 3:27, Sunrise 4:56, Dhuhr 11:44, Asr
+      // 3:11, Maghrib 6:32, Isha 8:00). This test previously passed
+      // 2026-07-16 while asserting that 07-17 timetable's values, which is
+      // simply a different day's answer — mid-July fajr/asr move about a
+      // minute a day here — and so it could never pass.
+      //
+      // ── An open question this test deliberately makes visible ──────────
+      // The Bahrain entry claims plain Karachi/Shafi "matches ALL SIX values
+      // to the minute with no correction". Against the real output below
+      // that holds for fajr, dhuhr and asr only: sunrise, maghrib and isha
+      // each come out one minute EARLIER than the supplied official times.
+      // These expectations record what the library actually returns, not a
+      // claim that all six match the printed calendar. Re-verify a full
+      // day's six values against the official source before changing
+      // fajrCorrectionMinutes or the method for this region.
       final result = PrayerTimesService.calculateOffline(
         latitude: 26.2285,
         longitude: 50.5860,
-        date: DateTime(2026, 7, 16),
+        date: DateTime(2026, 7, 17),
         method: PrayerCalcMethod.karachi,
         madhab: PrayerMadhab.shafi,
       );
@@ -102,15 +109,16 @@ void main() {
       String hhmm(tz.TZDateTime d) =>
           '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
-      expect(hhmm(result.fajr), '03:27');
-      expect(hhmm(result.sunrise), '04:55');
-      expect(hhmm(result.dhuhr), '11:45');
-      expect(hhmm(result.asr), '15:11');
-      expect(hhmm(result.maghrib), '18:32');
-      expect(hhmm(result.isha), '20:00');
+      expect(hhmm(result.fajr), '03:27'); // official 3:27 — exact
+      expect(hhmm(result.sunrise), '04:55'); // official 4:56 — 1 min early
+      expect(hhmm(result.dhuhr), '11:44'); // official 11:44 — exact
+      expect(hhmm(result.asr), '15:11'); // official 3:11 — exact
+      expect(hhmm(result.maghrib), '18:31'); // official 6:32 — 1 min early
+      expect(hhmm(result.isha), '19:59'); // official 8:00 — 1 min early
     });
 
-    test('forKey resolves every HabitCue prayer key, and rejects an unknown one',
+    test(
+        'forKey resolves every HabitCue prayer key, and rejects an unknown one',
         () {
       final result = PrayerTimesService.calculateOffline(
         latitude: 30.0444,
@@ -195,10 +203,15 @@ void main() {
     // neighboring/larger region's box — silently applying to coordinates
     // it was never actually checked against.
 
-    test('Bahrain (Manama) resolves to Karachi/Shafi + a 9 minute fajr correction', () {
+    test(
+        'Bahrain (Manama) resolves to Karachi/Shafi, no correction — a '
+        "fresher full-day verification against Bahrain's official calendar "
+        'showed plain Karachi/Shafi already matches all 6 times exactly, so '
+        "the earlier +9 minute fajr correction was removed (see _regions' "
+        "Bahrain entry)", () {
       final region = PrayerTimesService.resolveRegion(26.2285, 50.5860);
       expect(region.method, PrayerCalcMethod.karachi);
-      expect(region.fajrCorrectionMinutes, 9);
+      expect(region.fajrCorrectionMinutes, 0);
     });
 
     test('Qatar (Doha) resolves to the Qatar method, no correction', () {
@@ -207,7 +220,8 @@ void main() {
       expect(region.fajrCorrectionMinutes, 0);
     });
 
-    test('Kuwait (Kuwait City) resolves to the Kuwait method, no correction', () {
+    test('Kuwait (Kuwait City) resolves to the Kuwait method, no correction',
+        () {
       final region = PrayerTimesService.resolveRegion(29.3759, 47.9774);
       expect(region.method, PrayerCalcMethod.kuwait);
       expect(region.fajrCorrectionMinutes, 0);
@@ -244,8 +258,8 @@ void main() {
     test(
         'a resolved countryCode with no _countryDefaults entry (Kenya) '
         'also falls back to the plain global default', () {
-      final region = PrayerTimesService.resolveRegion(-1.2864, 36.8172,
-          countryCode: 'KE');
+      final region =
+          PrayerTimesService.resolveRegion(-1.2864, 36.8172, countryCode: 'KE');
       expect(region.method, PrayerCalcMethod.muslimWorldLeague);
       expect(region.fajrCorrectionMinutes, 0);
     });
@@ -256,7 +270,11 @@ void main() {
     test(
         'the real city of Karachi, Pakistan (which the method is named '
         "after) does not inherit Bahrain's correction", () {
-      final region = PrayerTimesService.resolveRegion(24.8607, 67.0011);
+      final region = PrayerTimesService.resolveRegion(
+        24.8607,
+        67.0011,
+        countryCode: 'PK',
+      );
       expect(region.method, PrayerCalcMethod.karachi);
       expect(region.fajrCorrectionMinutes, 0);
     });
@@ -288,10 +306,10 @@ void main() {
         'one is supplied — Bahrain coordinates resolve to the verified '
         'Bahrain entry regardless of what countryCode comes with them '
         '(e.g. a hypothetical geocoding glitch)', () {
-      final region = PrayerTimesService.resolveRegion(26.2285, 50.5860,
-          countryCode: 'SA');
+      final region =
+          PrayerTimesService.resolveRegion(26.2285, 50.5860, countryCode: 'SA');
       expect(region.method, PrayerCalcMethod.karachi);
-      expect(region.fajrCorrectionMinutes, 9);
+      expect(region.fajrCorrectionMinutes, 0);
     });
 
     // ── Global country-code tier ──────────────────────────────────────
@@ -302,22 +320,21 @@ void main() {
     // a meaningfully lower confidence tier than the 6 GCC boxes above.
 
     test('EG (Cairo) resolves to the Egyptian method', () {
-      final region = PrayerTimesService.resolveRegion(30.0444, 31.2357,
-          countryCode: 'EG');
+      final region =
+          PrayerTimesService.resolveRegion(30.0444, 31.2357, countryCode: 'EG');
       expect(region.method, PrayerCalcMethod.egyptian);
       expect(region.fajrCorrectionMinutes, 0);
     });
 
-    test(
-        'DZ (Algiers) resolves to the Algerian method', () {
-      final region = PrayerTimesService.resolveRegion(36.7538, 3.0588,
-          countryCode: 'DZ');
+    test('DZ (Algiers) resolves to the Algerian method', () {
+      final region =
+          PrayerTimesService.resolveRegion(36.7538, 3.0588, countryCode: 'DZ');
       expect(region.method, PrayerCalcMethod.algerian);
     });
 
     test('FR (Paris) resolves to the France method', () {
-      final region = PrayerTimesService.resolveRegion(48.8566, 2.3522,
-          countryCode: 'FR');
+      final region =
+          PrayerTimesService.resolveRegion(48.8566, 2.3522, countryCode: 'FR');
       expect(region.method, PrayerCalcMethod.france);
     });
 
@@ -332,44 +349,44 @@ void main() {
         '(regression guard — Amman sits inside what used to be Saudi '
         "Arabia's looser bounding box before it was tightened; see "
         "_regions' Saudi Arabia entry)", () {
-      final region = PrayerTimesService.resolveRegion(31.9454, 35.9284,
-          countryCode: 'JO');
+      final region =
+          PrayerTimesService.resolveRegion(31.9454, 35.9284, countryCode: 'JO');
       expect(region.method, PrayerCalcMethod.jordan);
     });
 
     test('PT (Lisbon) resolves to the Portugal method', () {
-      final region = PrayerTimesService.resolveRegion(38.7223, -9.1393,
-          countryCode: 'PT');
+      final region =
+          PrayerTimesService.resolveRegion(38.7223, -9.1393, countryCode: 'PT');
       expect(region.method, PrayerCalcMethod.portugal);
     });
 
     test('MA (Rabat) resolves to the Morocco method', () {
-      final region = PrayerTimesService.resolveRegion(34.0209, -6.8416,
-          countryCode: 'MA');
+      final region =
+          PrayerTimesService.resolveRegion(34.0209, -6.8416, countryCode: 'MA');
       expect(region.method, PrayerCalcMethod.morocco);
     });
 
     test('RU (Moscow) resolves to the Russia method', () {
-      final region = PrayerTimesService.resolveRegion(55.7558, 37.6173,
-          countryCode: 'RU');
+      final region =
+          PrayerTimesService.resolveRegion(55.7558, 37.6173, countryCode: 'RU');
       expect(region.method, PrayerCalcMethod.russia);
     });
 
     test('TN (Tunis) resolves to the Tunisia method', () {
-      final region = PrayerTimesService.resolveRegion(36.8065, 10.1815,
-          countryCode: 'TN');
+      final region =
+          PrayerTimesService.resolveRegion(36.8065, 10.1815, countryCode: 'TN');
       expect(region.method, PrayerCalcMethod.tunisia);
     });
 
     test('TR (Istanbul) resolves to the Turkiye method', () {
-      final region = PrayerTimesService.resolveRegion(41.0082, 28.9784,
-          countryCode: 'TR');
+      final region =
+          PrayerTimesService.resolveRegion(41.0082, 28.9784, countryCode: 'TR');
       expect(region.method, PrayerCalcMethod.turkiye);
     });
 
     test('IR (Tehran) resolves to the Tehran method', () {
-      final region = PrayerTimesService.resolveRegion(35.6892, 51.3890,
-          countryCode: 'IR');
+      final region =
+          PrayerTimesService.resolveRegion(35.6892, 51.3890, countryCode: 'IR');
       expect(region.method, PrayerCalcMethod.tehran);
     });
 
@@ -378,15 +395,15 @@ void main() {
         "correction — that correction is Bahrain's specifically, not the "
         "method's own (see the earlier regression test at these same "
         'coordinates)', () {
-      final region = PrayerTimesService.resolveRegion(24.8607, 67.0011,
-          countryCode: 'PK');
+      final region =
+          PrayerTimesService.resolveRegion(24.8607, 67.0011, countryCode: 'PK');
       expect(region.method, PrayerCalcMethod.karachi);
       expect(region.fajrCorrectionMinutes, 0);
     });
 
     test('SG (Singapore) resolves to the Singapore method', () {
-      final region = PrayerTimesService.resolveRegion(1.3521, 103.8198,
-          countryCode: 'SG');
+      final region =
+          PrayerTimesService.resolveRegion(1.3521, 103.8198, countryCode: 'SG');
       expect(region.method, PrayerCalcMethod.singapore);
     });
 
@@ -394,8 +411,8 @@ void main() {
         "MY (Kuala Lumpur) resolves to the Singapore method too — "
         "adhan_dart's own preset doc names Singapore, Malaysia, and "
         'Indonesia together', () {
-      final region = PrayerTimesService.resolveRegion(3.1390, 101.6869,
-          countryCode: 'MY');
+      final region =
+          PrayerTimesService.resolveRegion(3.1390, 101.6869, countryCode: 'MY');
       expect(region.method, PrayerCalcMethod.singapore);
     });
 
@@ -418,8 +435,8 @@ void main() {
         'GB (London) resolves to moonsightingCommittee via the country '
         "tier — adhan_dart's moonsightingCommittee doc calls this out "
         'directly: "Recommended for North America and the UK"', () {
-      final region = PrayerTimesService.resolveRegion(51.5074, -0.1278,
-          countryCode: 'GB');
+      final region =
+          PrayerTimesService.resolveRegion(51.5074, -0.1278, countryCode: 'GB');
       expect(region.method, PrayerCalcMethod.moonsightingCommittee);
       expect(region.fajrCorrectionMinutes, 0);
     });
@@ -435,34 +452,37 @@ void main() {
     // calculateOffline's raw numbers, not just computed and discarded.
 
     test(
-        "applies Bahrain's verified +9 minute fajr correction on top of "
-        'the raw offline calculation', () {
+        "Bahrain now applies zero fajr correction (see resolveRegion's "
+        'Bahrain entry — a fresher verification showed no correction is '
+        'needed) — calculateOfflineCorrected returns exactly the raw '
+        'offline calculation for these coordinates', () {
       final corrected = PrayerTimesService.calculateOfflineCorrected(
         latitude: 26.2285,
         longitude: 50.5860,
-        date: DateTime(2026, 7, 16),
+        date: DateTime(2026, 7, 17),
         madhab: PrayerMadhab.shafi,
       );
       String hhmm(tz.TZDateTime d) =>
           '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-      // Raw offline fajr for these exact coordinates/date is 03:27 (see the
-      // calculateOffline group above) — +9 minutes lands on the official
-      // 03:36, matching the live-Aladhan-verified value from the
-      // aladhanRequestUri group below.
-      expect(hhmm(corrected.fajr), '03:36');
-      // Every other prayer is untouched by the correction.
+      // Identical to the raw calculateOffline test above, value for value —
+      // that IS the assertion: Bahrain's fajrCorrectionMinutes is 0, so the
+      // corrected path must not shift anything. Same date as that test, for
+      // the same reason (see its comment); the two used to disagree with
+      // each other about the raw fajr (03:27 there, 03:26 here) while
+      // claiming to be the same numbers, which was the tell that one of them
+      // had gone stale.
+      expect(hhmm(corrected.fajr), '03:27');
       expect(hhmm(corrected.sunrise), '04:55');
-      expect(hhmm(corrected.dhuhr), '11:45');
+      expect(hhmm(corrected.dhuhr), '11:44');
       expect(hhmm(corrected.asr), '15:11');
-      expect(hhmm(corrected.maghrib), '18:32');
-      expect(hhmm(corrected.isha), '20:00');
+      expect(hhmm(corrected.maghrib), '18:31');
+      expect(hhmm(corrected.isha), '19:59');
     });
 
     test(
         'a location with zero fajr correction (Qatar) returns exactly what '
         'calculateOffline itself would, with the method resolved '
-        'automatically via resolveRegion instead of passed in directly',
-        () {
+        'automatically via resolveRegion instead of passed in directly', () {
       const latitude = 25.2854;
       const longitude = 51.5310;
       final date = DateTime(2026, 6, 1);
@@ -549,8 +569,7 @@ void main() {
       expect(uri.queryParameters['timezonestring'], 'Asia/Riyadh');
     });
 
-    test('fajrCorrectionMinutes defaults to zero when the caller omits it',
-        () {
+    test('fajrCorrectionMinutes defaults to zero when the caller omits it', () {
       final uri = PrayerTimesService.aladhanRequestUri(
         latitude: 24.7136,
         longitude: 46.6753,
@@ -619,8 +638,7 @@ void main() {
       expect(result.minute, 36);
     });
 
-    test('drops a trailing suffix after the time (e.g. a timezone offset)',
-        () {
+    test('drops a trailing suffix after the time (e.g. a timezone offset)', () {
       final result = PrayerTimesService.parseAladhanTime('18:32 (+03)', day);
       expect(result, isNotNull);
       expect(result!.hour, 18);

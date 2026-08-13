@@ -108,6 +108,12 @@ Future<String?> showHabitColorPicker(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
+    // Without this, the sheet ignores the iPhone home-indicator inset —
+    // its internal padding only accounts for the keyboard (viewInsets),
+    // not the safe area, so the footer button can render under the
+    // gesture bar. Reached directly from Add Habit, so this is likely
+    // part of what the reported "button moves" bug was seeing.
+    useSafeArea: true,
     builder: (ctx) => _HabitColorPickerSheet(
       initialHex: initialHex,
       title: title,
@@ -231,7 +237,7 @@ class _HabitColorPickerSheetState extends State<_HabitColorPickerSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: gp.border,
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
               ),
             ),
@@ -278,7 +284,7 @@ class _HabitColorPickerSheetState extends State<_HabitColorPickerSheet> {
             const SizedBox(height: 18),
             // Saturation (x) / Value (y) field for the current hue.
             ClipRRect(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final size = Size(constraints.maxWidth, 180);

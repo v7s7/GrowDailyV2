@@ -6,6 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../../rooms/notifiers/rooms_notifier.dart'
+    show myLinkedRoomHabitsProvider, roomsControllerProvider;
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/custom_habits_notifier.dart';
@@ -23,6 +26,57 @@ class PlanPickerSheet extends ConsumerStatefulWidget {
 
 class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
   String? _expandedPlanId;
+
+  /// Shared by both branches of onActivate below: a plan can deactivate
+  /// several catalog habits in one tap (the whole plan, or whatever got
+  /// unchecked from an already-active one), and any of them could be
+  /// linked to a room - same warning+unlink AddHabitSheet/GridScreen/
+  /// DashboardScreen already show for a single habit, just gathered across
+  /// every id this one action is about to touch instead of one at a time.
+  /// Returns true if it's fine to proceed (nothing was linked, or the
+  /// person confirmed anyway); the caller still owns calling
+  /// unlinkHabitEverywhere for each id and the actual
+  /// deactivatePlan/applyPlanSelection call.
+  Future<bool> _confirmRoomUnlink(List<String> ids) async {
+    final linkedRoomNames = <String>{};
+    final linked = ref.read(myLinkedRoomHabitsProvider);
+    for (final id in ids) {
+      for (final room in linked[id] ?? const []) linkedRoomNames.add(room.name);
+    }
+    if (linkedRoomNames.isEmpty) return true;
+    final s = S.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(s.habitLinkedRoomWarningTitle),
+        content: Text(s.habitLinkedRoomWarningBody(linkedRoomNames.toList())),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(s.habitDeleteLinkedRoomCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: GameColors.error),
+            child: Text(s.habitDeleteAnywayAction),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true && mounted;
+  }
+
+  /// id -> whether that habit has ever been marked done, on any day, ever
+  /// - what ActiveCatalogNotifier.deactivatePlan/applyPlanSelection need to
+  /// tell a genuinely-never-touched habit apart from one that's just being
+  /// paused, same signal every other delete entry point in the app already
+  /// reads off dashboardProvider (see e.g. GridScreen._deleteSelected).
+  /// Neither notifier holds a Ref of its own, so this has to be gathered
+  /// here and handed in rather than read inside them.
+  Map<String, bool> _everCompletedMap(Iterable<String> ids) {
+    final totals = ref.read(dashboardProvider).habitTotalCompletions;
+    return {for (final id in ids) id: (totals[id] ?? 0) > 0};
+  }
 
   /// This account's in-progress checklist for whichever plan
   /// [_expandedPlanId] currently points at - which of that one plan's
@@ -59,7 +113,7 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
               height: 4,
               decoration: BoxDecoration(
                 color: gp.border,
-                borderRadius: BorderRadius.circular(100),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
             ),
           ),
@@ -89,7 +143,7 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
                   height: 40,
                   decoration: BoxDecoration(
                     color: GameColors.gold.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   ),
                   child: Icon(Icons.auto_awesome_rounded,
                       color: GameColors.gold, size: 20),
@@ -195,10 +249,23 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
               }
             });
           },
-          onActivate: () {
+          onActivate: () async {
             if (isActive) {
+              // Every id this plan currently has active - all of them are
+              // about to be deactivated (see ActiveCatalogNotifier.
+              // deactivatePlan, which has no partial mode).
+              final toDeactivate =
+                  plan.catalogIds.where(activeIds.contains).toList();
+              if (!await _confirmRoomUnlink(toDeactivate)) return;
               HapticFeedback.mediumImpact();
-              ref.read(activeCatalogProvider.notifier).deactivatePlan(plan);
+              final rooms = ref.read(roomsControllerProvider);
+              for (final id in toDeactivate) {
+                rooms.unlinkHabitEverywhere(id).ignore();
+              }
+              ref.read(activeCatalogProvider.notifier).deactivatePlan(
+                    plan,
+                    everCompleted: _everCompletedMap(toDeactivate),
+                  );
               return;
             }
             final toAdd =
@@ -207,10 +274,26 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
               showHabitLimitGate(context, ref);
               return;
             }
+            // Ids this selection is about to deactivate - unchecked from an
+            // already-active plan - same computation
+            // ActiveCatalogNotifier.applyPlanSelection makes internally for
+            // its own toDeactivate, replicated here so the warning shows
+            // *before* it happens instead of after.
+            final toDeactivate = plan.catalogIds
+                .where((id) =>
+                    !_stagedHabitIds.contains(id) && activeIds.contains(id))
+                .toList();
+            if (!await _confirmRoomUnlink(toDeactivate)) return;
             HapticFeedback.mediumImpact();
-            ref
-                .read(activeCatalogProvider.notifier)
-                .applyPlanSelection(plan, _stagedHabitIds);
+            final rooms = ref.read(roomsControllerProvider);
+            for (final id in toDeactivate) {
+              rooms.unlinkHabitEverywhere(id).ignore();
+            }
+            ref.read(activeCatalogProvider.notifier).applyPlanSelection(
+                  plan,
+                  _stagedHabitIds,
+                  everCompleted: _everCompletedMap(toDeactivate),
+                );
           },
           // Lets someone cherry-pick just some of a plan's habits instead of
           // committing the whole thing - purely local until Start/"Add
@@ -287,7 +370,7 @@ class _PlanCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
+        duration: GameMotion.relaxed,
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -309,7 +392,7 @@ class _PlanCard extends StatelessWidget {
                   height: 44,
                   decoration: BoxDecoration(
                     color: c.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   ),
                   child: Center(
                     child: Icon(plan.icon, size: 22, color: c),
@@ -347,7 +430,7 @@ class _PlanCard extends StatelessWidget {
                           horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: c.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(100),
+                        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                       ),
                       child: Text(
                         '+$displayedXp XP',
@@ -368,7 +451,7 @@ class _PlanCard extends StatelessWidget {
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: c.withOpacity(0.16),
-                          borderRadius: BorderRadius.circular(100),
+                          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                         ),
                         child: Text(
                           '$activeCount/${plan.catalogIds.length}',
@@ -387,7 +470,7 @@ class _PlanCard extends StatelessWidget {
 
             // Expanded habit list
             AnimatedSize(
-              duration: const Duration(milliseconds: 220),
+              duration: GameMotion.standard,
               curve: Curves.easeOutCubic,
               child: isExpanded
                   ? Column(
@@ -429,7 +512,7 @@ class _PlanCard extends StatelessWidget {
                                   isActive ? c : Colors.white,
                               minimumSize: const Size(double.infinity, 44),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
+                                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
                               side: isActive
                                   ? BorderSide(
                                       color: c.withOpacity(0.4), width: 1)
@@ -535,7 +618,7 @@ class _HabitChip extends StatelessWidget {
           color: isChecked
               ? planColor.withOpacity(0.12)
               : gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
           border: Border.all(
             color: isChecked ? planColor.withOpacity(0.4) : gp.border,
             width: 0.5,

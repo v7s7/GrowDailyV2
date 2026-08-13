@@ -125,6 +125,27 @@ const habitPlans = <HabitPlan>[
       'lower_gaze', 'sunnah_fasting',
     ],
   ),
+  // The five fard prayers, each its own habit (see islamic_habit_catalog.
+  // dart's "The Five Daily Prayers" section) so each gets a real,
+  // separately-timed reminder rather than one lumped "pray today" entry.
+  // Timing is fully real: cueAfter on each of the five resolves through
+  // PrayerTimesService (location-based astronomical calculation, live
+  // Aladhan lookup first, offline fallback) via the same
+  // NotificationService.scheduleSmartReminders path every other
+  // prayer-linked habit in this catalog already uses — nothing
+  // plan-specific needed building, this just activates all five at once.
+  HabitPlan(
+    id: 'five_daily_prayers',
+    nameEn: 'The Five Daily Prayers',
+    nameAr: 'الصلوات الخمس',
+    descEn: 'Fajr, Dhuhr, Asr, Maghrib, and Isha — each reminded at its real calculated time, wherever you are.',
+    descAr: 'الفجر والظهر والعصر والمغرب والعشاء — تذكير بكل وقت حسب حسابه الفعلي أينما كنت.',
+    color: Color(0xFFE0A82E),
+    icon: Icons.mosque_outlined,
+    catalogIds: [
+      'prayer_fajr', 'prayer_dhuhr', 'prayer_asr', 'prayer_maghrib', 'prayer_isha',
+    ],
+  ),
 ];
 
 // ─── Active catalog provider ──────────────────────────────────────────────────
@@ -353,8 +374,30 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     await box.put(_kStintHistoryKey, stintHistoryRaw);
   }
 
-  void toggle(String catalogId) {
+  /// [everCompleted] — same meaning and same reasoning as
+  /// [CustomHabitsNotifier.archive]'s own parameter (custom_habits_notifier.
+  /// dart): whether this catalog habit has EVER been marked done, this
+  /// stint or any earlier one (it's a lifetime count - see that parameter's
+  /// own doc comment for why age doesn't factor in here at all, only
+  /// whether anything was ever really done). True by default, so every
+  /// existing call site that doesn't pass it keeps deactivating exactly as
+  /// before. When it's false, turning it back off erases this stint
+  /// entirely (no catalogArchivedAt stamp, [activatedAt] cleared too)
+  /// instead of archiving it, no matter how long it had been switched on -
+  /// nothing was ever completed in it, so there's nothing for the
+  /// Heatmap/Insights to lose by forgetting it happened, and it avoids
+  /// leaving a phantom stint that would otherwise linger in
+  /// catalogStintHistory forever. allHabitsEverProvider's own null-guard
+  /// (custom_habits_notifier.dart) is what keeps this safe even when real
+  /// earlier stints for the same id still exist in catalogStintHistory.
+  void toggle(String catalogId, {bool everCompleted = true}) {
     if (state.contains(catalogId)) {
+      if (!everCompleted) {
+        activatedAt = {...activatedAt}..remove(catalogId);
+        state = Set.of(state)..remove(catalogId);
+        _save();
+        return;
+      }
       // Archive, don't erase: [activatedAt] keeps this stint's start
       // date exactly as-is, and this just records today as when it
       // ended — together they're the window allHabitsEverProvider needs
@@ -404,11 +447,31 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   /// and then pressing it passes only what's still checked instead, which
   /// is the one thing the old method could never do (it only ever added,
   /// never reconciled a subset down).
-  void applyPlanSelection(HabitPlan plan, Set<String> selected) {
+  ///
+  /// [everCompleted] — same meaning as [toggle]'s own parameter, just one
+  /// per id instead of one for a single habit: id -> whether that specific
+  /// habit has ever been marked done, on any day, ever (the caller passes
+  /// `dashboardProvider.habitTotalCompletions[id] > 0` for each id about to
+  /// be deactivated). An id missing from the map defaults to true (archive,
+  /// the safe/conservative choice), same default [toggle] itself uses —
+  /// existing callers that don't pass anything keep deactivating exactly
+  /// as before.
+  void applyPlanSelection(
+    HabitPlan plan,
+    Set<String> selected, {
+    Map<String, bool> everCompleted = const {},
+  }) {
     final today = DateTime.now().effectiveDay;
     final toDeactivate = plan.catalogIds
         .where((id) => !selected.contains(id) && state.contains(id))
         .toSet();
+    // Split the same way [toggle] splits a single id: never-completed ones
+    // are erased outright instead of archived — see [toggle]'s own doc
+    // comment for why age never factors in, only whether anything was
+    // ever really done.
+    final toHardDelete =
+        toDeactivate.where((id) => everCompleted[id] == false).toSet();
+    final toArchive = toDeactivate.difference(toHardDelete);
     // Ids genuinely coming back to life here — same set activatedAt's own
     // comprehension below already isolates via !state.contains(id).
     final reactivating =
@@ -429,14 +492,16 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       // Only ids that are genuinely NEW get today's date — re-picking an
       // already-active habit must not move its birth date forward.
       for (final id in reactivating) id: today,
-    };
+      // Erased, not just left alone — a hard-deleted id has no current
+      // stint any more, same as [toggle]'s own hard-delete branch.
+    }..removeWhere((id, _) => toHardDelete.contains(id));
     // Archive, don't erase — same reasoning as [toggle]: keep
-    // activatedAt as-is for anything being deactivated (it's still that
+    // activatedAt as-is for anything being archived (it's still that
     // stint's real start date) and just record today as when it ended,
     // while anything freshly selected loses any stale archive record.
     catalogArchivedAt = {
       ...catalogArchivedAt,
-      for (final id in toDeactivate) id: today,
+      for (final id in toArchive) id: today,
     }..removeWhere((id, _) => selected.contains(id));
     state = {...state}
       ..removeAll(toDeactivate)
@@ -444,14 +509,21 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     _save();
   }
 
-  void deactivatePlan(HabitPlan plan) {
+  /// [everCompleted] — same meaning and default as [applyPlanSelection]'s
+  /// own parameter of the same name; see its doc comment.
+  void deactivatePlan(HabitPlan plan, {Map<String, bool> everCompleted = const {}}) {
     final today = DateTime.now().effectiveDay;
-    final deactivating = plan.catalogIds.where(state.contains);
+    final deactivating = plan.catalogIds.where(state.contains).toSet();
+    final toHardDelete =
+        deactivating.where((id) => everCompleted[id] == false).toSet();
+    final toArchive = deactivating.difference(toHardDelete);
     // Archive, don't erase — see [toggle]'s doc comment.
     catalogArchivedAt = {
       ...catalogArchivedAt,
-      for (final id in deactivating) id: today,
+      for (final id in toArchive) id: today,
     };
+    activatedAt = {...activatedAt}
+      ..removeWhere((id, _) => toHardDelete.contains(id));
     state = state.difference(plan.catalogIds.toSet());
     _save();
   }

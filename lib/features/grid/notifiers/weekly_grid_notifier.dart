@@ -11,11 +11,10 @@ import '../models/square_state.dart';
 ///
 /// The Victory Grid runs Sat → Fri to match the app's deen-first rhythm
 /// (and the product spec's example grid).
-DateTime startOfGridWeek(DateTime d) {
-  final day = DateTime(d.year, d.month, d.day);
-  final offset = (day.weekday - DateTime.saturday + 7) % 7;
-  return day.subtract(Duration(days: offset));
-}
+/// Delegates to DateTimeGameExt.startOfDisplayWeek so the Saturday-week rule
+/// lives in exactly one place - see that getter's doc comment for why having
+/// two definitions of "this week" was an actual bug.
+DateTime startOfGridWeek(DateTime d) => d.startOfDisplayWeek;
 
 class WeeklyGridState {
   /// Saturday that starts the visible week.
@@ -39,7 +38,7 @@ class WeeklyGridState {
   factory WeeklyGridState.initial() => WeeklyGridState(
         // The real calendar week, not the reward-day's (effectiveDay) week
         // — see [canGoForward]'s doc comment for why those two can briefly
-        // disagree. Opening the app during the 3-hour grace window right
+        // disagree. Opening the app during the 6-hour grace window right
         // after a week boundary (say, 1am Saturday — one hour into a brand
         // new Sat→Fri week) should land on the week Saturday actually
         // belongs to, not the previous one just because Friday's reward
@@ -62,7 +61,7 @@ class WeeklyGridState {
   /// the *real* calendar week (see DateTimeGameExt.isRealToday), not
   /// [isCurrentWeek]'s reward-eligible one. Those two agree all but a few
   /// hours a week: right after a week boundary, effectiveDay can still be
-  /// pointing at last week (its 3-hour grace period hasn't run out) while
+  /// pointing at last week (its 6-hour grace period hasn't run out) while
   /// the real calendar has already moved into the new one. Gating forward
   /// navigation on [isCurrentWeek] there would trap the user on last
   /// week's board with no way to arrow into the new one — the exact bug

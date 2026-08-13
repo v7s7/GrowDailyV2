@@ -1,6 +1,10 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/country_lookup_service.dart';
+import '../../../core/services/device_location_service.dart';
 import '../../../core/services/local_store_service.dart';
 import '../models/notification_settings.dart';
 
@@ -103,3 +107,73 @@ final notificationSettingsProvider = StateNotifierProvider<
     NotificationSettingsNotifier, NotificationSettings>(
   (_) => NotificationSettingsNotifier(),
 );
+
+/// One-shot "ask, don't send them digging through Settings" location setup —
+/// the exact GPS-detect-then-resolve-in-the-background flow
+/// NotificationSettingsScreen's own location row already used, factored out
+/// here so any other screen can trigger the same real permission prompt +
+/// save inline instead of just telling someone to go set it manually
+/// elsewhere. First real use: AddHabitSheet, the moment someone picks a
+/// prayer-linked cue with no location saved yet — previously that just
+/// showed a small "go set your location in Settings" line and left the
+/// habit's reminder silently unscheduled if they didn't act on it.
+///
+/// Never throws — mirrors [DeviceLocationService.detect]'s own "always a
+/// typed result" contract, so the caller decides what (if anything) to show
+/// on a denied/unavailable outcome. [isMounted] is checked before every
+/// post-`await` use of [ref] (same guard NotificationSettingsScreen's own
+/// State.mounted provided) since this can be called from any widget whose
+/// lifetime doesn't match this function's — a modal sheet the user closes
+/// mid-detect being the obvious case.
+Future<DeviceLocationOutcome> detectAndSaveLocation(
+  WidgetRef ref, {
+  required bool isAr,
+  required String resolvingLabel,
+  required String genericLabel,
+  required bool Function() isMounted,
+}) async {
+  final outcome = await DeviceLocationService.detect();
+  if (!outcome.isSuccess || !isMounted()) return outcome;
+
+  final fix = outcome.fix!;
+  await ref.read(notificationSettingsProvider.notifier).update((c) => c.copyWith(
+        location: NotificationLocation(
+          lat: fix.latitude,
+          lng: fix.longitude,
+          label: resolvingLabel,
+        ),
+      ));
+
+  // Fire-and-forget: the location itself is already set and usable (every
+  // caller needs is the lat/lng, available the instant the block above
+  // returns) — the nicer place-name label and country code are a
+  // background upgrade, not something worth making anyone wait on a second
+  // network round trip for.
+  unawaited(() async {
+    final place = await CountryLookupService.lookupPlace(
+      fix.latitude,
+      fix.longitude,
+      languageCode: isAr ? 'ar' : 'en',
+    );
+    if (!isMounted()) return;
+    final current = ref.read(notificationSettingsProvider).location;
+    // Guards the exact same race NotificationSettingsScreen's own
+    // background resolution does: don't let a slow lookup from this fix
+    // clobber a newer location someone's since set another way.
+    if (current == null ||
+        current.lat != fix.latitude ||
+        current.lng != fix.longitude) {
+      return;
+    }
+    await ref.read(notificationSettingsProvider.notifier).update((c) => c.copyWith(
+          resolvedCountryCode: place.code ?? c.resolvedCountryCode,
+          location: NotificationLocation(
+            lat: fix.latitude,
+            lng: fix.longitude,
+            label: place.label ?? genericLabel,
+          ),
+        ));
+  }());
+
+  return outcome;
+}

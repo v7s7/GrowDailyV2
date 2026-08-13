@@ -202,6 +202,26 @@ class VoiceNoteService {
   /// than racing right up to either one.
   static const int maxSyncedBytesPerTask = 700 * 1024;
 
+  /// The actual over-budget check [encodeForSync] applies — pulled out as
+  /// a pure, static function purely so a test can exercise its arithmetic
+  /// (the ~4/3 base64-inflation estimate, and the boundary right at
+  /// [maxSyncedBytesPerTask]) directly, without needing a real audio file
+  /// on disk or touching [instance] (constructing it wires up a real
+  /// AudioPlayer/AudioRecorder — see the constructor — which this check has
+  /// nothing to do with).
+  @visibleForTesting
+  static bool wouldExceedSyncBudget({
+    required int rawByteLength,
+    required int existingSyncedBytes,
+  }) {
+    // Base64 inflates by ~4/3 — checked against the raw byte count here,
+    // before doing the actual encoding work, so an over-budget file is
+    // rejected cheaply instead of encoding it first and throwing the
+    // result away.
+    final estimatedEncodedBytes = (rawByteLength * 4 / 3).ceil();
+    return existingSyncedBytes + estimatedEncodedBytes > maxSyncedBytesPerTask;
+  }
+
   /// Reads the just-recorded file at [path] and returns its base64
   /// encoding, ready to store on a VoiceNote's audioBase64 field — or null
   /// if embedding it would push this task's total synced audio over
@@ -220,13 +240,10 @@ class VoiceNoteService {
   }) async {
     try {
       final bytes = await File(path).readAsBytes();
-      // Base64 inflates by ~4/3 — checked against the raw byte count here,
-      // before doing the actual encoding work, so an over-budget file is
-      // rejected cheaply instead of encoding it first and throwing the
-      // result away.
-      final estimatedEncodedBytes = (bytes.length * 4 / 3).ceil();
-      if (existingSyncedBytes + estimatedEncodedBytes >
-          maxSyncedBytesPerTask) {
+      if (wouldExceedSyncBudget(
+        rawByteLength: bytes.length,
+        existingSyncedBytes: existingSyncedBytes,
+      )) {
         return null;
       }
       return base64Encode(bytes);
@@ -312,15 +329,24 @@ class VoiceNoteService {
     isPlaying.value = false;
   }
 
+  /// The actual clamping [seek] applies — pulled out as a pure, static
+  /// function so its edge cases (negative seek, seek past the end, [max]
+  /// itself being `Duration.zero` because the real duration hasn't
+  /// streamed in yet — see [duration]'s doc comment) are directly
+  /// testable without touching [instance]/the real player at all.
+  @visibleForTesting
+  static Duration clampSeekPosition(Duration to, {required Duration max}) {
+    if (to < Duration.zero) return Duration.zero;
+    if (max > Duration.zero && to > max) return max;
+    return to;
+  }
+
   /// Seeks the loaded note to an absolute position, clamped to
   /// `[0, duration]`. Updates [position] immediately (rather than only
   /// once the platform call resolves) so the scrubber snaps to the new
   /// spot without waiting on a round trip.
   Future<void> seek(Duration to) async {
-    final max = duration.value;
-    final clamped = to < Duration.zero
-        ? Duration.zero
-        : (max > Duration.zero && to > max ? max : to);
+    final clamped = clampSeekPosition(to, max: duration.value);
     position.value = clamped;
     await _player.seek(clamped);
   }
@@ -328,13 +354,19 @@ class VoiceNoteService {
   /// Seeks relative to the current position — powers the ±5s skip buttons.
   Future<void> seekBy(Duration delta) => seek(position.value + delta);
 
+  /// The actual 1x -> 1.5x -> 2x -> 1x cycle [cycleSpeed] applies — pulled
+  /// out as a pure, static function purely so it's directly testable
+  /// without touching [instance]/the real player.
+  @visibleForTesting
+  static double nextPlaybackSpeed(double current) => switch (current) {
+        1.0 => 1.5,
+        1.5 => 2.0,
+        _ => 1.0,
+      };
+
   /// Cycles the loaded note's speed 1x -> 1.5x -> 2x -> 1x.
   Future<void> cycleSpeed() async {
-    final next = switch (speed.value) {
-      1.0 => 1.5,
-      1.5 => 2.0,
-      _ => 1.0,
-    };
+    final next = nextPlaybackSpeed(speed.value);
     speed.value = next;
     await _player.setPlaybackRate(next);
   }

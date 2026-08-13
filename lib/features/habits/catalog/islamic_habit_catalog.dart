@@ -47,14 +47,33 @@ class IslamicHabitTemplate {
   // accessors — every read site just does
   // `Color(0xFF000000 | int.parse(iconColorHex, radix: 16))`.
   final String? iconColorHex;
-  // How many minutes *before* the resolved cue moment (the picked clock
-  // time, or prayer time + the global after-prayer offset) the reminder
-  // should actually fire — 0 means "right at that moment," matching every
-  // habit's behavior before this field existed, so old data with no stored
-  // value is completely unaffected. Meaningless (and never surfaced in the
-  // UI) for a freeform-text cue, since that has no resolved moment to count
-  // back from in the first place. See NotificationService.scheduleSmartReminders.
-  final int reminderLeadMinutes;
+  /// Signed minutes from the resolved cue moment (the picked clock time, or
+  /// the prayer time) to when the reminder actually fires:
+  /// **negative = before, 0 = exactly on time, positive = after**.
+  /// So -15 is "15 minutes before Fajr", +15 is "15 minutes after Fajr".
+  ///
+  /// Replaces the old always-subtracted `reminderLeadMinutes` (which could
+  /// only ever express "before"), and is the *only* thing that shifts a
+  /// habit's reminder now — the global `prayerOffsetMinutes` setting that
+  /// used to be silently added on top of it is gone, since it did the same
+  /// job in the opposite direction and made the Add Habit preview lie about
+  /// the real fire time. [NotificationSettings.fromMap] folds any saved
+  /// global offset into prayer-linked habits once, so nobody's existing
+  /// reminders move. See [fromMap] below for the per-habit migration and
+  /// NotificationService.scheduleSmartReminders for the fire-time math.
+  ///
+  /// Meaningless (and never surfaced in the UI) for a freeform-text cue,
+  /// since that has no resolved moment to offset from in the first place.
+  final int reminderOffsetMinutes;
+
+  /// Lets this one habit's reminder through even when it lands inside the
+  /// user's quiet hours — the "Allow anyway" escape hatch offered right in
+  /// Add Habit the moment a picked time is detected to fall in that window.
+  /// Previously such a reminder was cancelled outright with no warning and
+  /// no way to keep it, so a deliberately-chosen 6am reminder just silently
+  /// never arrived. Defaults to false: quiet hours still win unless someone
+  /// explicitly says otherwise for this specific habit.
+  final bool ignoreQuietHours;
 
   /// The day this habit came into the user's life — creation day for a
   /// custom habit, activation day for a catalog habit (stamped in by
@@ -102,7 +121,8 @@ class IslamicHabitTemplate {
     required this.xpReward,
     required this.goldReward,
     this.iconColorHex,
-    this.reminderLeadMinutes = 0,
+    this.reminderOffsetMinutes = 0,
+    this.ignoreQuietHours = false,
     this.createdAt,
     this.archivedAt,
   });
@@ -173,7 +193,11 @@ class IslamicHabitTemplate {
         'xpReward': xpReward,
         'goldReward': goldReward,
         if (iconColorHex != null) 'iconColorHex': iconColorHex,
-        if (reminderLeadMinutes > 0) 'reminderLeadMinutes': reminderLeadMinutes,
+        // `!= 0` (not `> 0`): a negative offset is the common "before" case
+        // now, and would never be written at all under the old `> 0` guard.
+        if (reminderOffsetMinutes != 0)
+          'reminderOffsetMinutes': reminderOffsetMinutes,
+        if (ignoreQuietHours) 'ignoreQuietHours': true,
         // ISO string, not a Timestamp, on purpose: this exact map also
         // goes into Hive for guests (see CustomHabitsNotifier._saveGuest),
         // and Hive can't serialize Firestore Timestamps.
@@ -187,7 +211,39 @@ class IslamicHabitTemplate {
         name: d['name'] as String? ?? 'Custom Habit',
         description: d['description'] as String? ?? '',
         cueAfter: d['cueAfter'] as String?,
-        category: HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
+        // Recovers the true, never-collapsed category for a preset habit
+        // from the catalog itself rather than trusting the stored
+        // 'category' field. HabitCategory.toJson() intentionally collapses
+        // quran/athkar/fasting/sadaqah -> faith and fitness -> health
+        // before every Firestore write (see that method's doc comment), so
+        // the raw stored string alone can never tell 'faith' the category
+        // apart from 'faith' the collapsed form of 'quran'. A preset
+        // habit's [id] is always its catalog id (CustomHabitsNotifier
+        // activates a template by writing it to `users/{uid}/habits/{the
+        // template's own id}`), so IslamicHabitCatalog.findById(id) reliably
+        // finds the same const template this habit was created from, whose
+        // category is a compile-time constant that never touches Firestore
+        // and so was never collapsed in the first place. A custom habit
+        // (no catalog match, findById returns null) falls back to the
+        // stored value exactly as before - 'custom' was never one of the
+        // collapsed values, so there's nothing to recover there anyway.
+        //
+        // This fixes a real, previously-silent bug: every preset habit
+        // reloaded from Firestore (i.e. any time after its very first
+        // session - app restart, new device, sign back in...) lost its
+        // fine-grained category the moment this factory read back the
+        // already-collapsed 'faith'/'health' string, which meant
+        // DashboardState.categoryCompletions['quran'] stopped incrementing
+        // for it forever and the Quran Devotion achievement family
+        // (quran_25/100/300/1000 - see AchievementCatalog) could never
+        // unlock for anyone past their first app session. Fixing it here,
+        // at the one deserialization boundary every screen's habit list
+        // flows through (habitListProvider / allHabitsEverProvider), means
+        // every read site downstream (Grid, Today, completeHabit's
+        // `category:` param, achievement-progress bars) is correct
+        // automatically - no call site needed to change.
+        category: IslamicHabitCatalog.findById(id)?.category ??
+            HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
         frequencyType: HabitFrequencyType.fromJson(
           d['frequencyType'] as String? ?? 'daily',
         ),
@@ -209,10 +265,28 @@ class IslamicHabitTemplate {
         xpReward: d['xpReward'] as int? ?? 20,
         goldReward: d['goldReward'] as int? ?? 8,
         iconColorHex: d['iconColorHex'] as String?,
-        reminderLeadMinutes: d['reminderLeadMinutes'] as int? ?? 0,
+        reminderOffsetMinutes: _readReminderOffset(d),
+        ignoreQuietHours: d['ignoreQuietHours'] as bool? ?? false,
         createdAt: DateTime.tryParse(d['createdAt'] as String? ?? ''),
         archivedAt: DateTime.tryParse(d['archivedAt'] as String? ?? ''),
       );
+
+  /// Reads [reminderOffsetMinutes], transparently migrating any habit still
+  /// carrying the old `reminderLeadMinutes` field.
+  ///
+  /// The old field counted minutes *backwards* and was always positive
+  /// ("15" meant "15 minutes before"), so the migration is a straight sign
+  /// flip into the new signed convention. Read-time and lossless rather
+  /// than a one-shot rewrite pass: a habit is re-saved with the new key the
+  /// next time it's edited, and until then it keeps loading correctly on
+  /// every device, including ones still running an older build.
+  static int _readReminderOffset(Map<String, dynamic> d) {
+    final current = d['reminderOffsetMinutes'] as int?;
+    if (current != null) return current;
+    final legacyLead = d['reminderLeadMinutes'] as int?;
+    if (legacyLead != null && legacyLead != 0) return -legacyLead;
+    return 0;
+  }
 
   /// Whether this habit exists-and-is-due on [day]: never before its
   /// birth date (see [createdAt] — a habit created this morning was not
@@ -222,6 +296,25 @@ class IslamicHabitTemplate {
   /// own "all habits done" streak check), and on scheduled weekdays only
   /// when a specific schedule is set. This is the single seam every
   /// surface reads, so both rules hold everywhere at once.
+  /// How many times this habit has to be logged TODAY to count as done for
+  /// today - which is NOT [frequencyTarget] for every habit, and that
+  /// difference was a real bug.
+  ///
+  /// [frequencyTarget] means different things per cadence:
+  ///  - [HabitFrequencyType.daily]: taps needed that day (drink water 8x), so
+  ///    the target IS the daily requirement.
+  ///  - [HabitFrequencyType.weekly]: *days* needed that week (exercise 4x a
+  ///    week). One log finishes the day; the 4 is a weekly total, not a daily
+  ///    one.
+  ///
+  /// Today/Dashboard used [frequencyTarget] directly for both, so a "4x a
+  /// week" habit silently demanded four taps in a single day before it read as
+  /// done - and therefore before "all habits done today" (and the streak and
+  /// day bonus riding on it) would ever fire. Every "is it done today" check
+  /// should ask this instead.
+  int get effectiveDailyTarget =>
+      frequencyType == HabitFrequencyType.weekly ? 1 : frequencyTarget;
+
   bool isScheduledFor(DateTime day) {
     final born = createdAt;
     if (born != null &&
@@ -260,8 +353,44 @@ class IslamicHabitTemplate {
         xpReward: xpReward,
         goldReward: goldReward,
         iconColorHex: iconColorHex,
-        reminderLeadMinutes: reminderLeadMinutes,
+        reminderOffsetMinutes: reminderOffsetMinutes,
+        ignoreQuietHours: ignoreQuietHours,
         createdAt: date,
+      );
+
+  /// A full copy with [reminderOffsetMinutes] swapped in, everything else
+  /// (including [createdAt]/[archivedAt]) preserved — used by
+  /// CustomHabitsNotifier's one-shot fold of the retired global
+  /// prayer-offset setting into each prayer-linked habit's own offset.
+  /// Its own method rather than a general copyWith so this file keeps the
+  /// "every copy helper spells out every field" shape the two below already
+  /// follow, and so the migration can't silently drop a field.
+  IslamicHabitTemplate withReminderOffset(int minutes) =>
+      IslamicHabitTemplate(
+        id: id,
+        name: name,
+        description: description,
+        nameAr: nameAr,
+        descriptionAr: descriptionAr,
+        cueAfter: cueAfter,
+        category: category,
+        frequencyType: frequencyType,
+        frequencyTarget: frequencyTarget,
+        scheduledWeekdays: scheduledWeekdays,
+        goalType: goalType,
+        reductionType: reductionType,
+        limitAmount: limitAmount,
+        limitUnit: limitUnit,
+        customUnitLabel: customUnitLabel,
+        hasTimer: hasTimer,
+        timerDurationSeconds: timerDurationSeconds,
+        xpReward: xpReward,
+        goldReward: goldReward,
+        iconColorHex: iconColorHex,
+        reminderOffsetMinutes: minutes,
+        ignoreQuietHours: ignoreQuietHours,
+        createdAt: createdAt,
+        archivedAt: archivedAt,
       );
 
   /// A full copy with both [createdAt] and [archivedAt] swapped in — how
@@ -292,7 +421,8 @@ class IslamicHabitTemplate {
         xpReward: xpReward,
         goldReward: goldReward,
         iconColorHex: iconColorHex,
-        reminderLeadMinutes: reminderLeadMinutes,
+        reminderOffsetMinutes: reminderOffsetMinutes,
+        ignoreQuietHours: ignoreQuietHours,
         createdAt: createdAt,
         archivedAt: archivedAt,
       );
@@ -406,9 +536,9 @@ abstract final class IslamicHabitCatalog {
       // Tahajjud's window CLOSES at Fajr — a reminder at Fajr itself is
       // already too late. 45 minutes before Fajr lands inside the last
       // third of the night (its sunnah time) with enough room to actually
-      // pray. See NotificationService.scheduleSmartReminders' lead-time
-      // handling.
-      reminderLeadMinutes: 45,
+      // pray. Negative = before, see reminderOffsetMinutes' doc comment and
+      // NotificationService.scheduleSmartReminders' offset handling.
+      reminderOffsetMinutes: -45,
       category: HabitCategory.athkar,
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 3,
@@ -684,6 +814,94 @@ abstract final class IslamicHabitCatalog {
       nameAr: 'بدون سكر مضاف',
       descriptionAr: 'اقضِ يومك كاملاً بدون أي سكر مضاف',
       category: HabitCategory.custom,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 20,
+      goldReward: 8,
+    ),
+    // ── The Five Daily Prayers ──────────────────────────────────────
+    //
+    // Unlike morning_athkar/evening_athkar/tahajjud above (which are
+    // anchored TO a prayer but aren't the prayer itself), these five ARE
+    // the fard prayers, each tracked as its own habit so each gets its own
+    // real reminder time. cueAfter is the prayer's own canonical HabitCue
+    // key (see habit_cue.dart's _presetSynonyms/_prayerKeys) — the exact
+    // same field every other prayer-linked habit here already uses, so no
+    // new plumbing was needed: NotificationService.scheduleSmartReminders
+    // already resolves a 'fajr'..'isha' cueAfter through PrayerTimesService
+    // (real astronomical calculation off the user's saved location, live
+    // Aladhan lookup first, offline adhan_dart fallback) into that day's
+    // actual clock time, the same path tahajjud/gym_consistency already
+    // exercise. reminderOffsetMinutes is left at its 0 default on purpose —
+    // unlike tahajjud (whose valid window CLOSES at Fajr, so its reminder
+    // has to land before that moment), a fard prayer's window OPENS at its
+    // named time, so firing right at the calculated moment is correct, not
+    // early.
+    IslamicHabitTemplate(
+      id: 'prayer_fajr',
+      name: 'Fajr Prayer',
+      description: 'Perform the dawn prayer before sunrise',
+      nameAr: 'صلاة الفجر',
+      descriptionAr: 'أدِّ صلاة الفجر قبل شروق الشمس',
+      cueAfter: 'fajr',
+      category: HabitCategory.faith,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 20,
+      goldReward: 8,
+    ),
+    IslamicHabitTemplate(
+      id: 'prayer_dhuhr',
+      name: 'Dhuhr Prayer',
+      description: 'Perform the midday prayer',
+      nameAr: 'صلاة الظهر',
+      descriptionAr: 'أدِّ صلاة الظهر',
+      cueAfter: 'dhuhr',
+      category: HabitCategory.faith,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 20,
+      goldReward: 8,
+    ),
+    IslamicHabitTemplate(
+      id: 'prayer_asr',
+      name: 'Asr Prayer',
+      description: 'Perform the afternoon prayer',
+      nameAr: 'صلاة العصر',
+      descriptionAr: 'أدِّ صلاة العصر',
+      cueAfter: 'asr',
+      category: HabitCategory.faith,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 20,
+      goldReward: 8,
+    ),
+    IslamicHabitTemplate(
+      id: 'prayer_maghrib',
+      name: 'Maghrib Prayer',
+      description: 'Perform the sunset prayer',
+      nameAr: 'صلاة المغرب',
+      descriptionAr: 'أدِّ صلاة المغرب',
+      cueAfter: 'maghrib',
+      category: HabitCategory.faith,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 20,
+      goldReward: 8,
+    ),
+    IslamicHabitTemplate(
+      id: 'prayer_isha',
+      name: 'Isha Prayer',
+      description: 'Perform the night prayer',
+      nameAr: 'صلاة العشاء',
+      descriptionAr: 'أدِّ صلاة العشاء',
+      cueAfter: 'isha',
+      category: HabitCategory.faith,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
       hasTimer: false,

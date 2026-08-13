@@ -365,6 +365,27 @@ class _RoomPreviewCard extends StatelessWidget {
             s.roomMemberCount(room.memberCount),
             style: TextStyle(fontSize: 12, color: gp.textSec),
           ),
+          // Said here, at the moment of joining, rather than left for
+          // someone to deduce from a bell icon they never looked at - see
+          // kRoomAutoMuteMemberLimit for why a room this size arrives quiet.
+          if (room.memberCount > kRoomAutoMuteMemberLimit) ...[
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.notifications_off_rounded,
+                    size: 13, color: gp.textTert),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    s.roomLargeRoomMutedNote,
+                    style: TextStyle(
+                        fontSize: 11.5, height: 1.35, color: gp.textTert),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 4),
           Text(
             room.habitMode == RoomHabitMode.shared
@@ -394,7 +415,7 @@ class _InlineNotice extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: GameColors.error.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
         border: Border.all(color: GameColors.error.withOpacity(0.24)),
       ),
       child: Row(
@@ -485,7 +506,7 @@ class _PlanReviewRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
         color: gp.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
         border: Border.all(color: gp.border, width: 0.5),
       ),
       child: Row(
@@ -622,7 +643,7 @@ class _OwnHabitMultiFieldRow extends StatelessWidget {
         child: Row(
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
+              duration: GameMotion.quick,
               width: 20,
               height: 20,
               decoration: BoxDecoration(

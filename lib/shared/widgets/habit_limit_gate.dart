@@ -40,7 +40,7 @@ void showHabitLimitGate(BuildContext context, WidgetRef ref) {
               height: 4,
               decoration: BoxDecoration(
                 color: gp.border,
-                borderRadius: BorderRadius.circular(100),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
             ),
             const SizedBox(height: 20),

@@ -49,16 +49,26 @@ void registerDashboardReactions(
       showLevelUpSnackBar(context, next.level);
     }
     if (next.newlyUnlocked.isNotEmpty && prev.newlyUnlocked.isEmpty) {
+      // Capture before acknowledging — acknowledgeAchievements clears
+      // state.newlyUnlocked right away, so the list has to be saved here or
+      // everything after the first sheet would have nothing left to show.
+      final unlocked = next.newlyUnlocked;
       ref.read(dashboardProvider.notifier).acknowledgeAchievements();
-      HapticFeedback.heavyImpact();
-      Future.delayed(const Duration(milliseconds: 250), () {
-        if (context.mounted) {
-          // A level-up or streak-freeze snackbar may already be on screen
-          // from earlier in this same reaction batch — clear it so the
-          // achievement sheet (the bigger celebration) doesn't visually
-          // collide with a toast sitting at the same bottom edge.
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          showAchievementUnlockSheet(context, next.newlyUnlocked.first);
+      Future.delayed(const Duration(milliseconds: 250), () async {
+        if (!context.mounted) return;
+        // A level-up or streak-freeze snackbar may already be on screen
+        // from earlier in this same reaction batch — clear it so the
+        // achievement sheet (the bigger celebration) doesn't visually
+        // collide with a toast sitting at the same bottom edge.
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        // One completion can cross more than one threshold at once (say,
+        // the same tap that hits a streak milestone is also the habit's
+        // 50th-ever completion) — celebrate every one of them in turn
+        // instead of just the first, so nobody's medal unlocks silently.
+        for (final a in unlocked) {
+          if (!context.mounted) return;
+          HapticFeedback.heavyImpact();
+          await showAchievementUnlockSheet(context, a);
         }
       });
     }
@@ -114,7 +124,7 @@ void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
       duration: const Duration(seconds: 3),
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
     ),
   );
 }
@@ -150,7 +160,7 @@ void showPerfectDaySnackBar(BuildContext context) {
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
         side: BorderSide(color: GameColors.emerald, width: 1),
       ),
     ),
@@ -181,18 +191,24 @@ void showLevelUpSnackBar(BuildContext context, int level) {
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
         side: BorderSide(color: GameColors.gold, width: 1),
       ),
     ),
   );
 }
 
-void showAchievementUnlockSheet(BuildContext context, AchievementModel a) {
-  showModalBottomSheet(
+/// Returns the sheet's dismissal Future (resolves on Claim tap or swipe-
+/// down) so callers queuing several unlocks in a row can await each one
+/// before showing the next instead of stacking them.
+Future<void> showAchievementUnlockSheet(BuildContext context, AchievementModel a) {
+  return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Without this, the sheet ignores the iPhone home-indicator inset and
+    // its Claim button can render flush with (or under) the gesture bar.
+    useSafeArea: true,
     builder: (_) => AchievementUnlockSheet(achievement: a),
   );
 }
@@ -310,7 +326,7 @@ class MilestoneCelebration extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                   decoration: BoxDecoration(
                     color: GameColors.iconXp.withOpacity(0.16),
-                    borderRadius: BorderRadius.circular(100),
+                    borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                     border: Border.all(color: GameColors.iconXp.withOpacity(0.35)),
                   ),
                   child: Row(
@@ -382,120 +398,135 @@ class HabitMilestoneCelebration extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-          decoration: BoxDecoration(
-            color: gp.surfaceHigh,
-            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-            border: Border.all(
-                color: GameColors.iconStreak.withOpacity(0.4), width: 1),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              VictoryBurstOnMount(
-                colors: [
-                  GameColors.iconStreak,
-                  GameColors.gold,
-                  Colors.white,
-                ],
-                child: Container(
-                  width: 84,
-                  height: 84,
-                  decoration: BoxDecoration(
-                    color: GameColors.iconStreak.withOpacity(0.16),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: GameColors.iconStreak.withOpacity(0.32),
-                        blurRadius: 36,
-                        spreadRadius: 6,
-                      ),
-                    ],
+    // Transparent Material so descendant Text widgets have a real
+    // DefaultTextStyle to inherit from. Unlike MilestoneCelebration above
+    // (which gets one free from its Scaffold), this is a bare card handed
+    // straight to showGeneralDialog, so it lands on the Navigator's overlay
+    // with no Material anywhere above it. Without this, every Text here
+    // inherits MaterialApp's `_errorTextStyle` fallback — red 48px monospace
+    // with a yellow double underline. The explicit color/fontSize on each
+    // style below override the red and the size but never the *decoration*,
+    // so the yellow lines survive and are all you actually see. Note this is
+    // NOT debug-only: MaterialApp passes _errorTextStyle to WidgetsApp
+    // unconditionally, so it ships to users. See also VoiceNotePlayer, which
+    // needs the same wrapper for the same reason.
+    return Material(
+      type: MaterialType.transparency,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+            decoration: BoxDecoration(
+              color: gp.surfaceHigh,
+              borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+              border: Border.all(
+                  color: GameColors.iconStreak.withOpacity(0.4), width: 1),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                VictoryBurstOnMount(
+                  colors: [
+                    GameColors.iconStreak,
+                    GameColors.gold,
+                    Colors.white,
+                  ],
+                  child: Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      color: GameColors.iconStreak.withOpacity(0.16),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: GameColors.iconStreak.withOpacity(0.32),
+                          blurRadius: 36,
+                          spreadRadius: 6,
+                        ),
+                      ],
+                    ),
+                    child: Icon(Icons.local_fire_department_rounded,
+                        size: 40, color: GameColors.iconStreak),
+                  )
+                      .animate()
+                      .scale(
+                          begin: const Offset(0.3, 0.3),
+                          curve: Curves.elasticOut,
+                          duration: 700.ms)
+                      .fadeIn(duration: 250.ms),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  s.streakMilestoneLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: GameColors.iconStreak,
+                    letterSpacing: s.isAr ? 0 : 2.5,
                   ),
-                  child: Icon(Icons.local_fire_department_rounded,
-                      size: 40, color: GameColors.iconStreak),
-                )
-                    .animate()
-                    .scale(
-                        begin: const Offset(0.3, 0.3),
-                        curve: Curves.elasticOut,
-                        duration: 700.ms)
-                    .fadeIn(duration: 250.ms),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                s.streakMilestoneLabel,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: GameColors.iconStreak,
-                  letterSpacing: s.isAr ? 0 : 2.5,
-                ),
-              ).animate(delay: 120.ms).fadeIn(),
-              const SizedBox(height: 8),
-              Text(
-                s.daysCount(event.milestone),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w900,
-                  color: gp.textPrimary,
-                  letterSpacing: s.isAr ? 0 : -1,
-                  height: 1,
-                ),
-              ).animate(delay: 180.ms).fadeIn().slideY(begin: 0.2),
-              const SizedBox(height: 6),
-              Text(
-                event.habitName,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: gp.textSec,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ).animate(delay: 240.ms).fadeIn(),
-              const SizedBox(height: 22),
-              if (event.bonusXp > 0)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                  decoration: BoxDecoration(
-                    color: GameColors.iconXp.withOpacity(0.16),
-                    borderRadius: BorderRadius.circular(100),
-                    border:
-                        Border.all(color: GameColors.iconXp.withOpacity(0.35)),
+                ).animate(delay: 120.ms).fadeIn(),
+                const SizedBox(height: 8),
+                Text(
+                  s.daysCount(event.milestone),
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    color: gp.textPrimary,
+                    letterSpacing: s.isAr ? 0 : -1,
+                    height: 1,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.bolt_rounded,
-                          size: 16, color: GameColors.iconXp),
-                      const SizedBox(width: 6),
-                      Text(s.milestoneBonusXp(event.bonusXp),
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: GameColors.iconXp)),
-                    ],
+                ).animate(delay: 180.ms).fadeIn().slideY(begin: 0.2),
+                const SizedBox(height: 6),
+                Text(
+                  event.habitName,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textSec,
                   ),
-                ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
-              const SizedBox(height: 26),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    Navigator.of(context).pop();
-                  },
-                  child: Text(s.keepGrowing),
-                ),
-              ).animate(delay: 360.ms).fadeIn().slideY(begin: 0.2),
-            ],
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ).animate(delay: 240.ms).fadeIn(),
+                const SizedBox(height: 22),
+                if (event.bonusXp > 0)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: GameColors.iconXp.withOpacity(0.16),
+                      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                      border:
+                          Border.all(color: GameColors.iconXp.withOpacity(0.35)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.bolt_rounded,
+                            size: 16, color: GameColors.iconXp),
+                        const SizedBox(width: 6),
+                        Text(s.milestoneBonusXp(event.bonusXp),
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: GameColors.iconXp)),
+                      ],
+                    ),
+                  ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
+                const SizedBox(height: 26),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      Navigator.of(context).pop();
+                    },
+                    child: Text(s.keepGrowing),
+                  ),
+                ).animate(delay: 360.ms).fadeIn().slideY(begin: 0.2),
+              ],
+            ),
           ),
         ),
       ),
@@ -519,7 +550,8 @@ class AchievementUnlockSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final isAr = S.of(context).isAr;
+    final s = S.of(context);
+    final isAr = s.isAr;
     final c = _color;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
@@ -538,7 +570,7 @@ class AchievementUnlockSheet extends StatelessWidget {
               height: 4,
               decoration: BoxDecoration(
                 color: gp.border,
-                borderRadius: BorderRadius.circular(100),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
             ),
             const SizedBox(height: 28),
@@ -573,7 +605,7 @@ class AchievementUnlockSheet extends StatelessWidget {
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: c.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(100),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
               child: Text(
                 achievement.tier.localizedName(isAr).toUpperCase(),
@@ -615,7 +647,7 @@ class AchievementUnlockSheet extends StatelessWidget {
                 if (achievement.goldReward > 0)
                   _RewardChip(
                     icon: Icons.toll_rounded,
-                    label: '+${achievement.goldReward} Gold',
+                    label: '+${achievement.goldReward} ${s.gold}',
                     color: GameColors.gold,
                   ),
               ],
@@ -654,7 +686,7 @@ class _RewardChip extends StatelessWidget {
           const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(100),
+        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
         border:
             Border.all(color: color.withOpacity(0.3), width: 0.5),
       ),

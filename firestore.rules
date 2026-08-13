@@ -74,17 +74,72 @@ service cloud.firestore {
     // invite here: anyone signed in can read a room and its roster (there's
     // no way to discover a code except being told it), but can only ever
     // write their own participant entry.
+    //
+    // `get` vs `list`, deliberately split, not one `allow read`: Firestore
+    // treats plain `allow read` as granting *both* a single-doc `get` (the
+    // app's own access pattern - RoomsController always does
+    // `.doc(code).get()`/`.snapshots()`, confirmed by grepping every
+    // `collection('rooms')` call site, never a bare collection query) *and*
+    // collection-level `list` (an unfiltered `collection('rooms').get()`).
+    // A plain `allow read` would let any signed-in client - not just this
+    // app's own UI, anyone hitting the same public Firebase config with
+    // the SDK or REST API directly - enumerate every room ever created,
+    // recovering each one's code (the document ID itself) plus its name,
+    // schedule, and creator. That defeats the whole "the code is the
+    // invite, and there's no way to discover one except being told it"
+    // model this comment block used to describe as fact rather than
+    // intent. `allow get` alone preserves every real access pattern above
+    // (you still need to already know a code to fetch that one document)
+    // while granting no `list` capability on this collection at all.
     match /rooms/{roomId} {
-      allow read: if isSignedIn();
+      allow get: if isSignedIn();
       allow create: if isSignedIn()
                     && request.resource.data.createdBy == request.auth.uid;
-      // Deliberately not owner-only: memberCount has to increment/decrement
-      // from whoever's actually joining or leaving, not just the leader.
-      // Looser than every other rule in this file by necessity, not
-      // oversight - a per-field version of this (only memberCount may
-      // change) is possible later if that gap ever matters more than
-      // staying simple does.
-      allow update: if isSignedIn();
+      // ── Who may change what on a room doc ──────────────────────────────
+      // This used to be a bare `allow update: if isSignedIn()`, which meant
+      // anyone who knew a code could rewrite that room outright - rename it,
+      // move its end date, empty its shared plan, flip it back to a lobby -
+      // not just the leader. The comment above it called that a per-field
+      // rule "possible later"; this is that rule.
+      //
+      // Three legitimate writers, and nothing else:
+      //
+      //  1. The leader, who may change anything. Note this also covers
+      //     leaveRoom's leadership handoff: the departing leader is still
+      //     createdBy at the moment they write the successor in.
+      //
+      //  2. Any signed-in member touching ONLY memberCount - joinRoom
+      //     increments it and leaveRoom decrements it, so it genuinely
+      //     cannot be leader-only.
+      //
+      //  3. Any member's device flipping a SCHEDULED room out of its lobby
+      //     once the moment has actually passed. This one looks like a hole
+      //     and isn't: RoomsController.autoStartIfDue deliberately fires
+      //     from whoever happens to be watching the countdown, because a
+      //     room must start on time even if the leader's phone is off (see
+      //     _LobbyCardState._onTick). The conditions below pin it to exactly
+      //     that transition - lobby to active, only on a room that really
+      //     had a scheduled start, only once request.time has passed it, and
+      //     only touching the four fields _beginChallenge writes. It cannot
+      //     be used to start a room early, restart a finished one, or change
+      //     anything else along the way.
+      //
+      // Field lists are matched against RoomsController's actual writes; if
+      // a new one is added there, it belongs here too or it will start
+      // failing permission-denied.
+      allow update: if isSignedIn() && (
+        resource.data.createdBy == request.auth.uid
+        || request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly(['memberCount'])
+        || (
+             resource.data.status == 'lobby'
+             && request.resource.data.status == 'active'
+             && resource.data.scheduledStartAt is timestamp
+             && resource.data.scheduledStartAt <= request.time
+             && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['status', 'startDate', 'scheduledStartAt', 'endDate'])
+           )
+      );
       allow delete: if isSignedIn() && resource.data.createdBy == request.auth.uid;
 
       match /participants/{uid} {

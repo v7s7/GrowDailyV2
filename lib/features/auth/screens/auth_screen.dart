@@ -135,7 +135,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      'GrowDaily',
+                      'Grow Daily',
                       style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.w800,
@@ -232,7 +232,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
               // Confirm password (register only)
               AnimatedSize(
-                duration: const Duration(milliseconds: 250),
+                duration: GameMotion.relaxed,
                 curve: Curves.easeOutCubic,
                 child: _isSignIn
                     ? const SizedBox.shrink()
@@ -267,7 +267,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
               // Error
               AnimatedSize(
-                duration: const Duration(milliseconds: 200),
+                duration: GameMotion.standard,
                 curve: Curves.easeOutCubic,
                 child: _errorMessage == null
                     ? const SizedBox.shrink()
@@ -349,7 +349,7 @@ class _TabBtn extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: GameMotion.standard,
           curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
             color: active ? gp.surfaceHigh : Colors.transparent,

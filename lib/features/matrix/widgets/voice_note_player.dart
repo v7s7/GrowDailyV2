@@ -168,8 +168,12 @@ class _VoiceNotePlayerState extends State<VoiceNotePlayer> {
       // directly inside MaterialApp.builder's Stack (see
       // GlobalVoiceNotePlayerOverlay), outside any Scaffold/Material —
       // without this, every Text here falls back to Flutter's "no Material
-      // ancestor" debug style: an ugly yellow, double-underlined look
-      // (debug builds only, but a real bug to leave unfixed).
+      // ancestor" style: an ugly yellow, double-underlined look. Not
+      // debug-only, despite how it reads — MaterialApp passes
+      // `_errorTextStyle` to WidgetsApp unconditionally, so it ships to
+      // users. MaterialApp.builder now also wraps the whole tree as a
+      // backstop; this local wrapper stays so the widget is correct on its
+      // own wherever it gets mounted.
       // `transparency` means this adds no color/elevation/shadow of its
       // own — the Container below still fully owns this card's look.
       child: Material(
@@ -571,7 +575,7 @@ class _PlayPauseButton extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 160),
+            duration: GameMotion.quick,
             transitionBuilder: (child, anim) =>
                 ScaleTransition(scale: anim, child: child),
             child: Icon(
@@ -611,11 +615,11 @@ class _SpeedPill extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: GameMotion.quick,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
             color: color.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(100),
+            borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
           ),
           child: Text(
             label,
@@ -784,6 +788,9 @@ void showRenameVoiceNoteSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Without this, the sheet ignores the iPhone home-indicator inset and
+    // its footer button can render flush with (or under) the gesture bar.
+    useSafeArea: true,
     builder: (_) =>
         _RenameVoiceNoteSheet(currentName: currentName, onSave: onSave),
   );
@@ -846,7 +853,7 @@ class _RenameVoiceNoteSheetState extends State<_RenameVoiceNoteSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: gp.border,
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
               ),
             ),
@@ -871,11 +878,11 @@ class _RenameVoiceNoteSheetState extends State<_RenameVoiceNoteSheet> {
                 filled: true,
                 fillColor: gp.surface,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   borderSide: BorderSide(color: gp.border),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   borderSide: BorderSide(color: gp.border),
                 ),
               ),

@@ -43,7 +43,7 @@ void showHistoryLockedSnackBar(BuildContext context) {
       duration: const Duration(seconds: 4),
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
     ),
   );
 }

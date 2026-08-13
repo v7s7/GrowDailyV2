@@ -124,6 +124,22 @@ hit by hand, since plenty will be false positives where `const` and the
 color just happen to be near each other but aren't in the same expression.
 This one touched ~35 call sites across 20+ files.
 
+**Standing rule for all new code, not just migrations:** this isn't a
+one-time gotcha from the migration — `GameColors.gold`/`.goldDim`/`.emerald`/
+`.emeraldDim`/`.xpBlue`/`.xpBlueDim`/`.streakOrange`/`.streakOrangeDim`,
+every `GameColors.*` getter (`success`, `onEmerald`, `rarityUncommon`,
+`rarityRare`, `rarityLegendary`, `tierGold`), all of `GameColors`'
+theme-surface fields (`background`, `surface`, `textPrimary`, `border`,
+`divider`, the `light*` variants, etc.), and every `context.gp.*` accessor
+are permanently non-const, full stop. Recurred once already in this repo's
+history (a fresh `Text(..., style: const TextStyle(color: GameColors.gold))`
+added in a later session, same error signature as this lesson) — precisely
+because it's easy to pattern-match "this looks like the same
+Text/TextStyle/Icon code I've written elsewhere" without noticing the one
+line that got a stray `const`. Before adding `const` to *any* widget/style
+constructor, check every value inside it against this list first — don't
+rely on remembering the migration happened.
+
 ## 7. `flutter create .` overwrites some files without asking
 
 **What happened (not a break, but a gotcha):** running `flutter create
@@ -232,3 +248,26 @@ and deletes the old junk fields.) When touching any Firestore write, check
 which method it's inside before using a dotted key — and grep for
 `'\w+\.\$` across `lib/` afterward, since this mistake reads completely
 fine in review and only surfaces as silently-missing data across restarts.
+
+## 11. `scripts/release_testflight.sh` runs `pod install` *before* `flutter build ipa`'s own implicit `flutter pub get`
+
+**What could break:** the release script's order is (1) bump build number,
+(2) `pod install`, (3) `flutter build ipa` (which runs its own `pub get` if
+`pubspec.lock` is stale). `pod install`'s `flutter_install_all_ios_pods` call
+in `Podfile` decides which native pods to link by reading
+`.flutter-plugins-dependencies` — a file only `flutter pub get` regenerates.
+So the very first release after adding a brand-new Flutter plugin dependency
+to `pubspec.yaml` (e.g. `cloud_functions`, added for the room-finish push's
+client half) will run `pod install` against a *stale* plugin list if nobody
+has run `flutter pub get` since the `pubspec.yaml` edit — silently skipping
+that plugin's native pod (confirmed: `ios/Podfile.lock` had no
+`FirebaseFunctions` entry at all right after `cloud_functions` was added to
+`pubspec.yaml`, even though `firebase_messaging`'s own pod was already
+correctly linked from an earlier release). The Dart side would still compile
+fine; the gap only shows up as a runtime `MissingPluginException` the first
+time the new plugin's channel is actually called.
+
+**Rule:** any time a new Flutter plugin (not a pure-Dart package) is added to
+`pubspec.yaml`, run `flutter pub get` by hand once *before* running
+`growdaily-release`/`release_testflight.sh` — don't rely on the script's own
+`pod install` step to pick up a dependency that was never resolved yet.

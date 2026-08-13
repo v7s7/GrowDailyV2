@@ -277,12 +277,25 @@ class WeeklyRecapCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 for (final h in habits)
-                  _HabitWeekRow(
-                    habit: h,
-                    grid: grid,
-                    today: today,
-                    isAr: s.isAr,
-                  ),
+                  // Skip a habit that's both gone (archived, not the
+                  // current active one) AND had nothing real to show this
+                  // week — exactly the shape a mistake/test habit that got
+                  // hard-deleted-should-have-been-but-was-still-lingering
+                  // leaves behind: zero completions, ever, and now
+                  // archived. A currently-active habit always shows, even
+                  // at 0/7 — that's a real miss worth seeing, not clutter.
+                  // A now-archived habit with at least one real green day
+                  // this week also still shows — it was genuinely used,
+                  // not a mistake, so its receipt stays. See
+                  // _weekDoneCount's own doc comment.
+                  if (h.archivedAt == null ||
+                      _weekDoneCount(h, grid, today) > 0)
+                    _HabitWeekRow(
+                      habit: h,
+                      grid: grid,
+                      today: today,
+                      isAr: s.isAr,
+                    ),
               ],
               const SizedBox(height: 10),
               Text(
@@ -299,6 +312,8 @@ class WeeklyRecapCard extends ConsumerWidget {
                   dailyGreenCounts: counts,
                   currentWeekStart: weekStart,
                 ),
+                currentWeekStart: weekStart,
+                thisWeekLabel: s.weeklyRecapThisWeek,
               ),
             ] else ...[
               const SizedBox(height: 10),
@@ -331,6 +346,26 @@ class WeeklyRecapCard extends ConsumerWidget {
       ).animate().fadeIn(duration: 400.ms),
     );
   }
+}
+
+/// How many of [habit]'s scheduled, non-future days in [grid] are actually
+/// green — its real completions this week. Used to decide whether an
+/// archived habit is worth a row at all (see the filter above) — the exact
+/// same scheduled-and-not-future-and-green condition [_HabitWeekRow] uses
+/// for its own n/scheduled count below, just computed standalone here so
+/// the filter can run *before* that row ever gets built.
+int _weekDoneCount(
+  IslamicHabitTemplate habit,
+  WeeklyGridState grid,
+  DateTime today,
+) {
+  var done = 0;
+  for (final day in grid.days) {
+    if (day.startOfDay.isAfter(today)) continue;
+    if (!habit.isScheduledFor(day)) continue;
+    if (grid.squareFor(habit.id, day).isGreen) done++;
+  }
+  return done;
 }
 
 /// One habit's week at a glance inside the Premium recap: name, seven day
@@ -422,49 +457,141 @@ class _HabitWeekRow extends StatelessWidget {
   }
 }
 
-/// Four tiny bars, oldest to newest, current week in gold — enough to see
-/// direction without pretending to be a chart screen.
+/// Four bars, oldest to newest, current week in gold — enough to see
+/// direction without pretending to be a chart screen. Each bar sits on a
+/// dim full-height track so a quiet week still reads as "a bar with
+/// little in it" rather than a stray sliver floating with nothing to
+/// anchor it against, and every column is [Expanded] so the whole row
+/// fills exactly the width it's given instead of drifting to one side
+/// with fixed-width bars. The current week gets both its usual gold color
+/// and an explicit "This week" tag underneath — the color alone was easy
+/// to miss.
 class _TrendBars extends StatelessWidget {
   final List<int> totals;
-  const _TrendBars({required this.totals});
+  final DateTime currentWeekStart;
+  final String thisWeekLabel;
+  const _TrendBars({
+    required this.totals,
+    required this.currentWeekStart,
+    required this.thisWeekLabel,
+  });
+
+  static const _trackHeight = 52.0;
+  static const _barWidth = 28.0;
+  static const _minBarHeight = 6.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final max = totals.fold<int>(0, (m, v) => v > m ? v : m);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < totals.length; i++)
+          Expanded(
+            child: _TrendBar(
+              value: totals[i],
+              max: max,
+              isCurrent: i == totals.length - 1,
+              // weeks-old count from the end: last bar (current) is 0
+              // weeks back, the one before it is 1 week back, etc.
+              weekStart: currentWeekStart
+                  .subtract(Duration(days: 7 * (totals.length - 1 - i))),
+              thisWeekLabel: thisWeekLabel,
+              trackHeight: _trackHeight,
+              barWidth: _barWidth,
+              minBarHeight: _minBarHeight,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _TrendBar extends StatelessWidget {
+  final int value;
+  final int max;
+  final bool isCurrent;
+  final DateTime weekStart;
+  final String thisWeekLabel;
+  final double trackHeight;
+  final double barWidth;
+  final double minBarHeight;
+  const _TrendBar({
+    required this.value,
+    required this.max,
+    required this.isCurrent,
+    required this.weekStart,
+    required this.thisWeekLabel,
+    required this.trackHeight,
+    required this.barWidth,
+    required this.minBarHeight,
+  });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final max = totals.fold<int>(0, (m, v) => v > m ? v : m);
-    return SizedBox(
-      height: 34,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          for (var i = 0; i < totals.length; i++)
-            Padding(
-              padding: const EdgeInsetsDirectional.only(end: 6),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 22,
-                    // Minimum sliver of height so a zero week still shows
-                    // a baseline instead of vanishing.
-                    height: max == 0 ? 3 : 3 + 25 * (totals[i] / max),
-                    decoration: BoxDecoration(
-                      color: i == totals.length - 1
-                          ? GameColors.gold
-                          : GameColors.emerald.withOpacity(0.45),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
+    final barColor = isCurrent ? GameColors.gold : GameColors.emerald;
+    final barHeight = max == 0
+        ? minBarHeight
+        : minBarHeight + (trackHeight - minBarHeight) * (value / max);
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: trackHeight,
+          child: Center(
+            child: Stack(
+              alignment: Alignment.bottomCenter,
+              children: [
+                Container(
+                  width: barWidth,
+                  height: trackHeight,
+                  decoration: BoxDecoration(
+                    color: gp.border.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${totals[i]}',
-                    style: TextStyle(fontSize: 8.5, color: gp.textTert),
+                ),
+                Container(
+                  width: barWidth,
+                  height: barHeight,
+                  decoration: BoxDecoration(
+                    color: isCurrent ? barColor : barColor.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: isCurrent
+                        ? [
+                            BoxShadow(
+                              color: GameColors.gold.withOpacity(0.35),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-        ],
-      ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '$value',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w700,
+            color: isCurrent ? GameColors.gold : gp.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          isCurrent ? thisWeekLabel : '${weekStart.day}-${weekEnd.day}',
+          style: TextStyle(
+            fontSize: 8.5,
+            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+            color: isCurrent ? GameColors.gold : gp.textTert,
+          ),
+        ),
+      ],
     );
   }
 }

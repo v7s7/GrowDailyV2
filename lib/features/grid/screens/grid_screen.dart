@@ -7,8 +7,11 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
+import '../../../shared/widgets/coach_mark_overlay.dart';
+import '../../../shared/widgets/comeback_card.dart';
 import '../../../shared/widgets/get_started_checklist_card.dart';
 import '../../../shared/widgets/safe_wrap_text.dart';
 import '../../../shared/widgets/victory_burst.dart';
@@ -24,24 +27,55 @@ import '../../rooms/notifiers/rooms_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 
+// This screen used to be one ~2,160-line file. It's now split by UI concern
+// across this file plus four `part` files below — `part`/`part of` (not
+// separate libraries with their own imports) specifically so every widget
+// class that moves keeps sharing this file's exact single import list, with
+// zero risk of a moved chunk silently missing an import (something there's
+// no compiler in the loop here to catch). Nothing that imports GridScreen
+// itself needed to change: every class moved into a part file was already
+// private (leading underscore), so nothing outside this file could
+// reference it before or after this split — GridScreen/categoryVisual below
+// are the only two things this file has ever exported.
+part 'grid_screen_summary.dart'; // _SelectionBar, _GridHeader, _NavArrow, _SummaryCard, _RingStat, _MiniStat
+part 'grid_screen_table.dart'; // _GridTable/_GridTableState (the interactive board + tap/reward handlers), _BoostBadge, _SquareCell
+part 'grid_screen_cell_editor.dart'; // _CellEditorSheet/_CellEditorSheetState (long-press palette + note editor), _PaletteSwatch
+part 'grid_screen_misc.dart'; // _GridSkeleton, _GridSectionHeader, _GridEmptyState
+
 /// Themed tint color for a habit row's category chip. The IconData half of
 /// this tuple is legacy — actual rendering goes through [CategoryIcon],
 /// which prefers the custom glyph art and only falls back to a Material
 /// icon for categories without custom art. Kept here since callers still
 /// destructure the color.
+// Must agree with HabitCategory's own icon/localizedName/toJson grouping
+// (habit_model.dart) - faith/quran/athkar/fasting/sadaqah are all "Faith"
+// there (fasting and sadaqah are still acts of worship, not a Focus or
+// Money habit just because one involves self-restraint and the other
+// involves giving money). This function used to split fasting into the
+// Focus group and sadaqah into the Money group, so a Sadaqah habit's Grid
+// row/cell-editor color (fed straight into CategoryIcon - see
+// grid_screen_table.dart/grid_screen_cell_editor.dart) read as the same
+// amber "Money" color as a savings habit, which is exactly backwards for
+// an Islamic-habits app treating charity as worship, not budgeting.
 (IconData, Color) categoryVisual(HabitCategory category) => switch (category) {
-      HabitCategory.faith || HabitCategory.quran || HabitCategory.athkar =>
+      HabitCategory.faith ||
+      HabitCategory.quran ||
+      HabitCategory.athkar ||
+      HabitCategory.fasting ||
+      HabitCategory.sadaqah =>
         (Icons.menu_book_rounded, GameColors.emerald),
       HabitCategory.health || HabitCategory.fitness =>
         (Icons.fitness_center_rounded, GameColors.iconStreak),
       HabitCategory.learning => (Icons.school_rounded, GameColors.iconXp),
-      HabitCategory.focus || HabitCategory.fasting =>
+      HabitCategory.focus =>
         (Icons.center_focus_strong_rounded, GameColors.iconXp),
-      HabitCategory.money || HabitCategory.sadaqah =>
-        (Icons.savings_rounded, GameColors.warning),
+      HabitCategory.money => (Icons.savings_rounded, GameColors.warning),
       HabitCategory.mind => (Icons.psychology_rounded, GameColors.rarityEpic),
       HabitCategory.social => (Icons.groups_rounded, GameColors.gold),
-      HabitCategory.sleep => (Icons.bedtime_rounded, GameColors.rarityEpic),
+      // Own fixed color (see GameColors.iconSleep's doc comment) instead of
+      // reusing rarityEpic, which Mind already sits on - the two used to
+      // be visually identical apart from icon shape.
+      HabitCategory.sleep => (Icons.bedtime_rounded, GameColors.iconSleep),
       HabitCategory.custom => (Icons.star_rounded, GameColors.gold),
     };
 
@@ -61,6 +95,14 @@ class GridScreen extends ConsumerStatefulWidget {
 
 class _GridScreenState extends ConsumerState<GridScreen> {
   final Set<String> _selectedIds = {};
+  // App Guide's own coach-marks (see CoachMarkOverlay near the
+  // bottom of build()) — _addHabitKey lives on whichever of the FAB /
+  // empty-state button is actually mounted (only one ever is), _todayCellKey
+  // on today's own square in row 0 of whichever _GridTable is displayed
+  // first (see _GridTable.todayCellKey's doc comment for why a single
+  // square, not the whole row).
+  final GlobalKey _addHabitKey = GlobalKey();
+  final GlobalKey _todayCellKey = GlobalKey();
 
   bool get _selectionMode => _selectedIds.isNotEmpty;
 
@@ -92,17 +134,18 @@ class _GridScreenState extends ConsumerState<GridScreen> {
   Future<void> _deleteSelected() async {
     if (_selectedIds.isEmpty) return;
     final linked = ref.read(myLinkedRoomHabitsProvider);
-    final affectedRoomCodes = <String>{
+    final affectedRoomNames = <String>{
       for (final id in _selectedIds)
-        for (final room in linked[id] ?? const []) room.code,
+        for (final room in linked[id] ?? const []) room.name,
     };
-    if (affectedRoomCodes.isNotEmpty) {
+    if (affectedRoomNames.isNotEmpty) {
       final s = S.of(context);
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (_) => AlertDialog(
           title: Text(s.habitLinkedRoomWarningTitle),
-          content: Text(s.habitLinkedRoomWarningBody(affectedRoomCodes.length)),
+          content: Text(
+              s.habitLinkedRoomWarningBody(affectedRoomNames.toList())),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -124,18 +167,55 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // this Scaffold's messenger stays valid regardless.
     final messenger = ScaffoldMessenger.of(context);
     final s = S.of(context);
-    final customIds =
-        ref.read(customHabitsProvider).map((h) => h.id).toSet();
     final rooms = ref.read(roomsControllerProvider);
+    final totalCompletions = ref.read(dashboardProvider).habitTotalCompletions;
+    // Captured before the loop clears the selection - Undo below needs to
+    // know exactly which habits went, and which kind each one was.
+    final removed = <({String id, bool isCatalog, bool everCompleted})>[];
     for (final id in _selectedIds) {
       rooms.unlinkHabitEverywhere(id).ignore();
-      if (customIds.contains(id)) {
-        ref.read(customHabitsProvider.notifier).archive(id);
+      final everCompleted = (totalCompletions[id] ?? 0) > 0;
+      removed.add((
+        id: id,
+        isCatalog: IslamicHabitCatalog.findById(id) != null,
+        everCompleted: everCompleted,
+      ));
+      // Catalog ids are a fixed, known set (IslamicHabitCatalog.templates —
+      // same check add_habit_sheet/custom_habits_notifier already rely on
+      // elsewhere), so this is correct regardless of whether a custom
+      // habit is currently active or already soft-archived. The previous
+      // `customHabitsProvider`-membership check only ever saw *active*
+      // custom habits — an already-archived one (e.g. still showing today
+      // via habitsArchivedTodayProvider after an earlier delete) would
+      // silently fall through to the catalog branch below and hand its
+      // random custom-habit id to ActiveCatalogNotifier.toggle() as if it
+      // were a real catalog id.
+      if (IslamicHabitCatalog.findById(id) == null) {
+        ref
+            .read(customHabitsProvider.notifier)
+            .archive(id, everCompleted: everCompleted);
       } else {
-        ref.read(activeCatalogProvider.notifier).toggle(id);
+        ref
+            .read(activeCatalogProvider.notifier)
+            .toggle(id, everCompleted: everCompleted);
       }
     }
     _clearSelection();
+    // ── Undo ────────────────────────────────────────────────────────────
+    // Deleting a habit had no way back, while deleting a mere task did. The
+    // data was never actually lost (archive keeps the whole template so the
+    // Heatmap and Insights stay honest) - there was simply nothing anywhere
+    // that could put it back, so a habit someone had built themselves, with
+    // their own name, cue, frequency and reminder, ended one tap from gone.
+    // The confirmation even said "Removed from your list", quietly reassuring
+    // about stats while saying nothing about the habit.
+    //
+    // A habit that was never completed is hard-deleted rather than archived
+    // (see CustomHabitsNotifier.archive's everCompleted), so there is nothing
+    // to restore for those and Undo is only offered when at least one of the
+    // removed habits can actually come back.
+    final restorable =
+        removed.where((r) => r.isCatalog || r.everCompleted).toList();
     messenger.showSnackBar(
       SnackBar(
         content: Text(
@@ -143,7 +223,24 @@ class _GridScreenState extends ConsumerState<GridScreen> {
               ? s.habitArchivedConfirmation
               : s.habitsArchivedConfirmation(count),
         ),
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 6),
+        action: restorable.isEmpty
+            ? null
+            : SnackBarAction(
+                label: s.undo,
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  for (final r in restorable) {
+                    if (r.isCatalog) {
+                      // Toggling a catalog id back on re-activates it and
+                      // clears its archive date - the same path Plans uses.
+                      ref.read(activeCatalogProvider.notifier).toggle(r.id);
+                    } else {
+                      ref.read(customHabitsProvider.notifier).unarchive(r.id);
+                    }
+                  }
+                },
+              ),
       ),
     );
   }
@@ -160,6 +257,13 @@ class _GridScreenState extends ConsumerState<GridScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      // Matches showAddHabitHub's config exactly (add_habit_hub_sheet.dart)
+      // — see dashboard_screen.dart's _showEditHabit for why this matters:
+      // without it, this sheet's own maxHeight math (add_habit_sheet.dart)
+      // sizes against the full screen height instead of the safe-area-
+      // trimmed one, landing the footer button in a different spot than
+      // the same sheet opened via Add Habit.
+      useSafeArea: true,
       builder: (_) => AddHabitSheet(existing: habit),
     );
   }
@@ -170,8 +274,38 @@ class _GridScreenState extends ConsumerState<GridScreen> {
 
     final gp = context.gp;
     final s = S.of(context);
-    final habits = ref.watch(habitListProvider);
+    // Today's archived habits ride along here purely for display — a
+    // habit deleted moments ago shouldn't vanish from Grid before the day
+    // that deleted it is even over. See habitsArchivedTodayProvider's doc
+    // comment for why this stays a separate provider instead of folding
+    // into habitListProvider itself.
+    final habits = [
+      ...ref.watch(habitListProvider),
+      ...ref.watch(habitsArchivedTodayProvider),
+    ];
     final grid = ref.watch(weeklyGridProvider);
+    final activeLesson = ref.watch(activeAppGuideLessonProvider);
+
+    // Auto-dismiss App Guide's coach-mark the instant its real goal is
+    // actually met, regardless of exactly how — tapping through the
+    // circled FAB is the expected path, but nothing stops someone from
+    // adding a habit some other way (Today's own Add Habit, say) while
+    // this lesson happens to still be active. Without this, the circle
+    // would keep pointing at a FAB that already did its job.
+    ref.listen<List<IslamicHabitTemplate>>(habitListProvider, (previous, next) {
+      if ((previous?.isEmpty ?? true) &&
+          next.isNotEmpty &&
+          ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addHabit) {
+        ref.read(activeAppGuideLessonProvider.notifier).state = null;
+      }
+    });
+    ref.listen<DashboardState>(dashboardProvider, (previous, next) {
+      if ((previous?.cumulativeXp ?? 0) <= 0 &&
+          next.cumulativeXp > 0 &&
+          ref.read(activeAppGuideLessonProvider) == AppGuideLesson.colorSquare) {
+        ref.read(activeAppGuideLessonProvider.notifier).state = null;
+      }
+    });
 
     // Build habits and quit habits render as two separate boards — coloring
     // a square means opposite things across the two ("I did it" vs "I
@@ -190,15 +324,20 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     ];
     final showSplit = buildHabits.isNotEmpty && quitHabits.isNotEmpty;
 
+    // Presets are editable too now. This used to require the id to be in
+    // customHabitsProvider, which meant a catalog habit had no edit button
+    // anywhere in the app: activate صلاة الضحى from a Plan and its reminder
+    // and frequency were fixed forever, with deleting and rebuilding it as a
+    // custom habit - losing its history and room links - the only way round.
+    // Their edits are stored as an override against the catalog id (see
+    // CatalogHabitOverride), so the habit keeps its id and its whole past.
     IslamicHabitTemplate? singleEditableSelection;
     if (_selectedIds.length == 1) {
       final id = _selectedIds.first;
-      if (ref.read(customHabitsProvider).any((h) => h.id == id)) {
-        for (final h in habits) {
-          if (h.id == id) {
-            singleEditableSelection = h;
-            break;
-          }
+      for (final h in habits) {
+        if (h.id == id) {
+          singleEditableSelection = h;
+          break;
         }
       }
     }
@@ -207,13 +346,23 @@ class _GridScreenState extends ConsumerState<GridScreen> {
       backgroundColor: gp.bg,
       // No nav bar here anymore — HomeShell (the swipeable 3-tab PageView
       // this screen now always lives inside) owns the single GameNavBar.
-      body: SafeArea(
+      body: Stack(
+        children: [
+        SafeArea(
         bottom: false,
         child: CustomScrollView(
           physics: const BouncingScrollPhysics(
               parent: AlwaysScrollableScrollPhysics()),
           slivers: [
             SliverToBoxAdapter(child: _GridHeader(state: grid)),
+            // "You're back" — renders itself away unless there's actually a
+            // comeback to acknowledge. It used to sit on the Today screen,
+            // which nothing in the app could navigate to, so the one moment
+            // built to welcome someone back was the one moment they had to
+            // arrive via a notification to ever see.
+            SliverToBoxAdapter(
+              child: ComebackCard(state: ref.watch(dashboardProvider)),
+            ),
             SliverToBoxAdapter(
               child: GetStartedChecklistCard(
                 onAddHabit: () =>
@@ -258,9 +407,9 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                 ),
               )
             else if (habits.isEmpty)
-              const SliverFillRemaining(
+              SliverFillRemaining(
                 hasScrollBody: false,
-                child: _GridEmptyState(),
+                child: _GridEmptyState(addButtonKey: _addHabitKey),
               )
             else ...[
               SliverToBoxAdapter(
@@ -278,7 +427,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                   // Keyed on the visible week so navigating weeks slides the
                   // whole board in, rather than snapping cell colors.
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 280),
+                    duration: GameMotion.relaxed,
                     switchInCurve: Curves.easeOutCubic,
                     switchOutCurve: Curves.easeIn,
                     transitionBuilder: (child, anim) => FadeTransition(
@@ -303,6 +452,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                                     selectedIds: _selectedIds,
                                     onSelectionToggle: _toggleSelection,
                                     onSelectionStart: _startSelection,
+                                    todayCellKey: _todayCellKey,
                                   )
                                 : Column(
                                     crossAxisAlignment:
@@ -321,6 +471,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
+                                        todayCellKey: _todayCellKey,
                                       ),
                                       const SizedBox(height: 18),
                                       // Shield + emerald, matching the quit
@@ -366,6 +517,25 @@ class _GridScreenState extends ConsumerState<GridScreen> {
             const SliverToBoxAdapter(child: SizedBox(height: 120)),
           ],
         ),
+        ),
+          // App Guide's on-demand "Add a habit" / "Track a day" lessons —
+          // deliberately the only thing that ever dims this screen, and only
+          // ever because the person just asked for it from Settings. First
+          // run teaches through the Get Started checklist above instead: an
+          // inline card that sits in the page and can be ignored, rather
+          // than a modal overlay thrown at someone who has not acted yet.
+          if (activeLesson == AppGuideLesson.addHabit ||
+              activeLesson == AppGuideLesson.colorSquare)
+            CoachMarkOverlay(
+              targetKey: activeLesson == AppGuideLesson.addHabit
+                  ? _addHabitKey
+                  : _todayCellKey,
+              title: appGuideLessonCoachTitle(activeLesson!, s.isAr),
+              body: appGuideLessonCoachBody(activeLesson, s.isAr),
+              onDismiss: () =>
+                  ref.read(activeAppGuideLessonProvider.notifier).state = null,
+            ),
+        ],
       ),
       // Today is the primary place to add/browse habits. Grid only needs a
       // secondary, smaller way back into the same Add Habit Hub for when
@@ -375,1759 +545,28 @@ class _GridScreenState extends ConsumerState<GridScreen> {
       floatingActionButton: habits.isEmpty
           ? null
           : FloatingActionButton.small(
+              key: _addHabitKey,
               heroTag: 'grid-add',
-              onPressed: () =>
-                  showAddHabitHub(context, ref, initialTab: HubTab.addGoal),
-              backgroundColor: gp.surfaceHigh,
-              foregroundColor: gp.textPrimary,
+              // Always opens on the normal Add Goal default, guided or not —
+              // AddHabitHub itself now shows a one-time hint explaining the
+              // Plans/Add Goal choice when reached via App Guide, so this
+              // FAB doesn't need to pick a tab on its behalf.
+              onPressed: () => showAddHabitHub(context, ref),
+              // Solid gold fill instead of a neutral surface tone with just
+              // a gold icon — the button itself is now the accent, not only
+              // its glyph, so it reads as the one colorful, clearly-tappable
+              // thing on the screen rather than blending into the same dark
+              // neutral surfaces as everything around it.
+              backgroundColor: GameColors.gold,
+              foregroundColor: GameColors.onGold,
               elevation: 0,
               tooltip: s.addHabit,
-              // Not `const` — GameColors.gold is a mutable `static Color`
-              // (theme-preset system), not a compile-time constant. See
-              // BUILD_LESSONS.md #6.
+              // Not `const` — GameColors.gold/onGold are mutable `static`
+              // getters (theme-preset system), not compile-time constants.
+              // See BUILD_LESSONS.md #6.
               child: Icon(Icons.add_rounded,
-                  size: 20, color: GameColors.gold),
+                  size: 20, color: GameColors.onGold),
             ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.4),
-    );
-  }
-}
-
-// ─── Selection bar (multi-select habits for bulk delete) ──────────────────────
-
-class _SelectionBar extends StatelessWidget {
-  final int count;
-  final VoidCallback onClear;
-  final VoidCallback onDelete;
-  final VoidCallback? onEdit;
-
-  const _SelectionBar({
-    required this.count,
-    required this.onClear,
-    required this.onDelete,
-    this.onEdit,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final s = S.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: GameColors.gold.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: GameColors.gold.withOpacity(0.35)),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.close_rounded, size: 18, color: gp.textSec),
-            onPressed: onClear,
-          ),
-          Expanded(
-            child: Text(
-              s.matrixSelectedCount(count),
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: gp.textPrimary,
-              ),
-            ),
-          ),
-          if (onEdit != null)
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              icon: Icon(Icons.edit_outlined, size: 18, color: gp.textSec),
-              onPressed: onEdit,
-            ),
-          TextButton.icon(
-            onPressed: onDelete,
-            icon: const Icon(Icons.delete_outline_rounded, size: 17),
-            label: Text(s.matrixDeleteSelected),
-            style: TextButton.styleFrom(foregroundColor: GameColors.error),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 180.ms).slideY(begin: -0.15);
-  }
-}
-
-// ─── Header (title + week navigation) ─────────────────────────────────────────
-
-class _GridHeader extends ConsumerWidget {
-  final WeeklyGridState state;
-  const _GridHeader({required this.state});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final gp = context.gp;
-    final s = S.of(context);
-    final locale = Localizations.localeOf(context).languageCode;
-    final notifier = ref.read(weeklyGridProvider.notifier);
-    final start = state.weekStart;
-    final end = start.add(const Duration(days: 6));
-    final range = state.isCurrentWeek
-        ? s.gridThisWeek
-        : '${DateFormat('MMM d', locale).format(start)} – '
-            '${DateFormat('MMM d', locale).format(end)}';
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  s.gridTitle,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    color: gp.textPrimary,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: Icon(Icons.insights_rounded, color: gp.textSec),
-                tooltip: s.heatmapTitle,
-                onPressed: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.pushNamed(context, '/heatmap');
-                },
-              ),
-              IconButton(
-                // Not a moon: Sleep already uses a crescent
-                // (Icons.bedtime_rounded, see HabitCategory.icon) and a
-                // second moon here read as "toggle dark mode" more than
-                // "review my day". An open book reads as the daily
-                // journal/reflection this actually opens.
-                icon: Icon(Icons.auto_stories_rounded, color: gp.textSec),
-                tooltip: s.nightReviewTitle,
-                onPressed: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.pushNamed(context, '/night-review');
-                },
-              ),
-              // A third icon used to live here for Habit Notes (per-habit
-              // notes and Skipped/Failed/Bonus marks left from this
-              // screen's own long-press editor) - moved to Dashboard's
-              // Habit Notes preview section instead (see
-              // ProgressHubScreen's _JournalPreviewSection), alongside
-              // Achievements/Insights, since browsing *past* entries is a
-              // "look back at my details" action like those, not something
-              // that needed a third icon crowding the row above the grid
-              // someone's actively coloring today. Still reachable at the
-              // exact same '/grid-journal' route either way.
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              _NavArrow(
-                icon: Icons.chevron_left_rounded,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  notifier.previousWeek();
-                },
-              ),
-              Expanded(
-                child: GestureDetector(
-                  onTap: state.isCurrentWeek
-                      ? null
-                      : () {
-                          HapticFeedback.selectionClick();
-                          notifier.goToCurrentWeek();
-                        },
-                  child: Column(
-                    children: [
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        child: Text(
-                          range,
-                          key: ValueKey(range),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: gp.textPrimary,
-                          ),
-                        ),
-                      ),
-                      if (!state.isCurrentWeek)
-                        Text(
-                          s.gridThisWeek,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: GameColors.gold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              _NavArrow(
-                icon: Icons.chevron_right_rounded,
-                enabled: state.canGoForward,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  notifier.nextWeek();
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NavArrow extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool enabled;
-  const _NavArrow(
-      {required this.icon, required this.onTap, this.enabled = true});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Opacity(
-      opacity: enabled ? 1 : 0.3,
-      child: Material(
-        color: gp.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: gp.border, width: 0.5),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: enabled ? onTap : null,
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: Icon(icon, color: gp.textSec, size: 24),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Summary card (green squares, points, completion) ─────────────────────────
-
-class _SummaryCard extends StatelessWidget {
-  final List<IslamicHabitTemplate> habits;
-  final WeeklyGridState state;
-  const _SummaryCard({required this.habits, required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final s = S.of(context);
-    final today = DateTime.now().effectiveDay;
-    final habitIds = habits.map((h) => h.id).toList();
-    final scheduledTodayIds = habits
-        .where((h) => h.isScheduledFor(today))
-        .map((h) => h.id)
-        .toList();
-    final greens = state.greenSquares(habitIds);
-    final ratio = state.todayCompletionRatio(scheduledTodayIds);
-
-    // Only today's marks are reward-eligible. Past-day marks remain visual
-    // history, but the summary must not present them as earned XP.
-    final points = state.rewardEligiblePoints(scheduledTodayIds);
-
-    final greensToday = () {
-      if (!state.days.any((d) => d.isSameDayAs(today))) return 0;
-      final row = state.states[today.toDateKey()];
-      if (row == null) return 0;
-      return scheduledTodayIds
-          .where((id) => (row[id] ?? SquareState.none).isGreen)
-          .length;
-    }();
-    final perfectDay = scheduledTodayIds.isNotEmpty &&
-        greensToday >= scheduledTodayIds.length;
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            GameColors.emerald.withOpacity(gp.dark ? 0.14 : 0.10),
-            gp.surface,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(
-          color: GameColors.emerald.withOpacity(perfectDay ? 0.6 : 0.28),
-          width: perfectDay ? 1.2 : 0.8,
-        ),
-      ),
-      child: Row(
-        children: [
-          _RingStat(ratio: ratio),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    // Count up to the current total so each new green square
-                    // visibly ticks the score.
-                    TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: greens.toDouble()),
-                      duration: const Duration(milliseconds: 600),
-                      curve: Curves.easeOutCubic,
-                      builder: (_, v, __) => Text(
-                        '${v.round()}',
-                        style: TextStyle(
-                          fontSize: 40,
-                          fontWeight: FontWeight.w900,
-                          color: GameColors.emerald,
-                          height: 1,
-                          letterSpacing: -1.5,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        s.gridGreenSquares,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: gp.textSec,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  child: Text(
-                    perfectDay
-                        ? s.gridPerfectDay
-                        : greensToday > 0
-                            ? s.gridGreensToday(greensToday)
-                            : s.gridTapHint,
-                    key: ValueKey(
-                      '$perfectDay-$greensToday-${(ratio * 100).round()}',
-                    ),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: perfectDay ? GameColors.emerald : gp.textTert,
-                      fontWeight:
-                          perfectDay ? FontWeight.w700 : FontWeight.w400,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _MiniStat(
-                      icon: Icons.bolt_rounded,
-                      value: '$points',
-                      label: s.gridPoints,
-                      color: GameColors.gold,
-                    ),
-                    const SizedBox(width: 20),
-                    _MiniStat(
-                      icon: Icons.percent_rounded,
-                      value: '${(ratio * 100).round()}%',
-                      label: s.gridComplete,
-                      color: GameColors.iconXp,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    )
-        // A single celebratory sweep the moment today goes fully green.
-        .animate(target: perfectDay ? 1 : 0)
-        .shimmer(
-          duration: 900.ms,
-          color: GameColors.emerald.withOpacity(0.30),
-        );
-  }
-}
-
-class _RingStat extends StatelessWidget {
-  final double ratio;
-  const _RingStat({required this.ratio});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return SizedBox(
-      width: 64,
-      height: 64,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          SizedBox(
-            width: 64,
-            height: 64,
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: ratio.clamp(0.0, 1.0)),
-              duration: const Duration(milliseconds: 700),
-              curve: Curves.easeOutCubic,
-              builder: (_, v, __) => CircularProgressIndicator(
-                value: v,
-                strokeWidth: 6,
-                backgroundColor: gp.surfaceHL,
-                valueColor:
-                    AlwaysStoppedAnimation(GameColors.emerald),
-                strokeCap: StrokeCap.round,
-              ),
-            ),
-          ),
-          Icon(
-            ratio >= 1.0
-                ? Icons.emoji_events_rounded
-                : Icons.grid_view_rounded,
-            color: GameColors.emerald,
-            size: 24,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniStat extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final Color color;
-  const _MiniStat(
-      {required this.icon,
-      required this.value,
-      required this.label,
-      required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 5),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            color: gp.textPrimary,
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(fontSize: 11, color: gp.textTert),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── The grid table itself ────────────────────────────────────────────────────
-
-class _GridTable extends ConsumerStatefulWidget {
-  final List<IslamicHabitTemplate> habits;
-  final WeeklyGridState state;
-  final bool selectionMode;
-  final Set<String> selectedIds;
-  final void Function(String id) onSelectionToggle;
-  final void Function(String id) onSelectionStart;
-
-  const _GridTable({
-    required this.habits,
-    required this.state,
-    required this.selectionMode,
-    required this.selectedIds,
-    required this.onSelectionToggle,
-    required this.onSelectionStart,
-  });
-
-  @override
-  ConsumerState<_GridTable> createState() => _GridTableState();
-}
-
-class _GridTableState extends ConsumerState<_GridTable> {
-  static const double _habitCol = 96;
-  static const double _gap = 5;
-
-  // Marks whichever header cell is "today", purely so the grid can scroll
-  // straight to it right after it first appears — see initState. This
-  // widget is rebuilt fresh (new State) every time the visible week
-  // changes, because the parent wraps it in
-  // KeyedSubtree(key: ValueKey(grid.weekStart)), so this naturally re-runs
-  // exactly when it should and never fights the user's own scrolling
-  // within a week they're already looking at.
-  final GlobalKey _todayKey = GlobalKey();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final ctx = _todayKey.currentContext;
-      // Nothing to do if today isn't in this particular week (a past week
-      // has no "today" cell at all) or the table isn't scrolled in the
-      // first place (everything already fits) — ensureVisible is a safe
-      // no-op either way, it only acts when there's an actual scrollable
-      // ancestor and the target isn't already fully in view.
-      if (ctx != null && mounted) {
-        Scrollable.ensureVisible(ctx, alignment: 1);
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: gp.surface,
-        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: gp.border, width: 0.5),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final avail = constraints.maxWidth;
-          double cell = (avail - _habitCol - 7 * _gap) / 7;
-          bool scroll = false;
-          if (cell < 34) {
-            cell = 34;
-            scroll = true;
-          } else {
-            cell = cell.clamp(34, 60);
-          }
-          final table = _buildTable(context, ref, cell);
-          if (!scroll) return table;
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: table,
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildTable(BuildContext context, WidgetRef ref, double cell) {
-    final days = widget.state.days;
-    // Fixed per-row height, shared by every row regardless of square size —
-    // a 2-line habit name (long names wrap) used to make just that row
-    // taller than its neighbors, so its squares sat lower than the squares
-    // above/below it even though each square is individually the same
-    // size. Locking every row to one height keeps every square aligned
-    // into a clean grid no matter how the habit name wraps.
-    final rowHeight = (cell > 46 ? cell : 46.0) + 10;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _headerRow(context, days, cell),
-        const SizedBox(height: 12),
-        // Rows fade in on entrance — fade ONLY, no slideX: the staggered
-        // horizontal slide meant every row sat at a slightly different
-        // x-offset while entering, which read as "the columns don't line
-        // up" in any glance (or screenshot) taken during those first
-        // moments. Opacity can't move layout, so alignment is now
-        // guaranteed from the very first frame.
-        for (var i = 0; i < widget.habits.length; i++) ...[
-          _habitRow(context, ref, widget.habits[i], days, cell, rowHeight)
-              .animate(delay: (i * 45).ms)
-              .fadeIn(duration: 320.ms),
-          if (i != widget.habits.length - 1) const SizedBox(height: _gap),
-        ],
-      ],
-    );
-  }
-
-  Widget _headerRow(BuildContext context, List<DateTime> days, double cell) {
-    final gp = context.gp;
-    final isAr = S.of(context).isAr;
-
-    // Whichever language the app isn't currently in renders as a smaller
-    // second line underneath — so a date always reads in both, but the
-    // language you're actually using still leads.
-    Widget dayNameLine(String text, bool isToday, bool primary) {
-      return SizedBox(
-        height: primary ? 12 : 10,
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            text,
-            maxLines: 1,
-            style: TextStyle(
-              fontSize: primary ? 10 : 8,
-              fontWeight: primary ? FontWeight.w700 : FontWeight.w600,
-              color: isToday
-                  ? GameColors.gold.withOpacity(primary ? 1 : 0.8)
-                  : gp.textTert.withOpacity(primary ? 1 : 0.75),
-              letterSpacing: 0.2,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Row(
-      children: [
-        SizedBox(width: _habitCol),
-        for (final day in days)
-          Padding(
-            padding: const EdgeInsets.only(left: _gap),
-            child: SizedBox(
-              // isRealToday, not isToday: this circle is purely the "which
-              // date is today on the calendar" marker, so it follows the
-              // real clock and moves at midnight even during the 3-hour
-              // window where the *editable* square (below) is still
-              // yesterday's — see DateTimeGameExt.isRealToday.
-              key: day.isRealToday ? _todayKey : null,
-              width: cell,
-              child: Column(
-                children: [
-                  dayNameLine(
-                    DateFormat('EEE', isAr ? 'ar' : 'en').format(day),
-                    day.isRealToday,
-                    true,
-                  ),
-                  const SizedBox(height: 1),
-                  dayNameLine(
-                    DateFormat('EEE', isAr ? 'en' : 'ar').format(day),
-                    day.isRealToday,
-                    false,
-                  ),
-                  const SizedBox(height: 3),
-                  Container(
-                    width: 22,
-                    height: 22,
-                    alignment: Alignment.center,
-                    decoration: day.isRealToday
-                        ? BoxDecoration(
-                            color: GameColors.gold.withOpacity(0.16),
-                            shape: BoxShape.circle,
-                          )
-                        : null,
-                    child: Text(
-                      '${day.day}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: day.isRealToday
-                            ? FontWeight.w800
-                            : FontWeight.w600,
-                        color: day.isRealToday ? GameColors.gold : gp.textSec,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _habitRow(BuildContext context, WidgetRef ref,
-      IslamicHabitTemplate habit, List<DateTime> days, double cell,
-      double rowHeight) {
-    final gp = context.gp;
-    final isAr = S.of(context).isAr;
-    final today = DateTime.now().effectiveDay;
-    final selected = widget.selectedIds.contains(habit.id);
-    return SizedBox(
-      height: rowHeight,
-      child: Row(
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.selectionMode
-                ? () => widget.onSelectionToggle(habit.id)
-                : null,
-            onLongPress: () {
-              HapticFeedback.mediumImpact();
-              widget.onSelectionStart(habit.id);
-            },
-            child: SizedBox(
-              width: _habitCol,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Row(
-                  children: [
-                    Builder(builder: (_) {
-                      if (widget.selectionMode) {
-                        return AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          width: 22,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: selected
-                                ? GameColors.gold
-                                : Colors.transparent,
-                            border: Border.all(
-                              color: selected ? GameColors.gold : gp.border,
-                              width: 1.5,
-                            ),
-                          ),
-                          child: selected
-                              ? const Icon(Icons.check_rounded,
-                                  size: 13, color: Colors.black)
-                              : null,
-                        );
-                      }
-                      final (_, categoryColor) = categoryVisual(habit.category);
-                      final color = habit.customColor ?? categoryColor;
-                      // A gold ring + small trophy badge marks a habit
-                      // that's part of a Room's plan (see
-                      // myLinkedRoomHabitsProvider) - an inline highlight
-                      // rather than a separate "event habits" screen, so
-                      // Grid stays the one place every habit lives.
-                      final inRoom =
-                          ref.watch(myLinkedRoomHabitsProvider).containsKey(habit.id);
-                      // 2x while a linked room is LIVE — the visible promise
-                      // behind roomBoostedReward's doubled XP/gold. This is
-                      // a Positioned overlay on the icon, not a Row sibling
-                      // next to the name, on purpose: a Row sibling only
-                      // shows up on boosted rows, which quietly narrows the
-                      // Expanded name's width *just for those rows* — the
-                      // exact same habit name can then wrap to a different
-                      // number of lines purely because a room went live,
-                      // with nothing about the text itself changing. Every
-                      // row's icon box and name column are now identically
-                      // sized whether or not this badge is showing.
-                      final boosted = ref
-                          .watch(roomBoostedHabitsProvider)
-                          .contains(habit.id);
-                      return Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Container(
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              color: color.withOpacity(0.14),
-                              borderRadius: BorderRadius.circular(7),
-                              border: inRoom
-                                  ? Border.all(color: GameColors.gold, width: 1.4)
-                                  : null,
-                            ),
-                            child: CategoryIcon(
-                              category: habit.category,
-                              size: 13,
-                              color: color,
-                            ),
-                          ),
-                          if (inRoom)
-                            Positioned(
-                              right: -3,
-                              bottom: -3,
-                              child: Container(
-                                width: 11,
-                                height: 11,
-                                decoration: BoxDecoration(
-                                  color: GameColors.gold,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: gp.surface, width: 1.2),
-                                ),
-                                child: const Icon(Icons.emoji_events_rounded,
-                                    size: 7, color: Colors.black),
-                              ),
-                            ),
-                          if (boosted)
-                            Positioned(
-                              top: -9,
-                              left: -8,
-                              right: -8,
-                              child: Center(child: const _BoostBadge()),
-                            ),
-                        ],
-                      );
-                    }),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: SafeWrapText(
-                        habit.localName(isAr),
-                        maxLines: 2,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: gp.textPrimary,
-                          height: 1.15,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          for (final day in days)
-            Padding(
-              padding: const EdgeInsets.only(left: _gap),
-              child: _SquareCell(
-                size: cell,
-                day: day,
-                // isRealToday, not isToday: purely which square gets the
-                // gold "today" ring — see DateTimeGameExt.isRealToday. The
-                // square that's actually *editable*/reward-eligible is
-                // decided independently inside _handleSquareTap/
-                // _handlePaletteTap (still day.isToday, unchanged) and by
-                // isFuture below, so this is cosmetic only.
-                isToday: day.isRealToday,
-                // A day after the reward day (`today` = effectiveDay) is
-                // future and stays locked — *except* the real calendar day
-                // itself during the 3-hour window right after midnight
-                // (day.isRealToday true, today/effectiveDay still
-                // yesterday): that one is allowed to open and be colored in
-                // like any other non-reward day (flat XP only, same as
-                // backfilling any past square — see WeeklyGridNotifier.
-                // setSquare's anti-backdating doc comment), instead of
-                // sitting dimmed and untappable for 3 hours for no reason.
-                // A day beyond that (tomorrow-of-tomorrow, etc.) still
-                // isn't isRealToday either, so it stays correctly locked.
-                isFuture: day.startOfDay.isAfter(today) && !day.isRealToday,
-                isScheduled: habit.isScheduledFor(day),
-                square: widget.state.squareFor(habit.id, day),
-                hasNote: widget.state.noteFor(habit.id, day).isNotEmpty,
-                onTap: widget.selectionMode
-                    ? null
-                    : () => _handleSquareTap(ref, habit, day),
-                onLongPress: widget.selectionMode
-                    ? null
-                    : () {
-                        HapticFeedback.mediumImpact();
-                        _openEditor(context, ref, habit, day);
-                      },
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// Handles a plain tap on a habit's square.
-  ///
-  /// Today's square reaching "complete" is special-cased to route through
-  /// the exact same canonical reward path Today's own "Done" button uses
-  /// (`DashboardNotifier.completeHabit`), instead of Grid's own flat
-  /// per-square XP — one reward, ever, for a given habit-day, regardless of
-  /// which screen it's completed from. This covers every habit, not just
-  /// single-tap ones: it used to be gated to `frequencyTarget == 1`
-  /// (mirroring `completeHabit`'s own Today→Grid mirror restriction), but
-  /// that gate was copied into the wrong direction here. Today→Grid really
-  /// does need it (a single square can't show "2 of 3 this week" yet — see
-  /// `completeHabit`'s doc comment), but Grid→completions never had that
-  /// problem: tapping today's square green is always a one-day fact ("I
-  /// did this today"), exactly like one tap of Today's own button, so it
-  /// should always register — the old gate just meant a multi-target
-  /// habit's square could go fully green and pay out XP/gold on the Grid
-  /// while `completions` (and therefore Night Review's "done today" count,
-  /// Today's own checkbox, and everything else reading `isCompleted`)
-  /// never heard about it. Everything else (other days, other colors)
-  /// falls through to the original flat-rate tap-cycle, unchanged.
-  Future<void> _handleSquareTap(
-      WidgetRef ref, IslamicHabitTemplate habit, DateTime day) async {
-    final current = widget.state.squareFor(habit.id, day);
-    final next = current.next;
-    final isSyncable = day.isToday;
-
-    if (isSyncable && next == SquareState.complete) {
-      final alreadyDoneToday = ref
-          .read(dashboardProvider)
-          .isCompleted(habit.id, habit.frequencyTarget);
-      HapticFeedback.mediumImpact();
-      if (alreadyDoneToday) {
-        // Already rewarded (e.g. completed from Today and the mirror
-        // hasn't caught up) — just repair the visual state, no reward call.
-        ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
-        syncRoomToday(ref, habit.id, day);
-      } else {
-        // Canonical reward first, then mirror the square. No need to
-        // branch on completeHabit's return value here — the
-        // alreadyDoneToday check above already guarantees completions is
-        // under target, so this call can't be a same-day no-op.
-        // completeHabit's return value only ever signals
-        // `frequencyTarget == 1`, a flag its *other* callers (Today,
-        // notification actions) use to decide whether *their* completion
-        // should paint the Grid square — not relevant here, since the
-        // user just painted this square themselves.
-        final dashState = ref.read(dashboardProvider);
-        final todayHabits = ref
-            .read(habitListProvider)
-            .where((h) => h.isScheduledFor(day))
-            .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
-        await ref.read(dashboardProvider.notifier).completeHabit(
-              habitId: habit.id,
-              // 2x while a linked room is live — see roomBoostedReward.
-              xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-              goldReward:
-                  roomBoostedReward(ref, habit.id, habit.goldReward),
-              frequencyTarget: habit.frequencyTarget,
-              allHabitsDoneAfter: willCompleteAllHabitsToday(
-                state: dashState,
-                todayHabits: todayHabits,
-                habitId: habit.id,
-                frequencyTarget: habit.frequencyTarget,
-              ),
-              category: habit.category.name,
-              habitName: habit.localName(S.of(context).isAr),
-            );
-        ref
-            .read(weeklyGridProvider.notifier)
-            .markCompleteFromHabit(habit.id, day);
-        syncRoomToday(ref, habit.id, day);
-        _maybeCelebrateFullRow(ref, habit);
-      }
-      return;
-    }
-
-    if (isSyncable &&
-        current == SquareState.complete &&
-        (ref.read(dashboardProvider).completions[habit.id] ?? 0) > 0) {
-      // Today's completed, synced squares should still behave like every
-      // other editable square: tapping green cycles it back to empty, and
-      // long-press still opens the explicit palette. Because this green
-      // state was rewarded through DashboardNotifier.completeHabit, undo
-      // that canonical completion first so Today un-checks the task and
-      // XP/gold/green counters are refunded before the visual square is
-      // cleared. Checks completions[habitId] > 0 directly rather than
-      // isCompleted (completions >= frequencyTarget): for a multi-target
-      // habit, one Grid-driven tap only ever registers one completion,
-      // which alone can sit well under its weekly target — isCompleted
-      // would stay false and this whole branch would be skipped, leaving
-      // a phantom completions entry this square could never undo again.
-      HapticFeedback.selectionClick();
-      await ref.read(dashboardProvider.notifier).uncompleteHabit(
-            habitId: habit.id,
-            // Mirrors the completion's boost — see roomBoostedReward.
-            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
-            category: habit.category.name,
-          );
-      ref
-          .read(weeklyGridProvider.notifier)
-          .setSquareStateOnly(habit.id, day, next);
-      syncRoomToday(ref, habit.id, day);
-      return;
-    }
-
-    // A square turning green is the app's core reward moment — it gets a
-    // heavier thump than the intermediate colors.
-    if (next.isGreen) {
-      HapticFeedback.mediumImpact();
-    } else {
-      HapticFeedback.selectionClick();
-    }
-    ref.read(weeklyGridProvider.notifier).cycleSquare(habit.id, day);
-    syncRoomToday(ref, habit.id, day);
-    if (next.isGreen) _maybeCelebrateFullRow(ref, habit);
-  }
-
-  /// Fires the "full row" moment: the green that just landed completed
-  /// every scheduled day of this habit's visible week. Visual + haptic
-  /// celebration ONLY, deliberately no XP/gold — a full row can also be
-  /// assembled by backfilling past squares, and the anti-backdating rule
-  /// (see WeeklyGridNotifier.setSquare) means past days must never reach
-  /// the reward system; a rewarded row would reopen exactly that farm.
-  /// Toggling a square off and back on can replay it — that's a deliberate
-  /// pair of taps, not a loop, and it still grants nothing.
-  void _maybeCelebrateFullRow(WidgetRef ref, IslamicHabitTemplate habit) {
-    if (!mounted) return;
-    final grid = ref.read(weeklyGridProvider);
-    if (!isHabitRowComplete(
-      days: grid.days,
-      isScheduled: habit.isScheduledFor,
-      squareFor: (d) => grid.squareFor(habit.id, d),
-    )) {
-      return;
-    }
-    HapticFeedback.heavyImpact();
-    final s = S.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.grid_view_rounded,
-                color: GameColors.emerald, size: 18),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                s.gridFullRow(habit.localName(s.isAr)),
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w800,
-                  color: GameColors.emerald,
-                ),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: context.gp.surface,
-        duration: const Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: GameColors.emerald, width: 1),
-        ),
-      ),
-    );
-  }
-
-  void _openEditor(BuildContext context, WidgetRef ref,
-      IslamicHabitTemplate habit, DateTime day) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _CellEditorSheet(habit: habit, day: day),
-    );
-  }
-
-}
-
-// ─── Boost badge ────────────────────────────────────────────────────────────
-
-/// The "2x" flag that hovers above a habit's icon while a linked room is
-/// live — a small piece of fire, literally: the flame repeats a gentle
-/// scale pulse for as long as the boost lasts, the same motion
-/// _StreakAtRiskBanner's own flame uses, so "flame = something's hot right
-/// now" reads the same everywhere it shows up in the app. Fixed content
-/// (a flame glyph + the literal string "2x") means this badge is always the
-/// exact same size, so it never nudges the row layout around it — see the
-/// doc comment where it's placed in _GridTableState.
-class _BoostBadge extends StatelessWidget {
-  const _BoostBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
-      decoration: BoxDecoration(
-        color: GameColors.gold,
-        borderRadius: BorderRadius.circular(100),
-        border: Border.all(color: gp.surface, width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: GameColors.gold.withOpacity(0.45),
-            blurRadius: 5,
-            spreadRadius: 0.5,
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.local_fire_department_rounded,
-                  size: 9, color: Colors.black)
-              .animate(onPlay: (c) => c.repeat(reverse: true))
-              .scaleXY(
-                begin: 0.8,
-                end: 1.2,
-                duration: 650.ms,
-                curve: Curves.easeInOut,
-              ),
-          const SizedBox(width: 1.5),
-          const Text(
-            '2x',
-            style: TextStyle(
-              fontSize: 8.5,
-              fontWeight: FontWeight.w900,
-              color: Colors.black,
-              height: 1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SquareCell extends StatelessWidget {
-  final double size;
-  final DateTime day;
-  final bool isToday;
-  final bool isFuture;
-  // False when this habit's scheduledWeekdays is non-empty and doesn't
-  // include this cell's weekday (see HabitModel/IslamicHabitTemplate — empty
-  // means every day). Gets the exact same dimmed, inert treatment as a
-  // future day: a habit set to "Sun/Mon only" can't be tapped, long-pressed,
-  // or otherwise marked done on any other day. Doesn't hide history — a
-  // square already completed before the habit's schedule was narrowed still
-  // shows its real color, just dimmed and no longer editable.
-  final bool isScheduled;
-  final SquareState square;
-  final bool hasNote;
-  // Nullable: null while Grid's multi-select mode is active, so squares
-  // stop responding to taps/long-presses and can't accidentally change a
-  // habit-day's completion while the user is managing the habit list.
-  final VoidCallback? onTap;
-  final VoidCallback? onLongPress;
-
-  const _SquareCell({
-    required this.size,
-    required this.day,
-    required this.isToday,
-    required this.isFuture,
-    required this.isScheduled,
-    required this.square,
-    required this.hasNote,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = context.gp.dark;
-    final disabled = isFuture || !isScheduled;
-    // Keying the pulse on the square state replays it on every color change:
-    // marked cells get a satisfying pop, clearing back to white stays quiet.
-    Widget cell = AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: square.fill(dark),
-        borderRadius: BorderRadius.circular(9),
-        // Same width for every square regardless of `isToday` — Flutter
-        // centers a box border on the shape's edge, so a thicker border
-        // bleeds outward and makes that one cell look bigger/misaligned
-        // against the rest of the row. Today stays distinguished by color
-        // alone so the whole grid lines up cleanly.
-        //
-        // `goldDim` (not the lighter `gold`) on purpose: the empty-square
-        // fill is now a warm tan close in hue to `gold` itself, so a
-        // `gold`-on-tan ring had too little contrast to read as a single
-        // crisp line — it looked like a soft, doubled/"extra" outline
-        // instead. `goldDim` is dark and saturated enough to stay crisp
-        // against every fill color, not just the green "complete" state.
-        border: Border.all(
-          color: isToday ? GameColors.goldDim : square.border(dark),
-          width: 0.8,
-        ),
-      ),
-      child: Stack(
-        children: [
-          if (square.icon != null)
-            Center(
-              child: Icon(
-                square.icon,
-                size: size * 0.5,
-                color: square.accent,
-              ),
-            ),
-          if (hasNote)
-            Positioned(
-              right: 3,
-              bottom: 3,
-              child: Container(
-                width: 4,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: square.isMarked
-                      ? square.accent
-                      : context.gp.textTert,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-    // Deliberately NO scale/elastic effects on squares, ever: every
-    // geometric pop (0.7→1 elasticOut overshoots past 100%, 0.82→1 eases)
-    // made a square transiently a different size than its neighbors — and
-    // because each cell replays independently the moment its state lands
-    // (ValueKey(square)), the whole board read as misaligned/mis-sized on
-    // every week load and every tap. Squares are now always exactly
-    // `size`×`size`, no exceptions; celebration stays as light-only
-    // effects (shimmer/fade) that never move a pixel of layout.
-    if (square.isGreen) {
-      cell = cell.animate(key: ValueKey(square)).shimmer(
-            delay: 80.ms,
-            duration: 450.ms,
-            color: Colors.white.withOpacity(0.55),
-          );
-    } else if (square.isMarked) {
-      cell = cell
-          .animate(key: ValueKey(square))
-          .fadeIn(duration: 180.ms, begin: 0.6);
-    }
-    final tap = onTap;
-    return GestureDetector(
-      onTap: (disabled || tap == null)
-          ? null
-          : () {
-              // Confetti fires from the cell itself the instant the tap
-              // will turn it green — the market-standard completion moment.
-              if (square.next.isGreen) {
-                final box = context.findRenderObject() as RenderBox?;
-                if (box != null && box.attached) {
-                  showVictoryBurst(
-                    context,
-                    box.localToGlobal(box.size.center(Offset.zero)),
-                  );
-                }
-              }
-              tap();
-            },
-      onLongPress: disabled ? null : onLongPress,
-      child: Opacity(
-        opacity: disabled ? 0.35 : 1,
-        child: cell,
-      ),
-    );
-  }
-}
-
-// ─── Long-press cell editor (palette + reflection note) ───────────────────────
-
-class _CellEditorSheet extends ConsumerStatefulWidget {
-  final IslamicHabitTemplate habit;
-  final DateTime day;
-  const _CellEditorSheet({required this.habit, required this.day});
-
-  @override
-  ConsumerState<_CellEditorSheet> createState() => _CellEditorSheetState();
-}
-
-class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
-  late final TextEditingController _noteCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    final note = ref
-        .read(weeklyGridProvider)
-        .noteFor(widget.habit.id, widget.day);
-    _noteCtrl = TextEditingController(text: note);
-  }
-
-  @override
-  void dispose() {
-    _noteCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final s = S.of(context);
-    final isAr = s.isAr;
-    final locale = Localizations.localeOf(context).languageCode;
-    final current =
-        ref.watch(weeklyGridProvider).squareFor(widget.habit.id, widget.day);
-    // Whether this square is a synced completion (rewarded via the
-    // canonical completeHabit path) — shown with a note above the palette
-    // instead of hiding it, since picking a different color here is a
-    // deliberate "I completed this by mistake" correction (see
-    // _handlePaletteTap), not an accidental undo. Pre-existing green
-    // squares from before this sync existed aren't caught by this check
-    // (never recorded in `completions`) and behave via the plain
-    // flat-rate palette path below, unaffected. Checks completions
-    // directly rather than isCompleted/frequencyTarget == 1 — covers
-    // multi-target habits too now that _handleSquareTap/_handlePaletteTap
-    // sync those as well; see _handleSquareTap's doc comment.
-    final isLocked = widget.day.isToday &&
-        current == SquareState.complete &&
-        (ref.watch(dashboardProvider).completions[widget.habit.id] ?? 0) > 0;
-    final palette = [
-      SquareState.complete,
-      SquareState.partial,
-      SquareState.bonus,
-      SquareState.failed,
-      SquareState.skipped,
-      SquareState.none,
-    ];
-
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-        decoration: BoxDecoration(
-          color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: gp.border, width: 0.5),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: gp.border,
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Builder(builder: (_) {
-                  final (_, categoryColor) =
-                      categoryVisual(widget.habit.category);
-                  final color = widget.habit.customColor ?? categoryColor;
-                  return Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: CategoryIcon(
-                      category: widget.habit.category,
-                      size: 18,
-                      color: color,
-                    ),
-                  );
-                }),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.habit.localName(isAr),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: gp.textPrimary,
-                        ),
-                      ),
-                      Text(
-                        DateFormat('EEEE, MMM d', locale).format(widget.day),
-                        style: TextStyle(fontSize: 12, color: gp.textSec),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            if (isLocked) ...[
-              Row(
-                children: [
-                  Icon(Icons.check_circle_rounded,
-                      color: gp.textTert, size: 16),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      s.gridSquareDoneFromToday,
-                      style: TextStyle(fontSize: 12, color: gp.textSec),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-            ],
-            if (!widget.day.isToday) ...[
-              Row(
-                children: [
-                  Icon(Icons.info_outline_rounded,
-                      color: gp.textTert, size: 16),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      // The real calendar day during the 3-hour window
-                      // right after midnight isn't a "past" day (it just
-                      // hasn't become the official reward day yet) —
-                      // saying so here would be actively wrong, not just
-                      // imprecise, so it gets its own copy instead of
-                      // reusing gridPastDayHint. See DateTimeGameExt.
-                      // isRealToday/isToday's doc comments.
-                      widget.day.isRealToday
-                          ? s.gridNotYetActiveHint
-                          : s.gridPastDayHint,
-                      style: TextStyle(fontSize: 12, color: gp.textSec),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-            ],
-            Text(
-              s.gridEditSquare.toUpperCase(),
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: gp.textTert,
-                letterSpacing: 1.2,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (var i = 0; i < palette.length; i++)
-                  _PaletteSwatch(
-                    state: palette[i],
-                    selected: palette[i] == current,
-                    label: isAr ? palette[i].labelAr : palette[i].label,
-                    onTap: () => _handlePaletteTap(isLocked, palette[i]),
-                  )
-                      .animate(delay: (i * 35).ms)
-                      .fadeIn(duration: 220.ms)
-                      .scale(
-                        begin: const Offset(0.8, 0.8),
-                        curve: Curves.easeOutBack,
-                      ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Text(
-              s.gridNoteLabel,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: gp.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _noteCtrl,
-              maxLines: 3,
-              minLines: 2,
-              textInputAction: TextInputAction.newline,
-              style: TextStyle(fontSize: 14, color: gp.textPrimary),
-              decoration: InputDecoration(hintText: s.gridNoteHint),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  HapticFeedback.lightImpact();
-                  ref.read(weeklyGridProvider.notifier).setNote(
-                        widget.habit.id,
-                        widget.day,
-                        _noteCtrl.text,
-                      );
-                  Navigator.pop(context);
-                },
-                child: Text(s.gridSave),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Handles tapping a palette swatch for [picked].
-  ///
-  /// - If the square is currently a synced, reward-locked completion
-  ///   (`isLocked`) and [picked] isn't `complete`, this is a correction:
-  ///   reverse the canonical reward first (`uncompleteHabit`), then
-  ///   update the visual state only.
-  /// - If the square isn't done yet and [picked] is `complete` for
-  ///   today's habit, this is the same canonical completion tapping the
-  ///   square or Today's button would do — reward first, then mirror the
-  ///   visual state (see _handleSquareTap's doc comment for why every
-  ///   habit syncs here now, not just single-tap ones).
-  /// - Everything else falls through to the original flat-rate
-  ///   `setSquare` path, unchanged.
-  Future<void> _handlePaletteTap(bool isLocked, SquareState picked) async {
-    HapticFeedback.selectionClick();
-    final habit = widget.habit;
-    final day = widget.day;
-
-    if (isLocked && picked != SquareState.complete) {
-      ref.read(dashboardProvider.notifier).uncompleteHabit(
-            habitId: habit.id,
-            // Mirrors the completion's boost — see roomBoostedReward.
-            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
-            category: habit.category.name,
-          );
-      ref
-          .read(weeklyGridProvider.notifier)
-          .setSquareStateOnly(habit.id, day, picked);
-      syncRoomToday(ref, habit.id, day);
-      return;
-    }
-
-    final isSyncable = day.isToday;
-    final alreadyDoneToday = ref
-        .read(dashboardProvider)
-        .isCompleted(habit.id, habit.frequencyTarget);
-    if (isSyncable && picked == SquareState.complete && !alreadyDoneToday) {
-      final dashState = ref.read(dashboardProvider);
-      final todayHabits = ref
-          .read(habitListProvider)
-          .where((h) => h.isScheduledFor(day))
-          .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
-      // No branch on the return value — see _handleSquareTap's doc
-      // comment; alreadyDoneToday above already guarantees this lands.
-      await ref.read(dashboardProvider.notifier).completeHabit(
-            habitId: habit.id,
-            // 2x while a linked room is live — see roomBoostedReward.
-            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
-            frequencyTarget: habit.frequencyTarget,
-            allHabitsDoneAfter: willCompleteAllHabitsToday(
-              state: dashState,
-              todayHabits: todayHabits,
-              habitId: habit.id,
-              frequencyTarget: habit.frequencyTarget,
-            ),
-            category: habit.category.name,
-            habitName: habit.localName(S.of(context).isAr),
-          );
-      ref
-          .read(weeklyGridProvider.notifier)
-          .setSquareStateOnly(habit.id, day, SquareState.complete);
-      syncRoomToday(ref, habit.id, day);
-      return;
-    }
-
-    ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked);
-    syncRoomToday(ref, habit.id, day);
-  }
-}
-
-class _PaletteSwatch extends StatelessWidget {
-  final SquareState state;
-  final bool selected;
-  final String label;
-  final VoidCallback onTap;
-  const _PaletteSwatch({
-    required this.state,
-    required this.selected,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final dark = gp.dark;
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: state.fill(dark),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected ? state.accent : state.border(dark),
-                width: selected ? 2 : 0.8,
-              ),
-            ),
-            child: Icon(
-              state.icon ?? Icons.circle_outlined,
-              size: 20,
-              color: state == SquareState.none ? gp.textTert : state.accent,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-              color: selected ? state.accent : gp.textSec,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Loading skeleton ─────────────────────────────────────────────────────────
-
-class _GridSkeleton extends StatelessWidget {
-  const _GridSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Container(
-      height: 220,
-      decoration: BoxDecoration(
-        color: gp.surface,
-        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: gp.border, width: 0.5),
-      ),
-      child: Center(
-        child: SizedBox(
-          width: 22,
-          height: 22,
-          child: CircularProgressIndicator(
-              strokeWidth: 2, color: GameColors.emerald),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Empty state ──────────────────────────────────────────────────────────────
-
-/// Quiet label row above each of the Grid's two boards (build vs quit) —
-/// small icon, uppercase-style label, and a count chip, deliberately far
-/// lighter than a card header so the boards themselves stay the loudest
-/// thing on screen. Only rendered when both boards exist; see the build
-/// method's split comment.
-class _GridSectionHeader extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String label;
-  final int count;
-
-  const _GridSectionHeader({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.count,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    // Letter-spacing zeroed for Arabic, same as HabitCard's pills — spaced
-    // Arabic glyphs read broken, not emphasized.
-    final isAr = S.of(context).isAr;
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(bottom: 8, start: 2),
-      child: Row(
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: isAr ? 0 : 0.6,
-              color: gp.textSec,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(100),
-            ),
-            child: Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: color,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(child: Container(height: 0.5, color: gp.border)),
-        ],
-      ),
-    );
-  }
-}
-
-class _GridEmptyState extends ConsumerWidget {
-  const _GridEmptyState();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final gp = context.gp;
-    final s = S.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: GameColors.emerald.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.grid_view_rounded,
-                  size: 36, color: GameColors.emerald),
-            )
-                .animate()
-                .scale(curve: Curves.elasticOut, duration: 700.ms)
-                .fadeIn(duration: 300.ms),
-            const SizedBox(height: 20),
-            Text(
-              s.gridEmptyTitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: gp.textPrimary,
-              ),
-            ).animate(delay: 150.ms).fadeIn().slideY(begin: 0.2),
-            const SizedBox(height: 8),
-            Text(
-              s.gridEmptyDesc,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.4),
-            ).animate(delay: 220.ms).fadeIn(),
-            const SizedBox(height: 28),
-            SizedBox(
-              width: 260,
-              child: FilledButton.icon(
-                onPressed: () =>
-                    showAddHabitHub(context, ref, initialTab: HubTab.plans),
-                icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                label: Text(s.browsePlans),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
-            const SizedBox(height: 10),
-            TextButton.icon(
-              onPressed: () =>
-                  showAddHabitHub(context, ref, initialTab: HubTab.addGoal),
-              icon: const Icon(Icons.add_rounded, size: 16),
-              label: Text(s.addHabit),
-            ).animate(delay: 380.ms).fadeIn(),
-          ],
-        ),
-      ),
     );
   }
 }

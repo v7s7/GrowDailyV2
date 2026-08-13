@@ -515,7 +515,7 @@ class _BenefitRow extends StatelessWidget {
           height: 40,
           decoration: BoxDecoration(
             color: GameColors.gold.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
           ),
           child: Icon(icon, size: 20, color: GameColors.gold),
         ),
@@ -569,7 +569,7 @@ class _PlanCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: GameMotion.standard,
         curve: Curves.easeOut,
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
         decoration: BoxDecoration(
@@ -602,7 +602,7 @@ class _PlanCard extends StatelessWidget {
                         horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
                       color: GameColors.emerald.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(100),
+                      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                     ),
                     child: Text(
                       badge!,

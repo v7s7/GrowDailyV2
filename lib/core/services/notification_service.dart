@@ -6,6 +6,7 @@ import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../features/settings/models/notification_settings.dart';
+import 'local_store_service.dart';
 import 'prayer_times_service.dart';
 
 /// One habit's reminder inputs, as read straight off its [HabitCue] by
@@ -24,11 +25,16 @@ typedef HabitReminderInput = ({
   String? prayerKey,
   int streak,
   bool isDoneToday,
-  // Minutes to fire *before* the resolved clock/prayer moment — 0 fires
-  // right at that moment (the original, still-default behavior). Ignored
-  // when both clockTime and prayerKey are null, since there's no moment to
-  // count back from.
-  int reminderLeadMinutes,
+  // Signed minutes from the resolved clock/prayer moment to the fire time:
+  // negative = before, 0 = exactly on time, positive = after. Ignored when
+  // both clockTime and prayerKey are null, since there's no moment to
+  // offset from. Mirrors IslamicHabitTemplate.reminderOffsetMinutes — see
+  // that field's doc comment for the migration off the old always-before
+  // `reminderLeadMinutes`.
+  int reminderOffsetMinutes,
+  // Lets this habit's reminder through quiet hours (the per-habit "Allow
+  // anyway" escape hatch). Mirrors IslamicHabitTemplate.ignoreQuietHours.
+  bool ignoreQuietHours,
 });
 
 typedef _ResolvedReminder = ({
@@ -95,7 +101,7 @@ class NotificationService {
 
   static const _dailyReminderId = 1001;
   static const _channelId = 'growdaily_general';
-  static const _channelName = 'GrowDaily';
+  static const _channelName = 'Grow Daily';
   static const _channelDesc = 'Habit reminders and progress celebrations';
 
   // ── Actionable notifications ─────────────────────────────────
@@ -251,11 +257,44 @@ class NotificationService {
     debugPrint('[NotificationService] Ready');
   }
 
+  /// Hive key for "has this device already told us the OS-level
+  /// notification permission is granted" - see [requestPermissions]'s doc
+  /// comment for why this exists.
+  static const _kPermissionGrantedKey = 'notification_permission_granted_v1';
+
   /// Prompts the user for permission. Call this once, from a moment that
   /// makes sense in the flow (e.g. right after onboarding, or when the user
   /// first sets a reminder time) rather than at cold start.
+  ///
+  /// In practice this is called from four different places (AddHabitSheet,
+  /// AddTaskSheet, TaskDetailSheet, habit_plans.dart's daily-reminder setup)
+  /// - every one of them a genuinely reasonable moment to ask, and every one
+  /// of them independent of the others, so nothing before this fix stopped
+  /// the *second* one of these that ran from re-invoking the native
+  /// permission call all over again. iOS/Android themselves never show a
+  /// second system dialog once someone's actually answered the first one -
+  /// a repeat request when the OS already has a real answer just returns
+  /// that answer straight back with no UI - so this was never a case of
+  /// anyone actually being asked to decide twice. It was still a real,
+  /// pointless platform-channel round trip on every single save though, and
+  /// worth actually shortcutting rather than leaving as "harmless but
+  /// wasteful". Once a call here has genuinely confirmed "granted", every
+  /// later call - this session or a future one - skips the native call
+  /// entirely and returns true immediately.
+  ///
+  /// Deliberately NOT cached on a denial: unlike a granted answer (which
+  /// essentially never reverts on its own), someone can always flip
+  /// notifications back on for this app from their device Settings after
+  /// having said no here - caching "denied" forever would keep silently
+  /// re-declining on their behalf even after they've since turned it on
+  /// themselves. Re-asking after a denial is exactly as safe as before this
+  /// change (still just an instant no-UI echo of their last real answer,
+  /// unless Settings changed it), so there's nothing to lose by leaving
+  /// that path exactly as it was.
   Future<bool> requestPermissions() async {
     if (kIsWeb) return false;
+    final cached = await LocalStoreService.getSettingsMap(_kPermissionGrantedKey);
+    if (cached['granted'] == true) return true;
     final ios = await _plugin
         .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>()
@@ -264,7 +303,12 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
-    return (ios ?? true) && (android ?? true);
+    final granted = (ios ?? true) && (android ?? true);
+    if (granted) {
+      await LocalStoreService.putSettingsMap(
+          _kPermissionGrantedKey, {'granted': true});
+    }
+    return granted;
   }
 
   NotificationDetails get _details => const NotificationDetails(
@@ -418,6 +462,7 @@ class NotificationService {
   static const _maxBundleSlots = 6;
   static const _bundleWindow = Duration(minutes: 15);
   static const _streakRiskId = 8000;
+  static const _weeklyDigestId = 9000;
 
   /// Schedules real, individually-cancellable reminders for habits with a
   /// resolvable cue — a fixed clock time, or a prayer cue once a location
@@ -482,14 +527,17 @@ class NotificationService {
       tz.TZDateTime? fireTime;
       var isPrayerLinked = false;
 
-      final lead = Duration(minutes: habit.reminderLeadMinutes);
+      // Signed: added, never subtracted. A negative value (the "before"
+      // case) shifts backwards on its own — no separate branch needed, and
+      // no second global offset stacked on top of it anymore.
+      final offset = Duration(minutes: habit.reminderOffsetMinutes);
 
       if (habit.clockTime != null) {
         fireTime = _nextInstanceOf(habit.clockTime!.hour, habit.clockTime!.minute)
-            .subtract(lead);
-        // A lead time can pull an already-imminent clock time into the
-        // past (e.g. it's 8:58, the habit is set for 9:00, and the lead is
-        // 15 min) — the wall-clock time repeats daily, so the fix is just
+            .add(offset);
+        // An offset can pull an already-imminent clock time into the past
+        // (e.g. it's 8:58, the habit is set for 9:00, and the offset is
+        // -15 min) — the wall-clock time repeats daily, so the fix is just
         // the same moment tomorrow, not a full recalculation.
         if (!fireTime.isAfter(now)) {
           fireTime = fireTime.add(const Duration(days: 1));
@@ -516,9 +564,7 @@ class NotificationService {
         // without a compiler on hand to double check it.
         var candidate = today.forKey(habit.prayerKey!);
         if (candidate != null) {
-          candidate = candidate
-              .add(Duration(minutes: settings.prayerOffsetMinutes))
-              .subtract(lead);
+          candidate = candidate.add(offset);
         }
         if (candidate != null && !candidate.isAfter(now)) {
           tomorrowPrayers ??= await PrayerTimesService.calculate(
@@ -531,9 +577,7 @@ class NotificationService {
           final tomorrow = tomorrowPrayers;
           candidate = tomorrow.forKey(habit.prayerKey!);
           if (candidate != null) {
-            candidate = candidate
-                .add(Duration(minutes: settings.prayerOffsetMinutes))
-                .subtract(lead);
+            candidate = candidate.add(offset);
           }
         }
         fireTime = candidate;
@@ -544,8 +588,13 @@ class NotificationService {
         continue;
       }
 
-      final exemptFromQuietHours =
-          isPrayerLinked && !settings.quietHoursAppliesToPrayer;
+      // Two ways to be exempt: a prayer-linked reminder (whose whole point
+      // is landing near a prayer that's often inside a normal night-time
+      // quiet window — see quietHoursAppliesToPrayer), or this specific
+      // habit having been explicitly opted out via Add Habit's "Allow
+      // anyway" after being warned about the conflict.
+      final exemptFromQuietHours = habit.ignoreQuietHours ||
+          (isPrayerLinked && !settings.quietHoursAppliesToPrayer);
       if (!exemptFromQuietHours &&
           settings.quietHoursEnabled &&
           isMinuteWithinQuietHours(
@@ -591,19 +640,12 @@ class NotificationService {
     bool bundleEnabled,
     bool isAr,
   ) async {
-    final sorted = [...resolved]
-      ..sort((a, b) => a.fireTime.compareTo(b.fireTime));
-    final groups = <List<_ResolvedReminder>>[];
-    for (final r in sorted) {
-      final current = groups.isEmpty ? null : groups.last;
-      if (bundleEnabled &&
-          current != null &&
-          r.fireTime.difference(current.first.fireTime) <= _bundleWindow) {
-        current.add(r);
-      } else {
-        groups.add([r]);
-      }
-    }
+    final groups = groupByFireTimeWindow<_ResolvedReminder>(
+      resolved,
+      enabled: bundleEnabled,
+      window: _bundleWindow,
+      fireTimeOf: (r) => r.fireTime,
+    );
 
     final usedBundleIds = <int>{};
     var slot = 0;
@@ -746,6 +788,65 @@ class NotificationService {
     );
   }
 
+  /// Friday-evening "how was your week" push — a proactive companion to
+  /// Insights/Monthly Heatmap, which are both pull-only (someone has to go
+  /// open them). Content is computed fresh every time this is called (from
+  /// main.dart's _recomputeNotifications, alongside every other smart
+  /// reminder) and baked into the text at schedule time — same constraint
+  /// as every other schedule* method here, local notifications can't
+  /// compute anything at fire time. The Friday timing (not Sunday) matches
+  /// the app's own Sat→Fri grid week — see weekly_grid_notifier.dart's
+  /// startOfGridWeek().
+  Future<void> scheduleWeeklyDigest({
+    required NotificationSettings settings,
+    required int greenDays,
+    required int streak,
+    required bool isAr,
+  }) async {
+    if (kIsWeb) return;
+    await init();
+
+    final shouldFire = settings.masterEnabled && settings.weeklyDigestEnabled;
+    if (!shouldFire) {
+      await _plugin.cancel(_weeklyDigestId);
+      return;
+    }
+
+    final title = isAr ? 'أسبوعك' : 'Your week';
+    final body = isAr
+        ? (greenDays == 0
+            ? 'لم يُلوَّن أي يوم بعد هذا الأسبوع — لا يزال الوقت متاحًا.'
+            : streak > 0
+                ? 'لوّنت $greenDays من 7 أيام هذا الأسبوع — وسلسلة $streak يوم مستمرة.'
+                : 'لوّنت $greenDays من 7 أيام هذا الأسبوع.')
+        : (greenDays == 0
+            ? "No days colored yet this week — there's still time."
+            : streak > 0
+                ? 'You colored $greenDays of 7 days this week — a $streak-day streak going.'
+                : 'You colored $greenDays of 7 days this week.');
+
+    await _plugin.zonedSchedule(
+      _weeklyDigestId,
+      title,
+      body,
+      _nextInstanceOfWeekday(DateTime.friday, 19, 0),
+      _details,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      // Body-tap routing: the week's story lives on the Grid, on Today —
+      // see main.dart's _handleNotificationBodyTap. No dedicated Insights
+      // deep link exists yet; Insights is one tap from Today.
+      payload: openTodayPayload,
+    );
+  }
+
+  Future<void> cancelWeeklyDigest() async {
+    if (kIsWeb) return;
+    await _plugin.cancel(_weeklyDigestId);
+  }
+
   // Quit check-ins get their own id range (and stale-tracking set, same
   // pattern as _habitReminderHabitIds) — a quit habit can hold BOTH a cue
   // reminder (_habitReminderId) and an evening check-in at once, so the two
@@ -859,10 +960,18 @@ class NotificationService {
   /// "never quiet" rather than "always quiet" — matches
   /// [NotificationSettings.quietHoursEnabled] being the actual on/off
   /// switch; a degenerate same-value range shouldn't silently blank out
-  /// every reminder. Pure and side-effect-free on purpose — this is the
-  /// one piece of the scheduling logic that's meaningfully unit-testable
-  /// without a device (see test/notification_scheduling_test.dart).
-  @visibleForTesting
+  /// every reminder. Pure and side-effect-free on purpose — one of two
+  /// pieces of the scheduling logic (see [groupByFireTimeWindow] for the
+  /// other) that are meaningfully unit-testable without a device, since
+  /// neither touches the plugin or the network (see
+  /// test/notification_scheduling_test.dart).
+  ///
+  /// No longer `@visibleForTesting`: AddHabitSheet's `_quietHoursWarning`
+  /// now calls this for real, to tell someone *while they're picking a
+  /// time* that it lands in their quiet window — the alternative was
+  /// duplicating this wrap-past-midnight logic in the UI, where it could
+  /// drift out of sync with the scheduler that actually enforces it. This
+  /// stays the single definition of "is this minute quiet".
   static bool isMinuteWithinQuietHours(
     int minuteOfDay,
     TimeOfDay start,
@@ -873,6 +982,41 @@ class NotificationService {
     if (s == e) return false;
     if (s < e) return minuteOfDay >= s && minuteOfDay < e;
     return minuteOfDay >= s || minuteOfDay < e;
+  }
+
+  /// Groups [items] into clusters no wider than [window] apart, in
+  /// fire-time order — [_scheduleResolved]'s "2+ habits due within the
+  /// same short window combine into one notification" rule. Extracted out
+  /// of that method (verbatim logic, just generic over [T] and taking a
+  /// [fireTimeOf] extractor instead of reaching into `_ResolvedReminder`
+  /// directly) so the windowing decision itself — which is the one part
+  /// of that method with no plugin call in it — is unit-testable without
+  /// scheduling a single real notification. When [enabled] is false, every
+  /// item gets its own group regardless of how close together they are —
+  /// mirrors the original inline `bundleEnabled &&` gate exactly, rather
+  /// than e.g. passing `Duration.zero` as [window], which would still
+  /// merge two items landing at the exact same instant.
+  @visibleForTesting
+  static List<List<T>> groupByFireTimeWindow<T>(
+    List<T> items, {
+    required bool enabled,
+    required Duration window,
+    required tz.TZDateTime Function(T) fireTimeOf,
+  }) {
+    final sorted = [...items]
+      ..sort((a, b) => fireTimeOf(a).compareTo(fireTimeOf(b)));
+    final groups = <List<T>>[];
+    for (final item in sorted) {
+      final current = groups.isEmpty ? null : groups.last;
+      if (enabled &&
+          current != null &&
+          fireTimeOf(item).difference(fireTimeOf(current.first)) <= window) {
+        current.add(item);
+      } else {
+        groups.add([item]);
+      }
+    }
+    return groups;
   }
 
   /// Reschedules habit [habitId]'s reminder for an hour from now, as a
@@ -920,6 +1064,12 @@ class NotificationService {
   /// at, ever, and nothing here re-derives or repeats the way
   /// [scheduleSmartReminders] does.
   ///
+  /// Title is a fixed, generic nudge ("It's time") rather than the task's
+  /// own name — [taskTitle] carries the specifics in the body instead, the
+  /// same title/body split every notification-list screenshot of this kind
+  /// of app uses ("It's time" / "Buy groceries"), so what's glanceable from
+  /// a lock screen is "something needs you" first, "here's what" second.
+  ///
   /// Deliberately does NOT check quiet hours the way habit/streak
   /// reminders do (see [scheduleSmartReminders]) — those are the app's own
   /// auto-generated nudges, but this fire time was explicitly hand-picked
@@ -941,7 +1091,7 @@ class NotificationService {
   /// multi-habit notification in [_scheduleResolved].
   Future<void> scheduleTaskReminder({
     required String id,
-    required String title,
+    required String taskTitle,
     required DateTime fireTime,
     required bool isAr,
   }) async {
@@ -949,8 +1099,8 @@ class NotificationService {
     await init();
     await _plugin.zonedSchedule(
       _taskReminderId(id),
-      title,
-      isAr ? 'حان وقت هذه المهمة' : 'Time for this task',
+      isAr ? 'حان الوقت' : "It's time",
+      taskTitle,
       tz.TZDateTime.from(fireTime, tz.local),
       _details,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -960,12 +1110,42 @@ class NotificationService {
     );
   }
 
+  /// Catches up a task reminder whose picked moment already passed without
+  /// ever reaching the user — the app was closed straight through
+  /// [fireTime], the device was off, or the OS just didn't deliver it.
+  /// Rather than the task's reminder silently vanishing (which is what
+  /// unconditionally cancelling a past-due schedule would mean from the
+  /// user's side — a reminder they set that never once fired), this fires
+  /// right away instead, the moment MatrixNotifier next resyncs this task
+  /// (on load, or the next time it's touched) and finds it still open with
+  /// notifications still enabled — see MatrixNotifier._syncReminderSchedule.
+  /// Uses [_plugin.show] (immediate) rather than [_plugin.zonedSchedule]
+  /// (future-dated) since there's no future moment left to aim at — "now"
+  /// already *is* the catch-up moment. Same title/body convention and same
+  /// notification id as [scheduleTaskReminder], so a catch-up simply
+  /// replaces whatever (if anything) was still pending for this task.
+  Future<void> fireOverdueTaskReminder({
+    required String id,
+    required String taskTitle,
+    required bool isAr,
+  }) async {
+    if (kIsWeb) return;
+    await init();
+    await _plugin.show(
+      _taskReminderId(id),
+      isAr ? 'حان الوقت' : "It's time",
+      taskTitle,
+      _details,
+    );
+  }
+
   /// Cancels [id]'s reminder, if one is scheduled — a no-op otherwise.
-  /// Called from MatrixNotifier whenever a task's reminder is cleared or
-  /// changed (the old schedule has to go before a new one can replace it),
-  /// or the task itself is completed, deleted, or restored-without-a-
-  /// still-future reminder — see MatrixNotifier._syncReminderSchedule for
-  /// the exact rules.
+  /// Called from MatrixNotifier whenever a task's reminder is cleared,
+  /// the task itself is completed or deleted, or notifications are off
+  /// entirely — see MatrixNotifier._syncReminderSchedule for the exact
+  /// rules. A reminder whose moment has simply passed while the task is
+  /// still open does NOT go through here — see [fireOverdueTaskReminder]
+  /// for that case instead.
   Future<void> cancelTaskReminder(String id) async {
     if (kIsWeb) return;
     await _plugin.cancel(_taskReminderId(id));
@@ -976,6 +1156,19 @@ class NotificationService {
     var scheduled =
         tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
     if (scheduled.isBefore(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+    }
+    return scheduled;
+  }
+
+  /// Same idea as [_nextInstanceOf], but rolls forward to the next
+  /// occurrence of [weekday] (1=Monday..7=Sunday, per [DateTime]'s own
+  /// weekday constants) instead of stopping at the next occurrence of the
+  /// clock time alone — used by [scheduleWeeklyDigest] to land on Friday
+  /// evening specifically.
+  tz.TZDateTime _nextInstanceOfWeekday(int weekday, int hour, int minute) {
+    var scheduled = _nextInstanceOf(hour, minute);
+    while (scheduled.weekday != weekday) {
       scheduled = scheduled.add(const Duration(days: 1));
     }
     return scheduled;
@@ -1018,6 +1211,61 @@ class NotificationService {
     );
   }
 
+  /// Local notification for this device noticing a room it's in has a new
+  /// shared-plan habit to link (see RoomsHubScreen's own per-room check,
+  /// and RoomsController.addSharedHabit's doc comment for how it got
+  /// there). NOT true push - this app has no server-side component to fire
+  /// one the instant a leader adds it, so this only actually fires the
+  /// next time this device is open and this account's rooms sync, same
+  /// honest limit as every other notification in this file. [isAr] is
+  /// passed in rather than read from S.of(context) - there's no
+  /// BuildContext available at the point this fires, same reasoning as
+  /// [showTest].
+  Future<void> showRoomHabitAdded({
+    required String roomName,
+    required String habitName,
+    required bool isAr,
+  }) async {
+    if (kIsWeb || !_celebrationsEnabled) return;
+    await init();
+    await _plugin.show(
+      60000 + roomName.hashCode.abs() % 1000,
+      isAr ? 'عادة جديدة في "$roomName"' : 'New habit in "$roomName"',
+      isAr
+          ? 'أضاف القائد "$habitName". اربط إحدى عاداتك لمواصلة تقدمك.'
+          : 'Your leader added "$habitName" - link one of your own habits to keep your progress going.',
+      _details,
+    );
+  }
+
+  /// Manually shows the room-finish push's title/body while this device is
+  /// in the foreground - see PushNotificationService's own doc comment for
+  /// why: iOS's foreground-presentation option is deliberately left off
+  /// for that one push category (unlike every local notification in this
+  /// file, which doesn't need the choice - there's nothing else on screen
+  /// for a scheduled reminder to duplicate), so a push about a room this
+  /// device is already looking at can be skipped entirely instead of
+  /// showing right on top of room_reactions.dart's own in-app reaction for
+  /// the exact same moment. Bypasses [_celebrationsEnabled]/master-switch
+  /// gating on purpose - functions/index.js already checked
+  /// NotificationSettings.roomActivityEnabled and quiet hours server-side
+  /// before ever sending this, so re-checking local settings here would
+  /// just be double-gating the same decision against a copy that might be
+  /// stale.
+  Future<void> showForegroundRoomPush({
+    required String title,
+    required String body,
+  }) async {
+    if (kIsWeb) return;
+    await init();
+    await _plugin.show(
+      70000 + title.hashCode.abs() % 1000,
+      title,
+      body,
+      _details,
+    );
+  }
+
   /// Fires immediately, bypassing [_celebrationsEnabled] on purpose — this
   /// is the Notification Settings screen's "Send a test notification"
   /// button, whose entire point is letting someone confirm permissions and
@@ -1032,8 +1280,8 @@ class NotificationService {
       9000,
       isAr ? 'إشعار تجريبي' : 'Test notification',
       isAr
-          ? 'هكذا تبدو إشعارات GrowDaily على جهازك.'
-          : "This is what GrowDaily's notifications look like on your device.",
+          ? 'هكذا تبدو إشعارات Grow Daily على جهازك.'
+          : "This is what Grow Daily's notifications look like on your device.",
       _details,
     );
   }

@@ -85,7 +85,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
           const SizedBox(height: 20),
           AnimatedOpacity(
             opacity: settings.masterEnabled ? 1 : 0.4,
-            duration: const Duration(milliseconds: 200),
+            duration: GameMotion.standard,
             child: IgnorePointer(
               ignoring: !settings.masterEnabled,
               child: Column(
@@ -137,6 +137,30 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       onChanged: (v) =>
                           update((c) => c.copyWith(bundleEnabled: v)),
                     ),
+                    const _RowDivider(),
+                    _SwitchRow(
+                      icon: Icons.calendar_view_week_rounded,
+                      label: s.notifWeeklyDigest,
+                      subtitle: s.notifWeeklyDigestDesc,
+                      value: settings.weeklyDigestEnabled,
+                      onChanged: (v) =>
+                          update((c) => c.copyWith(weeklyDigestEnabled: v)),
+                    ),
+                    const _RowDivider(),
+                    // The one push category this app sends from a server
+                    // rather than scheduling locally - see
+                    // NotificationSettings.roomActivityEnabled's own doc
+                    // comment. A specific room can also be muted on its own
+                    // (the room's app-bar bell) without touching this
+                    // master switch for every room at once.
+                    _SwitchRow(
+                      icon: Icons.groups_rounded,
+                      label: s.notifRoomActivity,
+                      subtitle: s.notifRoomActivityDesc,
+                      value: settings.roomActivityEnabled,
+                      onChanged: (v) =>
+                          update((c) => c.copyWith(roomActivityEnabled: v)),
+                    ),
                   ]),
                   const SizedBox(height: 20),
                   _SectionLabel(s.notifPrayerSection),
@@ -150,22 +174,12 @@ class NotificationSettingsScreen extends ConsumerWidget {
                           ? s.notifLocationNotSet
                           : '${PrayerTimesService.resolveRegion(settings.location!.lat, settings.location!.lng, countryCode: settings.resolvedCountryCode).method.label(isAr)} · ${settings.madhab.label(isAr)}',
                     ),
-                    const _RowDivider(),
-                    _StepperRow(
-                      icon: Icons.timer_outlined,
-                      label: s.notifPrayerOffset,
-                      valueLabel: s.minutesAfterPrayer(settings.prayerOffsetMinutes),
-                      onDecrement: settings.prayerOffsetMinutes > 0
-                          ? () => update((c) => c.copyWith(
-                              prayerOffsetMinutes:
-                                  (c.prayerOffsetMinutes - 5).clamp(0, 60)))
-                          : null,
-                      onIncrement: settings.prayerOffsetMinutes < 60
-                          ? () => update((c) => c.copyWith(
-                              prayerOffsetMinutes:
-                                  (c.prayerOffsetMinutes + 5).clamp(0, 60)))
-                          : null,
-                    ),
+                    // The global "minutes after prayer" stepper used to sit
+                    // here. Removed: it was silently added on top of each
+                    // habit's own timing, so the two fought and Add Habit's
+                    // preview showed a time that never matched what actually
+                    // fired. Timing is now picked per habit (before / on
+                    // time / after), right where the cue itself is chosen.
                   ]),
                   const SizedBox(height: 8),
                   Padding(
@@ -196,7 +210,16 @@ class NotificationSettingsScreen extends ConsumerWidget {
                         time: settings.quietHoursStart,
                         onTap: () async {
                           final picked = await showTimePicker(
-                              context: context, initialTime: settings.quietHoursStart);
+                              context: context,
+                              initialTime: settings.quietHoursStart,
+                              // Force 12-hour AM/PM regardless of the
+                              // device's 24-hour system setting, so the
+                              // picker looks the same on every phone.
+                              builder: (context, child) => MediaQuery(
+                                data: MediaQuery.of(context)
+                                    .copyWith(alwaysUse24HourFormat: false),
+                                child: child!,
+                              ));
                           if (picked != null) {
                             update((c) => c.copyWith(quietHoursStart: picked));
                           }
@@ -209,7 +232,13 @@ class NotificationSettingsScreen extends ConsumerWidget {
                         time: settings.quietHoursEnd,
                         onTap: () async {
                           final picked = await showTimePicker(
-                              context: context, initialTime: settings.quietHoursEnd);
+                              context: context,
+                              initialTime: settings.quietHoursEnd,
+                              builder: (context, child) => MediaQuery(
+                                data: MediaQuery.of(context)
+                                    .copyWith(alwaysUse24HourFormat: false),
+                                child: child!,
+                              ));
                           if (picked != null) {
                             update((c) => c.copyWith(quietHoursEnd: picked));
                           }
@@ -237,7 +266,13 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       time: settings.streakRiskTime,
                       onTap: () async {
                         final picked = await showTimePicker(
-                            context: context, initialTime: settings.streakRiskTime);
+                            context: context,
+                            initialTime: settings.streakRiskTime,
+                            builder: (context, child) => MediaQuery(
+                              data: MediaQuery.of(context)
+                                  .copyWith(alwaysUse24HourFormat: false),
+                              child: child!,
+                            ));
                         if (picked != null) {
                           update((c) => c.copyWith(streakRiskTime: picked));
                         }
@@ -288,6 +323,11 @@ class _DailyReminderRow extends ConsumerWidget {
         final picked = await showTimePicker(
           context: context,
           initialTime: reminderTime ?? const TimeOfDay(hour: 20, minute: 0),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(alwaysUse24HourFormat: false),
+            child: child!,
+          ),
         );
         if (picked != null) {
           final granted = await ref.read(reminderTimeProvider.notifier).set(picked);

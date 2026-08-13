@@ -109,6 +109,24 @@ class NotificationSettings {
   /// firing one each — see NotificationService's bundling pass.
   final bool bundleEnabled;
 
+  /// The Friday-evening "your week" push — days colored on the Grid this
+  /// week plus the current streak, see NotificationService
+  /// .scheduleWeeklyDigest. A proactive nudge toward Insights/Monthly
+  /// Heatmap, which are otherwise pull-only.
+  final bool weeklyDigestEnabled;
+
+  /// Server-sent push when a teammate in one of your rooms finishes their
+  /// habit(s) for the day (see functions/index.js's notifyRoomFinish
+  /// Callable function, invoked directly by RoomsController) — the one
+  /// notification category this app sends from a server rather than
+  /// scheduling locally, since it depends on someone else's action. Muting
+  /// one specific room
+  /// (RoomParticipant.notificationsMuted, via the room's app-bar bell) is
+  /// the finer-grained control; this is the master switch for the whole
+  /// category, same relationship [celebrationsEnabled] has to individual
+  /// in-app celebration moments.
+  final bool roomActivityEnabled;
+
   final bool quietHoursEnabled;
   final TimeOfDay quietHoursStart;
   final TimeOfDay quietHoursEnd;
@@ -121,10 +139,15 @@ class NotificationSettings {
   /// if quiet hours should override that too.
   final bool quietHoursAppliesToPrayer;
 
-  /// Minutes after the prayer itself a prayer-linked habit reminder fires
-  /// — e.g. 10 means "10 minutes after Maghrib," giving a little breathing
-  /// room after the prayer rather than firing at the exact adhan moment.
-  final int prayerOffsetMinutes;
+  // NOTE: the old global `prayerOffsetMinutes` ("minutes after the prayer"
+  // applied to every prayer-linked habit at once) was removed. It was
+  // *added* to a reminder's fire time while each habit's own value was
+  // *subtracted* from it, so the two silently fought: "15 min before Fajr"
+  // with the default +10 actually fired 5 minutes before, and Add Habit's
+  // preview showed a time that never matched reality. Each habit's signed
+  // IslamicHabitTemplate.reminderOffsetMinutes is now the single source of
+  // truth. CustomHabitsNotifier._migrateLegacyPrayerOffset folds any saved
+  // value into existing prayer habits once, so nobody's reminders moved.
 
   /// Local clock time the streak-risk check runs at, if it's going to fire
   /// at all that day (see [streakRiskEnabled]'s doc comment).
@@ -153,11 +176,12 @@ class NotificationSettings {
     this.celebrationsEnabled = true,
     this.matrixNudgeEnabled = true,
     this.bundleEnabled = true,
+    this.weeklyDigestEnabled = true,
+    this.roomActivityEnabled = true,
     this.quietHoursEnabled = true,
     this.quietHoursStart = const TimeOfDay(hour: 22, minute: 0),
     this.quietHoursEnd = const TimeOfDay(hour: 7, minute: 0),
     this.quietHoursAppliesToPrayer = false,
-    this.prayerOffsetMinutes = 10,
     this.streakRiskTime = const TimeOfDay(hour: 20, minute: 30),
     this.location,
     this.resolvedCountryCode,
@@ -173,11 +197,12 @@ class NotificationSettings {
     bool? celebrationsEnabled,
     bool? matrixNudgeEnabled,
     bool? bundleEnabled,
+    bool? weeklyDigestEnabled,
+    bool? roomActivityEnabled,
     bool? quietHoursEnabled,
     TimeOfDay? quietHoursStart,
     TimeOfDay? quietHoursEnd,
     bool? quietHoursAppliesToPrayer,
-    int? prayerOffsetMinutes,
     TimeOfDay? streakRiskTime,
     // Nullable field: copyWith's usual `?? this.x` can't express "set it
     // back to null," so clearing location goes through [clearLocation]
@@ -201,12 +226,13 @@ class NotificationSettings {
         celebrationsEnabled: celebrationsEnabled ?? this.celebrationsEnabled,
         matrixNudgeEnabled: matrixNudgeEnabled ?? this.matrixNudgeEnabled,
         bundleEnabled: bundleEnabled ?? this.bundleEnabled,
+        weeklyDigestEnabled: weeklyDigestEnabled ?? this.weeklyDigestEnabled,
+        roomActivityEnabled: roomActivityEnabled ?? this.roomActivityEnabled,
         quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
         quietHoursStart: quietHoursStart ?? this.quietHoursStart,
         quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
         quietHoursAppliesToPrayer:
             quietHoursAppliesToPrayer ?? this.quietHoursAppliesToPrayer,
-        prayerOffsetMinutes: prayerOffsetMinutes ?? this.prayerOffsetMinutes,
         streakRiskTime: streakRiskTime ?? this.streakRiskTime,
         location: clearLocation ? null : (location ?? this.location),
         resolvedCountryCode: clearLocation
@@ -222,11 +248,12 @@ class NotificationSettings {
         'celebrationsEnabled': celebrationsEnabled,
         'matrixNudgeEnabled': matrixNudgeEnabled,
         'bundleEnabled': bundleEnabled,
+        'weeklyDigestEnabled': weeklyDigestEnabled,
+        'roomActivityEnabled': roomActivityEnabled,
         'quietHoursEnabled': quietHoursEnabled,
         'quietHoursStart': _timeToMap(quietHoursStart),
         'quietHoursEnd': _timeToMap(quietHoursEnd),
         'quietHoursAppliesToPrayer': quietHoursAppliesToPrayer,
-        'prayerOffsetMinutes': prayerOffsetMinutes,
         'streakRiskTime': _timeToMap(streakRiskTime),
         if (location != null) 'location': location!.toMap(),
         if (resolvedCountryCode != null)
@@ -247,6 +274,10 @@ class NotificationSettings {
       matrixNudgeEnabled:
           map['matrixNudgeEnabled'] as bool? ?? defaults.matrixNudgeEnabled,
       bundleEnabled: map['bundleEnabled'] as bool? ?? defaults.bundleEnabled,
+      weeklyDigestEnabled: map['weeklyDigestEnabled'] as bool? ??
+          defaults.weeklyDigestEnabled,
+      roomActivityEnabled:
+          map['roomActivityEnabled'] as bool? ?? defaults.roomActivityEnabled,
       quietHoursEnabled:
           map['quietHoursEnabled'] as bool? ?? defaults.quietHoursEnabled,
       quietHoursStart:
@@ -254,8 +285,11 @@ class NotificationSettings {
       quietHoursEnd: _timeFromMap(map['quietHoursEnd'], defaults.quietHoursEnd),
       quietHoursAppliesToPrayer: map['quietHoursAppliesToPrayer'] as bool? ??
           defaults.quietHoursAppliesToPrayer,
-      prayerOffsetMinutes: (map['prayerOffsetMinutes'] as num?)?.toInt() ??
-          defaults.prayerOffsetMinutes,
+      // `prayerOffsetMinutes` is deliberately not read here anymore — see
+      // the note above the streakRiskTime field. Any saved value is left
+      // sitting untouched in storage (this class neither reads nor writes
+      // it) until CustomHabitsNotifier._migrateLegacyPrayerOffset folds it
+      // into the habits themselves and drops the key.
       streakRiskTime: _timeFromMap(map['streakRiskTime'], defaults.streakRiskTime),
       location: NotificationLocation.fromMap(map['location']),
       resolvedCountryCode: map['resolvedCountryCode'] as String?,

@@ -14,12 +14,14 @@ you have.
 ## Summary
 
 - You can use GrowDaily as a Guest with no account at all — in that mode,
-  your data stays only on your device and is never sent to us.
+  your habits and progress stay only on your device and are never sent to
+  us. (Anonymous usage and crash reports are still sent — see below.)
 - If you create an account, we store your habit data so it syncs across
   your devices and survives a reinstall. We do not sell your data, and we
   do not show ads or share your data with advertisers.
-- There is currently no analytics or tracking SDK in the app beyond what's
-  described below.
+- The app sends anonymous usage statistics and crash reports (Google
+  Firebase Analytics and Crashlytics). These are not tied to your name or
+  email, and they are not used for advertising.
 
 ## Information we collect
 
@@ -42,14 +44,31 @@ account:
 **Guest mode data.** If you use the app without creating an account, all of
 the above is stored only in local storage on your device and is never
 transmitted to us. It stays there until you delete the app or clear its
-data.
+data — including if you delete the app, which permanently erases it. We
+cannot recover a Guest's data for them, because we never had a copy.
+Creating an account is the only way to back it up.
 
-**What we don't collect.** GrowDaily does not access your contacts,
-photos, camera, microphone, or precise location. We do not use advertising
-SDKs, and as of this writing the app has no third-party analytics service
-integrated — in-app event logging exists in the code but currently only
-writes to the local debug console and is not transmitted anywhere.
-[Update this section if/when an analytics or crash-reporting SDK is added.]
+The usage statistics and crash reports described below are still sent while
+in Guest mode. They contain no habit content and are not linked to any
+identity, but they are not "nothing", so we say so plainly here.
+
+**Usage statistics.** The app sends anonymous event records to Google
+Firebase Analytics — for example that a habit was completed, that a streak
+freeze was used, or that a purchase screen was opened. These carry no habit
+names, no reflections, and no personal content, only the event name and a
+few technical values (such as device type, app version and language). They
+are used to understand which features get used, never for advertising, and
+never sold.
+
+**Crash reports.** If the app crashes, Google Firebase Crashlytics sends us
+a technical report — the error, the code path that failed, and device state
+at the time. This is used to fix bugs. It may incidentally contain
+identifiers Firebase generates for the installation, but no habit content.
+
+**What we don't collect.** GrowDaily does not access your contacts, photos,
+camera, microphone, or precise location. We do not use advertising SDKs, we
+do not sell your data, and we do not build advertising profiles. We never
+ask for your phone number.
 
 ## How we use your information
 
@@ -76,8 +95,9 @@ We do not sell your personal data, and we do not share it with advertisers.
 
 ## Your choices
 
-- **Guest mode** — use the app without an account; nothing leaves your
-  device.
+- **Guest mode** — use the app without an account; your habits and progress
+  never leave your device. Anonymous usage and crash reports still are sent.
+  Note that Guest data cannot be recovered if you delete the app.
 - **Notifications** — the daily reminder is entirely optional and can be
   turned off at any time from Profile settings.
 - **Account deletion** — [Placeholder: at the time of writing, in-app

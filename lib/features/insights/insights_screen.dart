@@ -623,7 +623,7 @@ class _InsightDetailSheet extends StatelessWidget {
                   height: 40,
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.13),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   ),
                   child: Icon(icon, size: 21, color: color),
                 ),
@@ -708,7 +708,7 @@ class _InsightDetailSheet extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   ),
                   child: Row(
                     children: [
@@ -768,7 +768,7 @@ class _InsightDetailSheet extends StatelessWidget {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -797,9 +797,12 @@ class _InsightDetailSheet extends StatelessWidget {
   }
 }
 
-/// Mon..Sun completion-rate wave — the same smooth-line + gradient-fill
-/// language as ProgressHubScreen's 14-day chart ([_ProgressLinePainter]
-/// there), re-purposed for 7 weekday points instead of 14 daily ones.
+/// Mon..Sun completion-rate wave — a smooth-line + gradient-fill chart for
+/// 7 weekday points. ProgressHubScreen's 14-day chart used to share this
+/// exact painter-based look; that one is now a bar chart with visible
+/// per-day counts instead (better for "how many today," a small countable
+/// number), while this wave stays a curve since a weekday *rate* pattern
+/// is closer to a continuous, day-to-day trend than a raw daily count.
 ///
 /// Scaled against this week's own highest rate, not a fixed 0-100%
 /// ceiling: a "needs a push" or weekday-miss pattern is by definition made

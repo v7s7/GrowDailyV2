@@ -20,6 +20,9 @@ void showEditNameSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Without this, the sheet ignores the iPhone home-indicator inset and
+    // its footer button can render flush with (or under) the gesture bar.
+    useSafeArea: true,
     builder: (_) => _EditNameSheet(currentName: currentName),
   );
 }
@@ -93,7 +96,7 @@ class _EditNameSheetState extends ConsumerState<_EditNameSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: gp.border,
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
               ),
             ),
@@ -142,11 +145,11 @@ class _EditNameSheetState extends ConsumerState<_EditNameSheet> {
                 filled: true,
                 fillColor: gp.surface,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   borderSide: BorderSide(color: gp.border),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   borderSide: BorderSide(color: gp.border),
                 ),
               ),

@@ -1,0 +1,15 @@
+{
+  "name": "growdaily-admin-lookup",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local admin tool: search/browse any GrowDaily account (server.js) or generate a one-page HTML report for one (lookup_user.js). Not part of the app; never deployed.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "lookup": "node lookup_user.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "firebase-admin": "^12.6.0"
+  }
+}

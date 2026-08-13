@@ -8,11 +8,23 @@ import 'package:flutter/material.dart';
 /// in both light mode and dark mode (background, card surfaces, borders,
 /// body text) is itself tinted from the accent and emerald hues, so the
 /// whole look — background, grid, buttons, highlights — traces back to
-/// this preset's own colors, not a scattered palette. The only things that
-/// stay fixed across every preset are `error`/`warning` (so "something's
-/// wrong" never gets ambiguous) and illustrated art (app icon, splash,
-/// onboarding art, category glyphs) — those have colors baked into the
-/// actual PNGs, so a preset only restyles UI chrome, not artwork.
+/// this preset's own colors, not a scattered palette. `error`/`warning`
+/// stay fixed across every preset (so "something's wrong" never gets
+/// ambiguous), and the app icon and native splash screen stay fixed too —
+/// not a style choice, a platform one: both render before Dart/Flutter
+/// (and any saved theme preference) has even loaded, so neither could read
+/// the active preset if it wanted to. Category glyphs (category_*.png)
+/// aren't fixed — see [HabitCategory.iconAsset]'s doc comment — they're
+/// transparent-background PNGs tinted at render time via
+/// `BlendMode.srcIn`, so they already track whichever color a call site
+/// passes in (almost always a preset-driven one). The achievement-unlock
+/// and empty-state illustrations (achievement_celebration_burst,
+/// empty_state_no_habits, empty_state_all_done) keep their own fixed
+/// foreground colors as brand art, same as the app icon, but their
+/// backgrounds are transparent PNGs rather than a baked-in cream fill, so
+/// the card/banner behind them can still be preset- and mode-aware — see
+/// AchievementsScreen's and DashboardScreen's Container `color: gp.surface`
+/// around each one.
 ///
 /// `emerald` started out as always a second, independent hue reserved for
 /// the grid ("the goal is to fill the week with green," in the original

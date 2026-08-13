@@ -43,6 +43,15 @@ abstract final class GameColors {
   static Color get onEmerald =>
       emerald.computeLuminance() > 0.1791 ? Colors.black : Colors.white;
 
+  /// Same reasoning and crossover point as [onEmerald], for a solid gold
+  /// fill instead — e.g. Grid's Add Habit FAB, once it switched from a
+  /// neutral surface fill with a gold icon to a solid gold fill needing its
+  /// own icon contrast. Gold swings even wider across presets than emerald
+  /// does (a warm amber default vs. Ocean's teal vs. Rose & Ink's rose), so
+  /// this can't be assumed constant either.
+  static Color get onGold =>
+      gold.computeLuminance() > 0.1791 ? Colors.black : Colors.white;
+
   static const Color error = Color(0xFFFF5A52);
   static const Color warning = Color(0xFFF7C948);
 
@@ -64,6 +73,14 @@ abstract final class GameColors {
   static const Color iconXpDim = Color(0xFF236EA8);
   static const Color iconSuccess = Color(0xFF2ECF8F);
   static const Color iconSuccessDim = Color(0xFF188A61);
+  // Grid's categoryVisual() used to point the Sleep category at
+  // rarityEpic below to get a quick purple - but that color is the item-
+  // rarity tier system's "epic" tier, already spoken for by the Mind
+  // category, so the two sat identically colored in the habit list with
+  // nothing but icon shape (brain vs. crescent) telling them apart. A
+  // dedicated fixed color, same fixed-not-preset-driven treatment as the
+  // icon* set above, so Sleep reads as its own category at a glance.
+  static const Color iconSleep = Color(0xFF6C7BDB);
 
   static const Color rarityCommon = Color(0xFF8C9A92);
   static Color get rarityUncommon => emerald;
@@ -294,6 +311,41 @@ abstract final class GameSpacing {
   static const double pillRadius = 100;
   static const EdgeInsets screenPadding = EdgeInsets.symmetric(horizontal: lg);
   static const EdgeInsets cardPadding = EdgeInsets.all(lg);
+}
+
+// ─── Motion ────────────────────────────────────────────────────────────────
+
+/// Shared `duration:` timings for entrance/exit/transition animations —
+/// reach for one of these instead of a fresh literal millisecond count, the
+/// same reasoning as [GameSpacing] for radii/padding. Picked from this
+/// app's own most common existing values (not invented numbers), so
+/// adopting one of these into a call site already on that value is a
+/// no-op, and an imperceptible ~20ms nudge at most for its closest
+/// neighbors — never a jump across a genuinely different pacing tier (a
+/// tap's feedback and a celebratory reveal were never going to share a
+/// number anyway).
+///
+/// Deliberately says nothing about `delay:`/stagger timings - those encode
+/// a sequence's own relative order (item 2 starts 80ms after item 1, and
+/// so on), not a shared duration, and folding them in here would flatten a
+/// deliberate cascade into everything moving at once. Leave delays as
+/// their own explicit literals.
+abstract final class GameMotion {
+  /// Snappy micro-interactions - a toggle flipping, a chip selecting, a
+  /// small AnimatedContainer's color/border changing.
+  static const Duration quick = Duration(milliseconds: 160);
+
+  /// The default fade/slide entrance most `.animate()` calls reach for -
+  /// this app's single most common timing.
+  static const Duration standard = Duration(milliseconds: 220);
+
+  /// A little more visual weight to carry - a card settling into place, a
+  /// tab page turning.
+  static const Duration relaxed = Duration(milliseconds: 260);
+
+  /// A slower, more deliberate reveal - a sheet opening, a heavier
+  /// transition.
+  static const Duration slow = Duration(milliseconds: 300);
 }
 
 // ─── Shared input theme helper ────────────────────────────────────────────────

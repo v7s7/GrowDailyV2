@@ -1,0 +1,219 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/l10n/app_strings.dart';
+import '../../../core/theme/game_theme.dart';
+import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../models/prestige_tier.dart';
+import '../notifiers/prestige_notifier.dart';
+
+/// Opens [PrestigePickerSheet] — the one place to browse every Level
+/// Prestige tier and choose which unlocked one to display. Reachable from
+/// the Profile hero header's title chip (see _HeroHeader in
+/// profile_screen_hero_dashboard.dart).
+void showPrestigePicker(BuildContext context) {
+  HapticFeedback.selectionClick();
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => const PrestigePickerSheet(),
+  );
+}
+
+/// Every [PrestigeTier], earned or not, with a plain gold/character-closet-
+/// style locked/unlocked/equipped presentation — reusing that same visual
+/// language (a colored icon tile, a title, a trailing state indicator)
+/// rather than inventing a new one, even though the unlock rule underneath
+/// (level, not gold) is completely different from CharacterClosetScreen's
+/// shop rows. See PrestigeState.displayedTier for what "equipped" actually
+/// resolves to when no explicit pick has been made.
+class PrestigePickerSheet extends ConsumerWidget {
+  const PrestigePickerSheet({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final isAr = s.isAr;
+    final level = ref.watch(dashboardProvider).level;
+    final prestige = ref.watch(prestigeProvider);
+    final displayed = prestige.displayedTier(level);
+    final isAutoMode = prestige.equippedTierId == null;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              s.prestigeTitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: gp.textPrimary),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              s.prestigeSubtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12.5, color: gp.textSec, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                physics: const BouncingScrollPhysics(),
+                children: [
+                  _PrestigeRow(
+                    icon: Icons.auto_awesome_motion_rounded,
+                    color: displayed.color,
+                    title: s.prestigeAutoOption,
+                    subtitle: s.prestigeAutoOptionDesc(displayed.title(isAr)),
+                    isLocked: false,
+                    isSelected: isAutoMode,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      ref.read(prestigeProvider.notifier).equipTier(null, level);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Container(height: 0.5, color: gp.divider),
+                  const SizedBox(height: 8),
+                  for (final tier in PrestigeCatalog.tiers) ...[
+                    _PrestigeRow(
+                      icon: tier.icon,
+                      color: tier.color,
+                      title: tier.title(isAr),
+                      subtitle: level >= tier.minLevel
+                          ? s.prestigeUnlockedAt(tier.minLevel)
+                          : s.prestigeLockedUntil(tier.minLevel),
+                      isLocked: level < tier.minLevel,
+                      isSelected: !isAutoMode && prestige.equippedTierId == tier.id,
+                      onTap: level < tier.minLevel
+                          ? null
+                          : () {
+                              HapticFeedback.selectionClick();
+                              ref
+                                  .read(prestigeProvider.notifier)
+                                  .equipTier(tier.id, level);
+                            },
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PrestigeRow extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final bool isLocked;
+  final bool isSelected;
+  final VoidCallback? onTap;
+
+  const _PrestigeRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.isLocked,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isSelected ? color.withOpacity(0.10) : gp.surface,
+            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+            border: Border.all(
+              color: isSelected ? color.withOpacity(0.5) : gp.border,
+              width: isSelected ? 1 : 0.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Opacity(
+                opacity: isLocked ? 0.4 : 1,
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+                  ),
+                  child: Icon(icon, size: 19, color: color),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isLocked ? gp.textTert : gp.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(fontSize: 11.5, color: gp.textTert),
+                    ),
+                  ],
+                ),
+              ),
+              if (isLocked)
+                Icon(Icons.lock_outline_rounded, size: 17, color: gp.textTert)
+              else if (isSelected)
+                Icon(Icons.check_circle_rounded, size: 20, color: color),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

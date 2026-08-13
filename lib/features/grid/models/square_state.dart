@@ -44,6 +44,22 @@ enum SquareState {
         failed || bonus || skipped => none,
       };
 
+  /// What this square is, said out loud — for screen readers.
+  ///
+  /// The Grid is a wall of coloured boxes: to a sighted person the colour IS
+  /// the information, and to VoiceOver it was nothing at all. Every square
+  /// announced itself as an unlabelled button, which made the app's central
+  /// feature unusable rather than merely awkward. See _SquareCell, which
+  /// builds the full "habit, date, state" label around this.
+  String localLabel(bool isAr) => switch (this) {
+        none => isAr ? 'فارغ' : 'empty',
+        partial => isAr ? 'جزئي' : 'partly done',
+        complete => isAr ? 'مكتمل' : 'done',
+        failed => isAr ? 'لم يتم' : 'missed',
+        bonus => isAr ? 'مكافأة' : 'bonus',
+        skipped => isAr ? 'متخطى' : 'skipped',
+      };
+
   /// A filled green (or better) square — what the user is chasing.
   bool get isGreen => this == complete || this == bonus;
 

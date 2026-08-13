@@ -559,3 +559,110 @@ special for it.
   normal and fine, they're independent per-target settings. The interactive
   button (`Button(intent:)`) needs iOS 17+ on the *widget extension's*
   target specifically; Runner can stay lower since none of this runs there.
+
+## Later addition: the Matrix widget
+
+A third widget kind — `GrowDailyMatrixWidget` — was added straight into the
+same `GrowDailyWidget.swift` file the section above walks through creating,
+and registered in that file's own `GrowDailyWidgetBundle` at the bottom.
+Shows open tasks (Do First → Schedule → Delegate → Eliminate), each with a
+real checkmark, plus a real "+" button that opens the app straight into
+Matrix with the Add Task sheet already up — same interaction model as the
+daily widget's habit rows, see `MarkTaskDoneIntent`'s doc comment in that
+file for exactly how the checkmark's "instant on the widget, real reward on
+next app open" split works.
+
+Nothing new to create in Xcode this time — the target, App Group, and
+entitlements from sections 1 and 3 above already cover it. All that's
+needed:
+
+1. Build/run as normal (`flutter run`, or Runner scheme in Xcode) — the new
+   widget kind compiles as part of the existing `GrowDailyWidget` target
+   automatically.
+2. Long-press the home screen → **+** → search **GrowDaily** → this time
+   pick **Matrix** (a separate gallery entry from the daily widget and Room
+   Race, same as those two are separate from each other).
+3. Add a task in the app, background it — the widget should show it within
+   a few seconds.
+4. Tap a task's circle on the widget: it should fill in right away.
+   Reopen the app — that's when the XP bonus actually posts, same two-step
+   feel as a habit's checkmark.
+5. Tap the widget's **+**: the app should open straight to the Matrix tab
+   with the Add Task sheet already sliding up, not just the app's normal
+   launch screen.
+
+The `growdaily://matrix/add` link the "+" button uses rides the same
+`growdaily://` URL scheme already registered for room-invite links (Info
+.plist → `CFBundleURLTypes`) — nothing to add there either.
+
+## Later addition: Room Race on the Lock Screen
+
+A second Room Race widget kind — `GrowDailyRoomRaceLockScreenWidget` — sits
+alongside the existing Home Screen one in the same `GrowDailyWidget.swift`
+(see its "Room Race Lock Screen widgets" section) and is registered in the
+same `GrowDailyWidgetBundle`. It reuses the Home Screen widget's own data
+(`RoomRaceProvider`/`roomRaceJson`) — nothing new pushed from Dart beyond
+what `updateRoomRaceData` already sends — just laid out for the small
+circular/rectangular Lock Screen slot instead: your rank and the room name,
+no roster, no tap targets (Lock Screen widgets are always display-only,
+same as **GrowDaily Streak** already is in section 4 above).
+
+Nothing new to create in Xcode — same target, same App Group as everything
+else in this file.
+
+1. Build/run as normal (`flutter run`, or Runner scheme in Xcode) — the new
+   widget kind compiles as part of the existing `GrowDailyWidget` target
+   automatically.
+2. Lock your device, long-press the Lock Screen → **Customize** → tap the
+   widget area → search **GrowDaily** → pick **Room Race** (a separate
+   gallery entry from **GrowDaily Streak**) → add it to a circular or
+   rectangular slot.
+3. **Which room shows here isn't configurable per-widget** — it's always
+   whichever room the app is currently showing on the Home Screen Room Race
+   widget too, since both read the same `myRoomRaceSnapshotProvider` pick.
+   If you're in more than one room, star the one you want to see (Rooms
+   list → tap the star on that room's row): a starred room always wins
+   here, live or still in its lobby, over the default "whichever's live,
+   else whichever's first" guess.
+4. Complete a habit linked to that room, or star a different one, then
+   background the app — the Lock Screen face should update within a few
+   seconds, the same near-live refresh the Home Screen widget already gets
+   (not a slow hourly fallback).
+
+## Later addition: Matrix tasks on the Lock Screen (starred task)
+
+A second Matrix widget kind — `GrowDailyMatrixLockScreenWidget` — sits
+alongside the existing Home Screen one in the same `GrowDailyWidget.swift`
+(see its "Matrix Lock Screen widget (starred task)" section) and is
+registered in the same `GrowDailyWidgetBundle`. Same "reuse the Home
+Screen widget's own data" pattern as Room Race's Lock Screen widget above:
+it reads the exact same `MatrixProvider`/`matrixTasksJson` the Home Screen
+Matrix widget already does, nothing new pushed from Dart except one added
+field on each task — `isFav`, mirroring the gold star toggle on the Tasks
+screen (`MatrixTask.isFav`) — so this widget has something to pick out.
+Shows the single highest-priority starred, still-open task; no roster, no
+checkmark, no tap targets (Lock Screen widgets are always display-only,
+same as **GrowDaily Streak** and **Room Race** already are above).
+
+Nothing new to create in Xcode — same target, same App Group as everything
+else in this file.
+
+1. Build/run as normal (`flutter run`, or Runner scheme in Xcode) — the new
+   widget kind compiles as part of the existing `GrowDailyWidget` target
+   automatically.
+2. Lock your device, long-press the Lock Screen → **Customize** → tap the
+   widget area → search **GrowDaily** → pick **Starred Task** (a separate
+   gallery entry from **GrowDaily Streak** and **Room Race**) → add it to a
+   circular or rectangular slot.
+3. In the app, star a task (Matrix tab → tap the outline star on any task
+   row so it fills gold), then background the app — the Lock Screen face
+   should show that task's title within a few seconds.
+4. If more than one task is starred, this always shows the highest-priority
+   one — same Do First → Schedule → Delegate → Eliminate ranking the Home
+   Screen Matrix widget's own list is already sorted by (see main.dart's
+   `_matrixQuadrantRank`), not creation order or which one was starred most
+   recently.
+5. Un-star it (or complete it — completed tasks drop out of the shared
+   open-tasks list entirely) with nothing else starred: the widget should
+   fall back to its "No starred task" empty state, not a blank or frozen
+   face.

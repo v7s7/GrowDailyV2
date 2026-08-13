@@ -13,6 +13,12 @@ class LocalStoreService {
   static const String guestMatrixTasksKey = 'guest_matrix_tasks';
   static const String guestMatrixQuadrantsKey = 'guest_matrix_quadrants';
   static const String guestCharacterKey = 'guest_character_state';
+  // Deliberately its own key, not folded into guestCharacterKey above:
+  // putSettingsMap does a plain Hive .put() (a full overwrite at that key,
+  // no auto-merge - see that method below), so sharing a key between two
+  // independent notifiers (CharacterNotifier and PrestigeNotifier) would
+  // have one silently clobber the other's guest data on every save.
+  static const String guestPrestigeKey = 'guest_prestige_state';
 
   static Future<Box<dynamic>> settingsBox() => _open(GameConstants.boxSettings);
   static Future<Box<dynamic>> dailyBox() => _open(GameConstants.boxDailyLogs);

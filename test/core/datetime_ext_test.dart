@@ -10,7 +10,7 @@
 // arbitrary simulated clock (nothing in this codebase injects a fake
 // clock), so these tests can only verify its own definition is correct
 // relative to whatever "now" actually is when the suite runs - not the
-// specific 12am-3am divergence from isToday, which depends on which exact
+// specific 12am-6am divergence from isToday, which depends on which exact
 // moment the test happens to execute at. See room_model_test.dart's "room
 // still active" group for the same constraint applied to a different
 // getter.

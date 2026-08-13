@@ -158,7 +158,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
                                     horizontal: 7, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: GameColors.gold.withOpacity(0.16),
-                                  borderRadius: BorderRadius.circular(100),
+                                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                                 ),
                                 child: Text('${dayTasks.length}',
                                     style: TextStyle(
@@ -331,7 +331,7 @@ class _MonthGrid extends StatelessWidget {
               }
               final date = DateTime(month.year, month.month, dayNum);
               // Same exemption as the Grid's own _SquareCell.isFuture: the
-              // real calendar day during the 3-hour window right after
+              // real calendar day during the 6-hour window right after
               // midnight isn't "future" just because effectiveDay (`today`
               // here) hasn't caught up to it yet — see DateTimeGameExt.
               // isRealToday. This view is read-only (selecting a day just
@@ -564,13 +564,13 @@ class _HistoryRow extends ConsumerWidget {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(s.matrixTaskDeleted),
+            content: Text(s.matrixTaskDeleted(task.title)),
             action: SnackBarAction(
               label: s.matrixUndo,
               onPressed: () =>
                   ref.read(matrixProvider.notifier).restore(task),
             ),
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 5),
           ),
         );
       },

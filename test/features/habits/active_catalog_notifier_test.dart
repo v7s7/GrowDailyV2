@@ -32,6 +32,14 @@ void main() {
     setUp(() async {
       tmp = await Directory.systemTemp.createTemp('catalog_test_');
       Hive.init(tmp.path);
+      // All three boxes, exactly as main() opens them at boot. The app never
+      // runs with a subset: habitListProvider reaches settings (see
+      // catalogOverridesProvider, which layers a person's edits over a preset)
+      // and reaching an unopened box mid-test raced this temp directory being
+      // deleted. Opening what production opens is the honest fixture.
+      await Hive.openBox<dynamic>('box_settings');
+      await Hive.openBox<dynamic>('box_daily_logs');
+      await Hive.openBox<dynamic>('box_habits');
       container = ProviderContainer(
         overrides: [
           authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
@@ -44,8 +52,20 @@ void main() {
 
     tearDown(() async {
       container.dispose();
+      // ActiveCatalogNotifier.toggle kicks off _save() without awaiting it
+      // (nothing in the UI waits on a Hive write), so a test that ends the
+      // moment its synchronous expects pass can still have a put in flight.
+      // Deleting the boxes out from under it threw "Box has already been
+      // closed" *after* the test body had already succeeded — and the runner
+      // attributes a late async error to whichever test was running, so all
+      // five here failed for writes they had in fact made correctly. Letting
+      // the pending saves settle first is what makes this group honest.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       await Hive.deleteFromDisk();
-      await tmp.delete(recursive: true);
+      // deleteFromDisk already removes the box files it created inside this
+      // directory; tolerate it having taken the directory with them rather
+      // than failing teardown on a PathNotFoundException.
+      if (tmp.existsSync()) await tmp.delete(recursive: true);
     });
 
     test('toggle on then off archives instead of erasing the birth date',

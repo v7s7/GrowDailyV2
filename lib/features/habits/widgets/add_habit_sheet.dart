@@ -7,6 +7,8 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/game_constants.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/services/device_location_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/services/prayer_times_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/category_icon.dart';
@@ -14,13 +16,18 @@ import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../settings/models/notification_settings.dart';
 import '../../settings/notifiers/notification_settings_notifier.dart';
+import '../../settings/widgets/city_search_sheet.dart';
 import '../catalog/goal_suggestions.dart';
 import '../catalog/islamic_habit_catalog.dart';
+import '../notifiers/catalog_overrides_notifier.dart';
 import '../models/habit_cue.dart';
 import '../models/habit_model.dart';
+import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../rooms/notifiers/rooms_notifier.dart';
 import '../notifiers/custom_habits_notifier.dart';
 import 'habit_color_picker.dart';
+
+part 'add_habit_sheet_small_widgets.dart';
 
 enum _CueRelation { after, before }
 
@@ -97,15 +104,33 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   bool _timingModeTouched = false;
   String? _selectedPrayer;
   TimeOfDay? _pickedTime;
+  // Set while _ensureLocationForPrayerCue's GPS request is in flight — lets
+  // _reminderTimePreview show "Finding your location…" instead of the
+  // static "no location" line for that brief window, and guards against
+  // firing a second detect if a prayer pill gets tapped again before the
+  // first one resolves.
+  bool _detectingLocation = false;
 
-  // ── Reminder lead time — how many minutes before the resolved time/
-  // prayer moment the notification actually fires. Only meaningful for
-  // Time/Prayer modes (Custom Text has no resolved moment to count back
-  // from) — see _reminderLeadSection.
-  static const _leadPresets = [0, 15, 30, 60];
-  int _reminderLead = 0;
-  bool _customLeadSelected = false;
-  final _reminderLeadCtrl = TextEditingController();
+  /// Per-habit "Allow anyway" for a reminder that lands inside quiet hours
+  /// — see _quietHoursWarning. False until someone is actually warned and
+  /// chooses to keep it.
+  bool _ignoreQuietHours = false;
+
+  // ── Reminder offset — signed minutes from the resolved time/prayer
+  // moment to when the notification actually fires: negative = before,
+  // 0 = on time, positive = after. Only meaningful for Time/Prayer modes
+  // (Custom Text has no resolved moment to offset from) — see
+  // _reminderOffsetSection.
+  //
+  // Ordered earliest → latest so the row reads like a timeline, with "On
+  // time" (0) sitting naturally in the middle as the default.
+  static const _offsetPresets = [-30, -15, 0, 15, 30];
+  int _reminderOffset = 0;
+  bool _customOffsetSelected = false;
+  // Custom entry is split into a magnitude field + a before/after choice,
+  // rather than asking anyone to type a minus sign.
+  final _reminderOffsetCtrl = TextEditingController();
+  bool _customOffsetIsAfter = false;
 
   // Where the confetti burst on submit fires from — see _submit().
   final GlobalKey _createButtonKey = GlobalKey();
@@ -160,14 +185,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         _cueCtrl.text = storedCue;
       }
       _timingModeTouched = true;
-      final storedLead = existing.reminderLeadMinutes;
-      if (_leadPresets.contains(storedLead)) {
-        _reminderLead = storedLead;
-      } else {
-        _reminderLead = storedLead;
-        _customLeadSelected = true;
-        _reminderLeadCtrl.text = storedLead.toString();
+      final storedOffset = existing.reminderOffsetMinutes;
+      _reminderOffset = storedOffset;
+      if (!_offsetPresets.contains(storedOffset)) {
+        _customOffsetSelected = true;
+        _customOffsetIsAfter = storedOffset > 0;
+        // Magnitude only — direction is carried by the toggle beside it.
+        _reminderOffsetCtrl.text = storedOffset.abs().toString();
       }
+      _ignoreQuietHours = existing.ignoreQuietHours;
       _category = _canonicalCategory(existing.category);
       _freqType = existing.frequencyType;
       _freqTarget = existing.frequencyTarget;
@@ -206,8 +232,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // pills (_selectLeadPreset, which already calls setState) would ever
     // trigger a rebuild, and the preview would silently go stale the moment
     // "Custom" is picked.
-    _reminderLeadCtrl.addListener(() {
-      if (_customLeadSelected) setState(() {});
+    _reminderOffsetCtrl.addListener(() {
+      if (_customOffsetSelected) setState(() {});
     });
     // Only the standalone "edit existing habit" sheet autofocuses the name
     // field on open. The embedded Add Goal tab (opened via the + button /
@@ -226,7 +252,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     _cueCtrl.dispose();
     _limitCtrl.dispose();
     _customUnitCtrl.dispose();
-    _reminderLeadCtrl.dispose();
+    _reminderOffsetCtrl.dispose();
     _focus.dispose();
     _cueFocus.dispose();
     super.dispose();
@@ -254,11 +280,28 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// from (see NotificationService.scheduleSmartReminders). Custom-value
   /// entry is clamped to a sane 0–360 minute range so a stray typo can't
   /// push a reminder days away from the habit it's for.
-  int get _effectiveReminderLead {
+  int get _effectiveReminderOffset {
     if (_timingMode == _TimingMode.text) return 0;
-    if (!_customLeadSelected) return _reminderLead;
-    final parsed = int.tryParse(_reminderLeadCtrl.text.trim()) ?? 0;
-    return parsed.clamp(0, 360);
+    if (!_customOffsetSelected) return _reminderOffset;
+    // The field holds a magnitude; the before/after toggle supplies the
+    // sign, so a stray "-" typed into a number field can't flip the
+    // meaning out from under the toggle.
+    final parsed = (int.tryParse(_reminderOffsetCtrl.text.trim()) ?? 0)
+        .abs()
+        .clamp(0, 360);
+    return _customOffsetIsAfter ? parsed : -parsed;
+  }
+
+  /// Weekday lists compare as sets — order is meaningless here and a
+  /// re-sorted copy of the same days is not a change worth storing.
+  static bool _sameWeekdays(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    final x = [...a]..sort();
+    final y = [...b]..sort();
+    for (var i = 0; i < x.length; i++) {
+      if (x[i] != y[i]) return false;
+    }
+    return true;
   }
 
   void _submit() {
@@ -287,10 +330,79 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         );
       }
     }
+    // This habit will actually be scheduled for a notification, so make
+    // sure we're allowed to send one. Previously nothing in this sheet ever
+    // asked: someone could pick "before Dhuhr", have their location
+    // auto-detected, and still silently receive nothing forever because the
+    // OS prompt had never been shown (iOS init deliberately doesn't
+    // auto-request — see NotificationService.init). Fire-and-forget with a
+    // warning on denial, the same request-then-warn contract
+    // AddTaskSheet/TaskDetailSheet already use: scheduling still proceeds
+    // either way, so a denial degrades to "saved but silent" rather than
+    // blocking the habit from being created at all.
+    if (_timingMode != _TimingMode.text) {
+      _ensureNotificationPermission();
+    }
     final cue = _currentCue().toStorageValue();
     final limitAmount = int.tryParse(_limitCtrl.text.trim());
     final notifier = ref.read(customHabitsProvider.notifier);
-    if (existing != null) {
+    // Only the create path hands anything back - callers that open this
+    // sheet to build a brand-new habit from somewhere other than the
+    // ordinary Add Habit flow (see RoomsController's habit-picker sheets)
+    // need the real created habit, id included, to link right away rather
+    // than making the user go find it in a list afterward. The edit path
+    // pops null, same as this always used to pop nothing - every existing
+    // caller that ignores the result is unaffected either way.
+    IslamicHabitTemplate? created;
+    if (existing != null && IslamicHabitCatalog.findById(existing.id) != null) {
+      // ── Editing a PRESET ────────────────────────────────────────────────
+      // Catalog habits are const templates shared by every user, so there is
+      // no per-user document to rewrite. Their changes are stored as an
+      // override keyed by the catalog id and merged back in
+      // habitListProvider - which is what makes this safe: the habit's id is
+      // untouched, so its Grid squares, streak, completion counts and room
+      // links all keep pointing at the same habit.
+      //
+      // Only the fields that make sense for a preset are carried. Category,
+      // goal type and the quit-habit limit are part of what the preset IS -
+      // they stay the catalog's, and the sheet hides them for presets.
+      final catalogDefault = IslamicHabitCatalog.findById(existing.id)!;
+      final editedName = _nameCtrl.text.trim();
+      ref.read(catalogOverridesProvider.notifier).setOverride(
+            existing.id,
+            CatalogHabitOverride(
+              // Each field stored only when it actually differs from the
+              // catalog, so a habit edited back to its defaults stops being
+              // an override at all and starts tracking the preset again.
+              name: editedName == catalogDefault.localName(S.of(context).isAr)
+                  ? null
+                  : editedName,
+              cueAfter: cue == catalogDefault.cueAfter ? null : cue,
+              frequencyType: _freqType == catalogDefault.frequencyType
+                  ? null
+                  : _freqType,
+              frequencyTarget: _freqTarget == catalogDefault.frequencyTarget
+                  ? null
+                  : _freqTarget,
+              scheduledWeekdays: _sameWeekdays(
+                      _selectedWeekdays.toList()..sort(),
+                      catalogDefault.scheduledWeekdays)
+                  ? null
+                  : (_selectedWeekdays.toList()..sort()),
+              reminderOffsetMinutes: _effectiveReminderOffset ==
+                      catalogDefault.reminderOffsetMinutes
+                  ? null
+                  : _effectiveReminderOffset,
+              ignoreQuietHours:
+                  _ignoreQuietHours == catalogDefault.ignoreQuietHours
+                      ? null
+                      : _ignoreQuietHours,
+              iconColorHex: _iconColorHex == catalogDefault.iconColorHex
+                  ? null
+                  : _iconColorHex,
+            ),
+          );
+    } else if (existing != null) {
       notifier.update(
         id: existing.id,
         name: _nameCtrl.text.trim(),
@@ -308,10 +420,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             : null,
         iconColorHex: _iconColorHex,
         clearIconColor: _iconColorHex == null,
-        reminderLeadMinutes: _effectiveReminderLead,
+        reminderOffsetMinutes: _effectiveReminderOffset,
+        ignoreQuietHours: _ignoreQuietHours,
       );
     } else {
-      notifier.add(
+      created = notifier.add(
         name: _nameCtrl.text.trim(),
         category: _category,
         cueAfter: cue,
@@ -326,10 +439,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             ? _customUnitCtrl.text.trim()
             : null,
         iconColorHex: _iconColorHex,
-        reminderLeadMinutes: _effectiveReminderLead,
+        reminderOffsetMinutes: _effectiveReminderOffset,
+        ignoreQuietHours: _ignoreQuietHours,
       );
     }
-    Navigator.pop(context);
+    Navigator.pop(context, created);
   }
 
   /// Checks whether [existing] is still counted toward any open room before
@@ -350,7 +464,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         context: context,
         builder: (_) => AlertDialog(
           title: Text(s.habitLinkedRoomWarningTitle),
-          content: Text(s.habitLinkedRoomWarningBody(linkedRooms.length)),
+          content: Text(s.habitLinkedRoomWarningBody(
+              linkedRooms.map((r) => r.name).toList())),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -376,7 +491,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // archive(), not a hard delete — see CustomHabitsNotifier.archive's
     // doc comment. Leaves this sheet/the Grid/today's streak exactly as
     // fast as the old remove() did; only the Firestore doc's fate changed.
-    ref.read(customHabitsProvider.notifier).archive(existing.id);
+    // everCompleted: a never-touched, same-day habit gets fully erased
+    // instead (see that parameter's own doc comment) — this is the
+    // "delete a habit" entry point most likely to be someone undoing a
+    // just-added mistake, so it's worth getting right here specifically.
+    final everCompleted =
+        (ref.read(dashboardProvider).habitTotalCompletions[existing.id] ?? 0) >
+            0;
+    ref
+        .read(customHabitsProvider.notifier)
+        .archive(existing.id, everCompleted: everCompleted);
     if (mounted) Navigator.pop(context);
     messenger.showSnackBar(
       SnackBar(
@@ -476,7 +600,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
+              duration: GameMotion.relaxed,
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
               transitionBuilder: (child, animation) {
@@ -909,7 +1033,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ),
           const SizedBox(height: 12),
           AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
+            duration: GameMotion.standard,
             child: KeyedSubtree(
               key: ValueKey(_timingMode),
               child: switch (_timingMode) {
@@ -995,7 +1119,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             ),
           ),
         ),
-        if (picked != null) _reminderLeadSection(s),
+        if (picked != null) _reminderOffsetSection(s),
       ],
     );
   }
@@ -1018,73 +1142,174 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     onTap: () {
                       HapticFeedback.selectionClick();
                       setState(() => _selectedPrayer = key);
+                      _ensureLocationForPrayerCue();
                     },
                   ),
                 ),
               ],
             ],
           ),
-          if (_selectedPrayer != null) _reminderLeadSection(s),
+          if (_selectedPrayer != null) _reminderOffsetSection(s),
         ],
       );
 
-  /// "Remind me [on time / 15 min / 30 min / 1 hour / custom] before" —
-  /// sits under Time/Prayer mode once a concrete anchor is picked (see the
-  /// two call sites above). Custom Text mode never shows this: a freeform
-  /// cue has no resolved clock/prayer moment for a lead time to mean
-  /// anything against. Mirrors the LimitUnit.custom pattern elsewhere in
-  /// this file — a row of quick options, plus a numeric field that only
-  /// appears once "Custom" itself is selected.
-  Widget _reminderLeadSection(S s) => Column(
+  /// "Remind me [30 before · 15 before · On time · 15 after · 30 after ·
+  /// Custom]" — sits under Time/Prayer mode once a concrete anchor is
+  /// picked (see the two call sites above). Custom Text mode never shows
+  /// this: a freeform cue has no resolved clock/prayer moment for an offset
+  /// to mean anything against.
+  ///
+  /// A 3-column [_ChipGrid] in timeline order (earliest → latest), so all
+  /// six choices are visible at once on any screen width — no horizontal
+  /// scrolling to discover that "after" even exists, and no gesture fight
+  /// with the vertically-scrolling sheet this sits inside. _ChipGrid's
+  /// LayoutBuilder divides whatever width is available, so this lays out
+  /// identically on a small phone and a tablet; it's the same grid the
+  /// category/frequency pickers above already use, so it needs no new
+  /// visual language.
+  ///
+  /// Picking "after Fajr" costs exactly as many taps as "before Fajr", and
+  /// neither is behind a mode switch. Custom (a plain minutes field plus a
+  /// two-chip direction choice, each on its own full-width row so nothing
+  /// can overflow on a narrow device) is the escape hatch, mirroring the
+  /// LimitUnit.custom pattern elsewhere in this file.
+  Widget _reminderOffsetSection(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 14),
           _SectionLabel(s.remindMeSection),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              for (final preset in _leadPresets) ...[
-                if (preset != _leadPresets.first) const SizedBox(width: 6),
-                Expanded(
-                  child: _EqualPill(
-                    selected: !_customLeadSelected && _reminderLead == preset,
-                    label: _leadPresetLabel(s, preset),
-                    onTap: () => _selectLeadPreset(preset),
-                  ),
+          _ChipGrid(
+            columns: 3,
+            items: [
+              for (final preset in _offsetPresets)
+                _PlainChoiceChip(
+                  selected: !_customOffsetSelected && _reminderOffset == preset,
+                  label: _offsetPresetLabel(s, preset),
+                  onTap: () => _selectOffsetPreset(preset),
                 ),
-              ],
-              const SizedBox(width: 6),
-              Expanded(
-                child: _EqualPill(
-                  selected: _customLeadSelected,
-                  label: s.leadCustomOption,
-                  onTap: _selectCustomLead,
-                ),
+              _PlainChoiceChip(
+                selected: _customOffsetSelected,
+                label: s.leadCustomOption,
+                onTap: _selectCustomOffset,
               ),
             ],
           ),
-          if (_customLeadSelected) ...[
+          if (_customOffsetSelected) ...[
             const SizedBox(height: 10),
             TextField(
-              controller: _reminderLeadCtrl,
+              controller: _reminderOffsetCtrl,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(labelText: s.leadCustomMinutesHint),
             ),
+            const SizedBox(height: 8),
+            // Direction as its own two-chip row rather than a typed minus
+            // sign — and on its own line rather than beside the field,
+            // which used to overflow once the label text got long.
+            _ChipGrid(
+              columns: 2,
+              items: [
+                _PlainChoiceChip(
+                  selected: !_customOffsetIsAfter,
+                  label: s.offsetBeforeLabel,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _customOffsetIsAfter = false);
+                  },
+                ),
+                _PlainChoiceChip(
+                  selected: _customOffsetIsAfter,
+                  label: s.offsetAfterLabel,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _customOffsetIsAfter = true);
+                  },
+                ),
+              ],
+            ),
           ],
           _reminderTimePreview(s),
+          _quietHoursWarning(s),
         ],
       );
 
-  /// The already-resolved moment a reminder counts *back from* — a habit's
-  /// own picked clock time as-is, or (for a prayer cue) today's prayer
-  /// moment plus [NotificationSettings.prayerOffsetMinutes], mirroring
-  /// NotificationService.scheduleSmartReminders' own
-  /// `candidate.add(offset).subtract(lead)` sequence exactly so this
-  /// preview and the real scheduled fire time never disagree about what
-  /// they're counting back from — only [_reminderTimePreview] then
-  /// subtracts the lead itself, same as that method does. Returns null
-  /// when there's nothing to compute yet: no time/prayer picked, or (prayer
-  /// mode only) no location saved to calculate against.
+  /// Asks the OS for notification permission on the way out of [_submit],
+  /// for any habit whose cue actually resolves to a scheduled time.
+  ///
+  /// Reuses the exact request-then-warn-on-false contract AddTaskSheet and
+  /// TaskDetailSheet already follow, including the same
+  /// [S.reminderPermissionDenied] copy, so all three reminder-setting
+  /// surfaces behave identically. The ScaffoldMessenger is captured
+  /// *before* the await because [_submit] pops this sheet immediately after
+  /// calling this — by the time the prompt resolves, this widget's own
+  /// context is gone, but the messenger above it is still very much alive.
+  Future<void> _ensureNotificationPermission() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final deniedMessage = S.of(context).reminderPermissionDenied;
+    final granted = await NotificationService.instance.requestPermissions();
+    if (granted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(deniedMessage),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  /// Fires the moment someone picks a prayer-linked cue with no location
+  /// saved yet — asks for it right here via the real OS location prompt
+  /// ([detectAndSaveLocation]) instead of just leaving the small "go set
+  /// your location in Notification Settings" line under the lead-time
+  /// picker as the only sign anything's needed, which someone could easily
+  /// save the habit past without noticing, leaving that reminder silently
+  /// never scheduled. A no-op if a location's already saved, or a request
+  /// is already in flight.
+  Future<void> _ensureLocationForPrayerCue() async {
+    if (_detectingLocation) return;
+    if (ref.read(notificationSettingsProvider).location != null) return;
+
+    setState(() => _detectingLocation = true);
+    final s = S.of(context);
+    final outcome = await detectAndSaveLocation(
+      ref,
+      isAr: s.isAr,
+      resolvingLabel: s.notifLocationResolving,
+      genericLabel: s.notifLocationSetGeneric,
+      isMounted: () => mounted,
+    );
+    if (!mounted) return;
+    setState(() => _detectingLocation = false);
+    if (outcome.isSuccess) return;
+
+    // Denied, services off, or timed out — same "don't just dead-end"
+    // fallback NotificationSettingsScreen's own location row uses: explain
+    // why, then offer the manual city search immediately rather than
+    // making them find their own way to Settings afterward.
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(s.notifLocationDetectFailed),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+    final picked = await showCitySearchSheet(context);
+    if (!mounted || picked == null) return;
+    await ref
+        .read(notificationSettingsProvider.notifier)
+        .update((c) => c.copyWith(location: picked));
+  }
+
+  /// The resolved cue moment a reminder is offset *from* — a habit's own
+  /// picked clock time as-is, or (for a prayer cue) today's calculated
+  /// prayer moment, untouched. Nothing global is added on top of it
+  /// anymore: [_reminderTimePreview] applies exactly one signed offset to
+  /// this, the same single `.add(offset)` NotificationService
+  /// .scheduleSmartReminders applies, which is what finally makes this
+  /// preview and the real scheduled fire time agree to the minute (they
+  /// used to differ by the old global prayer offset, which this preview
+  /// never knew about). Returns null when there's nothing to compute yet:
+  /// no time/prayer picked, or (prayer mode only) no location saved to
+  /// calculate against.
   DateTime? _reminderAnchorTime(NotificationSettings settings) {
     if (_timingMode == _TimingMode.time) {
       final picked = _pickedTime;
@@ -1107,9 +1332,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         madhab: settings.madhab,
         countryCode: settings.resolvedCountryCode,
       );
-      final raw = today.forKey(prayer);
-      if (raw == null) return null;
-      return raw.add(Duration(minutes: settings.prayerOffsetMinutes));
+      return today.forKey(prayer);
     }
     return null;
   }
@@ -1137,20 +1360,44 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.location_off_outlined, size: 13, color: gp.textTert),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  s.remindPreviewNeedsLocation,
-                  style: TextStyle(fontSize: 11, color: gp.textTert, height: 1.3),
+              // _ensureLocationForPrayerCue (fired the moment a prayer pill
+              // was tapped) is off asking for a real location right now —
+              // this briefly replaces the "no location" line with visible
+              // progress instead of leaving it looking unchanged while a
+              // permission prompt/GPS fix is actually in flight.
+              if (_detectingLocation) ...[
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 1.5, color: gp.textTert),
                 ),
-              ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    s.notifLocationResolving,
+                    style: TextStyle(fontSize: 11, color: gp.textTert, height: 1.3),
+                  ),
+                ),
+              ] else ...[
+                Icon(Icons.location_off_outlined, size: 13, color: gp.textTert),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    s.remindPreviewNeedsLocation,
+                    style: TextStyle(fontSize: 11, color: gp.textTert, height: 1.3),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
       );
     }
-    final reminderMoment = anchor.subtract(Duration(minutes: _effectiveReminderLead));
+    // Signed: added, never subtracted — the exact single operation
+    // NotificationService.scheduleSmartReminders performs, which is what
+    // keeps this preview honest.
+    final reminderMoment = anchor.add(Duration(minutes: _effectiveReminderOffset));
     final locale = s.isAr ? 'ar' : 'en';
     final timeLabel = DateFormat('h:mm a', locale).format(reminderMoment);
     return Padding(
@@ -1184,25 +1431,109 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     );
   }
 
-  String _leadPresetLabel(S s, int minutes) => switch (minutes) {
+  String _offsetPresetLabel(S s, int minutes) => switch (minutes) {
         0 => s.leadAtTime,
-        15 => s.lead15Min,
-        30 => s.lead30Min,
-        60 => s.lead1Hour,
-        _ => '$minutes',
+        < 0 => s.offsetBeforeMinutes(minutes.abs()),
+        _ => s.offsetAfterMinutes(minutes),
       };
 
-  void _selectLeadPreset(int minutes) {
+  void _selectOffsetPreset(int minutes) {
     HapticFeedback.selectionClick();
     setState(() {
-      _reminderLead = minutes;
-      _customLeadSelected = false;
+      _reminderOffset = minutes;
+      _customOffsetSelected = false;
     });
   }
 
-  void _selectCustomLead() {
+  void _selectCustomOffset() {
     HapticFeedback.selectionClick();
-    setState(() => _customLeadSelected = true);
+    setState(() => _customOffsetSelected = true);
+  }
+
+  /// Shown only when the reminder this form would actually schedule lands
+  /// inside the user's quiet-hours window and nothing else already exempts
+  /// it. Previously that reminder was cancelled outright by
+  /// NotificationService with no warning anywhere — someone deliberately
+  /// setting a 6am reminder just never heard from it again. This says so up
+  /// front and offers the one-tap override ([_ignoreQuietHours]) right
+  /// where the decision is being made.
+  ///
+  /// Prayer-linked cues are deliberately silent here: they're already
+  /// exempt by default (see NotificationSettings.quietHoursAppliesToPrayer)
+  /// precisely because Fajr routinely falls inside a normal night window,
+  /// so warning about it would be noise on the app's most common case.
+  Widget _quietHoursWarning(S s) {
+    final settings = ref.watch(notificationSettingsProvider);
+    if (!settings.masterEnabled || !settings.habitRemindersEnabled) {
+      return const SizedBox.shrink();
+    }
+    if (!settings.quietHoursEnabled) return const SizedBox.shrink();
+    if (_timingMode == _TimingMode.prayer &&
+        !settings.quietHoursAppliesToPrayer) {
+      return const SizedBox.shrink();
+    }
+    final anchor = _reminderAnchorTime(settings);
+    if (anchor == null) return const SizedBox.shrink();
+    final moment = anchor.add(Duration(minutes: _effectiveReminderOffset));
+    if (!NotificationService.isMinuteWithinQuietHours(
+      moment.hour * 60 + moment.minute,
+      settings.quietHoursStart,
+      settings.quietHoursEnd,
+    )) {
+      return const SizedBox.shrink();
+    }
+
+    final gp = context.gp;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: GameColors.error.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: GameColors.error.withOpacity(0.3)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.bedtime_outlined, size: 14, color: GameColors.error),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _ignoreQuietHours
+                        ? s.quietHoursOverrideOn
+                        : s.quietHoursConflictWarning,
+                    style: TextStyle(
+                        fontSize: 11, color: gp.textSec, height: 1.35),
+                  ),
+                  const SizedBox(height: 6),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _ignoreQuietHours = !_ignoreQuietHours);
+                    },
+                    child: Text(
+                      _ignoreQuietHours
+                          ? s.quietHoursRespectAction
+                          : s.quietHoursAllowAnywayAction,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: GameColors.gold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _textModeContent(S s) => Column(
@@ -1435,7 +1766,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
                 child: Text(
                   '+$_categoryXp XP',
@@ -1513,6 +1844,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       context: context,
       initialTime: _pickedTime ?? TimeOfDay.now(),
       helpText: S.of(context).pickATime,
+      // Force 12-hour AM/PM regardless of the device's 24-hour system
+      // setting, so the picker looks the same on every phone.
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+        child: child!,
+      ),
     );
     if (picked == null) return;
     setState(() => _pickedTime = picked);
@@ -1556,7 +1893,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       Scrollable.ensureVisible(
         target,
         alignment: 0.1,
-        duration: const Duration(milliseconds: 320),
+        duration: GameMotion.slow,
         curve: Curves.easeOutCubic,
       );
     });
@@ -1659,258 +1996,4 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         HabitCategory.fitness => HabitCategory.health,
         _ => cat,
       };
-}
-
-// ─── Equal-width pill (fixed 1/n row share, centered, shrink-to-fit text) ──
-// Used wherever a fixed-size set of options (5 prayers, 7 weekdays) should
-// always fill exactly one row at uniform width, rather than wrap unevenly.
-
-class _EqualPill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _EqualPill({required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: TweenAnimationBuilder<double>(
-        key: ValueKey(selected),
-        tween: Tween(begin: selected ? 0.9 : 1.0, end: 1.0),
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutBack,
-        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-          decoration: BoxDecoration(
-            color: selected ? GameColors.gold.withOpacity(0.12) : gp.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: selected ? GameColors.gold.withOpacity(0.5) : gp.border),
-          ),
-          alignment: Alignment.center,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              label,
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                color: selected ? GameColors.gold : gp.textSec,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Fixed-column chip grid ─────────────────────────────────────────────
-// Every cell gets the exact same width (available width ÷ columns, minus
-// gaps), so a row of chips lines up like a grid regardless of how long
-// each individual label is — the plain Wrap this replaced sized each chip
-// to its own text, which produced a different chip count on every row and
-// a lot of dead space next to short labels.
-class _ChipGrid extends StatelessWidget {
-  final int columns;
-  final List<Widget> items;
-  static const double _spacing = 8;
-  const _ChipGrid({
-    required this.columns,
-    required this.items,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cellWidth =
-            (constraints.maxWidth - _spacing * (columns - 1)) / columns;
-        return Wrap(
-          spacing: _spacing,
-          runSpacing: _spacing,
-          children: [
-            for (final item in items) SizedBox(width: cellWidth, child: item),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _PlainChoiceChip extends StatelessWidget {
-  final bool selected;
-  final String label;
-  final Widget? icon;
-  final VoidCallback onTap;
-
-  const _PlainChoiceChip({
-    required this.selected,
-    required this.label,
-    required this.onTap,
-    this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: TweenAnimationBuilder<double>(
-        key: ValueKey(selected),
-        tween: Tween(begin: selected ? 0.88 : 1.0, end: 1.0),
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutBack,
-        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? GameColors.gold.withOpacity(0.14) : gp.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: selected ? GameColors.gold : gp.border.withOpacity(0.8),
-              width: selected ? 1.1 : 0.8,
-            ),
-          ),
-          // Centered, not left-hugged — now that _ChipGrid gives every chip
-          // the same fixed width, a short label like "Faith" would
-          // otherwise sit at the left edge with empty space on the right.
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (icon != null) ...[
-                icon!,
-                const SizedBox(width: 7),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
-                    color: selected ? GameColors.gold : gp.textPrimary,
-                    height: 1.1,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PlainActionChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  // Set on suggestion chips only — a small reward preview to make tapping
-  // one feel like claiming a shortcut, not just filling in a text field.
-  // Left null for plain action chips that aren't tied to any specific
-  // reward.
-  final int? xp;
-
-  const _PlainActionChip({required this.label, required this.onTap, this.xp});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: gp.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: gp.border.withOpacity(0.9), width: 0.8),
-        ),
-        // Centered, and the label is the one that gives way (ellipsis) if
-        // the fixed cell is too narrow for it — the XP badge stays fixed
-        // size and always fully visible, same reasoning as
-        // _PlainChoiceChip's centering above.
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: gp.textPrimary,
-                  height: 1.1,
-                ),
-              ),
-            ),
-            if (xp != null) ...[
-              const SizedBox(width: 6),
-              Text(
-                '+$xp',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: GameColors.gold,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel(this.text);
-  @override
-  Widget build(BuildContext context) => Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: context.gp.textTert));
-}
-
-class _SmallPick extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _SmallPick({required this.label, required this.selected, required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: TweenAnimationBuilder<double>(
-        key: ValueKey(selected),
-        tween: Tween(begin: selected ? 0.9 : 1.0, end: 1.0),
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutBack,
-        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          decoration: BoxDecoration(
-            color: selected ? GameColors.gold.withOpacity(0.12) : gp.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: selected ? GameColors.gold.withOpacity(0.5) : gp.border),
-          ),
-          alignment: Alignment.center,
-          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.w800 : FontWeight.w600, color: selected ? GameColors.gold : gp.textSec)),
-        ),
-      ),
-    );
-  }
 }

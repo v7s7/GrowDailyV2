@@ -13,7 +13,7 @@ class XpBar extends StatelessWidget {
       builder: (context, constraints) {
         final fillWidth = constraints.maxWidth * progress.clamp(0.0, 1.0);
         return ClipRRect(
-          borderRadius: BorderRadius.circular(100),
+          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
           child: Stack(
             children: [
               Container(

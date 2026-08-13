@@ -143,7 +143,7 @@ class _ThemePreviewScreenState extends ConsumerState<ThemePreviewScreen> {
                                   horizontal: 14, vertical: 10),
                               decoration: BoxDecoration(
                                 color: gp.surfaceHigh,
-                                borderRadius: BorderRadius.circular(100),
+                                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                                 border:
                                     Border.all(color: gp.border, width: 0.5),
                                 boxShadow: [
@@ -209,7 +209,7 @@ class _ThemePreviewScreenState extends ConsumerState<ThemePreviewScreen> {
                           children: List.generate(4, (i) {
                             final active = i == _pageIndex;
                             return AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
+                              duration: GameMotion.standard,
                               margin:
                                   const EdgeInsets.symmetric(horizontal: 3),
                               width: active ? 18 : 6,
@@ -267,7 +267,7 @@ class _MockCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: gp.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(color: gp.border, width: 0.5),
       ),
       child: child,
@@ -476,7 +476,7 @@ class _TodayMock extends StatelessWidget {
                 ),
               ),
               ClipRRect(
-                borderRadius: BorderRadius.circular(100),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 child: SizedBox(
                   width: 90,
                   child: LinearProgressIndicator(
@@ -539,7 +539,7 @@ class _TodayMockRow extends StatelessWidget {
             decoration: BoxDecoration(
               color:
                   done ? GameColors.gold.withOpacity(0.12) : GameColors.gold,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
             ),
             child: done
                 ? Icon(Icons.check_rounded,
@@ -668,7 +668,7 @@ class _ProfileMock extends StatelessWidget {
               const _MockBar(width: 100, height: 14),
               const SizedBox(height: 14),
               ClipRRect(
-                borderRadius: BorderRadius.circular(100),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 child: LinearProgressIndicator(
                   value: 0.6,
                   minHeight: 5,
@@ -742,7 +742,7 @@ class _ProfileMockStat extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: BoxDecoration(
         color: gp.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
         border: Border.all(color: gp.border, width: 0.5),
       ),
       child: Column(

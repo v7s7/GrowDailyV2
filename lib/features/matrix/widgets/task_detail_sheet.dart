@@ -250,14 +250,24 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
   Future<void> _pickReminder() async {
     final picked = await pickReminderMoment(context, initial: _reminderAt);
     if (picked == null || !mounted) return;
+    // Requested *before* widget.onSetReminder — which schedules the actual
+    // OS notification synchronously inside MatrixNotifier.setReminder —
+    // rather than after. Requesting only after scheduling had already
+    // happened meant this reminder could be scheduled while permission was
+    // still undetermined; flutter_local_notifications doesn't
+    // retroactively activate a notification that was submitted before
+    // permission existed, even once the user grants it a moment later —
+    // that's what let a task's reminder silently never fire the first time
+    // anyone used this sheet. See AddTaskSheet._submit for the identical
+    // fix. (Scheduling itself always happens regardless of the outcome
+    // here — see NotificationService.scheduleTaskReminder's doc comment on
+    // why it doesn't gate on permission — this request's only job is
+    // making sure permission is actually settled *before* that scheduling
+    // call, and surfacing a denial right away instead of the reminder
+    // silently never firing.)
+    final granted = await NotificationService.instance.requestPermissions();
     setState(() => _reminderAt = picked);
     widget.onSetReminder(widget.task.id, picked);
-    // Scheduling itself always happens regardless (see
-    // NotificationService.scheduleTaskReminder's doc comment on why it
-    // doesn't gate on permission) — this request is purely so a denied
-    // permission can be surfaced right away instead of the reminder
-    // silently never firing.
-    final granted = await NotificationService.instance.requestPermissions();
     if (!granted && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
@@ -296,7 +306,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
         .where((q) => q != widget.task.quadrant)
         .toList();
     return AnimatedPadding(
-      duration: const Duration(milliseconds: 200),
+      duration: GameMotion.standard,
       curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
@@ -333,7 +343,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                             horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: _color.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(100),
+                          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -360,7 +370,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                           horizontal: 16, vertical: 4),
                       decoration: BoxDecoration(
                         color: gp.surfaceHL,
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
                         border: Border.all(color: gp.border, width: 0.5),
                       ),
                       child: TextField(

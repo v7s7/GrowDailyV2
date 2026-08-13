@@ -137,7 +137,7 @@ class _HabitCardState extends State<HabitCard> {
     final gp = context.gp;
     final s = S.of(context);
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
+      duration: GameMotion.slow,
       curve: Curves.easeOut,
       decoration: BoxDecoration(
         color: gp.surface,
@@ -163,7 +163,7 @@ class _HabitCardState extends State<HabitCard> {
             Row(
               children: [
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
+                  duration: GameMotion.slow,
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
@@ -310,14 +310,14 @@ class _HabitCardState extends State<HabitCard> {
           scale: _pressed ? 0.92 : 1.0,
           duration: const Duration(milliseconds: 100),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 250),
+            duration: GameMotion.relaxed,
             padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: widget.isDone
                   ? GameColors.gold.withOpacity(0.1)
                   : GameColors.gold,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
               border: widget.isDone
                   ? Border.all(
                       color: GameColors.gold.withOpacity(0.35), width: 0.5)
@@ -358,11 +358,11 @@ class _HabitCardState extends State<HabitCard> {
   Widget _quitActionPill(BuildContext context, S s) {
     if (widget.isFailedToday) {
       return AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
+        duration: GameMotion.relaxed,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: GameColors.error.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
           border:
               Border.all(color: GameColors.error.withOpacity(0.35), width: 0.5),
         ),
@@ -401,13 +401,13 @@ class _HabitCardState extends State<HabitCard> {
         scale: _pressed ? 0.92 : 1.0,
         duration: const Duration(milliseconds: 100),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
+          duration: GameMotion.relaxed,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: widget.isDone
                 ? GameColors.emerald.withOpacity(0.1)
                 : GameColors.emerald,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
             border: widget.isDone
                 ? Border.all(
                     color: GameColors.emerald.withOpacity(0.35), width: 0.5)
@@ -502,7 +502,7 @@ class _CompletionDots extends StatelessWidget {
       children: List.generate(total > 7 ? 7 : total, (i) {
         final active = i < filled;
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
+          duration: GameMotion.slow,
           width: 7,
           height: 7,
           margin: const EdgeInsets.only(left: 5),

@@ -147,8 +147,10 @@ class MatrixTask {
   // as any other favorite/priority marker. Powers the Fav/All filter on
   // the Tasks screen (see MatrixScreen._favOnly). For the separate,
   // actually date-based "still open from before today" filter, see
-  // MatrixScreen._carriedOverOnly, which is computed from createdAt +
-  // isDone instead — this field has nothing to do with that one. Stored
+  // MatrixScreen._carriedOverOnly, which is computed from its anchor day
+  // (reminderAt's day if set, else createdAt — see
+  // MatrixScreen._anchorDay) plus isDone instead — this field has nothing
+  // to do with that one. Stored
   // under the Firestore/Hive key 'isToday' still, for backward
   // compatibility with tasks flagged before this field was renamed — only
   // the Dart-side name changed, not the wire format.

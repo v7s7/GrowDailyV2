@@ -6,6 +6,7 @@
 // PrayerTimesService.calculate's live half not being unit tested, only
 // its pure building blocks).
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/rooms/models/room_model.dart';
 import 'package:grow_daily_v2/features/rooms/notifiers/rooms_notifier.dart';
 
@@ -130,6 +131,278 @@ void main() {
       );
       expect(ids, ['a']);
       expect(names, ['Fajr']); // unchanged - nothing at index 1 to remove
+    });
+  });
+
+  // Pure-logic tests for RoomsHubScreen's "starred rooms float to the top"
+  // ordering - see sortStarredFirst's doc comment for why this is a stable
+  // partition (each group keeps its original relative order) rather than a
+  // full re-sort.
+  group('sortStarredFirst', () {
+    test('a starred room already at the bottom moves to the top', () {
+      final result = sortStarredFirst(['a', 'b', 'c'], {'c'});
+      expect(result, ['c', 'a', 'b']);
+    });
+
+    test('multiple starred rooms keep their own relative order, up front', () {
+      final result = sortStarredFirst(['a', 'b', 'c', 'd'], {'d', 'b'});
+      expect(result, ['b', 'd', 'a', 'c']);
+    });
+
+    test('the unstarred remainder also keeps its own relative order', () {
+      final result = sortStarredFirst(['a', 'b', 'c', 'd', 'e'], {'e'});
+      expect(result, ['e', 'a', 'b', 'c', 'd']);
+    });
+
+    test('no starred rooms at all leaves the original order untouched', () {
+      final result = sortStarredFirst(['a', 'b', 'c'], {});
+      expect(result, ['a', 'b', 'c']);
+    });
+
+    test('every room starred also leaves the original order untouched', () {
+      final result = sortStarredFirst(['a', 'b', 'c'], {'a', 'b', 'c'});
+      expect(result, ['a', 'b', 'c']);
+    });
+
+    test('an empty room list returns empty, even with a non-empty starred set',
+        () {
+      expect(sortStarredFirst(const [], {'a'}), isEmpty);
+    });
+
+    test(
+        'a starred code that is not actually in the room list is simply '
+        'ignored, not inserted - e.g. a room left after being starred, '
+        'whose stale starredRoomCodes entry has not been cleaned up yet', () {
+      final result = sortStarredFirst(['a', 'b'], {'z'});
+      expect(result, ['a', 'b']);
+    });
+
+    test('a single-room list with that room starred is unaffected', () {
+      expect(sortStarredFirst(['a'], {'a'}), ['a']);
+    });
+  });
+
+  // Pure-logic tests for syncLinkedHabitsProgress's flexible weekly-quota
+  // helper - see weeklyHabitCreditFor's own doc comment for why a "sport,
+  // 4x/week" habit done 5 times while skipping 2 other days is a perfect
+  // week, not 2 misses.
+  group('weeklyHabitCreditFor', () {
+    test(
+        'meeting the target exactly, week already closed, credits - the '
+        'reported bug: 4x/week target, done 5 times, 2 days skipped, week '
+        'over', () {
+      final result = weeklyHabitCreditFor(
+        completions: 5,
+        target: 4,
+        isWeekClosed: true,
+      );
+      expect(result, WeeklyHabitCredit.credited);
+    });
+
+    test(
+        'exceeding the target, week closed, still just credits (no bonus '
+        'state for going over)', () {
+      final result = weeklyHabitCreditFor(
+        completions: 7,
+        target: 4,
+        isWeekClosed: true,
+      );
+      expect(result, WeeklyHabitCredit.credited);
+    });
+
+    test('falling short with the week closed - a genuine miss', () {
+      final result = weeklyHabitCreditFor(
+        completions: 2,
+        target: 4,
+        isWeekClosed: true,
+      );
+      expect(result, WeeklyHabitCredit.missed);
+    });
+
+    test(
+        'falling short but the week is still open - too soon to call it a '
+        'miss, so it reads as pending instead', () {
+      final result = weeklyHabitCreditFor(
+        completions: 2,
+        target: 4,
+        isWeekClosed: false,
+      );
+      expect(result, WeeklyHabitCredit.pending);
+    });
+
+    test(
+        'hitting the target early, before the week is even over, credits '
+        'immediately rather than waiting for the week to close', () {
+      final result = weeklyHabitCreditFor(
+        completions: 4,
+        target: 4,
+        isWeekClosed: false,
+      );
+      expect(result, WeeklyHabitCredit.credited);
+    });
+
+    test('zero completions with the week still open is pending, not missed',
+        () {
+      final result = weeklyHabitCreditFor(
+        completions: 0,
+        target: 4,
+        isWeekClosed: false,
+      );
+      expect(result, WeeklyHabitCredit.pending);
+    });
+
+    test('zero completions with the week closed is a clear miss', () {
+      final result = weeklyHabitCreditFor(
+        completions: 0,
+        target: 4,
+        isWeekClosed: true,
+      );
+      expect(result, WeeklyHabitCredit.missed);
+    });
+
+    test(
+        'a target of 1 (habit set to once a week) behaves the same as any '
+        'other target', () {
+      expect(
+        weeklyHabitCreditFor(completions: 1, target: 1, isWeekClosed: false),
+        WeeklyHabitCredit.credited,
+      );
+      expect(
+        weeklyHabitCreditFor(completions: 0, target: 1, isWeekClosed: true),
+        WeeklyHabitCredit.missed,
+      );
+    });
+  });
+
+  // Effective-dated rule lookup - the mechanism that stops editing a habit
+  // from re-scoring finished days (see RoomParticipant.habitRules).
+  group('roomRuleAt', () {
+    RoomHabitRule rule(String from, int target) => RoomHabitRule(
+          from: from,
+          frequencyType: HabitFrequencyType.weekly,
+          frequencyTarget: target,
+        );
+
+    test('a single rule applies to every day, before and after its own start',
+        () {
+      final rules = [rule('2026-07-06', 4)];
+      expect(roomRuleAt(rules, '2026-07-01').frequencyTarget, 4);
+      expect(roomRuleAt(rules, '2026-07-06').frequencyTarget, 4);
+      expect(roomRuleAt(rules, '2026-12-31').frequencyTarget, 4);
+    });
+
+    test(
+        'the reported scenario: a day before the change keeps the OLD target, '
+        'a day on or after it gets the new one', () {
+      final rules = [rule('2026-07-06', 4), rule('2026-07-20', 7)];
+      expect(roomRuleAt(rules, '2026-07-19').frequencyTarget, 4,
+          reason: 'finished history must not be re-scored');
+      expect(roomRuleAt(rules, '2026-07-20').frequencyTarget, 7,
+          reason: 'the new rule starts the day it says');
+      expect(roomRuleAt(rules, '2026-07-21').frequencyTarget, 7);
+    });
+
+    test('a day before every recorded rule falls back to the earliest', () {
+      final rules = [rule('2026-07-20', 7), rule('2026-07-06', 4)];
+      expect(roomRuleAt(rules, '2026-01-01').frequencyTarget, 4);
+    });
+
+    test('unordered input is handled - latest applicable still wins', () {
+      final rules = [
+        rule('2026-07-20', 7),
+        rule('2026-07-06', 4),
+        rule('2026-07-13', 5)
+      ];
+      expect(roomRuleAt(rules, '2026-07-14').frequencyTarget, 5);
+      expect(roomRuleAt(rules, '2026-07-25').frequencyTarget, 7);
+    });
+
+    test('three periods resolve to the right one at each boundary', () {
+      final rules = [
+        rule('2026-07-06', 4),
+        rule('2026-07-13', 5),
+        rule('2026-07-20', 7)
+      ];
+      expect(roomRuleAt(rules, '2026-07-12').frequencyTarget, 4);
+      expect(roomRuleAt(rules, '2026-07-13').frequencyTarget, 5);
+      expect(roomRuleAt(rules, '2026-07-19').frequencyTarget, 5);
+      expect(roomRuleAt(rules, '2026-07-20').frequencyTarget, 7);
+    });
+  });
+
+  group('RoomHabitRule.differsFrom', () {
+    test('identical settings do not differ, so no warning is raised', () {
+      const r = RoomHabitRule(
+        from: '2026-07-06',
+        frequencyType: HabitFrequencyType.weekly,
+        frequencyTarget: 4,
+        scheduledWeekdays: [1, 3, 5],
+      );
+      expect(
+        r.differsFrom(
+          frequencyType: HabitFrequencyType.weekly,
+          frequencyTarget: 4,
+          scheduledWeekdays: [5, 3, 1], // order must not matter
+        ),
+        isFalse,
+      );
+    });
+
+    test('a changed target differs - the reported 4x to 7x edit', () {
+      const r = RoomHabitRule(
+        from: '2026-07-06',
+        frequencyType: HabitFrequencyType.weekly,
+        frequencyTarget: 4,
+      );
+      expect(
+        r.differsFrom(
+          frequencyType: HabitFrequencyType.weekly,
+          frequencyTarget: 7,
+          scheduledWeekdays: const [],
+        ),
+        isTrue,
+      );
+    });
+
+    test('a changed cadence type differs', () {
+      const r = RoomHabitRule(
+        from: '2026-07-06',
+        frequencyType: HabitFrequencyType.daily,
+        frequencyTarget: 1,
+      );
+      expect(
+        r.differsFrom(
+          frequencyType: HabitFrequencyType.weekly,
+          frequencyTarget: 1,
+          scheduledWeekdays: const [],
+        ),
+        isTrue,
+      );
+    });
+
+    test('changed weekdays differ, including adding or dropping one', () {
+      const r = RoomHabitRule(
+        from: '2026-07-06',
+        frequencyType: HabitFrequencyType.daily,
+        frequencyTarget: 1,
+        scheduledWeekdays: [1, 3, 5],
+      );
+      expect(
+        r.differsFrom(
+          frequencyType: HabitFrequencyType.daily,
+          frequencyTarget: 1,
+          scheduledWeekdays: const [1, 3],
+        ),
+        isTrue,
+      );
+      expect(
+        r.differsFrom(
+          frequencyType: HabitFrequencyType.daily,
+          frequencyTarget: 1,
+          scheduledWeekdays: const [],
+        ),
+        isTrue,
+      );
     });
   });
 }

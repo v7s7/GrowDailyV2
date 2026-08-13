@@ -23,6 +23,27 @@ enum RoomDuration {
       values.firstWhere((e) => e.name == v, orElse: () => open);
 }
 
+/// The leader's chosen "spirit" for a room, set once at creation (same
+/// creation-only timing as [RoomHabitMode]/[RoomDuration] - no leader
+/// affordance changes it after the fact). [competitive] is the room this
+/// app always had: the individual leaderboard/podium/Room Race widgets
+/// ranking participants against each other. [team] layers a shared goal on
+/// top of that exact same leaderboard (see [RoomTeamProgress]) - reach it
+/// *together* and every participant claims a one-time bonus (see
+/// RoomsController.claimTeamBonus) - without hiding or replacing the
+/// individual ranking, which keeps showing either way.
+///
+/// Defaults to [competitive] both here and in [fromJson] - every room
+/// created before this field existed was, and still is, exactly that.
+enum RoomCompeteMode {
+  competitive,
+  team;
+
+  String toJson() => name;
+  static RoomCompeteMode fromJson(String? v) =>
+      values.firstWhere((e) => e.name == v, orElse: () => competitive);
+}
+
 /// A single habit in a [RoomHabitMode.shared] room's plan, snapshotted from
 /// the leader's own habit at creation time (name/category/color/frequency)
 /// so a joiner who's never met the leader can still render an icon and
@@ -38,6 +59,96 @@ enum RoomDuration {
 /// the room's completion math, which excuses a day a linked habit wasn't
 /// even scheduled for rather than counting it as missed - see
 /// [RoomParticipant.dailyScheduledCount].
+///
+/// (See [RoomHabitTemplate] below, which this describes - the class itself
+/// sits under [kDeclinedSlot] and [RoomHabitRule].)
+
+/// Stand-in id stored at a shared-plan slot's position in
+/// [RoomParticipant.linkedHabitIds] when this participant deliberately
+/// skipped that slot rather than linking a habit to it (see
+/// RoomsController.declineSharedHabit). The slot keeps its *position* -
+/// linkedHabitIds stays index-for-index parallel with [RoomModel.
+/// sharedHabits], which every read site in this feature relies on - while
+/// counting for nothing: RoomsController.syncLinkedHabitsProgress leaves it
+/// out of both the numerator and the denominator, so a skipped habit can
+/// neither earn nor cost this person anything.
+///
+/// A literal sentinel rather than a parallel `declinedIndexes` array
+/// specifically to preserve that positional parallelism: a separate array
+/// would leave linkedHabitIds shorter than sharedHabits, which is the exact
+/// condition the unresolved-plan banner and resolvePlanHabit's
+/// "must be the next slot" guard both key off, so a skip would have looked
+/// identical to "hasn't decided yet" forever. Real habit ids are uuids, so
+/// this can never collide with one.
+const String kDeclinedSlot = '__declined__';
+
+/// One period during which a participant's linked habit was graded by a
+/// particular cadence, inside one room - the room's own frozen copy of
+/// "what this habit was worth back then," which is what stops editing a
+/// habit today from silently re-grading months of finished history (see
+/// [RoomParticipant.habitRules]).
+class RoomHabitRule {
+  /// Effective-day date key (YYYY-MM-DD) this rule starts applying from,
+  /// inclusive, running until the next rule's [from] or forever. Stored as
+  /// the plain key string rather than a Timestamp on purpose: every lookup
+  /// compares it against another date key, and YYYY-MM-DD sorts
+  /// chronologically as a plain string, so no parsing is needed to find the
+  /// rule in force on a given day.
+  final String from;
+  final HabitFrequencyType frequencyType;
+  final int frequencyTarget;
+  final List<int> scheduledWeekdays;
+
+  const RoomHabitRule({
+    required this.from,
+    required this.frequencyType,
+    required this.frequencyTarget,
+    this.scheduledWeekdays = const [],
+  });
+
+  /// Whether [other] grades days any differently than this rule does - the
+  /// check behind the room's "your habit's settings no longer match what
+  /// this room is scoring you on" warning. Compares only the three things
+  /// that actually affect credit; a rename or a colour change is not a rule
+  /// change.
+  bool differsFrom({
+    required HabitFrequencyType frequencyType,
+    required int frequencyTarget,
+    required List<int> scheduledWeekdays,
+  }) {
+    if (this.frequencyType != frequencyType) return true;
+    if (this.frequencyTarget != frequencyTarget) return true;
+    final a = [...this.scheduledWeekdays]..sort();
+    final b = [...scheduledWeekdays]..sort();
+    if (a.length != b.length) return true;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return true;
+    }
+    return false;
+  }
+
+  Map<String, dynamic> toFirestore() => {
+        'from': from,
+        'frequencyType': frequencyType.toJson(),
+        'frequencyTarget': frequencyTarget,
+        if (scheduledWeekdays.isNotEmpty) 'scheduledWeekdays': scheduledWeekdays,
+      };
+
+  factory RoomHabitRule.fromMap(Map<String, dynamic> d) => RoomHabitRule(
+        from: (d['from'] as String?) ?? '',
+        frequencyType: HabitFrequencyType.fromJson(
+          d['frequencyType'] as String? ?? 'daily',
+        ),
+        frequencyTarget: (d['frequencyTarget'] as num?)?.toInt() ?? 1,
+        scheduledWeekdays: (d['scheduledWeekdays'] as List?)
+                ?.whereType<num>()
+                .map((n) => n.toInt())
+                .where((n) => n >= DateTime.monday && n <= DateTime.sunday)
+                .toList() ??
+            const [],
+      );
+}
+
 class RoomHabitTemplate {
   final String name;
   final HabitCategory category;
@@ -45,12 +156,42 @@ class RoomHabitTemplate {
   final HabitFrequencyType frequencyType;
   final int frequencyTarget;
 
+  /// When the room's leader withdrew this slot from the plan - null while
+  /// it's still live. A soft delete, deliberately: actually removing the
+  /// entry would shift every later slot's index down by one, and since
+  /// [RoomParticipant.linkedHabitIds] is positionally parallel to this list
+  /// and each participant may only write their OWN participant doc (see
+  /// firestore.rules), the leader has no way to re-align everyone else's
+  /// arrays to match. Stamping it instead keeps every index stable forever;
+  /// syncLinkedHabitsProgress simply skips a removed slot (it counts for
+  /// nothing, exactly like [kDeclinedSlot]), and the UI greys it out. Also
+  /// makes the removal reversible, which a real delete would not be.
+  final DateTime? removedAt;
+
+  /// When this entry joined the plan - null for every entry the room was
+  /// actually *created* with (every one of those is born together, so
+  /// there's nothing to distinguish), set to the moment RoomsController.
+  /// addSharedHabit ran for anything the leader adds to an already-existing
+  /// room's plan later. Purely informational (a "New" badge, an "Added Jul
+  /// 28" label) - see that field's own note in addSharedHabit's doc comment
+  /// for why this deliberately does NOT gate syncLinkedHabitsProgress's
+  /// day-by-day math: a slot added mid-room still uses each participant's
+  /// own linked habit's *real* history once they resolve it, exactly the
+  /// same as a member who joins the room late already gets credited for
+  /// real activity going all the way back to room.startDate, not just from
+  /// their own joinedAt. A newly-added slot follows that identical,
+  /// already-shipped precedent rather than inventing a second, different
+  /// rule just for itself.
+  final DateTime? addedAt;
+
   const RoomHabitTemplate({
     required this.name,
     required this.category,
     this.iconColorHex,
     required this.frequencyType,
     required this.frequencyTarget,
+    this.addedAt,
+    this.removedAt,
   });
 
   Map<String, dynamic> toFirestore() => {
@@ -59,6 +200,8 @@ class RoomHabitTemplate {
         if (iconColorHex != null) 'iconColorHex': iconColorHex,
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
+        if (addedAt != null) 'addedAt': Timestamp.fromDate(addedAt!),
+        if (removedAt != null) 'removedAt': Timestamp.fromDate(removedAt!),
       };
 
   factory RoomHabitTemplate.fromMap(Map<String, dynamic> d) =>
@@ -69,7 +212,12 @@ class RoomHabitTemplate {
         frequencyType:
             HabitFrequencyType.fromJson(d['frequencyType'] as String? ?? 'daily'),
         frequencyTarget: d['frequencyTarget'] as int? ?? 1,
+        addedAt: (d['addedAt'] as Timestamp?)?.toDate(),
+        removedAt: (d['removedAt'] as Timestamp?)?.toDate(),
       );
+
+  /// Whether the leader has withdrawn this slot - see [removedAt].
+  bool get isRemoved => removedAt != null;
 }
 
 /// Stored at: rooms/{code}
@@ -136,6 +284,12 @@ class RoomModel {
   /// any getter here should still read.
   final DateTime? scheduledStartAt;
 
+  /// See [RoomCompeteMode]'s doc comment. Set once at creation, never
+  /// changed after - defaults to [RoomCompeteMode.competitive] so every
+  /// room created before this field existed keeps behaving exactly as it
+  /// always did.
+  final RoomCompeteMode competeMode;
+
   const RoomModel({
     required this.code,
     required this.name,
@@ -151,6 +305,7 @@ class RoomModel {
     this.status = 'active',
     this.lengthDays,
     this.scheduledStartAt,
+    this.competeMode = RoomCompeteMode.competitive,
   });
 
   bool get isLobby => status == 'lobby';
@@ -237,6 +392,7 @@ class RoomModel {
       status: (d['status'] as String?) ?? 'active',
       lengthDays: d['lengthDays'] as int?,
       scheduledStartAt: (d['scheduledStartAt'] as Timestamp?)?.toDate(),
+      competeMode: RoomCompeteMode.fromJson(d['competeMode'] as String?),
     );
   }
 
@@ -256,6 +412,7 @@ class RoomModel {
         if (lengthDays != null) 'lengthDays': lengthDays,
         if (scheduledStartAt != null)
           'scheduledStartAt': Timestamp.fromDate(scheduledStartAt!),
+        'competeMode': competeMode.toJson(),
       };
 }
 
@@ -272,6 +429,18 @@ class RoomParticipant {
   final String displayName;
   final String characterId;
   final String? accessoryId;
+
+  /// This participant's own PrestigeTier.id (see prestige_tier.dart) at the
+  /// moment of their last sync — a leaderboard-only, cosmetic mirror of the
+  /// same title chip the Profile hero header already shows, same
+  /// "displayName/characterId/accessoryId" denormalization pattern (see
+  /// RoomsController._profileFields), not a separate source of truth. Null
+  /// for a participant doc written before this field existed, or for a
+  /// signed-in account still on level 1/"Seeker" before the leaderboard row
+  /// bothers rendering a chip at all — see _LeaderboardRow's own gate for
+  /// why level 1 is deliberately excluded, mirroring the Profile card's
+  /// identical "nothing to show off yet" restraint.
+  final String? prestigeTierId;
   final DateTime joinedAt;
 
   /// This participant's own real habit(s) this room is tracking - always
@@ -315,21 +484,170 @@ class RoomParticipant {
   /// [scheduledCountFor] for the fallback that makes an absent key mean
   /// "everything was scheduled as normal."
   final Map<String, int> dailyScheduledCount;
+
+  /// Week-start date keys (Saturday, matching startOfDisplayWeek - the same
+  /// week the Grid screen draws) whose flexible weekly-quota habits all
+  /// actually REACHED their target. The one thing that lets a rest day count
+  /// toward a streak (see [currentStreak]).
+  ///
+  /// A week still in progress is deliberately NOT in here, even though it
+  /// could still make it. An earlier version did include pending weeks, and
+  /// the result was a streak equal to however many days old the current week
+  /// was, for a habit with nothing done in it at all - credit handed out in
+  /// advance. The grace an open week gets is the chance to become credited,
+  /// not credit before the fact.
+  ///
+  /// Deliberately phrased as "which weeks were fine" rather than "which days
+  /// broke". An earlier version stored the break days, and that failed in the
+  /// worst possible direction: a participant whose device hadn't synced yet
+  /// had no break days recorded, which read as "nothing ever broke" and
+  /// awarded them a full streak while their progress showed 0%. Missing data
+  /// must never look like success. Phrased this way, an absent week simply
+  /// isn't excused, so an unsynced participant gets a streak of 0 - which is
+  /// the honest answer for someone we know nothing about yet.
+  ///
+  /// One entry per week rather than per day, so this stays small even for a
+  /// long-running room.
+  final List<String> quotaOkWeeks;
+
+
+  /// habitId -> the cadence periods this room grades that habit by, oldest
+  /// first (see [RoomHabitRule]). This is the room's own frozen copy of each
+  /// linked habit's rules, and the reason editing a habit can no longer
+  /// rewrite finished history.
+  ///
+  /// The problem it solves: syncLinkedHabitsProgress recomputes the room's
+  /// whole day range from scratch every time, reading each habit's *current*
+  /// frequency. So changing تمرين from 4x to 7x per week silently re-graded
+  /// every past week at the new target - a month of perfect weeks could drop
+  /// to 43% and take the streak with it, and the reverse (7x down to 1x)
+  /// retroactively invented progress nobody earned. Nothing warned about it.
+  ///
+  /// What it deliberately does NOT freeze: the daily habit history itself.
+  /// Ticking a past day's square in the Grid still flows through to the room
+  /// on the next resync, exactly as before - that's a real thing the person
+  /// really did, and back-filling a forgotten day is a feature people expect
+  /// from a habit tracker. Only the *grading rule* is pinned, so history can
+  /// be corrected but not re-scored under rules that didn't apply at the
+  /// time.
+  ///
+  /// Empty for a participant doc last written before this existed, which
+  /// syncLinkedHabitsProgress self-heals by seeding one period stamped from
+  /// the room's start date using the habit's current settings - the best
+  /// available answer, since a rule nobody ever recorded can't be recovered.
+  /// A new period is only ever appended by an explicit user action (see
+  /// RoomsController.relockHabitRules), never automatically on edit, since
+  /// automatically following the edit is precisely the behaviour this
+  /// replaces.
+  final Map<String, List<RoomHabitRule>> habitRules;
   final DateTime lastUpdated;
+
+  /// Whether *this* participant has already claimed this room's one-time
+  /// Team mode bonus (see RoomCompeteMode.team/RoomTeamProgress.
+  /// teamIsPerfect/RoomsController.claimTeamBonus) - written only by this
+  /// participant's own device, same single-writer rule as every other field
+  /// here, so one member claiming never touches another's. Meaningless (and
+  /// always false) for a [RoomCompeteMode.competitive] room, which has
+  /// nothing to claim.
+  final bool teamBonusClaimed;
+
+  /// Whether this participant has claimed their end-of-room podium prize —
+  /// the [RoomCompeteMode.competitive] counterpart to [teamBonusClaimed].
+  ///
+  /// Finishing a competitive room used to pay nothing at all: a podium
+  /// graphic and no XP, no gold, no medal, for a race that could run 90
+  /// days. Top three now earn a real prize, scaled by place, claimed once.
+  /// Same single-writer rule and same claim-once transaction as the team
+  /// bonus (see RoomsController.claimPodiumBonus).
+  final bool podiumBonusClaimed;
+
+  /// Whether every actually-scheduled linked habit was done for [allDoneDate]
+  /// the last time this doc was written - a plain mirror of
+  /// `isFullyDone(allDoneDate)` at write time, kept as its own field (rather
+  /// than derived fresh) purely so the room-finish Cloud Function
+  /// (functions/index.js) can diff before/after on a Firestore trigger
+  /// without reimplementing [isFullyDone]'s weekly-quota-aware logic in
+  /// JavaScript. Every write from RoomsController.syncLinkedHabitsProgress
+  /// keeps this in lockstep with the real per-day counts above it, so a
+  /// false->true transition here means exactly what it means client-side:
+  /// this participant just finished today, for the very first time today.
+  final bool allDoneToday;
+
+  /// The effective-day date key [allDoneToday] was computed for - lets a
+  /// stale reader (or the function, defensively) recognize a flag that's
+  /// left over from a day this device hasn't resynced since, rather than
+  /// trusting a bare bool with no date attached to it.
+  final String? allDoneDate;
+
+  /// This participant's own choice to silence the room-finish push
+  /// notification for this specific room - toggled from the room's own app
+  /// bar (see RoomsController.setRoomMuted), single-writer just like every
+  /// other per-participant flag here. Never affects the in-app, in-the-
+  /// moment reactions in room_reactions.dart - those only ever show while
+  /// this person is already looking at the room, which isn't the kind of
+  /// interruption muting push is for.
+  final bool notificationsMuted;
+
+  /// The last effective-day date key on which a sync actually ran for this
+  /// participant — the "the room was watching through here" watermark, and
+  /// the thing that makes [RoomsController.syncLinkedHabitsProgress]'s
+  /// anti-backdating clamp honest.
+  ///
+  /// The clamp exists so back-filling a forgotten square can't earn room
+  /// credit after the fact, and it enforces that by capping a past day at
+  /// whatever the room had already recorded for it. That is only a fair test
+  /// when the room actually *saw* that day. It didn't, for every day this
+  /// device spent closed, offline, or with a sync that silently failed (the
+  /// per-tap push is fire-and-forget, see syncRoomToday) — and for those days
+  /// "what the room recorded" is 0 purely because nobody was looking, not
+  /// because nothing was done. Capping against that turned a day genuinely
+  /// completed on time into a permanent zero, with no way back: the Grid kept
+  /// showing the square green while the room insisted it never happened.
+  ///
+  /// With this recorded, the clamp can ask the question it always meant to
+  /// ask — "was the room watching on the day in question?" — and only cap the
+  /// days it actually observed. Anything later than this watermark is taken
+  /// from the real daily history instead, which is the honest answer for a
+  /// day nobody was there to see.
+  ///
+  /// Null for a participant doc written before this field existed. That
+  /// deliberately reads as "watching through nowhere", so the next sync
+  /// re-credits their whole window from their real Grid squares once, healing
+  /// exactly the days the old clamp had wrongly zeroed, and then stamps the
+  /// watermark so normal anti-backdating resumes from that point on.
+  final String? lastSyncedDay;
 
   const RoomParticipant({
     required this.uid,
     required this.displayName,
     required this.characterId,
     this.accessoryId,
+    this.prestigeTierId,
     required this.joinedAt,
     this.linkedHabitIds = const [],
     this.linkedHabitNames = const [],
     this.hideDetails = false,
     this.dailyDoneCount = const {},
     this.dailyScheduledCount = const {},
+    this.quotaOkWeeks = const [],
+    this.habitRules = const {},
     required this.lastUpdated,
+    this.teamBonusClaimed = false,
+    this.podiumBonusClaimed = false,
+    this.allDoneToday = false,
+    this.allDoneDate,
+    this.notificationsMuted = false,
+    this.lastSyncedDay,
   });
+
+  /// Whether the room was already watching on [dateKey] — i.e. a sync ran on
+  /// or after that day, so whatever it recorded for that day is a real
+  /// observation rather than an absence of one. See [lastSyncedDay].
+  bool wasObservedOn(String dateKey) {
+    final through = lastSyncedDay;
+    if (through == null) return false;
+    return dateKey.compareTo(through) <= 0;
+  }
 
   /// How many of [linkedHabitIds] actually counted toward [dateKey] - the
   /// real denominator for that day, not just linkedHabitIds.length. Falls
@@ -340,8 +658,89 @@ class RoomParticipant {
   /// participant doc from before scheduling-awareness existed and simply
   /// hasn't resynced yet (same self-healing pattern as [dailyDoneCount]
   /// itself for a pre-existing field).
+  /// [linkedHabitIds] minus any slot this participant skipped (see
+  /// [kDeclinedSlot]) - the ids that actually count for or against them.
+  /// Every "how many habits does this person have here" question should ask
+  /// this rather than linkedHabitIds directly, which keeps skipped slots in
+  /// place purely to hold their position in the shared plan.
+  ///
+  /// Allocates, so prefer [hasCountedHabits]/[countedHabitCount] for a plain
+  /// emptiness or size check - those run inside per-day loops
+  /// ([daysCompleted], [currentStreak]) where a throwaway list per day per
+  /// participant adds up fast.
+  List<String> get countedHabitIds =>
+      linkedHabitIds.where((id) => id != kDeclinedSlot).toList();
+
+  /// The counting ids that also survive [room]'s own plan edits - i.e. minus
+  /// any slot whose shared-plan template the leader has withdrawn (see
+  /// [RoomHabitTemplate.removedAt]). THE one place that decision lives:
+  /// grading, the per-tap fast path, and the Grid's room-boost index all read
+  /// this, so a skipped or withdrawn slot can never be counted by one of them
+  /// and ignored by another. Identical to [countedHabitIds] for an
+  /// 'own'-mode room, which has no shared templates to withdraw.
+  List<String> countedHabitIdsIn(RoomModel room) {
+    final shared = room.habitMode == RoomHabitMode.shared
+        ? room.sharedHabits
+        : const <RoomHabitTemplate>[];
+    final out = <String>[];
+    for (var i = 0; i < linkedHabitIds.length; i++) {
+      if (linkedHabitIds[i] == kDeclinedSlot) continue;
+      if (i < shared.length && shared[i].isRemoved) continue;
+      out.add(linkedHabitIds[i]);
+    }
+    return out;
+  }
+
+  /// Whether anything counts here at all - the allocation-free counterpart to
+  /// `countedHabitIds.isEmpty`.
+  bool get hasCountedHabits {
+    for (final id in linkedHabitIds) {
+      if (id != kDeclinedSlot) return true;
+    }
+    return false;
+  }
+
+  /// How many slots count - the allocation-free counterpart to
+  /// `countedHabitIds.length`.
+  int get countedHabitCount {
+    var n = 0;
+    for (final id in linkedHabitIds) {
+      if (id != kDeclinedSlot) n++;
+    }
+    return n;
+  }
+
+  /// The cadence rule this room grades [habitId] by on [dateKey] - the
+  /// latest period that had already started by then (see [habitRules]).
+  /// Falls back to the earliest recorded period for a day before any rule
+  /// was stamped, and to null when this habit has no recorded rules at all,
+  /// which syncLinkedHabitsProgress treats as "seed one from the habit's
+  /// current settings."
+  ///
+  /// Date keys are YYYY-MM-DD, so a plain string comparison is already
+  /// chronological - no parsing needed.
+  RoomHabitRule? ruleFor(String habitId, String dateKey) {
+    final rules = habitRules[habitId];
+    if (rules == null || rules.isEmpty) return null;
+    RoomHabitRule? best;
+    RoomHabitRule? earliest;
+    for (final r in rules) {
+      if (earliest == null || r.from.compareTo(earliest.from) < 0) earliest = r;
+      if (r.from.compareTo(dateKey) <= 0 &&
+          (best == null || r.from.compareTo(best.from) > 0)) {
+        best = r;
+      }
+    }
+    return best ?? earliest;
+  }
+
+  /// Note the fallback can't know about a leader-withdrawn slot (that lives on
+  /// the room, not here) - it doesn't need to, because the sync writes a real
+  /// [dailyScheduledCount] entry whenever the true count differs from the
+  /// plain total, and this fallback only ever applies to a day no sync has
+  /// covered yet.
   int scheduledCountFor(String dateKey) =>
-      dailyScheduledCount[dateKey] ?? linkedHabitIds.length;
+      dailyScheduledCount[dateKey] ?? countedHabitCount;
 
   /// This participant's completion credit for [dateKey] - 0.0 to 1.0,
   /// proportional to how many of that day's actually-scheduled linked
@@ -350,8 +749,17 @@ class RoomParticipant {
   /// excused) is full credit, not zero - there was nothing to fall short
   /// of. 0 whenever nothing is linked yet, since there's nothing to divide
   /// by.
+  ///
+  /// Every linked habit is weighed the same here, including a flexible
+  /// weekly-quota one ("4x a week, any days"): do it today and today is a
+  /// whole done day, full colour, exactly like any other habit. The quota is
+  /// NOT diluted across the week - a version of this briefly did that, and a
+  /// day someone had genuinely completed showed as a fraction of a day, which
+  /// is not what finishing a day looks like to the person who did it. The
+  /// quota's real job is deciding whether a *week* keeps the streak alive,
+  /// and that lives in [quotaOkWeeks]/[currentStreak], nowhere near this.
   double creditFor(String dateKey) {
-    if (linkedHabitIds.isEmpty) return 0;
+    if (!hasCountedHabits) return 0;
     final scheduled = scheduledCountFor(dateKey);
     if (scheduled == 0) return 1.0;
     final done = dailyDoneCount[dateKey] ?? 0;
@@ -363,21 +771,68 @@ class RoomParticipant {
   /// done/not-done signal (e.g. the checkmark in Room Detail's "Your plan"
   /// card) rather than the underlying fraction. Trivially true on a day
   /// nothing was scheduled at all - see [creditFor]'s doc comment.
+  ///
+  /// Deliberately NOT what [currentStreak] asks - a rest day on a 4x-a-week
+  /// habit is not a finished day, but it mustn't break a streak either. See
+  /// [quotaOkWeeks].
   bool isFullyDone(String dateKey) {
-    if (linkedHabitIds.isEmpty) return false;
+    if (!hasCountedHabits) return false;
     final scheduled = scheduledCountFor(dateKey);
     if (scheduled == 0) return true;
     return (dailyDoneCount[dateKey] ?? 0) >= scheduled;
   }
+
+  /// Whether this participant actually *did* something on [dateKey] — at
+  /// least one linked habit genuinely completed, as opposed to a day that
+  /// merely has nothing outstanding on it.
+  ///
+  /// [isFullyDone] deliberately answers true for a day where nothing was
+  /// scheduled at all (a Mon/Wed habit's Tuesday, or a weekly quota's rest
+  /// day once its target is met) — correct for "is anything owed today", and
+  /// exactly what the plan card's checkmark wants. It is the wrong question
+  /// for anything that announces a person to their teammates, though:
+  /// "Aziz finished their habits today" on a day Aziz rested is a claim
+  /// about a thing that didn't happen. Celebrations and pushes ask this
+  /// instead.
+  bool didCompleteAnythingOn(String dateKey) =>
+      (dailyDoneCount[dateKey] ?? 0) > 0;
 
   /// Total credited days within [room]'s active window (start date through
   /// today, or the room's end date once it's passed) - a fractional sum,
   /// not a plain count: a day with 1 of 2 linked habits done contributes
   /// 0.5, not 0 or 1 (see [creditFor]). A date logged before the room
   /// started, or after it ended, never counts.
+  /// The first day of [room] this participant is actually answerable for:
+  /// the room's own start, or the day they joined, whichever is later.
+  ///
+  /// A late joiner used to be scored on the room's whole window. Join a
+  /// 90-day room on day 80 and their real Grid history was credited all the
+  /// way back to day 1 — someone who had never heard of the room could join
+  /// on the final week and land straight at the top of a leaderboard other
+  /// people had spent three months climbing. Scoring starts when they did.
+  ///
+  /// The denominator moves with it (see [daysElapsedIn]), so joining late is
+  /// not a penalty either: they're measured on the days they were in the
+  /// room, which is what "I joined this challenge" means to a person.
+  DateTime countedStartIn(RoomModel room) {
+    final joined = DateTime(joinedAt.year, joinedAt.month, joinedAt.day);
+    return joined.isAfter(room.startDate) ? joined : room.startDate;
+  }
+
+  /// Days this participant has actually been in [room], counting both ends —
+  /// the per-person counterpart to [RoomModel.daysElapsed], and the correct
+  /// denominator for [progressRatio]. Never less than 1, even on the day
+  /// someone joins.
+  int daysElapsedIn(RoomModel room) {
+    final start = countedStartIn(room);
+    final last = room.lastCountedDay;
+    if (last.isBefore(start)) return 1;
+    return last.difference(start).inDays + 1;
+  }
+
   double daysCompleted(RoomModel room) {
     var total = 0.0;
-    var day = room.startDate;
+    var day = countedStartIn(room);
     final last = room.lastCountedDay;
     while (!day.isAfter(last)) {
       total += creditFor(day.toDateKey());
@@ -389,33 +844,51 @@ class RoomParticipant {
   /// 0.0-1.0 completion ratio for [room] - the number every leaderboard row
   /// sorts and renders by.
   double progressRatio(RoomModel room) {
-    final elapsed = room.daysElapsed;
+    // Their own window, not the room's — see [countedStartIn].
+    final elapsed = daysElapsedIn(room);
     if (elapsed <= 0) return 0;
     return (daysCompleted(room) / elapsed).clamp(0.0, 1.0);
   }
 
-  /// Consecutive fully-credited days (see [isFullyDone]) counting backward
-  /// from "now," for the leaderboard's streak badge. Because [isFullyDone]
-  /// already treats a day nothing was scheduled on as satisfied, a Mon/Wed-
-  /// only habit's off-days don't interrupt this either - the streak only
-  /// ever breaks on a real miss. Never looks earlier than [RoomModel.
+  /// Consecutive unbroken days counting backward from "now", for the
+  /// leaderboard's streak badge. Never looks earlier than [RoomModel.
   /// startDate], and is always 0 before anything is linked.
   ///
-  /// While the room is still running, an unfinished *today* doesn't zero
-  /// this out - there's still time left, so this looks at whether yesterday
-  /// keeps the streak alive instead of declaring it broken mid-day. Once
-  /// the room has ended, though, its last countable day (room.lastCountedDay,
-  /// a fixed calendar date at that point) is final - if that day wasn't
-  /// completed, the streak the room ended on is 0, same as any habit streak
-  /// that lapses.
+  /// A day keeps a streak if it was genuinely finished, OR if it sits inside a
+  /// week whose weekly quota was satisfied (see [quotaOkWeeks]) - that second
+  /// clause IS the flexible-quota rule, and the only reason a rest day can
+  /// count. For an ordinary daily habit only the first clause ever applies, so
+  /// nothing changes for it.
+  ///
+  /// Both inputs fail safe: [isFullyDone] reads stored counts (absent = not
+  /// done) and [quotaOkWeeks] is an explicit allow-list (absent = not
+  /// excused). So a participant whose device hasn't synced scores 0, never a
+  /// phantom streak.
+  bool _keepsStreak(String dateKey, DateTime day) {
+    if (isFullyDone(dateKey)) return true;
+    return quotaOkWeeks.contains(day.startOfDisplayWeek.toDateKey());
+  }
+
+  /// Consecutive streak-keeping days counting backward from "now" (see
+  /// [_keepsStreak]), for the leaderboard's streak badge. Never looks earlier
+  /// than [RoomModel.startDate], and is always 0 before anything is linked.
+  ///
+  /// While the room is still running, an unfinished *today* doesn't zero this
+  /// out - there's still time left, so this looks at whether yesterday keeps
+  /// the streak alive instead of declaring it broken mid-day. Once the room
+  /// has ended, its last countable day is final: if that day didn't hold, the
+  /// streak the room ended on is 0, same as any habit streak that lapses.
   int currentStreak(RoomModel room) {
-    if (linkedHabitIds.isEmpty) return 0;
+    if (!hasCountedHabits) return 0;
     var day = room.lastCountedDay;
-    if (!room.isEnded && !isFullyDone(day.toDateKey())) {
+    if (!room.isEnded && !_keepsStreak(day.toDateKey(), day)) {
       day = day.subtract(const Duration(days: 1));
     }
     var count = 0;
-    while (!day.isBefore(room.startDate) && isFullyDone(day.toDateKey())) {
+    // Floors at the day THEY joined, not the room's start — a streak can't
+    // run back through days they weren't here for. See [countedStartIn].
+    final floor = countedStartIn(room);
+    while (!day.isBefore(floor) && _keepsStreak(day.toDateKey(), day)) {
       count++;
       day = day.subtract(const Duration(days: 1));
     }
@@ -431,6 +904,7 @@ class RoomParticipant {
       displayName: (d['displayName'] as String?) ?? '',
       characterId: (d['characterId'] as String?) ?? 'male_ghutra_blue',
       accessoryId: d['accessoryId'] as String?,
+      prestigeTierId: d['prestigeTierId'] as String?,
       joinedAt: (d['joinedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       linkedHabitIds:
           (d['linkedHabitIds'] as List?)?.whereType<String>().toList() ??
@@ -456,7 +930,42 @@ class RoomParticipant {
             (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
           ) ??
           const {},
+      // Absent for any doc written before this existed, which reads as "no
+      // day ever broke a streak" - the next syncLinkedHabitsProgress pass
+      // recomputes the real set. See quotaOkWeeks' own doc comment - absent
+      // deliberately means "no week is excused", never "every week held".
+      quotaOkWeeks:
+          (d['quotaOkWeeks'] as List?)?.whereType<String>().toList() ??
+              const [],
+      habitRules: (d['habitRules'] as Map?)?.map(
+            (k, v) => MapEntry(
+              k.toString(),
+              (v as List?)
+                      ?.whereType<Map>()
+                      .map((m) => RoomHabitRule.fromMap(
+                          Map<String, dynamic>.from(m)))
+                      .where((r) => r.from.isNotEmpty)
+                      .toList() ??
+                  const <RoomHabitRule>[],
+            ),
+          ) ??
+          const {},
       lastUpdated: (d['lastUpdated'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      teamBonusClaimed: d['teamBonusClaimed'] as bool? ?? false,
+      podiumBonusClaimed: d['podiumBonusClaimed'] as bool? ?? false,
+      // Both self-heal the same way as every other field added after this
+      // model shipped: a doc from before this existed just reads as "not
+      // done yet," and the next syncLinkedHabitsProgress pass (room-open,
+      // habit-link, etc.) writes a real value.
+      allDoneToday: d['allDoneToday'] as bool? ?? false,
+      allDoneDate: d['allDoneDate'] as String?,
+      notificationsMuted: d['notificationsMuted'] as bool? ?? false,
+      // Absent for a doc written before the watermark existed, and null is
+      // exactly the right reading of that: the room can't claim to have been
+      // watching on any day it kept no record of watching. See
+      // [lastSyncedDay] for why that makes the next sync re-credit real Grid
+      // history once instead of trusting the old clamp's zeros.
+      lastSyncedDay: d['lastSyncedDay'] as String?,
     );
   }
 
@@ -465,39 +974,128 @@ class RoomParticipant {
         'displayName': displayName,
         'characterId': characterId,
         if (accessoryId != null) 'accessoryId': accessoryId,
+        if (prestigeTierId != null) 'prestigeTierId': prestigeTierId,
         'joinedAt': Timestamp.fromDate(joinedAt),
         'linkedHabitIds': linkedHabitIds,
         'linkedHabitNames': linkedHabitNames,
         'hideDetails': hideDetails,
         'dailyDoneCount': dailyDoneCount,
         'dailyScheduledCount': dailyScheduledCount,
+        'quotaOkWeeks': quotaOkWeeks,
+        'habitRules': habitRules.map(
+          (k, v) => MapEntry(k, v.map((r) => r.toFirestore()).toList()),
+        ),
         'lastUpdated': Timestamp.fromDate(lastUpdated),
+        'teamBonusClaimed': teamBonusClaimed,
+        'podiumBonusClaimed': podiumBonusClaimed,
+        'allDoneToday': allDoneToday,
+        if (allDoneDate != null) 'allDoneDate': allDoneDate,
+        'notificationsMuted': notificationsMuted,
+        if (lastSyncedDay != null) 'lastSyncedDay': lastSyncedDay,
       };
 
   RoomParticipant copyWith({
     String? characterId,
     String? accessoryId,
     bool clearAccessory = false,
+    String? prestigeTierId,
     List<String>? linkedHabitIds,
     List<String>? linkedHabitNames,
     bool? hideDetails,
     Map<String, int>? dailyDoneCount,
     Map<String, int>? dailyScheduledCount,
+    List<String>? quotaOkWeeks,
+    Map<String, List<RoomHabitRule>>? habitRules,
     DateTime? lastUpdated,
+    bool? teamBonusClaimed,
+    bool? podiumBonusClaimed,
+    bool? allDoneToday,
+    String? allDoneDate,
+    bool? notificationsMuted,
+    String? lastSyncedDay,
   }) =>
       RoomParticipant(
         uid: uid,
         displayName: displayName,
         characterId: characterId ?? this.characterId,
         accessoryId: clearAccessory ? null : (accessoryId ?? this.accessoryId),
+        prestigeTierId: prestigeTierId ?? this.prestigeTierId,
         joinedAt: joinedAt,
         linkedHabitIds: linkedHabitIds ?? this.linkedHabitIds,
         linkedHabitNames: linkedHabitNames ?? this.linkedHabitNames,
         hideDetails: hideDetails ?? this.hideDetails,
         dailyDoneCount: dailyDoneCount ?? this.dailyDoneCount,
         dailyScheduledCount: dailyScheduledCount ?? this.dailyScheduledCount,
+        quotaOkWeeks: quotaOkWeeks ?? this.quotaOkWeeks,
+        habitRules: habitRules ?? this.habitRules,
         lastUpdated: lastUpdated ?? this.lastUpdated,
+        teamBonusClaimed: teamBonusClaimed ?? this.teamBonusClaimed,
+        podiumBonusClaimed: podiumBonusClaimed ?? this.podiumBonusClaimed,
+        allDoneToday: allDoneToday ?? this.allDoneToday,
+        allDoneDate: allDoneDate ?? this.allDoneDate,
+        notificationsMuted: notificationsMuted ?? this.notificationsMuted,
+        lastSyncedDay: lastSyncedDay ?? this.lastSyncedDay,
       );
+}
+
+/// Room-wide "everyone together" numbers — layered on top of the existing
+/// per-participant leaderboard rather than replacing it. Nothing here needs
+/// its own sync/storage: every input ([RoomParticipant.daysCompleted]/
+/// [RoomParticipant.isFullyDone]) is already computed from data each
+/// participant's own device already syncs for the leaderboard, so this is
+/// pure aggregation over whatever [roomParticipantsProvider] already
+/// streamed in. Kept as extension methods (not fields on RoomModel itself)
+/// since a room doc alone doesn't carry its participants - both need the
+/// same list the leaderboard sorts.
+extension RoomTeamProgress on RoomModel {
+  /// 0.0-1.0 - total credited days across every participant, out of the
+  /// "everyone did every single day" ceiling (memberCount × daysElapsed).
+  /// This is the number the team card's progress bar fills to: a room
+  /// where everyone's been perfect reads 100%, same as any one person's own
+  /// [RoomParticipant.progressRatio] would.
+  double teamProgressRatio(List<RoomParticipant> participants) {
+    if (participants.isEmpty) return 0;
+    final maxPossible = participants.length * daysElapsed;
+    if (maxPossible <= 0) return 0;
+    final total = participants.fold<double>(
+        0, (sum, p) => sum + p.daysCompleted(this));
+    return (total / maxPossible).clamp(0.0, 1.0);
+  }
+
+  /// Raw "days completed together" — the numerator behind
+  /// [teamProgressRatio], surfaced separately so the card can show real
+  /// numbers ("14 of 20") alongside the percentage rather than just the
+  /// bar. Rounded for display; the bar itself still fills from the exact
+  /// fraction.
+  int teamDaysCompleted(List<RoomParticipant> participants) =>
+      participants.fold<double>(0, (sum, p) => sum + p.daysCompleted(this)).round();
+
+  int teamMaxPossibleDays(List<RoomParticipant> participants) =>
+      participants.length * daysElapsed;
+
+  /// True the moment *every* participant has fully credited today — the
+  /// one binary "did the whole team show up" signal, distinct from the
+  /// gradual [teamProgressRatio]. Requires at least one participant to have
+  /// linked something; an empty room is never "complete."
+  bool teamCompletedToday(List<RoomParticipant> participants) {
+    if (participants.isEmpty) return false;
+    final today = lastCountedDay.toDateKey();
+    return participants.every((p) => p.isFullyDone(today));
+  }
+
+  /// True once the team has never missed a single credited day - every
+  /// participant, every day, since [RoomModel.startDate]. The strict
+  /// "everyone, every day" bar [RoomCompeteMode.team]'s bonus asks for
+  /// (see RoomsController.claimTeamBonus), deliberately harder than
+  /// [teamCompletedToday] (which only ever looks at today): one partial day
+  /// anywhere in the room's history rules this out for good, same as any
+  /// perfect streak would. Because [creditFor] only ever contributes exact
+  /// 1.0s once every credited day is full, summing them never drifts below
+  /// exactly 1.0 the way partial credit could - no epsilon needed.
+  bool teamIsPerfect(List<RoomParticipant> participants) {
+    if (participants.isEmpty) return false;
+    return teamProgressRatio(participants) >= 1.0;
+  }
 }
 
 /// A short, human-typeable room code - 6 characters from an alphabet that
@@ -510,4 +1108,52 @@ String generateRoomCode() {
   final rand = Random();
   return List.generate(6, (_) => alphabet[rand.nextInt(alphabet.length)])
       .join();
+}
+
+/// Arabic-Indic digits (٠-٩) mapped to plain ASCII '0'-'9' - some devices
+/// switch the numeric keypad to these when the system/app is in Arabic,
+/// and [int.tryParse] only ever understands ASCII digits. Every character
+/// that isn't one of these ten is passed through unchanged, so this is safe
+/// to run on input that's already plain ASCII (the common case) as a no-op.
+String _normalizeDigits(String input) {
+  const arabicIndic = '٠١٢٣٤٥٦٧٨٩';
+  final buffer = StringBuffer();
+  for (final rune in input.runes) {
+    final ch = String.fromCharCode(rune);
+    final index = arabicIndic.indexOf(ch);
+    buffer.write(index == -1 ? ch : index.toString());
+  }
+  return buffer.toString();
+}
+
+/// Parses and bounds-checks a leader-typed custom room length in days - the
+/// one function both CreateRoomSheet's and the Extend sheet's "Custom"
+/// duration chip funnel their TextField through (see each sheet's own
+/// duration section), so a day count means the same thing and is bounded
+/// the same way no matter which of the two screens it was typed into.
+///
+/// Returns null for anything that isn't a whole, positive day count within
+/// [minDays]..[maxDays] inclusive - empty/whitespace-only input, a decimal,
+/// a unit suffix ("45 days"), zero, a negative number, or a number over the
+/// cap - so every caller can treat "invalid" as one single case (disable
+/// submit / show an inline error) instead of re-deriving its own notion of
+/// what counts as a valid custom duration.
+///
+/// [maxDays] defaults to 365 (a full year) - generous enough for any real
+/// challenge (the longest preset, 90, is well inside it) without letting a
+/// stray extra digit (typing "3650" instead of "365") silently create a
+/// decade-long room. [minDays] defaults to 1: a room lasting less than a
+/// day isn't a fixed-length challenge, it's a same-day one, which is what
+/// [RoomDuration.open] is already for.
+int? parseCustomRoomDurationDays(
+  String raw, {
+  int minDays = 1,
+  int maxDays = 365,
+}) {
+  final trimmed = _normalizeDigits(raw).trim();
+  if (trimmed.isEmpty) return null;
+  final parsed = int.tryParse(trimmed);
+  if (parsed == null) return null;
+  if (parsed < minDays || parsed > maxDays) return null;
+  return parsed;
 }

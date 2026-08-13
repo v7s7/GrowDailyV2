@@ -38,12 +38,24 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
   // selection state.
   SquareState? _filter;
 
+  // Same transient, never-persisted treatment as _filter above — search text
+  // AND-combines with the state-type chip filter rather than replacing it,
+  // so "Failed" + "fajr" narrows to failed Fajr entries specifically.
+  final _searchController = TextEditingController();
+  String _query = '';
+
   static const List<SquareState?> _filterOptions = [
     null,
     SquareState.skipped,
     SquareState.failed,
     SquareState.bonus,
   ];
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,9 +68,30 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
     final habitById = {
       for (final h in ref.watch(habitListProvider)) h.id: h,
     };
-    final visible = _filter == null
+    final stateFiltered = _filter == null
         ? journal.entries
         : journal.entries.where((e) => e.state == _filter).toList();
+    final query = _query.trim().toLowerCase();
+    final visible = query.isEmpty
+        ? stateFiltered
+        : stateFiltered.where((e) {
+            final name = (habitById[e.habitId]?.localName(isAr) ??
+                    s.gridJournalDeletedHabit)
+                .toLowerCase();
+            return name.contains(query) || e.note.toLowerCase().contains(query);
+          }).toList();
+    // Same-day entries are already contiguous — grid_journal_notifier.dart
+    // sorts newest-day-first — so one linear pass buckets them under a
+    // single header each with no re-sort or key-based grouping needed.
+    final groups = <({DateTime day, List<GridJournalEntry> entries})>[];
+    for (final entry in visible) {
+      if (groups.isNotEmpty && groups.last.day.isSameDayAs(entry.day)) {
+        groups.last.entries.add(entry);
+      } else {
+        groups.add((day: entry.day, entries: [entry]));
+      }
+    }
+    final hasActiveSearch = query.isNotEmpty || _filter != null;
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -93,7 +126,7 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                   Expanded(
                     child: Center(
                       child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
+                        duration: GameMotion.standard,
                         child: Text(
                           monthLabel,
                           key: ValueKey(monthLabel),
@@ -117,6 +150,27 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                         : null,
                   ),
                 ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+              child: TextField(
+                controller: _searchController,
+                textInputAction: TextInputAction.search,
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  hintText: s.gridJournalSearchHint,
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
+                ),
               ),
             ),
             Padding(
@@ -159,7 +213,9 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                               children: [
                                 Center(
                                   child: Text(
-                                    s.gridJournalEmpty,
+                                    hasActiveSearch
+                                        ? s.gridJournalNoResults
+                                        : s.gridJournalEmpty,
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                         fontSize: 13, color: gp.textTert),
@@ -167,23 +223,34 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                                 ),
                               ],
                             )
-                          : ListView.separated(
+                          : ListView.builder(
                               physics: const AlwaysScrollableScrollPhysics(),
                               padding:
                                   const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                              itemCount: visible.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (_, i) {
-                                final entry = visible[i];
-                                return _JournalEntryCard(
-                                  entry: entry,
-                                  habitName: habitById[entry.habitId]
-                                      ?.localName(isAr),
-                                  isAr: isAr,
-                                  locale: locale,
-                                ).animate(delay: (i * 30).ms).fadeIn(
-                                    duration: 220.ms);
+                              itemCount: groups.length,
+                              itemBuilder: (_, gi) {
+                                final group = groups[gi];
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _DayHeader(day: group.day, locale: locale),
+                                    for (var i = 0;
+                                        i < group.entries.length;
+                                        i++) ...[
+                                      if (i != 0) const SizedBox(height: 8),
+                                      _JournalEntryCard(
+                                        entry: group.entries[i],
+                                        habitName: habitById[
+                                                group.entries[i].habitId]
+                                            ?.localName(isAr),
+                                        isAr: isAr,
+                                      )
+                                          .animate(delay: (i * 30).ms)
+                                          .fadeIn(duration: 220.ms),
+                                    ],
+                                  ],
+                                );
                               },
                             ),
                     ),
@@ -215,11 +282,11 @@ class _NavArrow extends StatelessWidget {
       child: Material(
         color: gp.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
           side: BorderSide(color: gp.border, width: 0.5),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
           onTap: onTap,
           child: SizedBox(
             width: 36,
@@ -250,14 +317,14 @@ class _FilterChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     return InkWell(
-      borderRadius: BorderRadius.circular(100),
+      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: GameMotion.quick,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? color.withOpacity(0.16) : gp.surface,
-          borderRadius: BorderRadius.circular(100),
+          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
           border: Border.all(
             color: selected ? color.withOpacity(0.5) : gp.border,
             width: selected ? 1.2 : 0.5,
@@ -286,13 +353,11 @@ class _JournalEntryCard extends StatelessWidget {
   /// doc comment) - falls back to S.gridJournalDeletedHabit below.
   final String? habitName;
   final bool isAr;
-  final String locale;
 
   const _JournalEntryCard({
     required this.entry,
     required this.habitName,
     required this.isAr,
-    required this.locale,
   });
 
   @override
@@ -312,7 +377,6 @@ class _JournalEntryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 width: 36,
@@ -326,29 +390,17 @@ class _JournalEntryCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      habitName ?? s.gridJournalDeletedHabit,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: habitName == null
-                            ? gp.textTert
-                            : gp.textPrimary,
-                        fontStyle: habitName == null
-                            ? FontStyle.italic
-                            : FontStyle.normal,
-                      ),
-                    ),
-                    Text(
-                      DateFormat('EEEE, MMM d', locale).format(entry.day),
-                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
-                    ),
-                  ],
+                child: Text(
+                  habitName ?? s.gridJournalDeletedHabit,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: habitName == null ? gp.textTert : gp.textPrimary,
+                    fontStyle:
+                        habitName == null ? FontStyle.italic : FontStyle.normal,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -357,7 +409,7 @@ class _JournalEntryCard extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: accent.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
                 child: Text(
                   isAr ? entry.state.labelAr : entry.state.label,
@@ -378,6 +430,38 @@ class _JournalEntryCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+// ─── Day header ──────────────────────────────────────────────────────────────
+
+/// One label per calendar day above that day's entries — replaces each
+/// card repeating its own full date (see _JournalEntryCard above). Entries
+/// arrive pre-grouped by day already (see GridJournalScreen.build's
+/// `groups`), so this only ever renders once per distinct day, not once
+/// per entry.
+class _DayHeader extends StatelessWidget {
+  final DateTime day;
+  final String locale;
+  const _DayHeader({required this.day, required this.locale});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final label =
+        day.isToday ? s.navToday : DateFormat('EEEE, MMM d', locale).format(day);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 14, 2, 8),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w800,
+          color: gp.textSec,
+        ),
       ),
     );
   }

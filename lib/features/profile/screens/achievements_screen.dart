@@ -52,7 +52,13 @@ class AchievementsScreen extends ConsumerWidget {
                 child: Container(
                   height: 130,
                   width: double.infinity,
-                  color: const Color(0xFFFEFAF0),
+                  // gp.surface, not a hardcoded cream hex — the PNG's own
+                  // background was baked-in cream, which only matched the
+                  // default Emerald & Gold preset's light mode and showed as
+                  // a mismatched box everywhere else (dark mode, any of the
+                  // other 10 presets). The PNG is now transparent, so this
+                  // banner correctly follows whichever preset/mode is active.
+                  color: gp.surface,
                   child: Image.asset(
                     'assets/images/achievement_celebration_burst.png',
                     fit: BoxFit.cover,
@@ -79,7 +85,7 @@ class AchievementsScreen extends ConsumerWidget {
                         horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: GameColors.gold.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(100),
+                      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                     ),
                     child: Text(
                       '${unlockedIds.length} / ${AchievementCatalog.all.length}',
@@ -191,7 +197,7 @@ class _FamilyCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: (mastered ? activeColor : gp.textTert)
                       .withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
                 child: Text(
                   '$unlockedCount/${tiers.length}',
@@ -271,7 +277,7 @@ class _FamilyCard extends StatelessWidget {
           if (!mastered) ...[
             const SizedBox(height: 8),
             ClipRRect(
-              borderRadius: BorderRadius.circular(100),
+              borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               child: LinearProgressIndicator(
                 value: progress,
                 backgroundColor: gp.border,

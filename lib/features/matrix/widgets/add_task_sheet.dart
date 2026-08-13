@@ -25,13 +25,16 @@ import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
 /// adds and — once you're finished — closes the sheet.
 ///
 /// Title-only by default, on purpose — that's the fast path and it stays
-/// exactly as fast as it's always been. "Add details" is an explicit,
-/// collapsed-by-default opt-in that reveals a description field, a
-/// reminder-time picker, and a voice-note recorder (Premium only; see
-/// voice_note_gate.dart) for whoever wants to attach more to *this* item
-/// before submitting it. Collapses back to the fast default after every
-/// submit, so choosing to add details once doesn't slow down the rest of a
-/// rapid multi-add — including the reminder: it's a per-item choice, not a
+/// exactly as fast as it's always been. The reminder picker sits right
+/// under the title field, always visible - setting a reminder is common
+/// enough (and easy to miss entirely once hidden) that it doesn't get an
+/// extra tap gating it the way heavier, rarer additions do. "Add details"
+/// is a separate, collapsed-by-default opt-in just for a description and a
+/// voice-note recorder (Premium only; see voice_note_gate.dart), for
+/// whoever wants to attach more to *this* item before submitting it.
+/// Collapses back to the fast default after every submit, so choosing to
+/// add details once doesn't slow down the rest of a rapid multi-add — and
+/// the reminder resets right along with it: it's a per-item choice, not a
 /// sticky one, so the next quick-added task starts with no reminder again.
 /// Editing details on a task already in the matrix happens from its pencil
 /// icon (see TaskDetailSheet) instead — this sheet is only ever about
@@ -143,6 +146,26 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     final description = _descCtrl.text.trim();
     final reminderAt = _reminderAt;
     HapticFeedback.mediumImpact();
+    // Requested *before* widget.onAdd — which schedules the actual OS
+    // notification synchronously inside MatrixNotifier.add — rather than
+    // after, as this previously did. Requesting only after scheduling had
+    // already happened meant a task's very first-ever reminder was
+    // scheduled while permission was still undetermined; flutter_local_
+    // notifications doesn't retroactively activate a notification that was
+    // submitted before permission existed, even once the user grants it a
+    // moment later. This was a real bug, not just a cosmetic ordering
+    // detail: it silently broke the first reminder anyone ever set from
+    // this sheet. Only awaited when this task actually carries a reminder,
+    // so a plain add (the common case) is untouched, and once permission
+    // has been decided once, every later call resolves near-instantly (the
+    // OS doesn't re-prompt), so this doesn't meaningfully slow down rapid
+    // multi-add either — same request-then-warn-on-false contract as
+    // _DailyReminderRow in notification_settings_screen.dart, just with the
+    // request landing before scheduling instead of after.
+    var granted = true;
+    if (reminderAt != null) {
+      granted = await NotificationService.instance.requestPermissions();
+    }
     widget.onAdd(
       text,
       description: description.isEmpty ? null : description,
@@ -164,20 +187,10 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       _detailsExpanded = false;
     });
     _focus.requestFocus();
-    // Checked after the task is already handed off and the UI's reset back
-    // to the fast-add state — actual scheduling happens unconditionally
-    // inside MatrixNotifier.add regardless of permission (flutter_local_
-    // notifications just silently won't display it if denied), so this is
-    // purely a courtesy warning, not a gate, and shouldn't hold up the next
-    // item in a rapid multi-add. Same request-then-warn-on-false contract
-    // as _DailyReminderRow in notification_settings_screen.dart.
-    if (reminderAt != null) {
-      final granted = await NotificationService.instance.requestPermissions();
-      if (!granted && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
-        );
-      }
+    if (reminderAt != null && !granted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
+      );
     }
   }
 
@@ -314,7 +327,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     final canSubmit = (_hasText || _addedTitles.isNotEmpty) && !_recording;
     return AnimatedPadding(
-      duration: const Duration(milliseconds: 200),
+      duration: GameMotion.standard,
       curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
       child: Container(
@@ -347,7 +360,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
                       color: _color.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(100),
+                      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -387,7 +400,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 decoration: BoxDecoration(
                   color: gp.surfaceHL,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
                   border: Border.all(color: gp.border, width: 0.5),
                 ),
                 child: TextField(
@@ -416,6 +429,20 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                     contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                 ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            // Always visible, unlike description/voice notes below - see
+            // this class's own doc comment for why the reminder specifically
+            // doesn't wait for "Add details".
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: ReminderRow(
+                value: _reminderAt,
+                color: _color,
+                isAr: isAr,
+                onTap: _pickReminder,
+                onClear: () => setState(() => _reminderAt = null),
               ),
             ),
             const SizedBox(height: 8),
@@ -486,17 +513,6 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                           const EdgeInsets.symmetric(vertical: 10),
                     ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: ReminderRow(
-                  value: _reminderAt,
-                  color: _color,
-                  isAr: isAr,
-                  onTap: _pickReminder,
-                  onClear: () => setState(() => _reminderAt = null),
                 ),
               ),
               const SizedBox(height: 10),
@@ -580,7 +596,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                     foregroundColor: canSubmit ? Colors.black : gp.textTert,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
+                        borderRadius: BorderRadius.circular(GameSpacing.cardRadius)),
                   ),
                   onPressed: canSubmit ? _submit : null,
                   child: Text(showDone ? s.matrixDone : s.matrixAddTask,
@@ -614,7 +630,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                             horizontal: 12, vertical: 10),
                         decoration: BoxDecoration(
                           color: _color.withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                         ),
                         child: Row(
                           children: [
@@ -681,14 +697,14 @@ class MicRecordButton extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
+          duration: GameMotion.quick,
           padding: EdgeInsets.symmetric(
               horizontal: recording ? 10 : 8, vertical: 8),
           decoration: BoxDecoration(
             color: recording
                 ? GameColors.error.withOpacity(0.14)
                 : color.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(100),
+            borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

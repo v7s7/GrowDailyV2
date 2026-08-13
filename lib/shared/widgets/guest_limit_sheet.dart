@@ -14,6 +14,9 @@ void showGuestLimitSheet(BuildContext context, WidgetRef ref) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Without this, the sheet ignores the iPhone home-indicator inset and
+    // its footer button can render flush with (or under) the gesture bar.
+    useSafeArea: true,
     builder: (_) => const _GuestLimitSheet(),
   );
 }
@@ -42,7 +45,7 @@ class _GuestLimitSheet extends ConsumerWidget {
               height: 4,
               decoration: BoxDecoration(
                 color: gp.border,
-                borderRadius: BorderRadius.circular(100),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
             ),
             const SizedBox(height: 22),
@@ -73,7 +76,37 @@ class _GuestLimitSheet extends ConsumerWidget {
               style: TextStyle(fontSize: 14, color: gp.textSec, height: 1.4),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 14),
+            // The durability fact, stated where it's actually actionable -
+            // see S.guestDataWarning. Given its own bordered panel rather
+            // than appended to the body text above so it reads as
+            // information about their data, not as more sales copy for the
+            // button underneath.
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: gp.surface,
+                borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+                border: Border.all(color: gp.border, width: 0.5),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 15, color: gp.textTert),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      s.guestDataWarning,
+                      style: TextStyle(
+                          fontSize: 12, color: gp.textSec, height: 1.45),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: FilledButton(

@@ -24,6 +24,14 @@ void main() {
     setUp(() async {
       tmp = await Directory.systemTemp.createTemp('habits_test_');
       Hive.init(tmp.path);
+      // All three boxes, exactly as main() opens them at boot. The app never
+      // runs with a subset: habitListProvider reaches settings (see
+      // catalogOverridesProvider, which layers a person's edits over a preset)
+      // and reaching an unopened box mid-test raced this temp directory being
+      // deleted. Opening what production opens is the honest fixture.
+      await Hive.openBox<dynamic>('box_settings');
+      await Hive.openBox<dynamic>('box_daily_logs');
+      await Hive.openBox<dynamic>('box_habits');
       container = ProviderContainer(
         overrides: [
           authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
@@ -96,8 +104,16 @@ void main() {
       expect(updated.frequencyType, HabitFrequencyType.weekly);
       expect(updated.frequencyTarget, 2);
       expect(updated.scheduledWeekdays, [DateTime.monday, DateTime.thursday]);
-      expect(updated.isScheduledFor(DateTime(2026, 7, 6)), isTrue); // Monday
-      expect(updated.isScheduledFor(DateTime(2026, 7, 8)), isFalse); // Wednesday
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final monday = today.add(
+        Duration(days: (DateTime.monday - today.weekday + 7) % 7),
+      );
+      expect(updated.isScheduledFor(monday), isTrue);
+      expect(
+        updated.isScheduledFor(monday.add(const Duration(days: 2))),
+        isFalse,
+      );
     });
 
     test('update to a bare custom time (not a named prayer cue) round-trips',
@@ -145,8 +161,6 @@ void main() {
       expect(stored, isNot('المغرب'));
       expect(stored, isNot('Maghrib'));
     });
-
-
 
     test('add can create a quit/reduce goal with stable metadata', () async {
       final notifier = container.read(customHabitsProvider.notifier);
@@ -221,7 +235,8 @@ void main() {
         frequencyType: HabitFrequencyType.daily,
         frequencyTarget: 1,
       );
-      final ids = container.read(customHabitsProvider).map((h) => h.id).toList();
+      final ids =
+          container.read(customHabitsProvider).map((h) => h.id).toList();
 
       notifier.update(
         id: ids[0],

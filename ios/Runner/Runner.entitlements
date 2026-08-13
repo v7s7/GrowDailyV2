@@ -6,5 +6,14 @@
 	<array>
 		<string>group.com.growdaily.v2.widget</string>
 	</array>
+	<!-- Push Notifications capability - the same single entitlement Xcode's
+	     own "+ Capability > Push Notifications" button would add. "development"
+	     here is standard for a single shared entitlements file: Xcode's
+	     signing step re-resolves this against whichever provisioning profile
+	     is actually in play at archive/export time (a distribution profile
+	     yields a "production" aps-environment in the signed binary), so this
+	     source value doesn't need to be flipped by hand for a release build. -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>

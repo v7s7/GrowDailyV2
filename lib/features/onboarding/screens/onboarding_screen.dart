@@ -9,32 +9,33 @@ import '../../../core/theme/game_theme.dart';
 
 /// One slide's content: a small hand-built mock of the real UI element it
 /// introduces (language-neutral — icons and shapes only, so EN/AR need no
-/// separate art), a benefit-first title/body, and a "where to tap" hint
-/// naming the exact button/tab the slide is talking about.
+/// separate art) plus a benefit-first title/body.
 class _OnboardingPage {
   final Widget visual;
   final String title;
   final String body;
-  final IconData hintIcon;
-  final String hint;
   const _OnboardingPage({
     required this.visual,
     required this.title,
     required this.body,
-    required this.hintIcon,
-    required this.hint,
   });
 }
 
 /// Shown once per device, right after language + auth/guest are settled
 /// (see `_AuthGate` in main.dart) and before the very first Grid screen —
-/// five short pages walking a brand-new user through the core surfaces
-/// (Grid, habits, tasks, achievements, Rooms), each with a mock of the real
-/// UI and a pointer to where it lives, since they'd otherwise land cold on
+/// two short pages, each with a mock of the real UI, so nobody lands cold on
 /// a grid of empty squares with no context. Skippable at any point.
-/// Finishing (or skipping) marks [onboardingSeenProvider] true, which is
-/// what actually reveals the Grid — this screen doesn't navigate anywhere
-/// itself.
+///
+/// Its whole job is "what is this, and why would I come back" — deliberately
+/// NOT "how do I use it". The how is taught one step at a time by the Grid's
+/// Get Started checklist, at the moment each step is actually being taken.
+/// See the note above [pages] in build() for why this stopped being four
+/// slides, and main.dart for why finishing no longer throws the App Guide on
+/// top of the Grid as well.
+///
+/// Finishing (or skipping) marks [onboardingSeenProvider] true, which is what
+/// actually reveals the Grid. This screen never navigates anywhere itself;
+/// _OnboardingOrGrid in main.dart owns that.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -52,14 +53,26 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     super.dispose();
   }
 
+  // Shared by the last page's "Get Started" button and the Skip button —
+  // both mean "onboarding is over" for this device.
+  //
+  // This used to also queue a one-time auto-open of the App Guide screen,
+  // which landed on top of the Grid moments after the person got there. It
+  // no longer does: the Grid's own Get Started checklist is the single
+  // first-run teacher now, and the guide waits in Settings for whoever wants
+  // it. See the note where main.dart used to consume that flag.
+  void _finish() {
+    markOnboardingSeen(ref);
+  }
+
   void _next(int pageCount) {
     HapticFeedback.selectionClick();
     if (_page == pageCount - 1) {
-      markOnboardingSeen(ref);
+      _finish();
       return;
     }
     _controller.nextPage(
-      duration: const Duration(milliseconds: 320),
+      duration: GameMotion.slow,
       curve: Curves.easeOutCubic,
     );
   }
@@ -68,41 +81,34 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    // Two slides, not four. This used to walk through Grid, Habits, Tasks
+    // and Rooms before anyone had touched anything — and then the Grid
+    // repeated the same ground twice more (a dimming spotlight and the Get
+    // Started checklist, which said the same words as each other). Three
+    // teaching layers stacked in front of a person who had not yet done a
+    // single thing is what made the app feel complicated to start.
+    //
+    // What survives is the part a checklist cannot do: say what this app IS,
+    // and why it is worth coming back to.
+    //  - Grid: the whole idea in one picture. Its body already covers habits
+    //    ("Every habit you finish colors a square"), so the separate Habits
+    //    slide was restating it.
+    //  - Rooms: the reason to come back, and the one pillar the Get Started
+    //    checklist never mentions.
+    // Habits and Tasks are both taught at the moment of action instead, by
+    // that checklist — which is the more effective place for them anyway;
+    // see GetStartedChecklistCard's doc comment on why a tour gets skimmed
+    // and a first real action does not.
     final pages = [
       _OnboardingPage(
         visual: const _MockWeekRow(),
         title: s.onboardingGridTitle,
         body: s.onboardingGridBody,
-        hintIcon: Icons.grid_view_rounded,
-        hint: s.onboardingGridHint,
-      ),
-      _OnboardingPage(
-        visual: const _MockHabitCard(),
-        title: s.onboardingHabitsTitle,
-        body: s.onboardingHabitsBody,
-        hintIcon: Icons.add_rounded,
-        hint: s.onboardingHabitsHint,
-      ),
-      _OnboardingPage(
-        visual: const _MockMatrix(),
-        title: s.onboardingTasksTitle,
-        body: s.onboardingTasksBody,
-        hintIcon: Icons.view_quilt_rounded,
-        hint: s.onboardingTasksHint,
-      ),
-      _OnboardingPage(
-        visual: const _MockAchievements(),
-        title: s.onboardingAchievementsTitle,
-        body: s.onboardingAchievementsBody,
-        hintIcon: Icons.person_rounded,
-        hint: s.onboardingAchievementsHint,
       ),
       _OnboardingPage(
         visual: const _MockLeaderboard(),
         title: s.onboardingRoomsTitle,
         body: s.onboardingRoomsBody,
-        hintIcon: Icons.groups_rounded,
-        hint: s.onboardingRoomsHint,
       ),
     ];
     final isLast = _page == pages.length - 1;
@@ -119,7 +125,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 child: Opacity(
                   opacity: isLast ? 0 : 1,
                   child: TextButton(
-                    onPressed: isLast ? null : () => markOnboardingSeen(ref),
+                    onPressed: isLast ? null : _finish,
                     child: Text(s.onboardingSkip,
                         style: TextStyle(color: gp.textTert, fontSize: 13)),
                   ),
@@ -177,44 +183,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                             .animate(key: ValueKey('body-$i'), delay: 180.ms)
                             .fadeIn(duration: 400.ms)
                             .slideY(begin: 0.15, end: 0, curve: Curves.easeOut),
-                        const SizedBox(height: 18),
-                        // "Where to tap" — the one line that turns each
-                        // slide from a promise into a direction.
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 9),
-                          decoration: BoxDecoration(
-                            color: GameColors.gold.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(100),
-                            border: Border.all(
-                                color: GameColors.gold.withOpacity(0.35),
-                                width: 0.5),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.touch_app_rounded,
-                                  size: 14, color: GameColors.gold),
-                              const SizedBox(width: 6),
-                              Icon(page.hintIcon,
-                                  size: 14, color: GameColors.gold),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  page.hint,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: GameColors.gold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                            .animate(key: ValueKey('hint-$i'), delay: 260.ms)
-                            .fadeIn(duration: 400.ms)
-                            .slideY(begin: 0.2, end: 0, curve: Curves.easeOut),
                       ],
                     ),
                   );
@@ -226,7 +194,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               children: List.generate(
                 pages.length,
                 (i) => AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
+                  duration: GameMotion.relaxed,
                   margin: const EdgeInsets.symmetric(horizontal: 3),
                   width: i == _page ? 20 : 6,
                   height: 6,
@@ -246,7 +214,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   foregroundColor: Colors.black,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
+                      borderRadius: BorderRadius.circular(GameSpacing.cardRadius)),
                 ),
                 onPressed: () => _next(pages.length),
                 child: Text(
@@ -308,155 +276,7 @@ class _MockWeekRow extends StatelessWidget {
   }
 }
 
-/// Slide 2: a habit card in miniature — icon tile, name/subtitle bars, and
-/// the emerald action pill, mirroring HabitCard's real anatomy.
-class _MockHabitCard extends StatelessWidget {
-  const _MockHabitCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    Widget bar(double w, double h) => Container(
-          width: w,
-          height: h,
-          decoration: BoxDecoration(
-            color: gp.border,
-            borderRadius: BorderRadius.circular(h / 2),
-          ),
-        );
-    return Container(
-      width: 270,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: gp.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: gp.border, width: 0.5),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: GameColors.gold.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child:
-                Icon(Icons.auto_stories_rounded, size: 19, color: GameColors.gold),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                bar(90, 9),
-                const SizedBox(height: 7),
-                bar(56, 7),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-            decoration: BoxDecoration(
-              color: GameColors.emerald,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.check_rounded,
-                size: 15, color: Colors.white),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Slide 3: the Goals Matrix's four quadrants as colored icon tiles —
-/// do-first, schedule, delegate, later.
-class _MockMatrix extends StatelessWidget {
-  const _MockMatrix();
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    Widget tile(IconData icon, Color color) => Container(
-          width: 62,
-          height: 52,
-          margin: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: color.withOpacity(gp.dark ? 0.16 : 0.12),
-            borderRadius: BorderRadius.circular(13),
-            border: Border.all(color: color.withOpacity(0.4), width: 0.5),
-          ),
-          child: Icon(icon, size: 21, color: color),
-        );
-    // Colors mirror MatrixQuadrant.defaultColor exactly (doFirst=error,
-    // schedule=iconXp, delegate=iconStreak, eliminate=textTertiary) so the
-    // mock matches what the Tasks screen will actually look like.
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            tile(Icons.bolt_rounded, GameColors.error),
-            tile(Icons.event_rounded, GameColors.iconXp),
-          ],
-        ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            tile(Icons.group_rounded, GameColors.iconStreak),
-            tile(Icons.delete_outline_rounded, GameColors.textTertiary),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-/// Slide 4: a trophy badge flanked by an XP chip and a gold chip — the
-/// reward loop in one image.
-class _MockAchievements extends StatelessWidget {
-  const _MockAchievements();
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    Widget chip(IconData icon, Color color) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: gp.surface,
-            borderRadius: BorderRadius.circular(100),
-            border: Border.all(color: color.withOpacity(0.45), width: 0.5),
-          ),
-          child: Icon(icon, size: 17, color: color),
-        );
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        chip(Icons.bolt_rounded, GameColors.iconXp),
-        const SizedBox(width: 14),
-        Container(
-          width: 84,
-          height: 84,
-          decoration: BoxDecoration(
-            color: GameColors.gold.withOpacity(0.14),
-            shape: BoxShape.circle,
-            border:
-                Border.all(color: GameColors.gold.withOpacity(0.5), width: 1),
-          ),
-          child:
-              Icon(Icons.emoji_events_rounded, size: 40, color: GameColors.gold),
-        ),
-        const SizedBox(width: 14),
-        chip(Icons.local_fire_department_rounded, GameColors.iconStreak),
-      ],
-    );
-  }
-}
-
-/// Slide 5: a three-row leaderboard — crowned leader, streak flames — the
+/// Slide 2: a three-row leaderboard — crowned leader, streak flames — the
 /// Rooms pitch without a word of text.
 class _MockLeaderboard extends StatelessWidget {
   const _MockLeaderboard();
@@ -471,7 +291,7 @@ class _MockLeaderboard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: gp.surface,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
           border: Border.all(
             color: crowned ? GameColors.gold.withOpacity(0.5) : gp.border,
             width: crowned ? 1 : 0.5,

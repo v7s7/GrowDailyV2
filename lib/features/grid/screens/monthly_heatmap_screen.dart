@@ -269,6 +269,28 @@ class _MonthSection extends StatelessWidget {
     // Sat-first convention (same trick NightReviewHistoryScreen uses).
     final leading = month.difference(startOfGridWeek(month)).inDays;
 
+    // Sections stack newest-month-on-top (_visibleMonths), so left as plain
+    // day-1-to-N order this block would fight that: day 1 at the *top* of
+    // July's card reads forward in time, while July's card sitting above
+    // June's reads backward — two directions stacked on each other. Flip
+    // whole calendar *weeks* here (not individual days, which would shuffle
+    // which weekday column a day sits in under _WeekdayHeaderRow) so the
+    // most recent week of the month is the top row and the first week is
+    // the bottom row. That makes every direction on this screen agree:
+    // newest is always up, oldest is always down, top of the list to the
+    // bottom — today included, which is why it never needs a scroll.
+    final cells = <int?>[
+      for (var i = 0; i < leading; i++) null,
+      for (var d = 1; d <= daysInMonth; d++) d,
+    ];
+    while (cells.length % 7 != 0) {
+      cells.add(null);
+    }
+    final weeks = <List<int?>>[
+      for (var i = 0; i < cells.length; i += 7) cells.sublist(i, i + 7),
+    ];
+    final reversedDays = weeks.reversed.expand((week) => week).toList();
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -298,7 +320,7 @@ class _MonthSection extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: GameColors.emerald.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(100),
+                    borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -329,9 +351,11 @@ class _MonthSection extends StatelessWidget {
             mainAxisSpacing: 4,
             crossAxisSpacing: 4,
             children: [
-              for (var i = 0; i < leading; i++) const SizedBox.shrink(),
-              for (var d = 1; d <= daysInMonth; d++)
-                _dayCell(DateTime(month.year, month.month, d)),
+              for (final d in reversedDays)
+                if (d == null)
+                  const SizedBox.shrink()
+                else
+                  _dayCell(DateTime(month.year, month.month, d)),
             ],
           ),
         ],
@@ -700,7 +724,7 @@ class _OutcomeRow extends StatelessWidget {
                   const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: accent.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(100),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
               child: Text(
                 s.isAr ? state.labelAr : state.label,

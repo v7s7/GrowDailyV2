@@ -13,6 +13,21 @@ import '../../settings/notifiers/notification_settings_notifier.dart'
     show notificationSettingsProvider;
 import '../models/matrix_task.dart';
 
+/// Parses a `growdaily://matrix/add` deep link — the Matrix home-screen
+/// widget's "+" button (see ios/GrowDailyWidget/GrowDailyWidget.swift's
+/// MatrixQuickAddLink) — so tapping it jumps straight to Matrix with the
+/// Add Task sheet already open instead of just opening the app to whatever
+/// it last showed. Same shape/reasoning as rooms_notifier.dart's
+/// parseRoomJoinLink: a malformed link, or a link some other feature/OS
+/// handler hands this app for an unrelated reason, is just ignored rather
+/// than force-fit into anything. See main.dart's AppLinks wiring, the only
+/// caller.
+bool isMatrixQuickAddLink(Uri uri) =>
+    uri.scheme.toLowerCase() == 'growdaily' &&
+    uri.host.toLowerCase() == 'matrix' &&
+    uri.pathSegments.isNotEmpty &&
+    uri.pathSegments.first.toLowerCase() == 'add';
+
 /// Pure decision logic behind [MatrixNotifier._syncReminderSchedule] — kept
 /// as a standalone top-level function, same reasoning as rooms_notifier.
 /// dart's nextLeaderAfter: the conditions that gate whether a task's
@@ -33,6 +48,15 @@ bool shouldScheduleTaskReminder(
       reminderAt.isAfter(now ?? DateTime.now()) &&
       masterEnabled;
 }
+
+// Hive settings-box key for "task id -> the ISO8601 reminderAt this task's
+// overdue catch-up notification has already fired for" - see
+// MatrixNotifier._fireOverdueReminderOnce's own doc comment for the
+// duplicate-notification bug this guards against. One shared map
+// (taskId -> reminderAt string), matching LocalStoreService's existing
+// whole-map-per-key shape (see rooms_hub_screen.dart's
+// _roomNotifiedHabitCountsKey for the same pattern applied to Rooms).
+const _overdueTaskReminderFiredKey = 'matrixOverdueTaskReminderFired';
 
 class MatrixState {
   final List<MatrixTask> tasks;
@@ -153,6 +177,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
           quadrantTitles: quadrantTitles,
           quadrantColors: quadrantColors,
         );
+        _resyncAllReminders(tasks);
       } else if (mounted) {
         // Task list load was superseded by a mutation, but the quadrant
         // settings we just read may still be worth keeping.
@@ -212,6 +237,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
         quadrantTitles: quadrantTitles,
         quadrantColors: quadrantColors,
       );
+      _resyncAllReminders(tasks);
     } catch (_) {
       if (mounted && !_mutatedBeforeLoad) {
         state = MatrixState(
@@ -223,6 +249,45 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       }
     }
   }
+
+  /// Re-derives every task's local-notification schedule right after a
+  /// fresh load — cold start (or sign-in) is exactly when a reminder that
+  /// was due while the app was closed gets its chance to catch up (see
+  /// [_syncReminderSchedule]'s overdue branch), the same "resync everything
+  /// on load, don't just trust whatever was scheduled last time" pattern
+  /// main.dart's _recomputeNotifications already applies to every other
+  /// notification type in this app. Cheap even with many tasks — each call
+  /// is a local plugin call, not a network round trip.
+  ///
+  /// Passes every task with a [MatrixTask.reminderAt] through, done or not
+  /// — [_syncReminderSchedule] itself already decides schedule/catch-up/
+  /// cancel from the task's full state, so filtering here too would just
+  /// be a second, easy-to-drift-out-of-sync copy of that same decision.
+  /// This is also what guarantees a stale schedule left over from a
+  /// completion whose cancel call silently failed still gets cleaned up on
+  /// the very next load, instead of that gap only ever closing if the task
+  /// happens to be touched again.
+  void _resyncAllReminders(List<MatrixTask> tasks) {
+    for (final task in tasks) {
+      if (task.reminderAt != null) {
+        _syncReminderSchedule(task);
+      }
+    }
+  }
+
+  /// Public entry point for the exact same resync, called from
+  /// main.dart's `_recomputeNotifications` on every app resume — not just
+  /// the cold-start/sign-in call above. Every other reminder type in this
+  /// app already gets re-derived on resume (see that method's own doc
+  /// comment on why every trigger path should produce the same result);
+  /// Matrix reminders previously didn't, which meant a reminder that
+  /// silently failed to schedule earlier (denied notification permission,
+  /// since granted from system Settings; or a transient plugin error) had
+  /// no way to self-heal short of the user manually re-touching that exact
+  /// task. Reads `state.tasks` fresh rather than taking a parameter, since
+  /// callers outside this notifier have no other way to get the current
+  /// list.
+  void resyncReminders() => _resyncAllReminders(state.tasks);
 
   Future<void> _saveGuest() async {
     final box = await LocalStoreService.settingsBox();
@@ -296,10 +361,9 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     _persist(updated);
     // Completing a task cancels its pending reminder (no point being
     // notified about something already finished); un-completing it resumes
-    // one — but only if it's still in the future, see
-    // _syncReminderSchedule's own doc comment for why a past reminderAt
-    // deliberately isn't auto-rolled forward the way a habit's recurring
-    // clock time is.
+    // one — a still-future reminderAt just reschedules normally, and a
+    // past one fires an immediate catch-up rather than staying silent, see
+    // _syncReminderSchedule's own doc comment.
     _syncReminderSchedule(updated);
     if (firstTimeDone) {
       _ref.read(dashboardProvider.notifier).awardBonus(
@@ -640,16 +704,26 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   }
 
   /// The one place that decides whether [task] should actually have a
-  /// live local-notification schedule right now (see
-  /// [shouldScheduleTaskReminder] for exactly which conditions that takes),
-  /// and makes it so — called after every mutation that could change the
-  /// answer: [add], [toggle], [setReminder], [restore]/[restoreMany]
-  /// ([delete]/[deleteMany] instead call NotificationService.
+  /// live local-notification schedule right now, and makes it so — called
+  /// after every mutation that could change the answer: [add], [toggle],
+  /// [setReminder], [restore]/[restoreMany], and [_resyncAllReminders] on
+  /// every fresh load ([delete]/[deleteMany] instead call NotificationService.
   /// cancelTaskReminder directly, since there's no task left to reason
-  /// about by that point). Cancels whenever the answer is no — clearing a
-  /// stale schedule is always safe/cheap even when nothing was actually
-  /// scheduled (see NotificationService.cancelTaskReminder's own doc
-  /// comment).
+  /// about by that point). Three possible outcomes:
+  ///
+  /// - [shouldScheduleTaskReminder] says yes (reminderAt is still in the
+  ///   future, task open, notifications on) → scheduled normally.
+  /// - reminderAt already passed, but the task is still open and
+  ///   notifications are still on → fires an immediate catch-up instead of
+  ///   staying silent (see NotificationService.fireOverdueTaskReminder) —
+  ///   deliberately different from a habit's recurring cue, which just
+  ///   rolls forward to its next occurrence; a task reminder has no "next
+  ///   occurrence," so "catch up now" is the closest equivalent to "don't
+  ///   let a missed reminder just vanish."
+  /// - Anything else (no reminderAt, task done, or notifications off
+  ///   entirely) → cancelled. Clearing a stale schedule is always
+  ///   safe/cheap even when nothing was actually scheduled (see
+  ///   NotificationService.cancelTaskReminder's own doc comment).
   ///
   /// Deliberately fire-and-forget (`.ignore()`'d), same as every Firestore/
   /// Hive write [_persist] itself already makes: every caller here is
@@ -669,18 +743,64 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// for why.
   void _syncReminderSchedule(MatrixTask task) {
     final masterEnabled = _ref.read(notificationSettingsProvider).masterEnabled;
-    if (!shouldScheduleTaskReminder(task, masterEnabled: masterEnabled)) {
-      NotificationService.instance.cancelTaskReminder(task.id).ignore();
+    final reminderAt = task.reminderAt;
+    final isAr = _ref.read(localeProvider).languageCode == 'ar';
+
+    if (shouldScheduleTaskReminder(task, masterEnabled: masterEnabled)) {
+      NotificationService.instance
+          .scheduleTaskReminder(
+            id: task.id,
+            taskTitle: task.title,
+            fireTime: reminderAt!,
+            isAr: isAr,
+          )
+          .ignore();
       return;
     }
-    NotificationService.instance
-        .scheduleTaskReminder(
-          id: task.id,
-          title: task.title,
-          fireTime: task.reminderAt!,
-          isAr: _ref.read(localeProvider).languageCode == 'ar',
-        )
-        .ignore();
+
+    final isOverdueButStillRelevant = reminderAt != null &&
+        !task.isDone &&
+        masterEnabled &&
+        !reminderAt.isAfter(DateTime.now());
+    if (isOverdueButStillRelevant) {
+      _fireOverdueReminderOnce(task, reminderAt!, isAr).ignore();
+      return;
+    }
+
+    NotificationService.instance.cancelTaskReminder(task.id).ignore();
+  }
+
+  /// Fires [NotificationService.fireOverdueTaskReminder] for [task] at most
+  /// once per distinct [reminderAt] - without this guard, a task reminder
+  /// that's already fired right on time still reads as "overdue and still
+  /// open" to every later resync ([_syncReminderSchedule] has no way to
+  /// tell "the OS already delivered this" apart from "this was silently
+  /// missed"), so simply reopening the app again afterward (or any other
+  /// _recomputeNotifications trigger - a habit/dashboard/grid change,
+  /// another setting flipped) would re-fire the exact same catch-up
+  /// notification a second, third, ... time for as long as the task stays
+  /// open. This is the duplicate a user actually reported seeing. Keyed by
+  /// [reminderAt]'s own ISO string, not just the task id, so picking a new
+  /// reminder time for the same task (which changes reminderAt) is still
+  /// free to catch up once on its own later if that one is ever missed too.
+  Future<void> _fireOverdueReminderOnce(
+    MatrixTask task,
+    DateTime reminderAt,
+    bool isAr,
+  ) async {
+    final stored =
+        await LocalStoreService.getSettingsMap(_overdueTaskReminderFiredKey);
+    final key = reminderAt.toIso8601String();
+    if (stored[task.id] == key) return;
+    await LocalStoreService.putSettingsMap(_overdueTaskReminderFiredKey, {
+      ...stored,
+      task.id: key,
+    });
+    await NotificationService.instance.fireOverdueTaskReminder(
+      id: task.id,
+      taskTitle: task.title,
+      isAr: isAr,
+    );
   }
 
   /// Renames and/or recolors a quadrant — the Edit Quadrant sheet's Save

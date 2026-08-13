@@ -1,15 +1,16 @@
 // The hour of day (0-23) before which a new calendar day hasn't "really"
 // started yet for the app's purposes — see [DateTimeGameExt.effectiveDay].
-// A fixed 3:00 AM cutoff (not user-configurable) was chosen as a middle
-// ground: generous enough to cover a habit like "read before bed" finished
-// well after midnight, without being so late that it eats into a normal
-// next-morning routine. Every place in the app that decides "what day is
-// this for streaks/grid squares/logs" should go through effectiveDay (or
-// isToday/isYesterday below, which already do) instead of a raw calendar
-// date — that's what keeps a task finished at 12:40 AM counted as
-// belonging to the day that hadn't ended yet, rather than silently
-// skipped because the calendar quietly rolled over at midnight.
-const int kDayCutoffHour = 3;
+// A fixed 6:00 AM cutoff (not user-configurable) was chosen as a middle
+// ground: generous enough to cover someone who doesn't go to sleep until
+// 3 or 4 AM and still wants last night's habits to count, without being so
+// late that it eats into a normal next-morning routine. Every place in the
+// app that decides "what day is this for streaks/grid squares/logs" should
+// go through effectiveDay (or isToday/isYesterday below, which already do)
+// instead of a raw calendar date — that's what keeps a task finished at
+// 4:40 AM counted as belonging to the day that hadn't ended yet, rather
+// than silently skipped because the calendar quietly rolled over at
+// midnight.
+const int kDayCutoffHour = 6;
 
 extension DateTimeGameExt on DateTime {
   /// Returns 'YYYY-MM-DD' key used as Firestore document IDs for daily logs.
@@ -67,14 +68,32 @@ extension DateTimeGameExt on DateTime {
     return startOfDay.subtract(Duration(days: daysFromMonday));
   }
 
+  /// The start of the SATURDAY week containing this date - the week this app
+  /// actually shows people, matching the Grid screen's own columns and the
+  /// Gulf working week. The single definition of "this week" for anything a
+  /// user sees, so use this rather than [startOfWeek] for anything
+  /// user-facing.
+  ///
+  /// [startOfWeek] (Monday, ISO) is kept for genuinely calendar-standard
+  /// needs, but the two must never both be used to answer the same question:
+  /// the Rooms weekly-quota rule once bucketed by Monday while the Grid drew
+  /// Saturday weeks, so "4 times this week" silently meant a different seven
+  /// days than the week the person was looking at. startOfGridWeek
+  /// (weekly_grid_notifier.dart) delegates here so there is exactly one
+  /// Saturday-week rule in the codebase.
+  DateTime get startOfDisplayWeek {
+    final daysFromSaturday = (weekday - DateTime.saturday + 7) % 7;
+    return startOfDay.subtract(Duration(days: daysFromSaturday));
+  }
+
   /// The "app day" this moment belongs to — a plain midnight-aligned
   /// DateTime, exactly like [startOfDay], except the boundary between one
   /// day and the next sits at [kDayCutoffHour] instead of midnight.
   ///
   /// Concretely: subtracting the cutoff and then taking that moment's
   /// startOfDay rolls anything before the cutoff back onto the previous
-  /// calendar date automatically (00:00–02:59 becomes "yesterday" at the
-  /// default 3-hour cutoff), while anything at or after the cutoff is
+  /// calendar date automatically (00:00–05:59 becomes "yesterday" at the
+  /// default 6-hour cutoff), while anything at or after the cutoff is
   /// unaffected. Call this instead of raw `DateTime.now()` (or `.startOfDay`
   /// on it) anywhere the app is deciding which day "today" currently is —
   /// streak keys, grid/log date keys, the current week/month, habit

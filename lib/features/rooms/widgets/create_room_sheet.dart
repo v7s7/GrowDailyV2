@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/services/share_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../habits/widgets/add_habit_sheet.dart';
 import '../models/room_model.dart';
 import '../notifiers/rooms_notifier.dart';
 
-/// The available room lengths, in days - covers the full "90 days, or less,
-/// or unlimited" range asked for without a free-text number field, matching
-/// every other quick-pick control in the app (see AddHabitSheet's frequency
-/// chips). [null] means no end date.
+/// The quick-pick room lengths, in days - the common cases every leader
+/// reaches for at a glance, matching every other quick-pick control in the
+/// app (see AddHabitSheet's frequency chips). [null] means no end date.
+/// Anything outside this list (a Ramadan-specific 29 days, a full-year 365)
+/// still reaches RoomModel via the "Custom" chip below (see
+/// _CreateRoomSheetState's _customDurationSelected/_customDurationCtrl and
+/// RoomModel.parseCustomRoomDurationDays) - these five options deliberately
+/// don't try to enumerate every case, Custom is what covers the rest.
 const List<int?> _lengthOptions = [7, 14, 30, 90, null];
 
 /// Opens the Create Room sheet and resolves to the new room's code once
@@ -41,7 +47,14 @@ class CreateRoomSheet extends ConsumerStatefulWidget {
 class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
   final _nameCtrl = TextEditingController();
   RoomHabitMode _habitMode = RoomHabitMode.shared;
+  RoomCompeteMode _competeMode = RoomCompeteMode.competitive;
   int? _lengthDays = 14;
+  // Whether the "Custom" duration chip (rather than one of _lengthOptions)
+  // is the active choice - kept apart from _lengthDays itself so an empty
+  // or invalid custom field can never be mistaken for "open-ended picked"
+  // (both would otherwise read as null - see _effectiveLengthDays).
+  bool _customDurationSelected = false;
+  final _customDurationCtrl = TextEditingController();
   List<String> _ownHabitIds = [];
   List<String> _planHabitIds = [];
   bool _isSubmitting = false;
@@ -55,11 +68,27 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _customDurationCtrl.dispose();
     super.dispose();
   }
 
+  /// The custom field's current value, or null while it's empty/invalid -
+  /// see RoomModel.parseCustomRoomDurationDays for exactly what counts as
+  /// either. Only meaningful while [_customDurationSelected] is true.
+  int? get _customDurationDays =>
+      parseCustomRoomDurationDays(_customDurationCtrl.text);
+
+  /// What actually gets submitted: the typed-and-valid custom value while
+  /// Custom is selected, otherwise whichever [_lengthOptions] chip is
+  /// picked (including null for open-ended) - the one place that
+  /// reconciles the two mutually-exclusive duration inputs into a single
+  /// value, so [_submit] never has to know Custom exists at all.
+  int? get _effectiveLengthDays =>
+      _customDurationSelected ? _customDurationDays : _lengthDays;
+
   bool get _canSubmit {
     if (_nameCtrl.text.trim().isEmpty) return false;
+    if (_customDurationSelected && _customDurationDays == null) return false;
     if (_habitMode == RoomHabitMode.shared) {
       return _planHabitIds.isNotEmpty;
     }
@@ -84,12 +113,14 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
           name: _nameCtrl.text.trim(),
           habitMode: _habitMode,
           planHabitIds: _planHabitIds,
-          duration:
-              _lengthDays == null ? RoomDuration.open : RoomDuration.fixed,
-          lengthDays: _lengthDays,
+          duration: _effectiveLengthDays == null
+              ? RoomDuration.open
+              : RoomDuration.fixed,
+          lengthDays: _effectiveLengthDays,
           leaderLinkedHabitIds: resolvedOwnHabits.map((h) => h.id).toList(),
           leaderLinkedHabitNames:
               resolvedOwnHabits.map((h) => h.name).toList(),
+          competeMode: _competeMode,
         );
     if (!mounted) return;
     if (code == null) {
@@ -186,6 +217,30 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                     ),
                   ),
                   const SizedBox(height: 18),
+                  _SectionLabel(s.roomCompeteModeLabel),
+                  const SizedBox(height: 8),
+                  _ModeCard(
+                    icon: Icons.leaderboard_rounded,
+                    title: s.roomCompeteModeCompetitive,
+                    subtitle: s.roomCompeteModeCompetitiveHint,
+                    selected: _competeMode == RoomCompeteMode.competitive,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _competeMode = RoomCompeteMode.competitive);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _ModeCard(
+                    icon: Icons.diversity_3_rounded,
+                    title: s.roomCompeteModeTeam,
+                    subtitle: s.roomCompeteModeTeamHint,
+                    selected: _competeMode == RoomCompeteMode.team,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _competeMode = RoomCompeteMode.team);
+                    },
+                  ),
+                  const SizedBox(height: 18),
                   _SectionLabel(s.roomHabitModeLabel),
                   const SizedBox(height: 8),
                   _ModeCard(
@@ -219,6 +274,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                     _PlanHabitPicker(
                       selectedIds: _planHabitIds,
                       onChanged: (ids) => setState(() => _planHabitIds = ids),
+                      isSharedTemplate: true,
                     ),
                     if (_planHabitIds.isNotEmpty) ...[
                       const SizedBox(height: 6),
@@ -253,18 +309,54 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: _lengthOptions.map((days) {
-                      final selected = _lengthDays == days;
-                      return _DurationChip(
-                        label: days == null ? s.roomDurationOpenEnded : s.daysCount(days),
-                        selected: selected,
+                    children: [
+                      for (final days in _lengthOptions)
+                        _DurationChip(
+                          label: days == null
+                              ? s.roomDurationOpenEnded
+                              : s.daysCount(days),
+                          selected:
+                              !_customDurationSelected && _lengthDays == days,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() {
+                              _customDurationSelected = false;
+                              _lengthDays = days;
+                            });
+                          },
+                        ),
+                      _DurationChip(
+                        label: s.roomDurationCustomOption,
+                        selected: _customDurationSelected,
                         onTap: () {
                           HapticFeedback.selectionClick();
-                          setState(() => _lengthDays = days);
+                          setState(() => _customDurationSelected = true);
                         },
-                      );
-                    }).toList(),
+                      ),
+                    ],
                   ),
+                  // Only shown once Custom is picked - a plain number field
+                  // rather than a dialog, same "chip reveals a field inline"
+                  // pattern as AddHabitSheet's LimitUnit.custom/reminder-lead
+                  // Custom option, so this doesn't introduce a new mechanic
+                  // for a user who's already met the pattern elsewhere.
+                  if (_customDurationSelected) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _customDurationCtrl,
+                      autofocus: true,
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        labelText: s.roomDurationCustomHint,
+                        helperText: s.roomDurationCustomRange,
+                        errorText: _customDurationCtrl.text.trim().isEmpty ||
+                                _customDurationDays != null
+                            ? null
+                            : s.roomDurationCustomInvalid,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -332,7 +424,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               decoration: BoxDecoration(
                 color: gp.surface,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
                 border: Border.all(color: GameColors.gold.withOpacity(0.4)),
               ),
               child: Text(
@@ -369,9 +461,10 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                   child: FilledButton.icon(
                     onPressed: () {
                       HapticFeedback.selectionClick();
-                      SharePlus.instance.share(ShareParams(
-                        text: s.roomShareMessage(_nameCtrl.text.trim(), code),
-                      ));
+                      ShareService.shareText(
+                        context,
+                        s.roomShareMessage(_nameCtrl.text.trim(), code),
+                      );
                     },
                     icon: const Icon(Icons.ios_share_rounded, size: 16),
                     label: Text(s.roomShareAction),
@@ -424,7 +517,7 @@ class _ModeCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: GameMotion.quick,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: selected ? GameColors.gold.withOpacity(0.1) : gp.surface,
@@ -471,6 +564,14 @@ class _ModeCard extends StatelessWidget {
   }
 }
 
+/// One quick-pick or Custom duration pill. Sized to a minimum 44x44 tap
+/// target (Apple HIG's floor for a comfortably-tappable control) via
+/// [BoxConstraints] rather than by inflating the font, so "7 Days" and a
+/// longer localized label like "No end date" - or a custom value the field
+/// below produces - all stay the same comfortable height instead of
+/// drifting with whatever text happens to be inside. Wrap (the only place
+/// this is ever laid out) already sizes each pill to its own intrinsic
+/// width, so nothing here needs to truncate or wrap text.
 class _DurationChip extends StatelessWidget {
   final String label;
   final bool selected;
@@ -481,20 +582,23 @@ class _DurationChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     return InkWell(
-      borderRadius: BorderRadius.circular(100),
+      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        duration: GameMotion.quick,
+        constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(
           color: selected ? GameColors.gold.withOpacity(0.14) : gp.surface,
-          borderRadius: BorderRadius.circular(100),
+          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
           border: Border.all(
             color: selected ? GameColors.gold : gp.border,
             width: selected ? 1.1 : 0.8,
           ),
         ),
         child: Text(label,
+            textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
@@ -515,59 +619,151 @@ class _DurationChip extends StatelessWidget {
 /// catalog-+-custom list Grid/AddHabitSheet already show, so this is
 /// exactly the habit list this person already recognizes from
 /// everywhere else in the app.
-class _PlanHabitPicker extends ConsumerWidget {
+class _PlanHabitPicker extends ConsumerStatefulWidget {
   final List<String> selectedIds;
   final ValueChanged<List<String>> onChanged;
-  const _PlanHabitPicker({required this.selectedIds, required this.onChanged});
+  final bool isSharedTemplate;
+  const _PlanHabitPicker({
+    required this.selectedIds,
+    required this.onChanged,
+    this.isSharedTemplate = false,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final gp = context.gp;
-    final s = S.of(context);
-    final habits = ref.watch(habitListProvider);
-    if (habits.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: gp.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: gp.border, width: 0.5),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline_rounded, size: 16, color: gp.textTert),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(s.roomNoHabitsYet,
-                  style: TextStyle(fontSize: 12.5, color: gp.textSec)),
-            ),
-          ],
+  ConsumerState<_PlanHabitPicker> createState() => _PlanHabitPickerState();
+}
+
+class _PlanHabitPickerState extends ConsumerState<_PlanHabitPicker> {
+  // Most-recently-created id first - purely a display-order nicety local to
+  // this one picker instance (switching between shared/own mode swaps in a
+  // whole new _PlanHabitPicker anyway, so this never needs to survive that).
+  // Selection state itself still lives in widget.selectedIds/onChanged, same
+  // as ever - this only decides where a freshly created habit renders in
+  // the list so it's obviously right there instead of wherever
+  // habitListProvider's own order happens to put it.
+  final List<String> _justCreatedIds = [];
+
+  Future<void> _createNew() async {
+    HapticFeedback.selectionClick();
+    final created = await showModalBottomSheet<IslamicHabitTemplate>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (_) => const AddHabitSheet(),
+    );
+    if (created == null || !mounted) return;
+    final others =
+        ref.read(habitListProvider).where((h) => h.id != created.id).toList();
+    final match = suggestExistingMatch(created.name, others);
+    if (match != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(S.of(context).roomPossibleDuplicateWarning(match.name)),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         ),
       );
     }
-    return Container(
-      decoration: BoxDecoration(
-        color: gp.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: gp.border, width: 0.5),
-      ),
-      child: Column(
-        children: [
-          for (var i = 0; i < habits.length; i++) ...[
-            if (i != 0) Divider(height: 1, color: gp.border),
-            _PlanHabitRow(
-              name: habits[i].name,
-              selected: selectedIds.contains(habits[i].id),
-              onTap: () {
-                HapticFeedback.selectionClick();
-                final next = [...selectedIds];
-                if (!next.remove(habits[i].id)) next.add(habits[i].id);
-                onChanged(next);
-              },
+    setState(() => _justCreatedIds.insert(0, created.id));
+    widget.onChanged([...widget.selectedIds, created.id]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final allHabits = ref.watch(habitListProvider);
+    final habitById = {for (final h in allHabits) h.id: h};
+    // Anything in _justCreatedIds (newest first) leads, then everything
+    // else in habitListProvider's own order - a plain reorder, nothing
+    // dropped or duplicated, so a stale id (habit deleted right after being
+    // created here, unlikely but not impossible) just quietly falls out via
+    // the null-filter below instead of crashing.
+    final ordered = [
+      for (final id in _justCreatedIds)
+        if (habitById[id] != null) habitById[id]!,
+      for (final h in allHabits)
+        if (!_justCreatedIds.contains(h.id)) h,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: _createNew,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            decoration: BoxDecoration(
+              color: GameColors.gold.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: GameColors.gold.withOpacity(0.4)),
             ),
-          ],
+            child: Row(
+              children: [
+                Icon(Icons.add_circle_rounded, size: 18, color: GameColors.gold),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(s.roomCreateNewHabitAction,
+                      style: TextStyle(
+                          fontSize: 13.5, fontWeight: FontWeight.w700, color: GameColors.gold)),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (widget.isSharedTemplate) ...[
+          const SizedBox(height: 6),
+          Text(s.roomCreateNewHabitSharedNote,
+              style: TextStyle(fontSize: 11, color: gp.textSec, height: 1.3)),
         ],
-      ),
+        const SizedBox(height: 10),
+        if (ordered.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: gp.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: gp.border, width: 0.5),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 16, color: gp.textTert),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(s.roomNoHabitsYet,
+                      style: TextStyle(fontSize: 12.5, color: gp.textSec)),
+                ),
+              ],
+            ),
+          )
+        else
+          Container(
+            decoration: BoxDecoration(
+              color: gp.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: gp.border, width: 0.5),
+            ),
+            child: Column(
+              children: [
+                for (var i = 0; i < ordered.length; i++) ...[
+                  if (i != 0) Divider(height: 1, color: gp.border),
+                  _PlanHabitRow(
+                    name: ordered[i].name,
+                    selected: widget.selectedIds.contains(ordered[i].id),
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      final next = [...widget.selectedIds];
+                      if (!next.remove(ordered[i].id)) next.add(ordered[i].id);
+                      widget.onChanged(next);
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -589,7 +785,7 @@ class _PlanHabitRow extends StatelessWidget {
         child: Row(
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
+              duration: GameMotion.quick,
               width: 20,
               height: 20,
               decoration: BoxDecoration(

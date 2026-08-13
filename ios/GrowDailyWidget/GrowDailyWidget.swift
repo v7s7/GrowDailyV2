@@ -67,6 +67,19 @@ extension Color {
     static let gdError = rgb(0xFF, 0x5A, 0x52)
 }
 
+/// Every widget face's background - a subtle vertical gradient standing in
+/// for what used to be a flat Color.gdBg fill everywhere. Runs gdSurface
+/// (already this palette's "one step up from bg" tone, used elsewhere for
+/// inset rows/dividers) into gdBg itself, so it reads as gentle depth
+/// rather than a new color. Deliberately understated - a widget sits on
+/// top of the user's own wallpaper, and a strong gradient would fight that
+/// far more than the old flat fill ever did.
+struct WidgetGradientBackground: View {
+    var body: some View {
+        LinearGradient(colors: [.gdSurface, .gdBg], startPoint: .top, endPoint: .bottom)
+    }
+}
+
 // MARK: - Shared data models
 
 struct TodayHabit: Codable, Identifiable {
@@ -455,7 +468,7 @@ struct GrowDailySmallView: View {
             }
         }
         .padding()
-        .containerBackground(for: .widget) { Color.gdBg }
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
     }
 }
 
@@ -500,7 +513,7 @@ struct GrowDailyMediumView: View {
             Spacer(minLength: 0)
         }
         .padding()
-        .containerBackground(for: .widget) { Color.gdBg }
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
     }
 }
 
@@ -573,7 +586,7 @@ struct GrowDailyLargeView: View {
         }
         .padding()
         .background(cornerMotif(), alignment: .topTrailing)
-        .containerBackground(for: .widget) { Color.gdBg }
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
     }
 }
 
@@ -600,7 +613,7 @@ struct GrowDailyWidget: Widget {
         StaticConfiguration(kind: kind, provider: GrowDailyProvider()) { entry in
             GrowDailyWidgetView(entry: entry)
         }
-        .configurationDisplayName("GrowDaily")
+        .configurationDisplayName("Grow Daily")
         .description("Today's progress, streak, and a tappable habit list at a glance.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
@@ -623,6 +636,8 @@ struct GrowDailyCircularView: View {
                     .font(.system(size: 12))
                 Text("\(entry.streak)")
                     .font(.system(size: 14, weight: .bold))
+                    .contentTransition(.numericText())
+                    .animation(.default, value: entry.streak)
             }
         }
     }
@@ -637,9 +652,13 @@ struct GrowDailyRectangularView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("\(entry.streak) day streak")
                     .font(.system(size: 12, weight: .semibold))
+                    .contentTransition(.numericText())
+                    .animation(.default, value: entry.streak)
                 Text("\(entry.completedToday)/\(entry.totalToday) done today")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
+                    .contentTransition(.numericText())
+                    .animation(.default, value: entry.completedToday)
             }
         }
     }
@@ -666,7 +685,7 @@ struct GrowDailyLockScreenWidget: Widget {
         StaticConfiguration(kind: kind, provider: GrowDailyProvider()) { entry in
             GrowDailyLockScreenView(entry: entry)
         }
-        .configurationDisplayName("GrowDaily Streak")
+        .configurationDisplayName("Grow Daily Streak")
         .description("Your streak and today's progress on the Lock Screen.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
@@ -697,6 +716,92 @@ struct RoomRaceRow: Codable {
     let rank: Int
     let percent: Int
     let isMe: Bool
+
+    // This participant's real uid, carried only so ForEach can key rows by
+    // "the same person" across two timeline refreshes instead of by their
+    // rank slot - see stableId below. Optional for the same reason heatmap
+    // is: a non-optional with a default value still throws on a missing
+    // key when decoding, only a genuine Optional degrades gracefully for
+    // old cached data from just before this field existed.
+    let uid: String?
+
+    // Last roomRaceHeatmapDays (rooms_notifier.dart) days, oldest first, as
+    // heatmapLevelFor levels (0-4) - see RoomRaceHeatmapStrip below for how
+    // these render. Genuinely Optional (not a non-optional with a default)
+    // on purpose: Swift's synthesized Decodable conformance only treats a
+    // missing JSON key as "fall back" for an Optional-typed property - a
+    // non-optional with a default value still throws on a missing key.
+    // Being Optional here means a brief window right after an app update -
+    // old cached roomRaceJson from before this field existed, read by the
+    // new widget binary before the app itself has relaunched and repushed
+    // fresh data - degrades to "no strip for this row" instead of failing
+    // this row's whole decode (which would otherwise blank the entire Room
+    // Race face, name/rank/percent included, until the next push).
+    let heatmap: [Int]?
+
+    // Explicit memberwise init, written by hand instead of relying on the
+    // compiler-synthesized one: giving uid/heatmap a `= nil` default
+    // directly on the stored property (as this struct used to do) silently
+    // drops them from Swift's *synthesized* memberwise initializer
+    // entirely - it does not make them optional-to-pass, it removes them
+    // as parameters outright. That's what broke the placeholder() calls
+    // below ("Extra argument 'heatmap' in call": the synthesized init
+    // genuinely had no heatmap parameter to pass one to). Defaulting them
+    // here, in a hand-written init, is the correct way to keep both
+    // "pass heatmap explicitly" and "omit it" call sites compiling, and
+    // has no effect on Decodable - init(from:) is synthesized separately
+    // and is untouched by adding this.
+    // Days credited / days the room has run — what the Lock Screen shows
+    // instead of a percentage ("5 / 6" reads faster and says how much is
+    // actually at stake, which "83%" hides). Optional for the same
+    // forward/backward-compatibility reason as `heatmap` above: a widget
+    // binary that updated before the app relaunched and repushed still
+    // decodes, and just falls back to the percentage.
+    let daysDone: Int?
+    let daysTotal: Int?
+
+    init(
+        name: String,
+        rank: Int,
+        percent: Int,
+        isMe: Bool,
+        uid: String? = nil,
+        daysDone: Int? = nil,
+        daysTotal: Int? = nil,
+        heatmap: [Int]? = nil
+    ) {
+        self.name = name
+        self.rank = rank
+        self.percent = percent
+        self.isMe = isMe
+        self.uid = uid
+        self.daysDone = daysDone
+        self.daysTotal = daysTotal
+        self.heatmap = heatmap
+    }
+
+    /// Identity ForEach should key rows by so a row *moves* to its new rank
+    /// position when it changes instead of the slot at that rank just
+    /// swapping its text - falls back to name only in that same brief
+    /// stale-cache window described above, when two same-named participants
+    /// would still be no worse off than this widget's previous rank-keyed
+    /// behavior.
+    var stableId: String { uid ?? name }
+
+    /// "5/6" when the day counts are available, falling back to "83%".
+    ///
+    /// A fraction beats a percentage on an accessory widget for two
+    /// reasons: it's usually fewer glyphs (so it survives beside a long
+    /// name), and it carries the scale — "5/6" says there are six days in
+    /// play, where "83%" could be six days or sixty. The percentage
+    /// fallback covers a widget binary running against app data pushed
+    /// before these fields existed.
+    var scoreLabel: String {
+        if let done = daysDone, let total = daysTotal, total > 0 {
+            return "\(done)/\(total)"
+        }
+        return "\(percent)%"
+    }
 }
 
 struct RoomRaceEntry: TimelineEntry {
@@ -710,10 +815,18 @@ struct RoomRaceEntry: TimelineEntry {
 
 struct RoomRaceProvider: TimelineProvider {
     func placeholder(in context: Context) -> RoomRaceEntry {
-        RoomRaceEntry(date: Date(), hasRoom: true, roomName: "Ramadan Push", isLive: true, daysRemaining: 12,
-                      rows: [RoomRaceRow(name: "You", rank: 1, percent: 86, isMe: true),
-                             RoomRaceRow(name: "Sara", rank: 2, percent: 74, isMe: false),
-                             RoomRaceRow(name: "Omar", rank: 3, percent: 61, isMe: false)])
+        // Varied, non-trivial sample levels (not all-4s/all-0s) so the
+        // Xcode widget gallery preview actually shows what the heatmap
+        // strip's shading range looks like, not a flat block of one color.
+        let strongWeek = [2, 3, 4, 4, 3, 4, 4, 2, 4, 3, 4, 4, 4, 4]
+        let mixedWeek = [1, 2, 0, 3, 2, 4, 3, 1, 2, 3, 0, 2, 3, 4]
+        return RoomRaceEntry(date: Date(), hasRoom: true, roomName: "Ramadan Push", isLive: true, daysRemaining: 12,
+                      rows: [RoomRaceRow(name: "You", rank: 1, percent: 86, isMe: true, daysDone: 12, daysTotal: 14, heatmap: strongWeek),
+                             // A deliberately long name in the preview — this
+                             // row is what proves the score still renders
+                             // beside one instead of being truncated away.
+                             RoomRaceRow(name: "mohdabood2003", rank: 2, percent: 74, isMe: false, daysDone: 10, daysTotal: 14, heatmap: mixedWeek),
+                             RoomRaceRow(name: "Omar", rank: 3, percent: 61, isMe: false, daysDone: 9, daysTotal: 14)])
     }
 
     func getSnapshot(in context: Context, completion: @escaping (RoomRaceEntry) -> Void) {
@@ -779,6 +892,75 @@ struct RoomAvatarCircle: View {
     }
 }
 
+/// Compact horizontal contribution strip for one participant — the widget's
+/// own copy of the in-app _MiniHeatmapStrip (room_detail_screen.dart).
+/// Renders whatever levels (0-4) Dart already computed via heatmapLevelFor
+/// (rooms_notifier.dart) rather than raw credit, so this view only ever
+/// does a color lookup, never math. Same emerald-opacity tiers as heatColor
+/// (monthly_heatmap_screen.dart); .gdBorder stands in for that function's
+/// "empty" fill since this widget has one fixed dark palette, not a light/
+/// dark-adaptive one. Each cell fades to its new shade on refresh instead
+/// of popping (same "Animating data updates in widgets" treatment
+/// ProgressRing's sweep already uses above), and the last cell always gets
+/// today's gold ring — safe to assume it's today without checking a date,
+/// since myRoomRaceSnapshotProvider only ever picks a room that hasn't
+/// ended, so this strip's final day is never anything but today.
+struct RoomRaceHeatmapStrip: View {
+    let levels: [Int]
+
+    private static let cell: CGFloat = 6
+    private static let gap: CGFloat = 1.5
+
+    private func color(for level: Int) -> Color {
+        switch level {
+        case 1: return Color.gdEmerald.opacity(0.30)
+        case 2: return Color.gdEmerald.opacity(0.50)
+        case 3: return Color.gdEmerald.opacity(0.70)
+        case 4: return Color.gdEmerald.opacity(0.92)
+        default: return Color.gdBorder
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: Self.gap) {
+            ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(color(for: level))
+                    .frame(width: Self.cell, height: Self.cell)
+                    .overlay(
+                        index == levels.count - 1
+                            ? RoundedRectangle(cornerRadius: 1.5)
+                                .stroke(Color.gdGold, lineWidth: 1)
+                            : nil
+                    )
+                    .animation(.easeOut(duration: 0.4), value: level)
+            }
+        }
+    }
+}
+
+/// A leaderboard row with its heatmap strip underneath — the "featured"
+/// treatment for whichever participants a given widget size has room for.
+/// Both RoomRaceMediumView and RoomRaceLargeView below give this to the
+/// top 2 ranked participants specifically and fall back to the plain
+/// RoomRaceRowView (no strip) for anyone past that - "the first one, and
+/// the 2nd one in the group" is what this app settled on for "if no
+/// space," rather than shrinking every row's strip to fit an arbitrary
+/// roster size.
+struct RoomRaceFeaturedRow: View {
+    let row: RoomRaceRow
+    var avatarSize: CGFloat = 24
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            RoomRaceRowView(row: row, avatarSize: avatarSize)
+            if let heatmap = row.heatmap, !heatmap.isEmpty {
+                RoomRaceHeatmapStrip(levels: heatmap)
+            }
+        }
+    }
+}
+
 /// Same "shifting tone, no new art" idea as [statusLine] above, for the
 /// Room Race face — leading feels different from mid-pack, worth saying
 /// out loud rather than just showing a number and leaving the reaction to
@@ -809,12 +991,19 @@ struct RoomRaceRowView: View {
                 .font(.system(size: 12, weight: row.isMe ? .bold : .medium))
                 .foregroundColor(.white)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(0)
             Spacer(minLength: 4)
-            Text("\(row.percent)%")
+            // Same fraction the Lock Screen shows, and the same reason it
+            // can't be squeezed: fixedSize + priority means a long name
+            // truncates instead of the score disappearing.
+            Text(row.scoreLabel)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(.gdEmerald)
+                .fixedSize()
+                .layoutPriority(2)
                 .contentTransition(.numericText())
-                .animation(.default, value: row.percent)
+                .animation(.default, value: row.daysDone)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
@@ -885,7 +1074,7 @@ struct RoomRaceSmallView: View {
             }
         }
         .padding()
-        .containerBackground(for: .widget) { Color.gdBg }
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
     }
 }
 
@@ -910,14 +1099,30 @@ struct RoomRaceMediumView: View {
                                 .foregroundColor(.white.opacity(0.5))
                         }
                     }
-                    ForEach(Array(entry.rows.prefix(4)), id: \.rank) { row in
-                        RoomRaceRowView(row: row, avatarSize: 22)
+                    // Top 2 get their heatmap strip; anyone else just gets
+                    // a count - see RoomRaceFeaturedRow's doc comment for
+                    // why 2 specifically. Keyed by stableId (not rank) so a
+                    // row that changes rank between refreshes slides to its
+                    // new spot instead of the slot at that rank just
+                    // swapping its text - see the .animation below.
+                    ForEach(Array(entry.rows.prefix(2)), id: \.stableId) { row in
+                        RoomRaceFeaturedRow(row: row, avatarSize: 20)
+                    }
+                    if entry.rows.count > 2 {
+                        Text("+\(entry.rows.count - 2) more racing")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.5))
                     }
                 }
+                // Drives the reorder above - same "animate between two
+                // timeline entries" trick RoomRaceRowView's own rank/
+                // percent numbers already use, just applied to row
+                // position instead of row content.
+                .animation(.easeInOut(duration: 0.45), value: entry.rows.map(\.rank))
             }
         }
         .padding()
-        .containerBackground(for: .widget) { Color.gdBg }
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
     }
 }
 
@@ -947,7 +1152,16 @@ struct RoomRaceLargeView: View {
                         }
                     }
                     Divider().background(Color.gdBorder)
-                    ForEach(Array(entry.rows.prefix(6)), id: \.rank) { row in
+                    // Top 2 get their heatmap strip; rows 3-6 stay the
+                    // plain row they always were - see RoomRaceFeaturedRow's
+                    // doc comment for why the cutoff is 2, not the full
+                    // roster. Total shown (6) is unchanged from before.
+                    // Keyed by stableId, not rank - see the .animation
+                    // below and RoomRaceMediumView's matching comment.
+                    ForEach(Array(entry.rows.prefix(2)), id: \.stableId) { row in
+                        RoomRaceFeaturedRow(row: row, avatarSize: 26)
+                    }
+                    ForEach(Array(entry.rows.dropFirst(2).prefix(4)), id: \.stableId) { row in
                         RoomRaceRowView(row: row, avatarSize: 26)
                     }
                     if entry.rows.count > 6 {
@@ -956,11 +1170,12 @@ struct RoomRaceLargeView: View {
                             .foregroundColor(.white.opacity(0.5))
                     }
                 }
+                .animation(.easeInOut(duration: 0.45), value: entry.rows.map(\.rank))
             }
         }
         .padding()
         .background(cornerMotif(), alignment: .topTrailing)
-        .containerBackground(for: .widget) { Color.gdBg }
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
     }
 }
 
@@ -996,6 +1211,804 @@ struct GrowDailyRoomRaceWidget: Widget {
     }
 }
 
+// MARK: - Room Race Lock Screen widgets
+//
+// Same "display-only, own compact views, shares the Home Screen widget's
+// provider" shape as GrowDailyLockScreenWidget above - see that struct's
+// doc comment for why Lock Screen widgets stay tap-free here (system tint,
+// no room for fiddly buttons). Reuses RoomRaceProvider/RoomRaceEntry as-is -
+// same roomRaceJson data, just laid out for a tiny accessory slot instead
+// of a Home Screen size.
+//
+// Deliberately no explicit .foregroundColor(.gdGold/.gdEmerald/etc.) here,
+// unlike the Home Screen Room Race views above - accessory-family Lock
+// Screen widgets are rendered by the system in its own monochrome tint
+// (the always-on-display/lock-screen accent), which overrides custom
+// colors anyway. Only `.secondary` is used for de-emphasis, since iOS does
+// still respect that much - same convention GrowDailyRectangularView above
+// already follows for the streak widget.
+//
+// Which room shows here is decided once, on the Dart side, by
+// myRoomRaceSnapshotProvider - a starred room (RoomsController.
+// toggleStarRoom) wins first, live or not, so starring a room in the app
+// is what actually controls what appears here.
+
+struct RoomRaceCircularView: View {
+    var entry: RoomRaceEntry
+    private var mine: RoomRaceRow? { entry.rows.first(where: { $0.isMe }) }
+
+    var body: some View {
+        if let mine {
+            // Same capacity-ring idiom as the Matrix star circle - the
+            // ring fills to this room's percent complete, with the actual
+            // rank as the number that matters most staying front and
+            // center.
+            Gauge(value: Double(mine.percent), in: 0...100) {
+                Image(systemName: "flag.checkered")
+            } currentValueLabel: {
+                Text("#\(mine.rank)")
+                    .font(.system(size: 14, weight: .bold))
+                    .contentTransition(.numericText())
+            }
+            .gaugeStyle(.accessoryCircularCapacity)
+            .animation(.default, value: mine.percent)
+        } else {
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: "flag.checkered")
+                    .font(.system(size: 16))
+            }
+        }
+    }
+}
+
+struct RoomRaceRectangularView: View {
+    var entry: RoomRaceEntry
+    private var mine: RoomRaceRow? { entry.rows.first(where: { $0.isMe }) }
+
+    // The one racer worth showing next to yourself, so this reads as a
+    // head-to-head instead of just a solo scoreboard: whoever's in 1st if
+    // that isn't you (the gap you're closing), or whoever's in 2nd if it
+    // is (the gap someone else is closing on you). Never both at once —
+    // there's only room for one rival line here.
+    private var rival: RoomRaceRow? {
+        guard let mine else { return nil }
+        let rivalRank = mine.rank == 1 ? 2 : 1
+        return entry.rows.first(where: { $0.rank == rivalRank })
+    }
+
+    // One racer's line: "#2 mohdabo…            4/6".
+    //
+    // Name and score are separate Texts in an HStack, NOT one interpolated
+    // string. As a single string with lineLimit(1) the truncation lands at
+    // the *end* — so a long display name ate the score, which is the only
+    // part of the row actually worth glancing at. Splitting them lets the
+    // name absorb all the truncation while the score keeps its intrinsic
+    // width and always renders in full.
+    @ViewBuilder
+    private func racerLine(
+        rank: Int,
+        name: String,
+        score: String,
+        isMine: Bool
+    ) -> some View {
+        HStack(spacing: 4) {
+            Text("#\(rank)")
+                .fontWeight(.bold)
+                .layoutPriority(2)
+            Text(name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                // Lowest priority: this is the one part that may shrink.
+                .layoutPriority(0)
+            Spacer(minLength: 4)
+            Text(score)
+                // fixedSize + top priority: never compressed, never
+                // truncated, no matter how long the name beside it is.
+                .fixedSize()
+                .layoutPriority(2)
+                .contentTransition(.numericText())
+        }
+        .font(.system(size: isMine ? 12 : 11,
+                      weight: isMine ? .bold : .regular))
+        .foregroundColor(isMine ? .primary : .secondary)
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "flag.checkered")
+                .layoutPriority(2)
+            if let mine {
+                VStack(alignment: .leading, spacing: 1) {
+                    racerLine(
+                        rank: mine.rank,
+                        name: "You",
+                        score: mine.scoreLabel,
+                        isMine: true
+                    )
+                    .animation(.default, value: mine.daysDone)
+                    if let rival {
+                        racerLine(
+                            rank: rival.rank,
+                            name: rival.name,
+                            score: rival.scoreLabel,
+                            isMine: false
+                        )
+                        .animation(.default, value: rival.daysDone)
+                    } else {
+                        // Solo room, nobody else at rank 1/2 to compare
+                        // against — fall back to the room name rather than
+                        // show nothing on the second line.
+                        Text(entry.roomName)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            } else {
+                Text("No active room")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+        }
+    }
+}
+
+struct RoomRaceLockScreenView: View {
+    @Environment(\.widgetFamily) var family
+    var entry: RoomRaceEntry
+
+    var body: some View {
+        switch family {
+        case .accessoryRectangular:
+            RoomRaceRectangularView(entry: entry)
+        default:
+            RoomRaceCircularView(entry: entry)
+        }
+    }
+}
+
+struct GrowDailyRoomRaceLockScreenWidget: Widget {
+    // Must exactly match HomeWidgetService's
+    // _iOSRoomRaceLockScreenWidgetName (lib/core/services/
+    // home_widget_service.dart).
+    let kind: String = "GrowDailyRoomRaceLockScreenWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: RoomRaceProvider()) { entry in
+            RoomRaceLockScreenView(entry: entry)
+        }
+        .configurationDisplayName("Room Race")
+        .description("Your rank in your starred room, on the Lock Screen.")
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
+    }
+}
+
+// MARK: - Matrix widget
+//
+// A third, separate widget kind — same opt-in-from-the-gallery model as
+// Room Race above. Shows open tasks across all four quadrants, ranked Do
+// First → Schedule → Delegate → Eliminate (see main.dart's
+// _matrixQuadrantRank, which does the actual sorting before this ever sees
+// the list — this file only ever draws an already-ordered array). Real
+// checkmarks and a real "+" button, same interaction model as the daily
+// widget's habit rows: MarkTaskDoneIntent below only ever touches shared
+// UserDefaults, never the live Flutter app state — see its own doc comment,
+// identical reasoning to MarkHabitDoneIntent's.
+
+struct WidgetMatrixTask: Codable, Identifiable {
+    let id: String
+    let title: String
+    /// One of MatrixQuadrant's own `.name` values ("doFirst", "schedule",
+    /// "delegate", "eliminate") — sent as the plain enum name rather than a
+    /// separate hex string so there's exactly one place (quadrantColor
+    /// below) that maps a quadrant to a color, matching MatrixQuadrant
+    /// .color's role on the Dart side.
+    let quadrant: String
+    var isDone: Bool
+    /// Mirrors MatrixTask.isFav (matrix_task.dart) — the gold star toggle
+    /// on the Tasks screen. Ignored by the Home Screen Matrix widget's own
+    /// views below (no star shown there); exists so the Lock Screen
+    /// starred-task widget further down has something to pick out from
+    /// this same shared list without a second write path from Flutter.
+    var isFav: Bool
+    /// True when the task has a reminder that's already passed and it's
+    /// still open — same "overdue" definition MatrixNotifier already uses
+    /// on the Dart side (see main.dart's _matrixWidgetSub, computed there
+    /// since that's the one place this list already touches
+    /// DateTime.now()). Drives a small red marker next to the quadrant dot
+    /// below — a flag only, it never changes row order.
+    var isLate: Bool
+
+    init(id: String, title: String, quadrant: String, isDone: Bool, isFav: Bool, isLate: Bool) {
+        self.id = id
+        self.title = title
+        self.quadrant = quadrant
+        self.isDone = isDone
+        self.isFav = isFav
+        self.isLate = isLate
+    }
+
+    // Custom decode so a `matrixTasksJson` blob written by an older app
+    // build (before isLate existed) still decodes instead of failing the
+    // whole array — same "just missing the new bit" tolerance worth having
+    // for any field added after this widget already shipped.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        quadrant = try c.decode(String.self, forKey: .quadrant)
+        isDone = try c.decode(Bool.self, forKey: .isDone)
+        isFav = try c.decode(Bool.self, forKey: .isFav)
+        isLate = try c.decodeIfPresent(Bool.self, forKey: .isLate) ?? false
+    }
+}
+
+/// Mirrors MatrixQuadrant.color's built-in fallback palette (matrix_task
+/// .dart) — doFirst/schedule/delegate map onto colors this file already
+/// has (gdError/gdXpBlue/gdStreak); eliminate has no direct equivalent
+/// here, so it falls back to a plain muted white matching every other
+/// "least important" treatment already used throughout this file (e.g.
+/// GrowDailyRoomAvatarCircle's default ring color). A user's own custom
+/// quadrant color (MatrixState.colorFor) isn't threaded through to the
+/// widget — same "simplified but on-brand, not full parity" call already
+/// made for Room Race's avatars (see that section's own doc comment).
+private func quadrantColor(_ quadrant: String) -> Color {
+    switch quadrant {
+    case "doFirst": return .gdError
+    case "schedule": return .gdXpBlue
+    case "delegate": return .gdStreak
+    default: return .white.opacity(0.4) // eliminate, or anything unrecognized
+    }
+}
+
+/// Tapping this opens the app straight into Matrix with the Add Task sheet
+/// already open (see main.dart's isMatrixQuickAddLink + MatrixScreen's own
+/// ref.listen(requestedMatrixQuickAddProvider, ...)) — the app already
+/// listens for growdaily:// links for room invites, so this reuses that
+/// same scheme/plumbing with a different path rather than needing any new
+/// Info.plist entry.
+private let matrixQuickAddURL = URL(string: "growdaily://matrix/add")!
+
+struct MatrixEntry: TimelineEntry {
+    let date: Date
+    let tasks: [WidgetMatrixTask]
+}
+
+struct MatrixProvider: TimelineProvider {
+    func placeholder(in context: Context) -> MatrixEntry {
+        MatrixEntry(date: Date(), tasks: [
+            WidgetMatrixTask(id: "1", title: "Reply to client email", quadrant: "doFirst", isDone: false, isFav: true, isLate: true),
+            WidgetMatrixTask(id: "2", title: "Plan next week", quadrant: "schedule", isDone: false, isFav: false, isLate: false),
+            WidgetMatrixTask(id: "3", title: "Forward invoice to Sara", quadrant: "delegate", isDone: false, isFav: false, isLate: false),
+        ])
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (MatrixEntry) -> Void) {
+        completion(loadEntry())
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<MatrixEntry>) -> Void) {
+        let entry = loadEntry()
+        // Same fallback-only cadence as GrowDailyProvider/RoomRaceProvider —
+        // the real refresh trigger is HomeWidgetService.updateMatrixWidgetData
+        // firing from main.dart's _matrixWidgetSub whenever the board changes.
+        let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
+        completion(Timeline(entries: [entry], policy: .after(next)))
+    }
+
+    private func loadEntry() -> MatrixEntry {
+        let defaults = UserDefaults(suiteName: appGroupId)
+        let tasks = readJSON("matrixTasksJson", from: defaults, as: [WidgetMatrixTask].self) ?? []
+        return MatrixEntry(date: Date(), tasks: tasks)
+    }
+}
+
+/// Backs the checkmark on each task row. Exact same division of labor as
+/// MarkHabitDoneIntent above — flips this task's cached `isDone` so the one
+/// reload iOS guarantees right after `perform()` returns shows it checked
+/// immediately, and queues the id for the real Flutter-side completion
+/// (XP bonus included) the next time the app is open — see main.dart's
+/// _processPendingWidgetTaskCompletions, which guards against re-toggling a
+/// task the user already finished in-app in the meantime.
+struct MarkTaskDoneIntent: AppIntent {
+    static var title: LocalizedStringResource = "Mark Task Done"
+
+    @Parameter(title: "Task ID")
+    var taskId: String
+
+    init() {
+        self.taskId = ""
+    }
+
+    init(taskId: String) {
+        self.taskId = taskId
+    }
+
+    func perform() async throws -> some IntentResult {
+        let defaults = UserDefaults(suiteName: appGroupId)
+
+        if var tasks = readJSON("matrixTasksJson", from: defaults, as: [WidgetMatrixTask].self) {
+            for i in tasks.indices where tasks[i].id == taskId {
+                tasks[i].isDone = true
+            }
+            // Sink the just-finished task below every still-open one so the
+            // Medium/Large rows' `.prefix(N)` naturally reveals whatever was
+            // hiding behind it, instead of leaving a checked row parked in
+            // its old spot until the next real Dart-side refresh. `sort(by:)`
+            // is stable in Swift, so this only ever moves done tasks past
+            // not-done ones - it never disturbs the quadrant-priority order
+            // the Dart side already sorted open tasks into, or the relative
+            // order of multiple already-done tasks among themselves.
+            tasks.sort { !$0.isDone && $1.isDone }
+            writeJSON(tasks, to: "matrixTasksJson", in: defaults)
+        }
+
+        var pending = readJSON("pendingWidgetTaskCompletions", from: defaults, as: [String].self) ?? []
+        if !pending.contains(taskId) {
+            pending.append(taskId)
+        }
+        writeJSON(pending, to: "pendingWidgetTaskCompletions", in: defaults)
+
+        return .result()
+    }
+}
+
+/// Small colored circle standing in for a quadrant label — Do First's red
+/// reads as "urgent" at a glance without spending row width on text like
+/// "DO FIRST" the way the in-app QuadrantCard headers can afford to.
+struct QuadrantDot: View {
+    let quadrant: String
+    var size: CGFloat = 7
+
+    var body: some View {
+        Circle()
+            .fill(quadrantColor(quadrant))
+            .frame(width: size, height: size)
+    }
+}
+
+/// One task row: quadrant dot, checkmark, title. Identical structure to the
+/// daily widget's habit rows (see GrowDailyLargeView), just with a quadrant
+/// dot standing in for that row's habit-streak context.
+struct MatrixTaskRow: View {
+    let task: WidgetMatrixTask
+
+    var body: some View {
+        HStack(spacing: 8) {
+            QuadrantDot(quadrant: task.quadrant)
+            Button(intent: MarkTaskDoneIntent(taskId: task.id)) {
+                Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundColor(task.isDone ? .gdEmerald : .white.opacity(0.35))
+            }
+            .buttonStyle(.plain)
+            Text(task.title)
+                .font(.system(size: 12, weight: .medium))
+                .strikethrough(task.isDone)
+                .foregroundColor(task.isDone ? .white.opacity(0.5) : .white)
+                .lineLimit(1)
+            if task.isLate && !task.isDone {
+                LateMarker()
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// The one visual signal a task is overdue — a small red exclamation next
+/// to its title, same "colored dot at a glance" language QuadrantDot
+/// already uses, just unmistakably a different color/shape so it never
+/// reads as a fifth quadrant. Deliberately flag-only: per Aziz's call, a
+/// late task stays exactly where its quadrant/order already placed it
+/// rather than jumping to the top, so Do First still always leads.
+struct LateMarker: View {
+    var body: some View {
+        Image(systemName: "exclamationmark.circle.fill")
+            .font(.system(size: 10))
+            .foregroundColor(.gdError)
+    }
+}
+
+/// Shown whenever there's nothing open to show — a positive, not empty-
+/// feeling, message rather than a blank card, same "never just go blank"
+/// rule RoomRaceEmptyView follows for its own no-room state.
+struct MatrixEmptyView: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "checkmark.seal")
+                .font(.system(size: 20))
+                .foregroundColor(.gdEmerald.opacity(0.8))
+            Text("Nothing urgent")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.white)
+            Text("Your board is clear")
+                .font(.system(size: 10.5))
+                .foregroundColor(.white.opacity(0.55))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}
+
+/// The header row shared by Medium/Large: title, open count, "+" quick-add.
+/// The Link opens `matrixQuickAddURL` — a real, separate tap target from
+/// each row's own checkmark Button, both live in the same widget at once
+/// the same way MarkHabitDoneIntent's checkmarks and this app's other free-
+/// tap-opens-app behavior already coexist.
+struct MatrixHeaderRow: View {
+    let openCount: Int
+
+    var body: some View {
+        HStack {
+            Text("Matrix")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.white)
+            if openCount > 0 {
+                Text("\(openCount)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.5))
+                    .contentTransition(.numericText())
+                    .animation(.default, value: openCount)
+            }
+            Spacer()
+            Link(destination: matrixQuickAddURL) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(.gdGold)
+            }
+        }
+    }
+}
+
+struct MatrixMediumView: View {
+    var entry: MatrixEntry
+
+    var body: some View {
+        Group {
+            if entry.tasks.isEmpty {
+                MatrixEmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    MatrixHeaderRow(openCount: entry.tasks.count)
+                    ForEach(Array(entry.tasks.prefix(3))) { task in
+                        MatrixTaskRow(task: task)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.35),
+                           value: entry.tasks.map { "\($0.id)|\($0.isDone)" })
+            }
+        }
+        .padding()
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
+    }
+}
+
+/// Mirrors GrowDailyLargeView's habit-list structure closely on purpose —
+/// same header-then-rows-then-overflow shape, so the two widgets read as
+/// one family despite showing different data.
+struct MatrixLargeView: View {
+    var entry: MatrixEntry
+
+    var body: some View {
+        Group {
+            if entry.tasks.isEmpty {
+                MatrixEmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    MatrixHeaderRow(openCount: entry.tasks.count)
+                    Divider().background(Color.gdBorder)
+                    // Was capped at 5 regardless of size, which left a
+                    // systemLarge card with obvious empty space below the
+                    // list on any board with 6-8 open tasks — 8 comfortably
+                    // fits systemLarge's real height on every device size
+                    // this ships on; boards past that still fall back to
+                    // "+N more in app" rather than risk overflowing a small
+                    // physical widget.
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(entry.tasks.prefix(8))) { task in
+                            MatrixTaskRow(task: task)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.35),
+                               value: entry.tasks.map { "\($0.id)|\($0.isDone)" })
+                    if entry.tasks.count > 8 {
+                        Text("+\(entry.tasks.count - 8) more in app")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(cornerMotif(), alignment: .topTrailing)
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
+    }
+}
+
+/// Small has no room for a header row, a "+" button, and a task list all
+/// at once, so it keeps to the same terse "one big number" idiom as
+/// GrowDailySmallView/RoomRaceSmallView — the open count, plus the single
+/// most urgent task's title underneath if there's room to read it. No
+/// interactivity here (no Link, no Button) — same free "tap opens app"
+/// fallback the other widgets' Small size already relies on.
+struct MatrixSmallView: View {
+    var entry: MatrixEntry
+
+    var body: some View {
+        Group {
+            if entry.tasks.isEmpty {
+                MatrixEmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .foregroundColor(.gdGold)
+                            .font(.system(size: 14))
+                        Text("\(entry.tasks.count)")
+                            .font(.system(size: 22, weight: .heavy))
+                            .foregroundColor(.white)
+                            .contentTransition(.numericText())
+                            .animation(.default, value: entry.tasks.count)
+                    }
+                    Text(entry.tasks.count == 1 ? "task open" : "tasks open")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.6))
+                    Spacer(minLength: 0)
+                    if let top = entry.tasks.first {
+                        HStack(spacing: 5) {
+                            QuadrantDot(quadrant: top.quadrant, size: 6)
+                            Text(top.title)
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.8))
+                                .lineLimit(1)
+                            if top.isLate && !top.isDone {
+                                LateMarker()
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding()
+        .containerBackground(for: .widget) { WidgetGradientBackground() }
+    }
+}
+
+struct MatrixWidgetView: View {
+    @Environment(\.widgetFamily) var family
+    var entry: MatrixEntry
+
+    var body: some View {
+        switch family {
+        case .systemMedium:
+            MatrixMediumView(entry: entry)
+        case .systemLarge:
+            MatrixLargeView(entry: entry)
+        default:
+            MatrixSmallView(entry: entry)
+        }
+    }
+}
+
+struct GrowDailyMatrixWidget: Widget {
+    // Must exactly match HomeWidgetService's _iOSMatrixWidgetName
+    // (lib/core/services/home_widget_service.dart), same convention as the
+    // other two widgets' kind strings above.
+    let kind: String = "GrowDailyMatrixWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: MatrixProvider()) { entry in
+            MatrixWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Matrix")
+        .description("Your most urgent tasks — check them off or add a new one without opening the app.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    }
+}
+
+// MARK: - Matrix Lock Screen widget (starred task)
+//
+// A fifth widget kind, opt-in from the gallery like Room Race and the
+// Matrix Home Screen widget above it — reuses that exact same
+// MatrixProvider/MatrixEntry (matrixTasksJson already carries every open
+// task, already sorted by quadrant priority — see main.dart's
+// _matrixWidgetSub), just a different face on the same data: the
+// *starred* (WidgetMatrixTask.isFav, mirrors MatrixTask.isFav's gold star
+// toggle on the Tasks screen) tasks, falling back to the full list when
+// nothing is starred — see MatrixEntry.lockScreenTasks below for why.
+// Display-only, same reasoning as GrowDailyLockScreenWidget's own
+// doc comment above (Lock Screen isn't where you want someone tapping
+// fiddly buttons) — unlike the Home Screen Matrix widget's real
+// checkmarks, there's deliberately no MarkTaskDoneIntent button here.
+//
+// A separate widget kind from the existing streak Lock Screen widget
+// rather than a replacement for it — someone can place either, both, or
+// neither on their Lock Screen from the gallery, same as Room Race's own
+// opt-in model.
+
+// Shared "what should this widget actually show?" rule for both faces
+// below. Starring is an opt-in most people never discover, and a widget
+// that just says "No starred task" to everyone who hasn't found that
+// toggle is dead space on their Lock Screen. So: star something and this
+// respects it exactly as before (starred-only, that's the whole point of
+// starring); star nothing and it quietly falls back to the same
+// priority-sorted task list every other Matrix widget shows, so it's
+// useful out of the box either way.
+//
+// entry.tasks is already open-only and quadrant-sorted from the Dart side
+// (see main.dart's _matrixWidgetSub), so "open tasks first" needs nothing
+// extra here — the only done tasks that can appear are ones
+// MarkTaskDoneIntent just marked locally, which its own sort already sinks
+// to the bottom.
+extension MatrixEntry {
+    /// Starred tasks when there are any, otherwise every open task.
+    var lockScreenTasks: [WidgetMatrixTask] {
+        let starred = tasks.filter { $0.isFav }
+        return starred.isEmpty ? tasks : starred
+    }
+
+    /// True when [lockScreenTasks] is the fallback list rather than a real
+    /// starred selection — drives the icon swap so the two states are
+    /// always distinguishable at a glance.
+    var lockScreenIsFallback: Bool { !tasks.contains { $0.isFav } }
+
+    var lockScreenIcon: String { lockScreenIsFallback ? "checklist" : "star.fill" }
+}
+
+struct MatrixLockScreenCircularView: View {
+    var entry: MatrixEntry
+    private var shown: [WidgetMatrixTask] { entry.lockScreenTasks }
+    private var doneCount: Int { shown.filter { $0.isDone }.count }
+    private var remaining: Int { shown.count - doneCount }
+
+    var body: some View {
+        if shown.isEmpty {
+            // Only when there's genuinely nothing on the board at all —
+            // "nothing starred" alone no longer lands here, it falls back
+            // to the full list above.
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: "checklist")
+                    .font(.system(size: 16))
+            }
+        } else {
+            // A capacity ring (same idiom as RoomRaceCircularView's percent
+            // ring below) showing today's task progress at a glance, not
+            // just a flat total — the center label is the still-open count
+            // so there's still an immediate "how many are left" answer, or
+            // a checkmark once there's nothing left open.
+            Gauge(value: Double(doneCount), in: 0...Double(shown.count)) {
+                Image(systemName: entry.lockScreenIcon)
+            } currentValueLabel: {
+                if remaining == 0 {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .bold))
+                } else {
+                    Text("\(remaining)")
+                        .font(.system(size: 14, weight: .bold))
+                        .contentTransition(.numericText())
+                }
+            }
+            .gaugeStyle(.accessoryCircularCapacity)
+            .animation(.default, value: doneCount)
+        }
+    }
+}
+
+struct MatrixLockScreenRectangularView: View {
+    var entry: MatrixEntry
+
+    /// This accessory family has room for about three lines of text. That's
+    /// a budget to *spend*, not a per-task cap — the previous version put
+    /// `lineLimit(1)` on every title regardless, so a single task with a
+    /// long title got cut to "اسوي الاشعارات واتاكد ان..." while two
+    /// perfectly good empty lines sat underneath it.
+    private static let lineBudget = 3
+
+    private var shown: [WidgetMatrixTask] { entry.lockScreenTasks }
+
+    /// The tasks that actually get drawn, and how many are left over.
+    ///
+    /// With more than three, the last line is spent on a "+N more" summary
+    /// instead of a third title — so only two titles are shown, and the
+    /// overflow count covers the rest.
+    private var visible: (tasks: [WidgetMatrixTask], overflow: Int) {
+        if shown.count > Self.lineBudget {
+            let head = Array(shown.prefix(Self.lineBudget - 1))
+            return (head, shown.count - head.count)
+        }
+        return (shown, 0)
+    }
+
+    /// Splits the line budget across however many titles are being shown,
+    /// front-loading the remainder onto the highest-priority task.
+    ///
+    ///  - 1 task  → 3 lines (it gets the whole budget, wraps fully)
+    ///  - 2 tasks → 2 lines for the first, 1 for the second
+    ///  - 3 tasks → 1 line each
+    ///  - 4+       → 1 line each for two titles, 1 for "+N more"
+    ///
+    /// So a short title never leaves dead space, and a long one is only
+    /// clipped when something else genuinely needs the room.
+    private func lines(for index: Int, count: Int, hasOverflow: Bool) -> Int {
+        guard count > 0 else { return 1 }
+        let usable = Self.lineBudget - (hasOverflow ? 1 : 0)
+        let base = usable / count
+        let remainder = usable % count
+        return max(1, base + (index < remainder ? 1 : 0))
+    }
+
+    var body: some View {
+        let (tasks, overflow) = visible
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: entry.lockScreenIcon)
+                .font(.system(size: 11))
+            if tasks.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("No tasks")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Add one in Matrix")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
+                        Text(task.title)
+                            .font(.system(size: 11.5,
+                                          weight: index == 0 ? .semibold : .regular))
+                            .lineLimit(lines(for: index,
+                                             count: tasks.count,
+                                             hasOverflow: overflow > 0))
+                            .truncationMode(.tail)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if overflow > 0 {
+                        Text(entry.lockScreenIsFallback
+                             ? "+\(overflow) more"
+                             : "+\(overflow) more starred")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+struct MatrixLockScreenView: View {
+    @Environment(\.widgetFamily) var family
+    var entry: MatrixEntry
+
+    var body: some View {
+        switch family {
+        case .accessoryRectangular:
+            MatrixLockScreenRectangularView(entry: entry)
+        default:
+            MatrixLockScreenCircularView(entry: entry)
+        }
+    }
+}
+
+struct GrowDailyMatrixLockScreenWidget: Widget {
+    // Must exactly match HomeWidgetService's _iOSMatrixLockScreenWidgetName
+    // (lib/core/services/home_widget_service.dart), same convention as
+    // every other widget kind string in this file.
+    let kind: String = "GrowDailyMatrixLockScreenWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: MatrixProvider()) { entry in
+            MatrixLockScreenView(entry: entry)
+        }
+        .configurationDisplayName("Starred Tasks")
+        .description("Your starred tasks on the Lock Screen — or your top tasks if you haven't starred any.")
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
+    }
+}
+
 // MARK: - Bundle
 
 @main
@@ -1004,5 +2017,8 @@ struct GrowDailyWidgetBundle: WidgetBundle {
         GrowDailyWidget()
         GrowDailyLockScreenWidget()
         GrowDailyRoomRaceWidget()
+        GrowDailyRoomRaceLockScreenWidget()
+        GrowDailyMatrixWidget()
+        GrowDailyMatrixLockScreenWidget()
     }
 }

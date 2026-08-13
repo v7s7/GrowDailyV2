@@ -5,11 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:hive/hive.dart';
 
+import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
-import 'package:grow_daily_v2/features/dashboard/screens/dashboard_screen.dart';
 import 'package:grow_daily_v2/features/grid/screens/grid_screen.dart';
 import 'package:grow_daily_v2/features/grid/screens/monthly_heatmap_screen.dart';
 import 'package:grow_daily_v2/features/intention/screens/intention_screen.dart';
@@ -31,6 +32,21 @@ class LandingHarness {
   /// Call from setUp. Opens the app's boxes for real, then resolves auth so
   /// dependent notifiers are created exactly once.
   Future<void> prepare({List<String> activeCatalogIds = const []}) async {
+    // Completion fires a local "habit completed" notification, and the
+    // flutter_local_notifications platform interface is never registered in
+    // a pure Dart test — so the plugin call throws a LateInitializationError
+    // that surfaces the moment a test lets real async run (tester.runAsync).
+    // Nothing here is testing notifications; switch the celebration ones off
+    // rather than have the reward path explode on a platform channel that
+    // only exists on a device.
+    NotificationService.instance.celebrationsEnabled = false;
+    // google_fonts falls back to downloading a .ttf at runtime when the font
+    // isn't bundled. Inside a widget test that becomes a real HTTP request
+    // the moment tester.runAsync lets actual async run, and it fails (no
+    // network, and the test HTTP client rejects it anyway). Tests should
+    // never reach the network; make the fetch a no-op so the theme falls
+    // back to a local font instead of throwing.
+    GoogleFonts.config.allowRuntimeFetching = false;
     tmp = await Directory.systemTemp.createTemp('landing_test_');
     Hive.init(tmp.path);
     final settings = await Hive.openBox<dynamic>('box_settings');
@@ -54,7 +70,13 @@ class LandingHarness {
     container.dispose();
   }
 
-  Widget app() => UncontrolledProviderScope(
+  /// [home] defaults to [GridScreen] on its own, which is what the landing
+  /// flows below actually exercise. Pass [HomeShell] instead for anything
+  /// that needs the bottom bar: the shell owns the single [GameNavBar] and
+  /// hosts Grid/Profile/Matrix as pages of one PageView (see its doc
+  /// comment), so a test pumping GridScreen alone has no nav bar in the tree
+  /// at all — which is exactly why nav_bar_labels_test could never find one.
+  Widget app({Widget? home}) => UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
           // Mirror production: the localization delegates initialize intl's
@@ -67,9 +89,8 @@ class LandingHarness {
           ],
           // Light theme is pure const styles — no runtime font fetching.
           theme: GameTheme.light,
-          home: const GridScreen(),
+          home: home ?? const GridScreen(),
           routes: {
-            '/dashboard': (_) => const DashboardScreen(),
             '/heatmap': (_) => const MonthlyHeatmapScreen(),
             '/intention': (_) => const IntentionScreen(),
             '/night-review': (_) => const NightReviewScreen(),
@@ -85,8 +106,8 @@ class LandingHarness {
         const Duration(seconds: 15),
       );
 
-  Future<void> pumpApp(WidgetTester tester) async {
-    await tester.pumpWidget(app());
+  Future<void> pumpApp(WidgetTester tester, {Widget? home}) async {
+    await tester.pumpWidget(app(home: home));
     await settle(tester);
   }
 }

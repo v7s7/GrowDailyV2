@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,14 +7,38 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
+import 'package:grow_daily_v2/core/services/local_store_service.dart';
+import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/core/utils/xp_calculator.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
 
+class _NeverBonusRandom implements Random {
+  @override
+  bool nextBool() => false;
+
+  @override
+  double nextDouble() => 1;
+
+  @override
+  int nextInt(int max) => 0;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  // completeHabit/applyGridSquareChange fire real local-notification calls
+  // (habit-completed/level-up/achievement-unlocked) as unawaited
+  // fire-and-forget side effects. flutter_local_notifications' plugin init
+  // has no platform implementation to talk to under `flutter test` (no
+  // real device/simulator), which previously surfaced as a
+  // LateInitializationError thrown from inside those unawaited Futures —
+  // unrelated to anything this file actually asserts on, but noisy/flaky
+  // enough to fail tests that never cared about notifications in the
+  // first place. This is the same on/off switch a real Settings screen
+  // would flip; here it just keeps this suite headless.
+  NotificationService.instance.celebrationsEnabled = false;
 
   group('SquareState', () {
     test('tap cycle follows white → yellow → green → white', () {
@@ -98,6 +123,9 @@ void main() {
       container = ProviderContainer(
         overrides: [
           authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
+          dashboardProvider.overrideWith(
+            (ref) => DashboardNotifier(null, random: _NeverBonusRandom()),
+          ),
         ],
       );
       // Resolve auth first so dependent notifiers are created exactly once —
@@ -123,7 +151,8 @@ void main() {
       await tmp.delete(recursive: true);
     });
 
-    test('the first green square awards +10 XP and the First Victory achievement',
+    test(
+        'the first green square awards +10 XP and the First Victory achievement',
         () async {
       final today = DateTime.now();
       container
@@ -150,7 +179,8 @@ void main() {
       expect(dash.dailyGreenCounts[key], 1);
     });
 
-    test('cycling a square back and forth cannot farm XP, and never touches streak',
+    test(
+        'cycling a square back and forth cannot farm XP, and never touches streak',
         () async {
       final today = DateTime.now();
       final grid = container.read(weeklyGridProvider.notifier);
@@ -203,8 +233,10 @@ void main() {
         SquareState.complete,
       );
 
-      // But nothing reaches the reward system: no free XP/gold/achievement
+      // Nothing reaches the reward system: no free XP/gold/achievement
       // farming by backdating squares to a day that was never lived through.
+      // The heatmap rollup does update, because it is a historical visual
+      // record rather than progression.
       final dash = container.read(dashboardProvider);
       expect(dash.cumulativeXp, 0);
       expect(dash.gold, 0);
@@ -213,7 +245,7 @@ void main() {
       expect(dash.streak, 0);
 
       final key = pastDay.toDateKey();
-      expect(dash.dailyGreenCounts[key], isNull);
+      expect(dash.dailyGreenCounts[key], 1);
     });
 
     test('today completion ratio counts daily tasks, not old squares', () {
@@ -350,8 +382,7 @@ void main() {
       expect(dash.categoryCompletions['custom'], 1);
     });
 
-    test('completing the same habit twice today does not double-pay',
-        () async {
+    test('completing the same habit twice today does not double-pay', () async {
       final notifier = container.read(dashboardProvider.notifier);
       await notifier.completeHabit(
         habitId: 'habit_once',
@@ -470,6 +501,134 @@ void main() {
     });
   });
 
+  group('streak decay respects kStreakDayCompletionThreshold (guest path)', () {
+    // A separate group from the one above: those tests seed a fresh
+    // container in setUp before any test body runs, which doesn't allow
+    // seeding a fake "yesterday" into storage first. These tests need to
+    // write guest state, *then* create the container so it loads that
+    // seeded state — same real Hive-backed LocalStoreService, just a
+    // different order of operations.
+    late Directory tmp;
+
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('streak_decay_test_');
+      Hive.init(tmp.path);
+    });
+
+    tearDown(() async {
+      await Hive.deleteFromDisk();
+      await tmp.delete(recursive: true);
+    });
+
+    Future<ProviderContainer> freshContainer() async {
+      final container = ProviderContainer(
+        overrides: [
+          authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
+        ],
+      );
+      await container.read(authStateProvider.future);
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (container.read(dashboardProvider).isLoading &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(container.read(dashboardProvider).isLoading, isFalse);
+      return container;
+    }
+
+    test(
+        'a non-qualifying completion does not persist lastActiveDate — the '
+        'actual bug (any activity kept a streak alive indefinitely, '
+        "regardless of whether a day ever hit kStreakDayCompletionThreshold)",
+        () async {
+      final container = await freshContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(dashboardProvider.notifier);
+
+      await notifier.completeHabit(
+        habitId: 'a',
+        xpReward: 5,
+        goldReward: 2,
+        frequencyTarget: 1,
+        allHabitsDoneAfter: false, // today does not qualify
+        category: 'custom',
+        habitName: 'Habit A',
+      );
+      var saved = await LocalStoreService.getSettingsMap(
+        LocalStoreService.guestDashboardKey,
+      );
+      expect(
+        saved['lastActiveDate'],
+        isNull,
+        reason: 'a non-qualifying completion must not refresh lastActiveDate',
+      );
+
+      await notifier.completeHabit(
+        habitId: 'b',
+        xpReward: 5,
+        goldReward: 2,
+        frequencyTarget: 1,
+        allHabitsDoneAfter: true, // today now qualifies
+        category: 'custom',
+        habitName: 'Habit B',
+      );
+      saved = await LocalStoreService.getSettingsMap(
+        LocalStoreService.guestDashboardKey,
+      );
+      expect(
+        saved['lastActiveDate'],
+        isNotNull,
+        reason: 'a genuinely qualifying day must persist lastActiveDate',
+      );
+    });
+
+    test(
+        'a 3-day-old lastActiveDate (2+ non-qualifying days) resets the '
+        'streak, even though "some" activity may have happened in between',
+        () async {
+      final today = DateTime.now().effectiveDay;
+      await LocalStoreService.putSettingsMap(
+        LocalStoreService.guestDashboardKey,
+        {
+          'currentStreak': 5,
+          'streakFreezes': 1,
+          'lastActiveDate':
+              today.subtract(const Duration(days: 3)).toIso8601String(),
+        },
+      );
+
+      final container = await freshContainer();
+      addTearDown(container.dispose);
+      final dash = container.read(dashboardProvider);
+      expect(dash.streak, 0);
+      expect(dash.previousStreak, 5);
+      expect(dash.showComebackBonus, isTrue);
+    });
+
+    test(
+        'a 2-day-old lastActiveDate (exactly one non-qualifying day) auto-'
+        'consumes a freeze instead of resetting', () async {
+      final today = DateTime.now().effectiveDay;
+      await LocalStoreService.putSettingsMap(
+        LocalStoreService.guestDashboardKey,
+        {
+          'currentStreak': 5,
+          'streakFreezes': 1,
+          'lastActiveDate':
+              today.subtract(const Duration(days: 2)).toIso8601String(),
+        },
+      );
+
+      final container = await freshContainer();
+      addTearDown(container.dispose);
+      final dash = container.read(dashboardProvider);
+      expect(dash.streak, 5);
+      expect(dash.streakFreezes, 0);
+      expect(dash.didUseStreakFreeze, isTrue);
+      expect(dash.previousStreak, 0);
+    });
+  });
+
   group('willCompleteAllHabitsToday', () {
     test('only true once every scheduled habit is done', () {
       const todayHabits = [
@@ -536,6 +695,65 @@ void main() {
         ),
         isFalse,
       );
+    });
+
+    // kStreakDayCompletionThreshold (0.8) coverage — the tests above only
+    // ever exercise 1- or 2-habit lists, where 80% and 100% happen to
+    // demand the exact same thing (you can't partially clear 80% of a
+    // single item). These use a 5-habit list specifically so the two
+    // thresholds actually diverge.
+    group('kStreakDayCompletionThreshold (80%) leniency', () {
+      const fiveHabits = [
+        (id: 'a', frequencyTarget: 1),
+        (id: 'b', frequencyTarget: 1),
+        (id: 'c', frequencyTarget: 1),
+        (id: 'd', frequencyTarget: 1),
+        (id: 'e', frequencyTarget: 1),
+      ];
+
+      test(
+          '4 of 5 done (80% exactly) now qualifies — previously required '
+          'all 5', () {
+        final threeDone = DashboardState.initial()
+            .copyWith(completions: {'a': 1, 'b': 1, 'c': 1});
+        expect(
+          willCompleteAllHabitsToday(
+            state: threeDone,
+            todayHabits: fiveHabits,
+            habitId: 'd', // completing this makes it 4 of 5
+            frequencyTarget: 1,
+          ),
+          isTrue,
+        );
+      });
+
+      test('3 of 5 done (60%) still does not qualify', () {
+        final twoDone =
+            DashboardState.initial().copyWith(completions: {'a': 1, 'b': 1});
+        expect(
+          willCompleteAllHabitsToday(
+            state: twoDone,
+            todayHabits: fiveHabits,
+            habitId: 'c', // completing this makes it 3 of 5
+            frequencyTarget: 1,
+          ),
+          isFalse,
+        );
+      });
+
+      test('completing the 5th (100%) still qualifies, same as before', () {
+        final fourDone = DashboardState.initial()
+            .copyWith(completions: {'a': 1, 'b': 1, 'c': 1, 'd': 1});
+        expect(
+          willCompleteAllHabitsToday(
+            state: fourDone,
+            todayHabits: fiveHabits,
+            habitId: 'e',
+            frequencyTarget: 1,
+          ),
+          isTrue,
+        );
+      });
     });
   });
 }

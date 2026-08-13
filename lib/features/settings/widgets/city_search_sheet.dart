@@ -19,6 +19,11 @@ Future<NotificationLocation?> showCitySearchSheet(BuildContext context) {
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
+    // Without this, the sheet ignores the iPhone home-indicator inset —
+    // its internal padding only accounts for the keyboard (viewInsets),
+    // not the safe area, so the footer button can render under the
+    // gesture bar when the keyboard isn't showing.
+    useSafeArea: true,
     builder: (ctx) => const _CitySearchSheet(),
   );
 }
@@ -141,7 +146,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: gp.border,
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
               ),
             ),

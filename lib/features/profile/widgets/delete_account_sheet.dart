@@ -17,6 +17,9 @@ void showDeleteAccountSheet(BuildContext context, WidgetRef ref) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Without this, the sheet ignores the iPhone home-indicator inset and
+    // its footer button can render flush with (or under) the gesture bar.
+    useSafeArea: true,
     builder: (ctx) => const _DeleteAccountSheet(),
   );
 }
@@ -67,12 +70,20 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
       return;
     }
 
-    Navigator.of(context).pop();
+    // Both captured BEFORE the pop and the await. The pop below tears this
+    // sheet down, so its own context is on its way out: reaching back
+    // through it afterwards either trips the mounted guard and silently
+    // skips everything that follows — the account is deleted but the user
+    // is left sitting on the old screen with no confirmation and no return
+    // to the root — or throws for using a defunct element. Holding the
+    // Navigator and the messenger directly sidesteps both; neither depends
+    // on this widget still being in the tree.
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    navigator.pop();
     await setGuestMode(ref, false);
-    if (!context.mounted) return;
-    Navigator.of(context)
-        .pushNamedAndRemoveUntil('/', (_) => false);
-    ScaffoldMessenger.of(context).showSnackBar(
+    navigator.pushNamedAndRemoveUntil('/', (_) => false);
+    messenger.showSnackBar(
       SnackBar(
         content: Text(s.deleteAccountSuccess),
         behavior: SnackBarBehavior.floating,
@@ -108,7 +119,7 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: gp.border,
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
               ),
             ),
@@ -161,11 +172,11 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
                 filled: true,
                 fillColor: gp.surface,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   borderSide: BorderSide(color: gp.border),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   borderSide: BorderSide(color: gp.border),
                 ),
               ),

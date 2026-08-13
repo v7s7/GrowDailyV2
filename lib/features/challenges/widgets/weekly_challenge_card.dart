@@ -96,7 +96,7 @@ class WeeklyChallengeCard extends ConsumerWidget {
           ),
           const SizedBox(height: 14),
           ClipRRect(
-            borderRadius: BorderRadius.circular(100),
+            borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
             child: LinearProgressIndicator(
               value: progress,
               backgroundColor: gp.border,

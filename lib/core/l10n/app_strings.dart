@@ -1,3 +1,7 @@
+import 'dart:async' show unawaited;
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -33,6 +37,23 @@ Future<void> setLocale(WidgetRef ref, Locale locale) async {
   ref.read(languageChosenProvider.notifier).state = true;
   final box = await LocalStoreService.settingsBox();
   await box.put(_kLocaleKey, locale.languageCode);
+
+  // Best-effort mirror to Firestore for signed-in accounts - the room-finish
+  // push Cloud Function (functions/index.js) reads this to pick AR vs EN for
+  // a notification it sends about *this* account to someone else's device,
+  // since a server has no other way to know which language a given user
+  // reads. Never blocks/guards the locale change itself on this succeeding -
+  // a guest, or a momentary offline write failure, just means that one
+  // account's push text falls back to the function's own default until the
+  // next successful sync.
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid != null) {
+    unawaited(FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .set({'locale': locale.languageCode}, SetOptions(merge: true))
+        .catchError((_) {}));
+  }
 }
 
 /// Reads the persisted locale, if any. Called once at boot (see main.dart)
@@ -64,7 +85,7 @@ class S {
   bool get isAr => locale.languageCode == 'ar';
 
   // ── App ──────────────────────────────────────────────────────────────────
-  String get appTitle => isAr ? 'GrowDaily' : 'GrowDaily';
+  String get appTitle => isAr ? 'Grow Daily' : 'Grow Daily';
   String get tagline =>
       isAr ? 'لوّن حياتك، مربّعًا كل يوم.' : 'Color your life, one square at a time.';
 
@@ -86,6 +107,19 @@ class S {
   String get guestLimitCta => isAr ? 'إنشاء حساب مجاني' : 'Create free account';
   String get guestLimitMaybeLater => isAr ? 'ربما لاحقاً' : 'Maybe later';
 
+  /// The one fact a guest can't discover on their own until it's too late:
+  /// their data lives only on this device, so deleting the app erases it for
+  /// good and nobody can restore it (see PRIVACY_POLICY.md's Guest mode
+  /// section, which now says the same thing). Stated at the moment it's
+  /// actually relevant rather than only buried in a policy document.
+  ///
+  /// Deliberately phrased as a plain fact, not a scare or a sales line - it's
+  /// information the person is entitled to before choosing, and it happens to
+  /// also be the honest reason to make an account.
+  String get guestDataWarning => isAr
+      ? 'بياناتك كضيف محفوظة على هذا الجهاز فقط. حذف التطبيق يمحوها نهائيًا، ولا يمكننا استرجاعها لأنه لا توجد لدينا نسخة.'
+      : 'Guest data is saved on this device only. Deleting the app erases it permanently, and we cannot restore it because we never hold a copy.';
+
   // Auth errors
   String get errFillAll => isAr ? 'يرجى ملء جميع الحقول' : 'Please fill in all fields';
   String get errPasswordsMismatch => isAr ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match';
@@ -106,6 +140,11 @@ class S {
   String get todaysHabits => isAr ? 'عادات اليوم' : "TODAY'S HABITS";
   String get addHabit => isAr ? 'إضافة عادة' : 'ADD HABIT';
   String get signOut => isAr ? 'تسجيل الخروج' : 'Sign Out';
+  String get signOutConfirmTitle => isAr ? 'تسجيل الخروج؟' : 'Sign out?';
+  String get signOutConfirmBody => isAr
+      ? 'يمكنك تسجيل الدخول مرة أخرى في أي وقت.'
+      : 'You can sign back in anytime.';
+  String get signOutConfirmCancel => isAr ? 'إلغاء' : 'Cancel';
   String get deleteAccount => isAr ? 'حذف الحساب' : 'Delete Account';
   String get deleteAccountWarningTitle =>
       isAr ? 'حذف حسابك نهائيًا؟' : 'Permanently delete your account?';
@@ -223,7 +262,13 @@ class S {
   // Merged Profile row + screen title replacing the old separate
   // Achievements / Habit Insights / Progress & Streak rows — see
   // ProgressHubScreen's doc comment.
-  String get dashboardTitle => isAr ? 'لوحة التقدم' : 'Dashboard';
+  //
+  // "Progress", not "Dashboard". There used to be two different screens
+  // answering to that one word: this one (ProgressHubScreen, what the label
+  // is actually on) and a separate DashboardScreen — so the name told you
+  // nothing about which you'd get, in the product or in the code. That other
+  // screen is gone, and this says what it holds.
+  String get progressTitle => isAr ? 'التقدّم' : 'Progress';
   String get dashboardViewFullInsights =>
       isAr ? 'عرض الرؤى كاملة' : 'View full Insights';
   String get dashboardViewFullJournal =>
@@ -233,6 +278,10 @@ class S {
   // prompt, and the Friday recap card all now live under this header.
   String get profileDashboardSection => isAr ? 'نظرة عامة' : 'OVERVIEW';
   String get settings => isAr ? 'الإعدادات' : 'SETTINGS';
+
+  /// Title case, unlike [settings] — that one is an all-caps section label
+  /// inside a list; this is a screen's own app-bar title.
+  String get settingsScreenTitle => isAr ? 'الإعدادات' : 'Settings';
   String get darkMode => isAr ? 'الوضع الداكن' : 'Dark Mode';
   String get appearance => isAr ? 'المظهر' : 'Appearance';
   String get appearanceSheetTitle =>
@@ -257,6 +306,42 @@ class S {
   String get best => isAr ? 'أفضل' : 'BEST';
   String get total => isAr ? 'المجموع' : 'TOTAL';
 
+  // ── Stat-cell info popups (ProfileScreen's _StatsRow) ───────────────────
+  // One small sheet per stat cell, explaining exactly what that number
+  // means and how it's earned - tapping streak/best/total/gold/XP opens
+  // this instead of leaving five bare numbers for the user to guess at.
+  // See stat_info_sheet.dart's showStatInfoSheet, the one sheet all five
+  // reuse.
+  String get statInfoStreakTitle => isAr ? 'السلسلة' : 'Streak';
+  String get statInfoStreakDesc => isAr
+      ? 'عدد الأيام المتتالية التي أنجزت فيها كل عاداتك لهذا اليوم. تفويت يوم كامل يُصفّرها - إلا إذا حماك تجميد السلسلة.'
+      : "Consecutive days you've completed every habit on your board. Miss a full day and it resets — unless a streak freeze covers you.";
+  String get statInfoBestTitle => isAr ? 'أفضل سلسلة' : 'Best Streak';
+  String get statInfoBestDesc => isAr
+      ? 'أطول سلسلة حققتها على الإطلاق. بمجرد تجاوزها، يرتفع هذا الرقم ويبقى كما هو.'
+      : 'Your longest streak ever. Beat it, and this number moves up and stays there for good.';
+  // Arabic deliberately avoids 'الإنجازات' here - that's the exact word
+  // this app's real Achievements/badges screen already uses (see
+  // `achievements`/`achievementsRowTitle` above), and reusing it for this
+  // unrelated "every habit tick, ever" tally reads as if this number and
+  // the Achievements count are the same thing, when they're not (this one
+  // is a raw completion tally; Achievements are discrete unlocked badges,
+  // a much smaller number). 'الإتمام' (completion) keeps this stat's own
+  // title unambiguous.
+  String get statInfoTotalTitle =>
+      isAr ? 'إجمالي مرات الإتمام' : 'Total Completions';
+  String get statInfoTotalDesc => isAr
+      ? 'كل عادة أنجزتها على الإطلاق، مجمّعة عبر رحلتك بأكملها - رقم لا يُصفَّر أبدًا.'
+      : "Every habit you've ever checked off, added up across your whole journey — a tally that never resets.";
+  String get statInfoGoldTitle => isAr ? 'الذهب' : 'Gold';
+  String get statInfoGoldDesc => isAr
+      ? 'تكسبه بإنجاز العادات والمهام. أنفقه في المتجر على أزياء وإكسسوارات لشخصيتك.'
+      : 'Earned by completing habits and tasks. Spend it in the Shop on outfits and accessories for your character.';
+  String get statInfoXpTitle => isAr ? 'مجموع الخبرة' : 'Total XP';
+  String get statInfoXpDesc => isAr
+      ? 'الخبرة التي تكسبها من كل عادة ومهمة تنجزها. هي ما يرفع مستوى شخصيتك بمرور الوقت.'
+      : "Experience earned from every habit and task you complete. It's what levels your character up over time.";
+
   // Progress report
   String get fourteenDayProgress => isAr ? 'تقدم 14 يوم' : '14-day progress';
   String get holdingStrong => isAr ? 'أسبوعك الأخير قوي.' : 'Your recent week is holding strong.';
@@ -264,6 +349,20 @@ class S {
   String get loadingReport => isAr ? 'جارٍ تحميل تقرير الاتساق...' : 'Loading your consistency report...';
   String get activeDays => isAr ? 'الأيام النشطة' : 'ACTIVE DAYS';
   String get bestDay => isAr ? 'أفضل يوم' : 'BEST DAY';
+
+  // Progress report — per-day detail sheet (tapping a bar in the 14-day chart)
+  String get progressToday => isAr ? 'اليوم' : 'Today';
+  String get progressYesterday => isAr ? 'أمس' : 'Yesterday';
+  /// Section header above the per-habit list in the 14-day chart's day
+  /// sheet — what was actually done that day, plus any note left on a
+  /// habit from Grid's long-press editor.
+  String get progressDayBreakdown => isAr ? 'تفاصيل اليوم' : 'THAT DAY';
+
+  String progressDayCompletions(int count) {
+    if (count == 0) return isAr ? 'لا عادات مكتملة' : 'No habits completed';
+    if (count == 1) return isAr ? 'عادة واحدة مكتملة' : '1 habit completed';
+    return isAr ? '$count عادات مكتملة' : '$count habits completed';
+  }
 
   // Streak Freeze card
   String get streakFreeze => isAr ? 'تجميد السلسلة' : 'Streak Freeze';
@@ -354,25 +453,48 @@ class S {
   String get cuePrayerOption => isAr ? 'وقت الصلاة' : 'Prayer time';
   String get pickAPrayer => isAr ? 'اختر صلاة' : 'Pick a prayer';
   // ── Reminder lead time (Add Habit → When step) ─────────────────────
-  // How long before the picked time/prayer the actual notification fires —
+  // When the notification fires relative to the picked time/prayer —
   // separate from _CueRelation's "before/after [routine]" text above, which
   // only affects the habit's own display label, not scheduling.
-  // "ذكّرني قبل" / "Remind me before" — was just "ذكّرني"/"Remind me" before;
-  // the "before" half matters since this section is specifically about how
-  // far ahead of the resolved time/prayer moment the reminder fires, not
-  // just whether one exists at all.
-  String get remindMeSection => isAr ? 'ذكّرني قبل' : 'Remind me before';
+  // Deliberately just "Remind me" (not "Remind me before"): the row this
+  // labels now covers both directions, so naming one of them in the header
+  // would contradict half its own options.
+  String get remindMeSection => isAr ? 'ذكّرني' : 'Remind me';
   String get leadAtTime => isAr ? 'في الوقت' : 'On time';
-  String get lead15Min => isAr ? '15 د' : '15 min';
-  String get lead30Min => isAr ? '30 د' : '30 min';
-  String get lead1Hour => isAr ? 'ساعة' : '1 hour';
   String get leadCustomOption => isAr ? 'مخصص' : 'Custom';
-  String get leadCustomMinutesHint => isAr ? 'كم دقيقة قبل؟' : 'Minutes before';
-  // Small live preview under the lead-time picker (_reminderLeadSection in
+  String get leadCustomMinutesHint => isAr ? 'دقائق' : 'Minutes';
+
+  // Signed offset chips (_reminderOffsetSection). Deliberately compact
+  // ("30m before", not "30 minutes before"): these sit in a 3-column grid
+  // whose cells are ~100dp on a small phone, and the live preview directly
+  // underneath already spells out the resulting clock time in full — so
+  // these only need to be scannable, not self-explanatory.
+  String offsetBeforeMinutes(int n) => isAr ? '$n د قبل' : '${n}m before';
+  String offsetAfterMinutes(int n) => isAr ? '$n د بعد' : '${n}m after';
+  // Direction toggle beside the Custom minutes field.
+  String get offsetBeforeLabel => isAr ? 'قبل' : 'Before';
+  String get offsetAfterLabel => isAr ? 'بعد' : 'After';
+
+  // Quiet-hours conflict warning (_quietHoursWarning in add_habit_sheet)
+  // and its one-tap per-habit override. Replaces the old behavior where
+  // such a reminder was cancelled silently and never explained.
+  String get quietHoursConflictWarning => isAr
+      ? 'هذا الوقت يقع ضمن ساعات الهدوء — لن يصلك التذكير.'
+      : "This lands inside your quiet hours — it won't be delivered.";
+  String get quietHoursOverrideOn => isAr
+      ? 'سيصلك هذا التذكير رغم ساعات الهدوء.'
+      : "This reminder will be delivered anyway, despite quiet hours.";
+  String get quietHoursAllowAnywayAction =>
+      isAr ? 'اسمح به على أي حال' : 'Allow anyway';
+  String get quietHoursRespectAction =>
+      isAr ? 'احترم ساعات الهدوء' : 'Respect quiet hours';
+
+  // Small live preview under the offset picker (_reminderOffsetSection in
   // add_habit_sheet.dart) — [time] is the already-localized clock string
-  // (e.g. "1:00 PM"), computed from the picked clock time or (for a
-  // prayer cue) PrayerTimesService.calculateOfflineCorrected plus
-  // NotificationSettings.prayerOffsetMinutes, minus the chosen lead.
+  // (e.g. "1:00 PM"), computed from the picked clock time (or, for a prayer
+  // cue, PrayerTimesService.calculateOfflineCorrected) plus the habit's own
+  // signed offset. Nothing global is folded in anymore, which is what makes
+  // this match the real scheduled fire time exactly.
   String remindAtTimePreview(String time) =>
       isAr ? 'سيتم تذكيرك الساعة $time' : "You'll be reminded at $time";
   // Shown instead of remindAtTimePreview when Prayer mode is picked but no
@@ -478,7 +600,7 @@ class S {
   String get focusSavePlan => isAr ? 'احفظ خطة اليوم' : "Save today's plan";
   String get focusPlanSaved => isAr ? 'تم حفظ خطة التركيز لليوم.' : 'Focus plan saved for today.';
   String get focusTimerTitle => isAr ? 'مؤقت التركيز' : 'Focus timer';
-  String get focusTimerSubtitle => isAr ? 'ابقَ في التطبيق بدلاً من التنقل.' : 'Stay inside GrowDaily instead of switching apps.';
+  String get focusTimerSubtitle => isAr ? 'ابقَ في التطبيق بدلاً من التنقل.' : 'Stay inside Grow Daily instead of switching apps.';
   String get focusPauseSprint => isAr ? 'إيقاف السبرنت' : 'Pause sprint';
   String get focusStartSprint => isAr ? 'ابدأ السبرنت' : 'Start sprint';
   String get focusResetTimer => isAr ? 'إعادة المؤقت' : 'Reset timer';
@@ -591,7 +713,16 @@ class S {
       : 'Pick a time that hasn\'t already passed';
   String get matrixDone => isAr ? 'تم' : 'Done';
   String get matrixUndo => isAr ? 'تراجع' : 'Undo';
-  String get matrixTaskDeleted => isAr ? 'تم حذف المهمة' : 'Task deleted';
+
+  /// The same word, reused by Grid's habit-delete Undo. Kept as its own
+  /// getter rather than borrowing matrixUndo so a future Matrix-specific
+  /// rewording can't silently change what the Grid's button says.
+  String get undo => isAr ? 'تراجع' : 'Undo';
+  // Named, not generic - "'Buy groceries' deleted" tells you which task
+  // just disappeared (useful right before the Undo action expires),
+  // matching matrixTasksDeleted's own count below for the multi-select case.
+  String matrixTaskDeleted(String taskTitle) =>
+      isAr ? 'تم حذف "$taskTitle"' : '"$taskTitle" deleted';
   String matrixTasksDeleted(int count) =>
       isAr ? 'تم حذف $count مهام' : '$count tasks deleted';
   String get matrixPickADay => isAr
@@ -663,25 +794,27 @@ class S {
   String get navGoals => isAr ? 'الأهداف' : 'Goals';
   String get navProfile => isAr ? 'ملفي' : 'Profile';
 
-  // One-time nav spotlight (HomeShell, right after onboarding/on first
-  // launch with this feature) — names the three real tab labels above by
-  // name, same convention the onboarding hints already use ("Tasks tab",
-  // "Profile tab") rather than a generic "the tabs below".
-  String get homeSpotlightBody => isAr
-      ? 'مرر أو اضغط تحت للتنقل بين العادات والملف الشخصي والمهام. أضف أول عادة أي وقت من تبويب العادات.'
-      : 'Swipe or tap below to explore Habits, Profile, and Tasks. Add your first habit anytime from the Habits tab.';
-  String get homeSpotlightGotIt => isAr ? 'تمام' : 'Got it';
-
   // GetStartedChecklistCard (Grid + Matrix, disappears once both are done —
   // see that widget's own doc comment for why this replaces leaning on the
   // spotlight/slide-tour alone to teach this). "Habit"/"Task" match navGrid/
   // navMatrix's own wording on purpose, not "Grid"/"Goal" — the checklist
   // is about the real-world thing being added, not the screen it lives on.
   String get getStartedTitle => isAr ? 'ابدأ الآن' : 'Get Started';
+  /// "Step 2 of 4" on the Grid's guide card — a visible end so the guide
+  /// reads as something you finish, not an open-ended chore list.
+  String guideStepCount(int step, int total) =>
+      isAr ? '$step من $total' : '$step of $total';
+
   String get getStartedAddHabit =>
       isAr ? 'أضف أول عادة لك' : 'Add your first habit';
   String get getStartedAddTask =>
       isAr ? 'أضف أول مهمة لك' : 'Add your first task';
+
+  // Dismiss label on App Guide's coach-marks (CoachMarkOverlay). The four
+  // habit/task spotlight strings that used to sit here went with the
+  // first-run spotlight overlay itself — they duplicated the Get Started
+  // checklist's own rows word for word.
+  String get coachMarkSkip => isAr ? 'تخطّي' : 'Skip';
 
   // ── Victory Grid ─────────────────────────────────────────────────────────
   String get gridTitle => isAr ? 'شبكة الانتصارات' : 'Victory Grid';
@@ -711,12 +844,12 @@ class S {
       ? 'تعديل يوم سابق: يُحدّث سجلّك المرئي فقط، دون مكافآت.'
       : 'Editing a past day updates your visual record only — no rewards.';
   // Distinct from gridPastDayHint on purpose: shown for the real calendar
-  // day during the 3-hour window right after midnight, which isn't a past
+  // day during the 6-hour window right after midnight, which isn't a past
   // day at all (it just isn't the official rewarded day yet) — see
   // DateTimeGameExt.isRealToday/isToday's doc comments.
   String get gridNotYetActiveHint => isAr
-      ? 'لم يصبح هذا اليوم رسميًا بعد: يمكنك تلوينه، لكن دون مكافآت حتى الساعة ٣ فجرًا.'
-      : "This day isn't official yet — you can color it in, but no rewards until 3 AM.";
+      ? 'لم يصبح هذا اليوم رسميًا بعد: يمكنك تلوينه، لكن دون مكافآت حتى الساعة ٦ صباحًا.'
+      : "This day isn't official yet — you can color it in, but no rewards until 6 AM.";
   String get gridEmptyTitle => isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
   // Points at the literal button just below it ("Browse Plans" / "استعرض
   // الخطط") rather than the old "Today" tab, which the bottom nav retired
@@ -745,6 +878,15 @@ class S {
   String get gridJournalEmpty => isAr
       ? 'لا توجد ملاحظات محفوظة هذا الشهر — اضغط مطوّلاً على أي مربّع لإضافة واحدة'
       : 'No notes saved this month — long-press any square to add one';
+  String get gridJournalSearchHint =>
+      isAr ? 'ابحث في العادات أو الملاحظات' : 'Search habits or notes';
+  // Shown instead of gridJournalEmpty when a search/filter is active but
+  // matches nothing — distinguishes "nothing here yet" from "nothing
+  // matches what you typed," since this month may well have real entries
+  // that a narrow filter or search term is just hiding right now.
+  String get gridJournalNoResults => isAr
+      ? 'لا توجد نتائج مطابقة — جرّب بحثًا أو فلترًا مختلفًا'
+      : 'No matches — try a different search or filter';
   String get gridJournalFilterAll => isAr ? 'الكل' : 'All';
   // Shown in place of a habit's real name when it's since been deleted —
   // the note itself is still worth keeping (see isJournalWorthy's doc
@@ -939,7 +1081,7 @@ class S {
   String get heatmapUpgradeTitle =>
       isAr ? 'افتح سجلّك الكامل' : 'Unlock your full history';
   String heatmapUpgradeBody(int freeMonths) => isAr
-      ? 'الحساب المجاني يعرض آخر $freeMonths أشهر. GrowDaily Premium يفتح خريطتك كاملة، من أول يوم.'
+      ? 'الحساب المجاني يعرض آخر $freeMonths أشهر. Grow Daily Premium يفتح خريطتك كاملة، من أول يوم.'
       : 'Free shows your last $freeMonths months. Premium unlocks your whole map, from day one.';
 
   // ── Night Review ─────────────────────────────────────────────────────────
@@ -980,12 +1122,12 @@ class S {
       isAr ? 'يمكنك تعديل مراجعتك في أي وقت الليلة' : 'You can edit tonight\'s review anytime';
 
   // ── Premium ──────────────────────────────────────────────────────────────
-  String get premiumTitle => isAr ? 'بريميوم' : 'GrowDaily Premium';
+  String get premiumTitle => isAr ? 'بريميوم' : 'Grow Daily Premium';
   String get premiumHeadline =>
       isAr ? 'املأ حياتك بالألوان، بلا حدود' : 'Fill your life with color, without limits';
   String get premiumSubhead => isAr
-      ? 'كل ما يقدّمه GrowDaily، بلا حدود.'
-      : 'Everything GrowDaily has to offer, without the limits.';
+      ? 'كل ما يقدّمه Grow Daily، بلا حدود.'
+      : 'Everything Grow Daily has to offer, without the limits.';
   // This whole block was rewritten short and warm per user feedback that
   // the previous (accurate but spec-sheet-like) two-clause descriptions
   // read as "a lot of details." Every line below still maps to the exact
@@ -1082,6 +1224,19 @@ class S {
   String get premiumLinkOpenError => isAr
       ? 'تعذّر فتح الرابط.'
       : 'Couldn\'t open the link.';
+
+  // ── Help & Support (help_support_screen.dart) ───────────────────────────
+  // FAQ question/answer text itself lives in that file's own kFaqEntries
+  // list (bilingual fields directly on each entry, same shape
+  // IslamicHabitTemplate already uses for catalog content) rather than
+  // here - these are just the screen's UI chrome, not its content.
+  String get helpSupportRowTitle => isAr ? 'المساعدة والدعم' : 'Help & Support';
+  String get helpFaqSectionTitle => isAr ? 'الأسئلة الشائعة' : 'FAQ';
+  String get helpContactSectionTitle => isAr ? 'تواصل معنا' : 'Contact us';
+  String get helpContactEmailLabel => isAr ? 'البريد الإلكتروني' : 'Email';
+  String get helpContactWhatsAppLabel => isAr ? 'واتساب' : 'WhatsApp';
+  String get helpContactInstagramLabel => isAr ? 'إنستغرام' : 'Instagram';
+  String get helpGuidesSectionTitle => isAr ? 'شروحات الاستخدام' : 'Guides';
   String get habitLimitTitle =>
       isAr ? 'وصلت لحد الخطة المجانية' : 'You\'ve reached the free plan limit';
   String habitLimitBody(int limit) => isAr
@@ -1099,7 +1254,7 @@ class S {
   String get voiceNoteTapToStop => isAr ? 'اضغط للإيقاف' : 'Tap to stop';
   String get voiceNoteMicPermissionDenied => isAr
       ? 'يحتاج التطبيق إذن الميكروفون لتسجيل الملاحظات الصوتية.'
-      : 'GrowDaily needs microphone access to record voice notes.';
+      : 'Grow Daily needs microphone access to record voice notes.';
   String get voiceNoteAttached => isAr ? 'ملاحظة صوتية مرفقة' : 'Voice note attached';
   String get voiceNotePlay => isAr ? 'تشغيل' : 'Play';
   String get voiceNotePause => isAr ? 'إيقاف مؤقت' : 'Pause';
@@ -1128,31 +1283,26 @@ class S {
       ? 'سلسلة الـ$days يومًا على المحك'
       : 'Your $days-day streak is on the line';
   String get streakAtRiskBody => isAr
-      ? 'مربّع ملوّن واحد الليلة يبقيها حيّة.'
-      : 'One colored square tonight keeps it alive.';
+      ? 'أنجز 80% من عادات اليوم على الأقل عشان تستمر.'
+      : 'Finish 80% or more of today\'s habits to keep it going.';
 
   // ── First-run onboarding ─────────────────────────────────────────────────
   // Tone: benefit-first, short, warm — Khaleeji Arabic (not MSA), matching
-  // the notification copy's voice. Each slide also carries a "where to tap"
-  // hint so a brand-new user knows exactly which button/tab the slide is
-  // talking about.
+  // the notification copy's voice. Four slides: Grid, Habits, Tasks, Rooms —
+  // the Achievements slide was cut (it duplicated the gold/XP mention
+  // already in the Habits slide), and the per-slide "where to tap" hint
+  // chip was removed too, so this is now just title + body per slide.
   String get onboardingGridTitle => isAr
       ? 'لوّن حياتك، مربّع كل يوم'
       : 'Color your life, one square at a time';
   String get onboardingGridBody => isAr
       ? 'كل عادة تخلصها تلوّن مربّع في شبكتك. الأيام الخضرا تتجمع، وشهرك يمتلي شوي شوي.'
       : 'Every habit you finish colors a square. Green days add up. Watch your month fill in.';
-  String get onboardingGridHint => isAr
-      ? 'اضغط مربّع اليوم في الشبكة عشان تلوّنه'
-      : "Tap today's square on the Grid to color it";
   String get onboardingHabitsTitle =>
       isAr ? 'عادات صغيرة، فرق كبير' : 'Small habits, big difference';
   String get onboardingHabitsBody => isAr
       ? 'صلاة، قرآن، رياضة، أي شي يهمك. كل وحدة تخلصها تعطيك نقاط وذهب، وسلسلتك تكبر.'
       : 'Prayer, Quran, gym, anything that matters to you. Each one you finish earns XP and gold, and your streak grows.';
-  String get onboardingHabitsHint => isAr
-      ? 'اضغط زر ＋ وأضف أول عادة'
-      : 'Tap the ＋ button to add your first habit';
   String get onboardingTasksTitle =>
       isAr ? 'رتّب يومك بثواني' : 'Sort your day in seconds';
   String get onboardingTasksBody => isAr
@@ -1161,26 +1311,12 @@ class S {
       // Tasks screen actually shows.
       ? 'حط مهامك في أربع خانات: أولاً، جدول، فوّض، أو احذف. والمهم ما يضيع.'
       : 'Drop tasks into four boxes: Do First, Schedule, Delegate, or Eliminate. The important stuff never gets lost.';
-  String get onboardingTasksHint => isAr
-      ? 'من تبويب المهام في الشريط تحت'
-      : 'Find it in the Tasks tab below';
-  String get onboardingAchievementsTitle =>
-      isAr ? 'كل إنجاز له طعم' : 'Every win counts';
-  String get onboardingAchievementsBody => isAr
-      ? 'نقاط وذهب ومستويات وإنجازات تفتحها وحدة وحدة. ثباتك هني له قيمة.'
-      : 'XP, gold, levels, and achievements to unlock one by one. Your consistency is worth something here.';
-  String get onboardingAchievementsHint => isAr
-      ? 'شوفها كلها من تبويب ملفي'
-      : 'See them all in your Profile tab';
   String get onboardingRoomsTitle =>
       isAr ? 'مع الربع أحلى' : 'Better with your people';
   String get onboardingRoomsBody => isAr
       // وناسة (not ونسة) — the real Gulf spelling, per the user.
       ? 'سوّ غرفة لأهلك وربعك، اربطوا عاداتكم، وتسابقوا على الصدارة. إنتاجية ووناسة.'
       : 'Make a room with family and friends, link your habits, and race up the leaderboard. Productive, together.';
-  String get onboardingRoomsHint => isAr
-      ? 'من ملفي، افتح الغرف وابدأ التحدي'
-      : 'Open Rooms from your Profile to start one';
   String get onboardingSkip => isAr ? 'تخطّي' : 'Skip';
   String get onboardingNext => isAr ? 'التالي' : 'Next';
   String get onboardingGetStarted => isAr ? 'يلا نبدأ' : 'Start coloring';
@@ -1218,6 +1354,13 @@ class S {
       ? 'الغرف تشارك لوحة صدارة حيّة مع الجميع فيها، لذلك تحتاج إلى حساب.'
       : 'Rooms share a live leaderboard with everyone in them, so they need an account.';
   String get roomGuestGateAction => isAr ? 'تسجيل الدخول' : 'Sign In';
+  // Star toggle on each room's list tile — a personal, this-account-only
+  // pin (see RoomsController.toggleStarRoom) that floats that room to the
+  // top of this list (see sortStarredFirst), independent of what any other
+  // member of the room sees.
+  String get roomStarTooltip => isAr ? 'تمييز هذه الغرفة بنجمة' : 'Star this room';
+  String get roomUnstarTooltip =>
+      isAr ? 'إلغاء تمييز هذه الغرفة' : 'Unstar this room';
 
   // Create Room sheet
   String get roomCreateTitle => isAr ? 'إنشاء غرفة' : 'Create a Room';
@@ -1233,6 +1376,20 @@ class S {
       ? 'كل شخص يربط عادة واحدة أو أكثر من عاداته الخاصة'
       : 'Each person links one or more of their own habits';
   String get roomYourHabitLabel => isAr ? 'عادتك لهذه الغرفة' : 'Your habit for this room';
+
+  // Create Room - compete mode (RoomCompeteMode) - the leader's one-time
+  // choice between the individual leaderboard this app always had and a
+  // shared, collaborative goal layered on top of it (see RoomTeamProgress/
+  // _TeamProgressCard's claim button).
+  String get roomCompeteModeLabel => isAr ? 'روح الغرفة' : 'Room spirit';
+  String get roomCompeteModeCompetitive => isAr ? 'تنافسية' : 'Competitive';
+  String get roomCompeteModeCompetitiveHint => isAr
+      ? 'لوحة صدارة تقيس من الأفضل'
+      : "A leaderboard ranks who's ahead";
+  String get roomCompeteModeTeam => isAr ? 'فريق واحد' : 'Team';
+  String get roomCompeteModeTeamHint => isAr
+      ? 'اللوحة تبقى، ويضاف هدف مشترك: أنجزوا سويةً 100% وتحصل المجموعة كاملة على مكافأة'
+      : 'Keeps the leaderboard, adds a shared goal: hit 100% together and the whole group earns a bonus';
 
   // Create Room - own-mode picker (multi-select from the leader's own
   // habits, tracked directly - no plan/cloning, unlike shared mode below)
@@ -1259,6 +1416,15 @@ class S {
   }
   String get roomDurationLabel => isAr ? 'كم المدة؟' : 'How long?';
   String get roomDurationOpenEnded => isAr ? 'بدون تاريخ نهاية' : 'No end date';
+  // The escape hatch beyond the 7/14/30/90 quick-picks - see
+  // RoomModel.parseCustomRoomDurationDays for the 1-365 range this actually
+  // enforces, and CreateRoomSheet/_ExtendRoomSheet for the two places this
+  // trio of strings is shared between.
+  String get roomDurationCustomOption => isAr ? 'مخصص' : 'Custom';
+  String get roomDurationCustomHint => isAr ? 'عدد الأيام' : 'Number of days';
+  String get roomDurationCustomRange => isAr ? '1 إلى 365 يومًا' : '1–365 days';
+  String get roomDurationCustomInvalid =>
+      isAr ? 'أدخل رقمًا بين 1 و365' : 'Enter a number between 1 and 365';
   String get roomCreateSubmit => isAr ? 'إنشاء الغرفة' : 'Create Room';
 
   // Just-created "share the code" moment
@@ -1277,8 +1443,8 @@ class S {
   // type the code by hand - the code on its own line still works exactly
   // as before wherever the link isn't clickable.
   String roomShareMessage(String name, String code) => isAr
-      ? 'انضم إلى تحدي "$name" في GrowDaily!\nرمز الغرفة: $code\ngrowdaily://join/$code'
-      : 'Join my "$name" challenge on GrowDaily!\nRoom code: $code\ngrowdaily://join/$code';
+      ? 'انضم إلى تحدي "$name" في Grow Daily!\nرمز الغرفة: $code\ngrowdaily://join/$code'
+      : 'Join my "$name" challenge on Grow Daily!\nRoom code: $code\ngrowdaily://join/$code';
 
   // Join Room sheet
   String get roomJoinTitle => isAr ? 'الانضمام إلى غرفة' : 'Join a Room';
@@ -1327,12 +1493,45 @@ class S {
     return '$n عضو';
   }
 
+  /// "Show all 200 members" — the leaderboard's reveal for a room longer
+  /// than the first slice it renders. Reuses [roomMemberCount]'s own Arabic
+  /// plural rules rather than repeating them, so 2 reads عضوان here too.
+  String roomShowAllMembers(int n) =>
+      isAr ? 'عرض كل ${roomMemberCount(n)}' : 'Show all ${roomMemberCount(n)}';
+
+  /// Shown in the Join preview for a room past [kRoomAutoMuteMemberLimit],
+  /// so arriving to a silent bell is something the person was told about
+  /// rather than something they have to work out.
+  String get roomLargeRoomMutedNote => isAr
+      ? 'غرفة كبيرة — الإشعارات تبدأ مغلقة. تقدر تشغّلها من داخل الغرفة.'
+      : 'Big room — notifications start off. You can turn them on inside.';
+
+  /// The "your challenge finished" popup shown on the next app open after a
+  /// room ends — see RoomFinaleAnnouncer (main.dart) and
+  /// unseenFinishedRoomsProvider.
+  String roomFinaleDialogBody(String roomName) => isAr
+      ? 'انتهى تحدي «\$roomName». افتحه لتشوف المنصة والنتيجة النهائية.'
+      : '"\$roomName" has finished. Open it to see the podium and the final standings.';
+  String get roomFinaleShow => isAr ? 'اعرض النتيجة' : 'See results';
+  String get roomFinaleDismiss => isAr ? 'لاحقًا' : 'Not now';
+
+  /// End-of-room podium prize (competitive rooms) — see
+  /// RoomsController.podiumPrizeFor for the amounts.
+  String roomClaimPrize(int xp, int gold) => isAr
+      ? 'استلم جائزتك: $xp نقطة + $gold ذهب'
+      : 'Claim your prize: $xp XP + $gold gold';
+  String get roomPrizeClaimed =>
+      isAr ? 'تم استلام جائزتك 🎉' : 'Prize claimed 🎉';
+
   // Room Detail / leaderboard screen
   String get roomOngoing => isAr ? 'مستمرة' : 'Ongoing';
   String get roomEnded => isAr ? 'انتهت' : 'Ended';
   String roomDaysLeft(int n) =>
       isAr ? '${daysCount(n)} متبقية' : '${daysCount(n)} left';
-  String get roomMyPlanTitle => isAr ? 'خطتك' : 'Your plan';
+  // roomMyPlanTitle ("Your plan" / "خطتك") was removed with the card's title
+  // row: a card that says "not done yet today" directly above your own habit
+  // does not also need labelling. Kept out rather than left dangling so the
+  // next person doesn't wonder where it renders.
   String get roomMarkedToday => isAr ? 'تم إنجاز اليوم' : 'Done for today';
   String get roomNotDoneToday => isAr ? 'لم يُنجز بعد اليوم' : 'Not yet today';
   /// "1/2 today" - shown instead of [roomMarkedToday]/[roomNotDoneToday]
@@ -1341,11 +1540,145 @@ class S {
   /// between the other two.
   String roomPartialToday(int done, int total) =>
       isAr ? '$done من $total اليوم' : '$done/$total today';
+
+  /// Shown in the room when a linked habit's live settings no longer match
+  /// the cadence the room is scoring it by (see roomRuleMismatches and
+  /// RoomParticipant.habitRules). Deliberately explains rather than alarms:
+  /// the room holding its original rules is the CORRECT behaviour, since it
+  /// stops an edit from rewriting finished days, so this reads as
+  /// information plus an offer, not an error.
+  String roomRuleChangedWarning(String habitNames) => isAr
+      ? 'غيّرت إعدادات: $habitNames. هذه الغرفة ما زالت تحسب بالإعدادات الأصلية، حتى لا تتأثر أيامك السابقة.'
+      : 'You changed the settings for $habitNames. This room still scores the original settings, so your finished days stay as you earned them.';
+  String get roomRuleChangedAction =>
+      isAr ? 'استخدم إعداداتي الجديدة من اليوم' : 'Use my new settings from today';
+  String get roomRuleChangedApplied => isAr
+      ? 'تم. الأيام السابقة كما هي، والحساب الجديد يبدأ من اليوم.'
+      : 'Done. Past days keep their score, the new settings start today.';
+
+  /// The "no thanks" on a leader-added shared habit (see
+  /// RoomsController.declineSharedHabit). A skipped slot counts for nothing
+  /// either way, so this never costs the person anything.
+  String get roomSkipSharedHabit => isAr ? 'تخطَّ هذه' : 'Skip this one';
+  String get roomSkippedLabel => isAr ? 'متخطاة' : 'Skipped';
+  String get roomSkippedHint => isAr
+      ? 'هذه العادة لا تُحسب لك، لا لصالحك ولا ضدك. اضغط لإضافتها لاحقًا.'
+      : 'This habit does not count for you either way. Tap to add it after all.';
+
+  /// Leader-only removal of a shared habit (see
+  /// RoomsController.removeSharedHabit).
+  String get roomCancel => isAr ? 'إلغاء' : 'Cancel';
+  String get roomRemoveSharedHabit => isAr ? 'إزالة من الخطة' : 'Remove from plan';
+  String roomRemoveSharedHabitConfirm(String habitName) => isAr
+      ? 'إزالة "$habitName" من خطة الغرفة؟ ستتوقف عن الحساب للجميع، ولن تتأثر الأيام السابقة.'
+      : 'Remove "$habitName" from the room plan? It stops counting for everyone, and no past day changes.';
+  String get roomRemovedLabel => isAr ? 'مُزالة' : 'Removed';
   String roomPlanPartialCreditHint(int n) => isAr
       ? 'كل عادة تُنجزها تضيف جزءًا من التقدم — إكمال كل الـ $n يمنحك اليوم كاملًا'
       : 'Each one you finish adds partial credit — complete all $n for the full day';
+  // Team Progress card (RoomTeamProgress) - the room-wide combined-goal
+  // view alongside the individual leaderboard: "everyone together" numbers
+  // rather than who's ranked where. daysCount(n) (already used by
+  // roomDaysLeft above) covers the Arabic plural for the numbers here too.
+  String get roomTeamProgressTitle => isAr ? 'تقدم الفريق' : 'Team progress';
+  String roomTeamProgressDays(int completed, int possible) => isAr
+      ? '${daysCount(completed)} من ${daysCount(possible)} سويةً'
+      : '$completed of $possible days together';
+  String get roomTeamAllDoneToday =>
+      isAr ? 'الكل حضر اليوم' : "Everyone's shown up today";
+  // Team bonus claim (RoomCompeteMode.team only) - see _TeamProgressCard's
+  // three states: still chasing it, ready to claim, already claimed.
+  String roomTeamBonusHint(int xp, int gold) => isAr
+      ? 'أنجزوا 100% سويةً — كل يوم، كل شخص — ليحصل الجميع على +$xp خبرة و+$gold ذهب'
+      : 'Hit 100% together — every day, every person — and everyone earns +$xp XP and +$gold gold';
+  String get roomTeamBonusClaimAction =>
+      isAr ? 'المطالبة بمكافأة الفريق' : 'Claim Team Bonus';
+  String get roomTeamBonusClaimedLabel =>
+      isAr ? 'تم استلام مكافأة الفريق' : 'Team bonus claimed';
   String get roomDetailsHidden => isAr ? 'مخفي عن الغرفة' : 'Hidden from room';
   String get roomDetailsVisible => isAr ? 'مرئي للغرفة' : 'Visible to room';
+  // Editing a room's habit(s) after it's already been created - see
+  // RoomsController.addSharedHabit ('shared' mode, leader-only, appears in
+  // RoomDetailScreen's app-bar menu) and .addMyLinkedHabit ('own' mode, any
+  // participant, appears right on _MyPlanCard) plus resolvePlanHabit (the
+  // banner an already-joined guest sees once the leader's added something
+  // new for them to link).
+  String get roomAddHabitAction => isAr ? 'إضافة عادة' : 'Add a habit';
+  String get roomAddHabitPickerTitle =>
+      isAr ? 'إضافة عادة إلى الخطة' : 'Add a habit to the plan';
+  String get roomAddHabitPickerHint => isAr
+      ? 'كل من هم بالفعل في هذه الغرفة سيُطلب منهم ربط إحدى عاداتهم بها أيضًا.'
+      : 'Everyone already in this room will be asked to link one of their own habits to it too.';
+  String roomHabitAddedConfirmation(String habitName) => isAr
+      ? 'تمت إضافة "$habitName" إلى الخطة'
+      : 'Added "$habitName" to the plan';
+  String get roomAddAnotherHabitAction =>
+      isAr ? '+ إضافة عادة أخرى' : '+ Add another habit';
+  String get roomAddAnotherHabitPickerTitle =>
+      isAr ? 'إضافة عادة أخرى' : 'Add another habit';
+  String get roomAddAnotherHabitPickerHint => isAr
+      ? 'تابع عادة أخرى من عاداتك في هذه الغرفة.'
+      : 'Track one more of your own habits in this room.';
+
+  // ── Room-finish push (functions/index.js) ──────────────────────────────
+  //
+  // The one push category this app sends from a server rather than
+  // scheduling locally - see NotificationSettings.roomActivityEnabled's
+  // doc comment for the master toggle, and RoomParticipant.
+  // notificationsMuted for this per-room override.
+  String get roomMuteAction =>
+      isAr ? 'كتم إشعارات هذه الغرفة' : 'Mute notifications for this room';
+  String get roomUnmuteAction =>
+      isAr ? 'إلغاء كتم إشعارات هذه الغرفة' : 'Unmute notifications for this room';
+  String get roomMutedConfirmation =>
+      isAr ? 'تم كتم إشعارات هذه الغرفة' : 'Notifications muted for this room';
+  String get roomUnmutedConfirmation => isAr
+      ? 'تم إلغاء كتم إشعارات هذه الغرفة'
+      : 'Notifications unmuted for this room';
+  String get roomNoMoreHabitsToAdd => isAr
+      ? 'كل عاداتك مرتبطة بهذه الغرفة بالفعل.'
+      : 'All of your habits are already linked to this room.';
+  /// The persistent "create instead of pick" row on pickOwnHabitSheet and
+  /// CreateRoomSheet's _PlanHabitPicker - always shown, not just when the
+  /// existing-habits list is empty, so there's never a dead end if none of
+  /// your current habits fit what this room needs.
+  String get roomCreateNewHabitAction =>
+      isAr ? 'إنشاء عادة جديدة' : 'Create a new habit';
+  /// Shown under [roomCreateNewHabitAction] only when picking/creating for
+  /// a shared-mode room's plan (see pickOwnHabitSheet's isSharedTemplate
+  /// param) - whatever gets created here is exactly what every other
+  /// participant is later offered to link or clone, so this makes that
+  /// plain before they name it.
+  String get roomCreateNewHabitSharedNote => isAr
+      ? 'سيصبح هذا هو العادة التي يمكن للجميع في الغرفة اتباعها أيضًا.'
+      : 'This becomes the habit everyone in the room can follow too.';
+  /// Non-blocking heads-up after creating a new habit through one of the
+  /// room pickers, when its name closely matches one you already have (see
+  /// suggestExistingMatch in rooms_notifier.dart, the same fuzzy-match
+  /// helper the resolve-new-habits flow already uses to suggest a likely
+  /// existing match) - a nudge, not a gate, so it never blocks the habit
+  /// that was already created.
+  String roomPossibleDuplicateWarning(String existingName) => isAr
+      ? 'ملاحظة: لديك بالفعل عادة باسم "$existingName" مشابهة لهذه.'
+      : 'Heads up: you already have a habit called "$existingName" that looks similar.';
+  /// The banner _MyPlanCard shows a guest once the leader's added a new
+  /// shared-plan slot they haven't resolved yet (see RoomsController.
+  /// resolvePlanHabit) - [habitName] is the new plan entry's own name, same
+  /// snapshot every other plan-preview string already shows.
+  String roomNewHabitBannerTitle(String habitName) => isAr
+      ? 'أضاف القائد عادة جديدة: $habitName'
+      : 'Your leader added a new habit: $habitName';
+  String get roomNewHabitBannerBody => isAr
+      ? 'اربط إحدى عاداتك لتبقى نسبة إنجازك في هذه الغرفة دقيقة.'
+      : "Link one of your own habits so your progress here stays accurate.";
+  String get roomNewHabitBannerAction => isAr ? 'ربط الآن' : 'Link now';
+  String get roomResolveHabitsSheetTitle =>
+      isAr ? 'عادة جديدة في الخطة' : 'New habit in the plan';
+  // The local notification for this same event (RoomsHubScreen noticing an
+  // unresolved plan slot) is NOT here - NotificationService.
+  // showRoomHabitAdded fires with no BuildContext available (same as every
+  // other notification body in that file, e.g. showTest), so its EN/AR
+  // copy is hardcoded directly there instead of routed through S.
   // Kept around for any link that went stale before habit deletion started
   // unlinking automatically (see habitLinkedRoomWarningBody below) - going
   // forward this shouldn't normally trigger. Deliberately no longer
@@ -1357,18 +1690,38 @@ class S {
       ? 'إحدى العادات المرتبطة لم تعد موجودة في شبكتك. يمكن لمغادرة الغرفة وإعادة الانضمام إعادة ربطها، لكن ذلك يصفّر تقدمك في هذه الغرفة أيضًا — فافعل ذلك فقط إذا كنت لا تمانع البدء من جديد.'
       : "A linked habit no longer exists in your Grid. Leaving and rejoining relinks it, but also resets your progress in this room — only do that if you're fine starting over here.";
   /// Shown before a habit that's linked to one or more rooms actually gets
-  /// deleted (see AddHabitSheet._deleteExisting/GridScreen._deleteSelected)
-  /// - the one moment this consequence is still easy to avoid, unlike after
-  /// the fact when all that's left is roomLinkedHabitDeletedHint's warning.
+  /// deleted (see AddHabitSheet._deleteExisting/GridScreen._deleteSelected/
+  /// DashboardScreen's Today swipe-delete) - the one moment this consequence
+  /// is still easy to avoid, unlike after the fact when all that's left is
+  /// roomLinkedHabitDeletedHint's warning.
   String get habitLinkedRoomWarningTitle =>
       isAr ? 'مرتبطة بغرفة مشتركة' : 'Linked to a shared room';
-  String habitLinkedRoomWarningBody(int roomCount) => isAr
-      ? (roomCount == 1
-          ? 'هذه العادة جزء من تقدمك في غرفة مشتركة. حذفها سيُلغي ربطها بتلك الغرفة فورًا.'
-          : 'هذه العادة جزء من تقدمك في $roomCount غرف مشتركة. حذفها سيُلغي ربطها بها جميعًا فورًا.')
-      : (roomCount == 1
-          ? "This habit counts toward your progress in a shared room. Deleting it will unlink it from that room right away."
-          : "This habit counts toward your progress in $roomCount shared rooms. Deleting it will unlink it from all of them right away.");
+  /// [roomNames] is never empty (callers only show this dialog when at
+  /// least one room is affected) - names, not just a count, so the person
+  /// can recognize exactly which room(s) before confirming, and explicitly
+  /// reassures that unlinking never means leaving: RoomsController.
+  /// unlinkHabitEverywhere only ever strips this one habitId from
+  /// linkedHabitIds, it never removes the participant doc or touches any
+  /// other linked habit, so every other room this account is in - and every
+  /// other habit still linked to *this* room - carries on exactly as
+  /// before. See that method's own doc comment for the full guarantee.
+  String habitLinkedRoomWarningBody(List<String> roomNames) {
+    final quoted = roomNames.map((n) => isAr ? '"$n"' : '"$n"').toList();
+    if (isAr) {
+      final list = quoted.join('، ');
+      return roomNames.length == 1
+          ? 'هذه العادة جزء من تقدمك في غرفة $list. حذفها سيُلغي ربطها بتلك الغرفة فقط - ستبقى في الغرفة وتتابع بقية عاداتك المرتبطة بها فيها كما هي.'
+          : 'هذه العادة جزء من تقدمك في غرف $list. حذفها سيُلغي ربطها بها جميعًا فقط - ستبقى في كل غرفة وتتابع بقية عاداتك المرتبطة بها فيها كما هي.';
+    }
+    final list = quoted.length == 1
+        ? quoted.first
+        : quoted.length == 2
+            ? '${quoted[0]} and ${quoted[1]}'
+            : '${quoted.sublist(0, quoted.length - 1).join(', ')}, and ${quoted.last}';
+    return roomNames.length == 1
+        ? "This habit counts toward your progress in $list. Deleting it will only unlink it from that room - you'll stay in the room and keep tracking anything else still linked there."
+        : "This habit counts toward your progress in $list. Deleting it will only unlink it from those rooms - you'll stay in each room and keep tracking anything else still linked there.";
+  }
   String get habitDeleteAnywayAction => isAr ? 'حذف على أي حال' : 'Delete Anyway';
   String get habitDeleteLinkedRoomCancel => isAr ? 'إلغاء' : 'Cancel';
   /// Snackbar shown right after a habit is removed (see
@@ -1435,8 +1788,8 @@ class S {
   String get notifMasterTitle =>
       isAr ? 'السماح بالإشعارات' : 'Allow Notifications';
   String get notifMasterDesc => isAr
-      ? 'أوقفه لإيقاف كل إشعارات GrowDaily — التذكيرات والسلاسل والاحتفالات، كل شيء.'
-      : 'Turn off to stop every notification GrowDaily sends — reminders, streaks, celebrations, all of it.';
+      ? 'أوقفه لإيقاف كل إشعارات Grow Daily، التذكيرات والسلاسل والاحتفالات، كل شيء.'
+      : 'Turn off to stop every notification Grow Daily sends, reminders, streaks, celebrations, all of it.';
 
   String get notifWhatSection =>
       isAr ? 'ما الذي تريد إشعاري به' : 'WHAT TO NOTIFY ME ABOUT';
@@ -1461,6 +1814,16 @@ class S {
       ? 'عندما تتقارب مواعيد عادتين أو أكثر، تصل كإشعار واحد بدلًا من عدة إشعارات.'
       : '2+ habits due around the same time arrive as one notification instead of several.';
 
+  String get notifWeeklyDigest => isAr ? 'ملخص الأسبوع' : 'Weekly digest';
+  String get notifWeeklyDigestDesc => isAr
+      ? 'مساء الجمعة، رسالة قصيرة عن أيامك الملوّنة هذا الأسبوع وسلسلتك الحالية.'
+      : 'A short Friday-evening note on the days you colored this week and your current streak.';
+
+  String get notifRoomActivity => isAr ? 'نشاط الغرف' : 'Room activity';
+  String get notifRoomActivityDesc => isAr
+      ? 'يصلك إشعار عندما ينهي أحد زملائك في الغرفة عاداته اليوم.'
+      : 'Get notified when a teammate in one of your rooms finishes their habits for the day.';
+
   String get notifPrayerSection =>
       isAr ? 'تذكيرات مرتبطة بأوقات الصلاة' : 'PRAYER-TIME REMINDERS';
   String get notifLocationNotSet => isAr ? 'غير محدد' : 'Not set';
@@ -1480,24 +1843,10 @@ class S {
       ? 'تعذّر تحديد موقعك — ابحث عن مدينتك بدلاً من ذلك.'
       : "Couldn't detect your location — search for your city instead.";
   String get notifCalcMethod => isAr ? 'طريقة الحساب' : 'Calculation method';
-  String get notifPrayerOffset => isAr ? 'ذكّرني' : 'Remind me';
-
-  /// "10 minutes after" / "At prayer time" for 0 — the offset applied after
-  /// a prayer's own calculated time before a linked habit reminder fires.
-  /// Own Arabic plural class, same 0/1/2/3-10/11+ shape as [roomMemberCount]
-  /// and [daysCount].
-  String minutesAfterPrayer(int n) {
-    if (!isAr) {
-      if (n == 0) return 'At prayer time';
-      return n == 1 ? '1 minute after' : '$n minutes after';
-    }
-    if (n == 0) return 'عند وقت الصلاة';
-    if (n == 1) return 'دقيقة واحدة بعد';
-    if (n == 2) return 'دقيقتان بعد';
-    final mod100 = n % 100;
-    if (mod100 >= 3 && mod100 <= 10) return '$n دقائق بعد';
-    return '$n دقيقة بعد';
-  }
+  // notifPrayerOffset / minutesAfterPrayer were removed alongside the
+  // global prayer-offset stepper they labelled — reminder timing is now
+  // picked per habit in Add Habit (see offsetBeforeMinutes/
+  // offsetAfterMinutes) instead of once globally for every prayer habit.
 
   String get notifQuietHoursSection => isAr ? 'ساعات الهدوء' : 'QUIET HOURS';
   String get notifQuietHours => isAr ? 'ساعات الهدوء' : 'Quiet hours';
@@ -1546,4 +1895,81 @@ class S {
   String get latitude => isAr ? 'خط العرض' : 'Latitude';
   String get longitude => isAr ? 'خط الطول' : 'Longitude';
   String get useTheseCoordinates => isAr ? 'استخدام هذه الإحداثيات' : 'Use these coordinates';
+
+  // ── Journey Page (MilestoneEvent timeline) ────────────────────────────
+
+  String get journeyTitle => isAr ? 'رحلتي' : 'Journey';
+  String get journeyEmptyTitle =>
+      isAr ? 'رحلتك على وشك أن تبدأ' : 'Your journey is just getting started';
+  String get journeyEmptyBody => isAr
+      ? 'أكمل عاداتك واستمر في التقدم — كل إنجاز مهم سيظهر هنا.'
+      : 'Keep completing habits and leveling up — every meaningful win will show up here.';
+  String journeyMilestoneCount(int count) {
+    if (count == 0) return isAr ? 'لا إنجازات بعد' : 'No milestones yet';
+    if (count == 1) return isAr ? 'إنجاز واحد' : '1 milestone';
+    return isAr ? '$count إنجازًا' : '$count milestones';
+  }
+
+  String journeyMemberSince(String monthYear, int days) =>
+      isAr ? 'عضو منذ $monthYear ($days يومًا)' : 'Member since $monthYear ($days days)';
+
+  // ── Life Timeline (year-at-a-glance) ───────────────────────────────────
+
+  String get lifeTimelineTitle => isAr ? 'خط الحياة الزمني' : 'Life Timeline';
+  String get lifeTimelineSubtitle => isAr
+      ? 'رحلتك كاملة، سنة بسنة — كل مربع يوم، وكل شارة إنجاز مررت به.'
+      : 'Your whole journey, year by year — every square a day, every badge a milestone you passed.';
+  String lifeTimelineYearTotal(int total) =>
+      isAr ? '$total مربع أخضر' : '$total green squares';
+  String get lifeTimelineOpenHeatmap =>
+      isAr ? 'فتح خريطة النشاط الكاملة' : 'Open full Heatmap';
+  String get lifeTimelineUpgradeBody => isAr
+      ? 'النسخة المميزة تفتح كل سنة منذ إنشاء حسابك. النسخة المجانية تعرض هذه السنة فقط.'
+      : 'Premium unlocks every year back to when your account began. Free shows this year only.';
+
+  // ── Rooms Alive (live in-room reactions) ───────────────────────────────
+
+  String roomReactionJoined(String name) =>
+      isAr ? '$name انضم إلى الغرفة' : '$name just joined the room';
+  String roomReactionFinished(String name) =>
+      isAr ? '$name أنجز عادة اليوم!' : '$name just finished today!';
+
+  // ── Monthly Story (shareable month-in-review) ──────────────────────────
+
+  String get monthlyStoryTitle => isAr ? 'قصة الشهر' : 'Monthly Story';
+  String get monthlyStoryEmpty => isAr
+      ? 'لا توجد بيانات لهذا الشهر بعد.'
+      : "There's nothing recorded for this month yet.";
+  String monthlyStoryHeadline(String month) =>
+      isAr ? 'في $month، أنجزت:' : 'In $month, you completed:';
+  String get monthlyStoryGreenSquares => isAr ? 'مربعًا أخضر' : 'green squares';
+  String get monthlyStoryShareAction => isAr ? 'مشاركة قصتي' : 'Share My Story';
+  String monthlyStoryShareText(
+    String month,
+    int greenSquares,
+    int perfectDays,
+    int levelUps,
+    int achievements,
+  ) =>
+      isAr
+          ? 'قصتي على Grow Daily، $month\n\nمربعات خضراء: $greenSquares\nأيام مثالية: $perfectDays\nترقيات مستوى: $levelUps\nإنجازات مفتوحة: $achievements\n\nأبني عادات أفضل، يومًا بعد يوم.'
+          : 'My Grow Daily Story, $month\n\nGreen squares: $greenSquares\nPerfect days: $perfectDays\nLevel-ups: $levelUps\nAchievements unlocked: $achievements\n\nBuilding better habits, one day at a time.';
+
+  // ── Level Prestige System ───────────────────────────────────────────────
+
+  String get prestigeTitle => isAr ? 'مرتبة المستوى' : 'Level Prestige';
+  String get prestigeSubtitle => isAr
+      ? 'لقب يظهر بجانب اسمك، يُفتح تلقائيًا مع ارتقاء مستواك — بلا ذهب، وبلا اشتراك مميز.'
+      : 'A title next to your name, unlocked automatically as you level up — no gold, no Premium.';
+  String get prestigeAutoOption => isAr ? 'تلقائي (الأعلى)' : 'Automatic (Highest)';
+  String prestigeAutoOptionDesc(String currentTitle) =>
+      isAr ? 'يعرض حاليًا: $currentTitle' : 'Currently showing: $currentTitle';
+  String prestigeUnlockedAt(int level) =>
+      isAr ? 'مفتوح منذ المستوى $level' : 'Unlocked at Level $level';
+  String prestigeLockedUntil(int level) =>
+      isAr ? 'يُفتح عند المستوى $level' : 'Unlocks at Level $level';
+
+  // ── Category Breakdown (ProgressHubScreen) ─────────────────────────────
+
+  String get categoryBreakdownTitle => isAr ? 'توزيع الفئات' : 'Category Breakdown';
 }

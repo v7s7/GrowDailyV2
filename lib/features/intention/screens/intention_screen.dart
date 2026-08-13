@@ -72,7 +72,7 @@ class _IntentionScreenState extends ConsumerState<IntentionScreen> {
                     height: 44,
                     decoration: BoxDecoration(
                       color: GameColors.gold.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                     ),
                     child: Icon(Icons.wb_sunny_rounded,
                         color: GameColors.gold, size: 22),

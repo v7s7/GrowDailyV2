@@ -192,11 +192,20 @@ class _GlassNavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = selected ? GameColors.gold : unselectedColor;
     return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
+      // The label is already on screen as text, so `container: true` is what
+      // matters here: without it the icon and the word announced as two
+      // separate nodes, and neither said which tab was current. `selected`
+      // is what makes VoiceOver read "Habits, selected" rather than leaving
+      // someone to guess where they are.
+      child: Semantics(
+        container: true,
+        button: true,
+        selected: selected,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: AnimatedContainer(
+          duration: GameMotion.quick,
           curve: Curves.easeOut,
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 3),
           decoration: BoxDecoration(
@@ -218,7 +227,8 @@ class _GlassNavItem extends StatelessWidget {
                   color: color,
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

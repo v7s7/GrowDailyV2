@@ -59,7 +59,7 @@ class _StatChipState extends State<StatChip>
     final gp = context.gp;
     return Expanded(
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
+        duration: GameMotion.slow,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           color: widget.color.withOpacity(0.08),

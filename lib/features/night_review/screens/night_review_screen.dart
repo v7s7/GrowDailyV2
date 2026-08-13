@@ -41,7 +41,10 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
     HapticFeedback.mediumImpact();
     ref.read(nightReviewProvider.notifier).setReflection(_reflectionCtrl.text);
     final ok = await ref.read(nightReviewProvider.notifier).save();
-    if (!context.mounted) return;
+    // State.mounted, not context.mounted: equivalent here, but it's the form
+    // the analyzer recognises as guarding this State's own context across
+    // the await above.
+    if (!mounted) return;
     final s = S.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -92,7 +95,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
     final todayHabits =
         habits.where((h) => h.isScheduledFor(today)).toList();
     final habitsDoneToday = todayHabits
-        .where((h) => dash.isCompleted(h.id, h.frequencyTarget))
+        .where((h) => dash.isCompleted(h.id, h.effectiveDailyTarget))
         .length;
     // Goals Matrix tasks checked off today — completedAt is day-cutoff
     // aligned via effectiveDay, same grouping MatrixHistoryScreen uses,
@@ -143,7 +146,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                           height: 44,
                           decoration: BoxDecoration(
                             color: GameColors.iconXp.withOpacity(0.14),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                           ),
                           // Open book, not a moon — see grid_screen.dart's
                           // matching IconButton for why.
@@ -181,7 +184,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                                 horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
                               color: GameColors.emerald.withOpacity(0.14),
-                              borderRadius: BorderRadius.circular(100),
+                              borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                             ),
                             child: Text(
                               s.nightReviewDoneBadge,
@@ -366,10 +369,10 @@ class _MoodButton extends StatelessWidget {
         children: [
           AnimatedScale(
             scale: selected ? 1.12 : 1.0,
-            duration: const Duration(milliseconds: 220),
+            duration: GameMotion.standard,
             curve: Curves.easeOutBack,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
+              duration: GameMotion.quick,
               width: 54,
               height: 54,
               decoration: BoxDecoration(

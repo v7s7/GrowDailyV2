@@ -87,7 +87,7 @@ class CharacterClosetScreen extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final charState = ref.watch(characterProvider);
-    final gold = ref.watch(dashboardProvider).gold;
+    final dashState = ref.watch(dashboardProvider);
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -103,7 +103,7 @@ class CharacterClosetScreen extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: GameColors.gold.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(100),
+              borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               border: Border.all(color: GameColors.gold.withOpacity(0.3), width: 0.5),
             ),
             child: Row(
@@ -111,7 +111,7 @@ class CharacterClosetScreen extends ConsumerWidget {
               children: [
                 Icon(Icons.toll_rounded, size: 13, color: GameColors.gold),
                 const SizedBox(width: 4),
-                Text('$gold',
+                Text('${dashState.gold}',
                     style: TextStyle(
                         fontSize: 12, fontWeight: FontWeight.w700, color: GameColors.gold)),
               ],
@@ -144,6 +144,18 @@ class CharacterClosetScreen extends ConsumerWidget {
                 SliverToBoxAdapter(
                   child: _CharacterPicker(state: charState),
                 ),
+                // Relocated from the old Dashboard/Progress page — a
+                // gold-spending purchase belongs in the shop, not on a
+                // "look back at your progress" stats screen. Same 3-day
+                // streak gate as before (see _StreakFreezeShopCard's doc
+                // comment for why that threshold).
+                if (dashState.streak >= 3)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+                      child: _StreakFreezeShopCard(state: dashState),
+                    ),
+                  ),
                 for (final category in AccessoryCategory.values) ...[
                   SliverToBoxAdapter(
                     child: Padding(
@@ -281,6 +293,102 @@ class _CharacterPicker extends ConsumerWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+// ─── Streak Freeze shop card ────────────────────────────────────────────────
+
+/// Relocated here from the old Dashboard/Progress page — this is a
+/// gold-spending purchase, so it belongs in the shop with everything else
+/// gold buys, not on a page whose whole job is now "look back at your
+/// progress". Same design and same 3-day-streak gate as before: every
+/// account starts with one free freeze already banked (see
+/// DashboardNotifier's `?? 1` default), so surfacing this before there's a
+/// real streak worth protecting was pitching insurance before there was
+/// anything to insure.
+class _StreakFreezeShopCard extends ConsumerWidget {
+  final DashboardState state;
+  const _StreakFreezeShopCard({required this.state});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final canBuy = state.gold >= DashboardNotifier.streakFreezeCost &&
+        state.streakFreezes < DashboardNotifier.maxStreakFreezes;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: GameColors.iconXp.withOpacity(0.24)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: GameColors.iconXp.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(Icons.ac_unit_rounded, color: GameColors.iconXp),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.streakFreeze,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  s.streakFreezeStatus(
+                      state.streakFreezes, DashboardNotifier.maxStreakFreezes),
+                  style: TextStyle(fontSize: 12, color: gp.textSec),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 96,
+            child: FilledButton.tonalIcon(
+              onPressed: canBuy
+                  ? () async {
+                      HapticFeedback.mediumImpact();
+                      final ok = await ref
+                          .read(dashboardProvider.notifier)
+                          .buyStreakFreeze();
+                      if (context.mounted) {
+                        final s2 = S.of(context);
+                        // `canBuy` already gated this button on having enough
+                        // gold and free slots, so a `false` result here means
+                        // the purchase failed to save (e.g. no network) —
+                        // not that funds were insufficient.
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content:
+                                Text(ok ? s2.streakFreeze : s2.errGeneric),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    }
+                  : null,
+              icon: const Icon(Icons.toll_rounded, size: 16),
+              label: Text('${DashboardNotifier.streakFreezeCost}'),
+            ),
+          ),
+        ],
       ),
     );
   }

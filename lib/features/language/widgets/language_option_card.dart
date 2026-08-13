@@ -27,18 +27,18 @@ class LanguageOptionCard extends StatelessWidget {
     final gp = context.gp;
     return AnimatedScale(
       scale: selected ? 1.03 : 1.0,
-      duration: const Duration(milliseconds: 260),
+      duration: GameMotion.relaxed,
       curve: Curves.easeOut,
       child: AnimatedOpacity(
         opacity: dimmed ? 0.4 : 1.0,
-        duration: const Duration(milliseconds: 220),
+        duration: GameMotion.standard,
         child: Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: onTap,
             borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 260),
+              duration: GameMotion.relaxed,
               curve: Curves.easeOut,
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
@@ -67,7 +67,7 @@ class LanguageOptionCard extends StatelessWidget {
                   ),
                   AnimatedOpacity(
                     opacity: selected ? 1 : 0,
-                    duration: const Duration(milliseconds: 200),
+                    duration: GameMotion.standard,
                     child: Icon(Icons.check_circle_rounded,
                         size: 22, color: GameColors.gold),
                   ),

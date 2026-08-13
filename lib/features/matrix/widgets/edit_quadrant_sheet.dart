@@ -32,6 +32,9 @@ void showEditQuadrantSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Without this, the sheet ignores the iPhone home-indicator inset and
+    // its footer button can render flush with (or under) the gesture bar.
+    useSafeArea: true,
     builder: (_) => _EditQuadrantSheet(
       quadrant: quadrant,
       currentTitle: currentTitle,
@@ -113,7 +116,7 @@ class _EditQuadrantSheetState extends ConsumerState<_EditQuadrantSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: gp.border,
-                  borderRadius: BorderRadius.circular(100),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                 ),
               ),
             ),
@@ -156,11 +159,11 @@ class _EditQuadrantSheetState extends ConsumerState<_EditQuadrantSheet> {
                 filled: true,
                 fillColor: gp.surface,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   borderSide: BorderSide(color: gp.border),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   borderSide: BorderSide(color: gp.border),
                 ),
                 // Same tappable color-swatch pattern AddHabitSheet uses for

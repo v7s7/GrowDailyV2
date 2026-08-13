@@ -1,15 +1,20 @@
+import 'dart:async' show unawaited;
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
+import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../character/notifiers/character_notifier.dart';
+import '../../character/notifiers/prestige_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
 
@@ -29,6 +34,43 @@ final myRoomCodesProvider = StreamProvider<List<String>>((ref) {
           (snap.data()?['roomCodes'] as List?)?.whereType<String>().toList() ??
           const <String>[]);
 });
+
+/// This account's starred room codes, streamed live from
+/// `users/{uid}.starredRoomCodes` — same shape and same reasoning as
+/// [myRoomCodesProvider] (a personal, this-account-only preference, not
+/// something any other member of a starred room ever sees - see
+/// [RoomsController.toggleStarRoom]), kept as its own field/provider rather
+/// than folded into [myRoomCodesProvider] so RoomsHubScreen can watch "which
+/// rooms" and "which are starred" as two independently-updating streams. A
+/// star/unstar tap reorders the list the instant it lands, same as any
+/// other live provider in this file. Empty for a guest, same as
+/// [myRoomCodesProvider].
+final myStarredRoomCodesProvider = StreamProvider<List<String>>((ref) {
+  final uid = ref.watch(authStateProvider).asData?.value?.uid;
+  if (uid == null) return Stream.value(const <String>[]);
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .snapshots()
+      .map((snap) =>
+          (snap.data()?['starredRoomCodes'] as List?)
+              ?.whereType<String>()
+              .toList() ??
+          const <String>[]);
+});
+
+/// Stable-partitions [codes] so every starred one comes first, each group
+/// keeping its original relative order - not a full re-sort by anything
+/// else (join order, name, progress...), just "starred rooms float to the
+/// top of whatever order they were already in." A plain top-level function
+/// so this is unit-testable without any Firestore involved, same reasoning
+/// as [nextLeaderAfter]/[removeLinkedHabit] below. The only caller is
+/// RoomsHubScreen's _MyRooms.
+List<String> sortStarredFirst(List<String> codes, Set<String> starred) {
+  final starredCodes = codes.where(starred.contains).toList();
+  final rest = codes.where((c) => !starred.contains(c)).toList();
+  return [...starredCodes, ...rest];
+}
 
 /// One room's top-level doc, live. Null means no room has this code (never
 /// existed, or the leader deleted it) - see RoomsController.forgetRoom for
@@ -64,12 +106,77 @@ class RoomRaceRow {
   final int rank; // 1-based
   final int percent; // 0-100, rounded RoomParticipant.progressRatio
   final bool isMe;
+
+  /// Days credited so far, and the days the room has actually run — the
+  /// raw pair behind [percent], carried so the Lock Screen can render a
+  /// concrete "5 / 6" instead of "83%". A fraction is both shorter and
+  /// more meaningful at a glance on a cramped accessory widget: it says
+  /// how many days are actually in play, so "5 / 6" and "50 / 60" don't
+  /// collapse into the same number the way percentages do.
+  ///
+  /// Rounded for display (a partially-credited day contributes a
+  /// fraction — see RoomParticipant.daysCompleted), which is why [percent]
+  /// stays the source of truth for the progress ring itself.
+  final int daysDone;
+  final int daysTotal;
+
+  /// This participant's real, stable Firebase uid - not shown anywhere,
+  /// only carried so the widget can identify "the same person" across two
+  /// separate timeline refreshes even after their rank moves. Without this,
+  /// the Swift side would have to key rows by display name, which breaks
+  /// (or at best animates oddly) the moment two participants share a first
+  /// name - a real scenario for a small-friend-group room, not an edge case
+  /// worth ignoring.
+  final String uid;
+
+  /// This participant's last [roomRaceHeatmapDays] days, oldest first, as
+  /// [heatmapLevelFor] levels (0-4) - the same tiers the in-app
+  /// _MiniHeatmapStrip (room_detail_screen.dart) renders, just windowed
+  /// much tighter for a widget's own limited space. Every row carries this,
+  /// even ones a given widget size has no room to draw a strip for -
+  /// keeps this class one flat, uniform shape rather than an optional
+  /// field only some rows populate, and the Swift side already follows the
+  /// "Dart pushes everything, Swift decides what fits per size" pattern
+  /// every other widget in this app uses (see GrowDailyLargeView's
+  /// `.prefix(5)`, GrowDailyMatrixWidget's row limits).
+  final List<int> heatmap;
+
   const RoomRaceRow({
     required this.name,
     required this.rank,
     required this.percent,
     required this.isMe,
+    required this.uid,
+    this.daysDone = 0,
+    this.daysTotal = 0,
+    this.heatmap = const [],
   });
+}
+
+/// How many of a participant's most recent days [myRoomRaceSnapshotProvider]
+/// windows [RoomRaceRow.heatmap] to. Much tighter than _MiniHeatmapStrip's
+/// in-app 30-day window - a widget has real estate for roughly two weeks of
+/// small cells per row, not a full month, especially once name/rank/percent
+/// already share that same row's width. 14 also mirrors this app's other
+/// "recent window" default (ProgressHubScreen's 14-day chart), so a glance
+/// at either one covers the same span.
+const int roomRaceHeatmapDays = 14;
+
+/// 0 (empty) or 1-4 for a day's [credit] (0.0-1.0, see
+/// RoomParticipant.creditFor) - the same tiers [heatColor]
+/// (monthly_heatmap_screen.dart) renders, and what both _MiniHeatmapStrip
+/// (room_detail_screen.dart, the in-app per-participant strip) and
+/// [RoomRaceRow.heatmap] above (the widget's own copy) key their shading
+/// off of. Rounds any nonzero credit *up* to at least the lightest tier
+/// rather than down toward empty, so a single habit done out of several
+/// always shows as visibly different from a day with nothing done at all.
+/// A top-level function, not a method on either call site, so the in-app
+/// strip and the widget push always agree on exactly the same mapping
+/// without one depending on the other - same reasoning as
+/// [suggestExistingMatch]/[nextLeaderAfter] elsewhere in this file.
+int heatmapLevelFor(double credit) {
+  if (credit <= 0) return 0;
+  return (credit * 4).ceil().clamp(1, 4);
 }
 
 /// Everything the widget's Room Race face needs for the one room
@@ -88,42 +195,55 @@ class RoomRaceSnapshot {
   });
 }
 
-/// Picks one room for the widget's Room Race face and ranks its roster -
-/// the source HomeWidgetService.updateRoomRaceData pushes to the widget
-/// (wired from main.dart's _roomRaceSub, same ref.listenManual pattern as
-/// every other widget-sync listener there).
+/// Picks one room for the widget's Room Race face (both the Home Screen
+/// size and the Lock Screen size - see GrowDailyRoomRaceWidget and
+/// GrowDailyRoomRaceLockScreenWidget in GrowDailyWidget.swift, which share
+/// this exact result) and ranks its roster - the source
+/// HomeWidgetService.updateRoomRaceData pushes to both (wired from
+/// main.dart's _roomRaceSub, same ref.listenManual pattern as every other
+/// widget-sync listener there).
 ///
-/// When someone's in more than one room, a live one (started, not ended -
-/// the actually-racing state) wins outright; otherwise the first room
-/// found (e.g. still in its lobby) shows instead, so there's always
+/// A starred room (see RoomsController.toggleStarRoom/[myStarredRoomCodesProvider])
+/// wins outright whenever one exists and hasn't ended - live or still in
+/// its lobby, it's an explicit "show me this one" signal that overrides
+/// everything below. Only once no starred room qualifies does this fall
+/// back to the original heuristic: among the rest, a live one (started, not
+/// ended - the actually-racing state) wins outright; otherwise the first
+/// room found (e.g. still in its lobby) shows instead, so there's always
 /// something on the widget rather than nothing just because the "best"
 /// room hasn't started yet. Null when there's no room to show at all (no
 /// rooms, or every room this account is in has ended) -
 /// updateRoomRaceData treats null as "clear the widget's room face back to
 /// its own join-or-create placeholder", not "leave whatever was there".
 ///
-/// Deliberately doesn't let someone pick *which* room shows when they're
-/// in several live ones at once - WidgetKit supports that via a proper
-/// AppIntent-backed configurable widget, but that's real extra surface
-/// (an AppEntity + EntityQuery that can enumerate rooms from inside the
-/// widget process, which can't reach Firestore directly - see
-/// GrowDailyWidget.swift) for what's a rare case; most people race in one
-/// room at a time.
+/// Before starring existed, this deliberately didn't let someone pick
+/// *which* room shows when they're in several live ones at once - a full
+/// WidgetKit AppIntent-backed configurable widget (an AppEntity +
+/// EntityQuery that can enumerate rooms from inside the widget process,
+/// which can't reach Firestore directly) was real extra surface for what
+/// was a rare case. Starring covers the same need with far less machinery:
+/// it's already a plain per-account field this provider can just read.
 final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
   if (uid == null) return null;
   final codes = ref.watch(myRoomCodesProvider).valueOrNull ?? const [];
+  final starred =
+      (ref.watch(myStarredRoomCodesProvider).valueOrNull ?? const [])
+          .toSet();
 
-  RoomModel? picked;
-  for (final code in codes) {
-    final room = ref.watch(roomProvider(code)).valueOrNull;
-    if (room == null || room.isEnded) continue;
-    if (room.isLive) {
-      picked = room;
-      break;
+  RoomModel? pickFrom(Iterable<String> fromCodes) {
+    RoomModel? fallback;
+    for (final code in fromCodes) {
+      final room = ref.watch(roomProvider(code)).valueOrNull;
+      if (room == null || room.isEnded) continue;
+      if (room.isLive) return room;
+      fallback ??= room;
     }
-    picked ??= room;
+    return fallback;
   }
+
+  final picked =
+      pickFrom(codes.where(starred.contains)) ?? pickFrom(codes);
   if (picked == null) return null;
   final bestRoom = picked; // final capture - safe to use inside closures below
 
@@ -136,6 +256,18 @@ final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
     ..sort((a, b) =>
         b.progressRatio(bestRoom).compareTo(a.progressRatio(bestRoom)));
 
+  // Same trailing window every row's heatmap is built from - computed once
+  // here rather than per-row, since it only depends on the room, not the
+  // participant. Mirrors _MiniHeatmapStrip's own day-generation exactly
+  // (oldest first, ending on lastCountedDay), just capped at
+  // roomRaceHeatmapDays instead of that screen's 30.
+  final heatmapDayCount = bestRoom.daysElapsed.clamp(1, roomRaceHeatmapDays);
+  final lastDay = bestRoom.lastCountedDay;
+  final heatmapDays = [
+    for (var i = 0; i < heatmapDayCount; i++)
+      lastDay.subtract(Duration(days: heatmapDayCount - 1 - i)),
+  ];
+
   return RoomRaceSnapshot(
     roomName: bestRoom.name,
     isLive: bestRoom.isLive,
@@ -147,6 +279,13 @@ final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
           rank: i + 1,
           percent: (ranked[i].progressRatio(bestRoom) * 100).round(),
           isMe: ranked[i].uid == uid,
+          uid: ranked[i].uid,
+          daysDone: ranked[i].daysCompleted(bestRoom).round(),
+          daysTotal: bestRoom.daysElapsed,
+          heatmap: [
+            for (final day in heatmapDays)
+              heatmapLevelFor(ranked[i].creditFor(day.toDateKey())),
+          ],
         ),
     ],
   );
@@ -176,7 +315,12 @@ final myLinkedRoomHabitsProvider =
     if (participants == null) continue;
     final mine = participants.where((p) => p.uid == uid);
     if (mine.isEmpty) continue;
-    for (final habitId in mine.first.linkedHabitIds) {
+    // countedHabitIdsIn, not linkedHabitIds: a slot this person skipped (see
+    // kDeclinedSlot) isn't a real habit id at all, and a slot the leader
+    // withdrew (see RoomHabitTemplate.removedAt) no longer counts here - so
+    // neither should earn the Grid 2x room boost or trigger a per-tap room
+    // sync, both of which read this index.
+    for (final habitId in mine.first.countedHabitIdsIn(room)) {
       (result[habitId] ??= []).add(room);
     }
   }
@@ -224,7 +368,25 @@ int roomBoostedReward(WidgetRef ref, String habitId, int base) =>
 /// screen-open sync), not live. Every screen that can flip a habit's today
 /// state must call this right after doing so.
 void syncRoomToday(WidgetRef ref, String habitId, DateTime day) {
-  if (!day.isToday) return;
+  if (!day.isToday) {
+    // A PAST day just changed - either back-filled, or un-ticked to correct a
+    // mistake. The fast path below only ever rewrites TODAY's entry, so
+    // before this the room kept showing the old number until someone happened
+    // to open the room screen again. That's not theoretical: a square
+    // corrected to `none` sat there crediting a day it shouldn't have,
+    // looking exactly like a counting bug.
+    //
+    // Only a full resync can revise a past day (it's the only thing that
+    // re-reads the day range), so run one for every room this habit is
+    // linked to. Unawaited, same fire-and-forget posture as the fast path.
+    final pastRooms = ref.read(myLinkedRoomHabitsProvider)[habitId];
+    if (pastRooms == null || pastRooms.isEmpty) return;
+    final controller = ref.read(roomsControllerProvider);
+    for (final room in pastRooms) {
+      controller.syncLinkedHabitsProgress(room).ignore();
+    }
+    return;
+  }
   final todayRow =
       ref.read(weeklyGridProvider).states[day.toDateKey()] ?? const {};
   ref.read(roomsControllerProvider).syncTodayForHabit(habitId, todayRow).ignore();
@@ -238,6 +400,17 @@ void syncRoomToday(WidgetRef ref, String habitId, DateTime day) {
 /// Rooms with the code pre-filled instead of the normal tap-through (open
 /// app -> Profile -> Rooms -> Join -> type the code by hand).
 final pendingJoinCodeProvider = StateProvider<String?>((ref) => null);
+
+/// Set the instant a room-finish push notification is tapped (see
+/// PushNotificationService.onOpenRoom, wired from main.dart), consumed
+/// exactly once by the same _OnboardingOrGrid listener that handles
+/// [pendingJoinCodeProvider] - the first widget it's safe to navigate from.
+/// Deliberately a separate provider rather than reusing
+/// [pendingJoinCodeProvider]: that one always means "show the Join sheet
+/// for this code," which would be wrong here - a push about a room only
+/// ever reaches someone already a participant in it, so this jumps straight
+/// to RoomDetailScreen instead, no join step in between.
+final pendingOpenRoomCodeProvider = StateProvider<String?>((ref) => null);
 
 /// Parses a `growdaily://join/CODE` deep link into a room code, or null if
 /// [uri] doesn't match that shape - so a malformed link, or a link some
@@ -388,6 +561,215 @@ String formatCompactRemaining(Duration remaining, {required bool isAr}) {
   return isAr ? 'أقل من دقيقة' : '<1m';
 }
 
+/// Result of checking one flexible weekly-quota linked habit ("N times a
+/// week," HabitFrequencyType.weekly, not tied to specific weekdays)
+/// against one calendar week - see [weeklyHabitCreditFor].
+enum WeeklyHabitCredit {
+  /// Target met (whether the week's over yet or not) - every day of this
+  /// week counts as fully done for this habit.
+  credited,
+
+  /// Week's over and the target wasn't met - every day of this week
+  /// counts as missed for this habit.
+  missed,
+
+  /// Week's still in progress and the target isn't met *yet* - too soon
+  /// to call it either way, so every day of this week is excused (not
+  /// counted as scheduled at all) until it resolves one way or the other.
+  pending,
+}
+
+/// Whether one flexible weekly-quota linked habit should read as
+/// [WeeklyHabitCredit.credited]/[missed]/[pending] for one calendar week,
+/// given how many times it's actually been done that week so far.
+///
+/// A weekly-quota habit's whole *week* is pass/fail, not any single day
+/// within it: "sport, 4x/week," done 5 times while skipping 2 other days,
+/// is a perfect week, not "2 misses." [syncLinkedHabitsProgress] applies
+/// whichever result this returns to *every* day of that week uniformly,
+/// rather than trying to pin credit or blame on whichever specific days
+/// were or weren't done - which days doesn't matter, only the total does.
+///
+/// [isWeekClosed] is whether every day of that calendar week has actually
+/// arrived yet. While it hasn't and the target isn't met yet, this reads
+/// as [WeeklyHabitCredit.pending] rather than [missed] - the same grace an
+/// unfinished *today* already gets a regular habit's streak (see
+/// [RoomParticipant.currentStreak]'s doc comment), extended here to a
+/// whole week instead of a single day. Meeting the target early, before
+/// the week is even over, still credits immediately (checked first, ahead
+/// of [isWeekClosed]) rather than making someone wait until Sunday to see
+/// it reflected.
+WeeklyHabitCredit weeklyHabitCreditFor({
+  required int completions,
+  required int target,
+  required bool isWeekClosed,
+}) {
+  if (completions >= target) return WeeklyHabitCredit.credited;
+  return isWeekClosed ? WeeklyHabitCredit.missed : WeeklyHabitCredit.pending;
+}
+
+/// Which of one calendar week's days a flexible weekly-quota habit ("4x a
+/// week, any days") is actually answerable for — the days that belong in that
+/// day's denominator. Every other day of the week is an excused rest day, the
+/// exact same standing a Mon/Wed-only habit's Tuesday already has (see
+/// [RoomParticipant.creditFor]: "A day where nothing was scheduled at all is
+/// full credit, not zero — there was nothing to fall short of").
+///
+/// This is the piece that used to be missing. Grading counted *every* day of
+/// the week against a weekly-quota habit, because a habit like this has no
+/// specific weekdays for the weekday check to rule any day out with. So "4x a
+/// week", done faithfully 4 times, scored 4/7 = 57% — forever, by
+/// construction — while the identical commitment expressed as four *named*
+/// weekdays scored 100%. Two ways of saying the same thing, one of which
+/// quietly told the person they were failing.
+///
+/// Returns indices into [presentDays] (which must be chronological, and
+/// already filtered to the days this habit existed on within the room's
+/// range). [doneDays] is the subset of those that are green.
+///
+/// The three cases:
+///  - Target reached: only the days actually done are answerable; the rest of
+///    the week is rest, and rest that was earned is not a miss. Checked first
+///    so hitting the target early credits immediately rather than making
+///    someone wait for the week to close, matching [weeklyHabitCreditFor].
+///  - Target not reached and the week is still open: every day so far counts.
+///    A week in progress is never handed its rest days in advance — that's
+///    the same "credit before the fact" trap [quotaOkWeeks] documents for
+///    streaks, and it would read as a spotless week that decays as the week
+///    goes on. It reads steppy (the week jumps to full the moment the target
+///    lands) and that is the deliberate trade: never inflated.
+///  - Target not reached and the week is closed: the shortfall is real, so
+///    that many days are answerable on top of the ones done — earliest first,
+///    since which particular days is arbitrary for a quota — and the
+///    remaining rest days stay excused. A closed week short by one scores
+///    exactly what the equivalent named-weekday habit short by one scores.
+///
+/// [target] is capped at [presentDays].length so a room's short first or last
+/// week can't demand more days than it contains.
+List<int> weeklyQuotaScheduledDays({
+  required List<int> presentDays,
+  required Set<int> doneDays,
+  required int target,
+  required bool isWeekClosed,
+}) {
+  if (presentDays.isEmpty) return const [];
+  final effectiveTarget = target.clamp(1, presentDays.length);
+  final done = presentDays.where(doneDays.contains).toList();
+  if (done.length >= effectiveTarget) return done;
+  final notDone = presentDays.where((i) => !doneDays.contains(i)).toList();
+  if (!isWeekClosed) return presentDays;
+  final shortfall = effectiveTarget - done.length;
+  return [...done, ...notDone.take(shortfall)];
+}
+
+/// How many trailing days [RoomsController.syncLinkedHabitsProgress] actually
+/// re-reads and re-grades, rather than the room's whole history (see the
+/// comment at its `windowStart`). Sized to comfortably cover both reasons a
+/// past day can legitimately change: back-filling a forgotten Grid square,
+/// and a flexible weekly quota filling up later in its own week. 45 days is
+/// six full weeks plus slack, well beyond anything a person realistically
+/// back-fills, while capping an open-ended room's per-visit read cost at a
+/// constant instead of one-per-day-forever.
+const int kRoomSyncWindowDays = 45;
+
+/// Above this many members, a room joins MUTED by default (see
+/// [RoomsController.joinRoom]).
+///
+/// Must stay in step with FANOUT_MEMBER_LIMIT in functions/index.js, which
+/// uses the same number to decide when a room stops sending one push per
+/// finisher. The two are the same idea from opposite ends: the server caps
+/// what a big room may send, this decides what a new member hears by default.
+///
+/// Why default to silence rather than trusting the cap alone: the cap is a
+/// decision nobody can see or undo, and a room this size is usually one
+/// someone joined out of interest rather than to be pinged by. A muted bell
+/// in the room's own app bar is visible, honest and one tap from reversing -
+/// and thanks to the server cap, reversing it is pleasant (one "first to
+/// finish today" a day) rather than the ~199-a-day firehose per-finisher
+/// notifications would otherwise be in a 200-person room.
+const int kRoomAutoMuteMemberLimit = 12;
+
+/// The rule in force on [dateKey] out of [rules] - the latest period that
+/// had already started by then, falling back to the earliest recorded period
+/// for a day before any of them begin (a room day preceding the first
+/// stamped rule, which can happen once an explicit re-lock appends a period
+/// starting later than the room did). [rules] must not be empty; every
+/// caller builds it so that it can't be. Plain top-level function, unit-
+/// testable with a hand-built list and no Firestore involved, same reasoning
+/// as [weeklyHabitCreditFor] above.
+///
+/// Date keys are YYYY-MM-DD, so string comparison is already chronological.
+RoomHabitRule roomRuleAt(List<RoomHabitRule> rules, String dateKey) {
+  var earliest = rules.first;
+  RoomHabitRule? best;
+  for (final r in rules) {
+    if (r.from.compareTo(earliest.from) < 0) earliest = r;
+    if (r.from.compareTo(dateKey) <= 0 &&
+        (best == null || r.from.compareTo(best.from) > 0)) {
+      best = r;
+    }
+  }
+  return best ?? earliest;
+}
+
+/// Whether [habit] existed at all on [day] - the createdAt/archivedAt half
+/// of IslamicHabitTemplate.isScheduledFor, split out so room grading can
+/// apply the "was this habit alive yet" bound while taking the weekday
+/// restriction from the room's own frozen [RoomHabitRule] instead of the
+/// habit's current one. Mirrors that method's two date checks exactly,
+/// including archivedAt's "the archive day itself still counts".
+/// Names of [mine]'s linked habits whose live settings no longer match the
+/// cadence this room is actually scoring them by (see
+/// [RoomParticipant.habitRules]) - what the room's "your settings differ"
+/// warning lists, and what [RoomsController.relockHabitRules] would bring
+/// into line if the person opts in.
+///
+/// This is the visible half of freezing the rules. Without it, someone who
+/// changes تمرين from 4x to 7x a week would see the room quietly keep
+/// scoring 4x with no explanation, which trades a silent wrong number for a
+/// silent confusing one. Naming the mismatch out loud, with a way to act on
+/// it, is what makes the freeze honest rather than mysterious.
+///
+/// Empty (the overwhelmingly common case) whenever every linked habit still
+/// matches, and for any habit with no recorded rule yet or no longer in this
+/// account's own habit list. A plain top-level function for the same
+/// unit-testability reasons as [roomRuleAt] above.
+List<String> roomRuleMismatches(
+  RoomParticipant mine,
+  List<IslamicHabitTemplate> myHabits,
+  String todayKey,
+) {
+  final habitById = {for (final h in myHabits) h.id: h};
+  final out = <String>[];
+  for (final id in mine.countedHabitIds) {
+    final habit = habitById[id];
+    if (habit == null) continue;
+    final rule = mine.ruleFor(id, todayKey);
+    if (rule == null) continue;
+    if (rule.differsFrom(
+      frequencyType: habit.frequencyType,
+      frequencyTarget: habit.frequencyTarget,
+      scheduledWeekdays: habit.scheduledWeekdays,
+    )) {
+      out.add(habit.name);
+    }
+  }
+  return out;
+}
+
+bool habitExistedOn(IslamicHabitTemplate habit, DateTime day) {
+  final born = habit.createdAt;
+  if (born != null &&
+      day.isBefore(DateTime(born.year, born.month, born.day))) {
+    return false;
+  }
+  final died = habit.archivedAt;
+  if (died != null && day.isAfter(DateTime(died.year, died.month, died.day))) {
+    return false;
+  }
+  return true;
+}
+
 /// Every write in this feature goes through here rather than sitting on a
 /// StateNotifier: there's no single piece of UI state to own (the stream
 /// providers above already give every screen a live view), just a set of
@@ -418,11 +800,21 @@ class RoomsController {
         ? savedName
         : (email?.split('@').first ?? 'Warrior');
     final character = _ref.read(characterProvider);
+    // Same cosmetic mirror as characterId/accessoryId above - the real
+    // source of truth stays prestigeProvider/DashboardState.level; this is
+    // just what the leaderboard row (RoomParticipant.prestigeTierId) reads
+    // without a per-room-member Firestore round trip. Written unconditionally,
+    // even at the base "Seeker" tier - whether a chip is worth showing off
+    // is _LeaderboardRow's own display-time call (mirroring the Profile hero
+    // header's identical restraint), not something baked into the write.
+    final prestigeTierId =
+        _ref.read(prestigeProvider).displayedTier(dashboard.level).id;
     return {
       'displayName': displayName,
       'characterId': character.characterId,
       if (character.equippedAccessoryId != null)
         'accessoryId': character.equippedAccessoryId,
+      'prestigeTierId': prestigeTierId,
     };
   }
 
@@ -459,6 +851,7 @@ class RoomsController {
     int? lengthDays,
     List<String> leaderLinkedHabitIds = const [],
     List<String> leaderLinkedHabitNames = const [],
+    RoomCompeteMode competeMode = RoomCompeteMode.competitive,
   }) async {
     final uid = _uid;
     if (uid == null) return null;
@@ -502,12 +895,14 @@ class RoomsController {
       endDate: null,
       status: 'lobby',
       lengthDays: duration == RoomDuration.fixed ? lengthDays : null,
+      competeMode: competeMode,
     );
     final participant = RoomParticipant(
       uid: uid,
       displayName: profile['displayName'] as String,
       characterId: profile['characterId'] as String,
       accessoryId: profile['accessoryId'] as String?,
+      prestigeTierId: profile['prestigeTierId'] as String?,
       joinedAt: DateTime.now(),
       linkedHabitIds: habitMode == RoomHabitMode.shared
           ? planHabits.map((h) => h.id).toList()
@@ -544,6 +939,38 @@ class RoomsController {
     return snap.exists ? RoomModel.fromFirestore(snap) : null;
   }
 
+  /// Resolves one [RoomHabitTemplate] slot to a real habit id/name pair -
+  /// the one shared decision every "which real habit covers this plan
+  /// entry" moment in this file boils down to, whether that's [joinRoom]
+  /// working through a whole plan at once or [resolvePlanHabit] catching up
+  /// on a single slot added after the fact. [existingHabitId], when given
+  /// and still actually present in this account's own habit list, links
+  /// straight to it - no cloning needed for a habit already owned. Anything
+  /// else (no choice made, or the chosen habit's since been deleted) clones
+  /// a fresh one from the template's own snapshot, same as a plan entry
+  /// nobody already had a match for.
+  (String, String) _resolveTemplate(
+    RoomHabitTemplate template,
+    String? existingHabitId,
+  ) {
+    if (existingHabitId != null) {
+      final myHabits = _ref.read(habitListProvider);
+      final found = myHabits.where((h) => h.id == existingHabitId);
+      if (found.isNotEmpty) {
+        final match = found.first;
+        return (match.id, match.name);
+      }
+    }
+    final created = _ref.read(customHabitsProvider.notifier).add(
+          name: template.name,
+          category: template.category,
+          frequencyType: template.frequencyType,
+          frequencyTarget: template.frequencyTarget,
+          iconColorHex: template.iconColorHex,
+        );
+    return (created.id, created.name);
+  }
+
   /// Joins [room] (already fetched via [previewRoom]). Safe to call again
   /// for a room already joined - refreshes the profile snapshot (and linked
   /// habits, if new ones were passed) instead of erroring, so re-tapping a
@@ -576,33 +1003,13 @@ class RoomsController {
     var resolvedIds = const <String>[];
     var resolvedNames = const <String>[];
     if (room.habitMode == RoomHabitMode.shared && room.sharedHabits.isNotEmpty) {
-      final myHabits = _ref.read(habitListProvider);
       final ids = <String>[];
       final names = <String>[];
       for (var i = 0; i < room.sharedHabits.length; i++) {
-        final template = room.sharedHabits[i];
         final resolution = i < planResolutions.length ? planResolutions[i] : null;
-        IslamicHabitTemplate? existingMatch;
-        if (resolution != null) {
-          final found = myHabits.where((h) => h.id == resolution);
-          if (found.isNotEmpty) existingMatch = found.first;
-        }
-        if (existingMatch != null) {
-          ids.add(existingMatch.id);
-          names.add(existingMatch.name);
-          continue;
-        }
-        // No existing habit chosen (or it vanished between preview and
-        // submit) - create a fresh one from the plan's own snapshot.
-        final created = _ref.read(customHabitsProvider.notifier).add(
-              name: template.name,
-              category: template.category,
-              frequencyType: template.frequencyType,
-              frequencyTarget: template.frequencyTarget,
-              iconColorHex: template.iconColorHex,
-            );
-        ids.add(created.id);
-        names.add(created.name);
+        final (id, name) = _resolveTemplate(room.sharedHabits[i], resolution);
+        ids.add(id);
+        names.add(name);
       }
       resolvedIds = ids;
       resolvedNames = names;
@@ -623,14 +1030,20 @@ class RoomsController {
       return true;
     }
 
+    // A big room arrives muted - see [kRoomAutoMuteMemberLimit]. memberCount
+    // rather than a fresh roster read: this is a threshold, not a headcount,
+    // and being one or two out either side of 12 changes nothing.
+    final joinsMuted = room.memberCount > kRoomAutoMuteMemberLimit;
     final participant = RoomParticipant(
       uid: uid,
       displayName: profile['displayName'] as String,
       characterId: profile['characterId'] as String,
       accessoryId: profile['accessoryId'] as String?,
+      prestigeTierId: profile['prestigeTierId'] as String?,
       joinedAt: DateTime.now(),
       linkedHabitIds: resolvedIds,
       linkedHabitNames: resolvedNames,
+      notificationsMuted: joinsMuted,
       lastUpdated: DateTime.now(),
     );
     await participantRef.set(participant.toFirestore());
@@ -642,6 +1055,157 @@ class RoomsController {
     }, SetOptions(merge: true));
     if (resolvedIds.isNotEmpty) await syncLinkedHabitsProgress(room);
     return true;
+  }
+
+  /// Resolves this participant's own link for exactly one shared-plan slot
+  /// that appeared *after* they joined (or last resolved) - the catch-up
+  /// counterpart to [joinRoom]'s full-plan pass, for when [addSharedHabit]
+  /// adds a habit to a room someone's already in. Appends to the END of
+  /// [RoomParticipant.linkedHabitIds]/[linkedHabitNames] rather than
+  /// rebuilding them, preserving the 1:1 positional correspondence with
+  /// [RoomModel.sharedHabits] every other read site (joinRoom included)
+  /// already assumes.
+  ///
+  /// [templateIndex] must be exactly this participant's current
+  /// linkedHabitIds.length - i.e. "the very next slot in line" - anything
+  /// else is a no-op, so a stale call (e.g. two taps before the UI catches
+  /// up, or the room having changed again since this was queued) can never
+  /// resolve the same slot twice or skip one out of order.
+  Future<void> resolvePlanHabit(
+    RoomModel room,
+    int templateIndex, {
+    String? existingHabitId,
+  }) async {
+    final uid = _uid;
+    if (uid == null) return;
+    if (templateIndex < 0 || templateIndex >= room.sharedHabits.length) return;
+    final participantRef =
+        _rooms.doc(room.code).collection('participants').doc(uid);
+    final snap = await participantRef.get();
+    if (!snap.exists) return;
+    final participant = RoomParticipant.fromFirestore(snap);
+    // Either the very next slot in line (the ordinary catch-up case), or an
+    // earlier slot this participant previously SKIPPED and is now changing
+    // their mind about (see [kDeclinedSlot]/[declineSharedHabit]) - a skip
+    // was never meant to be permanent. Anything else is a stale call and a
+    // no-op, same as before.
+    final isNextSlot = participant.linkedHabitIds.length == templateIndex;
+    final isUndoingSkip = templateIndex < participant.linkedHabitIds.length &&
+        participant.linkedHabitIds[templateIndex] == kDeclinedSlot;
+    if (!isNextSlot && !isUndoingSkip) return;
+
+    final (id, name) =
+        _resolveTemplate(room.sharedHabits[templateIndex], existingHabitId);
+    final ids = [...participant.linkedHabitIds];
+    final names = [...participant.linkedHabitNames];
+    if (isUndoingSkip) {
+      ids[templateIndex] = id;
+      if (templateIndex < names.length) {
+        names[templateIndex] = name;
+      } else {
+        names.add(name);
+      }
+    } else {
+      ids.add(id);
+      names.add(name);
+    }
+    await participantRef.set({
+      'linkedHabitIds': ids,
+      'linkedHabitNames': names,
+    }, SetOptions(merge: true));
+    await syncLinkedHabitsProgress(room);
+  }
+
+  /// Leader-only: adds one more habit to an already-existing [RoomHabitMode.
+  /// shared] room's plan - the only kind of post-creation room edit that
+  /// makes sense to gate on the leader specifically, since shared mode's
+  /// entire premise is one common plan everyone follows (contrast
+  /// [addMyLinkedHabit], 'own' mode's equivalent, which is deliberately
+  /// *not* leader-gated - there's no shared plan there for a leader to
+  /// curate in the first place, just each person's own choices).
+  ///
+  /// [habitId] must be one of the leader's own existing habits, same as
+  /// [createRoom]'s planHabitIds - snapshotted into a fresh
+  /// [RoomHabitTemplate] stamped with [RoomHabitTemplate.addedAt] (see that
+  /// field's own doc comment for why this doesn't need any special
+  /// retroactive-credit handling beyond what late joiners already get).
+  /// Links it straight into the leader's own participant doc immediately -
+  /// they already own the source habit, so unlike a guest there's nothing
+  /// left for them to pick. Every other already-joined participant instead
+  /// sees this new slot the next time [resolvePlanHabit] runs for them (see
+  /// RoomDetailScreen's unresolved-plan banner).
+  ///
+  /// A no-op for a non-leader, an 'own'-mode room, or a habit id that isn't
+  /// actually one of the leader's own.
+  Future<void> addSharedHabit(RoomModel room, String habitId) async {
+    final uid = _uid;
+    if (uid == null || uid != room.createdBy) return;
+    if (room.habitMode != RoomHabitMode.shared) return;
+    final myHabits = _ref.read(habitListProvider);
+    final found = myHabits.where((h) => h.id == habitId);
+    if (found.isEmpty) return;
+    final habit = found.first;
+
+    final template = RoomHabitTemplate(
+      name: habit.name,
+      category: habit.category,
+      iconColorHex: habit.iconColorHex,
+      frequencyType: habit.frequencyType,
+      frequencyTarget: habit.frequencyTarget,
+      addedAt: DateTime.now(),
+    );
+    await _rooms.doc(room.code).set({
+      'sharedHabits': FieldValue.arrayUnion([template.toFirestore()]),
+    }, SetOptions(merge: true));
+
+    final participantRef =
+        _rooms.doc(room.code).collection('participants').doc(uid);
+    final snap = await participantRef.get();
+    if (snap.exists) {
+      final participant = RoomParticipant.fromFirestore(snap);
+      // Only auto-links if this really is the very next slot for the
+      // leader too - same defensive positional check as resolvePlanHabit,
+      // in case their own doc is somehow already out of sync.
+      if (participant.linkedHabitIds.length == room.sharedHabits.length) {
+        await participantRef.set({
+          'linkedHabitIds': [...participant.linkedHabitIds, habit.id],
+          'linkedHabitNames': [...participant.linkedHabitNames, habit.name],
+        }, SetOptions(merge: true));
+      }
+    }
+    // syncLinkedHabitsProgress re-reads linkedHabitIds fresh from Firestore
+    // itself, so the original (pre-addition) `room` is fine to pass here -
+    // it only needs room.startDate/lastCountedDay/hasStarted/isEnded, none
+    // of which this method just changed.
+    await syncLinkedHabitsProgress(room);
+  }
+
+  /// The 'own'-mode equivalent of [addSharedHabit] - lets ANY participant
+  /// (not just the leader; see that method's doc comment for why the two
+  /// differ) add one more of their own existing habits to their own
+  /// tracking for [room], at any time after joining. [habitId] must be one
+  /// of this account's own habits and not already linked here - a no-op
+  /// otherwise, same "can't happen from the UI, but never trust that alone"
+  /// belt-and-suspenders every other write in this file already applies.
+  Future<void> addMyLinkedHabit(
+    RoomModel room,
+    String habitId,
+    String habitName,
+  ) async {
+    final uid = _uid;
+    if (uid == null || room.habitMode != RoomHabitMode.own) return;
+    final participantRef =
+        _rooms.doc(room.code).collection('participants').doc(uid);
+    final snap = await participantRef.get();
+    if (!snap.exists) return;
+    final participant = RoomParticipant.fromFirestore(snap);
+    if (participant.linkedHabitIds.contains(habitId)) return;
+
+    await participantRef.set({
+      'linkedHabitIds': [...participant.linkedHabitIds, habitId],
+      'linkedHabitNames': [...participant.linkedHabitNames, habitName],
+    }, SetOptions(merge: true));
+    await syncLinkedHabitsProgress(room);
   }
 
   /// Leaves [room] - it keeps running for whoever's left even if the
@@ -698,6 +1262,7 @@ class RoomsController {
     }, SetOptions(merge: true)).catchError((_) {});
     await _userRef(uid).set({
       'roomCodes': FieldValue.arrayRemove([room.code]),
+      'starredRoomCodes': FieldValue.arrayRemove([room.code]),
     }, SetOptions(merge: true));
   }
 
@@ -712,6 +1277,7 @@ class RoomsController {
     if (uid == null) return;
     await _userRef(uid).set({
       'roomCodes': FieldValue.arrayRemove([code]),
+      'starredRoomCodes': FieldValue.arrayRemove([code]),
     }, SetOptions(merge: true));
   }
 
@@ -742,7 +1308,148 @@ class RoomsController {
     await _rooms.doc(room.code).delete();
     await _userRef(uid).set({
       'roomCodes': FieldValue.arrayRemove([room.code]),
+      'starredRoomCodes': FieldValue.arrayRemove([room.code]),
     }, SetOptions(merge: true));
+  }
+
+  /// Applies this account's *current* habit settings to [room] from today
+  /// forward - the deliberate, opt-in escape hatch from the rule freezing
+  /// [RoomParticipant.habitRules] enforces. Appends a new rule period
+  /// starting today for every linked habit whose live settings no longer
+  /// match what the room is scoring (see [roomRuleMismatches], which drives
+  /// the warning this is offered from); habits already in agreement are left
+  /// alone.
+  ///
+  /// Crucially forward-only: the earlier periods stay exactly as they were,
+  /// so every finished day keeps the grade it actually earned. That's the
+  /// whole difference between this and the old behaviour, where an edit
+  /// silently re-scored history - here the person is choosing to change the
+  /// rules from now on, which is a completely different (and honest) thing.
+  Future<void> relockHabitRules(RoomModel room) async {
+    final uid = _uid;
+    if (uid == null) return;
+    final participantRef =
+        _rooms.doc(room.code).collection('participants').doc(uid);
+    final snap = await participantRef.get();
+    if (!snap.exists) return;
+    final mine = RoomParticipant.fromFirestore(snap);
+    final habitById = {for (final h in _ref.read(habitListProvider)) h.id: h};
+    final todayKey = DateTime.now().effectiveDay.toDateKey();
+
+    final updated = <String, List<RoomHabitRule>>{...mine.habitRules};
+    var changed = false;
+    for (final id in mine.countedHabitIds) {
+      final habit = habitById[id];
+      if (habit == null) continue;
+      final current = mine.ruleFor(id, todayKey);
+      if (current != null &&
+          !current.differsFrom(
+            frequencyType: habit.frequencyType,
+            frequencyTarget: habit.frequencyTarget,
+            scheduledWeekdays: habit.scheduledWeekdays,
+          )) {
+        continue;
+      }
+      final fresh = RoomHabitRule(
+        from: todayKey,
+        frequencyType: habit.frequencyType,
+        frequencyTarget: habit.frequencyTarget,
+        scheduledWeekdays: habit.scheduledWeekdays,
+      );
+      // Replaces rather than appends when a period already starts today -
+      // relocking twice in one day should leave one rule for today, not a
+      // pile of same-dated ones roomRuleAt would have to tie-break between.
+      final existing = [...(updated[id] ?? const <RoomHabitRule>[])]
+        ..removeWhere((r) => r.from == todayKey);
+      updated[id] = [...existing, fresh];
+      changed = true;
+    }
+    if (!changed) return;
+    await participantRef.set({
+      'habitRules': updated.map(
+        (k, v) => MapEntry(k, v.map((r) => r.toFirestore()).toList()),
+      ),
+      'lastUpdated': Timestamp.now(),
+    }, SetOptions(merge: true));
+    await syncLinkedHabitsProgress(room);
+  }
+
+  /// Skips one shared-plan slot for this participant - the "no thanks" the
+  /// unresolved-plan prompt offers alongside picking a habit (see
+  /// [kDeclinedSlot] for how a skip is stored, and why it holds its position
+  /// instead of shortening the array). The slot then counts for nothing at
+  /// all: excluded from both the numerator and the denominator, so it can
+  /// neither earn nor cost this person anything.
+  ///
+  /// Same "must be exactly the next slot in line" guard as
+  /// [resolvePlanHabit], for the same reason - a stale call can never skip
+  /// the wrong slot or jump one out of order.
+  Future<void> declineSharedHabit(RoomModel room, int templateIndex) async {
+    final uid = _uid;
+    if (uid == null) return;
+    if (templateIndex < 0 || templateIndex >= room.sharedHabits.length) return;
+    final participantRef =
+        _rooms.doc(room.code).collection('participants').doc(uid);
+    final snap = await participantRef.get();
+    if (!snap.exists) return;
+    final participant = RoomParticipant.fromFirestore(snap);
+    if (participant.linkedHabitIds.length != templateIndex) return;
+
+    await participantRef.set({
+      'linkedHabitIds': [...participant.linkedHabitIds, kDeclinedSlot],
+      'linkedHabitNames': [
+        ...participant.linkedHabitNames,
+        room.sharedHabits[templateIndex].name,
+      ],
+      'lastUpdated': Timestamp.now(),
+    }, SetOptions(merge: true));
+    await syncLinkedHabitsProgress(room);
+  }
+
+  /// Leader-only: withdraws one habit from a shared room's plan - the undo
+  /// for [addSharedHabit] that didn't exist before, so a mistaken addition
+  /// no longer sticks to the room forever.
+  ///
+  /// A soft delete (stamps [RoomHabitTemplate.removedAt]) rather than
+  /// actually dropping the entry, because every participant's
+  /// linkedHabitIds is positionally parallel to sharedHabits and the leader
+  /// may only write their OWN participant doc - see that field's doc comment
+  /// for the full reasoning. Nobody's arrays shift, the slot simply stops
+  /// counting for everyone, and it stays reversible.
+  ///
+  /// Re-syncs only the caller's own progress; every other participant's
+  /// device picks the change up through its own next
+  /// syncLinkedHabitsProgress (room open, habit tap), same single-writer
+  /// rule every other per-participant field in this feature follows.
+  Future<void> removeSharedHabit(RoomModel room, int index) async {
+    final uid = _uid;
+    if (uid == null || uid != room.createdBy) return;
+    if (room.habitMode != RoomHabitMode.shared) return;
+    if (index < 0 || index >= room.sharedHabits.length) return;
+    if (room.sharedHabits[index].isRemoved) return;
+
+    final updated = [
+      for (var i = 0; i < room.sharedHabits.length; i++)
+        if (i == index)
+          RoomHabitTemplate(
+            name: room.sharedHabits[i].name,
+            category: room.sharedHabits[i].category,
+            iconColorHex: room.sharedHabits[i].iconColorHex,
+            frequencyType: room.sharedHabits[i].frequencyType,
+            frequencyTarget: room.sharedHabits[i].frequencyTarget,
+            addedAt: room.sharedHabits[i].addedAt,
+            removedAt: DateTime.now(),
+          )
+        else
+          room.sharedHabits[i],
+    ];
+    // A whole-array rewrite, not arrayUnion/arrayRemove: those can only add
+    // or drop exact element values, and this has to *change* one element in
+    // place while keeping every index where it is.
+    await _rooms.doc(room.code).set({
+      'sharedHabits': updated.map((h) => h.toFirestore()).toList(),
+    }, SetOptions(merge: true));
+    await syncLinkedHabitsProgress(room);
   }
 
   /// Leader-only: leaves the lobby and starts the challenge right now, for
@@ -866,6 +1573,144 @@ class RoomsController {
     }, SetOptions(merge: true));
   }
 
+  /// This account's own choice to silence the room-finish push notification
+  /// for room [code] - see RoomParticipant.notificationsMuted's doc
+  /// comment. Same single-writer, own-doc-only pattern as [toggleHideDetails]
+  /// right above; the room-finish Cloud Function reads this field on every
+  /// other participant's doc before sending, so toggling it takes effect
+  /// the next time anyone else in the room finishes, with nothing further
+  /// to do on this end.
+  Future<void> setRoomMuted(String code, bool muted) async {
+    final uid = _uid;
+    if (uid == null) return;
+    await _rooms.doc(code).collection('participants').doc(uid).set({
+      'notificationsMuted': muted,
+    }, SetOptions(merge: true));
+  }
+
+  /// Grants this account's one-time [RoomCompeteMode.team] bonus for room
+  /// [code] - called only once [RoomTeamProgress.teamIsPerfect] is true and
+  /// [mine].teamBonusClaimed is still false (see _TeamProgressCard's claim
+  /// button, the only caller). Awards through the exact same
+  /// DashboardNotifier.awardBonus every other lump-sum reward in the app
+  /// already uses (Focus Timer sessions, Weekly Challenges), then persists
+  /// the claimed flag on this account's own participant doc - the same
+  /// single-writer field [toggleHideDetails] above writes - so re-opening
+  /// Room Detail, or the same account on another device, never pays this
+  /// out twice. [mine] is passed in rather than re-fetched since every
+  /// caller already has it from the same roomParticipantsProvider stream
+  /// driving the rest of the screen.
+  Future<void> claimTeamBonus(
+    String code,
+    RoomParticipant mine, {
+    required int xp,
+    required int gold,
+  }) async {
+    final uid = _uid;
+    if (uid == null) return;
+    // Cheap early-out on the snapshot the UI already has; the real guard is
+    // the transaction below.
+    if (mine.teamBonusClaimed) return;
+
+    // ── Claim the flag first, and only pay out if THIS call won ──────────
+    // This used to check `mine.teamBonusClaimed`, award the XP and gold, and
+    // then write the flag. `mine` is a snapshot from the participants
+    // stream, and the claim button has no disabled state, so two quick taps
+    // both read false, both paid out, and both wrote true afterwards — 150
+    // XP and 75 gold, twice, for one bonus. A transaction that flips
+    // false -> true is the only thing that can decide a winner between them:
+    // Firestore re-runs the callback if the doc changed under it, so exactly
+    // one call ever sees false and returns true here.
+    //
+    // Deliberately claim-then-pay rather than pay-then-claim. If the payout
+    // somehow fails after the flag is set the person loses a bonus, which is
+    // recoverable by hand; the other order mints currency, which isn't. Same
+    // transactional reasoning syncTodayForHabit already documents.
+    final participantRef =
+        _rooms.doc(code).collection('participants').doc(uid);
+    final didClaim =
+        await FirebaseFirestore.instance.runTransaction<bool>((txn) async {
+      final snap = await txn.get(participantRef);
+      if (!snap.exists) return false;
+      if (snap.data()?['teamBonusClaimed'] == true) return false;
+      txn.set(participantRef, {'teamBonusClaimed': true},
+          SetOptions(merge: true));
+      return true;
+    });
+    if (!didClaim) return;
+    await _ref.read(dashboardProvider.notifier).awardBonus(xp: xp, gold: gold);
+  }
+
+  /// The end-of-room prize for finishing in [rank] (1-based), or null for
+  /// anyone off the podium — a plain function so the finale card and any
+  /// future summary can quote identical numbers without either re-deriving
+  /// them.
+  ///
+  /// Competitive rooms paid out nothing at all before this: a podium
+  /// graphic, and no XP, no gold, no medal, at the end of a race that can
+  /// run ninety days. Scaled by place so first actually means something,
+  /// and stopping at three so the podium stays the prize rather than a
+  /// participation payout.
+  static ({int xp, int gold})? podiumPrizeFor(int rank) => switch (rank) {
+        1 => (xp: 200, gold: 100),
+        2 => (xp: 120, gold: 60),
+        3 => (xp: 80, gold: 40),
+        _ => null,
+      };
+
+  /// Pays [mine] their podium prize for a finished competitive room, exactly
+  /// once. Same claim-then-pay transaction as [claimTeamBonus] — see that
+  /// method for why the flag has to be won inside a transaction before any
+  /// currency moves.
+  ///
+  /// Refuses on a room that hasn't ended, so a leaderboard position mid-race
+  /// can never be cashed in; and refuses off the podium, where there is no
+  /// prize to claim.
+  Future<void> claimPodiumBonus(
+    RoomModel room,
+    RoomParticipant mine, {
+    required int rank,
+  }) async {
+    final uid = _uid;
+    if (uid == null) return;
+    if (!room.isEnded) return;
+    if (mine.podiumBonusClaimed) return;
+    final prize = podiumPrizeFor(rank);
+    if (prize == null) return;
+
+    final participantRef =
+        _rooms.doc(room.code).collection('participants').doc(uid);
+    final didClaim =
+        await FirebaseFirestore.instance.runTransaction<bool>((txn) async {
+      final snap = await txn.get(participantRef);
+      if (!snap.exists) return false;
+      if (snap.data()?['podiumBonusClaimed'] == true) return false;
+      txn.set(participantRef, {'podiumBonusClaimed': true},
+          SetOptions(merge: true));
+      return true;
+    });
+    if (!didClaim) return;
+    await _ref
+        .read(dashboardProvider.notifier)
+        .awardBonus(xp: prize.xp, gold: prize.gold);
+  }
+
+  /// Stars/unstars [code] for this account only, on `users/{uid}` - the
+  /// exact same arrayUnion/arrayRemove shape [roomCodes] itself already
+  /// uses (see [joinRoom]/[leaveRoom]), just a second, independent field.
+  /// A personal "keep this one at the top of my list" preference (see
+  /// [sortStarredFirst]) - nothing about a room's own shared doc changes,
+  /// so nobody else in the room ever sees this. A no-op when signed out.
+  Future<void> toggleStarRoom(String code, bool starred) async {
+    final uid = _uid;
+    if (uid == null) return;
+    await _userRef(uid).set({
+      'starredRoomCodes': starred
+          ? FieldValue.arrayUnion([code])
+          : FieldValue.arrayRemove([code]),
+    }, SetOptions(merge: true));
+  }
+
   /// Strips [habitId] from every one of this account's currently-linked,
   /// still-open rooms (see [myLinkedRoomHabitsProvider] - the exact reverse
   /// index Grid's own room badge and [syncTodayForHabit] already rely on)
@@ -896,13 +1741,37 @@ class RoomsController {
   /// A silent no-op for the overwhelmingly common case where [habitId]
   /// isn't linked to any room at all.
   Future<void> unlinkHabitEverywhere(String habitId) async {
-    final rooms = _ref.read(myLinkedRoomHabitsProvider)[habitId];
-    if (rooms == null || rooms.isEmpty) return;
     final uid = _uid;
     if (uid == null) return;
-    for (final room in rooms) {
+
+    // ── Read the room list from Firestore, not from the in-memory index ──
+    // This used to start from myLinkedRoomHabitsProvider and bail when it
+    // came back empty. That provider is built from three Firestore streams
+    // (my codes, each room, each roster) and is legitimately empty until all
+    // three have delivered — so deleting a habit any time before the Rooms
+    // data had warmed up silently unlinked nothing at all.
+    //
+    // Which mattered far more than a stale id normally would: grading treats
+    // a linked habit it can no longer find as DONE (see
+    // syncLinkedHabitsProgress' `habit == null` branch, which fails open so a
+    // dead link can't make every day harder). A link that outlives its habit
+    // therefore pays full credit every single day, forever — deleting a habit
+    // right after launch could put you at 100% in a competitive room you had
+    // stopped participating in.
+    //
+    // `users/{uid}.roomCodes` is the same list that index is derived from and
+    // it is authoritative the moment it is read, so this no longer depends on
+    // any stream having arrived first.
+    final userSnap = await _userRef(uid).get();
+    final codes = (userSnap.data()?['roomCodes'] as List?)
+            ?.whereType<String>()
+            .toList() ??
+        const <String>[];
+    if (codes.isEmpty) return;
+
+    for (final code in codes) {
       final participantRef =
-          _rooms.doc(room.code).collection('participants').doc(uid);
+          _rooms.doc(code).collection('participants').doc(uid);
       final snap = await participantRef.get();
       if (!snap.exists) continue;
       final ids = (snap.data()?['linkedHabitIds'] as List?)
@@ -929,22 +1798,52 @@ class RoomsController {
   /// currently-linked habits for this room - each linked habit is detected
   /// and counted independently (see RoomParticipant.dailyDoneCount's doc
   /// comment), so a day with only some of them green still earns partial
-  /// credit instead of nothing. Also checks each linked habit's own
-  /// schedule (IslamicHabitTemplate.isScheduledFor) for every day in
-  /// range, so a habit that isn't scheduled that day - the exact same
-  /// "blocked, nothing to do" state the habit's own Grid square shows -
-  /// is excused from that day's count instead of silently counting as
-  /// missed (see RoomParticipant.dailyScheduledCount). Always re-reads
-  /// this participant's own current linkedHabitIds from Firestore first
-  /// rather than trusting a stale in-memory list, so this can safely be
-  /// called from anywhere (Room Detail on open, pull-to-refresh, or right
-  /// after joining) without any caller needing to track which habits are
-  /// linked itself - the lighter-weight [syncTodayForHabit] below is what
-  /// actually fires on every Grid tap instead. A full recompute (not an
-  /// incremental add) each time, since a day's square can also be *un*-set
-  /// after the fact - this keeps the room's copy from ever silently
-  /// drifting out of sync with the real thing.
-  Future<void> syncLinkedHabitsProgress(RoomModel room) async {
+  /// credit instead of nothing.
+  ///
+  /// Two different rules decide whether a linked habit counts against a
+  /// given day, depending on its own cadence:
+  ///  - A regular (daily-cadence, optionally weekday-restricted) habit
+  ///    checks its own schedule (IslamicHabitTemplate.isScheduledFor) for
+  ///    every day in range, so a day it isn't scheduled on - the exact
+  ///    same "blocked, nothing to do" state its own Grid square shows - is
+  ///    excused from that day's count instead of silently counting as
+  ///    missed (see RoomParticipant.dailyScheduledCount).
+  ///  - A flexible weekly-quota habit (HabitFrequencyType.weekly - "N
+  ///    times a week," no specific weekdays) is judged by whole calendar
+  ///    week instead - hitting the target on 5 of 7 days and skipping the
+  ///    other 2 is a perfect week for a 4x/week habit, not "2 missed
+  ///    days," so isScheduledFor's own everyday-true answer for a habit
+  ///    like this (there's no specific weekday to rule any day out) is
+  ///    deliberately not used to gate it day-by-day the way it does for a
+  ///    regular habit above - but ONLY for the streak. Its day counts are
+  ///    plain: do it today and today is a whole done day, in full colour,
+  ///    like any other habit. The quota's only job is deciding whether a
+  ///    finished week keeps the streak alive (see
+  ///    RoomParticipant.quotaOkWeeks).
+  ///
+  /// Always re-reads this participant's own current linkedHabitIds from
+  /// Firestore first rather than trusting a stale in-memory list, so this
+  /// can safely be called from anywhere (Room Detail on open, pull-to-
+  /// refresh, or right after joining) without any caller needing to track
+  /// which habits are linked itself - the lighter-weight
+  /// [syncTodayForHabit] below is what actually fires on every Grid tap
+  /// instead. A full recompute (not an incremental add) each time, since a
+  /// day's square can also be *un*-set after the fact - this keeps the
+  /// room's copy from ever silently drifting out of sync with the real
+  /// thing.
+  ///
+  /// [todaySquares] is an optional habitId -> SquareState map for *today*
+  /// only, straight from the caller's already-updated local Grid state. Pass
+  /// it whenever this is being run in direct response to a tap (see
+  /// [syncTodayForHabit]'s weekly-quota detour): the daily reads below can
+  /// still be racing the Grid's own fire-and-forget write, and today is the
+  /// one day where the caller knows better than Firestore does. Omit it for
+  /// every other caller (room open, pull-to-refresh, join), where Firestore
+  /// is already the settled truth.
+  Future<void> syncLinkedHabitsProgress(
+    RoomModel room, {
+    Map<String, SquareState>? todaySquares,
+  }) async {
     final uid = _uid;
     if (uid == null) return;
     // Nothing counts before the leader starts the room and its first day
@@ -955,10 +1854,18 @@ class RoomsController {
         _rooms.doc(room.code).collection('participants').doc(uid);
     final participantSnap = await participantRef.get();
     if (!participantSnap.exists) return;
-    final habitIds = (participantSnap.data()?['linkedHabitIds'] as List?)
-            ?.whereType<String>()
-            .toList() ??
-        const [];
+    // Parsed once, up front - every id/name/rule/count question below reads
+    // from this rather than re-digging through the raw doc data.
+    final mineNow = RoomParticipant.fromFirestore(participantSnap);
+    // rawIds keeps every slot in its original position (that positional
+    // parallelism with RoomModel.sharedHabits is what resolvePlanHabit and
+    // the unresolved-plan banner both rely on); habitIds is the subset that
+    // actually counts - see RoomParticipant.countedHabitIdsIn for the two
+    // kinds of non-counting slot and why they're excluded from the numerator
+    // AND the denominator.
+    final rawIds = mineNow.linkedHabitIds;
+    if (rawIds.isEmpty) return;
+    final habitIds = mineNow.countedHabitIdsIn(room);
     if (habitIds.isEmpty) return;
 
     // Looked up once, up front, so each day's scheduling check below is a
@@ -966,8 +1873,44 @@ class RoomsController {
     final myHabits = _ref.read(habitListProvider);
     final habitById = {for (final h in myHabits) h.id: h};
 
+    // How far back to actually re-read. This used to always be the room's
+    // ENTIRE history, which meant one `daily` document fetch per day of the
+    // room, every single time anyone opened it - fine for a 7-day room, but
+    // an open-ended room a year in was 365 parallel Firestore reads per
+    // visit, growing forever. Since a finished day's credit is already stored
+    // (see RoomParticipant.dailyDoneCount) there's nothing to gain from
+    // re-deriving it, so the recompute is windowed and everything older is
+    // simply kept as previously written.
+    //
+    // The window still has to be generous enough to cover the two things that
+    // legitimately change an already-past day: back-filling a forgotten
+    // square in the Grid, and a flexible weekly quota filling up later in its
+    // week. [kRoomSyncWindowDays] plus the rewind to a week boundary below
+    // covers both with room to spare.
+    //
+    // One exception: a participant with no recorded day at all (a fresh link,
+    // or someone who just joined a room that's been running a while) gets the
+    // full range, so they're credited from the room's start date like any
+    // other late joiner rather than only from the window's edge.
+    final needsFullBackfill = mineNow.dailyDoneCount.isEmpty;
+    // Never earlier than the day this person joined. The grading model
+    // already ignores pre-join days (see RoomParticipant.countedStartIn), so
+    // computing them here would only write counts nothing reads — and, worse,
+    // a first sync would spend one Firestore read per day of a long room's
+    // pre-join history to do it.
+    var windowStart = mineNow.countedStartIn(room);
+    if (!needsFullBackfill) {
+      final trimmed = room.lastCountedDay
+          .subtract(const Duration(days: kRoomSyncWindowDays - 1));
+      // Rewound to that day's Monday so a weekly-quota habit is never graded
+      // against a half-visible week (its target applies to the whole week -
+      // see weeklyHabitCreditFor).
+      final aligned = startOfGridWeek(trimmed);
+      if (aligned.isAfter(windowStart)) windowStart = aligned;
+    }
+
     final days = <DateTime>[];
-    for (var day = room.startDate;
+    for (var day = windowStart;
         !day.isAfter(room.lastCountedDay);
         day = day.add(const Duration(days: 1))) {
       days.add(day);
@@ -976,48 +1919,394 @@ class RoomsController {
     final snaps = await Future.wait(
       days.map((d) => userRef.collection('daily').doc(d.toDateKey()).get()),
     );
-    final dailyCounts = <String, int>{};
-    final dailyScheduled = <String, int>{};
-    for (var i = 0; i < snaps.length; i++) {
-      final day = days[i];
-      final dateKey = day.toDateKey();
-      // A linked habit that wasn't even scheduled this day (e.g. a
-      // Mon/Wed/Fri-only habit on a Tuesday) doesn't count against the
-      // day at all - it was never something to do, not something
-      // skipped. See RoomParticipant.dailyScheduledCount's doc comment.
-      // A linked habit no longer found (deleted from Grid after being
-      // linked) fails open - still counts as scheduled - so a stale link
-      // can't quietly make every other day easier; that's the same
-      // "explain, don't fix silently" edge case _MyPlanCard's
-      // hasDeletedLink warning already covers.
-      final scheduledIds = habitIds
-          .where((id) => habitById[id]?.isScheduledFor(day) ?? true)
-          .toList();
-      if (scheduledIds.length != habitIds.length) {
-        dailyScheduled[dateKey] = scheduledIds.length;
+    final todayKey = DateTime.now().effectiveDay.toDateKey();
+    bool isGreen(int dayIndex, String habitId) {
+      // Today comes from the caller's own already-updated Grid state when it
+      // handed us one. [syncTodayForHabit] routes a room with any
+      // weekly-quota link through this full resync (only the whole week can
+      // decide that habit's credit), and without this that detour would
+      // re-derive today from the reads above - while the Grid's own square
+      // write is still fire-and-forget in flight (see
+      // WeeklyGridNotifier._persistSquare's .ignore()). Losing that race
+      // wrote today down as 0, and once today became yesterday the clamp
+      // above pinned the 0 in place for good. Passing the tap's own truth
+      // through is the same reason the fast path takes `todaySquares` at all.
+      final live = todaySquares;
+      if (live != null && days[dayIndex].toDateKey() == todayKey) {
+        return (live[habitId] ?? SquareState.none).isGreen;
       }
-      final raw = snaps[i].data()?['squareStates'];
-      if (raw is! Map) continue;
-      final doneCount = scheduledIds
-          .where((id) => SquareState.fromJson(raw[id]?.toString()).isGreen)
-          .length;
-      if (doneCount > 0) dailyCounts[dateKey] = doneCount;
+      final raw = snaps[dayIndex].data()?['squareStates'];
+      return raw is Map &&
+          SquareState.fromJson(raw[habitId]?.toString()).isGreen;
     }
 
-    final names = <String>[];
+    // The rules this ROOM grades each linked habit by, which is
+    // deliberately NOT the same thing as the habit's current settings - see
+    // RoomParticipant.habitRules' doc comment for the whole reason this
+    // indirection exists (editing a habit used to silently re-score every
+    // finished day in the room). Anything with no rules recorded yet gets
+    // one seeded from its current settings, stamped from the room's own
+    // start date: the best available answer for a doc written before this
+    // field existed, and exactly what a freshly-linked habit should get.
+    // Starts from the stored map rather than an empty one so a skipped or
+    // withdrawn slot keeps its own history intact for if it ever comes back.
+    final startKey = room.startDate.toDateKey();
+    final effectiveRules = <String, List<RoomHabitRule>>{...mineNow.habitRules};
     for (final id in habitIds) {
-      final match = habitById[id];
-      if (match == null) continue;
+      if (effectiveRules[id]?.isNotEmpty ?? false) continue;
+      final habit = habitById[id];
+      effectiveRules[id] = [
+        RoomHabitRule(
+          from: startKey,
+          frequencyType: habit?.frequencyType ?? HabitFrequencyType.daily,
+          frequencyTarget: habit?.frequencyTarget ?? 1,
+          scheduledWeekdays: habit?.scheduledWeekdays ?? const [],
+        ),
+      ];
+    }
+
+    // Running per-day totals across every linked habit, regular and weekly
+    // alike - written to Firestore sparsely at the end, matching
+    // RoomParticipant.dailyScheduledCount/dailyDoneCount's own "absent means
+    // everything as normal" convention (see below).
+    //
+    // Every habit is weighed identically here: due that day, and done or not.
+    // A flexible weekly-quota habit gets no special treatment at all on this
+    // side - do it today and today is a whole done day. Its quota only ever
+    // decides whether a WEEK keeps the streak, collected in `okWeeks`.
+    final scheduledCount = <String, int>{for (final d in days) d.toDateKey(): 0};
+    final doneCount = <String, int>{for (final d in days) d.toDateKey(): 0};
+    // Weeks whose weekly-quota habits all held - see
+    // RoomParticipant.quotaOkWeeks. Filled in pass 2.
+    final okWeeks = <String>{};
+
+    // Every calendar week (Monday start, matching DateTimeGameExt.
+    // startOfGridWeek - SATURDAY, the same week boundary the Grid screen
+    // itself draws) this room's day range touches, oldest first, each mapped
+    // to which of `days` fall in it. A room that starts mid-week just gets a
+    // shorter-than-7-day first bucket (still checked against the habit's full
+    // weekly target, not a prorated one; a known, deliberately simple edge
+    // case that only ever affects a room's first partial week).
+    //
+    // Saturday, not DateTimeGameExt.startOfWeek's Monday, on purpose: this
+    // used to bucket by Monday while the Grid showed Saturday-to-Friday
+    // weeks, so "4 times this week" in a room silently meant a different
+    // seven days than the week the person was looking at. Whichever week the
+    // Grid draws IS the week to a user, so the quota has to agree with it.
+    final weeks = <DateTime, List<int>>{};
+    for (var i = 0; i < days.length; i++) {
+      weeks.putIfAbsent(startOfGridWeek(days[i]), () => []).add(i);
+    }
+
+    // ── Pass 1: the day counts. ──────────────────────────────────────────
+    // Due that day and done, or due and not. This is what the percentage,
+    // the "X of Y" fraction and the heatmap colour all come from.
+    //
+    // A day is only ever counted against someone if the habit was actually
+    // due then. For a regular habit that means its own weekday list; for a
+    // flexible weekly-quota habit it means its quota (see
+    // [weeklyQuotaScheduledDays]) - a rest day it was entitled to take is
+    // excused, not missed, exactly like a Mon/Wed habit's Tuesday. What does
+    // NOT change either way is the numerator: a day the habit was done is a
+    // whole done day, in full colour, never a fraction of one.
+    for (final id in habitIds) {
+      final habit = habitById[id];
+      final rules = effectiveRules[id]!;
+      // A linked habit no longer found (deleted from Grid after being
+      // linked) fails open - counts as done - so a stale link can't quietly
+      // make every day harder; that's the same "explain, don't fix silently"
+      // edge case _MyPlanCard's hasDeletedLink warning covers.
+      if (habit == null) {
+        for (final d in days) {
+          final key = d.toDateKey();
+          scheduledCount[key] = scheduledCount[key]! + 1;
+          doneCount[key] = doneCount[key]! + 1;
+        }
+        continue;
+      }
+      // Walked a week at a time rather than a day at a time, because a
+      // weekly-quota habit's answerable days can only be decided by looking
+      // at its whole week at once. Whether this habit IS one is read from the
+      // room's frozen rule at the week's first day - the same way pass 2
+      // below already resolves it.
+      for (final entry in weeks.entries) {
+        final dayIndices = entry.value;
+        final weekRule =
+            roomRuleAt(rules, days[dayIndices.first].toDateKey());
+
+        if (weekRule.frequencyType == HabitFrequencyType.weekly) {
+          final present =
+              dayIndices.where((i) => habitExistedOn(habit, days[i])).toList();
+          if (present.isEmpty) continue;
+          final done = {for (final i in present) if (isGreen(i, id)) i};
+          final weekEnd = entry.key.add(const Duration(days: 6));
+          for (final i in weeklyQuotaScheduledDays(
+            presentDays: present,
+            doneDays: done,
+            target: weekRule.frequencyTarget,
+            isWeekClosed:
+                !weekEnd.isAfter(room.lastCountedDay) || room.isEnded,
+          )) {
+            final key = days[i].toDateKey();
+            scheduledCount[key] = scheduledCount[key]! + 1;
+            if (done.contains(i)) doneCount[key] = doneCount[key]! + 1;
+          }
+          continue;
+        }
+
+        // Regular habit: due every day, or only on its own weekdays. The
+        // rule is re-resolved per day here (not once per week like the
+        // cadence check above) so a mid-week re-lock still applies from the
+        // exact day it starts.
+        for (final i in dayIndices) {
+          final key = days[i].toDateKey();
+          // Not due this day (a day before the habit existed, or a
+          // Mon/Wed/Fri habit on a Tuesday) doesn't count against the day at
+          // all - it was never something to do, not something skipped. The
+          // weekday list comes from the room's frozen rule, so editing a
+          // habit's days can't re-grade finished history.
+          if (!habitExistedOn(habit, days[i])) continue;
+          final rule = roomRuleAt(rules, key);
+          if (rule.scheduledWeekdays.isNotEmpty &&
+              !rule.scheduledWeekdays.contains(days[i].weekday)) {
+            continue;
+          }
+          scheduledCount[key] = scheduledCount[key]! + 1;
+          if (isGreen(i, id)) doneCount[key] = doneCount[key]! + 1;
+        }
+      }
+    }
+
+    // ── Pass 2: the weekly quota, which ONLY affects streaks. ─────────────
+    // Records which WEEKS held: every flexible weekly-quota habit in them
+    // reached its target, or is still in progress with time left. Those are
+    // the weeks whose rest days are allowed to keep a streak alive (see
+    // RoomParticipant.quotaOkWeeks / _keepsStreak).
+    //
+    // Phrased as "weeks that held" rather than "days that broke" on purpose:
+    // an absent week then means "not excused", so a participant this device
+    // knows nothing about yet scores 0 instead of being handed a phantom
+    // streak. A week with no weekly-quota habit in it is simply never added -
+    // there's no rest day to excuse, and its days stand or fall on
+    // isFullyDone like any ordinary habit's.
+    for (final entry in weeks.entries) {
+      final dayIndices = entry.value;
+      var sawWeeklyHabit = false;
+      var allHeld = true;
+      for (final id in habitIds) {
+        final habit = habitById[id];
+        if (habit == null) continue;
+        final rule =
+            roomRuleAt(effectiveRules[id]!, days[dayIndices.first].toDateKey());
+        if (rule.frequencyType != HabitFrequencyType.weekly) continue;
+        final window =
+            dayIndices.where((i) => habitExistedOn(habit, days[i])).toList();
+        if (window.isEmpty) continue;
+        sawWeeklyHabit = true;
+        final weekEnd = entry.key.add(const Duration(days: 6));
+        final credit = weeklyHabitCreditFor(
+          completions: window.where((i) => isGreen(i, id)).length,
+          target: rule.frequencyTarget,
+          isWeekClosed: !weekEnd.isAfter(room.lastCountedDay) || room.isEnded,
+        );
+        // ONLY a week that actually reached its target excuses its rest days.
+        // Pending deliberately does not, even though the week is still open
+        // and could still make it.
+        //
+        // Treating pending as "held" was a real bug: it meant every day of
+        // the current week kept a streak alive regardless of whether anything
+        // had been done in it, so a habit with an entirely empty week still
+        // showed a streak equal to however many days the week was old. The
+        // grace a still-open week deserves is the chance to *become*
+        // credited, not credit in advance.
+        //
+        // Consequence worth knowing: mid-week, a rest day between two done
+        // days does break the streak, and then the streak jumps back up to
+        // the whole week the moment the target is reached. It reads slightly
+        // steppy, but it is never inflated, and inflated is the failure that
+        // actually misleads someone about their own habit.
+        if (credit != WeeklyHabitCredit.credited) allHeld = false;
+      }
+      if (sawWeeklyHabit && allHeld) okWeeks.add(entry.key.toDateKey());
+    }
+
+    // Seeded from what's already stored, then overwritten for the recomputed
+    // window only - anything older than `windowStart` keeps exactly the value
+    // it was last written with, which is the whole point of windowing (see
+    // the comment where windowStart is worked out). A full-backfill pass
+    // starts from the room's first day anyway, so seeding is a no-op there.
+    final dailyCounts = <String, int>{...mineNow.dailyDoneCount};
+    final dailyScheduled = <String, int>{...mineNow.dailyScheduledCount};
+    // Same merge-then-overwrite-the-window treatment: keep every held week
+    // from outside this window, replace the ones inside it.
+    final okWeekSet = <String>{...mineNow.quotaOkWeeks};
+    for (final wk in weeks.keys) {
+      final wkKey = wk.toDateKey();
+      if (okWeeks.contains(wkKey)) {
+        okWeekSet.add(wkKey);
+      } else {
+        okWeekSet.remove(wkKey);
+      }
+    }
+    // Whether this participant has any recorded day at all. False only for a
+    // genuinely fresh link (or a brand-new room), where there's no earned
+    // history to preserve and capping against nothing would zero out a real
+    // room's first sync.
+    final hasPriorRecord = mineNow.dailyDoneCount.isNotEmpty;
+    for (final d in days) {
+      final dateKey = d.toDateKey();
+      final scheduled = scheduledCount[dateKey]!;
+      // ── Back-dating can take credit away, never add it ────────────────
+      // Ticking a past day's square in the Grid must not earn room progress
+      // after the fact. That's the same stance the rest of the app already
+      // takes on retroactive completions - setSquare's past-day branch gives
+      // no XP, no gold and no streak for them, and a competition room is
+      // exactly where letting someone fill in last week would matter most.
+      //
+      // So a past day is capped at whatever it had already earned while it
+      // was still today: a fresh back-fill can't raise it, but un-ticking a
+      // day it wrongly claimed still lowers it, which is the correcting
+      // direction and should keep working. Today itself is never capped, and
+      // neither is the one-time establishing pass for a participant who has
+      // no recorded history yet (there's nothing to preserve, and capping
+      // everything at zero would wipe a real room).
+      //
+      // ── ...but only for a day the room was actually watching ───────────
+      // "What the room already recorded" is only a fair stand-in for "what
+      // you earned on time" on the days a sync actually ran (see
+      // RoomParticipant.lastSyncedDay). For every day this device spent
+      // closed, offline, or with a fire-and-forget sync that quietly failed,
+      // the stored count is 0 because nobody was looking - not because
+      // nothing was done. Capping against that was permanent: the day could
+      // never be recovered by any means, so the Grid kept showing the square
+      // green while the room insisted the day never happened, and someone
+      // who had genuinely trained looked like they were always behind.
+      //
+      // Days past the watermark are therefore taken from the real daily
+      // history instead. The anti-cheat intent survives intact for the case
+      // it was written for - someone actively using the app still can't
+      // scroll back and colour in last week for credit, because those days
+      // are exactly the observed ones.
+      var earned = doneCount[dateKey]!;
+      final isPastDay = dateKey.compareTo(todayKey) < 0;
+      // Capping the credit is all that's needed to deny the streak too: the
+      // streak reads isFullyDone, which reads these very counts, so a day held
+      // down to 0 can't hold a streak either. That's the "no XP, no gold, no
+      // streak" rule falling out of one clamp instead of two places.
+      if (hasPriorRecord && isPastDay && mineNow.wasObservedOn(dateKey)) {
+        final alreadyEarned = mineNow.dailyDoneCount[dateKey] ?? 0;
+        if (earned > alreadyEarned) earned = alreadyEarned;
+      }
+      // remove-when-zero, not just set-when-nonzero: this day may have HAD a
+      // stored value that no longer applies (a square un-ticked, a habit
+      // unlinked), and a sparse map has to actually drop the key for that to
+      // read as zero rather than keeping the stale number forever.
+      if (scheduled != habitIds.length) {
+        dailyScheduled[dateKey] = scheduled;
+      } else {
+        dailyScheduled.remove(dateKey);
+      }
+      if (earned > 0) {
+        dailyCounts[dateKey] = earned;
+      } else {
+        dailyCounts.remove(dateKey);
+      }
+    }
+    // Sorted so the stored array is stable between syncs - an unordered set
+    // would rewrite the field with a reshuffled list every time, making real
+    // changes impossible to spot when reading the doc.
+    final storedOkWeeks = okWeekSet.toList()..sort();
+
+    // Built from rawIds, not habitIds - linkedHabitNames has to stay
+    // index-for-index parallel with linkedHabitIds, so a skipped slot keeps
+    // its stored name in place rather than collapsing the array and
+    // silently shifting every later habit's name onto the wrong slot.
+    // Refreshed only when every position resolved to a real name; a single
+    // unresolvable slot (a habit deleted from Grid) leaves the whole stored
+    // array untouched rather than writing a half-correct one.
+    final storedNames = mineNow.linkedHabitNames;
+    final names = <String>[];
+    var namesComplete = true;
+    for (var i = 0; i < rawIds.length; i++) {
+      if (rawIds[i] == kDeclinedSlot) {
+        names.add(i < storedNames.length ? storedNames[i] : '');
+        continue;
+      }
+      final match = habitById[rawIds[i]];
+      if (match == null) {
+        namesComplete = false;
+        break;
+      }
       names.add(match.name);
     }
 
+    // Mirrors isFullyDone(todayKey) at the moment of this write - this used
+    // to be read by a Firestore-triggered Cloud Function's own before/after
+    // diff (see room_reactions.dart's doc comment for why that approach was
+    // dropped: Eventarc trigger creation for this project's Firestore
+    // location turned out to be unavailable, not just a region-picking
+    // choice). The edge is now detected right here instead - see
+    // `shouldNotify` below - and the same field is still written, since
+    // RoomParticipant.allDoneToday/allDoneDate remain what the in-app
+    // reactions (room_reactions.dart) and the Rooms UI itself read.
+    // `days` only reaches today's key while the room is still active
+    // (lastCountedDay caps at today, see RoomModel.lastCountedDay) - once a
+    // room has ended, today's key falls outside the computed range and
+    // this is skipped entirely, leaving whatever value was last written in
+    // place rather than guessing at a day this sync didn't actually cover.
+    final todayScheduled = scheduledCount[todayKey];
+    final allDoneTodayUpdate = todayScheduled == null
+        ? const <String, Object?>{}
+        : <String, Object?>{
+            'allDoneToday':
+                todayScheduled == 0 || doneCount[todayKey]! >= todayScheduled,
+            'allDoneDate': todayKey,
+          };
+    // The false/missing -> true edge, for *today specifically* - checking
+    // allDoneDate alongside allDoneToday (not just the bool alone) matters:
+    // without it, a leftover `allDoneToday: true` from a day this
+    // participant last touched the room (say, yesterday) would look
+    // identical to "already notified today" and silently swallow a real,
+    // fresh finish the first time this syncs today.
+    final wasAlreadyNotifiedToday =
+        mineNow.allDoneToday && mineNow.allDoneDate == todayKey;
+    // ...and only when something was actually done today. `allDoneToday` is
+    // true on a day with nothing outstanding, which now includes a weekly
+    // quota's rest days once its target is met (see
+    // [weeklyQuotaScheduledDays]) as well as a Mon/Wed habit's Tuesday. That
+    // is the right answer for the plan card's checkmark and the wrong one
+    // for a push: it would announce "Aziz finished their habits today" to
+    // the whole room on each of the remaining rest days of a week whose
+    // target was hit on Tuesday. See RoomParticipant.didCompleteAnythingOn.
+    final shouldNotify = allDoneTodayUpdate['allDoneToday'] == true &&
+        (doneCount[todayKey] ?? 0) > 0 &&
+        !wasAlreadyNotifiedToday;
+
     await participantRef.set({
       ..._profileFields(),
-      if (names.length == habitIds.length) 'linkedHabitNames': names,
+      if (namesComplete && names.length == rawIds.length)
+        'linkedHabitNames': names,
       'dailyDoneCount': dailyCounts,
       'dailyScheduledCount': dailyScheduled,
+      'quotaOkWeeks': storedOkWeeks,
+      // Persists whatever this pass had to seed (see effectiveRules above),
+      // so the room's frozen grading rules survive to the next sync instead
+      // of being re-derived from the habit's current settings every time -
+      // which would defeat the entire point of freezing them.
+      'habitRules': effectiveRules.map(
+        (k, v) => MapEntry(k, v.map((r) => r.toFirestore()).toList()),
+      ),
       'lastUpdated': Timestamp.now(),
+      // The room was watching today - which is what lets tomorrow's clamp
+      // treat today's stored count as a real observation rather than an
+      // absence of one. Advanced only to the day actually just graded, never
+      // further, so the days between this and the previous watermark stay
+      // correctly marked as unobserved. See RoomParticipant.lastSyncedDay.
+      'lastSyncedDay': todayKey,
+      ...allDoneTodayUpdate,
     }, SetOptions(merge: true));
+
+    if (shouldNotify) unawaited(_notifyRoomFinish(room.code));
   }
 
   /// Called right after *any* screen changes *today's* square for
@@ -1058,6 +2347,54 @@ class RoomsController {
       if (!room.hasStarted) continue;
       final participantRef =
           _rooms.doc(room.code).collection('participants').doc(uid);
+
+      // A flexible weekly-quota linked habit (HabitFrequencyType.weekly)
+      // can't be judged from today's tap alone - whether it counts depends
+      // on the *whole week's* total, which only syncLinkedHabitsProgress's
+      // full day-range read actually computes (see weeklyHabitCreditFor).
+      // This fast path used to fall straight into the plain per-day
+      // transaction below regardless, which - since isScheduledFor has
+      // nothing weekday-specific to rule out for a habit like this -
+      // credited it the instant *any* single day was ticked, full stop.
+      // That briefly showed credit for a day the actual weekly quota
+      // hadn't been met yet, which the next real resync (e.g. opening Room
+      // Detail) then "corrected" back down - credit appearing on a tap and
+      // vanishing on reopen, with nothing wrong actually happening. Routing
+      // a room with any weekly-quota link through the full resync instead
+      // means there's exactly one place that ever decides its credit, so
+      // the two paths can never disagree. Slightly more expensive per tap
+      // (one extra read plus, for a hit, a full day-range resync instead
+      // of a single-day transaction) - but only for rooms that actually
+      // have this kind of habit linked; the common all-regular-habits case
+      // below is untouched.
+      final freshSnap = await participantRef.get();
+      if (!freshSnap.exists) continue;
+      final freshMine = RoomParticipant.fromFirestore(freshSnap);
+      // Judged by the room's own FROZEN rule (see RoomParticipant.habitRules)
+      // rather than the habit's current settings, since the frozen rule is
+      // what actually grades the day - a habit switched to weekly in the app
+      // but still graded daily by this room belongs on the fast path, and
+      // vice versa.
+      final hasWeeklyLink = freshMine.countedHabitIds.any((id) {
+        final rule = freshMine.ruleFor(id, today);
+        final type = rule?.frequencyType ?? habitById[id]?.frequencyType;
+        return type == HabitFrequencyType.weekly;
+      });
+      if (hasWeeklyLink) {
+        // Hands the full resync this tap's own view of today (see that
+        // method's [todaySquares] parameter) rather than letting it re-read
+        // a square whose write may still be in flight.
+        await syncLinkedHabitsProgress(room, todaySquares: todaySquares);
+        continue;
+      }
+
+      // Set from inside the transaction body below, read back out here
+      // once the transaction actually commits - never call the Cloud
+      // Function from inside the callback itself, since Firestore retries
+      // this whole block on contention and a network call inside it would
+      // retry right along with it, double-sending a push for one real
+      // finish.
+      var shouldNotify = false;
       // A transaction, not a bare get()-then-set(): marking a habit done
       // and then immediately undoing it (exactly the "refund" case this
       // exists for) fires this twice in quick succession, each its own
@@ -1071,16 +2408,27 @@ class RoomsController {
       await FirebaseFirestore.instance.runTransaction((txn) async {
         final snap = await txn.get(participantRef);
         if (!snap.exists) return;
-        final linkedIds = (snap.data()?['linkedHabitIds'] as List?)
-                ?.whereType<String>()
-                .toList() ??
-            const [];
+        final mine = RoomParticipant.fromFirestore(snap);
+        // Exactly the same counting set syncLinkedHabitsProgress uses - a
+        // skipped or leader-withdrawn slot must not sit in this path's
+        // denominator either, or one tap would disagree with the next full
+        // resync.
+        final linkedIds = mine.countedHabitIdsIn(room);
         if (linkedIds.isEmpty) return;
         // Same "excuse today's unscheduled habits" logic as
-        // syncLinkedHabitsProgress - see that method's doc comment.
-        final scheduledIds = linkedIds
-            .where((id) => habitById[id]?.isScheduledFor(todayDate) ?? true)
-            .toList();
+        // syncLinkedHabitsProgress, and same use of the room's FROZEN
+        // weekday rule rather than the habit's current one, so editing a
+        // habit's days can't make this path and the full resync disagree
+        // about whether today was even due. Falls back to the habit's own
+        // current schedule only when no rule has been recorded yet.
+        final scheduledIds = linkedIds.where((id) {
+          final habit = habitById[id];
+          if (habit == null) return true; // stale link fails open
+          if (!habitExistedOn(habit, todayDate)) return false;
+          final weekdays = mine.ruleFor(id, today)?.scheduledWeekdays ??
+              habit.scheduledWeekdays;
+          return weekdays.isEmpty || weekdays.contains(todayDate.weekday);
+        }).toList();
         final doneCount = scheduledIds
             .where((id) => (todaySquares[id] ?? SquareState.none).isGreen)
             .length;
@@ -1115,15 +2463,120 @@ class RoomsController {
         } else {
           updatedScheduled.remove(today);
         }
+        // Deliberately does NOT touch quotaOkWeeks. This path only runs for
+        // rooms with no weekly-quota habit, so today's break status is just
+        // "was anything due today left undone" - but today is exempt anyway
+        // (currentStreak gives an unfinished today grace while the room is
+        // live), and the next full resync settles it properly. Writing a
+        // break for a day still in progress would flicker the streak to 0 on
+        // the first tap of the morning.
+        // Same allDoneToday/allDoneDate mirror as syncLinkedHabitsProgress's
+        // doc comment describes, computed from this call's own (simpler,
+        // no weekly-quota-credit distinction) done/scheduled numbers rather
+        // than re-deriving anything - since this is the fast per-tap path,
+        // whatever it decides "today" means is exactly what should trigger
+        // the room-finish push, and the next full syncLinkedHabitsProgress
+        // (room-open) reconciles it properly either way.
+        final newAllDoneToday =
+            scheduledIds.isEmpty || doneCount >= scheduledIds.length;
+        // Same date-aware edge check as syncLinkedHabitsProgress - see that
+        // method's doc comment for why allDoneDate has to be checked
+        // alongside the bool, not just the bool alone.
+        final wasAlreadyNotifiedToday =
+            snap.data()?['allDoneToday'] == true &&
+                snap.data()?['allDoneDate'] == today;
+        // Same "only announce a thing that actually happened" gate as the
+        // full resync above - a day where every linked habit was excused is
+        // finished, but it is not something to tell the room about.
+        shouldNotify =
+            newAllDoneToday && doneCount > 0 && !wasAlreadyNotifiedToday;
         txn.set(participantRef, {
           'dailyDoneCount': updatedCounts,
           'dailyScheduledCount': updatedScheduled,
           'lastUpdated': Timestamp.now(),
+          // This path graded today too, so it moves the watching-watermark
+          // exactly like the full resync does - otherwise a person whose only
+          // sync all day was a Grid tap would look unobserved tomorrow and
+          // have today re-derived instead of trusted. See
+          // RoomParticipant.lastSyncedDay.
+          'lastSyncedDay': today,
+          'allDoneToday': newAllDoneToday,
+          'allDoneDate': today,
         }, SetOptions(merge: true));
       });
+      if (shouldNotify) unawaited(_notifyRoomFinish(room.code));
+    }
+  }
+
+  /// Best-effort trigger for the room-finish push (see functions/index.js's
+  /// notifyRoomFinish callable) - called right after this device's own
+  /// write flips allDoneToday false/missing -> true for [roomCode], from
+  /// both syncLinkedHabitsProgress and syncTodayForHabit above. Never
+  /// awaited by either caller and never allowed to throw outward: a push
+  /// that fails to fire (offline, cold-started function, transient error)
+  /// costs nothing more than a missed nudge to teammates, not worth
+  /// surfacing as an error to the person who just finished their habits.
+  /// The function itself re-verifies allDoneToday/allDoneDate server-side
+  /// before sending anything - this call is a trigger, not a claim it
+  /// blindly trusts.
+  Future<void> _notifyRoomFinish(String roomCode) async {
+    try {
+      await FirebaseFunctions.instance
+          .httpsCallable('notifyRoomFinish')
+          .call({'roomCode': roomCode});
+    } catch (_) {
+      // Best-effort - see doc comment above.
     }
   }
 }
 
 final roomsControllerProvider =
     Provider<RoomsController>((ref) => RoomsController(ref));
+
+/// Rooms this account belongs to that have finished, and whose ending this
+/// device hasn't acknowledged yet — the input to the "your challenge
+/// finished" popup (see RoomFinaleAnnouncer in main.dart).
+///
+/// Everything here is recomputed from live data rather than remembered, and
+/// that's the whole design. A room the leader deleted has already dropped out
+/// of [myRoomCodesProvider] (or resolves to a null doc), so it can't announce
+/// anything. A room that got extended is no longer [RoomModel.isEnded], so it
+/// can't either. A scheduled notification could have made neither of those
+/// promises — it would have fired on the date regardless, about a room that
+/// might no longer exist.
+///
+/// Empty while the underlying streams are still warming up, which is exactly
+/// right: nothing should pop up before we actually know the state of a room.
+final unseenFinishedRoomsProvider = Provider<List<RoomModel>>((ref) {
+  final uid = ref.watch(authStateProvider).asData?.value?.uid;
+  if (uid == null) return const [];
+  return unseenFinishedRooms(
+    myCodes: ref.watch(myRoomCodesProvider).valueOrNull ?? const <String>[],
+    seenCodes: ref.watch(roomFinaleSeenProvider),
+    roomFor: (code) => ref.watch(roomProvider(code)).valueOrNull,
+  );
+});
+
+/// The selection itself, as a plain function - same unit-testability
+/// reasoning as [weeklyQuotaScheduledDays]/[roomRuleAt]/[nextLeaderAfter]:
+/// every "should this announce?" case can then be checked with hand-built
+/// arguments and no Firestore, no auth and no widgets involved.
+///
+/// [roomFor] returns null for a code whose room document isn't there (or
+/// hasn't loaded), which is precisely how a deleted room ends up silent.
+List<RoomModel> unseenFinishedRooms({
+  required List<String> myCodes,
+  required Set<String> seenCodes,
+  required RoomModel? Function(String code) roomFor,
+}) {
+  final out = <RoomModel>[];
+  for (final code in myCodes) {
+    if (seenCodes.contains(code)) continue;
+    final room = roomFor(code);
+    // Not there (deleted, or still loading) -> nothing to announce.
+    // Still running (never ended, or the leader extended it) -> likewise.
+    if (room == null || !room.isEnded) continue;
+    out.add(room);
+  }
+  return out;
+}
