@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -6,6 +8,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/weekly_recap_collapsed_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
@@ -124,6 +127,7 @@ class WeeklyRecapCard extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final locale = Localizations.localeOf(context).languageCode;
+    final collapsed = ref.watch(weeklyRecapCollapsedProvider);
 
     // The habit most missed this week — from the already-loaded visible
     // week, and only when the grid is actually showing the current week
@@ -175,30 +179,139 @@ class WeeklyRecapCard extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    color: GameColors.gold.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Icon(Icons.insights_rounded,
-                      size: 16, color: GameColors.gold),
+            // The header doubles as the fold control. Tapping anywhere along
+            // it collapses the card to just this row — and the row keeps the
+            // week's headline number, so a folded card still answers "how did
+            // my week go" without being unfolded. That is what makes folding
+            // cheap enough to offer: you lose the detail, never the point.
+            Semantics(
+              button: true,
+              expanded: !collapsed,
+              label: s.weeklyRecapTitle,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setWeeklyRecapCollapsed(ref, !collapsed);
+                },
+                child: Row(
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: GameColors.gold.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Icon(Icons.insights_rounded,
+                          size: 16, color: GameColors.gold),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      s.weeklyRecapTitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: gp.textPrimary,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const Spacer(),
+                    // Folded: the number rides up here so the row still says
+                    // something. Expanded: it would only repeat the big stat
+                    // directly underneath, so it goes away.
+                    if (collapsed) ...[
+                      Text(
+                        '${recap.thisWeekTotal}',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                          color: GameColors.gold,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    AnimatedRotation(
+                      turns: collapsed ? 0 : 0.5,
+                      duration: GameMotion.quick,
+                      child: Icon(Icons.keyboard_arrow_down_rounded,
+                          size: 22, color: gp.textTert),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  s.weeklyRecapTitle,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: gp.textPrimary,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ],
+              ),
             ),
+            // AnimatedSize rather than an if/else swap: folding a card that
+            // just snaps out of existence reads as a glitch, and the whole
+            // point of collapse-over-dismiss is that the card is still there.
+            AnimatedSize(
+              duration: GameMotion.relaxed,
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: collapsed
+                  ? const SizedBox(width: double.infinity)
+                  : _RecapBody(
+                      recap: recap,
+                      delta: delta,
+                      deltaColor: deltaColor,
+                      encouragement: encouragement,
+                      mostMissedName: mostMissedName,
+                      habits: habits,
+                      grid: grid,
+                      counts: counts,
+                      weekStart: weekStart,
+                      today: today,
+                      locale: locale,
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Everything below the recap card's header — split out so [AnimatedSize] has
+/// a single child to grow and shrink, and so the fold state lives in exactly
+/// one place rather than being threaded through twenty `if (!collapsed)`
+/// checks inside one very long build method.
+class _RecapBody extends ConsumerWidget {
+  final WeeklyRecapData recap;
+  final int delta;
+  final Color deltaColor;
+  final String encouragement;
+  final String? mostMissedName;
+  final List<IslamicHabitTemplate> habits;
+  final WeeklyGridState grid;
+  final Map<String, int> counts;
+  final DateTime weekStart;
+  final DateTime today;
+  final String locale;
+
+  const _RecapBody({
+    required this.recap,
+    required this.delta,
+    required this.deltaColor,
+    required this.encouragement,
+    required this.mostMissedName,
+    required this.habits,
+    required this.grid,
+    required this.counts,
+    required this.weekStart,
+    required this.today,
+    required this.locale,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    // Local copy so Dart can promote it to non-null inside the guard below —
+    // a nullable *field* never promotes, only a local does.
+    final missed = mostMissedName;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
             const SizedBox(height: 12),
             Row(
               children: [
@@ -231,7 +344,7 @@ class WeeklyRecapCard extends ConsumerWidget {
                 ),
               ],
             ),
-            if (mostMissedName != null) ...[
+            if (missed != null) ...[
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -240,7 +353,7 @@ class WeeklyRecapCard extends ConsumerWidget {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      s.weeklyRecapNeedsLove(mostMissedName),
+                      s.weeklyRecapNeedsLove(missed),
                       style: TextStyle(fontSize: 12, color: gp.textSec),
                     ),
                   ),
@@ -262,74 +375,152 @@ class WeeklyRecapCard extends ConsumerWidget {
             // retention, so it's deliberately not crippled); Premium adds
             // the receipts underneath. Free users see one quiet teaser
             // line instead — an offer, not a hole.
-            if (ref.watch(premiumProvider)) ...[
-              if (grid.isCurrentWeek && !grid.isLoading) ...[
-                const SizedBox(height: 12),
-                Container(height: 0.5, color: gp.border),
-                const SizedBox(height: 10),
-                Text(
-                  s.weeklyRecapPerHabit,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: gp.textSec,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                for (final h in habits)
-                  // Skip a habit that's both gone (archived, not the
-                  // current active one) AND had nothing real to show this
-                  // week — exactly the shape a mistake/test habit that got
-                  // hard-deleted-should-have-been-but-was-still-lingering
-                  // leaves behind: zero completions, ever, and now
-                  // archived. A currently-active habit always shows, even
-                  // at 0/7 — that's a real miss worth seeing, not clutter.
-                  // A now-archived habit with at least one real green day
-                  // this week also still shows — it was genuinely used,
-                  // not a mistake, so its receipt stays. See
-                  // _weekDoneCount's own doc comment.
-                  if (h.archivedAt == null ||
-                      _weekDoneCount(h, grid, today) > 0)
-                    _HabitWeekRow(
-                      habit: h,
-                      grid: grid,
-                      today: today,
-                      isAr: s.isAr,
-                    ),
-              ],
-              const SizedBox(height: 10),
-              Text(
-                s.weeklyRecapTrend,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: gp.textSec,
-                ),
+            // Premium depth: per-habit week rows + the 4-week trend.
+            //
+            // A free user now sees the SAME section, blurred, with an unlock
+            // chip over it — rather than the single line of teaser text that
+            // used to stand in for it. The blurred version is the person's
+            // own real week, so the offer is concrete ("this is your data,
+            // slightly out of focus") instead of abstract ("there is more,
+            // somewhere"). IgnorePointer under the blur so nothing behind the
+            // glass is tappable, and the whole stack routes to /premium.
+            _RecapDepth(
+              habits: habits,
+              grid: grid,
+              counts: counts,
+              weekStart: weekStart,
+              today: today,
+            ),
+      ],
+    );
+  }
+}
+
+/// The recap's paid half — a week row per habit, then the 4-week trend.
+///
+/// Free users get exactly the same widgets behind a blur with an unlock chip
+/// on top, instead of the one line of teaser text this used to render. The
+/// difference matters: the blurred version is the person's own real week, so
+/// the pitch is "this is yours, out of focus" rather than "something exists
+/// that you cannot see". Nothing under the glass is tappable, and a tap
+/// anywhere on it goes to the paywall.
+class _RecapDepth extends ConsumerWidget {
+  final List<IslamicHabitTemplate> habits;
+  final WeeklyGridState grid;
+  final Map<String, int> counts;
+  final DateTime weekStart;
+  final DateTime today;
+
+  const _RecapDepth({
+    required this.habits,
+    required this.grid,
+    required this.counts,
+    required this.weekStart,
+    required this.today,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final isPremium = ref.watch(premiumProvider);
+
+    final depth = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (grid.isCurrentWeek && !grid.isLoading) ...[
+          const SizedBox(height: 12),
+          Container(height: 0.5, color: gp.border),
+          const SizedBox(height: 10),
+          Text(
+            s.weeklyRecapPerHabit,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: gp.textSec,
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Skip a habit that's both gone (archived) AND had nothing real to
+          // show this week — the shape a mistake/test habit leaves behind. A
+          // currently-active habit always shows, even at 0/7: that's a real
+          // miss worth seeing. See _weekDoneCount's own doc comment.
+          for (final h in habits)
+            if (h.archivedAt == null || _weekDoneCount(h, grid, today) > 0)
+              _HabitWeekRow(
+                habit: h,
+                grid: grid,
+                today: today,
+                isAr: s.isAr,
               ),
-              const SizedBox(height: 6),
-              _TrendBars(
-                totals: weeklyTotals(
-                  dailyGreenCounts: counts,
-                  currentWeekStart: weekStart,
-                ),
-                currentWeekStart: weekStart,
-                thisWeekLabel: s.weeklyRecapThisWeek,
+        ],
+        const SizedBox(height: 10),
+        Text(
+          s.weeklyRecapTrend,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: gp.textSec,
+          ),
+        ),
+        const SizedBox(height: 6),
+        _TrendBars(
+          totals: weeklyTotals(
+            dailyGreenCounts: counts,
+            currentWeekStart: weekStart,
+          ),
+          currentWeekStart: weekStart,
+          thisWeekLabel: s.weeklyRecapThisWeek,
+        ),
+      ],
+    );
+
+    if (isPremium) return depth;
+
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.pushNamed(context, '/premium');
+      },
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // ExcludeSemantics as well as IgnorePointer: blurred content is
+          // decoration for a free user, and a screen reader announcing every
+          // habit's week behind the glass would hand over exactly what the
+          // blur is withholding.
+          ExcludeSemantics(
+            child: IgnorePointer(
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                child: Opacity(opacity: 0.55, child: depth),
               ),
-            ] else ...[
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.pushNamed(context, '/premium');
-                },
+            ),
+          ),
+          Positioned.fill(
+            child: Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: gp.surface,
+                  borderRadius:
+                      BorderRadius.circular(GameSpacing.pillRadius),
+                  border: Border.all(
+                      color: GameColors.gold.withOpacity(0.45), width: 0.8),
+                ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.lock_rounded,
                         size: 13, color: GameColors.gold),
                     const SizedBox(width: 6),
-                    Expanded(
+                    Flexible(
                       child: Text(
                         s.weeklyRecapPremiumTeaser,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
@@ -340,10 +531,10 @@ class WeeklyRecapCard extends ConsumerWidget {
                   ],
                 ),
               ),
-            ],
-          ],
-        ),
-      ).animate().fadeIn(duration: 400.ms),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

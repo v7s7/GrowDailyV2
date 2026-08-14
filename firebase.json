@@ -37,5 +37,31 @@
         "firebase-debug.*.log"
       ]
     }
-  ]
+  ],
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/node_modules/**",
+      "**/.DS_Store"
+    ],
+    "appAssociation": "NONE",
+    "rewrites": [
+      {
+        "source": "/join/**",
+        "destination": "/join/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "/.well-known/apple-app-site-association",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ]
+      }
+    ]
+  }
 }

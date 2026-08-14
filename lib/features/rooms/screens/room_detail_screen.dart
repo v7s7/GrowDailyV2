@@ -14,6 +14,7 @@ import 'package:intl/intl.dart' hide TextDirection;
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../../core/services/share_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/victory_burst.dart';
@@ -181,6 +182,13 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     await ref
         .read(roomsControllerProvider)
         .extendRoom(room, picked == 0 ? null : picked);
+    // This room is about to have a *second* ending, and the finale announcer
+    // only ever fires once per room code (see markRoomFinaleSeen). Without
+    // this, extending a room that already finished means its next finish is
+    // announced to nobody — the whole point of extending is that the ending
+    // still matters. Safe when the room hadn't ended yet: the code simply
+    // isn't in the set and this is a no-op.
+    await clearRoomFinaleSeen(ref, room.code);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(S.of(context).roomExtended)),

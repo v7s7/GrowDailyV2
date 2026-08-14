@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["DSHFS6NXFM.com.growdaily.v2"],
+        "components": [
+          {
+            "/": "/join/*",
+            "comment": "Room invites. Opens the app straight on the join sheet for that room code."
+          }
+        ]
+      }
+    ]
+  }
+}

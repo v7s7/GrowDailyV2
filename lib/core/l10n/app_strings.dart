@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/local_store_service.dart';
 import '../utils/intention_phrase.dart';
+import '../utils/bidi_fraction.dart';
+import '../constants/deep_links.dart';
 
 // ─── Locale provider ──────────────────────────────────────────────────────────
 
@@ -300,9 +302,12 @@ class S {
   String get languageEn => isAr ? 'English' : 'English';
   String get cumulativeXp => isAr ? 'مجموع XP' : 'cumulative XP';
   String xpToLevel(int n) => isAr ? '$n XP للمستوى ${n + 1}' : 'XP to Level $n';
+  /// The fraction goes through [progressFraction] so its two numbers keep the
+  /// order they were written in Arabic — see that function's doc comment. A
+  /// bare "$current / $total" inside an RTL sentence renders as "100 / 0".
   String xpProgress(int current, int total, int nextLevel) => isAr
-      ? '$current / $total XP للمستوى $nextLevel'
-      : '$current / $total XP to Level $nextLevel';
+      ? '${progressFraction(current, total)} XP للمستوى $nextLevel'
+      : '${progressFraction(current, total)} XP to Level $nextLevel';
   String get best => isAr ? 'أفضل' : 'BEST';
   String get total => isAr ? 'المجموع' : 'TOTAL';
 
@@ -679,6 +684,20 @@ class S {
   String get matrixAddTask => isAr ? 'أضف مهمة' : 'ADD TASK';
   String get matrixWhatToDo => isAr ? 'ما الذي يجب فعله؟' : 'What needs to be done?';
   String get matrixMoveToQuadrant => isAr ? 'انقل إلى ربع' : 'MOVE TO QUADRANT';
+
+  /// Names for the three icon buttons on every task row (see
+  /// _TileIconButton). They had no names at all: a screen-reader user heard
+  /// "button, button, button", and a sighted new user had no way to learn
+  /// that the handle moves a task between quadrants — the owner's words were
+  /// "it's easy for me, but a new user will not know where to click". Used as
+  /// both the Semantics label and the long-press tooltip.
+  ///
+  /// Sentence case, not the SHOUTING of [matrixMoveToQuadrant]: that one is a
+  /// section header inside the move sheet, this is a control's own name.
+  String get taskMoveAction => isAr ? 'نقل المهمة' : 'Move task';
+  String get taskFavAction => isAr ? 'تمييز بنجمة' : 'Star task';
+  String get taskUnfavAction => isAr ? 'إزالة النجمة' : 'Unstar task';
+  String get taskDetailsAction => isAr ? 'التفاصيل' : 'Details';
   // Tooltips for the header's expand icon (QuadrantCard) and the close
   // button on the near-fullscreen view it opens (QuadrantExpandedScreen).
   String get matrixExpandQuadrant => isAr ? 'توسيع' : 'Expand';
@@ -802,8 +821,15 @@ class S {
   String get getStartedTitle => isAr ? 'ابدأ الآن' : 'Get Started';
   /// "Step 2 of 4" on the Grid's guide card — a visible end so the guide
   /// reads as something you finish, not an open-ended chore list.
+  ///
+  /// The word "Step" is load-bearing and used to be missing: the card is
+  /// called with `progress.done + 1`, so a brand-new user with nothing done
+  /// saw a bare "1 of 4" sitting directly beside an *empty* checkbox. Read
+  /// as a progress count — which is what a bare "N of M" beside a checkbox
+  /// looks like — the card was claiming a step was finished when none was.
+  /// "Step 1 of 4" says the same thing the number always meant.
   String guideStepCount(int step, int total) =>
-      isAr ? '$step من $total' : '$step of $total';
+      isAr ? 'الخطوة $step من $total' : 'Step $step of $total';
 
   String get getStartedAddHabit =>
       isAr ? 'أضف أول عادة لك' : 'Add your first habit';
@@ -827,6 +853,29 @@ class S {
   // other grid/heatmap/night-review labels below stay color-neutral
   // rather than naming a color that isn't true for every theme.
   String get gridGreenSquares => isAr ? 'مربّعات ملوّنة' : 'Squares filled';
+
+  /// [gridGreenSquares] agreed with its own number.
+  ///
+  /// The summary card prints a large count and this label beside it, and the
+  /// label was a fixed plural — so a user who had coloured exactly one square
+  /// read «1 مربّعات ملوّنة», plural agreement on the number one, on the app's
+  /// main screen. Arabic counts do not work like English ones: 1 takes the
+  /// singular, 2 the dual, 3–10 the plural, and 11+ the accusative singular.
+  ///
+  /// The 11+ form uses مربّعًا, which is the same word this file already uses
+  /// in [gridEarnedToday] («كسبت $n مربّعًا اليوم») — so nothing here invents
+  /// vocabulary, it only picks between forms of a word already chosen.
+  /// English is unchanged: "Squares filled" reads correctly at every count.
+  String gridGreenSquaresCount(int n) {
+    if (!isAr) return gridGreenSquares;
+    if (n == 1) return 'مربّع ملوّن';
+    if (n == 2) return 'مربّعان ملوّنان';
+    // 0 takes the same plural as 3–10. Without it, zero matched no branch and
+    // fell through to the 11+ form below, so an untouched week — the first
+    // thing a new user sees — read «0 مربّعًا ملوّنًا».
+    if (n == 0 || (n >= 3 && n <= 10)) return 'مربّعات ملوّنة';
+    return 'مربّعًا ملوّنًا';
+  }
   String get gridPoints => isAr ? 'النقاط' : 'Points';
   String get gridComplete => isAr ? 'الإكمال' : 'Complete';
   String get gridWeekFilled => isAr ? 'اكتمل الأسبوع!' : 'Week filled!';
@@ -1365,7 +1414,16 @@ class S {
   // Create Room sheet
   String get roomCreateTitle => isAr ? 'إنشاء غرفة' : 'Create a Room';
   String get roomNameLabel => isAr ? 'اسم الغرفة' : 'Room name';
-  String get roomNameHint => isAr ? 'مثال: تحدي الفجر' : 'e.g. Fajr Challenge';
+  // No worked example here on purpose: "تحدي الفجر" reads like the name of a
+  // habit, so people typed a habit into the room field. The field says what it
+  // wants, and the tappable ideas below it do the suggesting.
+  String get roomNameHint => isAr ? 'اسم تختاره أنت' : 'A name you pick';
+  String get roomNameIdeas => isAr ? 'أفكار' : 'Ideas';
+
+  /// Group names, not habit names — the distinction the old placeholder blurred.
+  List<String> get roomNameSuggestions => isAr
+      ? const ['العائلة', 'الشلّة', 'زملاء العمل', 'رفاق النادي', 'مجموعة الدراسة']
+      : const ['Family', 'The Squad', 'Work Crew', 'Gym Buddies', 'Study Group'];
   String get roomHabitModeLabel => isAr ? 'كيف تعمل العادة؟' : 'How does the habit work?';
   String get roomHabitModeShared => isAr ? 'خطة القائد' : "Leader's plan";
   String get roomHabitModeSharedHint => isAr
@@ -1436,15 +1494,27 @@ class S {
   String get roomCopyAction => isAr ? 'نسخ الرمز' : 'Copy Code';
   String get roomShareAction => isAr ? 'مشاركة' : 'Share';
   String get roomDoneAction => isAr ? 'تم' : 'Done';
-  // Includes a growdaily://join/CODE deep link (see main.dart's AppLinks
-  // wiring) alongside the human-readable code, so tapping it on a device
-  // that already has GrowDaily installed jumps straight to a pre-filled
-  // Join Room sheet instead of the recipient having to open the app and
-  // type the code by hand - the code on its own line still works exactly
-  // as before wherever the link isn't clickable.
-  String roomShareMessage(String name, String code) => isAr
-      ? 'انضم إلى تحدي "$name" في Grow Daily!\nرمز الغرفة: $code\ngrowdaily://join/$code'
-      : 'Join my "$name" challenge on Grow Daily!\nRoom code: $code\ngrowdaily://join/$code';
+  /// The invite that actually travels — a WhatsApp message to someone who may
+  /// or may not have the app.
+  ///
+  /// The link is now an https Universal Link (see roomJoinUrl), not the old
+  /// `growdaily://join/CODE`. That change is the whole point: messengers only
+  /// auto-linkify http/https, so the custom scheme arrived as untappable grey
+  /// text, and it had no fallback at all — a recipient without the app got
+  /// nothing, not even a clue what the link was for. The https link opens the
+  /// app directly when it is installed and otherwise loads a page that
+  /// explains the invite and offers the download.
+  ///
+  /// The code stays, on its own line, as the manual path: link previews get
+  /// mangled, links get truncated by some clients, and someone may simply be
+  /// reading this on a laptop. "أو" / "or" makes it explicitly the backup
+  /// rather than a second instruction.
+  String roomShareMessage(String name, String code) {
+    final url = roomJoinUrl(code);
+    return isAr
+        ? 'انضم إلى تحدي "$name" في Grow Daily!\n\n$url\n\nأو استخدم الرمز: $code'
+        : 'Join my "$name" challenge on Grow Daily!\n\n$url\n\nOr use the code: $code';
+  }
 
   // Join Room sheet
   String get roomJoinTitle => isAr ? 'الانضمام إلى غرفة' : 'Join a Room';
@@ -1510,8 +1580,8 @@ class S {
   /// room ends — see RoomFinaleAnnouncer (main.dart) and
   /// unseenFinishedRoomsProvider.
   String roomFinaleDialogBody(String roomName) => isAr
-      ? 'انتهى تحدي «\$roomName». افتحه لتشوف المنصة والنتيجة النهائية.'
-      : '"\$roomName" has finished. Open it to see the podium and the final standings.';
+      ? 'انتهى تحدي «$roomName». افتحه لتشوف المنصة والنتيجة النهائية.'
+      : '"$roomName" has finished. Open it to see the podium and the final standings.';
   String get roomFinaleShow => isAr ? 'اعرض النتيجة' : 'See results';
   String get roomFinaleDismiss => isAr ? 'لاحقًا' : 'Not now';
 
@@ -1729,15 +1799,30 @@ class S {
   /// is now an archive under the hood (IslamicHabitTemplate.archivedAt),
   /// not a hard delete, so this is reassurance rather than a warning:
   /// nothing about the Heatmap or Insights actually goes blank.
-  String get habitArchivedConfirmation => isAr
-      ? 'تمت إزالتها من قائمتك. سجلك السابق باقٍ في الإحصائيات وخريطة الحرارة.'
-      : 'Removed from your list. Your past stats stay in Insights and the Heatmap.';
+  /// Kept short deliberately. This used to name both destinations — «سجلك
+  /// السابق باقٍ في الإحصائيات وخريطة الحرارة» — which ran to two full lines
+  /// of a floating snackbar sitting over the nav bar, and used «خريطة
+  /// الحرارة» for a screen this app calls «خريطة التقدّم» everywhere else
+  /// (see [heatmapTitle]), so it named a screen that does not exist by that
+  /// name. A confirmation only has to answer "did I just lose my history?" —
+  /// "no" is the whole message, and Undo sits right beside it.
+  String get habitArchivedConfirmation =>
+      isAr ? 'تمت الإزالة. سجلك محفوظ.' : 'Removed. Your history is safe.';
+
   /// Plural counterpart for GridScreen's multi-select delete — [count] is
   /// always >= 2 at the one call site that uses this (the ==1 case uses
   /// [habitArchivedConfirmation] instead).
-  String habitsArchivedConfirmation(int count) => isAr
-      ? 'تمت إزالة $count عادات من قائمتك. سجلها السابق باقٍ في الإحصائيات وخريطة الحرارة.'
-      : 'Removed $count habits from your list. Their past stats stay in Insights and the Heatmap.';
+  ///
+  /// Arabic agreement, same rules as [gridGreenSquaresCount]: 2 is the dual
+  /// (عادتين, and the number itself is dropped because the dual form already
+  /// says "two"), 3–10 takes the plural عادات, and 11+ takes the singular
+  /// عادة after the numeral.
+  String habitsArchivedConfirmation(int count) {
+    if (!isAr) return 'Removed $count habits. Their history is safe.';
+    if (count == 2) return 'تمت إزالة عادتين. سجلها محفوظ.';
+    if (count <= 10) return 'تمت إزالة $count عادات. سجلها محفوظ.';
+    return 'تمت إزالة $count عادة. سجلها محفوظ.';
+  }
   /// "3/5 days" when [done] is whole, "2.5/5 days" when a multi-habit
   /// room's partial-credit days (see RoomParticipant.daysCompleted) leave
   /// it fractional - shows the exact number either way rather than
@@ -1778,6 +1863,24 @@ class S {
       ? 'اختر مدة جديدة تبدأ من اليوم، أو اجعلها بلا نهاية.'
       : 'Pick a new duration starting today, or make it open-ended.';
   String get roomExtended => isAr ? 'تم تمديد الغرفة.' : 'Room extended.';
+
+  /// _FinaleCard's leader control (room_detail_screen_countdown_finale.dart).
+  /// Deliberately worded as continuing, never as a rematch: extendRoom moves
+  /// only endDate and preserves startDate and everyone's existing progress,
+  /// so "Run it again" / "سباق جديد" would promise a clean scoreboard the
+  /// code does not deliver. [roomFinaleExtendHint] says the same thing in
+  /// full underneath, because the button alone can't carry it.
+  String get roomFinaleExtendAction =>
+      isAr ? 'كمّلوا أكثر' : 'Keep it going';
+  String get roomFinaleExtendHint => isAr
+      ? 'يكمل نفس التحدي بنفس النقاط — ما يبدأ من جديد.'
+      : 'Continues the same challenge with everyone\'s current scores — it does not start over.';
+
+  /// Shown to non-leaders on a finished room, so the one person who can act
+  /// isn't the only one who understands why the room is still here.
+  String get roomFinaleMemberHint => isAr
+      ? 'يقدر قائد الغرفة يمددها إذا تبون تكملون.'
+      : 'The room leader can extend this if you all want to keep going.';
 
   // ── Notification Settings ────────────────────────────────────────────
   // (see features/settings/screens/notification_settings_screen.dart and

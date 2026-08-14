@@ -75,7 +75,7 @@ bool textOverflowsAt(
 /// their neighbors. Capping to one line with an ellipsis avoids that
 /// entirely, and the check itself is script-agnostic (it only measures word
 /// pixel widths, never inspects specific characters).
-class SafeWrapText extends StatelessWidget {
+class SafeWrapText extends StatefulWidget {
   final String text;
   final TextStyle? style;
   final int maxLines;
@@ -107,6 +107,21 @@ class SafeWrapText extends StatelessWidget {
     this.textAlign,
     this.tapToRevealWhenTruncated = false,
   });
+
+  @override
+  State<SafeWrapText> createState() => _SafeWrapTextState();
+}
+
+class _SafeWrapTextState extends State<SafeWrapText> {
+  /// Held across rebuilds so the tap handler below always addresses the same
+  /// Tooltip. Created here rather than in build for that reason.
+  final GlobalKey<TooltipState> _tipKey = GlobalKey<TooltipState>();
+
+  String get text => widget.text;
+  TextStyle? get style => widget.style;
+  int get maxLines => widget.maxLines;
+  TextAlign? get textAlign => widget.textAlign;
+  bool get tapToRevealWhenTruncated => widget.tapToRevealWhenTruncated;
 
   @override
   Widget build(BuildContext context) {
@@ -163,29 +178,43 @@ class SafeWrapText extends StatelessWidget {
         if (!tapToRevealWhenTruncated || !overflowed) return textWidget;
 
         final gp = context.gp;
-        return Tooltip(
-          message: text,
-          triggerMode: TooltipTriggerMode.tap,
+        // Shown by our own onTap below rather than by TooltipTriggerMode.tap.
+        // The trigger mode installs a tap recognizer *inside* the Tooltip,
+        // which then has to win a gesture arena against whatever the caller
+        // already wrapped this label in — on the Victory Grid that is an
+        // opaque GestureDetector carrying a long-press for selection
+        // (grid_screen_table.dart), and the reveal never fired there at all.
+        // Driving the Tooltip explicitly takes the arena out of it: one
+        // recognizer, owned here, so the affordance behaves the same wherever
+        // it is embedded.
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _tipKey.currentState?.ensureTooltipVisible(),
+          child: Tooltip(
+            key: _tipKey,
+            message: text,
+            triggerMode: TooltipTriggerMode.manual,
           // Material's own spec for a tap-triggered tooltip: stays up for
           // this long, but a tap anywhere else dismisses it immediately -
           // see Tooltip.showDuration's own doc comment. 3s (not the 1.5s
           // default) gives a longer name a real chance to be read once,
           // matching WCAG 1.4.13's "don't rely on a too-short timer"
           // guidance for hover/tap-revealed content.
-          showDuration: const Duration(seconds: 3),
-          textStyle: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            color: gp.textPrimary,
-            height: 1.3,
+            showDuration: const Duration(seconds: 3),
+            textStyle: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: gp.textPrimary,
+              height: 1.3,
+            ),
+            decoration: BoxDecoration(
+              color: gp.surfaceHigh,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: gp.border, width: 0.5),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            child: textWidget,
           ),
-          decoration: BoxDecoration(
-            color: gp.surfaceHigh,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: gp.border, width: 0.5),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          child: textWidget,
         );
       },
     );

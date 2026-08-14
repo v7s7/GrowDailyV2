@@ -58,13 +58,20 @@ part 'grid_screen_misc.dart'; // _GridSkeleton, _GridSectionHeader, _GridEmptySt
 // amber "Money" color as a savings habit, which is exactly backwards for
 // an Islamic-habits app treating charity as worship, not budgeting.
 (IconData, Color) categoryVisual(HabitCategory category) => switch (category) {
-      HabitCategory.faith ||
+      // Kept in lockstep with HabitCategory.icon — see the comment there for
+      // why faith, fasting and health each earned their own glyph. Colors
+      // deliberately unchanged: the split is about telling habits apart at a
+      // glance, not about repainting the palette, and faith/quran/athkar
+      // sharing emerald is what keeps them reading as one family.
+      HabitCategory.faith => (Icons.mosque_rounded, GameColors.emerald),
+      HabitCategory.fasting => (Icons.no_food_rounded, GameColors.emerald),
       HabitCategory.quran ||
       HabitCategory.athkar ||
-      HabitCategory.fasting ||
       HabitCategory.sadaqah =>
         (Icons.menu_book_rounded, GameColors.emerald),
-      HabitCategory.health || HabitCategory.fitness =>
+      HabitCategory.health =>
+        (Icons.favorite_rounded, GameColors.iconStreak),
+      HabitCategory.fitness =>
         (Icons.fitness_center_rounded, GameColors.iconStreak),
       HabitCategory.learning => (Icons.school_rounded, GameColors.iconXp),
       HabitCategory.focus =>
@@ -224,6 +231,16 @@ class _GridScreenState extends ConsumerState<GridScreen> {
               : s.habitsArchivedConfirmation(count),
         ),
         duration: const Duration(seconds: 6),
+        // Floating + swipe-down-to-dismiss, so it behaves the way a snackbar
+        // does in every other app: it can be pushed out of the way instead of
+        // being sat through. It was neither before — a fixed snackbar with the
+        // default horizontal dismiss, which on a screen whose whole surface is
+        // a tappable board meant six seconds of a banner you could not get rid
+        // of. Six seconds stays (Undo needs a moment to be noticed and
+        // reached); what changed is that waiting is no longer the only option.
+        behavior: SnackBarBehavior.floating,
+        dismissDirection: DismissDirection.down,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         action: restorable.isEmpty
             ? null
             : SnackBarAction(
@@ -354,7 +371,16 @@ class _GridScreenState extends ConsumerState<GridScreen> {
           physics: const BouncingScrollPhysics(
               parent: AlwaysScrollableScrollPhysics()),
           slivers: [
-            SliverToBoxAdapter(child: _GridHeader(state: grid)),
+            SliverToBoxAdapter(
+              child: _GridHeader(
+                state: grid,
+                // Mirrors the old FAB's own condition exactly: while there
+                // are no habits, _GridEmptyState below owns _addHabitKey and
+                // renders the bigger pair of buttons instead.
+                showAddAction: habits.isNotEmpty,
+                addHabitKey: habits.isNotEmpty ? _addHabitKey : null,
+              ),
+            ),
             // "You're back" — renders itself away unless there's actually a
             // comeback to acknowledge. It used to sit on the Today screen,
             // which nothing in the app could navigate to, so the one moment
@@ -537,36 +563,15 @@ class _GridScreenState extends ConsumerState<GridScreen> {
             ),
         ],
       ),
-      // Today is the primary place to add/browse habits. Grid only needs a
-      // secondary, smaller way back into the same Add Habit Hub for when
-      // the grid isn't empty — the empty state's own "Browse Plans" button
-      // covers the zero-habit case, so this single small icon FAB is
-      // deliberately the *lesser* affordance, not a duplicate of Today's.
-      floatingActionButton: habits.isEmpty
-          ? null
-          : FloatingActionButton.small(
-              key: _addHabitKey,
-              heroTag: 'grid-add',
-              // Always opens on the normal Add Goal default, guided or not —
-              // AddHabitHub itself now shows a one-time hint explaining the
-              // Plans/Add Goal choice when reached via App Guide, so this
-              // FAB doesn't need to pick a tab on its behalf.
-              onPressed: () => showAddHabitHub(context, ref),
-              // Solid gold fill instead of a neutral surface tone with just
-              // a gold icon — the button itself is now the accent, not only
-              // its glyph, so it reads as the one colorful, clearly-tappable
-              // thing on the screen rather than blending into the same dark
-              // neutral surfaces as everything around it.
-              backgroundColor: GameColors.gold,
-              foregroundColor: GameColors.onGold,
-              elevation: 0,
-              tooltip: s.addHabit,
-              // Not `const` — GameColors.gold/onGold are mutable `static`
-              // getters (theme-preset system), not compile-time constants.
-              // See BUILD_LESSONS.md #6.
-              child: Icon(Icons.add_rounded,
-                  size: 20, color: GameColors.onGold),
-            ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.4),
+      // No floatingActionButton. Add-habit moved into the header row (see
+      // _GridHeader's showAddAction) because a FAB floats *over* the board,
+      // and on a habit list long enough to reach it the gold circle sat
+      // exactly on top of a real, tappable square — reported from a device as
+      // "the squares aren't in a straight line". The trailing
+      // SliverToBoxAdapter spacer only clears the last item once you have
+      // scrolled to the bottom; it does nothing mid-scroll, and nothing at
+      // all for a cell in the middle of the board. A FAB over a list is
+      // normal; over a grid where every cell is the interaction, it is not.
     );
   }
 }

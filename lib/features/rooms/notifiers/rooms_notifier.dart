@@ -17,6 +17,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
+import '../../../core/constants/deep_links.dart';
 
 /// This account's room codes, streamed live from `users/{uid}.roomCodes` so
 /// RoomsHubScreen updates the instant a create/join/leave lands - no
@@ -420,7 +421,30 @@ final pendingOpenRoomCodeProvider = StateProvider<String?>((ref) => null);
 /// normalization, so a link's code always resolves the same way typing it
 /// by hand would. See main.dart's AppLinks wiring - the only caller.
 String? parseRoomJoinLink(Uri uri) {
-  if (uri.scheme.toLowerCase() != 'growdaily') return null;
+  final scheme = uri.scheme.toLowerCase();
+
+  // Universal Link: https://<host>/join/CODE — what every newly shared invite
+  // now looks like (see roomJoinUrl).
+  //
+  // Deliberately NOT checking the host. iOS only ever hands this app an https
+  // URL that already matched the associated-domains entitlement, so the host
+  // has been verified by the OS before we ever see it — re-checking it here
+  // would add nothing except a second place to update on the day the app
+  // moves to a custom domain, and would silently break every invite already
+  // sitting in someone's chat history from the old host. The path shape is
+  // the real signal, and it is ours.
+  if (scheme == 'https' || scheme == 'http') {
+    final segments = uri.pathSegments;
+    if (segments.length < 2) return null;
+    if (segments.first.toLowerCase() != 'join') return null;
+    final code = segments[1].trim().toUpperCase();
+    return code.isEmpty ? null : code;
+  }
+
+  // Legacy custom scheme: growdaily://join/CODE. Still parsed because links
+  // shared before Universal Links existed are already out there, and they
+  // still work for anyone who has the app.
+  if (scheme != legacyScheme) return null;
   if (uri.host.toLowerCase() != 'join') return null;
   if (uri.pathSegments.isEmpty) return null;
   final code = uri.pathSegments.first.trim().toUpperCase();
@@ -1675,6 +1699,14 @@ class RoomsController {
     if (uid == null) return;
     if (!room.isEnded) return;
     if (mine.podiumBonusClaimed) return;
+    // A podium needs someone to stand above. Rank alone is trivially 1 in a
+    // room of one, so without this a person could create a room, let it end
+    // alone, and collect first place — 200 XP and 100 gold for competing
+    // against nobody. The claim transaction below makes that once per room,
+    // but nothing caps rooms per account, so it was repeatable by simply
+    // making another. Mirrors the "no competition, no prize" rule the
+    // leaderboard already implies.
+    if (room.memberCount < 2) return;
     final prize = podiumPrizeFor(rank);
     if (prize == null) return;
 
@@ -2302,7 +2334,21 @@ class RoomsController {
       // absence of one. Advanced only to the day actually just graded, never
       // further, so the days between this and the previous watermark stay
       // correctly marked as unobserved. See RoomParticipant.lastSyncedDay.
-      'lastSyncedDay': todayKey,
+      //
+      // lastCountedDay, not today: for a room that has already ENDED those
+      // two diverge, and writing today here broke the invariant the comment
+      // above states. Grading stops at endDate (see RoomModel.lastCountedDay),
+      // but merely *opening* an ended room ran this sync and pushed the
+      // watermark to today - marking every day from endDate+1 to today as
+      // "the room observed you and you did nothing". Those days are already
+      // in the past, so the anti-backdating clamp then pinned them at 0
+      // permanently. Invisible while the room stays ended (nothing reads past
+      // lastCountedDay), but the moment a leader extends the room those zeros
+      // fold straight into the larger denominator and every member who had
+      // opened the finished room takes an unrecoverable score hit. Clamping
+      // here keeps "observed" meaning "actually graded", which is what makes
+      // extending a finished room safe at all.
+      'lastSyncedDay': room.lastCountedDay.toDateKey(),
       ...allDoneTodayUpdate,
     }, SetOptions(merge: true));
 

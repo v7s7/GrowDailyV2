@@ -221,9 +221,22 @@ extension DashboardNotifierLoading on DashboardNotifier {
   Future<void> _loadToday() async {
     if (_uid == null) return;
     try {
-      final results = await Future.wait([_userRef.get(), _dailyRef.get()]);
-      final userSnap = results[0];
-      final dailySnap = results[1];
+      // The two reads are deliberately NOT combined with Future.wait any
+      // more. Today's daily doc legitimately does not exist yet on the first
+      // launch of a new calendar day, and the mobile Firestore SDK fails a
+      // default-source get() of a document that is neither reachable on the
+      // server nor in the local cache ("Failed to get document because the
+      // client is offline"). Under Future.wait that one expected, harmless
+      // failure rejected the whole call and threw away a perfectly good user
+      // document along with it — landing in the catch below, which is the
+      // dangerous state (see DashboardState.loadFailed). The user doc is the
+      // one that must survive; a missing daily doc just means "nothing done
+      // yet today", which is exactly what the null path already handles.
+      final userSnap = await _userRef.get();
+      final dailySnap = await _dailyRef.get().then<DocumentSnapshot<Map<String, dynamic>>?>(
+            (s) => s,
+            onError: (_) => null,
+          );
 
       String displayName = '';
       int level = 1,
@@ -375,7 +388,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
         }
       }
 
-      if (dailySnap.exists) {
+      if (dailySnap != null && dailySnap.exists) {
         final d = dailySnap.data()!;
         final raw =
             (d['habitCompletions'] as Map<String, dynamic>?) ?? {};
@@ -415,7 +428,17 @@ extension DashboardNotifierLoading on DashboardNotifier {
         );
       }
     } catch (_) {
-      if (mounted) state = state.copyWith(isLoading: false);
+      // state is still DashboardState.initial() here — level 1, 0 XP, 0 gold,
+      // no streak, no achievements — and none of that came from the server.
+      // Flag it so the writers that persist progression as absolute values —
+      // completeHabit, applyGridSquareChange and uncompleteHabit — refuse to
+      // put those zeros back over the real document. The remaining writers
+      // are turned away by their own preconditions instead: spendGold and
+      // buyStreakFreeze can't pass an affordability check against 0 gold,
+      // useStreakFreeze needs a freeze it no longer appears to have, and
+      // acknowledgeComeback needs a flag the failed load never set. See
+      // DashboardState.loadFailed.
+      if (mounted) state = state.copyWith(isLoading: false, loadFailed: true);
     }
   }
 

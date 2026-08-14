@@ -185,6 +185,7 @@ class _TaskTileState extends State<_TaskTile>
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return Dismissible(
       key: ValueKey('dismiss-${widget.task.id}'),
       direction: widget.selectionMode ? DismissDirection.none : DismissDirection.endToStart,
@@ -338,6 +339,22 @@ class _TaskTileState extends State<_TaskTile>
                       ),
                       const SizedBox(width: 8),
                     ],
+                    // Order is details → star → move, and it is deliberate.
+                    // Laid out in a Row, so it mirrors with the language: the
+                    // move control lands on the RIGHT in English and on the
+                    // LEFT in Arabic, which is the conventional side for a
+                    // reorder affordance in each. It used to be star → move →
+                    // details, burying the one control nobody could guess in
+                    // the middle of two they could.
+                    Expanded(
+                      child: _TileIconButton(
+                        onTap: widget.onOpenDetails,
+                        icon: Icons.info_outline_rounded,
+                        iconColor: gp.textTert,
+                        label: s.taskDetailsAction,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     // Flags this task as a favorite — a plain, sticky
                     // bool, not a due date, so it's one tap and never
                     // opens a picker, and it never expires on its own.
@@ -353,6 +370,9 @@ class _TaskTileState extends State<_TaskTile>
                         iconColor: widget.task.isFav
                             ? GameColors.gold
                             : gp.textTert,
+                        label: widget.task.isFav
+                            ? s.taskUnfavAction
+                            : s.taskFavAction,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -421,29 +441,24 @@ class _TaskTileState extends State<_TaskTile>
                         // found it, tapped it, and concluded the quadrants
                         // simply weren't connected. Press-and-hold-then-drag
                         // was advertised by nothing at all.
+                        // open_with, not drag_indicator. The six dots are a
+                        // grab handle and say exactly one thing: "hold and
+                        // drag me". That is the gesture a new user does not
+                        // discover — and it hid the fact that a plain TAP
+                        // opens the move sheet, which is the easy way to do
+                        // the same job. Four arrows read as "move this",
+                        // which is true of both gestures rather than only the
+                        // hard one. The name in the tooltip finishes the job.
                         child: _TileIconButton(
                           onTap: () => showMoveTaskSheet(
                             context,
                             widget.task,
                             widget.onMove,
                           ),
-                          icon: Icons.drag_indicator_rounded,
+                          icon: Icons.open_with_rounded,
                           iconColor: gp.textTert,
+                          label: s.taskMoveAction,
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Was a pencil — but tapping this opens
-                    // TaskDetailSheet (title, description, voice note,
-                    // Delete/Move), which is a details view first and an
-                    // edit surface second. An outline info glyph matches
-                    // what it actually does better than an "edit" pencil
-                    // does.
-                    Expanded(
-                      child: _TileIconButton(
-                        onTap: widget.onOpenDetails,
-                        icon: Icons.info_outline_rounded,
-                        iconColor: gp.textTert,
                       ),
                     ),
                   ],

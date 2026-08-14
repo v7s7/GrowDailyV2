@@ -212,6 +212,19 @@ class DashboardState {
   final String? lastCompletedId;
   final bool isLoading;
 
+  /// True when [_loadToday] threw and this state is therefore
+  /// [DashboardState.initial()]'s zeros rather than anything the server
+  /// actually said.
+  ///
+  /// This exists because every field above is written back to Firestore as an
+  /// ABSOLUTE value (see completeHabit's batch), not as an increment. A
+  /// failed load that silently presents as "level 1, 0 XP, 0 gold, no streak"
+  /// is therefore not merely a cosmetic wrong number on Profile — the next
+  /// habit completion would persist those zeros over the real document and
+  /// destroy the account's actual progress. Reward writes MUST refuse to run
+  /// while this is set; there is nothing trustworthy to base them on.
+  final bool loadFailed;
+
   /// The streak that was just lost to a missed day, still recoverable via
   /// [DashboardNotifier.useStreakFreeze] — 0 when there's nothing pending.
   /// Persisted (Firestore's 'previousStreak' field / the guest settings
@@ -319,6 +332,7 @@ class DashboardState {
     this.perfectDayCelebration = false,
     this.lastCompletedId,
     this.isLoading = false,
+    this.loadFailed = false,
     this.previousStreak = 0,
     this.milestoneCelebration,
     this.intentionsSetToday = false,
@@ -391,6 +405,7 @@ class DashboardState {
     bool perfectDayCelebration = false,
     String? lastCompletedId,
     bool? isLoading,
+    bool? loadFailed,
     int? previousStreak,
     int? setMilestone,
     bool clearMilestone = false,
@@ -428,6 +443,7 @@ class DashboardState {
         perfectDayCelebration: perfectDayCelebration,
         lastCompletedId: lastCompletedId ?? this.lastCompletedId,
         isLoading: isLoading ?? this.isLoading,
+        loadFailed: loadFailed ?? this.loadFailed,
         previousStreak: previousStreak ?? this.previousStreak,
         milestoneCelebration:
             clearMilestone ? null : (setMilestone ?? this.milestoneCelebration),

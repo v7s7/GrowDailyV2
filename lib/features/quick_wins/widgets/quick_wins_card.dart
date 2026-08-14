@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../notifiers/quick_wins_notifier.dart';
+import '../../../core/utils/bidi_fraction.dart';
 
 /// The compact "Quick Wins" section on Today: one small card, two rows
 /// (Today / This week), no icons-in-circles, no description paragraphs, no
@@ -70,7 +71,8 @@ class QuickWinsCard extends ConsumerWidget {
               done: state.weeklyDone,
               progressText: weeklyProgress == null
                   ? null
-                  : '${weeklyProgress.$1}/${weeklyProgress.$2}',
+                  : progressFraction(weeklyProgress.$1, weeklyProgress.$2,
+                      separator: '/'),
               actionLabel: weeklyProgress == null ? s.quickWinDone : s.quickWinClaim,
               canAct: weeklyProgress == null || weeklyProgress.$1 >= weeklyProgress.$2,
               onComplete: () {

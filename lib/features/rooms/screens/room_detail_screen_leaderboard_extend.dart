@@ -65,26 +65,46 @@ class _MiniHeatmapStrip extends StatelessWidget {
       runSpacing: _gap,
       children: [
         for (final day in days)
-          Container(
-            width: _cell,
-            height: _cell,
-            decoration: BoxDecoration(
-              // Plain creditFor shading, no special case for any habit
-              // type: a day you did the habit is a whole done day, so
-              // it lands on the top emerald tier in full colour, and a
-              // day you didn't is gray. A multi-habit day part-done
-              // shades in between, which is the only fraction here.
-              color: heatColor(
-                  heatmapLevelFor(participant.creditFor(day.toDateKey())),
-                  dark),
-              borderRadius: BorderRadius.circular(2.5),
-              // isRealToday, not isToday: purely the "today" marker —
-              // see DateTimeGameExt.isRealToday's doc comment.
-              border: day.isRealToday
-                  ? Border.all(color: GameColors.gold, width: 1)
-                  : null,
-            ),
-          ),
+          Builder(builder: (context) {
+            final key = day.toDateKey();
+            // A day the quota (or a named-weekday schedule) asked nothing of
+            // them. It scores as finished — see RoomParticipant.isRestDay —
+            // but drawing it in the same full emerald as a day they actually
+            // trained is what made this strip look like it disagreed with the
+            // Grid: four workouts a week rendered as a solid week here and as
+            // four squares there. An outline says "nothing was owed" without
+            // claiming credit the person didn't earn, and without touching
+            // what the day is worth.
+            // Colour answers one question only: did they do the habit that
+            // day. So a rest day reads empty, exactly like the Grid square
+            // for it, and four workouts a week draw four cells in both
+            // places. It still SCORES as finished — see
+            // RoomParticipant.isRestDay and creditFor — so the row's
+            // percentage and streak are unchanged and will sit higher than a
+            // plain count of the coloured cells. That gap is deliberate: the
+            // strip is a record of what was done, the percentage is a measure
+            // of what was owed, and a flexible quota is exactly the case
+            // where those two stop being the same number.
+            final credit =
+                participant.isRestDay(key) ? 0.0 : participant.creditFor(key);
+            return Container(
+              width: _cell,
+              height: _cell,
+              decoration: BoxDecoration(
+                // Plain shading otherwise: a day the habit was done lands on
+                // the top emerald tier in full colour, a day it wasn't is
+                // gray, and a multi-habit day part-done shades in between,
+                // which is the only fraction here.
+                color: heatColor(heatmapLevelFor(credit), dark),
+                borderRadius: BorderRadius.circular(2.5),
+                // isRealToday, not isToday: purely the "today" marker —
+                // see DateTimeGameExt.isRealToday's doc comment.
+                border: day.isRealToday
+                    ? Border.all(color: GameColors.gold, width: 1)
+                    : null,
+              ),
+            );
+          }),
       ],
     );
   }

@@ -204,6 +204,40 @@ void main() {
       expect(dash.streak, 0);
     });
 
+    test(
+        'a colour handed over to the canonical path gives its flat-rate XP back',
+        () async {
+      // The test above only ever stays on the flat-rate path, where
+      // setSquare's own delta math already balances — which is exactly why
+      // it kept passing while a real leak sat next to it. This one crosses
+      // the seam: yellow is paid by setSquare, then the square is taken over
+      // by the canonical completeHabit path, which mirrors the visual state
+      // through setSquareStateOnly. That mirror used to leave yellow's 5 XP
+      // banked with nothing on screen to show for it, so a full
+      // none → partial → complete → none lap netted +5 every time and could
+      // be repeated forever. Reproduced by hand on a simulator before this
+      // was fixed: 90 XP in, 95 XP out, square empty and gold unchanged.
+      final today = DateTime.now();
+      final grid = container.read(weeklyGridProvider.notifier);
+
+      grid.setSquare('habit_a', today, SquareState.partial);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(container.read(dashboardProvider).cumulativeXp, 5,
+          reason: 'yellow should be paid its flat rate on the way in');
+
+      // Stands in for the real tap handler, which calls completeHabit and
+      // then mirrors the square rather than going through setSquare.
+      grid.markCompleteFromHabit('habit_a', today);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final dash = container.read(dashboardProvider);
+      // completeHabit is never called here, so the only XP movement this
+      // test can observe is the reversal itself: yellow's 5 back out.
+      expect(dash.cumulativeXp, 0,
+          reason: 'the 5 XP yellow was paid must come back when the '
+              'canonical path takes the square over');
+    });
+
     test('a red square costs 3 XP but the floor is zero', () async {
       final today = DateTime.now();
       container

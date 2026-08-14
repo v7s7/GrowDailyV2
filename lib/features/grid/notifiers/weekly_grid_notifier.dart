@@ -318,12 +318,35 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     }
   }
 
+  /// The XP a square showing [s] was paid by [setSquare]'s flat-rate delta
+  /// math, and therefore the amount still owed back if something else takes
+  /// that square over.
+  ///
+  /// `complete` is deliberately zero rather than its own 10: on today it is
+  /// special-cased straight to `DashboardNotifier.completeHabit` (see
+  /// grid_screen_table's tap handler), so a green square's XP never came
+  /// from the flat rate and reversing it here would refund it twice — once
+  /// via this path and again via `uncompleteHabit`.
+  static int _flatRateXp(SquareState s) =>
+      s == SquareState.complete ? 0 : s.xpValue;
+
   /// Sets a square's visual state without touching any reward system —
   /// for the cases where the reward is (or was already) handled by the
   /// canonical `DashboardNotifier.completeHabit`/`uncompleteHabit` path,
   /// so Grid's own flat-rate delta math ([setSquare]/
   /// `applyGridSquareChange`) must not also fire for the same change.
+  ///
+  /// It must still fire *backwards*, though, and that half was missing.
+  /// [setSquare] pays a flat rate for every colour it sets, so a square
+  /// sitting on yellow has already been paid 5 XP. When the canonical path
+  /// then takes that same square over, only the new state's reward is
+  /// handled — the old colour's 5 XP was left banked with nothing on screen
+  /// to show for it. Tapping none → partial → complete → none therefore
+  /// netted +5 XP per lap, repeatable forever, since the complete → none
+  /// leg only ever refunds what `completeHabit` paid. Reversing the old
+  /// colour here makes a full lap sum to exactly zero again.
   void setSquareStateOnly(String habitId, DateTime day, SquareState value) {
+    final old = state.squareFor(habitId, day);
     final key = day.toDateKey();
     final states = {
       for (final e in state.states.entries) e.key: {...e.value},
@@ -331,6 +354,21 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     (states[key] ??= {})[habitId] = value;
     state = state.copyWith(states: states);
     _persistSquare(habitId, day, value);
+
+    // Only today ever earned flat-rate XP in the first place — [setSquare]
+    // returns before the reward call on any other day (anti-backdating), so
+    // there is nothing banked on a past square to give back.
+    if (!day.isToday || old == value) return;
+    final stranded = _flatRateXp(old);
+    if (stranded == 0) return;
+    // greenDelta stays 0 on purpose: the green-square counters belong to
+    // whichever canonical call is taking this square over, and it is
+    // already adjusting them for both the old and new state.
+    _ref.read(dashboardProvider.notifier).applyGridSquareChange(
+          xpDelta: -stranded,
+          greenDelta: 0,
+          dateKey: key,
+        );
   }
 
   /// Mirrors a habit completion already rewarded by

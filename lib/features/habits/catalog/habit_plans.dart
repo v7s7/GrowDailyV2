@@ -179,6 +179,15 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   /// where the two combine into the one signal a screen actually watches.
   bool isLoading = true;
 
+  /// True once a signed-in [_load] has thrown, meaning [state] is this
+  /// notifier's empty starting value rather than anything the server said.
+  ///
+  /// Plain field alongside [isLoading] for the same reason: nothing renders
+  /// off it, [_save] is the only reader, and it must not trigger watchers of
+  /// its own. Cleared only by a later successful load — a failed one leaves
+  /// it set, because nothing has since proven the empty set is real.
+  bool loadFailed = false;
+
   /// catalogId → the day it was switched on — the catalog habits' "birth
   /// date" (see IslamicHabitTemplate.createdAt), stamped onto each active
   /// template by habitListProvider so activating a habit today never
@@ -306,6 +315,10 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     try {
       final snap = await _userRef.get();
       if (!mounted) return;
+      // The read came back, so everything derived below is genuinely the
+      // server's answer — clear any earlier failure so saving works again
+      // (a resume-triggered reload is the usual way back).
+      loadFailed = false;
       activatedAt =
           _parseActivatedAt(snap.data()?['activeCatalogActivatedAt']);
       catalogArchivedAt =
@@ -332,6 +345,10 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
         if (state.isNotEmpty) _save();
       }
     } catch (_) {
+      // The signed-in read failed, so `state` is still the empty set this
+      // notifier started with and none of it came from the server. Flag it
+      // so [_save] refuses to write that emptiness back — see loadFailed.
+      if (mounted) loadFailed = true;
     } finally {
       // Covers every path that didn't already return above: the local-
       // Hive-seed fallback (found or not), and the catch-all error - none
@@ -347,6 +364,19 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   }
 
   Future<void> _save() async {
+    // Refuse to persist anything while the signed-in load is known to have
+    // failed. `activeCatalogIds` below is written as an ABSOLUTE array, and
+    // after a failed read `state` is the empty set this notifier started
+    // with — so a single tap on one habit would write a one-element array
+    // straight over however many catalog habits the account really has, and
+    // the rest are gone. Declining is recoverable (the next successful load
+    // brings the real list back); truncating is not. Same reasoning, and the
+    // same shape, as DashboardState.loadFailed's guards.
+    //
+    // Guests are not covered on purpose: `_uid == null` means there is no
+    // server list to truncate, and _loadGuest owns its own failure path.
+    if (_uid != null && loadFailed) return;
+
     // ISO strings both paths (Hive can't hold Timestamps; Firestore holds
     // strings fine) — and always the WHOLE map as one nested field, never
     // dotted 'field.key' entries (see BUILD_LESSONS.md #10).

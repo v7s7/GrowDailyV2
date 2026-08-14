@@ -22,6 +22,7 @@ import 'core/providers/home_tab_provider.dart'
     show requestedHomeTabProvider, requestedMatrixQuickAddProvider;
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/room_finale_seen_provider.dart';
+import 'core/providers/weekly_recap_collapsed_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/analytics_service.dart';
 import 'core/services/app_badge_service.dart';
@@ -175,6 +176,7 @@ Future<void> main() async {
     final persistedAppGuideRoomsSeen = await loadPersistedAppGuideRoomsSeen();
     final persistedRoomFinaleSeen = await loadPersistedRoomFinaleSeen();
     final persistedAppGuideBadgeSeen = await loadPersistedAppGuideBadgeSeen();
+    final persistedRecapCollapsed = await loadPersistedWeeklyRecapCollapsed();
     final persistedThemeMode = await loadPersistedThemeMode();
     // Also applies the preset's colors to GameColors immediately, so the
     // very first frame already renders in the right preset.
@@ -192,6 +194,7 @@ Future<void> main() async {
         appGuideRoomsSeenProvider.overrideWith((ref) => persistedAppGuideRoomsSeen),
         roomFinaleSeenProvider.overrideWith((ref) => persistedRoomFinaleSeen),
         appGuideBadgeSeenProvider.overrideWith((ref) => persistedAppGuideBadgeSeen),
+        weeklyRecapCollapsedProvider.overrideWith((ref) => persistedRecapCollapsed),
         if (persistedThemeMode != null)
           themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
         if (persistedThemePreset != null)

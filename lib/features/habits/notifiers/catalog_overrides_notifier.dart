@@ -138,18 +138,29 @@ class CatalogOverridesNotifier
       FirebaseFirestore.instance.collection('users').doc(_uid);
 
   Future<void> _load() async {
+    // Every assignment below sits after an `await`, and this notifier is
+    // recreated whenever the signed-in uid changes (see catalogOverrides-
+    // Provider). Sign in, sign out, or simply leaving the screen while the
+    // Firestore/Hive read is still in flight disposes the old instance
+    // mid-await — and StateNotifier throws "Tried to use ... after dispose
+    // was called" on the assignment that lands afterwards. That throw was
+    // escaping into Crashlytics on a plain guest launch, so guard every
+    // assignment on `mounted`; a disposed loader has nobody left to inform.
     try {
       if (_uid != null) {
         final snap = await _userRef.get();
         final raw = snap.data()?[kCatalogOverridesKey];
+        if (!mounted) return;
         state = _parse(raw);
         return;
       }
       final box = await LocalStoreService.settingsBox();
+      if (!mounted) return;
       state = _parse(box.get(kCatalogOverridesKey));
     } catch (_) {
       // Offline or a malformed doc: presets simply behave as their catalog
       // defaults until the next successful load. Never a crash on boot.
+      if (!mounted) return;
       state = const {};
     }
   }

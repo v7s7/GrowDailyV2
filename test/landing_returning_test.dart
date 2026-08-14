@@ -38,14 +38,19 @@ void main() {
     );
 
     // A user with habits already equipped must still be able to add more —
-    // the empty state's add-habit buttons are gone once habits exist, so
-    // the FAB is the only remaining way in. That is now a single
-    // FloatingActionButton.small whose "ADD HABIT" wording lives in its
-    // tooltip rather than as visible text, so this asserts one button and
-    // taps it by type; the old two-FABs-and-tap-the-label expectation
-    // described a layout the grid no longer has.
-    expect(find.byType(FloatingActionButton), findsOneWidget);
-    await tester.tap(find.byType(FloatingActionButton));
+    // the empty state's add-habit buttons are gone once habits exist, so this
+    // is the ONLY remaining way in, and that is why it is asserted here.
+    //
+    // It used to be a FloatingActionButton and is now a "+" in the Grid
+    // header. The FAB floated over the board and, on a habit list long enough
+    // to reach it, covered a real tappable square. Asserted by tooltip rather
+    // than by widget type: the tooltip is the accessible name a user actually
+    // gets, and it survives the button being restyled again.
+    expect(find.byType(FloatingActionButton), findsNothing,
+        reason: 'the add-habit action must not float over the grid');
+    final addHabit = find.byTooltip('ADD HABIT');
+    expect(addHabit, findsOneWidget);
+    await tester.tap(addHabit);
     await h.settle(tester);
     // The FAB now opens the Add-a-Habit hub (Plans / Add Goal tabs), not
     // the old single "NEW HABIT" sheet that string belonged to.

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/game_theme.dart';
 import '../notifiers/weekly_challenge_notifier.dart';
+import '../../../core/utils/bidi_fraction.dart';
 
 IconData _challengeIcon(String type) => switch (type) {
       'quran' => Icons.menu_book_rounded,
@@ -109,7 +110,7 @@ class WeeklyChallengeCard extends ConsumerWidget {
           Row(
             children: [
               Text(
-                '${state.progress} / ${c.target}',
+                progressFraction(state.progress, c.target),
                 style: TextStyle(
                     fontSize: 11,
                     color: gp.textTert,

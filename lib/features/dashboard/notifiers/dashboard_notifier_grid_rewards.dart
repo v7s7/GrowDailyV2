@@ -24,6 +24,17 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     required int greenDelta,
     required String dateKey,
   }) async {
+    // Same refusal as completeHabit's, for the same reason and with the same
+    // stakes — see the long comment there. This path needed it just as much:
+    // the batch below writes level, currentLevelXp, cumulativeXp, gold and
+    // unlockedAchievements as ABSOLUTE values computed from `state`, and
+    // WeeklyGridNotifier.setSquare routes every *non-green* square tap
+    // straight here without passing through completeHabit's guard at all. So
+    // a single tap landing on a partial colour after a failed load was enough
+    // to flatten the real account document — the one tap that guard was
+    // written to prevent, arriving through the door it doesn't cover.
+    if (_uid != null && state.loadFailed) return;
+
     var newLevel = state.level;
     var newCurrentLevelXp = state.currentLevelXp;
     var newCumulativeXp = state.cumulativeXp;

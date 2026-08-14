@@ -72,7 +72,16 @@ void main() {
       expect(tooltipFinder, findsOneWidget);
       final tooltip = tester.widget<Tooltip>(tooltipFinder);
       expect(tooltip.message, longText);
-      expect(tooltip.triggerMode, TooltipTriggerMode.tap);
+      // Manual, not TooltipTriggerMode.tap: the reveal is driven by this
+      // widget's own GestureDetector instead. Trigger mode installs a tap
+      // recognizer inside the Tooltip, which then has to win a gesture arena
+      // against whatever the caller wrapped the label in — on the Victory
+      // Grid that is an opaque GestureDetector holding a long-press for
+      // selection, and the reveal never fired there at all. Owning the
+      // recognizer here keeps the behaviour identical wherever it is
+      // embedded; the sibling test below is what proves the reveal still
+      // works end to end.
+      expect(tooltip.triggerMode, TooltipTriggerMode.manual);
     });
 
     testWidgets('tapping the truncated text actually reveals the full '

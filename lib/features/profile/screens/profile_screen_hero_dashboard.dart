@@ -205,7 +205,7 @@ class _HeroHeader extends ConsumerWidget {
                     fontWeight: FontWeight.w500),
               ),
               Text(
-                '${state.currentLevelXp} / ${state.xpToNext}',
+                progressFraction(state.currentLevelXp, state.xpToNext),
                 style: TextStyle(
                     fontSize: 12,
                     color: gp.textPrimary,

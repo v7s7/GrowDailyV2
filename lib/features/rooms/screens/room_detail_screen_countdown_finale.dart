@@ -235,10 +235,26 @@ class _FinaleCard extends ConsumerStatefulWidget {
   final List<RoomParticipant> sorted;
   final RoomModel room;
   final RoomParticipant? mine;
+
+  /// Passed down rather than re-derived from authStateProvider in here:
+  /// _RoomBody already computed it once (`uid == room.createdBy`) and
+  /// leadership can hand off mid-session when a leader leaves (see
+  /// RoomsController.leaveRoom / nextLeaderAfter), so one source of truth
+  /// matters more than the convenience.
+  final bool isLeader;
+
+  /// Opens the same _ExtendRoomSheet the AppBar's overflow menu uses. Shared
+  /// deliberately: the sheet already exists, is already leader-gated, and
+  /// already writes only endDate/duration — this card just gives it a home
+  /// at the one moment a leader is actually thinking about it.
+  final VoidCallback onExtend;
+
   const _FinaleCard({
     required this.sorted,
     required this.room,
     required this.mine,
+    required this.isLeader,
+    required this.onExtend,
   });
 
   @override
@@ -309,9 +325,75 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
             ],
           ),
           ..._prizeSection(context),
+          ..._keepGoingSection(context),
         ],
       ),
     );
+  }
+
+  /// The leader's "this doesn't have to be over" moment.
+  ///
+  /// Extend already existed — RoomsController.extendRoom, driven by
+  /// _ExtendRoomSheet — but the only way to reach it was an unlabeled 3-dot
+  /// overflow menu in the AppBar. So a finished room showed a podium and then
+  /// nothing: no next step for anyone, leader included, at exactly the moment
+  /// everybody is asking "what now". This is a discoverability fix, not a new
+  /// capability.
+  ///
+  /// Deliberately an OutlinedButton, not a second gold FilledButton: the
+  /// prize claim directly above is already a full-width gold primary, and the
+  /// leader is very often also a podium finisher, so the collision is the
+  /// common case rather than an edge one. Two equal primaries on a card whose
+  /// whole job is closure reads as a decision the person has to make; one
+  /// primary and one quieter option reads as an offer.
+  ///
+  /// Non-leaders get a line of text instead of nothing — the same
+  /// "waiting on the leader" framing _EmptyLobbyCard already uses — because
+  /// a member on an ended room otherwise has no explanation for why the room
+  /// is still in their list.
+  List<Widget> _keepGoingSection(BuildContext context) {
+    // An open-ended room can't be extended (there is no cutoff to move) and
+    // can never be `isEnded` anyway, so this card never builds for one. The
+    // guard is here regardless so the button can't outlive that invariant.
+    if (widget.room.duration != RoomDuration.fixed) return const [];
+    final gp = context.gp;
+    final s = S.of(context);
+    if (!widget.isLeader) {
+      return [
+        const SizedBox(height: 14),
+        Text(
+          s.roomFinaleMemberHint,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: gp.textTert, height: 1.35),
+        ),
+      ];
+    }
+    return [
+      const SizedBox(height: 14),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: widget.onExtend,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(46),
+            foregroundColor: GameColors.gold,
+            side: BorderSide(color: GameColors.gold.withOpacity(0.55)),
+          ),
+          icon: const Icon(Icons.more_time_rounded, size: 18),
+          label: Text(s.roomFinaleExtendAction),
+        ),
+      ),
+      const SizedBox(height: 6),
+      // Says plainly that this resumes rather than resets. extendRoom moves
+      // only endDate — startDate and every participant's dailyDoneCount stay
+      // exactly as they are — so a leader must not read this button as
+      // "rematch with a clean scoreboard".
+      Text(
+        s.roomFinaleExtendHint,
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 11.5, color: gp.textTert, height: 1.3),
+      ),
+    ];
   }
 
   /// The viewer's own prize, if they finished on the podium and haven't

@@ -42,6 +42,22 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     String? category,
     String? habitName,
   }) async {
+    // Refuse to record anything while the signed-in load failed. Everything
+    // this method persists — level, currentLevelXp, cumulativeXp, gold,
+    // streaks, totalHabitCompletions, unlockedAchievements — is written as an
+    // ABSOLUTE value with SetOptions(merge: true), computed from `state`. If
+    // `state` is DashboardState.initial()'s zeros because _loadToday threw
+    // (offline on a fresh calendar day is the common way in), completing a
+    // habit would persist level 1 / streak 1 / gold-of-one-reward / no
+    // achievements straight over the account's real document, and the real
+    // numbers are then gone for good. Declining the completion is recoverable
+    // — the person taps again after the next successful load; overwriting is
+    // not. See DashboardState.loadFailed.
+    //
+    // Guests are deliberately not covered: they have no server document to
+    // destroy, and _loadGuestToday owns its own failure path.
+    if (_uid != null && state.loadFailed) return false;
+
     final current = state.completions[habitId] ?? 0;
     if (current >= frequencyTarget) return false;
 

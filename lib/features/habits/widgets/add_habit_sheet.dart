@@ -18,6 +18,7 @@ import '../../settings/models/notification_settings.dart';
 import '../../settings/notifiers/notification_settings_notifier.dart';
 import '../../settings/widgets/city_search_sheet.dart';
 import '../catalog/goal_suggestions.dart';
+import '../catalog/habit_plans.dart' show activeCatalogProvider;
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/catalog_overrides_notifier.dart';
 import '../models/habit_cue.dart';
@@ -47,7 +48,19 @@ class AddHabitSheet extends ConsumerStatefulWidget {
   /// editing an existing habit.
   final bool embedded;
 
-  const AddHabitSheet({super.key, this.existing, this.embedded = false});
+  /// Fires with the form's step index whenever it changes (0 = What, 1 = When).
+  ///
+  /// [AddHabitHub] listens so it can hide the Plans / Add Goal switcher once
+  /// the user has committed to Add Goal and moved on — past that point the
+  /// choice is already made and the pills are just noise above the form.
+  final ValueChanged<int>? onStepChanged;
+
+  const AddHabitSheet({
+    super.key,
+    this.existing,
+    this.embedded = false,
+    this.onStepChanged,
+  });
 
   @override
   ConsumerState<AddHabitSheet> createState() => _AddHabitSheetState();
@@ -92,6 +105,17 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   // ── Two-step flow: 0 = What (name/category), 1 = When (timing) ──────────
   int _step = 0;
+
+  /// Every step change goes through here so [AddHabitSheet.onStepChanged]
+  /// stays in sync — there are three places that move between steps.
+  void _goToStep(int step, {required bool forward}) {
+    if (_step == step) return;
+    setState(() {
+      _forward = forward;
+      _step = step;
+    });
+    widget.onStepChanged?.call(step);
+  }
   // Direction of the last step change, so the transition slides the right
   // way (forward = new content enters from the trailing edge, back = from
   // the leading edge) instead of always sliding one direction.
@@ -168,6 +192,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     super.initState();
     final existing = widget.existing;
     if (existing != null) {
+      // Seeded with the raw English `name` here and corrected to the
+      // localized one in didChangeDependencies, which is the first point
+      // S.of(context) is safe to read. Doing it in two steps rather than one
+      // keeps every other field's initialisation where it already was.
       _nameCtrl.text = existing.name;
       final storedCue = existing.cueAfter ?? '';
       _cueRelation = _startsWithBefore(storedCue)
@@ -244,6 +272,36 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     if (!widget.embedded) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
     }
+  }
+
+  /// Whether the name field has been switched from the catalog's raw English
+  /// `name` to the locale-appropriate one. Once only: after this, the text in
+  /// the box is whatever the user has typed and must never be overwritten.
+  bool _localNameResolved = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_localNameResolved) return;
+    _localNameResolved = true;
+    final existing = widget.existing;
+    if (existing == null) return;
+    // Editing a habit that came from a Plan showed its ENGLISH name to an
+    // Arabic user, because initState seeds from `existing.name` and that
+    // field is the English one — `localName(isAr)` is the display name every
+    // other surface uses (see IslamicHabitTemplate.localName).
+    //
+    // It was not merely cosmetic. _submit compares the typed text against
+    // `catalogDefault.localName(isAr)` to decide whether the name is a real
+    // override or just the untouched default. With the box pre-filled in
+    // English and the comparison made in Arabic, the two could never match,
+    // so simply opening a preset in Arabic and pressing Save silently wrote
+    // the English name in as a permanent per-user override — renaming the
+    // person's habit to a language they did not choose. Seeding the same
+    // string the comparison uses makes "I changed nothing" compare equal and
+    // store nothing.
+    final localized = existing.localName(S.of(context).isAr);
+    if (_nameCtrl.text != localized) _nameCtrl.text = localized;
   }
 
   @override
@@ -495,12 +553,34 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // instead (see that parameter's own doc comment) — this is the
     // "delete a habit" entry point most likely to be someone undoing a
     // just-added mistake, so it's worth getting right here specifically.
-    final everCompleted =
-        (ref.read(dashboardProvider).habitTotalCompletions[existing.id] ?? 0) >
-            0;
-    ref
-        .read(customHabitsProvider.notifier)
-        .archive(existing.id, everCompleted: everCompleted);
+    // isLoading counts as "has history": habitTotalCompletions is empty while
+    // the dashboard is still loading, so reading it mid-load would classify a
+    // habit with months of history as never-completed and hard-delete it
+    // instead of archiving. Erring toward archive is free — the habit is gone
+    // from the Grid either way, only the Firestore doc's fate differs, and an
+    // archived doc can still be restored by Undo.
+    final dash = ref.read(dashboardProvider);
+    final everCompleted = dash.isLoading ||
+        (dash.habitTotalCompletions[existing.id] ?? 0) > 0;
+    // Preset habits live in ActiveCatalogNotifier, custom ones in
+    // CustomHabitsNotifier, and archive() early-returns on an id it doesn't
+    // own. This branch used to be missing here: "Remove habit" called
+    // archive() unconditionally, which silently no-opped for every preset —
+    // so tapping it on a preset unlinked the habit from every room (the line
+    // above is not reversible) and then left the habit sitting on the Grid
+    // exactly where it was. The user saw a delete that did nothing, and lost
+    // their room links for it. Same branch GridScreen._deleteSelected already
+    // uses; keyed on findById rather than on custom-habit membership, since
+    // an already-archived custom habit isn't in that list either.
+    if (IslamicHabitCatalog.findById(existing.id) == null) {
+      ref
+          .read(customHabitsProvider.notifier)
+          .archive(existing.id, everCompleted: everCompleted);
+    } else {
+      ref
+          .read(activeCatalogProvider.notifier)
+          .toggle(existing.id, everCompleted: everCompleted);
+    }
     if (mounted) Navigator.pop(context);
     messenger.showSnackBar(
       SnackBar(
@@ -565,7 +645,19 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   ),
                 ),
               ),
-              content,
+              // Flexible, not a bare child. Without it this Column hands
+              // `content` an unbounded height, so the Flexible(
+              // SingleChildScrollView) *inside* _content has nothing to shrink
+              // against: the scroll view takes its full intrinsic height, the
+              // Column grows past the maxHeight constraint above, and the
+              // bottom overflows. It only showed while EDITING, because that
+              // is the one case that adds the "Remove habit" button under the
+              // footer — the extra ~48pt that tipped it over. The visible
+              // result was Flutter's overflow stripe across the footer with
+              // Remove clipped underneath it, which is what "editing a plan
+              // habit gets stuck" looked like: the buttons were there, just
+              // painted outside the sheet.
+              Flexible(child: content),
             ],
           ),
         ),
@@ -639,10 +731,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   onPressed: () {
                     HapticFeedback.selectionClick();
                     FocusScope.of(context).unfocus();
-                    setState(() {
-                      _forward = false;
-                      _step = 0;
-                    });
+                    _goToStep(0, forward: false);
                   },
                   style: TextButton.styleFrom(
                     minimumSize: const Size(64, 50),
@@ -661,10 +750,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                           ? () {
                               HapticFeedback.selectionClick();
                               FocusScope.of(context).unfocus();
-                              setState(() {
-                                _forward = true;
-                                _step = 1;
-                              });
+                              _goToStep(1, forward: true);
                             }
                           : _submit,
                   style: FilledButton.styleFrom(
@@ -773,10 +859,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               if (_hasName) {
                 HapticFeedback.selectionClick();
                 FocusScope.of(context).unfocus();
-                setState(() {
-                  _forward = true;
-                  _step = 1;
-                });
+                _goToStep(1, forward: true);
               }
             },
             decoration: InputDecoration(

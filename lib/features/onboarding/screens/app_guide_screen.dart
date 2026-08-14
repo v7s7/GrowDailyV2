@@ -270,7 +270,20 @@ void startGuideLesson(
     ref.read(requestedHomeTabInstantProvider.notifier).state = true;
     ref.read(requestedHomeTabProvider.notifier).state = tabIndex;
     ref.read(activeAppGuideLessonProvider.notifier).state = target;
-    if (popFirst) Navigator.of(context).pop();
+    // popUntil(isFirst), NOT a single pop.
+    //
+    // A single pop was correct exactly once: back when this screen was pushed
+    // straight from Profile, HomeShell really was the route directly
+    // underneath. Settings then moved out into its own screen behind the gear
+    // icon, so the stack became HomeShell → Settings → AppGuide, and one pop
+    // has landed on SETTINGS ever since — leaving the person staring at a
+    // settings list while the coach-mark they asked for renders, unseen, on a
+    // tab two routes below. Every lesson in the guide silently did nothing.
+    //
+    // Popping to the root is also the right shape going forward: this always
+    // has to end on HomeShell no matter how deep the guide is reached from,
+    // so it should not depend on knowing how many routes are above it.
+    if (popFirst) Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
 IconData _iconFor(AppGuideLesson lesson) => switch (lesson) {

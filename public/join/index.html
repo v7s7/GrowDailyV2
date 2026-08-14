@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>انضم إلى غرفة في Grow Daily</title>
+
+<!-- Rich preview in WhatsApp/iMessage: an invite that unfurls into a card
+     with a name and an icon is opened far more often than a bare URL. -->
+<meta property="og:title" content="انضم إلى تحدّي في Grow Daily">
+<meta property="og:description" content="لوّن حياتك، مربّعًا كل يوم.">
+<meta property="og:type" content="website">
+<meta name="apple-itunes-app" content="app-id=REPLACE_WITH_APPSTORE_ID">
+
+<style>
+  :root{
+    --ground:#FBF6EA; --panel:#FFFCF4; --ink:#17301F; --ink2:#4A5B4E;
+    --gold:#B7822A; --gold-fill:#DFA83F; --edge:#E6DCC6;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#12160F; --panel:#1A2018; --ink:#EDF2E6; --ink2:#B4C0B2;
+      --gold:#E8B85C; --gold-fill:#DFA83F; --edge:#2E382C;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; background:var(--ground); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--edge); border-radius:20px;
+    padding:32px 24px; max-width:380px; width:100%; text-align:center;
+  }
+  .mark{
+    width:64px;height:64px;border-radius:18px;margin:0 auto 20px;
+    background:rgba(223,168,63,.16);
+    display:grid;place-items:center;
+  }
+  .mark span{font-size:30px;line-height:1}
+  h1{font-size:21px;margin:0 0 8px;letter-spacing:-.01em}
+  p{font-size:15px;color:var(--ink2);margin:0 0 24px;line-height:1.55}
+  .code-label{font-size:12px;color:var(--ink2);margin:0 0 6px}
+  .code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:26px; font-weight:700; letter-spacing:.14em; color:var(--gold);
+    background:rgba(223,168,63,.10); border:1px dashed rgba(223,168,63,.45);
+    border-radius:12px; padding:12px 8px; margin:0 0 24px; direction:ltr;
+  }
+  .btn{
+    display:block; width:100%; padding:15px; border-radius:14px;
+    background:var(--gold-fill); color:#17301F; font-size:16px; font-weight:700;
+    text-decoration:none; border:0; margin-bottom:10px;
+  }
+  .btn.secondary{background:transparent;color:var(--gold);border:1px solid var(--edge);font-weight:600}
+  .foot{font-size:12.5px;color:var(--ink2);margin:16px 0 0}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark"><span>🟩</span></div>
+    <h1>انضم إلى التحدّي</h1>
+    <p>صديقك يدعوك لغرفة في Grow Daily — لوّن حياتك، مربّعًا كل يوم.</p>
+
+    <p class="code-label">رمز الغرفة</p>
+    <div class="code" id="code">—</div>
+
+    <a class="btn" id="store" href="https://apps.apple.com/app/idREPLACE_WITH_APPSTORE_ID">
+      حمّل التطبيق
+    </a>
+    <a class="btn secondary" id="open" href="#">فتح في التطبيق</a>
+
+    <p class="foot">
+      عندك التطبيق؟ افتحه وأدخل الرمز فوق.
+    </p>
+  </div>
+
+<script>
+  // The code is the last path segment: /join/PBYAS5
+  //
+  // Validated against the real code alphabet rather than trusted, because
+  // this value is read straight out of the URL and painted into the page.
+  // generateRoomCode() draws 6 characters from ABCDEFGHJKLMNPQRSTUVWXYZ
+  // 23456789 (no I/O/0/1 — they are too easy to misread aloud), so anything
+  // else is not a room code and must not be shown as one. Without this the
+  // page will happily display whatever junk is in the path, which is both
+  // ugly and a small injection-shaped foot-gun.
+  var parts = location.pathname.split('/').filter(Boolean);
+  var raw = (parts[parts.length - 1] || '').toUpperCase();
+  var code = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(raw) ? raw : '';
+  if (code) {
+    document.getElementById('code').textContent = code;
+    // Legacy custom scheme as the manual "open" escape hatch. This page is
+    // only ever REACHED when the Universal Link did not open the app — either
+    // it is not installed, or the user previously chose "open in browser" from
+    // the Safari banner, which iOS then remembers. This button is the way back
+    // from that second case, and it is a no-op for anyone without the app.
+    document.getElementById('open').href = 'growdaily://join/' + code;
+  } else {
+    document.getElementById('code').textContent = '—';
+    document.getElementById('open').style.display = 'none';
+  }
+</script>
+</body>
+</html>

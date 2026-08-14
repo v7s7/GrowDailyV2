@@ -14,6 +14,7 @@ import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../matrix/notifiers/matrix_notifier.dart';
 import '../models/mood.dart';
 import '../notifiers/night_review_notifier.dart';
+import '../../../core/utils/bidi_fraction.dart';
 import 'night_review_history_screen.dart';
 
 /// The evening counterpart to the morning IntentionScreen: pick a mood,
@@ -316,8 +317,11 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                               _SummaryStat(
                                 icon: Icons.emoji_events_rounded,
                                 color: GameColors.gold,
-                                value:
-                                    '${dash.unlockedAchievements.length}/${AchievementCatalog.all.length}',
+                                value: progressFraction(
+                                  dash.unlockedAchievements.length,
+                                  AchievementCatalog.all.length,
+                                  separator: '/',
+                                ),
                                 label: s.achievements,
                               ),
                             ],

@@ -73,15 +73,46 @@ class _GridTableState extends ConsumerState<_GridTable> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final avail = constraints.maxWidth;
-          double cell = (avail - _habitCol - 7 * _gap) / 7;
+          // The habit-name column is what decides whether a week fits.
+          //
+          // It was a flat 96. On a 402pt iPhone that left
+          // (343 - 96 - 35) / 7 ≈ 30.3pt per square, under the old hard floor
+          // of 34, which tripped the scrolling branch below — so the app's
+          // main screen silently rendered only six and a half days, with the
+          // seventh clipped at the edge and no fade, scrollbar or any other
+          // hint that it was there. A week view that hides a day of the week
+          // is wrong in a way no amount of square size makes up for.
+          //
+          // Letting the label column give ground first fixes it without
+          // shrinking the squares in any way a finger would notice: 21% of
+          // the available width, floored at 68 so two-line names still read,
+          // capped at the old 96 so nothing changes on wide screens (iPad,
+          // landscape) where it already fit. On a 402pt phone that yields
+          // ~72pt of label and ~33.7pt squares — a third of a point smaller
+          // than before, in exchange for Friday existing.
+          final habitCol = (avail * 0.21).clamp(68.0, _habitCol);
+          double cell = (avail - habitCol - 7 * _gap) / 7;
           bool scroll = false;
-          if (cell < 34) {
-            cell = 34;
+          // Floor lowered 34 -> 30 for the same reason: it is the difference
+          // between fitting and not fitting on a 375pt iPhone SE, and 30pt
+          // squares still read clearly at this density. Below 30 the board
+          // genuinely stops being usable, so that is where scrolling starts.
+          if (cell < 30) {
+            cell = 30;
             scroll = true;
           } else {
-            cell = cell.clamp(34, 60);
+            cell = cell.clamp(30, 60).toDouble();
           }
-          final table = _buildTable(context, ref, cell);
+          // Floor to a whole pixel. The row lays out as
+          // habitCol + 7*_gap + 7*cell, which is `avail` exactly in real
+          // arithmetic — but cell is a fraction (33.714… on a 402pt phone)
+          // and seven of them plus the column rounds a hair over during
+          // layout, overflowing the Row by 1.0px and painting Flutter's
+          // yellow-and-black stripe down the corner of the main screen.
+          // Flooring leaves a few spare pixels instead of a few spare
+          // thousandths, and whole-pixel squares render crisper besides.
+          cell = cell.floorToDouble();
+          final table = _buildTable(context, ref, cell, habitCol);
           if (!scroll) return table;
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -92,7 +123,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
     );
   }
 
-  Widget _buildTable(BuildContext context, WidgetRef ref, double cell) {
+  Widget _buildTable(
+      BuildContext context, WidgetRef ref, double cell, double habitCol) {
     final days = widget.state.days;
     // Fixed per-row height, shared by every row regardless of square size —
     // a 2-line habit name (long names wrap) used to make just that row
@@ -104,7 +136,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _headerRow(context, days, cell),
+        _headerRow(context, days, cell, habitCol),
         const SizedBox(height: 12),
         // Rows fade in on entrance — fade ONLY, no slideX: the staggered
         // horizontal slide meant every row sat at a slightly different
@@ -114,6 +146,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
         // guaranteed from the very first frame.
         for (var i = 0; i < widget.habits.length; i++) ...[
           _habitRow(context, ref, widget.habits[i], days, cell, rowHeight,
+                  habitCol,
                   todayCellKey: i == 0 ? widget.todayCellKey : null)
               .animate(delay: (i * 45).ms)
               .fadeIn(duration: 320.ms),
@@ -123,7 +156,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
     );
   }
 
-  Widget _headerRow(BuildContext context, List<DateTime> days, double cell) {
+  Widget _headerRow(BuildContext context, List<DateTime> days, double cell,
+      double habitCol) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
 
@@ -153,7 +187,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
 
     return Row(
       children: [
-        SizedBox(width: _habitCol),
+        SizedBox(width: habitCol),
         for (final day in days)
           Padding(
             padding: const EdgeInsets.only(left: _gap),
@@ -210,7 +244,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
 
   Widget _habitRow(BuildContext context, WidgetRef ref,
       IslamicHabitTemplate habit, List<DateTime> days, double cell,
-      double rowHeight,
+      double rowHeight, double habitCol,
       {GlobalKey? todayCellKey}) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
@@ -230,9 +264,17 @@ class _GridTableState extends ConsumerState<_GridTable> {
               widget.onSelectionStart(habit.id);
             },
             child: SizedBox(
-              width: _habitCol,
+              width: habitCol,
               child: Padding(
-                padding: const EdgeInsets.only(right: 8),
+                // Directional, not physical: this gap exists to keep the
+                // habit name off the first square, and the first square is on
+                // the left in Arabic. As a physical `right` it sat on the far
+                // side of the name in RTL — so the name ran flush into the
+                // board while 8pt went spare against the card edge. Harmless-
+                // looking until the column narrowed, at which point the wasted
+                // 8pt became a 1px RenderFlex overflow and Flutter drew its
+                // yellow-and-black stripe across the corner of the main screen.
+                padding: const EdgeInsetsDirectional.only(end: 8),
                 child: Row(
                   children: [
                     Builder(builder: (_) {

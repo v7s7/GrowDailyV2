@@ -210,9 +210,12 @@ class _WeekdayHeaderRow extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                DateFormat.E(locale)
-                    .format(saturday.add(Duration(days: i)))
-                    .substring(0, 1),
+                // Narrow weekday form — see the same fix in
+                // monthly_heatmap_screen: Arabic's short names all begin with
+                // ا, so first-character slicing collapsed all seven columns
+                // into the same letter.
+                DateFormat('EEEEE', locale)
+                    .format(saturday.add(Duration(days: i))),
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,

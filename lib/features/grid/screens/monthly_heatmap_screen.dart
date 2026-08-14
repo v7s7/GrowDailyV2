@@ -399,9 +399,15 @@ class _WeekdayHeaderRow extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                DateFormat.E(locale)
-                    .format(saturday.add(Duration(days: i)))
-                    .substring(0, 1),
+                // 'EEEEE' (narrow), not E().substring(0, 1). Arabic's short
+                // weekday names are الأحد/الاثنين/الثلاثاء/… — every one of
+                // the seven starts with ا, so taking the first character
+                // printed the same letter across all seven columns and there
+                // was no way to tell Friday from Saturday. The narrow form is
+                // seven distinct letters (ح ن ث ر خ ج س), and is unchanged for
+                // English (S M T W T F S). Same choice as insights_screen.
+                DateFormat('EEEEE', locale)
+                    .format(saturday.add(Duration(days: i))),
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,

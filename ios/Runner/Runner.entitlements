@@ -15,5 +15,25 @@
 	     source value doesn't need to be flipped by hand for a release build. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Universal Links. Without this entitlement an https invite link just
+	     opens Safari, and a growdaily:// link is worse still: messengers do
+	     not linkify custom schemes at all, so a shared invite arrived as
+	     untappable grey text and did nothing whatsoever for anyone who did
+	     not already have the app.
+
+	     Must stay in sync with THREE other places, or the link silently
+	     degrades to opening the web page instead of the app:
+	       - lib/core/constants/deep_links.dart  (linkHost)
+	       - public/.well-known/apple-app-site-association  (appIDs / paths)
+	       - firebase.json  (hosting: serves that file as application/json)
+
+	     Note Apple fetches the association file through its own CDN, so a
+	     freshly-changed host can take a few minutes to take effect, and
+	     iOS caches it per-install — reinstalling the app is the reliable way
+	     to re-test after changing it. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:grow-daily-339ef.web.app</string>
+	</array>
 </dict>
 </plist>

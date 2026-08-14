@@ -65,7 +65,22 @@ class _SelectionBar extends StatelessWidget {
 
 class _GridHeader extends ConsumerWidget {
   final WeeklyGridState state;
-  const _GridHeader({required this.state});
+
+  /// Whether to show the "+" add-habit action. False while the habit list is
+  /// empty, because the empty state below renders its own, larger pair of
+  /// buttons and owns [addHabitKey] in that case — two live widgets can never
+  /// share one GlobalKey.
+  final bool showAddAction;
+
+  /// App Guide's coach-mark anchor for the "Add a habit" lesson. Moves with
+  /// the button: it used to sit on the floating action button.
+  final GlobalKey? addHabitKey;
+
+  const _GridHeader({
+    required this.state,
+    required this.showAddAction,
+    this.addHabitKey,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -98,14 +113,32 @@ class _GridHeader extends ConsumerWidget {
                   ),
                 ),
               ),
-              IconButton(
-                icon: Icon(Icons.insights_rounded, color: gp.textSec),
-                tooltip: s.heatmapTitle,
-                onPressed: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.pushNamed(context, '/heatmap');
-                },
-              ),
+              // This row holds ACTIONS only. The Progress Heatmap used to sit
+              // here as a third unlabelled glyph (Icons.insights_rounded),
+              // and it was the weakest thing on the screen: a *report*, drawn
+              // as a sparkline, whose headline stat ("Squares filled" /
+              // "مربّعات ملوّنة") is the same string in both languages as the
+              // big number 200px below it. It now lives behind a worded row
+              // at the bottom of the summary card that already previews it —
+              // see _SummaryCard — which is both more discoverable and
+              // honest about what it is.
+              //
+              // What replaced it is the add-habit button, moved up from a
+              // floating action button. On a tall habit list that FAB
+              // overlapped the board and covered a real, tappable square:
+              // fine over a list, wrong over a grid where every cell is a
+              // target. Up here it can never cover the thing the app is for,
+              // and "+" needs no tooltip to be understood.
+              if (showAddAction)
+                IconButton(
+                  key: addHabitKey,
+                  icon: Icon(Icons.add_rounded, color: GameColors.gold),
+                  tooltip: s.addHabit,
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    showAddHabitHub(context, ref);
+                  },
+                ),
               IconButton(
                 // Not a moon: Sleep already uses a crescent
                 // (Icons.bedtime_rounded, see HabitCategory.icon) and a
@@ -261,7 +294,7 @@ class _SummaryCard extends StatelessWidget {
     final perfectDay = scheduledTodayIds.isNotEmpty &&
         greensToday >= scheduledTodayIds.length;
 
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -311,7 +344,12 @@ class _SummaryCard extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Text(
-                        s.gridGreenSquares,
+                        // Agrees with the number it sits beside — Arabic
+                        // takes the singular at 1, the dual at 2, the plural
+                        // at 3–10 and the accusative singular at 11+, so a
+                        // fixed plural read "1 مربّعات ملوّنة" on the app's
+                        // main screen. English is unaffected.
+                        s.gridGreenSquaresCount(greens),
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -342,20 +380,35 @@ class _SummaryCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
+                // Flexible, not bare children: these two stats sit beside the
+                // summary card's big number, so the width left for them is
+                // already narrow, and both carry a translated label whose
+                // length isn't ours to control. On a 402pt iPhone this Row
+                // overflowed by 24px — the yellow-and-black stripe on the
+                // app's main screen in debug, and silently clipped text in
+                // release. The gap shrinks before the content does, and each
+                // stat gets to ellipsize its own label rather than push its
+                // neighbour off the card. Reproduced by
+                // grid_square_alignment_test's phone-width group, which is
+                // the only place the narrow branch is exercised at all.
                 Row(
                   children: [
-                    _MiniStat(
-                      icon: Icons.bolt_rounded,
-                      value: '$points',
-                      label: s.gridPoints,
-                      color: GameColors.gold,
+                    Flexible(
+                      child: _MiniStat(
+                        icon: Icons.bolt_rounded,
+                        value: '$points',
+                        label: s.gridPoints,
+                        color: GameColors.gold,
+                      ),
                     ),
-                    const SizedBox(width: 20),
-                    _MiniStat(
-                      icon: Icons.percent_rounded,
-                      value: '${(ratio * 100).round()}%',
-                      label: s.gridComplete,
-                      color: GameColors.iconXp,
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: _MiniStat(
+                        icon: Icons.percent_rounded,
+                        value: '${(ratio * 100).round()}%',
+                        label: s.gridComplete,
+                        color: GameColors.iconXp,
+                      ),
                     ),
                   ],
                 ),
@@ -365,12 +418,36 @@ class _SummaryCard extends StatelessWidget {
         ],
       ),
     )
-        // A single celebratory sweep the moment today goes fully green.
+        // The Heatmap's new front door, replacing the unlabelled sparkline
+        // that used to sit in the app bar (see _GridHeader). A worded row at
+        // the foot of this card is the better home for it precisely because
+        // this card is already the week-scoped preview of what that screen
+        // shows across months — the link now sits under the thing it expands,
+        // rather than being a mystery glyph two hundred pixels away.
+        //
+        // Deliberately NOT "make the whole card tappable": the card already
+        // prints "Tap to color · long-press for more colors" (s.gridTapHint)
+        // inside itself, so a card-wide tap target would directly contradict
+        // its own instructions.
+        //
+        // A single celebratory sweep the moment today goes fully green. Stays
+        // on the card alone, not on the Column below — a shimmer sweeping
+        // across the heatmap link too would read as that row celebrating
+        // something, which it has no part in.
         .animate(target: perfectDay ? 1 : 0)
         .shimmer(
           duration: 900.ms,
           color: GameColors.emerald.withOpacity(0.30),
         );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        card,
+        const SizedBox(height: 8),
+        const _HeatmapLinkRow(),
+      ],
+    );
   }
 }
 
@@ -417,6 +494,57 @@ class _RingStat extends StatelessWidget {
   }
 }
 
+/// The worded door to the Progress Heatmap, sitting directly under the
+/// summary card it expands.
+///
+/// Shape copied from LifeTimelineScreen's own footer link and from every
+/// "View all" row on ProgressHub — leading icon, label, trailing chevron —
+/// so it behaves identically in Arabic without any directional work of its
+/// own: `Icons.chevron_right_rounded` is auto-mirrored by Flutter under an
+/// RTL Directionality, exactly as the Profile rows already are.
+class _HeatmapLinkRow extends StatelessWidget {
+  const _HeatmapLinkRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          Navigator.pushNamed(context, '/heatmap');
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.calendar_view_month_rounded,
+                  size: 18, color: gp.textSec),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  s.heatmapTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: gp.textSec,
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _MiniStat extends StatelessWidget {
   final IconData icon;
   final String value;
@@ -431,7 +559,12 @@ class _MiniStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    // mainAxisSize.min so a Flexible parent can hand this exactly the width it
+    // needs and no more; the icon and the value are never allowed to shrink
+    // (a clipped number is worse than a clipped word), so only the label is
+    // Flexible and only the label ellipsizes.
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 16, color: color),
         const SizedBox(width: 5),
@@ -444,9 +577,13 @@ class _MiniStat extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(fontSize: 11, color: gp.textTert),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, color: gp.textTert),
+          ),
         ),
       ],
     );

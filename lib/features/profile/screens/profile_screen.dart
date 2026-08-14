@@ -20,6 +20,7 @@ import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/theme/theme_preset.dart';
+import '../../../core/utils/bidi_fraction.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/character/notifiers/character_notifier.dart';
@@ -34,8 +35,6 @@ import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/milestones/models/milestone_event.dart';
 import '../../../features/milestones/notifiers/milestone_notifier.dart';
-import '../../../features/milestones/screens/journey_screen.dart';
-import '../../../features/milestones/screens/life_timeline_screen.dart';
 import '../../../features/milestones/screens/monthly_story_screen.dart';
 import '../../../features/night_review/notifiers/night_review_notifier.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
@@ -142,9 +141,7 @@ class ProfileScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-              child: _ProfileLinksSection(
-                streak: state.streak,
-              ),
+              child: const _ProfileLinksSection(),
             ).animate(delay: 150.ms).fadeIn(duration: 400.ms),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 110)),

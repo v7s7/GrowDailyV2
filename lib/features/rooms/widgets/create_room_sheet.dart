@@ -99,6 +99,9 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
     if (!_canSubmit || _isSubmitting) return;
     setState(() => _isSubmitting = true);
     HapticFeedback.mediumImpact();
+    // Read before the await below, so this never touches context across an
+    // async gap.
+    final isAr = S.of(context).isAr;
     final habits = ref.read(habitListProvider);
     // Filters and maps from the same resolved list (rather than mapping
     // ids and names separately) so the two lists handed to createRoom can
@@ -118,8 +121,15 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
               : RoomDuration.fixed,
           lengthDays: _effectiveLengthDays,
           leaderLinkedHabitIds: resolvedOwnHabits.map((h) => h.id).toList(),
+          // These strings are persisted on the room document and rendered
+          // verbatim to every member (there is no re-localisation on read),
+          // so the raw English `name` of a preset would have been burned into
+          // an otherwise-Arabic room permanently. Writing the creator's
+          // display name is what every other surface shows; a room whose
+          // members genuinely differ in language would need the catalog id
+          // stored instead, which is a larger change than this bug warrants.
           leaderLinkedHabitNames:
-              resolvedOwnHabits.map((h) => h.name).toList(),
+              resolvedOwnHabits.map((h) => h.localName(isAr)).toList(),
           competeMode: _competeMode,
         );
     if (!mounted) return;
@@ -216,6 +226,60 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                       prefixIcon: const Icon(Icons.flag_rounded, size: 20),
                     ),
                   ),
+                  // Tappable ideas instead of one baked-in example: the old
+                  // placeholder named a habit, which is the one thing a room
+                  // is not. Hidden once there is a name, so it never sits
+                  // under a field the user has already filled.
+                  if (_nameCtrl.text.trim().isEmpty) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Text(
+                          s.roomNameIdeas,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: gp.textSec,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                for (final idea in s.roomNameSuggestions)
+                                  Padding(
+                                    padding:
+                                        const EdgeInsetsDirectional.only(end: 8),
+                                    child: ActionChip(
+                                      label: Text(idea),
+                                      labelStyle: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: gp.textPrimary,
+                                      ),
+                                      backgroundColor: gp.surface,
+                                      side: BorderSide(color: gp.border),
+                                      visualDensity: VisualDensity.compact,
+                                      onPressed: () {
+                                        HapticFeedback.selectionClick();
+                                        setState(() {
+                                          _nameCtrl.text = idea;
+                                          _nameCtrl.selection =
+                                              TextSelection.collapsed(
+                                                  offset: idea.length);
+                                        });
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   _SectionLabel(s.roomCompeteModeLabel),
                   const SizedBox(height: 8),
@@ -657,9 +721,11 @@ class _PlanHabitPickerState extends ConsumerState<_PlanHabitPicker> {
         ref.read(habitListProvider).where((h) => h.id != created.id).toList();
     final match = suggestExistingMatch(created.name, others);
     if (match != null && mounted) {
+      final s = S.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(S.of(context).roomPossibleDuplicateWarning(match.name)),
+          content:
+              Text(s.roomPossibleDuplicateWarning(match.localName(s.isAr))),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         ),
@@ -750,7 +816,11 @@ class _PlanHabitPickerState extends ConsumerState<_PlanHabitPicker> {
                 for (var i = 0; i < ordered.length; i++) ...[
                   if (i != 0) Divider(height: 1, color: gp.border),
                   _PlanHabitRow(
-                    name: ordered[i].name,
+                    // localName, not the raw `name` field: for a preset that
+                    // field holds the English catalog name, so an Arabic user
+                    // picking habits for a room saw "Fajr Prayer" in a screen
+                    // that is otherwise entirely Arabic.
+                    name: ordered[i].localName(s.isAr),
                     selected: widget.selectedIds.contains(ordered[i].id),
                     onTap: () {
                       HapticFeedback.selectionClick();

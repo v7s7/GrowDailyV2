@@ -151,19 +151,19 @@ class _NightReviewPromptCard extends ConsumerWidget {
 
 // ─── Profile Links (Achievements, Progress & Streak) ──────────────────────────
 
-/// Six tap-through rows in two labeled groups. "Explore": Dashboard
-/// (Progress + Achievements + Habit Insights, merged — see
-/// ProgressHubScreen's doc comment), Closet, and Rooms. "Your Story":
-/// Journey, Life Timeline, and Monthly Story - three different lenses on
-/// the same habit history, similar-sounding enough that they get their own
-/// header plus a one-line subtitle each rather than sitting unlabeled in
-/// the same list as Dashboard/Closet/Rooms.
+/// Three tap-through rows in one unlabeled card: Progress (Progress +
+/// Achievements + Habit Insights, merged — see ProgressHubScreen's doc
+/// comment), Rooms, and Monthly Story.
+///
+/// This was six rows under two headers. The headers and subtitles existed to
+/// tell near-duplicates apart — Journey, Life Timeline and Monthly Story are
+/// three lenses on one `milestoneEventsProvider`, and Character Closet was
+/// the same destination as the hero avatar on the same scroll. Removing the
+/// duplicates removed the need to label anything: what is left is your
+/// numbers, your people, and your month, which no one needs a header to
+/// distinguish. See the comment inside build() for the full reasoning.
 class _ProfileLinksSection extends ConsumerWidget {
-  final int streak;
-
-  const _ProfileLinksSection({
-    required this.streak,
-  });
+  const _ProfileLinksSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -174,21 +174,28 @@ class _ProfileLinksSection extends ConsumerWidget {
     // never shows for them rather than needing a separate guest branch here.
     final roomCount = ref.watch(myRoomCodesProvider).valueOrNull?.length ?? 0;
 
-    final isAr = s.isAr;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // "استكشف" / Explore — Dashboard, Closet, Rooms. Split from the
-        // history trio below (was one flat list of six under a header that
-        // just repeated this screen's own "Profile" title) so each group's
-        // label actually tells you something the page title didn't.
-        Text(isAr ? 'استكشف' : 'Explore',
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: gp.textSec,
-                letterSpacing: 1.5)),
-        const SizedBox(height: 12),
+        // One card, three rows, no section headers.
+        //
+        // This was six rows under two headers ("Explore" and "Your Story"),
+        // and the grouping was doing real work — three of those six were
+        // near-duplicates of each other, so they needed labels and subtitles
+        // to be told apart. The fix was to stop shipping the duplicates
+        // rather than to keep labelling them: Journey, Life Timeline and
+        // Monthly Story all read the same milestoneEventsProvider, and Life
+        // Timeline re-rendered the Progress Heatmap's own day-square grid
+        // with a copy of its colour scale. Character Closet went too — the
+        // hero avatar directly above opens exactly that screen already.
+        //
+        // What survives is three rows that share nothing: your numbers
+        // (Progress), your people (Rooms), your month (Monthly Story). Three
+        // rows that are obviously different need no header to separate them,
+        // and no subtitle to disambiguate them, which is why both are gone.
+        //
+        // JourneyScreen and LifeTimelineScreen are left on disk, unwired —
+        // deleting the files is a separate decision from removing the doors.
         Container(
           decoration: BoxDecoration(
             color: gp.surface,
@@ -234,32 +241,14 @@ class _ProfileLinksSection extends ConsumerWidget {
                                 color: gp.textPrimary,
                                 fontWeight: FontWeight.w500)),
                       ),
-                      Icon(Icons.local_fire_department_rounded,
-                          size: 15, color: GameColors.iconStreak),
-                      const SizedBox(width: 3),
-                      Text('$streak',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: gp.textSec)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: GameColors.gold.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-                        ),
-                        child: Text(
-                          'PRO',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            color: GameColors.gold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
+                      // No flame+streak and no PRO chip here any more. The
+                      // streak is the very first _StatCell about 200px above
+                      // this row, so repeating it made the row look like it
+                      // was reporting something new when it was echoing. The
+                      // PRO chip advertised a lock on a screen that is free —
+                      // the only Premium content behind it is already
+                      // signposted where it actually applies, inside
+                      // InsightsScreen.
                       Icon(Icons.chevron_right_rounded,
                           size: 18, color: gp.textTert),
                     ],
@@ -267,37 +256,11 @@ class _ProfileLinksSection extends ConsumerWidget {
                 ),
               ),
               Container(height: 0.5, color: gp.divider),
-              InkWell(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const CharacterClosetScreen()),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
-                  child: Row(
-                    children: [
-                      Icon(Icons.checkroom_rounded,
-                          size: 20, color: gp.textSec),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(s.closetProfileRow,
-                            style: TextStyle(
-                                fontSize: 15,
-                                color: gp.textPrimary,
-                                fontWeight: FontWeight.w500)),
-                      ),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 18, color: gp.textTert),
-                    ],
-                  ),
-                ),
-              ),
-              Container(height: 0.5, color: gp.divider),
+              // The Character Closet row used to sit here. It opened exactly
+              // the same screen as the hero avatar a few hundred pixels above
+              // it on this very scroll (see _HeroHeader's InkWell) — one
+              // destination behind two doors on one page, which is the single
+              // clearest kind of clutter to remove.
               // Rooms: group challenges with friends - a room's own screen
               // handles the guest-account gate itself (see
               // RoomsHubScreen._GuestGate), so this row is always tappable
@@ -320,10 +283,8 @@ class _ProfileLinksSection extends ConsumerWidget {
                     MaterialPageRoute(builder: (_) => const RoomsHubScreen()),
                   );
                 },
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(GameSpacing.cardRadius),
-                  bottomRight: Radius.circular(GameSpacing.cardRadius),
-                ),
+                // No corner radius: this is the middle row now that Monthly
+                // Story has joined the same card below it.
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 14),
@@ -366,125 +327,6 @@ class _ProfileLinksSection extends ConsumerWidget {
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // "قصتك" / Your Story — Journey, Life Timeline, and Monthly Story
-        // are three different lenses on the same habit history, which read
-        // as near-duplicates when they're unlabeled rows in a longer flat
-        // list. Grouping them under one header, plus a one-line subtitle
-        // on each, says what tells them apart before you have to tap in.
-        Text(isAr ? 'قصتك' : 'Your Story',
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: gp.textSec,
-                letterSpacing: 1.5)),
-        const SizedBox(height: 12),
-        Container(
-          decoration: BoxDecoration(
-            color: gp.surface,
-            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-            border: Border.all(color: gp.border, width: 0.5),
-          ),
-          child: Column(
-            children: [
-              // Journey: the narrative counterpart to Dashboard's numbers —
-              // see JourneyScreen's own doc comment.
-              InkWell(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const JourneyScreen()),
-                  );
-                },
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(GameSpacing.cardRadius),
-                  topRight: Radius.circular(GameSpacing.cardRadius),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
-                  child: Row(
-                    children: [
-                      Icon(Icons.route_rounded, size: 20, color: gp.textSec),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(s.journeyTitle,
-                                style: TextStyle(
-                                    fontSize: 15,
-                                    color: gp.textPrimary,
-                                    fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 1),
-                            Text(
-                              isAr
-                                  ? 'قصة عاداتك يوماً بيوم'
-                                  : 'Your habits, day by day',
-                              style:
-                                  TextStyle(fontSize: 11, color: gp.textTert),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 18, color: gp.textTert),
-                    ],
-                  ),
-                ),
-              ),
-              Container(height: 0.5, color: gp.divider),
-              // Life Timeline: the zoomed-out year-at-a-glance counterpart —
-              // see LifeTimelineScreen's own doc comment.
-              InkWell(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const LifeTimelineScreen()),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
-                  child: Row(
-                    children: [
-                      Icon(Icons.calendar_view_month_rounded,
-                          size: 20, color: gp.textSec),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(s.lifeTimelineTitle,
-                                style: TextStyle(
-                                    fontSize: 15,
-                                    color: gp.textPrimary,
-                                    fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 1),
-                            Text(
-                              isAr
-                                  ? 'عامك كاملاً بلمحة واحدة'
-                                  : 'Your whole year at a glance',
-                              style:
-                                  TextStyle(fontSize: 11, color: gp.textTert),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 18, color: gp.textTert),
-                    ],
-                  ),
-                ),
-              ),
               Container(height: 0.5, color: gp.divider),
               // Monthly Story: shareable month-in-review — see
               // MonthlyStoryScreen's own doc comment. Last row, so this is
@@ -510,25 +352,16 @@ class _ProfileLinksSection extends ConsumerWidget {
                       Icon(Icons.auto_stories_rounded,
                           size: 20, color: gp.textSec),
                       const SizedBox(width: 12),
+                      // Subtitle dropped: it existed only to tell this row
+                      // apart from Journey and Life Timeline, which are gone.
+                      // Three rows this different need no explaining, and it
+                      // makes all three rows one shape.
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(s.monthlyStoryTitle,
-                                style: TextStyle(
-                                    fontSize: 15,
-                                    color: gp.textPrimary,
-                                    fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 1),
-                            Text(
-                              isAr
-                                  ? 'ملخص شهري قابل للمشاركة'
-                                  : 'A shareable monthly recap',
-                              style:
-                                  TextStyle(fontSize: 11, color: gp.textTert),
-                            ),
-                          ],
-                        ),
+                        child: Text(s.monthlyStoryTitle,
+                            style: TextStyle(
+                                fontSize: 15,
+                                color: gp.textPrimary,
+                                fontWeight: FontWeight.w500)),
                       ),
                       Icon(Icons.chevron_right_rounded,
                           size: 18, color: gp.textTert),

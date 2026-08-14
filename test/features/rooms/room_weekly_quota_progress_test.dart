@@ -510,4 +510,124 @@ void main() {
       expect(p.copyWith(hideDetails: true).lastSyncedDay, '2026-08-12');
     });
   });
+
+  // What a room streak actually does for each of the three cadences, pinned
+  // because only one of them is obvious. RoomParticipant._keepsStreak is
+  // `isFullyDone(day) || quotaOkWeeks.contains(weekStart)`, and isFullyDone
+  // answers TRUE for a day nothing was scheduled on — so an excused rest day
+  // keeps a streak through the first clause, before quotaOkWeeks is even
+  // consulted. That is the whole reason weekly and named-weekday habits
+  // behave unlike a daily one here.
+  group('currentStreak across the three cadences', () {
+    // The whole test week is in the past relative to any plausible run date,
+    // so the room is always ended and currentStreak's "an unfinished today
+    // doesn't break it yet" branch never fires. Keeps these deterministic.
+    final room = _room(start: _weekDays.first, end: _weekDays.last);
+
+    test('daily habit: one missed day ends the streak there', () {
+      // Every day answerable, done on all but Wednesday (index 3).
+      final done = <String, int>{};
+      final scheduled = <String, int>{};
+      for (var i = 0; i < _weekDays.length; i++) {
+        scheduled[_weekDays[i].toDateKey()] = 1;
+        if (i != 3) done[_weekDays[i].toDateKey()] = 1;
+      }
+      final p = _participant(dailyDoneCount: done, dailyScheduledCount: scheduled);
+
+      // Counts back Fri, Thu — then Wednesday is a real miss and stops it.
+      expect(p.currentStreak(room), 3);
+    });
+
+    test('weekly quota met: the 3 rest days keep the streak, so it reads 7',
+        () {
+      // 4x a week, done exactly 4 times on Sat/Sun/Mon/Wed. The other three
+      // days are rest the quota entitled them to.
+      final stored = _storedForWeek(
+        doneDayIndices: const {0, 1, 2, 4},
+        target: 4,
+        isWeekClosed: true,
+      );
+      final p = _participant(
+        dailyDoneCount: stored.done,
+        dailyScheduledCount: stored.scheduled,
+      );
+
+      // Every day of the week keeps it: 4 genuinely done, 3 excused. Doing a
+      // habit on 4 days and being credited a 7-day streak is the designed
+      // behaviour, not a bug — but it is worth stating out loud, because the
+      // number has no relationship to how many squares the Grid shows.
+      expect(p.currentStreak(room), 7);
+    });
+
+    test(
+        'weekly quota still short mid-week: no rest days yet, so the streak '
+        'collapses to the trailing run of real completions', () {
+      // Same habit, same 4x target, but only 2 done and the week still open —
+      // weeklyQuotaScheduledDays hands out no rest days in advance, so every
+      // day is answerable and the not-yet-done ones read as plain misses.
+      final stored = _storedForWeek(
+        doneDayIndices: const {0, 1},
+        target: 4,
+        isWeekClosed: false,
+      );
+      final p = _participant(
+        dailyDoneCount: stored.done,
+        dailyScheduledCount: stored.scheduled,
+      );
+
+      // Walking back from Friday: Fri/Thu/Wed/Tue are all answerable-and-not-
+      // done, so it stops immediately. The same person, same habit, same two
+      // workouts, will read 7 the moment the 4th lands. That jump is the
+      // thing users notice, and it is why a weekly streak cannot be read as
+      // "days in a row" the way a daily one can.
+      expect(p.currentStreak(room), 0);
+    });
+
+    test('named-weekday habit: an off-day is excused, exactly like rest', () {
+      // Sun/Tue/Thu only (weekday 7/2/4 → indices 1, 3, 5 of a Sat-start
+      // week), all three done. The four off-days were never owed.
+      final done = <String, int>{};
+      final scheduled = <String, int>{};
+      for (var i = 0; i < _weekDays.length; i++) {
+        final key = _weekDays[i].toDateKey();
+        final isDue = i == 1 || i == 3 || i == 5;
+        if (!isDue) {
+          scheduled[key] = 0; // excused — same shape the sync stores
+        } else {
+          scheduled[key] = 1;
+          done[key] = 1;
+        }
+      }
+      final p = _participant(dailyDoneCount: done, dailyScheduledCount: scheduled);
+
+      // Also 7: three real completions plus four excused days. Confirms the
+      // two cadences agree with each other — the earlier bug this file was
+      // written for was precisely them disagreeing.
+      expect(p.currentStreak(room), 7);
+    });
+
+    test('an excused day and a completed day are indistinguishable downstream',
+        () {
+      // The root of the "room squares don't match the Grid" report: creditFor
+      // returns a flat 1.0 for a day nothing was scheduled on, which is the
+      // same value a fully completed day returns. The leaderboard strip
+      // colours cells straight off this, so rest days render in the same full
+      // emerald as training days while the Grid square for them is empty.
+      final stored = _storedForWeek(
+        doneDayIndices: const {0, 1, 2, 4},
+        target: 4,
+        isWeekClosed: true,
+      );
+      final p = _participant(
+        dailyDoneCount: stored.done,
+        dailyScheduledCount: stored.scheduled,
+      );
+
+      final completed = _weekDays[0].toDateKey(); // actually trained
+      final excused = _weekDays[3].toDateKey(); // rest day
+      expect(p.creditFor(completed), 1.0);
+      expect(p.creditFor(excused), 1.0);
+      expect(p.isFullyDone(excused), isTrue);
+    });
+  });
 }

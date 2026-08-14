@@ -50,6 +50,17 @@ class AddHabitHub extends ConsumerStatefulWidget {
 class _AddHabitHubState extends ConsumerState<AddHabitHub> {
   late HubTab _tab = widget.initialTab;
 
+  /// Step the embedded Add Goal form is on (0 = What, 1 = When).
+  ///
+  /// Once it moves past the first step the Plans / Add Goal switcher is
+  /// hidden: the user has already chosen, and leaving the pills up both adds
+  /// noise above the form and invites a tap that would throw away what they
+  /// just typed.
+  int _addGoalStep = 0;
+
+  /// True while the switcher should be on screen.
+  bool get _showTabs => !(_tab == HubTab.addGoal && _addGoalStep > 0);
+
   // A one-time nudge explaining Plans vs. Add Goal — only for App Guide's
   // addHabit lesson, since that's the one moment someone genuinely hasn't
   // decided "custom" is what they want yet. Regular Add Habit taps never
@@ -74,7 +85,11 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
     // 5.2px on one real device/locale — +130 leaves real margin rather than
     // just clearing that one data point, since text wrapping varies by
     // device font scale and Arabic vs. English string length.
-    final chromeHeight = _showTabHint ? 150.0 + 130.0 : 150.0;
+    // Tab row is ~54pt including its vertical padding; when it is hidden the
+    // body gets that space back.
+    final tabRowHeight = _showTabs ? 0.0 : -54.0;
+    final chromeHeight =
+        (_showTabHint ? 150.0 + 130.0 : 150.0) + tabRowHeight;
     const minBodyHeight = 220.0;
     // Resting size (no keyboard) stays ~86% of the screen, same as before.
     // Once the keyboard opens, shrink to whatever room is left above it
@@ -93,9 +108,12 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
       height: bodyHeight,
       child: IndexedStack(
         index: _tab.index,
-        children: const [
-          PlanPickerSheet(embedded: true),
-          AddHabitSheet(embedded: true),
+        children: [
+          const PlanPickerSheet(embedded: true),
+          AddHabitSheet(
+            embedded: true,
+            onStepChanged: (step) => setState(() => _addGoalStep = step),
+          ),
         ],
       ),
     );
@@ -111,7 +129,10 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
           selected: !_showTabHint && _tab == HubTab.plans,
           onTap: () {
             _dismissTabHint();
-            setState(() => _tab = HubTab.plans);
+            setState(() {
+              _tab = HubTab.plans;
+              _addGoalStep = 0;
+            });
           },
         ),
         const SizedBox(width: 8),
@@ -198,7 +219,10 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
             // widget) since that one paints a full-screen scrim positioned
             // in global coordinates — wrong here, inside a bottom sheet
             // whose own bounds move with the keyboard.
-            _showTabHint
+            // Hidden entirely once Add Goal has moved on — see [_showTabs].
+            if (!_showTabs)
+              const SizedBox.shrink()
+            else _showTabHint
                 ? Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Container(

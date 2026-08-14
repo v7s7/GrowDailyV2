@@ -7,6 +7,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../achievements/models/achievement_model.dart';
 import '../../achievements/widgets/achievement_medal.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../../../core/utils/bidi_fraction.dart';
 
 /// Full achievement catalog — pushed from Profile's "Achievements" row so
 /// the family ladders (five cards, each a full bronze-to-platinum climb)
@@ -88,7 +89,8 @@ class AchievementsScreen extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                     ),
                     child: Text(
-                      '${unlockedIds.length} / ${AchievementCatalog.all.length}',
+                      progressFraction(
+                          unlockedIds.length, AchievementCatalog.all.length),
                       style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -266,7 +268,7 @@ class _FamilyCard extends StatelessWidget {
                 Icon(Icons.verified_rounded, size: 20, color: activeColor)
               else
                 Text(
-                  '$current / ${activeTier.threshold}',
+                  progressFraction(current, activeTier.threshold),
                   style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,

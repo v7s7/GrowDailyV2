@@ -139,7 +139,13 @@ class _RoomBody extends ConsumerWidget {
                   _CountdownCard(),
                   const SizedBox(height: 14),
                 ] else if (room.isEnded) ...[
-                  _FinaleCard(sorted: sorted, room: room, mine: mine),
+                  _FinaleCard(
+                    sorted: sorted,
+                    room: room,
+                    mine: mine,
+                    isLeader: isLeader,
+                    onExtend: onExtend,
+                  ),
                   const SizedBox(height: 14),
                 ],
                 _RoomHeaderCard(room: room, memberCount: participants.length),

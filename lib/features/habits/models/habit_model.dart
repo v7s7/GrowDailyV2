@@ -91,9 +91,23 @@ enum HabitCategory {
           custom => 'Custom',
         };
 
+  // Three splits here, each one a case seen wrong on a real device rather
+  // than a tidiness pass:
+  //   faith  — the five daily prayers all rendered as an open book, because
+  //            faith shared both this glyph and category_quran.png with the
+  //            Quran category. Five habits, one icon, on the main screen.
+  //   fasting— shared category_focus.png with focus, so "Monday & Thursday
+  //            Fast" showed the deep-work glyph.
+  //   health — shared the runner with fitness, so "Drink water" was a man
+  //            sprinting.
+  // Each now returns null from [iconAsset] too, so it falls through to the
+  // distinct Material glyph below instead of a shared PNG. No new art needed.
   IconData get icon => switch (this) {
-        faith || quran || athkar || fasting || sadaqah => Icons.menu_book_rounded,
-        health || fitness => Icons.fitness_center_rounded,
+        faith => Icons.mosque_rounded,
+        fasting => Icons.no_food_rounded,
+        health => Icons.favorite_rounded,
+        quran || athkar || sadaqah => Icons.menu_book_rounded,
+        fitness => Icons.fitness_center_rounded,
         learning => Icons.school_rounded,
         focus => Icons.center_focus_strong_rounded,
         sleep => Icons.bedtime_rounded,
@@ -108,13 +122,24 @@ enum HabitCategory {
   /// be tinted via `Image.asset(..., color: x, colorBlendMode: BlendMode.srcIn)`
   /// — see [CategoryIcon] — so they behave like a drop-in replacement for
   /// `Icon(category.icon, color: x)` wherever it's used.
+  /// null for faith/fasting/health on purpose — see [icon]'s comment. Those
+  /// three used to borrow another category's PNG, which is exactly what made
+  /// a prayer, a fast and a glass of water indistinguishable from a Quran
+  /// page, a focus block and a gym session.
   String? get iconAsset => switch (this) {
-        faith || quran || athkar => 'assets/images/category_quran.png',
-        health || fitness => 'assets/images/category_fitness.png',
-        fasting || focus => 'assets/images/category_focus.png',
+        quran || athkar => 'assets/images/category_quran.png',
+        fitness => 'assets/images/category_fitness.png',
+        focus => 'assets/images/category_focus.png',
         sadaqah || money => 'assets/images/category_charity.png',
         sleep => 'assets/images/category_sleep.png',
-        learning || mind || social || custom => null,
+        faith ||
+        fasting ||
+        health ||
+        learning ||
+        mind ||
+        social ||
+        custom =>
+          null,
       };
 }
 

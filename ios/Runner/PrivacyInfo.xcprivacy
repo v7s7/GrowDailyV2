@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  GrowDaily's app-level privacy manifest.
+
+	  Required since May 2024 for any app whose binary (or whose SDKs) touch
+	  the "required reason" APIs below. Every Pod in this project already
+	  ships its own manifest — Apple merges them all into the App Privacy
+	  Report — but a pod manifest only ever covers that pod. This file covers
+	  the FIRST-PARTY app: Runner's own code, and the Flutter engine and
+	  plugins that do not ship one.
+
+	  Two rules if this is ever edited:
+	    1. Every entry here must be TRUE of what the app actually does. A
+	       manifest that over-declares is not "safe" — it makes the App Store
+	       nutrition label wrong in the other direction, and the label must
+	       match this file.
+	    2. The nutrition label in App Store Connect is a SEPARATE answer set
+	       that has to agree with this file. Changing one without the other is
+	       the most common way this drifts.
+	-->
+
+	<!--
+	  No tracking. Nothing here links user data to third-party data for
+	  advertising or measurement, no data broker is involved, and the IDFA is
+	  never requested — which is precisely why the app must NOT show an App
+	  Tracking Transparency prompt. Firebase Analytics is included below as
+	  collected data, but it is first-party product analytics only; Google
+	  signals / ads personalisation are not enabled.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+		<!-- Email address — Firebase Auth sign-in. Linked to the person by
+		     definition: it IS the account identifier. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- User ID — the Firebase uid. Written on every synced document, and
+		     passed to RevenueCat as the app user id so a subscription follows
+		     the account across devices. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- The habits, notes, journal entries and night-review reflections
+		     the person writes. Apple classifies free-form user text under
+		     "Other User Content". Synced to that user's own Firestore
+		     documents. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Purchase history — RevenueCat / StoreKit, to know whether Premium
+		     is active. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+
+		<!-- Voice notes attached to Matrix tasks.
+		     VERIFY BEFORE CHANGING: these DO leave the device. VoiceNote.toMap
+		     emits audioBase64 (voice_note_service.dart base64-encodes the
+		     recording), MatrixTask.toFirestore includes 'voiceNotes', and
+		     matrix_notifier.dart:699 .set()s that document to Firestore. An
+		     earlier draft of this file asserted the opposite, copied from the
+		     published privacy policy, which was also wrong. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeAudioData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Display name. Stored on users/{uid} and, for Rooms, copied to
+		     rooms/{code}/participants/{uid} where OTHER members can see it. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeName</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- FCM push token, stored at users/{uid}/fcmTokens/{token}
+		     (push_notification_service.dart:119). -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Precise location — prayer times.
+		     PRECISE, not coarse: device_location_service asks for
+		     LocationAccuracy.medium, but Info.plist sets no
+		     NSLocationDefaultAccuracyReduced, so iOS hands over full-precision
+		     coordinates regardless. LINKED, because
+		     notification_settings_notifier.dart:56 writes the whole
+		     notificationSettings blob — lat/lng included — onto users/{uid}.
+		     Coordinates also go to api.aladhan.com and api.bigdatacloud.net.
+		     Optional throughout: there is a manual city picker for anyone who
+		     denies permission. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePreciseLocation</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Firebase Analytics: which screens are opened and which actions are
+		     taken. First-party product analytics — no ad network, no
+		     personalisation signals. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+
+		<!-- Firebase Crashlytics. LINKED: main.dart:287 calls
+		     setUserIdentifier(uid), so reports carry the account id. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCrashData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePerformanceData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- UserDefaults. Reason CA92.1: read/write only this app's own
+		     defaults. 1C8F.1 as well, and it is NOT optional: the home_widget
+		     plugin calls UserDefaults(suiteName: group.com.growdaily.v2.widget)
+		     and ships no privacy manifest of its own, so this app-level file is
+		     the only place that access is declared. Omitting it is the most
+		     likely cause of an ITMS-91053 "missing API declaration" email. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+				<string>1C8F.1</string>
+			</array>
+		</dict>
+
+		<!-- File timestamps. Reason C617.1: only for files inside this app's
+		     own container — Hive boxes and path_provider-managed files. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+
+		<!-- Deliberately NOT declared: DiskSpace and SystemBootTime. No
+		     first-party code calls them, and the SDKs that do (leveldb via
+		     Firestore, GoogleUtilities, the Flutter engine) each ship their own
+		     manifest declaring them. Over-declaring is not "safe" — this file
+		     must match the App Store Connect nutrition label, and every extra
+		     entry is one more thing that has to be true. ActiveKeyboards is
+		     likewise absent: the app never reads them. -->
+	</array>
+</dict>
+</plist>

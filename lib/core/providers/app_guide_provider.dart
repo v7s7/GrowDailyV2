@@ -39,7 +39,11 @@ final activeAppGuideLessonProvider =
 String appGuideLessonTitle(AppGuideLesson lesson, bool isAr) =>
     switch (lesson) {
       AppGuideLesson.addHabit => isAr ? 'أضف عادة' : 'Add a habit',
-      AppGuideLesson.colorSquare => isAr ? 'لوّن مربّع اليوم' : "Colour today's square",
+      // "Color", not "Colour" — this string renders on the Grid directly
+      // beside "Color your life, one square at a time." and "Tap to color",
+      // so the one British spelling in the app was visibly inconsistent with
+      // its own neighbours on the first screen a new user sees.
+      AppGuideLesson.colorSquare => isAr ? 'لوّن مربّع اليوم' : "Color today's square",
       AppGuideLesson.addTask => isAr ? 'أضف مهمة' : 'Add a task',
       AppGuideLesson.discoverRooms => isAr ? 'انضم لغرفة' : 'Join a Room',
     };

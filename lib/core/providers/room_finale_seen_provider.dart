@@ -42,6 +42,31 @@ Future<void> markRoomFinaleSeen(WidgetRef ref, String code) async {
   await box.put(_kRoomFinaleSeenKey, [...stored, code]);
 }
 
+/// Forgets [code]'s ending, so a room that ends *again* announces again.
+///
+/// The seen-set is keyed by room code alone, which was right while a room
+/// could only ever end once. Extending a finished room (see
+/// RoomsController.extendRoom, surfaced on _FinaleCard) breaks that
+/// assumption: the code is already in the set from the first ending, so
+/// unseenFinishedRooms skips it forever and the second ending is announced to
+/// nobody — the leader restarts the challenge and the finish passes in
+/// silence. Called by whoever extends, on their own device.
+///
+/// Only the extending leader's device can clear its own set, so other members
+/// still rely on the room simply being in their list; that is the same
+/// local-first bargain the rest of this file already makes.
+Future<void> clearRoomFinaleSeen(WidgetRef ref, String code) async {
+  final current = ref.read(roomFinaleSeenProvider);
+  if (!current.contains(code)) return;
+  ref.read(roomFinaleSeenProvider.notifier).state = {...current}..remove(code);
+  final box = await LocalStoreService.settingsBox();
+  final stored = (box.get(_kRoomFinaleSeenKey) as List?)
+          ?.whereType<String>()
+          .toSet() ??
+      <String>{};
+  await box.put(_kRoomFinaleSeenKey, [...stored..remove(code)]);
+}
+
 /// Reads the persisted set, if any. Called once at boot (see main.dart) to
 /// seed [roomFinaleSeenProvider] before the first frame.
 Future<Set<String>> loadPersistedRoomFinaleSeen() async {

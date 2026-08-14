@@ -11,35 +11,52 @@ class _TileIconButton extends StatelessWidget {
   final Color iconColor;
   final VoidCallback onTap;
 
+  /// What this button does, in words.
+  ///
+  /// Three glyphs sat on every task row with nothing naming any of them: a
+  /// VoiceOver user heard "button, button, button", and a sighted new user
+  /// had to guess. Given as a Semantics label AND a long-press tooltip, so
+  /// the same string answers both "what is this?" questions.
+  final String label;
+
   const _TileIconButton({
     super.key,
     required this.icon,
     required this.iconColor,
     required this.onTap,
+    required this.label,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
+    return Semantics(
+      container: true,
+      button: true,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
       // Center fills whatever width its parent gives it (a whole 1/3 or
       // 1/4 of the row when wrapped in Expanded — see _TaskTile.build())
       // and, since the GestureDetector above is opaque, that entire
       // filled area is tappable — not just the small 34x34 circle drawn
       // in the middle of it, which stays fixed-size purely for a compact,
       // uncluttered look.
-      child: Center(
-        child: Container(
-          width: 34,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: gp.textTert.withOpacity(0.10),
-            shape: BoxShape.circle,
+          child: Center(
+            child: Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: gp.textTert.withOpacity(0.10),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 17, color: iconColor),
+            ),
           ),
-          child: Icon(icon, size: 17, color: iconColor),
         ),
       ),
     );

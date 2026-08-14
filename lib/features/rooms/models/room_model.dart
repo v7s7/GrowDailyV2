@@ -766,6 +766,23 @@ class RoomParticipant {
     return (done / scheduled).clamp(0.0, 1.0);
   }
 
+  /// Whether [dateKey] asked nothing of this participant — a rest day a
+  /// weekly quota entitled them to, or an off-day of a named-weekday habit.
+  ///
+  /// Scoring-wise such a day is finished, and [creditFor] rightly returns a
+  /// full 1.0 for it. But it is NOT the same event as training, and anything
+  /// that shows a day back to a person needs to tell the two apart: the
+  /// leaderboard strip used to paint both in the same full emerald, so a
+  /// 4x-a-week habit done exactly four times drew a solid week while the
+  /// Grid — which only ever records what you actually did — showed four
+  /// squares. Two screens, both correct, flatly contradicting each other.
+  ///
+  /// Deliberately separate from [creditFor] rather than folded into it:
+  /// changing what an excused day scores would change the leaderboard, and
+  /// the scoring was never the part that was wrong.
+  bool isRestDay(String dateKey) =>
+      hasCountedHabits && scheduledCountFor(dateKey) == 0;
+
   /// Whether *every actually-scheduled* linked habit was done on [dateKey]
   /// - the strict "full credit" case, used where a screen wants a plain
   /// done/not-done signal (e.g. the checkmark in Room Detail's "Your plan"

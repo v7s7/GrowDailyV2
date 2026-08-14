@@ -28,6 +28,7 @@ import '../../../features/insights/insight_engine.dart';
 import '../../../features/insights/insights_screen.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import 'achievements_screen.dart';
+import '../../../core/utils/bidi_fraction.dart';
 
 // ─── 14-day progress chart data (moved verbatim from the old standalone ───
 // ProgressScreen, now retired — see ProgressHubScreen's own doc comment) ───
@@ -974,7 +975,7 @@ class _AchievementsPreviewSection extends StatelessWidget {
                 borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
               child: Text(
-                '${unlockedIds.length} / $total',
+                progressFraction(unlockedIds.length, total),
                 style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,

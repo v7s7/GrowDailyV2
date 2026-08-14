@@ -44,6 +44,14 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     required int goldReward,
     String? category,
   }) async {
+    // See completeHabit's guard: this method writes level, currentLevelXp,
+    // cumulativeXp, gold, totalHabitCompletions and categoryCompletions as
+    // absolute values from `state` too, so it must decline for the same
+    // reason. In practice a failed load leaves `completions` empty and the
+    // `current <= 0` check below already turns most calls away — this makes
+    // that an explicit rule rather than a side effect of the zeros lining up.
+    if (_uid != null && state.loadFailed) return;
+
     final current = state.completions[habitId] ?? 0;
     if (current <= 0) return;
 
