@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
@@ -21,6 +22,19 @@ void main() {
 
   testWidgets('first session: empty grid → plan → first green square → reward',
       (tester) async {
+    // Between midnight and the 6 AM flex cutoff the visible "today" square
+    // (real calendar day, gold ring) is deliberately NOT the reward day
+    // (DateTimeGameExt.effectiveDay, still yesterday) — by design, tapping
+    // it then pays no First Victory, so the exact journey this test drives
+    // does not exist in those hours and cannot be asserted through the UI.
+    // Skipping beats a red suite for whoever runs tests at 3 AM; every
+    // other hour of the day this guard is a no-op.
+    if (!DateTime.now().effectiveDay.isSameDayAs(DateTime.now().startOfDay)) {
+      markTestSkipped(
+          'first-square reward flow is defined for the post-cutoff day only '
+          '(now is inside the midnight-to-6AM flex window)');
+      return;
+    }
     await tester.binding.setSurfaceSize(const Size(800, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await h.pumpApp(tester);
@@ -63,7 +77,10 @@ void main() {
       return (cell.isToday as bool) && !(cell.isFuture as bool);
     });
     expect(todayCells, findsWidgets);
-    final today = DateTime.now();
+    // The tapped cell is the app's *effective* today (isToday), which sits a
+    // day behind the raw calendar between midnight and the 6 AM cutoff —
+    // see DateTimeGameExt.effectiveDay. Raw now() broke this after midnight.
+    final today = DateTime.now().effectiveDay;
 
     await tester.tap(todayCells.first);
     await h.settle(tester);

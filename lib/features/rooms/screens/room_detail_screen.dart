@@ -26,6 +26,12 @@ import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/character_avatar.dart';
 import '../../grid/screens/monthly_heatmap_screen.dart' show heatColor;
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../../grid/notifiers/weekly_grid_notifier.dart'
+    show weeklyGridProvider;
+import '../../habits/catalog/islamic_habit_catalog.dart'
+    show IslamicHabitTemplate;
+import '../../habits/models/habit_model.dart' show HabitFrequencyType;
+import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider, canAddHabits;
 import '../models/room_model.dart';

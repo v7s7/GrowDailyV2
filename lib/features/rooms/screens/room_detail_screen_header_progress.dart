@@ -1,6 +1,5 @@
 part of 'room_detail_screen.dart';
 
-
 class _PodiumColumn extends StatelessWidget {
   final RoomParticipant participant;
   final int rank;
@@ -105,33 +104,63 @@ class _RoomHeaderCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(color: gp.border, width: 0.5),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: GameColors.gold.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-            ),
-            child: Text(statusLabel,
+          Row(
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: GameColors.gold.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                ),
+                child: Text(statusLabel,
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: GameColors.gold)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  s.roomMemberCount(memberCount),
+                  style: TextStyle(fontSize: 12, color: gp.textSec),
+                ),
+              ),
+              Icon(Icons.tag_rounded, size: 14, color: gp.textTert),
+              const SizedBox(width: 3),
+              Text(room.code,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1,
+                      color: gp.textSec)),
+            ],
+          ),
+          // When the race actually began (or will begin, for a lobby/
+          // countdown room) — the one date the header never carried: it
+          // said how many days remain and nothing about where day 1 sits,
+          // so reading the leaderboard strips' timeline meant arithmetic.
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(Icons.flag_rounded, size: 13, color: gp.textTert),
+              const SizedBox(width: 5),
+              Text(
+                DateTime.now().startOfDay.isBefore(room.startDate)
+                    ? s.roomStartsOn(DateFormat('d MMMM', s.isAr ? 'ar' : 'en')
+                        .format(room.startDate))
+                    : s.roomStartedOn(DateFormat('d MMMM', s.isAr ? 'ar' : 'en')
+                        .format(room.startDate)),
                 style: TextStyle(
-                    fontSize: 11.5, fontWeight: FontWeight.w700, color: GameColors.gold)),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: gp.textTert),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              s.roomMemberCount(memberCount),
-              style: TextStyle(fontSize: 12, color: gp.textSec),
-            ),
-          ),
-          Icon(Icons.tag_rounded, size: 14, color: gp.textTert),
-          const SizedBox(width: 3),
-          Text(room.code,
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1,
-                  color: gp.textSec)),
         ],
       ),
     );
@@ -192,14 +221,11 @@ class _TeamProgressCard extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: allDoneToday
-            ? GameColors.emerald.withOpacity(0.08)
-            : gp.surface,
+        color: allDoneToday ? GameColors.emerald.withOpacity(0.08) : gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(
-          color: allDoneToday
-              ? GameColors.emerald.withOpacity(0.35)
-              : gp.border,
+          color:
+              allDoneToday ? GameColors.emerald.withOpacity(0.35) : gp.border,
           width: 0.5,
         ),
       ),
@@ -213,11 +239,15 @@ class _TeamProgressCard extends ConsumerWidget {
               Expanded(
                 child: Text(s.roomTeamProgressTitle,
                     style: TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w800, color: gp.textPrimary)),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: gp.textPrimary)),
               ),
               Text('$pct%',
                   style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold)),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: GameColors.gold)),
             ],
           ),
           const SizedBox(height: 10),
@@ -225,18 +255,22 @@ class _TeamProgressCard extends ConsumerWidget {
           const SizedBox(height: 8),
           Text(
             s.roomTeamProgressDays(completed, possible),
-            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: gp.textSec),
+            style: TextStyle(
+                fontSize: 11.5, fontWeight: FontWeight.w600, color: gp.textSec),
           ),
           if (allDoneToday) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(Icons.check_circle_rounded, size: 15, color: GameColors.emerald),
+                Icon(Icons.check_circle_rounded,
+                    size: 15, color: GameColors.emerald),
                 const SizedBox(width: 5),
                 Text(
                   s.roomTeamAllDoneToday,
                   style: TextStyle(
-                      fontSize: 11.5, fontWeight: FontWeight.w700, color: GameColors.emerald),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: GameColors.emerald),
                 ),
               ],
             ),
@@ -253,7 +287,8 @@ class _TeamProgressCard extends ConsumerWidget {
                   Expanded(
                     child: Text(
                       s.roomTeamBonusHint(_teamBonusXp, _teamBonusGold),
-                      style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.35),
+                      style: TextStyle(
+                          fontSize: 11.5, color: gp.textSec, height: 1.35),
                     ),
                   ),
                 ],
@@ -264,12 +299,15 @@ class _TeamProgressCard extends ConsumerWidget {
                 child: FilledButton.icon(
                   onPressed: () {
                     HapticFeedback.mediumImpact();
-                    ref.read(roomsControllerProvider).claimTeamBonus(
+                    ref
+                        .read(roomsControllerProvider)
+                        .claimTeamBonus(
                           room.code,
                           mine!,
                           xp: _teamBonusXp,
                           gold: _teamBonusGold,
-                        ).ignore();
+                        )
+                        .ignore();
                   },
                   icon: const Icon(Icons.card_giftcard_rounded, size: 16),
                   label: Text(s.roomTeamBonusClaimAction),
@@ -283,12 +321,15 @@ class _TeamProgressCard extends ConsumerWidget {
             else if (claimed)
               Row(
                 children: [
-                  Icon(Icons.check_circle_rounded, size: 15, color: GameColors.emerald),
+                  Icon(Icons.check_circle_rounded,
+                      size: 15, color: GameColors.emerald),
                   const SizedBox(width: 6),
                   Text(
                     s.roomTeamBonusClaimedLabel,
                     style: TextStyle(
-                        fontSize: 11.5, fontWeight: FontWeight.w700, color: GameColors.emerald),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: GameColors.emerald),
                   ),
                 ],
               ),
@@ -462,6 +503,72 @@ class _PlanSlotChip extends ConsumerWidget {
   }
 }
 
+/// One flexible weekly-quota habit's standing in the current grid week, for
+/// [_MyPlanCard]'s per-quota line: how many of [target] are banked, and
+/// whether today is a [DayDemand.owed] day — a day that cannot be skipped
+/// without putting the target out of reach.
+typedef _QuotaStanding = ({
+  String name,
+  int done,
+  int target,
+  bool neededToday,
+});
+
+/// The quota standings worth a line on the plan card — one per counted
+/// linked habit that is a flexible weekly quota under the room's own frozen
+/// rule (falling back to the habit's current settings when no rule is
+/// recorded yet, the same resolution order the sync itself uses).
+///
+/// Reads the person's OWN Grid squares (weeklyGridProvider) — the same
+/// squares the room grader reads — not the participant doc's aggregated
+/// counts, which can't tell one habit's completions from another's. Empty
+/// whenever the Grid is showing some other week than the current one: the
+/// numbers would silently describe whichever week the person last browsed
+/// to, and no line at all beats a plausible wrong one.
+List<_QuotaStanding> _quotaWeekStandings(
+  WidgetRef ref,
+  RoomParticipant mine,
+  List<IslamicHabitTemplate> myHabits,
+) {
+  final grid = ref.watch(weeklyGridProvider);
+  if (!grid.isCurrentWeek) return const [];
+  final today = DateTime.now().effectiveDay;
+  final todayKey = today.toDateKey();
+  final habitById = {for (final h in myHabits) h.id: h};
+
+  final out = <_QuotaStanding>[];
+  for (final id in mine.countedHabitIds) {
+    final habit = habitById[id];
+    if (habit == null) continue;
+    final rule = mine.ruleFor(id, todayKey);
+    final type = rule?.frequencyType ?? habit.frequencyType;
+    final weekdays = rule?.scheduledWeekdays ?? habit.scheduledWeekdays;
+    if (type != HabitFrequencyType.weekly || weekdays.isNotEmpty) continue;
+    final target = rule?.frequencyTarget ?? habit.frequencyTarget;
+
+    final days = grid.days;
+    final doneIdx = {
+      for (var i = 0; i < days.length; i++)
+        if (grid.squareFor(id, days[i]).isGreen) i,
+    };
+    final demand = weeklyQuotaDemand(
+      dayCount: days.length,
+      doneDays: doneIdx,
+      target: target,
+    );
+    final todayIdx = days.indexWhere((d) => d.isSameDayAs(today));
+    out.add(
+      (
+        name: habit.localName(S.of(ref.context).isAr),
+        done: doneIdx.length,
+        target: target.clamp(1, days.length),
+        neededToday: todayIdx >= 0 && demand[todayIdx] == DayDemand.owed,
+      ),
+    );
+  }
+  return out;
+}
+
 class _MyPlanCard extends ConsumerWidget {
   final RoomModel room;
   final RoomParticipant mine;
@@ -479,7 +586,8 @@ class _MyPlanCard extends ConsumerWidget {
     final totalCount = mine.scheduledCountFor(today);
     final doneToday = mine.isFullyDone(today);
     final partialToday = todayCount > 0 && !doneToday;
-    final names = mine.linkedHabitNames.where((n) => n.trim().isNotEmpty).toList();
+    final names =
+        mine.linkedHabitNames.where((n) => n.trim().isNotEmpty).toList();
     // A linked habit id that's no longer in this account's own Grid means
     // it was deleted there after being linked here - dailyDoneCount can
     // never advance again for that slot (syncTodayForHabit/
@@ -493,8 +601,8 @@ class _MyPlanCard extends ConsumerWidget {
     // countedHabitIds, not linkedHabitIds: a slot this person skipped holds
     // the literal kDeclinedSlot placeholder, which is never a real habit id
     // and would otherwise trip this warning permanently.
-    final hasDeletedLink = mine.countedHabitIds
-        .any((id) => !myHabitIds.contains(id));
+    final hasDeletedLink =
+        mine.countedHabitIds.any((id) => !myHabitIds.contains(id));
     // Habits whose live settings no longer match what this room scores them
     // by - see roomRuleMismatches for why the room deliberately keeps the
     // original rule rather than following the edit.
@@ -615,6 +723,46 @@ class _MyPlanCard extends ConsumerWidget {
               ],
             ),
           ],
+          // A flexible weekly quota's week-level standing ("2 of 4 this
+          // week"), one line per quota habit. The headline above only
+          // answers *today* — correct, but for a "4x a week, any days"
+          // habit today is half the story, and the other half (how far
+          // into the quota am I, and is today one of the days I can't
+          // afford to skip?) previously lived nowhere on this screen. The
+          // "needed today" tail comes from the same day-local verdict the
+          // Grid's red squares use (weeklyQuotaDemand), so this line and
+          // the Grid can never tell two different stories.
+          for (final q in _quotaWeekStandings(ref, mine, myHabits)) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  q.neededToday
+                      ? Icons.local_fire_department_rounded
+                      : Icons.event_repeat_rounded,
+                  size: 13,
+                  color: q.neededToday ? GameColors.warning : gp.textTert,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    q.neededToday
+                        ? '${s.roomQuotaWeekProgress(q.name, q.done, q.target)}'
+                            ' · ${s.roomQuotaNeededToday}'
+                        : s.roomQuotaWeekProgress(q.name, q.done, q.target),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight:
+                          q.neededToday ? FontWeight.w800 : FontWeight.w600,
+                      color: q.neededToday ? GameColors.warning : gp.textTert,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           // countedHabitCount, not names.length: a skipped slot still has a
           // name (struck through in the chips above) but contributes nothing,
           // so counting it here would promise "complete all 3" when only 2
@@ -622,7 +770,8 @@ class _MyPlanCard extends ConsumerWidget {
           if (mine.countedHabitCount > 1) ...[
             const SizedBox(height: 8),
             Text(s.roomPlanPartialCreditHint(mine.countedHabitCount),
-                style: TextStyle(fontSize: 10.5, color: gp.textTert, height: 1.3)),
+                style:
+                    TextStyle(fontSize: 10.5, color: gp.textTert, height: 1.3)),
           ],
           if (hasDeletedLink) ...[
             const SizedBox(height: 10),
@@ -650,8 +799,7 @@ class _MyPlanCard extends ConsumerWidget {
                   await ref
                       .read(roomsControllerProvider)
                       .relockHabitRules(room);
-                  messenger.showSnackBar(
-                      SnackBar(content: Text(confirmation)));
+                  messenger.showSnackBar(SnackBar(content: Text(confirmation)));
                 },
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -735,7 +883,8 @@ class _NewHabitBanner extends StatelessWidget {
                           height: 1.3)),
                   const SizedBox(height: 2),
                   Text(s.roomNewHabitBannerBody,
-                      style: TextStyle(fontSize: 10.5, color: gp.textSec, height: 1.3)),
+                      style: TextStyle(
+                          fontSize: 10.5, color: gp.textSec, height: 1.3)),
                 ],
               ),
             ),
@@ -747,6 +896,7 @@ class _NewHabitBanner extends StatelessWidget {
     );
   }
 }
+
 /// A small, square tap target for the two settings that live on
 /// [_MyPlanCard]'s header row: add another habit, and show/hide your habits
 /// from the room.

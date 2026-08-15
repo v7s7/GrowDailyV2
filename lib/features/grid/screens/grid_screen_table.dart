@@ -90,6 +90,12 @@ class _GridTableState extends ConsumerState<_GridTable> {
           // landscape) where it already fit. On a 402pt phone that yields
           // ~72pt of label and ~33.7pt squares — a third of a point smaller
           // than before, in exchange for Friday existing.
+          // Floor stays 68. Raising it to 88 (to reserve room for the boost
+          // badge — see its Positioned in _habitRow) keeps the names but
+          // makes this row overflow by exactly 1.00px, which Flutter paints as
+          // a stripe across the last habit. The arithmetic here is meant to
+          // land on `avail` exactly, so any change to habitCol has to be
+          // reconciled with the cell floor and rounding below, not just added.
           final habitCol = (avail * 0.21).clamp(68.0, _habitCol);
           double cell = (avail - habitCol - 7 * _gap) / 7;
           bool scroll = false;
@@ -250,6 +256,29 @@ class _GridTableState extends ConsumerState<_GridTable> {
     final isAr = S.of(context).isAr;
     final today = DateTime.now().effectiveDay;
     final selected = widget.selectedIds.contains(habit.id);
+
+    // For a flexible weekly quota ("N times a week, any days") an empty square
+    // is ambiguous on its own: it is either a day the person genuinely owed
+    // and skipped, or a rest day the quota entitled them to. Only the week as
+    // a whole can tell those apart, so it is resolved once per row here rather
+    // than per cell, and only for this one cadence — a daily or named-weekday
+    // habit gets null and renders exactly as it always has.
+    //
+    // Deliberately NOT frequencyType == weekly alone: "Specific Days" is also
+    // stored as weekly, distinguished only by scheduledWeekdays being set.
+    final isFlexibleQuota = habit.frequencyType == HabitFrequencyType.weekly &&
+        habit.scheduledWeekdays.isEmpty;
+    final demand = isFlexibleQuota
+        ? weeklyQuotaDemand(
+            dayCount: days.length,
+            doneDays: {
+              for (var i = 0; i < days.length; i++)
+                if (widget.state.squareFor(habit.id, days[i]).isGreen) i,
+            },
+            target: habit.frequencyTarget,
+          )
+        : null;
+
     return SizedBox(
       height: rowHeight,
       child: Row(
@@ -322,6 +351,17 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       final boosted = ref
                           .watch(roomBoostedHabitsProvider)
                           .contains(habit.id);
+                      // The boost badge hovers over this icon via a Positioned
+                      // in the Clip.none Stack below. Its whole contract is:
+                      // PAINT wherever it likes, but contribute nothing to
+                      // layout — any width it adds to the row shows up as
+                      // squares shifted only on boosted rows, i.e. weekday
+                      // columns that bend at exactly the rows carrying a
+                      // badge. Reserving the badge's width here instead (a
+                      // 38pt box) was tried and is worse: it either collapses
+                      // «سورة الملك» to «س…» or overflows the row by 1px —
+                      // see grid_square_alignment_test.dart's boosted-row
+                      // case, which locks the paint-only contract in.
                       return Stack(
                         clipBehavior: Clip.none,
                         children: [
@@ -358,11 +398,36 @@ class _GridTableState extends ConsumerState<_GridTable> {
                               ),
                             ),
                           if (boosted)
+                            // Anchored by `left` ONLY, at the icon's midpoint
+                            // (11 = half its 22pt width), then pulled back by
+                            // half the badge's own width with a paint-time
+                            // FractionalTranslation. Two earlier shapes of
+                            // this line were each a different bug:
+                            //
+                            //  - left/right: -8 let the badge's width reach
+                            //    the row's layout, so a boosted habit's
+                            //    squares sat ~10pt off and every weekday
+                            //    column bent at exactly the boosted rows.
+                            //  - left/right: 0 + Center kept layout straight
+                            //    but forced the ~28pt badge INTO a tight 22pt
+                            //    box — its inner Row then overflowed by 16px
+                            //    and Flutter striped every boosted row.
+                            //
+                            // With one anchor the badge sizes to its natural
+                            // width, the translation centres it purely at
+                            // paint time, and a Positioned child never
+                            // affects the Stack's own size — so it cannot
+                            // touch column geometry, which the boosted-row
+                            // case in grid_square_alignment_test.dart now
+                            // asserts. `left` not `start`: the anchor is the
+                            // icon's physical midpoint, same in RTL.
                             Positioned(
                               top: -9,
-                              left: -8,
-                              right: -8,
-                              child: Center(child: const _BoostBadge()),
+                              left: 11,
+                              child: FractionalTranslation(
+                                translation: const Offset(-0.5, 0),
+                                child: const _BoostBadge(),
+                              ),
                             ),
                         ],
                       );
@@ -441,6 +506,16 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 // isn't isRealToday either, so it stays correctly locked.
                 isFuture: day.startOfDay.isAfter(today) && !day.isRealToday,
                 isScheduled: habit.isScheduledFor(day),
+                // A day this flexible quota genuinely owed and that stayed
+                // empty — the week's real miss, and the only empty square the
+                // app is entitled to call one. Rest days stay plain. Never
+                // applied to today or a future day: a day still in progress
+                // has not been missed yet, and `owed` for those means "this is
+                // your last chance", not "you failed".
+                isMissedQuotaDay: demand != null &&
+                    day.isBefore(today) &&
+                    demand[days.indexOf(day)] == DayDemand.owed &&
+                    widget.state.squareFor(habit.id, day) == SquareState.none,
                 square: widget.state.squareFor(habit.id, day),
                 hasNote: widget.state.noteFor(habit.id, day).isNotEmpty,
                 onTap: widget.selectionMode
@@ -717,6 +792,18 @@ class _SquareCell extends StatelessWidget {
   // square already completed before the habit's schedule was narrowed still
   // shows its real color, just dimmed and no longer editable.
   final bool isScheduled;
+
+  /// A past, empty day that a flexible weekly quota genuinely owed — computed
+  /// by [weeklyQuotaDemand], never stored and never marked by the user.
+  ///
+  /// Drawn in the same red the explicit `failed` state uses, because it means
+  /// the same thing: a day that was asked for and did not happen. What it is
+  /// NOT is every empty square — a 3x-a-week habit has four days it owes
+  /// nothing on, and those stay plain. The count of these across a week is
+  /// exactly the shortfall (proved in weekly_quota_plan_test.dart), so the app
+  /// can never show more red than the person actually fell short by.
+  final bool isMissedQuotaDay;
+
   final SquareState square;
   final bool hasNote;
   // Nullable: null while Grid's multi-select mode is active, so squares
@@ -740,6 +827,7 @@ class _SquareCell extends StatelessWidget {
     required this.isToday,
     required this.isFuture,
     required this.isScheduled,
+    this.isMissedQuotaDay = false,
     required this.square,
     required this.hasNote,
     required this.onTap,
@@ -758,7 +846,14 @@ class _SquareCell extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: square.fill(dark),
+        // A computed quota miss borrows the explicit `failed` state's own fill
+        // and border rather than inventing a red: it means exactly what a
+        // hand-marked red square means — a day that was owed and did not
+        // happen — so it should look like one. No new colour to learn, and it
+        // stays correct automatically in every theme preset and in light mode.
+        color: isMissedQuotaDay
+            ? SquareState.failed.fill(dark)
+            : square.fill(dark),
         borderRadius: BorderRadius.circular(9),
         // Same width for every square regardless of `isToday` — Flutter
         // centers a box border on the shape's edge, so a thicker border
@@ -773,7 +868,11 @@ class _SquareCell extends StatelessWidget {
         // instead. `goldDim` is dark and saturated enough to stay crisp
         // against every fill color, not just the green "complete" state.
         border: Border.all(
-          color: isToday ? GameColors.goldDim : square.border(dark),
+          color: isToday
+              ? GameColors.goldDim
+              : isMissedQuotaDay
+                  ? SquareState.failed.border(dark)
+                  : square.border(dark),
           width: 0.8,
         ),
       ),
@@ -820,6 +919,19 @@ class _SquareCell extends StatelessWidget {
             delay: 80.ms,
             duration: 450.ms,
             color: Colors.white.withOpacity(0.55),
+            // ShimmerEffect is NOT layout-neutral by default: it wraps the
+            // square in Padding(EdgeInsets.all(0.5)) — a full extra logical
+            // pixel of width/height per green square, for as long as the
+            // effect widget is in the tree. Measured live: every green
+            // square rendered 1pt wider than its empty neighbours, so a row
+            // accumulated +1pt of drift per green square and weekday columns
+            // visibly bent at exactly the well-filled rows — the more of the
+            // week done, the more broken the board looked. `padding: 0`
+            // opts out (the 0.5 default only softens a ShaderMask
+            // antialiasing artifact at the very edge, invisible on these
+            // rounded squares). Locked by the marked-squares case in
+            // grid_square_alignment_test.dart.
+            padding: 0,
           );
     } else if (square.isMarked) {
       cell = cell

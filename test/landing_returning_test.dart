@@ -43,12 +43,17 @@ void main() {
     //
     // It used to be a FloatingActionButton and is now a "+" in the Grid
     // header. The FAB floated over the board and, on a habit list long enough
-    // to reach it, covered a real tappable square. Asserted by tooltip rather
-    // than by widget type: the tooltip is the accessible name a user actually
-    // gets, and it survives the button being restyled again.
+    // to reach it, covered a real tappable square.
+    //
+    // Asserted by its visible label, not by widget type and no longer by
+    // tooltip: the button carries its name on screen now, so the label is both
+    // the accessible name and the thing a sighted first-run user reads. A
+    // tooltip was the right assertion while it was a bare "+" glyph; asserting
+    // the visible text is strictly stronger, because a tooltip can pass while
+    // the control still looks like an unlabelled mystery icon.
     expect(find.byType(FloatingActionButton), findsNothing,
         reason: 'the add-habit action must not float over the grid');
-    final addHabit = find.byTooltip('ADD HABIT');
+    final addHabit = find.text('ADD HABIT');
     expect(addHabit, findsOneWidget);
     await tester.tap(addHabit);
     await h.settle(tester);

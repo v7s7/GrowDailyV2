@@ -293,7 +293,8 @@ class NotificationService {
   /// that path exactly as it was.
   Future<bool> requestPermissions() async {
     if (kIsWeb) return false;
-    final cached = await LocalStoreService.getSettingsMap(_kPermissionGrantedKey);
+    final cached =
+        await LocalStoreService.getSettingsMap(_kPermissionGrantedKey);
     if (cached['granted'] == true) return true;
     final ios = await _plugin
         .resolvePlatformSpecificImplementation<
@@ -309,6 +310,33 @@ class NotificationService {
           _kPermissionGrantedKey, {'granted': true});
     }
     return granted;
+  }
+
+  /// Whether the OS will actually DISPLAY this app's notifications right
+  /// now — the system-Settings-level answer, not the app's own toggles.
+  ///
+  /// This is the question the app could not answer during a real incident:
+  /// with iOS notifications switched off in system Settings, every toggle in
+  /// Notification Settings read "on", every schedule call "succeeded", the
+  /// test button "sent" — and iOS silently dropped all of it. Nothing
+  /// anywhere told the person their reminders were going nowhere.
+  /// NotificationSettingsScreen's permission banner renders off this.
+  ///
+  /// Returns null when the platform can't say (web, or an OS without the
+  /// query) — callers should treat null as "assume fine, say nothing".
+  Future<bool?> checkSystemPermission() async {
+    if (kIsWeb) return null;
+    await init();
+    final ios = _plugin.resolvePlatformSpecificImplementation<
+        IOSFlutterLocalNotificationsPlugin>();
+    if (ios != null) {
+      final options = await ios.checkPermissions();
+      return options?.isEnabled;
+    }
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android != null) return android.areNotificationsEnabled();
+    return null;
   }
 
   NotificationDetails get _details => const NotificationDetails(
@@ -369,10 +397,7 @@ class NotificationService {
   // twice, reminder time tweaked, etc). English/Arabic pools are kept the
   // same length so a given day picks the same *story* in either language.
   static const _dailyLines = [
-    (
-      'Time for your habits',
-      "Don't break the streak — color today's square."
-    ),
+    ('Time for your habits', "Don't break the streak — color today's square."),
     (
       'Your habits are waiting',
       'A few minutes now, one more square colored today.'
@@ -454,8 +479,7 @@ class NotificationService {
   // list provider.
   final Set<String> _habitReminderHabitIds = {};
 
-  int _habitReminderId(String habitId) =>
-      5000 + habitId.hashCode.abs() % 1000;
+  int _habitReminderId(String habitId) => 5000 + habitId.hashCode.abs() % 1000;
   int _snoozeId(String habitId) => 6000 + habitId.hashCode.abs() % 1000;
 
   static const _bundleSlotBase = 7000;
@@ -533,8 +557,9 @@ class NotificationService {
       final offset = Duration(minutes: habit.reminderOffsetMinutes);
 
       if (habit.clockTime != null) {
-        fireTime = _nextInstanceOf(habit.clockTime!.hour, habit.clockTime!.minute)
-            .add(offset);
+        fireTime =
+            _nextInstanceOf(habit.clockTime!.hour, habit.clockTime!.minute)
+                .add(offset);
         // An offset can pull an already-imminent clock time into the past
         // (e.g. it's 8:58, the habit is set for 9:00, and the offset is
         // -15 min) — the wall-clock time repeats daily, so the fix is just
@@ -1277,7 +1302,12 @@ class NotificationService {
     if (kIsWeb) return;
     await init();
     await _plugin.show(
-      9000,
+      // Its own id, NOT 9000: that is _weeklyDigestId, and show() replaces
+      // any pending schedule carrying the same id — so the test button was
+      // quietly cancelling the scheduled Friday digest every time it was
+      // tapped (until the next recompute happened to reschedule it). A
+      // diagnostic must never eat a real notification.
+      9990,
       isAr ? 'إشعار تجريبي' : 'Test notification',
       isAr
           ? 'هكذا تبدو إشعارات Grow Daily على جهازك.'

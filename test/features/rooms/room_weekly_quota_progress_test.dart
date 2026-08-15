@@ -27,6 +27,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
+import 'package:grow_daily_v2/features/habits/models/weekly_quota_plan.dart';
 import 'package:grow_daily_v2/features/rooms/models/room_model.dart';
 import 'package:grow_daily_v2/features/rooms/notifiers/rooms_notifier.dart';
 
@@ -256,8 +257,7 @@ void main() {
       expect(p.progressRatio(week), isNot(closeTo(5 / 7, 0.0001)));
     });
 
-    test('a met quota scores exactly what the same days named would score',
-        () {
+    test('a met quota scores exactly what the same days named would score', () {
       // This equivalence is the whole point. "4x a week, any days" and "these
       // 4 weekdays" express the same commitment; scoring them differently for
       // the same completions is the bug.
@@ -274,7 +274,9 @@ void main() {
       // The named-weekday equivalent, graded the way that path already
       // works: its 4 days are scheduled and done, its other 3 are excused.
       final named = _namedDaysHabit(
-        [for (final i in const [0, 1, 2, 3]) _weekDays[i].weekday],
+        [
+          for (final i in const [0, 1, 2, 3]) _weekDays[i].weekday
+        ],
       );
       final namedDone = <String, int>{};
       final namedScheduled = <String, int>{};
@@ -366,8 +368,7 @@ void main() {
       expect(p.progressRatio(room), 0.0);
     });
 
-    test('a perfect run since joining is 100%, not a fraction of the room',
-        () {
+    test('a perfect run since joining is 100%, not a fraction of the room', () {
       final p = lateJoiner(done: const {
         '2026-08-08': 1,
         '2026-08-09': 1,
@@ -404,8 +405,7 @@ void main() {
       expect(founder.daysElapsedIn(room), room.daysElapsed);
     });
 
-    test('joining before the room starts still scores from the room start',
-        () {
+    test('joining before the room starts still scores from the room start', () {
       // Lobby members join days before the leader presses Start; their
       // window must not begin earlier than the challenge itself.
       final early = RoomParticipant(
@@ -495,12 +495,14 @@ void main() {
 
   group('RoomParticipant round-trips the watermark through Firestore', () {
     test('toFirestore omits it entirely when it has never been set', () {
-      expect(_participant().toFirestore().containsKey('lastSyncedDay'), isFalse);
+      expect(
+          _participant().toFirestore().containsKey('lastSyncedDay'), isFalse);
     });
 
     test('toFirestore writes it once it exists', () {
       expect(
-        _participant(lastSyncedDay: '2026-08-12').toFirestore()['lastSyncedDay'],
+        _participant(lastSyncedDay: '2026-08-12')
+            .toFirestore()['lastSyncedDay'],
         '2026-08-12',
       );
     });
@@ -532,7 +534,8 @@ void main() {
         scheduled[_weekDays[i].toDateKey()] = 1;
         if (i != 3) done[_weekDays[i].toDateKey()] = 1;
       }
-      final p = _participant(dailyDoneCount: done, dailyScheduledCount: scheduled);
+      final p =
+          _participant(dailyDoneCount: done, dailyScheduledCount: scheduled);
 
       // Counts back Fri, Thu — then Wednesday is a real miss and stops it.
       expect(p.currentStreak(room), 3);
@@ -598,7 +601,8 @@ void main() {
           done[key] = 1;
         }
       }
-      final p = _participant(dailyDoneCount: done, dailyScheduledCount: scheduled);
+      final p =
+          _participant(dailyDoneCount: done, dailyScheduledCount: scheduled);
 
       // Also 7: three real completions plus four excused days. Confirms the
       // two cadences agree with each other — the earlier bug this file was
@@ -628,6 +632,153 @@ void main() {
       expect(p.creditFor(completed), 1.0);
       expect(p.creditFor(excused), 1.0);
       expect(p.isFullyDone(excused), isTrue);
+    });
+  });
+
+  // Where a closed week's shortfall LANDS. The count was always right (done
+  // + shortfall answerable, rest excused) but the placement used to be
+  // "earliest empty days first", while the Grid's red squares come from
+  // weeklyQuotaDemand's day-local verdicts — so for the الإلتزااام report
+  // (تمرين, 4x, done Sun & Thu) the room blamed Saturday and Monday while
+  // the Grid, correctly, showed Wednesday and Friday red. Same score, two
+  // screens contradicting each other about which days went wrong.
+  group('closed-week misses land on the same days the Grid paints red', () {
+    test("the reported تمرين week: misses are Wed and Fri, not Sat and Mon",
+        () {
+      // Sat-start week, done on Sun (1) and Thu (5), 4x target, week over.
+      // Day-local: Sat/Mon/Tue passed while the target was still reachable
+      // without them (spare → excused rest). Wednesday was the first day
+      // skipping which made 4 impossible, Friday the second — those two ARE
+      // the shortfall, and they are exactly the squares the Grid reds.
+      final result = weeklyQuotaScheduledDays(
+        presentDays: const [0, 1, 2, 3, 4, 5, 6],
+        doneDays: const {1, 5},
+        target: 4,
+        isWeekClosed: true,
+      );
+      expect(result.toSet(), {1, 4, 5, 6},
+          reason: 'answerable = the 2 done days + the 2 days the week '
+              'actually broke on (Wed=4, Fri=6)');
+    });
+
+    test('rooms and Grid can never disagree about which days were missed', () {
+      // The drift-proof property, over every completion pattern of a 7-day
+      // week and every target: the days this grader holds answerable-but-not-
+      // done in a closed week are exactly weeklyQuotaDemand's owed-and-empty
+      // days — the Grid's red squares. One shared verdict, two screens.
+      for (var target = 1; target <= 7; target++) {
+        for (var mask = 0; mask < 128; mask++) {
+          final done = {
+            for (var i = 0; i < 7; i++)
+              if (mask & (1 << i) != 0) i
+          };
+          final answerable = weeklyQuotaScheduledDays(
+            presentDays: const [0, 1, 2, 3, 4, 5, 6],
+            doneDays: done,
+            target: target,
+            isWeekClosed: true,
+          ).toSet();
+          final demand = weeklyQuotaDemand(
+            dayCount: 7,
+            doneDays: done,
+            target: target,
+          );
+          final gridRed = {
+            for (var i = 0; i < 7; i++)
+              if (demand[i] == DayDemand.owed && !done.contains(i)) i,
+          };
+          final roomMisses = answerable.difference(done);
+          expect(roomMisses, gridRed,
+              reason: 'target=$target done=$done: the room blames '
+                  '$roomMisses, the Grid reds $gridRed');
+        }
+      }
+    });
+
+    test('a short week under the wrong side of the clamp still matches', () {
+      // Room's first week is 3 days against a 4x rule: target clamps to 3.
+      final result = weeklyQuotaScheduledDays(
+        presentDays: const [4, 5, 6],
+        doneDays: const {5},
+        target: 4,
+        isWeekClosed: true,
+      );
+      // Clamped target 3 over 3 days: every day was load-bearing, so both
+      // empty days are genuine misses alongside the one done day.
+      expect(result.toSet(), {4, 5, 6});
+    });
+  });
+
+  // The week-closed boundary. The old inline check (`!weekEnd.isAfter(
+  // lastCountedDay)`) graded a week as closed the moment its LAST day
+  // arrived — all day Friday on a Sat-start week — which pinned the
+  // shortfall onto past days, excused Friday itself as rest, and told the
+  // person "Done for today" on the one day that was their last chance to
+  // act. Seen live in the الإلتزااام room on Friday 2026-08-14.
+  group('isQuotaWeekClosed - a week stays open through its own last day', () {
+    final weekStart = DateTime(2026, 8, 8); // a real Saturday
+
+    test('open while any of its days is still today', () {
+      for (var d = 0; d < 7; d++) {
+        expect(
+          isQuotaWeekClosed(
+            weekStart: weekStart,
+            lastCountedDay: weekStart.add(Duration(days: d)),
+            roomEnded: false,
+          ),
+          isFalse,
+          reason: 'day $d of the week is still in progress — grading it as '
+              'final hands out verdicts while the person can still act',
+        );
+      }
+    });
+
+    test('closed from the first day after it', () {
+      expect(
+        isQuotaWeekClosed(
+          weekStart: weekStart,
+          lastCountedDay: weekStart.add(const Duration(days: 7)),
+          roomEnded: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('an ended room closes its weeks regardless of the calendar', () {
+      expect(
+        isQuotaWeekClosed(
+          weekStart: weekStart,
+          lastCountedDay: weekStart.add(const Duration(days: 3)),
+          roomEnded: true,
+        ),
+        isTrue,
+        reason: 'grading stopped at endDate; nothing can change anymore',
+      );
+    });
+  });
+
+  // The streak consequence of day-local placement, stated out loud: it can
+  // be harsher than earliest-first, and that is correct. For the تمرين week
+  // the old placement excused Friday (the shortfall was pinned on Sat/Mon),
+  // so a week that genuinely fell 2 short of its quota still ended on a
+  // 4-day streak. Day-local, Friday itself is one of the misses — the Grid
+  // shows it red — so the streak the week ends on is 0, exactly what a
+  // named-weekday habit missing its final scheduled day would score.
+  group('streak with day-local misses', () {
+    test('a week ending on a missed owed day ends its streak', () {
+      final room = _room(start: _weekDays.first, end: _weekDays.last);
+      final stored = _storedForWeek(
+        doneDayIndices: const {1, 5},
+        target: 4,
+        isWeekClosed: true,
+      );
+      final p = _participant(
+        dailyDoneCount: stored.done,
+        dailyScheduledCount: stored.scheduled,
+      );
+      expect(p.currentStreak(room), 0,
+          reason: 'Friday was owed and empty — the same Friday the Grid '
+              'paints red. A 2-of-4 week must not end on a live streak.');
     });
   });
 }

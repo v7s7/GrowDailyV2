@@ -21,6 +21,7 @@ import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/widgets/add_habit_hub_sheet.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
 import '../../rooms/notifiers/rooms_notifier.dart';

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/country_lookup_service.dart';
@@ -73,6 +74,11 @@ class NotificationSettingsScreen extends ConsumerWidget {
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         children: [
+          // Renders ONLY when the OS itself is blocking this app's
+          // notifications — the one failure mode every toggle below is
+          // powerless against, and the one this screen used to be silent
+          // about (see NotificationService.checkSystemPermission).
+          const _SystemPermissionBanner(),
           _Card(children: [
             _SwitchRow(
               icon: Icons.notifications_rounded,
@@ -188,7 +194,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       settings.hasLocation
                           ? s.notifLocationManualHint
                           : s.notifLocationHint,
-                      style: TextStyle(fontSize: 12, color: gp.textTert, height: 1.4),
+                      style: TextStyle(
+                          fontSize: 12, color: gp.textTert, height: 1.4),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -216,10 +223,10 @@ class NotificationSettingsScreen extends ConsumerWidget {
                               // device's 24-hour system setting, so the
                               // picker looks the same on every phone.
                               builder: (context, child) => MediaQuery(
-                                data: MediaQuery.of(context)
-                                    .copyWith(alwaysUse24HourFormat: false),
-                                child: child!,
-                              ));
+                                    data: MediaQuery.of(context)
+                                        .copyWith(alwaysUse24HourFormat: false),
+                                    child: child!,
+                                  ));
                           if (picked != null) {
                             update((c) => c.copyWith(quietHoursStart: picked));
                           }
@@ -235,10 +242,10 @@ class NotificationSettingsScreen extends ConsumerWidget {
                               context: context,
                               initialTime: settings.quietHoursEnd,
                               builder: (context, child) => MediaQuery(
-                                data: MediaQuery.of(context)
-                                    .copyWith(alwaysUse24HourFormat: false),
-                                child: child!,
-                              ));
+                                    data: MediaQuery.of(context)
+                                        .copyWith(alwaysUse24HourFormat: false),
+                                    child: child!,
+                                  ));
                           if (picked != null) {
                             update((c) => c.copyWith(quietHoursEnd: picked));
                           }
@@ -269,10 +276,10 @@ class NotificationSettingsScreen extends ConsumerWidget {
                             context: context,
                             initialTime: settings.streakRiskTime,
                             builder: (context, child) => MediaQuery(
-                              data: MediaQuery.of(context)
-                                  .copyWith(alwaysUse24HourFormat: false),
-                              child: child!,
-                            ));
+                                  data: MediaQuery.of(context)
+                                      .copyWith(alwaysUse24HourFormat: false),
+                                  child: child!,
+                                ));
                         if (picked != null) {
                           update((c) => c.copyWith(streakRiskTime: picked));
                         }
@@ -302,7 +309,8 @@ Future<void> _sendTestNotification(BuildContext context) async {
   await NotificationService.instance.showTest(isAr: s.isAr);
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(s.notifTestSent), duration: const Duration(seconds: 3)),
+    SnackBar(
+        content: Text(s.notifTestSent), duration: const Duration(seconds: 3)),
   );
 }
 
@@ -324,13 +332,13 @@ class _DailyReminderRow extends ConsumerWidget {
           context: context,
           initialTime: reminderTime ?? const TimeOfDay(hour: 20, minute: 0),
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(alwaysUse24HourFormat: false),
+            data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
             child: child!,
           ),
         );
         if (picked != null) {
-          final granted = await ref.read(reminderTimeProvider.notifier).set(picked);
+          final granted =
+              await ref.read(reminderTimeProvider.notifier).set(picked);
           if (!granted && context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -360,7 +368,9 @@ class _DailyReminderRow extends ConsumerWidget {
                 children: [
                   Text(s.dailyReminder,
                       style: TextStyle(
-                          fontSize: 15, color: gp.textPrimary, fontWeight: FontWeight.w500)),
+                          fontSize: 15,
+                          color: gp.textPrimary,
+                          fontWeight: FontWeight.w500)),
                   Text(
                     reminderTime == null
                         ? s.tapToSetReminder
@@ -507,7 +517,9 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
             Expanded(
               child: Text(s.prayerLocationTitle,
                   style: TextStyle(
-                      fontSize: 15, color: gp.textPrimary, fontWeight: FontWeight.w500)),
+                      fontSize: 15,
+                      color: gp.textPrimary,
+                      fontWeight: FontWeight.w500)),
             ),
             if (_detecting) ...[
               SizedBox(
@@ -519,7 +531,9 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
               const SizedBox(width: 6),
               Text(s.notifDetectingLocation,
                   style: TextStyle(
-                      fontSize: 13, color: gp.textSec, fontWeight: FontWeight.w600)),
+                      fontSize: 13,
+                      color: gp.textSec,
+                      fontWeight: FontWeight.w600)),
             ] else ...[
               Flexible(
                 child: Text(
@@ -527,12 +541,125 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
                   textAlign: TextAlign.end,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: 13, color: gp.textSec, fontWeight: FontWeight.w600),
+                      fontSize: 13,
+                      color: gp.textSec,
+                      fontWeight: FontWeight.w600),
                 ),
               ),
               const SizedBox(width: 6),
               Icon(Icons.my_location_rounded, size: 16, color: gp.textTert),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The "iOS/Android has this app's notifications switched off" warning —
+/// rendered at the very top of Notification Settings, and only when the OS
+/// itself is blocking delivery (see NotificationService.checkSystemPermission,
+/// and the real incident described there: every in-app toggle read "on",
+/// every schedule call "succeeded", and the system silently dropped all of
+/// it, test button included). Re-checks on every app resume, because the fix
+/// this banner sends someone to make happens in system Settings — the moment
+/// they come back is exactly the moment it should disappear.
+class _SystemPermissionBanner extends StatefulWidget {
+  const _SystemPermissionBanner();
+
+  @override
+  State<_SystemPermissionBanner> createState() =>
+      _SystemPermissionBannerState();
+}
+
+class _SystemPermissionBannerState extends State<_SystemPermissionBanner>
+    with WidgetsBindingObserver {
+  // null = unknown/not-yet-checked, which renders nothing: a wrong warning
+  // is worse than a missing one, so only an explicit "false" shows it.
+  bool? _enabled;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _check();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _check();
+  }
+
+  Future<void> _check() async {
+    final enabled = await NotificationService.instance.checkSystemPermission();
+    if (mounted) setState(() => _enabled = enabled);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_enabled != false) return const SizedBox.shrink();
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: GameColors.error.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: GameColors.error.withOpacity(0.4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.notifications_off_rounded,
+                    size: 18, color: GameColors.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    s.notifSystemPermissionOff,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.4,
+                      color: GameColors.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  // iOS deep-links straight to this app's own Settings page;
+                  // on Android the same call opens the app-info screen.
+                  launchUrl(Uri.parse('app-settings:'));
+                },
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  s.notifSystemPermissionOffAction,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: GameColors.error,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -616,11 +743,14 @@ class _SwitchRow extends StatelessWidget {
               children: [
                 Text(label,
                     style: TextStyle(
-                        fontSize: 15, color: gp.textPrimary, fontWeight: FontWeight.w500)),
+                        fontSize: 15,
+                        color: gp.textPrimary,
+                        fontWeight: FontWeight.w500)),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
                   Text(subtitle!,
-                      style: TextStyle(fontSize: 12, color: gp.textTert, height: 1.3)),
+                      style: TextStyle(
+                          fontSize: 12, color: gp.textTert, height: 1.3)),
                 ],
               ],
             ),
@@ -668,14 +798,19 @@ class _NavRow extends StatelessWidget {
             Expanded(
               child: Text(label,
                   style: TextStyle(
-                      fontSize: 15, color: gp.textPrimary, fontWeight: FontWeight.w500)),
+                      fontSize: 15,
+                      color: gp.textPrimary,
+                      fontWeight: FontWeight.w500)),
             ),
             Flexible(
               child: Text(
                 value,
                 textAlign: TextAlign.end,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, color: gp.textSec, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                    fontSize: 13,
+                    color: gp.textSec,
+                    fontWeight: FontWeight.w600),
               ),
             ),
             const SizedBox(width: 6),
@@ -716,14 +851,17 @@ class _InfoRow extends StatelessWidget {
           Expanded(
             child: Text(label,
                 style: TextStyle(
-                    fontSize: 15, color: gp.textPrimary, fontWeight: FontWeight.w500)),
+                    fontSize: 15,
+                    color: gp.textPrimary,
+                    fontWeight: FontWeight.w500)),
           ),
           Flexible(
             child: Text(
               value,
               textAlign: TextAlign.end,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: gp.textSec, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                  fontSize: 13, color: gp.textSec, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -762,10 +900,15 @@ class _TimeRow extends StatelessWidget {
             Expanded(
               child: Text(label,
                   style: TextStyle(
-                      fontSize: 15, color: gp.textPrimary, fontWeight: FontWeight.w500)),
+                      fontSize: 15,
+                      color: gp.textPrimary,
+                      fontWeight: FontWeight.w500)),
             ),
             Text(time.format(context),
-                style: TextStyle(fontSize: 13, color: gp.textSec, fontWeight: FontWeight.w600)),
+                style: TextStyle(
+                    fontSize: 13,
+                    color: gp.textSec,
+                    fontWeight: FontWeight.w600)),
             const SizedBox(width: 6),
             Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
           ],
@@ -803,7 +946,9 @@ class _StepperRow extends StatelessWidget {
           Expanded(
             child: Text(label,
                 style: TextStyle(
-                    fontSize: 15, color: gp.textPrimary, fontWeight: FontWeight.w500)),
+                    fontSize: 15,
+                    color: gp.textPrimary,
+                    fontWeight: FontWeight.w500)),
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
@@ -815,7 +960,8 @@ class _StepperRow extends StatelessWidget {
             child: Text(
               valueLabel,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: gp.textSec),
+              style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600, color: gp.textSec),
             ),
           ),
           IconButton(

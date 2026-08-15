@@ -129,15 +129,56 @@ class _GridHeader extends ConsumerWidget {
               // fine over a list, wrong over a grid where every cell is a
               // target. Up here it can never cover the thing the app is for,
               // and "+" needs no tooltip to be understood.
+              // Labelled, not a bare glyph. The comment above used to argue
+              // that "+" needs no tooltip — true of a "+" standing alone, but
+              // it does not stand alone: it sits immediately beside a second
+              // unlabelled glyph, and two mystery icons in a row make the
+              // app's single most important action look like a peer of the
+              // journal shortcut rather than the thing the screen is for.
+              // Naming it costs about 60pt of a header that has empty space to
+              // spare, and it is the one control a first-run user must find.
+              //
+              // Still in the header rather than a FAB, for the reason the
+              // original move records: a floating button over a grid covers a
+              // real, tappable square.
               if (showAddAction)
-                IconButton(
-                  key: addHabitKey,
-                  icon: Icon(Icons.add_rounded, color: GameColors.gold),
-                  tooltip: s.addHabit,
-                  onPressed: () {
-                    HapticFeedback.selectionClick();
-                    showAddHabitHub(context, ref);
-                  },
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 4),
+                  child: Material(
+                    color: GameColors.gold.withOpacity(gp.dark ? 0.16 : 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    child: InkWell(
+                      key: addHabitKey,
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        showAddHabitHub(context, ref);
+                      },
+                      child: Padding(
+                        // Asymmetric on purpose: the icon carries its own
+                        // optical padding, the text does not.
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                            10, 7, 12, 7),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.add_rounded,
+                                size: 18, color: GameColors.gold),
+                            const SizedBox(width: 5),
+                            Text(
+                              s.addHabit,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: GameColors.gold,
+                                height: 1.1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               IconButton(
                 // Not a moon: Sleep already uses a crescent

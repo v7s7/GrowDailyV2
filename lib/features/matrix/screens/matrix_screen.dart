@@ -31,7 +31,15 @@ bool _isSameDay(DateTime a, DateTime b) =>
 /// to createdAt, exactly the old behavior. See _isVisibleUnderFilter and
 /// build()'s carriedOver/todayTasks below — the only three places this is
 /// used.
-DateTime _anchorDay(MatrixTask t) => (t.reminderAt ?? t.createdAt).effectiveDay;
+// startOfDay, NOT effectiveDay: tasks roll over at real midnight, on
+// purpose. The 6 AM flex window exists for HABITS — a late sleeper's
+// 1 AM workout still counting toward the day they haven't slept on yet
+// (streaks, grid squares, room credit all stay on effectiveDay). A todo
+// board is a different thing: at 12 AM the phone says a new day, and the
+// board should agree — yesterday's finished tasks clear off to history,
+// "Today" means the actual calendar day. This was effectiveDay once, which
+// left the board looking stuck on yesterday until 6 in the morning.
+DateTime _anchorDay(MatrixTask t) => (t.reminderAt ?? t.createdAt).startOfDay;
 
 /// The three top-level lenses on the board — see _MatrixScreenState._filter.
 /// Deliberately just three plain client-side filters over one already-loaded
@@ -142,11 +150,12 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   /// re-filters matrixProvider's data on every rebuild) instead of freezing
   /// on a snapshot from the moment it was opened.
   bool _isVisibleUnderFilter(MatrixTask t) {
-    final now = DateTime.now().effectiveDay;
+    // Real midnight, not the habit flex cutoff — see _anchorDay's comment.
+    final now = DateTime.now().startOfDay;
     bool doneToday(MatrixTask x) =>
         x.isDone &&
         x.completedAt != null &&
-        _isSameDay(x.completedAt!.effectiveDay, now);
+        _isSameDay(x.completedAt!.startOfDay, now);
     if (t.isDone && !doneToday(t)) return false;
     if (_carriedOverOnly) {
       return !t.isDone && _anchorDay(t).isBefore(now);
@@ -189,8 +198,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
           onDelete: _deleteTask,
           onMove: _moveTask,
           onReorder: _reorderTask,
-          onToggleFav: (id) =>
-              ref.read(matrixProvider.notifier).toggleFav(id),
+          onToggleFav: (id) => ref.read(matrixProvider.notifier).toggleFav(id),
           onAddTapped: () => _showAdd(context, ref, quadrant),
           onOpenDetails: (task) => _openTaskDetails(context, ref, task),
         ),
@@ -283,19 +291,19 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       }
     });
 
-    final now = DateTime.now().effectiveDay;
+    // Real midnight, not the habit flex cutoff — see _anchorDay's comment.
+    final now = DateTime.now().startOfDay;
     bool doneToday(MatrixTask t) =>
         t.isDone &&
         t.completedAt != null &&
-        _isSameDay(t.completedAt!.effectiveDay, now);
+        _isSameDay(t.completedAt!.startOfDay, now);
 
     // A task stays on its own board — struck through, not gone — for the
     // rest of the day it was finished on. That's the "proof you did it"
     // moment a lot of task apps lose by yanking the row away the instant
-    // you check it. Only once the app day rolls over (see
-    // DateTimeGameExt.effectiveDay — the cutoff hour, not raw midnight)
-    // does it drop off here for good, at which point it's still reachable
-    // (forever) in Completed history via the header icon.
+    // you check it. Only once the calendar day itself rolls over at
+    // midnight does it drop off here for good, at which point it's still
+    // reachable (forever) in Completed history via the header icon.
     final visible =
         matrixState.tasks.where((t) => !t.isDone || doneToday(t)).toList();
     final completedCount = matrixState.tasks.where((t) => t.isDone).length;
@@ -308,25 +316,27 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     // starred or not. A task deliberately deferred with a future reminder
     // is excluded here on purpose — it hasn't arrived yet, so it isn't
     // stale.
-    final carriedOver = visible
-        .where((t) => !t.isDone && _anchorDay(t).isBefore(now))
-        .toList();
+    final carriedOver =
+        visible.where((t) => !t.isDone && _anchorDay(t).isBefore(now)).toList();
     // The default lens: today's own tasks (not yet done) plus anything
     // finished today. Deliberately excludes carriedOver — that's what the
     // chip below is for — so Today reads as "what's fresh right now"
     // instead of quietly re-showing every stale task All already covers.
     // `now` (and therefore this whole set) is re-derived from the device's
-    // clock on every build, so it rolls over on its own at the app day's
-    // cutoff hour (DateTimeGameExt.effectiveDay), not raw local midnight —
-    // a user in Bahrain resets on Bahrain's cutoff, no timer required.
+    // clock on every build, so it rolls over on its own at local midnight
+    // in the device's own timezone — a user in Bahrain resets on Bahrain's
+    // midnight, no timer required. (Real midnight, not the habit flex
+    // cutoff — see _anchorDay's comment for the tasks-vs-habits split.)
     final todayTasks = visible
-        .where((t) => (!t.isDone && _isSameDay(_anchorDay(t), now)) || doneToday(t))
+        .where((t) =>
+            (!t.isDone && _isSameDay(_anchorDay(t), now)) || doneToday(t))
         .toList();
     final tasks = _carriedOverOnly
         ? carriedOver
         : switch (_filter) {
             _MatrixFilter.today => todayTasks,
-            _MatrixFilter.fav => visible.where((t) => t.isFav || t.isDone).toList(),
+            _MatrixFilter.fav =>
+              visible.where((t) => t.isFav || t.isDone).toList(),
             _MatrixFilter.all => visible,
           };
 
@@ -360,357 +370,371 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       body: Stack(
         children: [
           SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Subtitle removed to give the board itself more room —
-                  // the title alone is enough to orient the screen, and
-                  // this was the only header on any main tab carrying a
-                  // second explanatory line.
-                  Expanded(
-                    child: Text(
-                      s.goalsMatrix,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: gp.textPrimary,
-                        letterSpacing: -0.4,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Subtitle removed to give the board itself more room —
+                      // the title alone is enough to orient the screen, and
+                      // this was the only header on any main tab carrying a
+                      // second explanatory line.
+                      Expanded(
+                        child: Text(
+                          s.goalsMatrix,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: gp.textPrimary,
+                            letterSpacing: -0.4,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: Badge(
-                      label: Text('$completedCount'),
-                      isLabelVisible: completedCount > 0,
-                      backgroundColor: GameColors.gold,
-                      textColor: Colors.black,
-                      child: Icon(Icons.check_circle_outline_rounded,
-                          color: gp.textSec),
-                    ),
-                    tooltip: s.matrixCompletedTitle,
-                    onPressed: () {
-                      HapticFeedback.selectionClick();
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const MatrixHistoryScreen()),
-                      );
-                    },
-                  ),
-                ],
-              ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.05),
-            ),
-            GetStartedChecklistCard(
-              // Grid's own screen owns the actual "add a habit" action (see
-              // grid_screen.dart's showAddHabitHub call) - from here, the
-              // right move is just getting there. See
-              // requestedHomeTabProvider's doc comment.
-              onAddHabit: () =>
-                  ref.read(requestedHomeTabProvider.notifier).state = 0,
-              onAddTask: () => _showAdd(context, ref, MatrixQuadrant.doFirst),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    _MatrixFilterToggle(
-                      filter: _filter,
-                      favCount: favCount,
-                      onChanged: (v) => setState(() {
-                        _filter = v;
-                        // Each segment and carried-over are separate lenses
-                        // on the same board — switching one backs out of
-                        // the other instead of trying to combine them.
-                        _carriedOverOnly = false;
-                      }),
-                    ),
-                    if (_filter != _MatrixFilter.fav && carriedOver.isNotEmpty)
-                      _CarriedOverChip(
-                        count: carriedOver.length,
-                        active: _carriedOverOnly,
-                        onTap: () => setState(
-                            () => _carriedOverOnly = !_carriedOverOnly),
+                      IconButton(
+                        icon: Badge(
+                          label: Text('$completedCount'),
+                          isLabelVisible: completedCount > 0,
+                          backgroundColor: GameColors.gold,
+                          textColor: Colors.black,
+                          child: Icon(Icons.check_circle_outline_rounded,
+                              color: gp.textSec),
+                        ),
+                        tooltip: s.matrixCompletedTitle,
+                        onPressed: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const MatrixHistoryScreen()),
+                          );
+                        },
                       ),
-                  ],
+                    ],
+                  ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.05),
                 ),
-              ),
-            ).animate(delay: 50.ms).fadeIn(duration: 300.ms),
-            if (_selectionMode) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                child: _SelectionBar(
-                  count: _selectedIds.length,
-                  onClear: _clearSelection,
-                  onDelete: _deleteSelected,
+                GetStartedChecklistCard(
+                  // Grid's own screen owns the actual "add a habit" action (see
+                  // grid_screen.dart's showAddHabitHub call) - from here, the
+                  // right move is just getting there. See
+                  // requestedHomeTabProvider's doc comment.
+                  onAddHabit: () =>
+                      ref.read(requestedHomeTabProvider.notifier).state = 0,
+                  onAddTask: () =>
+                      _showAdd(context, ref, MatrixQuadrant.doFirst),
                 ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  const SizedBox(width: 16),
-                  Expanded(
-                      child: _AxisLabel(
-                          label: s.matrixUrgent, icon: Icons.bolt_rounded)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: _AxisLabel(
-                          label: s.matrixNotUrgent,
-                          icon: Icons.schedule_rounded)),
-                ],
-              ).animate(delay: 100.ms).fadeIn(duration: 300.ms),
-            ),
-            const SizedBox(height: 6),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Column(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Expanded(
-                            child: _RotatedAxisLabel(label: s.matrixImportant)),
-                        const SizedBox(height: 8),
-                        Expanded(
-                            child:
-                                _RotatedAxisLabel(label: s.matrixNotImportant)),
+                        _MatrixFilterToggle(
+                          filter: _filter,
+                          favCount: favCount,
+                          onChanged: (v) => setState(() {
+                            _filter = v;
+                            // Each segment and carried-over are separate lenses
+                            // on the same board — switching one backs out of
+                            // the other instead of trying to combine them.
+                            _carriedOverOnly = false;
+                          }),
+                        ),
+                        if (_filter != _MatrixFilter.fav &&
+                            carriedOver.isNotEmpty)
+                          _CarriedOverChip(
+                            count: carriedOver.length,
+                            active: _carriedOverOnly,
+                            onTap: () => setState(
+                                () => _carriedOverOnly = !_carriedOverOnly),
+                          ),
                       ],
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: QuadrantCard(
-                                    key: _addTaskCardKey,
-                                    quadrant: MatrixQuadrant.doFirst,
-                                    tasks: tasks
-                                        .where((t) =>
-                                            t.quadrant ==
-                                            MatrixQuadrant.doFirst)
-                                        .toList(),
-                                    onToggle: (id) {
-                                      HapticFeedback.lightImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .toggle(id);
-                                    },
-                                    onDelete: _deleteTask,
-                                    onMove: _moveTask,
-                                    onReorder: _reorderTask,
-                                    onToggleFav: (id) => ref
-                                        .read(matrixProvider.notifier)
-                                        .toggleFav(id),
-                                    onAddTapped: () => _showAdd(
-                                        context,
-                                        ref,
-                                        MatrixQuadrant.doFirst),
-                                    onOpenDetails: (task) =>
-                                        _openTaskDetails(context, ref, task),
-                                    selectionMode: _selectionMode,
-                                    selectedIds: _selectedIds,
-                                    onSelectionToggle: _toggleSelection,
-                                    onSelectionStart: _startSelection,
-                                    onExpand: () => _openQuadrantExpanded(
-                                        context, ref, MatrixQuadrant.doFirst),
-                                    title: matrixState.titleFor(
-                                        MatrixQuadrant.doFirst, s.isAr),
-                                    color: matrixState
-                                        .colorFor(MatrixQuadrant.doFirst),
-                                    onEditQuadrant: () => _editQuadrant(
-                                        context, ref, MatrixQuadrant.doFirst),
-                                  )
-                                      .animate(delay: 150.ms)
-                                      .fadeIn(duration: 350.ms)
-                                      .scaleXY(
-                                          begin: 0.96,
-                                          end: 1,
-                                          curve: Curves.easeOutBack),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: QuadrantCard(
-                                    quadrant: MatrixQuadrant.schedule,
-                                    tasks: tasks
-                                        .where((t) =>
-                                            t.quadrant ==
-                                            MatrixQuadrant.schedule)
-                                        .toList(),
-                                    onToggle: (id) {
-                                      HapticFeedback.lightImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .toggle(id);
-                                    },
-                                    onDelete: _deleteTask,
-                                    onMove: _moveTask,
-                                    onReorder: _reorderTask,
-                                    onToggleFav: (id) => ref
-                                        .read(matrixProvider.notifier)
-                                        .toggleFav(id),
-                                    onAddTapped: () => _showAdd(
-                                        context,
-                                        ref,
-                                        MatrixQuadrant.schedule),
-                                    onOpenDetails: (task) =>
-                                        _openTaskDetails(context, ref, task),
-                                    selectionMode: _selectionMode,
-                                    selectedIds: _selectedIds,
-                                    onSelectionToggle: _toggleSelection,
-                                    onSelectionStart: _startSelection,
-                                    onExpand: () => _openQuadrantExpanded(
-                                        context, ref, MatrixQuadrant.schedule),
-                                    title: matrixState.titleFor(
-                                        MatrixQuadrant.schedule, s.isAr),
-                                    color: matrixState
-                                        .colorFor(MatrixQuadrant.schedule),
-                                    onEditQuadrant: () => _editQuadrant(context,
-                                        ref, MatrixQuadrant.schedule),
-                                  )
-                                      .animate(delay: 200.ms)
-                                      .fadeIn(duration: 350.ms)
-                                      .scaleXY(
-                                          begin: 0.96,
-                                          end: 1,
-                                          curve: Curves.easeOutBack),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Expanded(
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: QuadrantCard(
-                                    quadrant: MatrixQuadrant.delegate,
-                                    tasks: tasks
-                                        .where((t) =>
-                                            t.quadrant ==
-                                            MatrixQuadrant.delegate)
-                                        .toList(),
-                                    onToggle: (id) {
-                                      HapticFeedback.lightImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .toggle(id);
-                                    },
-                                    onDelete: _deleteTask,
-                                    onMove: _moveTask,
-                                    onReorder: _reorderTask,
-                                    onToggleFav: (id) => ref
-                                        .read(matrixProvider.notifier)
-                                        .toggleFav(id),
-                                    onAddTapped: () => _showAdd(
-                                        context,
-                                        ref,
-                                        MatrixQuadrant.delegate),
-                                    onOpenDetails: (task) =>
-                                        _openTaskDetails(context, ref, task),
-                                    selectionMode: _selectionMode,
-                                    selectedIds: _selectedIds,
-                                    onSelectionToggle: _toggleSelection,
-                                    onSelectionStart: _startSelection,
-                                    onExpand: () => _openQuadrantExpanded(
-                                        context, ref, MatrixQuadrant.delegate),
-                                    title: matrixState.titleFor(
-                                        MatrixQuadrant.delegate, s.isAr),
-                                    color: matrixState
-                                        .colorFor(MatrixQuadrant.delegate),
-                                    onEditQuadrant: () => _editQuadrant(context,
-                                        ref, MatrixQuadrant.delegate),
-                                  )
-                                      .animate(delay: 250.ms)
-                                      .fadeIn(duration: 350.ms)
-                                      .scaleXY(
-                                          begin: 0.96,
-                                          end: 1,
-                                          curve: Curves.easeOutBack),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: QuadrantCard(
-                                    quadrant: MatrixQuadrant.eliminate,
-                                    tasks: tasks
-                                        .where((t) =>
-                                            t.quadrant ==
-                                            MatrixQuadrant.eliminate)
-                                        .toList(),
-                                    onToggle: (id) {
-                                      HapticFeedback.lightImpact();
-                                      ref
-                                          .read(matrixProvider.notifier)
-                                          .toggle(id);
-                                    },
-                                    onDelete: _deleteTask,
-                                    onMove: _moveTask,
-                                    onReorder: _reorderTask,
-                                    onToggleFav: (id) => ref
-                                        .read(matrixProvider.notifier)
-                                        .toggleFav(id),
-                                    onAddTapped: () => _showAdd(
-                                        context,
-                                        ref,
-                                        MatrixQuadrant.eliminate),
-                                    onOpenDetails: (task) =>
-                                        _openTaskDetails(context, ref, task),
-                                    selectionMode: _selectionMode,
-                                    selectedIds: _selectedIds,
-                                    onSelectionToggle: _toggleSelection,
-                                    onSelectionStart: _startSelection,
-                                    onExpand: () => _openQuadrantExpanded(context,
-                                        ref, MatrixQuadrant.eliminate),
-                                    title: matrixState.titleFor(
-                                        MatrixQuadrant.eliminate, s.isAr),
-                                    color: matrixState
-                                        .colorFor(MatrixQuadrant.eliminate),
-                                    onEditQuadrant: () => _editQuadrant(context,
-                                        ref, MatrixQuadrant.eliminate),
-                                  )
-                                      .animate(delay: 300.ms)
-                                      .fadeIn(duration: 350.ms)
-                                      .scaleXY(
-                                          begin: 0.96,
-                                          end: 1,
-                                          curve: Curves.easeOutBack),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                  ),
+                ).animate(delay: 50.ms).fadeIn(duration: 300.ms),
+                if (_selectionMode) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    child: _SelectionBar(
+                      count: _selectedIds.length,
+                      onClear: _clearSelection,
+                      onDelete: _deleteSelected,
                     ),
-                  ],
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 16),
+                      Expanded(
+                          child: _AxisLabel(
+                              label: s.matrixUrgent, icon: Icons.bolt_rounded)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: _AxisLabel(
+                              label: s.matrixNotUrgent,
+                              icon: Icons.schedule_rounded)),
+                    ],
+                  ).animate(delay: 100.ms).fadeIn(duration: 300.ms),
                 ),
-              ),
+                const SizedBox(height: 6),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Column(
+                          children: [
+                            Expanded(
+                                child: _RotatedAxisLabel(
+                                    label: s.matrixImportant)),
+                            const SizedBox(height: 8),
+                            Expanded(
+                                child: _RotatedAxisLabel(
+                                    label: s.matrixNotImportant)),
+                          ],
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: QuadrantCard(
+                                        key: _addTaskCardKey,
+                                        quadrant: MatrixQuadrant.doFirst,
+                                        tasks: tasks
+                                            .where((t) =>
+                                                t.quadrant ==
+                                                MatrixQuadrant.doFirst)
+                                            .toList(),
+                                        onToggle: (id) {
+                                          HapticFeedback.lightImpact();
+                                          ref
+                                              .read(matrixProvider.notifier)
+                                              .toggle(id);
+                                        },
+                                        onDelete: _deleteTask,
+                                        onMove: _moveTask,
+                                        onReorder: _reorderTask,
+                                        onToggleFav: (id) => ref
+                                            .read(matrixProvider.notifier)
+                                            .toggleFav(id),
+                                        onAddTapped: () => _showAdd(context,
+                                            ref, MatrixQuadrant.doFirst),
+                                        onOpenDetails: (task) =>
+                                            _openTaskDetails(
+                                                context, ref, task),
+                                        selectionMode: _selectionMode,
+                                        selectedIds: _selectedIds,
+                                        onSelectionToggle: _toggleSelection,
+                                        onSelectionStart: _startSelection,
+                                        onExpand: () => _openQuadrantExpanded(
+                                            context,
+                                            ref,
+                                            MatrixQuadrant.doFirst),
+                                        title: matrixState.titleFor(
+                                            MatrixQuadrant.doFirst, s.isAr),
+                                        color: matrixState
+                                            .colorFor(MatrixQuadrant.doFirst),
+                                        onEditQuadrant: () => _editQuadrant(
+                                            context,
+                                            ref,
+                                            MatrixQuadrant.doFirst),
+                                      )
+                                          .animate(delay: 150.ms)
+                                          .fadeIn(duration: 350.ms)
+                                          .scaleXY(
+                                              begin: 0.96,
+                                              end: 1,
+                                              curve: Curves.easeOutBack),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: QuadrantCard(
+                                        quadrant: MatrixQuadrant.schedule,
+                                        tasks: tasks
+                                            .where((t) =>
+                                                t.quadrant ==
+                                                MatrixQuadrant.schedule)
+                                            .toList(),
+                                        onToggle: (id) {
+                                          HapticFeedback.lightImpact();
+                                          ref
+                                              .read(matrixProvider.notifier)
+                                              .toggle(id);
+                                        },
+                                        onDelete: _deleteTask,
+                                        onMove: _moveTask,
+                                        onReorder: _reorderTask,
+                                        onToggleFav: (id) => ref
+                                            .read(matrixProvider.notifier)
+                                            .toggleFav(id),
+                                        onAddTapped: () => _showAdd(context,
+                                            ref, MatrixQuadrant.schedule),
+                                        onOpenDetails: (task) =>
+                                            _openTaskDetails(
+                                                context, ref, task),
+                                        selectionMode: _selectionMode,
+                                        selectedIds: _selectedIds,
+                                        onSelectionToggle: _toggleSelection,
+                                        onSelectionStart: _startSelection,
+                                        onExpand: () => _openQuadrantExpanded(
+                                            context,
+                                            ref,
+                                            MatrixQuadrant.schedule),
+                                        title: matrixState.titleFor(
+                                            MatrixQuadrant.schedule, s.isAr),
+                                        color: matrixState
+                                            .colorFor(MatrixQuadrant.schedule),
+                                        onEditQuadrant: () => _editQuadrant(
+                                            context,
+                                            ref,
+                                            MatrixQuadrant.schedule),
+                                      )
+                                          .animate(delay: 200.ms)
+                                          .fadeIn(duration: 350.ms)
+                                          .scaleXY(
+                                              begin: 0.96,
+                                              end: 1,
+                                              curve: Curves.easeOutBack),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: QuadrantCard(
+                                        quadrant: MatrixQuadrant.delegate,
+                                        tasks: tasks
+                                            .where((t) =>
+                                                t.quadrant ==
+                                                MatrixQuadrant.delegate)
+                                            .toList(),
+                                        onToggle: (id) {
+                                          HapticFeedback.lightImpact();
+                                          ref
+                                              .read(matrixProvider.notifier)
+                                              .toggle(id);
+                                        },
+                                        onDelete: _deleteTask,
+                                        onMove: _moveTask,
+                                        onReorder: _reorderTask,
+                                        onToggleFav: (id) => ref
+                                            .read(matrixProvider.notifier)
+                                            .toggleFav(id),
+                                        onAddTapped: () => _showAdd(context,
+                                            ref, MatrixQuadrant.delegate),
+                                        onOpenDetails: (task) =>
+                                            _openTaskDetails(
+                                                context, ref, task),
+                                        selectionMode: _selectionMode,
+                                        selectedIds: _selectedIds,
+                                        onSelectionToggle: _toggleSelection,
+                                        onSelectionStart: _startSelection,
+                                        onExpand: () => _openQuadrantExpanded(
+                                            context,
+                                            ref,
+                                            MatrixQuadrant.delegate),
+                                        title: matrixState.titleFor(
+                                            MatrixQuadrant.delegate, s.isAr),
+                                        color: matrixState
+                                            .colorFor(MatrixQuadrant.delegate),
+                                        onEditQuadrant: () => _editQuadrant(
+                                            context,
+                                            ref,
+                                            MatrixQuadrant.delegate),
+                                      )
+                                          .animate(delay: 250.ms)
+                                          .fadeIn(duration: 350.ms)
+                                          .scaleXY(
+                                              begin: 0.96,
+                                              end: 1,
+                                              curve: Curves.easeOutBack),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: QuadrantCard(
+                                        quadrant: MatrixQuadrant.eliminate,
+                                        tasks: tasks
+                                            .where((t) =>
+                                                t.quadrant ==
+                                                MatrixQuadrant.eliminate)
+                                            .toList(),
+                                        onToggle: (id) {
+                                          HapticFeedback.lightImpact();
+                                          ref
+                                              .read(matrixProvider.notifier)
+                                              .toggle(id);
+                                        },
+                                        onDelete: _deleteTask,
+                                        onMove: _moveTask,
+                                        onReorder: _reorderTask,
+                                        onToggleFav: (id) => ref
+                                            .read(matrixProvider.notifier)
+                                            .toggleFav(id),
+                                        onAddTapped: () => _showAdd(context,
+                                            ref, MatrixQuadrant.eliminate),
+                                        onOpenDetails: (task) =>
+                                            _openTaskDetails(
+                                                context, ref, task),
+                                        selectionMode: _selectionMode,
+                                        selectedIds: _selectedIds,
+                                        onSelectionToggle: _toggleSelection,
+                                        onSelectionStart: _startSelection,
+                                        onExpand: () => _openQuadrantExpanded(
+                                            context,
+                                            ref,
+                                            MatrixQuadrant.eliminate),
+                                        title: matrixState.titleFor(
+                                            MatrixQuadrant.eliminate, s.isAr),
+                                        color: matrixState
+                                            .colorFor(MatrixQuadrant.eliminate),
+                                        onEditQuadrant: () => _editQuadrant(
+                                            context,
+                                            ref,
+                                            MatrixQuadrant.eliminate),
+                                      )
+                                          .animate(delay: 300.ms)
+                                          .fadeIn(duration: 350.ms)
+                                          .scaleXY(
+                                              begin: 0.96,
+                                              end: 1,
+                                              curve: Curves.easeOutBack),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
           ),
           if (ref.watch(activeAppGuideLessonProvider) == AppGuideLesson.addTask)
             CoachMarkOverlay(
               targetKey: _addTaskCardKey,
               title: appGuideLessonCoachTitle(AppGuideLesson.addTask, s.isAr),
               body: appGuideLessonCoachBody(AppGuideLesson.addTask, s.isAr),
-              onDismiss: () => ref
-                  .read(activeAppGuideLessonProvider.notifier)
-                  .state = null,
+              onDismiss: () =>
+                  ref.read(activeAppGuideLessonProvider.notifier).state = null,
             ),
         ],
       ),
@@ -749,8 +773,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   // as QuadrantCard/_TaskTile below — it never touches matrixProvider
   // directly, so this screen stays the one place that owns provider access
   // for the whole feature.
-  void _openTaskDetails(
-      BuildContext context, WidgetRef ref, MatrixTask task) {
+  void _openTaskDetails(BuildContext context, WidgetRef ref, MatrixTask task) {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
@@ -771,9 +794,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                 ),
         onAddVoiceNote: (id, note) =>
             ref.read(matrixProvider.notifier).addVoiceNote(id, note),
-        onRenameVoiceNote: (id, noteId, name) => ref
-            .read(matrixProvider.notifier)
-            .renameVoiceNote(id, noteId, name),
+        onRenameVoiceNote: (id, noteId, name) =>
+            ref.read(matrixProvider.notifier).renameVoiceNote(id, noteId, name),
         onRemoveVoiceNote: (id, noteId) =>
             ref.read(matrixProvider.notifier).removeVoiceNote(id, noteId),
         onSetReminder: (id, reminderAt) =>
@@ -784,7 +806,6 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     );
   }
 }
-
 
 class _SelectionBar extends StatelessWidget {
   final int count;
@@ -1000,9 +1021,8 @@ class _FilterSegment extends StatelessWidget {
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: active
-                ? GameColors.gold.withOpacity(0.16)
-                : Colors.transparent,
+            color:
+                active ? GameColors.gold.withOpacity(0.16) : Colors.transparent,
             borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
             boxShadow: active
                 ? [

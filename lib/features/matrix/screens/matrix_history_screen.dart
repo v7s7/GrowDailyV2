@@ -35,7 +35,10 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
   @override
   void initState() {
     super.initState();
-    final today = DateTime.now().effectiveDay;
+    // Real midnight, matching the board's own day-roll — see
+    // _anchorDay's comment in matrix_screen.dart for the tasks-vs-habits
+    // split (habits keep the 6 AM flex cutoff; the todo board does not).
+    final today = DateTime.now().startOfDay;
     _visibleMonth = DateTime(today.year, today.month);
     _selectedDate = today;
   }
@@ -46,8 +49,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
   void _changeMonth(int delta) {
     HapticFeedback.selectionClick();
     setState(() {
-      _visibleMonth =
-          DateTime(_visibleMonth.year, _visibleMonth.month + delta);
+      _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + delta);
       _selectedDate = null;
     });
   }
@@ -58,7 +60,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
     final s = S.of(context);
     final isAr = s.isAr;
     final locale = Localizations.localeOf(context).languageCode;
-    final today = DateTime.now().effectiveDay;
+    final today = DateTime.now().startOfDay;
 
     final doneTasks =
         ref.watch(matrixProvider).tasks.where((t) => t.isDone).toList();
@@ -79,13 +81,14 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
       );
     }
 
-    // effectiveDay, not a raw calendar date — a task finished at 12:40 AM
-    // groups under the day that hadn't ended yet (matching the calendar
-    // cell it'll actually appear under below), not the next morning's
-    // date. See DateTimeGameExt.effectiveDay.
+    // Real calendar date, matching the board's midnight day-roll — a task
+    // finished at 12:40 AM groups under the new day, exactly the day the
+    // board itself showed it as "done today" on. (Habits keep the 6 AM
+    // flex cutoff; the todo board deliberately does not — see
+    // _anchorDay's comment in matrix_screen.dart.)
     final Map<DateTime, List<MatrixTask>> byDate = {};
     for (final t in doneTasks) {
-      final d = (t.completedAt ?? t.createdAt).effectiveDay;
+      final d = (t.completedAt ?? t.createdAt).startOfDay;
       byDate.putIfAbsent(d, () => []).add(t);
     }
 
@@ -95,8 +98,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
           ..sort((a, b) => (b.completedAt ?? b.createdAt)
               .compareTo(a.completedAt ?? a.createdAt)));
 
-    final canGoNext =
-        _visibleMonth.isBefore(DateTime(today.year, today.month));
+    final canGoNext = _visibleMonth.isBefore(DateTime(today.year, today.month));
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -158,7 +160,8 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
                                     horizontal: 7, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: GameColors.gold.withOpacity(0.16),
-                                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                                  borderRadius: BorderRadius.circular(
+                                      GameSpacing.pillRadius),
                                 ),
                                 child: Text('${dayTasks.length}',
                                     style: TextStyle(
@@ -567,8 +570,7 @@ class _HistoryRow extends ConsumerWidget {
             content: Text(s.matrixTaskDeleted(task.title)),
             action: SnackBarAction(
               label: s.matrixUndo,
-              onPressed: () =>
-                  ref.read(matrixProvider.notifier).restore(task),
+              onPressed: () => ref.read(matrixProvider.notifier).restore(task),
             ),
             duration: const Duration(seconds: 5),
           ),
@@ -581,8 +583,8 @@ class _HistoryRow extends ConsumerWidget {
           color: GameColors.error.withOpacity(0.12),
           borderRadius: BorderRadius.circular(14),
         ),
-        child: const Icon(Icons.delete_outline_rounded,
-            color: GameColors.error),
+        child:
+            const Icon(Icons.delete_outline_rounded, color: GameColors.error),
       ),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -596,8 +598,7 @@ class _HistoryRow extends ConsumerWidget {
             Container(
               width: 8,
               height: 8,
-              decoration:
-                  BoxDecoration(color: color, shape: BoxShape.circle),
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -617,9 +618,7 @@ class _HistoryRow extends ConsumerWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    completedLabel.isEmpty
-                        ? title
-                        : '$title · $completedLabel',
+                    completedLabel.isEmpty ? title : '$title · $completedLabel',
                     style: TextStyle(fontSize: 11, color: gp.textTert),
                   ),
                 ],

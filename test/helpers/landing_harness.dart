@@ -31,7 +31,15 @@ class LandingHarness {
 
   /// Call from setUp. Opens the app's boxes for real, then resolves auth so
   /// dependent notifiers are created exactly once.
-  Future<void> prepare({List<String> activeCatalogIds = const []}) async {
+  ///
+  /// [extraOverrides] lets a test pin providers the real app derives from
+  /// state a widget test can't reach (e.g. a LIVE room making
+  /// roomBoostedHabitsProvider non-empty — see
+  /// grid_square_alignment_test.dart's boosted-row case).
+  Future<void> prepare({
+    List<String> activeCatalogIds = const [],
+    List<Override> extraOverrides = const [],
+  }) async {
     // Completion fires a local "habit completed" notification, and the
     // flutter_local_notifications platform interface is never registered in
     // a pure Dart test — so the plugin call throws a LateInitializationError
@@ -58,6 +66,7 @@ class LandingHarness {
     container = ProviderContainer(
       overrides: [
         authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
+        ...extraOverrides,
       ],
     );
     await container.read(authStateProvider.future);

@@ -6,6 +6,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
 import '../notifiers/rooms_notifier.dart';
@@ -387,13 +388,60 @@ class _RoomPreviewCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 4),
-          Text(
-            room.habitMode == RoomHabitMode.shared
-                ? s.roomPreviewSharedHabit(
-                    room.sharedHabits.map((h) => h.name).join(', '))
-                : s.roomPreviewOwnMode,
-            style: TextStyle(fontSize: 12, color: gp.textSec),
-          ),
+          if (room.habitMode != RoomHabitMode.shared)
+            Text(
+              s.roomPreviewOwnMode,
+              style: TextStyle(fontSize: 12, color: gp.textSec),
+            )
+          else ...[
+            // One row per habit instead of a comma-joined list of bare names.
+            // Someone deciding whether to join is being asked to commit to a
+            // commitment, and the name alone never said what it was: "تمرين"
+            // could be every single day or four times a week, and those are
+            // very different things to agree to. Both facts are already on
+            // RoomHabitTemplate (frequencyType/frequencyTarget/category), so
+            // this is purely a matter of showing what the room already knows.
+            Text(
+              s.roomPreviewSharedHabitsLabel,
+              style: TextStyle(fontSize: 12, color: gp.textSec),
+            ),
+            const SizedBox(height: 6),
+            for (final h in room.sharedHabits.where((h) => h.removedAt == null))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Row(
+                  children: [
+                    Icon(h.category.icon, size: 14, color: gp.textSec),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        h.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: gp.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // The cadence, stated plainly. This is the single fact an
+                    // invitee most needs and the one the old line omitted.
+                    Text(
+                      h.frequencyType == HabitFrequencyType.weekly
+                          ? s.habitWeeklyTimes(h.frequencyTarget)
+                          : s.habitDaily,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: GameColors.emerald,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ],
       ),
     );

@@ -19,6 +19,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:grow_daily_v2/features/grid/models/square_state.dart';
+import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
+import 'package:grow_daily_v2/features/rooms/models/room_model.dart';
+import 'package:grow_daily_v2/features/rooms/notifiers/rooms_notifier.dart';
+
 import '../../helpers/landing_harness.dart';
 
 void main() {
@@ -58,8 +63,8 @@ void main() {
   /// `semanticLabel:` argument in _GridTable._habitRow). That is the only
   /// stable public handle on a private widget, and it has the pleasant side
   /// effect that this test also fails if the labels regress to unlabelled.
-  Map<String, List<Rect>> squaresByHabit(WidgetTester tester,
-      List<String> habitNames) {
+  Map<String, List<Rect>> squaresByHabit(
+      WidgetTester tester, List<String> habitNames) {
     final out = <String, List<Rect>>{};
     for (final name in habitNames) {
       final finder = find.bySemanticsLabel(RegExp('^${RegExp.escape(name)},'));
@@ -105,7 +110,8 @@ void main() {
     }
   });
 
-  testWidgets('each weekday column is a straight vertical line', (tester) async {
+  testWidgets('each weekday column is a straight vertical line',
+      (tester) async {
     await h.pumpApp(tester);
 
     final byHabit = squaresByHabit(tester, names);
@@ -140,15 +146,15 @@ void main() {
     setUp(() {
       // iPhone 17 Pro logical size, the device the report came from.
       const dpr = 3.0;
-      final view = TestWidgetsFlutterBinding.instance.platformDispatcher
-          .implicitView!;
+      final view =
+          TestWidgetsFlutterBinding.instance.platformDispatcher.implicitView!;
       view.physicalSize = const Size(402 * dpr, 874 * dpr);
       view.devicePixelRatio = dpr;
     });
 
     tearDown(() {
-      final view = TestWidgetsFlutterBinding.instance.platformDispatcher
-          .implicitView!;
+      final view =
+          TestWidgetsFlutterBinding.instance.platformDispatcher.implicitView!;
       view.resetPhysicalSize();
       view.resetDevicePixelRatio();
     });
@@ -233,13 +239,149 @@ void main() {
     });
   });
 
+  // The gap the boost-badge bug slipped through: none of the five fixture
+  // habits above is room-boosted, so the "2x" badge (and the gold in-room
+  // ring) never rendered in any of these tests, and geometry that bent only
+  // at boosted rows passed every assertion. The badge hovers over the icon
+  // via a Positioned in a Clip.none Stack — see _habitRow in
+  // grid_screen_table.dart — and its whole design contract is "paints
+  // outside the icon's bounds, contributes nothing to layout". That contract
+  // is what this group measures: with a boosted habit sandwiched between
+  // plain ones, every weekday column must still be one straight line.
+  group('with a room-boosted habit among plain ones', () {
+    setUp(() async {
+      // Replace the harness the file-level setUp just made: boost state has
+      // to be pinned at container construction, and a harness can only be
+      // prepared once (late final fields).
+      h.dispose();
+      h = LandingHarness();
+      await h.prepare(
+        activeCatalogIds: const [
+          'inbox_zero',
+          'sunnah_fasting',
+          'quran_daily_page',
+          'sleep_schedule',
+          'cold_shower',
+        ],
+        extraOverrides: [
+          // The middle habit is linked to a room AND live-boosted, so both
+          // the gold ring and the overhanging "2x" badge render. Overridden
+          // directly (rather than assembling a live RoomModel) because these
+          // are plain derived Providers and the badge only reads membership.
+          myLinkedRoomHabitsProvider
+              .overrideWithValue({'quran_daily_page': <RoomModel>[]}),
+          roomBoostedHabitsProvider
+              .overrideWithValue(const {'quran_daily_page'}),
+        ],
+      );
+    });
+
+    testWidgets('columns stay straight and rows share a baseline',
+        (tester) async {
+      // Not h.pumpApp: the boost badge's flame pulses in an infinite repeat
+      // (see _BoostBadge), so pumpAndSettle can never settle while a boosted
+      // row is on screen. Fixed pumps instead, far enough to be past every
+      // row's staggered entrance fade (5 rows × 45ms delay + 320ms).
+      await tester.pumpWidget(h.app());
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      final byHabit = squaresByHabit(tester, names);
+      final rows = byHabit.values.where((r) => r.isNotEmpty).toList();
+      expect(rows, isNotEmpty, reason: 'no squares matched — finder is stale');
+      expect(byHabit['Quran Daily Page'], isNotEmpty,
+          reason: 'the boosted habit itself rendered no squares — the badge '
+              'code path under test never ran');
+
+      expect(rows.map((r) => r.length).toSet(), hasLength(1),
+          reason: 'rows rendered different square counts');
+      for (var col = 0; col < rows.first.length; col++) {
+        final lefts = rows.map((r) => r[col].left.roundToDouble()).toSet();
+        expect(
+          lefts,
+          hasLength(1),
+          reason: 'column $col bends at the boosted row — the 2x badge is '
+              'leaking width into layout again (it must only ever paint '
+              'outside the icon, never lay out outside it): $lefts',
+        );
+      }
+      for (final entry in byHabit.entries.where((e) => e.value.isNotEmpty)) {
+        final tops = entry.value.map((r) => r.top.roundToDouble()).toSet();
+        expect(
+          tops,
+          hasLength(1),
+          reason: '"${entry.key}" squares sit at different heights: $tops',
+        );
+      }
+
+      final sizes = rows
+          .expand((r) => r)
+          .map((r) => '${r.width.roundToDouble()}x${r.height.roundToDouble()}')
+          .toSet();
+      expect(
+        sizes,
+        hasLength(1),
+        reason: 'boosted board has more than one square size: $sizes',
+      );
+    });
+  });
+
+  // The gap the shimmer bug slipped through: every fixture above renders an
+  // all-empty board, and the bug only exists on *marked* squares. A square
+  // turning green celebrates with flutter_animate's shimmer — whose
+  // ShimmerEffect is not layout-neutral by default: it wraps its child in
+  // Padding(EdgeInsets.all(0.5)), one full extra logical pixel of size per
+  // green square for as long as the effect widget is in the tree. Measured
+  // on device: each green square rendered 1pt wider than its neighbours, so
+  // rows drifted +1pt per green square and the weekday columns bent at
+  // exactly the well-filled rows. `padding: 0` in _SquareCell opts out; this
+  // test is what notices if that ever regresses (or if any future
+  // celebration effect on marked squares grows a layout footprint).
+  testWidgets('marked squares (green included) keep columns straight',
+      (tester) async {
+    final grid = h.container.read(weeklyGridProvider.notifier);
+    final days = h.container.read(weeklyGridProvider).days;
+    // A fully green row (the worst case: +1pt each made it drift 7pt), a
+    // sparse mixed row, and untouched empty rows to compare against —
+    // written state-only, so no reward paths run inside the test zone.
+    for (final day in days) {
+      grid.setSquareStateOnly('quran_daily_page', day, SquareState.complete);
+    }
+    grid.setSquareStateOnly('cold_shower', days[1], SquareState.complete);
+    grid.setSquareStateOnly('cold_shower', days[2], SquareState.failed);
+    grid.setSquareStateOnly('cold_shower', days[3], SquareState.partial);
+
+    await h.pumpApp(tester);
+
+    final byHabit = squaresByHabit(tester, names);
+    final rows = byHabit.values.where((r) => r.isNotEmpty).toList();
+    expect(rows, isNotEmpty, reason: 'no squares matched — finder is stale');
+    expect(byHabit['Quran Daily Page'], isNotEmpty,
+        reason: 'the all-green row itself rendered no squares — the case '
+            'under test never ran');
+
+    final sizes =
+        rows.expand((r) => r).map((r) => '${r.width}x${r.height}').toSet();
+    expect(sizes, hasLength(1),
+        reason: 'marked squares are a different size than empty ones — a '
+            'celebration effect is adding layout (see the shimmer padding '
+            'comment in _SquareCell): $sizes');
+
+    expect(rows.map((r) => r.length).toSet(), hasLength(1),
+        reason: 'rows rendered different square counts');
+    for (var col = 0; col < rows.first.length; col++) {
+      final lefts = rows.map((r) => r[col].left.roundToDouble()).toSet();
+      expect(lefts, hasLength(1),
+          reason: 'column $col bends at the rows with marked squares: '
+              '$lefts');
+    }
+  });
+
   testWidgets('every square on the board is identically sized', (tester) async {
     await h.pumpApp(tester);
 
-    final all = squaresByHabit(tester, names)
-        .values
-        .expand((r) => r)
-        .toList();
+    final all = squaresByHabit(tester, names).values.expand((r) => r).toList();
     expect(all, isNotEmpty, reason: 'no squares matched — finder is stale');
 
     final sizes = all
