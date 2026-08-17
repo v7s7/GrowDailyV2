@@ -33,6 +33,37 @@ class HabitPattern {
   }
 }
 
+/// Habits ordered for the per-habit rate list: best first, but never on a
+/// rate computed from almost nothing.
+///
+/// A plain `sort by rate` put a habit scheduled once and completed once at
+/// the very top on 100% — above one completed 18 times out of 28 — which
+/// reads as "your strongest habit" when the honest answer is "one day isn't
+/// a rate". Anything under [minSamples] scheduled days sinks below every
+/// habit that has a real sample behind it, keeping its row (it's still the
+/// user's own data; hiding it would be a worse lie than ranking it low)
+/// but stopping it from crowning the list.
+///
+/// Ties break on volume, so two habits at the same rate order by how much
+/// work is actually behind that rate.
+///
+/// Pure and order-stable — no Riverpod, no Firestore. See
+/// test/features/insights/insight_ranking_test.dart.
+List<HabitPattern> rankHabitPatterns(
+  Iterable<HabitPattern> patterns, {
+  int minSamples = 5,
+}) {
+  final ranked = patterns.toList()
+    ..sort((a, b) {
+      final aThin = a.scheduled < minSamples;
+      final bThin = b.scheduled < minSamples;
+      if (aThin != bThin) return aThin ? 1 : -1;
+      final byRate = b.rate.compareTo(a.rate);
+      return byRate != 0 ? byRate : b.scheduled.compareTo(a.scheduled);
+    });
+  return ranked;
+}
+
 /// Everything the Insights screen renders, distilled from the raw per-day
 /// docs. Pure output of [computeInsights].
 class InsightsResult {

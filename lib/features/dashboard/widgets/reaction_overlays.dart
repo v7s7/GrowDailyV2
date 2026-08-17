@@ -8,6 +8,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../achievements/models/achievement_model.dart';
 import '../../achievements/widgets/achievement_medal.dart';
+import '../../achievements/widgets/tier_palette.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../notifiers/dashboard_notifier.dart';
 
@@ -540,19 +541,17 @@ class AchievementUnlockSheet extends StatelessWidget {
   final AchievementModel achievement;
   const AchievementUnlockSheet({super.key, required this.achievement});
 
-  Color get _color => switch (achievement.tier) {
-        AchievementTier.bronze => GameColors.tierBronze,
-        AchievementTier.silver => GameColors.tierSilver,
-        AchievementTier.gold => GameColors.tierGold,
-        AchievementTier.platinum => GameColors.tierPlatinum,
-      };
-
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
     final isAr = s.isAr;
-    final c = _color;
+    // The tier's on-surface ink, not its fill — this color is used for the
+    // sheet's border, caption and reward text, all of which sit on
+    // `gp.surfaceHigh`. Reading the fill shade here (which is what the
+    // inlined switch this replaced returned) put Silver's #B8C0C8 on a
+    // white sheet at roughly 1.6:1. See TierPalette.
+    final c = TierPalette.from(context, achievement.tier).ink;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
       child: Container(
@@ -582,6 +581,16 @@ class AchievementUnlockSheet extends StatelessWidget {
                 size: 88,
                 state: MedalState.unlocked,
                 loopShimmer: true,
+                // No numeral here alone: the tier's full name is printed as
+                // its own pill directly below this medal, so the stamped
+                // "III" would just be the same fact twice.
+                showNumeral: false,
+                semanticLabel: medalSemanticLabel(
+                  achievement: achievement,
+                  state: MedalState.unlocked,
+                  current: achievement.threshold,
+                  isAr: isAr,
+                ),
               )
                   .animate()
                   .scale(

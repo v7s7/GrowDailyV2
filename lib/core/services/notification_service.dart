@@ -167,6 +167,25 @@ class NotificationService {
   bool _celebrationsEnabled = true;
   set celebrationsEnabled(bool value) => _celebrationsEnabled = value;
 
+  /// Whether the app is currently running in Arabic — kept in sync by the
+  /// same main.dart listener that maintains [celebrationsEnabled] above,
+  /// and for the same reason (this is a plain singleton with no
+  /// ProviderRef and no BuildContext, so it can't read the locale itself).
+  ///
+  /// The celebration notifications below used to be hardcoded English —
+  /// "Level up!", "Achievement unlocked", "+120 XP · +30 Gold" — which
+  /// meant an Arabic user earned "شهر من الإتقان" in the app and then got
+  /// a push notification about "Month of Mastery". Every *scheduled*
+  /// notification in this file was already localized (they take an `isAr`
+  /// argument from a widget that has a BuildContext); these three fire
+  /// from DashboardNotifier, which has neither, hence the flag.
+  ///
+  /// Callers that need to localize their *own* argument — picking
+  /// `AchievementModel.localName` for [showAchievementUnlocked], say —
+  /// read this too, rather than each carrying a separate copy of the
+  /// locale down to the call site.
+  bool isArabic = false;
+
   void _dispatch(NotificationResponse response) {
     final callback = _onAction;
     if (callback == null) {
@@ -1078,8 +1097,43 @@ class NotificationService {
   // much larger id space here.
   static const _taskReminderBase = 10000;
   static const _taskReminderRange = 50000;
-  int _taskReminderId(String taskId) =>
-      _taskReminderBase + taskId.hashCode.abs() % _taskReminderRange;
+
+  /// How many reminder slots a single task can occupy. iOS caps an app at
+  /// 64 *pending* local notifications in total, app-wide — and this app is
+  /// already spending that budget on habit reminders, streak nudges and
+  /// quit check-ins. Without a per-task ceiling, one task with a long
+  /// alarm stack would silently evict other reminders the user cares about
+  /// more, with no error anywhere: the OS just stops delivering. Eight
+  /// escalating nudges for one task is already well past what anyone
+  /// realistically sets, so this bounds the damage while staying invisible
+  /// in practice.
+  ///
+  /// Doubles as the cancel bound: [cancelTaskReminder] sweeps exactly this
+  /// many slots, so a task can never leave an orphaned schedule behind for
+  /// an index that's no longer in its list. Raising this later is safe;
+  /// *lowering* it would strand already-scheduled slots above the new
+  /// value, so don't, without a one-off sweep at the old bound first.
+  static const kMaxTaskReminderSlots = 8;
+
+  /// Notification id for a task's [index]-th reminder.
+  ///
+  /// Index 0 deliberately hashes the bare [taskId], producing the exact
+  /// same id this method returned when a task could only have one
+  /// reminder. That's what lets an install upgrade cleanly: reminders
+  /// already sitting in the OS queue from a previous build stay
+  /// addressable, so the first resync after the update replaces them in
+  /// place instead of leaving a ghost that fires alongside its own
+  /// replacement. Later indices hash a composite key so each gets its own
+  /// slot.
+  ///
+  /// A hash collision between two tasks' ids (or between two slots) just
+  /// means one schedule silently overwrites the other — the same accepted
+  /// trade-off [_habitReminderId] already makes, against a 50,000-slot
+  /// space here.
+  int _taskReminderId(String taskId, [int index = 0]) =>
+      _taskReminderBase +
+      (index == 0 ? taskId.hashCode : '$taskId#$index'.hashCode).abs() %
+          _taskReminderRange;
 
   /// Schedules a one-off local notification for a single Matrix task at an
   /// exact, user-picked moment — see MatrixTask.reminderAt's doc comment
@@ -1114,25 +1168,39 @@ class NotificationService {
   /// than [_habitReminderDetails] — there's no Mark Done/Snooze action that
   /// makes sense here (this isn't a habit), same reasoning as the bundled
   /// multi-habit notification in [_scheduleResolved].
-  Future<void> scheduleTaskReminder({
+  /// [fireTimes] is the task's full set of still-future reminder moments,
+  /// already sorted (see MatrixTask.normalizeReminders) — not a delta.
+  /// Anything beyond [kMaxTaskReminderSlots] is dropped, and every slot
+  /// this task isn't using anymore is cancelled in the same pass, so the
+  /// OS queue always ends up matching the task's list exactly rather than
+  /// accumulating stale schedules from whatever it used to hold. That
+  /// makes this safe to call on every resync, which is how MatrixNotifier
+  /// uses it.
+  Future<void> scheduleTaskReminders({
     required String id,
     required String taskTitle,
-    required DateTime fireTime,
+    required List<DateTime> fireTimes,
     required bool isAr,
   }) async {
     if (kIsWeb) return;
     await init();
-    await _plugin.zonedSchedule(
-      _taskReminderId(id),
-      isAr ? 'حان الوقت' : "It's time",
-      taskTitle,
-      tz.TZDateTime.from(fireTime, tz.local),
-      _details,
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      payload: id,
-    );
+    final wanted = fireTimes.take(kMaxTaskReminderSlots).toList();
+    for (var i = 0; i < wanted.length; i++) {
+      await _plugin.zonedSchedule(
+        _taskReminderId(id, i),
+        isAr ? 'حان الوقت' : "It's time",
+        taskTitle,
+        tz.TZDateTime.from(wanted[i], tz.local),
+        _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: id,
+      );
+    }
+    for (var i = wanted.length; i < kMaxTaskReminderSlots; i++) {
+      await _plugin.cancel(_taskReminderId(id, i));
+    }
   }
 
   /// Catches up a task reminder whose picked moment already passed without
@@ -1146,9 +1214,12 @@ class NotificationService {
   /// notifications still enabled — see MatrixNotifier._syncReminderSchedule.
   /// Uses [_plugin.show] (immediate) rather than [_plugin.zonedSchedule]
   /// (future-dated) since there's no future moment left to aim at — "now"
-  /// already *is* the catch-up moment. Same title/body convention and same
-  /// notification id as [scheduleTaskReminder], so a catch-up simply
-  /// replaces whatever (if anything) was still pending for this task.
+  /// already *is* the catch-up moment. Same title/body convention as
+  /// [scheduleTaskReminders], and deliberately reuses slot 0's id, so a
+  /// catch-up simply replaces whatever (if anything) was still pending for
+  /// this task. One notification regardless of how many of the task's
+  /// reminders were missed — see MatrixNotifier's overdue handling for why
+  /// firing one per missed moment would be the wrong behaviour.
   Future<void> fireOverdueTaskReminder({
     required String id,
     required String taskTitle,
@@ -1171,9 +1242,17 @@ class NotificationService {
   /// rules. A reminder whose moment has simply passed while the task is
   /// still open does NOT go through here — see [fireOverdueTaskReminder]
   /// for that case instead.
+  /// Sweeps every slot rather than just index 0 — a task whose reminders
+  /// were cleared (or which was completed or deleted) must not leave a
+  /// later slot still armed, and by the time this is called the task's own
+  /// list is usually already empty, so there's nothing left to tell us how
+  /// many it used to have. Cancelling an id that was never scheduled is a
+  /// no-op, so the fixed sweep costs nothing but guarantees no stragglers.
   Future<void> cancelTaskReminder(String id) async {
     if (kIsWeb) return;
-    await _plugin.cancel(_taskReminderId(id));
+    for (var i = 0; i < kMaxTaskReminderSlots; i++) {
+      await _plugin.cancel(_taskReminderId(id, i));
+    }
   }
 
   tz.TZDateTime _nextInstanceOf(int hour, int minute) {
@@ -1209,7 +1288,9 @@ class NotificationService {
     await _plugin.show(
       2000 + habitName.hashCode.abs() % 1000,
       habitName,
-      '+$xpEarned XP · +$goldEarned Gold',
+      isArabic
+          ? '+$xpEarned XP · +$goldEarned ذهب'
+          : '+$xpEarned XP · +$goldEarned Gold',
       _details,
     );
   }
@@ -1219,19 +1300,51 @@ class NotificationService {
     await init();
     await _plugin.show(
       3000,
-      'Level up!',
-      "You've reached level $newLevel.",
+      isArabic ? 'ارتقاء مستوى!' : 'Level up!',
+      isArabic
+          ? 'وصلت للمستوى $newLevel.'
+          : "You've reached level $newLevel.",
       _details,
     );
   }
 
+  /// [achievementName] must already be in the right language — callers pass
+  /// `AchievementModel.localName(NotificationService.instance.isArabic)`.
+  /// This used to receive `a.name`, the English field, unconditionally.
   Future<void> showAchievementUnlocked(String achievementName) async {
     if (kIsWeb || !_celebrationsEnabled) return;
     await init();
     await _plugin.show(
       4000 + achievementName.hashCode.abs() % 1000,
-      'Achievement unlocked',
+      // Matches the in-app unlock sheet's own headline (S.achievementUnlocked)
+      // so the push and the celebration read as the same event.
+      isArabic ? 'إنجاز مفتوح!' : 'Achievement unlocked',
       achievementName,
+      _details,
+    );
+  }
+
+  /// One notification for a batch of medals earned in the same instant,
+  /// instead of one per medal.
+  ///
+  /// A single habit completion can genuinely cross several thresholds at
+  /// once — the tap that hits a streak milestone can also be the 50th
+  /// lifetime completion and the 100th colored square. The callers used to
+  /// loop and call [showAchievementUnlocked] per medal, so that one tap
+  /// dealt three or four separate pushes on top of the habit-completed and
+  /// level-up ones already firing. [names] must already be localized.
+  Future<void> showAchievementsUnlocked(List<String> names) async {
+    if (kIsWeb || !_celebrationsEnabled || names.isEmpty) return;
+    if (names.length == 1) return showAchievementUnlocked(names.first);
+    await init();
+    await _plugin.show(
+      4999,
+      isArabic
+          ? '${names.length} إنجازات مفتوحة!'
+          : '${names.length} achievements unlocked',
+      // Listing the names beats a bare count — "3 achievements unlocked"
+      // tells you nothing about which.
+      names.join(isArabic ? ' · ' : ' · '),
       _details,
     );
   }

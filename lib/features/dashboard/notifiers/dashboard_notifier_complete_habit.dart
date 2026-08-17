@@ -221,42 +221,26 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         (newDailyGreenCounts[DashboardNotifier._todayKey] ?? 0) + 1;
 
     // ── Achievement check ────────────────────────────────────
-    final newly = AchievementCatalog.locked(state.unlockedAchievements)
-        .where((a) => switch (a.trigger) {
-              AchievementTrigger.streak => newStreak >= a.threshold,
-              AchievementTrigger.level =>
-                result.newLevel >= a.threshold,
-              AchievementTrigger.totalCompletions =>
-                newTotal >= a.threshold,
-              AchievementTrigger.habitMastery => a.targetCategory != null &&
-                  (newCategoryCompletions[a.targetCategory] ?? 0) >=
-                      a.threshold,
-              AchievementTrigger.greenSquares =>
-                newTotalGreenSquares >= a.threshold,
-              _ => false,
-            })
-        .toList();
-
-    final newUnlockedIds = [
-      ...state.unlockedAchievements,
-      ...newly.map((a) => a.id),
-    ];
-
-    // XP + gold bonus from achievements
-    int bonusXp = newly.fold(0, (s, a) => s + a.xpReward);
-    int bonusGold = newly.fold(0, (s, a) => s + a.goldReward);
-    final bonusResult = bonusXp > 0
-        ? XpCalculator.applyXpGain(
-            currentLevel: result.newLevel,
-            currentLevelXp: result.newCurrentLevelXp,
-            cumulativeXp: result.newCumulativeXp,
-            xpGained: bonusXp,
-          )
-        : (
-            newLevel: result.newLevel,
-            newCurrentLevelXp: result.newCurrentLevelXp,
-            newCumulativeXp: result.newCumulativeXp,
-          );
+    // See _resolveUnlocks for why this resolves to a fixed point instead of
+    // testing once against `result.newLevel` the way it used to.
+    final unlocks = _resolveUnlocks(
+      unlockedIds: state.unlockedAchievements,
+      level: result.newLevel,
+      currentLevelXp: result.newCurrentLevelXp,
+      cumulativeXp: result.newCumulativeXp,
+      streak: newStreak,
+      totalCompletions: newTotal,
+      greenSquares: newTotalGreenSquares,
+      categoryCompletions: newCategoryCompletions,
+    );
+    final newly = unlocks.newly;
+    final newUnlockedIds = unlocks.unlockedIds;
+    final bonusGold = unlocks.bonusGold;
+    final bonusResult = (
+      newLevel: unlocks.level,
+      newCurrentLevelXp: unlocks.currentLevelXp,
+      newCumulativeXp: unlocks.cumulativeXp,
+    );
 
     AnalyticsService.instance.track('habit_completed', props: {
       'habitId': habitId,
@@ -427,7 +411,17 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           'longestStreak': newLongest,
           if (clearsPendingComeback) 'previousStreak': 0,
           'totalHabitCompletions': newTotal,
-          'unlockedAchievements': newUnlockedIds,
+          // arrayUnion of just what was earned right now, not the whole
+          // locally-computed list. `unlockedAchievements` is a set that only
+          // ever grows, and writing it wholesale makes it last-writer-wins:
+          // two devices each earning a different medal offline, or one device
+          // running on a stale read, silently erased the other's. arrayUnion
+          // merges server-side instead, so a medal can never be un-earned by
+          // a sync. Omitted entirely when nothing was earned, so the common
+          // completion doesn't touch the field at all.
+          if (newly.isNotEmpty)
+            'unlockedAchievements':
+                FieldValue.arrayUnion(newly.map((a) => a.id).toList()),
           'categoryCompletions': newCategoryCompletions,
           // Same "only on a genuinely qualifying day" rule as the guest
           // branch above — see that comment. Previously unconditional,

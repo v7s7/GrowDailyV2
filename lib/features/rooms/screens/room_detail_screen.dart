@@ -17,6 +17,7 @@ import '../../../core/services/push_notification_service.dart';
 import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../../core/services/share_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/calendar_month_scaffold.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../../shared/widgets/xp_bar.dart';
 import '../../auth/notifiers/auth_notifier.dart';
@@ -44,6 +45,7 @@ part 'room_detail_screen_lobby.dart';
 part 'room_detail_screen_countdown_finale.dart';
 part 'room_detail_screen_header_progress.dart';
 part 'room_detail_screen_leaderboard_extend.dart';
+part 'room_detail_screen_participant_calendar.dart';
 
 /// The leaderboard - pushed for a single room, whether just-created (from
 /// CreateRoomSheet), just-joined (from JoinRoomSheet), or tapped from

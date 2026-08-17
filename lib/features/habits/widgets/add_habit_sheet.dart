@@ -26,6 +26,7 @@ import '../models/habit_model.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../rooms/notifiers/rooms_notifier.dart';
 import '../notifiers/custom_habits_notifier.dart';
+import '../../../shared/widgets/choice_chip_grid.dart';
 import 'habit_color_picker.dart';
 
 part 'add_habit_sheet_small_widgets.dart';

@@ -13,8 +13,12 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/bidi_fraction.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/achievements/widgets/achievement_medal.dart';
+import '../../../features/achievements/widgets/tier_detail_sheet.dart';
+import '../../../features/achievements/widgets/tier_palette.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/grid/models/square_state.dart';
@@ -28,7 +32,6 @@ import '../../../features/insights/insight_engine.dart';
 import '../../../features/insights/insights_screen.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import 'achievements_screen.dart';
-import '../../../core/utils/bidi_fraction.dart';
 
 // ─── 14-day progress chart data (moved verbatim from the old standalone ───
 // ProgressScreen, now retired — see ProgressHubScreen's own doc comment) ───
@@ -192,9 +195,12 @@ Map<HabitCategory, int> aggregateCategoryCompletions(Map<String, int> raw) {
 ///    used to sit at the top of this section has moved to
 ///    CharacterClosetScreen: it's a gold purchase, and this page is now
 ///    purely "look back at your progress," nothing to buy on it.
-///  - Achievements: a compact horizontal preview (closest-to-unlock first)
-///    instead of the full dozen-plus grid, with "View all" opening the
-///    existing [AchievementsScreen] unchanged.
+///  - Achievements: a compact horizontal preview (unlocked first, then the
+///    closest-to-unlock rung of each family), with "View all" opening
+///    [AchievementsScreen]. Each medal opens the same tier sheet its
+///    counterpart on the full screen does — see [showTierDetailSheet].
+///  - Category breakdown: lifetime completions per broad habit category,
+///    as a share of the total.
 ///  - Habit Insights: a compact preview of the real headline insight plus
 ///    "View full Insights" opening [InsightsScreen] — which itself now
 ///    shows a complete free tier (every headline, your strongest habit's
@@ -344,6 +350,19 @@ class _ProgressReportBody extends StatelessWidget {
     final trendUp = points.length > 7 &&
         points.skip(7).fold<int>(0, (sum, p) => sum + p.completions) >=
             points.take(7).fold<int>(0, (sum, p) => sum + p.completions);
+    // Three states, not two. `trendUp` compares the last 7 days against the
+    // previous 7 with `>=`, so a completely empty fortnight scores 0 >= 0
+    // and came out as "holding strong" — the app congratulating someone on
+    // a chart with nothing in it, which is the fastest way to make every
+    // other encouraging line on the screen read as noise. An empty window
+    // now says so plainly instead of guessing at a trend that doesn't exist.
+    final subtitle = isLoading
+        ? s.loadingReport
+        : total == 0
+            ? s.noProgressYet
+            : trendUp
+                ? s.holdingStrong
+                : s.startAgain;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -382,11 +401,7 @@ class _ProgressReportBody extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isLoading
-                          ? s.loadingReport
-                          : trendUp
-                              ? s.holdingStrong
-                              : s.startAgain,
+                      subtitle,
                       style: TextStyle(fontSize: 12, color: gp.textSec),
                     ),
                   ],
@@ -444,6 +459,7 @@ class _MiniReportStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final isAr = S.of(context).isAr;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -467,11 +483,17 @@ class _MiniReportStat extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               label,
+              // 8pt was below anything legible, and the 1.0 letter-spacing
+              // made the Latin worse while doing nothing at all for Arabic,
+              // which has no letter-spacing concept in this sense — the
+              // shaping joins regardless. Both fixed here; the spacing is
+              // now Latin-only, matching how every other small-caps label in
+              // this app is written.
               style: TextStyle(
-                fontSize: 8,
+                fontSize: 10,
                 fontWeight: FontWeight.w700,
                 color: gp.textTert,
-                letterSpacing: 1,
+                letterSpacing: isAr ? 0 : 0.8,
               ),
             ),
           ],
@@ -560,13 +582,30 @@ class _ProgressBarColumn extends StatelessWidget {
           // The day-of-month number, not a bare weekday initial — 'EEEEE'
           // (Tu/Th both read "T", Sa/Su both read "S") made it impossible
           // to tell which actual day a column was without counting from
-          // today. 'd' is unambiguous and still locale-aware (renders
-          // Eastern Arabic-Indic digits under an Arabic locale same as
-          // every other DateFormat call in this file).
+          // today.
+          //
+          // Plain interpolation rather than DateFormat('d', locale). Routed
+          // through DateFormat, this axis rendered ٣ ٤ ٥ directly beneath
+          // the ASCII completion counts sitting on top of the very same
+          // bars — two numeral systems in one column. Interpolating the day
+          // fixes it (verified on device, Arabic locale).
+          //
+          // Worth knowing what it was *not*: `DateFormat('d', 'ar')` returns
+          // the ASCII string "3" in a plain test process — only 'ar_EG' and
+          // friends carry Arabic-Indic symbol data — so this is not intl
+          // choosing digits for the locale, and "just pass 'en'" would have
+          // been a fix for a cause that isn't there. The substitution
+          // happens further down, at render; reminder_picker.dart's
+          // reminderOffsetLabel documents the same class of surprise from
+          // the opposite direction. Either way the reliable rule is the one
+          // the rest of the app already follows by accident: Grid's week
+          // header, the monthly heatmap and the weekly recap all build day
+          // numbers with plain interpolation, and none of them has ever
+          // shown this. This was the outlier, not the standard.
           Text(
-            DateFormat('d', locale).format(point.date),
+            '${point.date.day}',
             style: TextStyle(
-              fontSize: 9.5,
+              fontSize: 10.5,
               fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
               color: isToday ? GameColors.gold : gp.textTert,
             ),
@@ -773,7 +812,7 @@ class _DayDetailSheet extends ConsumerWidget {
         ? s.progressToday
         : point.date.isYesterday
             ? s.progressYesterday
-            : DateFormat('EEEE, MMMM d', locale).format(point.date);
+            : weekdayDateLabel(point.date, isAr: s.isAr, locale: locale);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -815,7 +854,7 @@ class _DayDetailSheet extends ConsumerWidget {
             if (point.date.isToday || point.date.isYesterday) ...[
               const SizedBox(height: 2),
               Text(
-                DateFormat('EEEE, MMMM d', locale).format(point.date),
+                weekdayDateLabel(point.date, isAr: s.isAr, locale: locale),
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: gp.textSec),
               ),
@@ -914,21 +953,6 @@ class _AchievementsPreviewSection extends StatelessWidget {
   final DashboardState state;
   const _AchievementsPreviewSection({required this.state});
 
-  double _progressFor(AchievementModel a) => switch (a.trigger) {
-        AchievementTrigger.streak =>
-          (state.streak / a.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.level =>
-          (state.level / a.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.totalCompletions =>
-          (state.totalCompletions / a.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.greenSquares =>
-          (state.totalGreenSquares / a.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.habitMastery =>
-          ((state.categoryCompletions[a.targetCategory] ?? 0) / a.threshold)
-              .clamp(0.0, 1.0),
-        _ => 0.0,
-      };
-
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
@@ -947,17 +971,19 @@ class _AchievementsPreviewSection extends StatelessWidget {
     // your first square" win sitting right there. Capped at 6 so this
     // stays a preview, not a second copy of the full grid — see
     // AchievementsScreen for the rest.
+    final stats = state.achievementStats;
     final unlocked =
         AchievementCatalog.all.where((a) => unlockedIds.contains(a.id));
     final nextPerFamily = AchievementCatalog.families
-        .map((f) {
-          final tiers = AchievementCatalog.tiersFor(f.id);
-          final i = tiers.indexWhere((t) => !unlockedIds.contains(t.id));
-          return i == -1 ? null : tiers[i]; // null when family is mastered
-        })
+        // null when the family is mastered. Was an inline
+        // `tiers.indexWhere(...)` here and a `tiers[unlockedCount]` on the
+        // full screen — the same question answered two different ways, one
+        // of which broke on a ladder with a gap. Both now call this.
+        .map((f) => AchievementCatalog.nextLockedIn(f.id, unlockedIds))
         .whereType<AchievementModel>()
         .toList()
-      ..sort((a, b) => _progressFor(b).compareTo(_progressFor(a)));
+      ..sort((a, b) =>
+          stats.progressFor(b).compareTo(stats.progressFor(a)));
     final preview = [...unlocked, ...nextPerFamily].take(6).toList();
 
     return Column(
@@ -967,35 +993,41 @@ class _AchievementsPreviewSection extends StatelessWidget {
           children: [
             _SectionHeader(s.achievements),
             const Spacer(),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: GameColors.gold.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-              ),
-              child: Text(
-                progressFraction(unlockedIds.length, total),
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: GameColors.gold),
-              ),
+            // Neutral, or platinum once the whole catalog is cleared — NOT
+            // GameColors.gold. That's the preset's *accent* role, not a hue
+            // promise: it resolves to teal, rose or violet depending on the
+            // theme, so a medal counter painted with it was teal on most
+            // presets. Medals have their own colour system now (see
+            // TierPalette); this matches the per-family count pills on
+            // AchievementsScreen exactly. The PRO badge and the spinners
+            // elsewhere on this page still use GameColors.gold, correctly —
+            // those genuinely are accent-role elements.
+            _CountPill(
+              label: progressFraction(unlockedIds.length, total),
+              accent: unlockedIds.length == total
+                  ? TierPalette.from(context, AchievementTier.platinum).ink
+                  : null,
             ),
           ],
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          height: 128,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            itemCount: preview.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (context, i) => _MiniAchievementCard(
-              achievement: preview[i],
-              isUnlocked: unlockedIds.contains(preview[i].id),
-              state: state,
+        // A fade on the scrolling edge instead of a hard slice. The strip is
+        // wider than the screen by design, but a card cut dead flat against
+        // the container edge reads as a layout bug rather than "there's more
+        // over here" — the fade is the only thing that says which.
+        _EdgeFade(
+          child: SizedBox(
+            height: 128,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: preview.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, i) => _MiniAchievementCard(
+                achievement: preview[i],
+                isUnlocked: unlockedIds.contains(preview[i].id),
+                stats: stats,
+              ),
             ),
           ),
         ),
@@ -1036,66 +1068,128 @@ class _AchievementsPreviewSection extends StatelessWidget {
 class _MiniAchievementCard extends StatelessWidget {
   final AchievementModel achievement;
   final bool isUnlocked;
-  final DashboardState state;
+  final AchievementStats stats;
   const _MiniAchievementCard({
     required this.achievement,
     required this.isUnlocked,
-    required this.state,
+    required this.stats,
   });
-
-  double get _progress => switch (achievement.trigger) {
-        AchievementTrigger.streak =>
-          (state.streak / achievement.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.level =>
-          (state.level / achievement.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.totalCompletions =>
-          (state.totalCompletions / achievement.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.greenSquares =>
-          (state.totalGreenSquares / achievement.threshold).clamp(0.0, 1.0),
-        AchievementTrigger.habitMastery =>
-          ((state.categoryCompletions[achievement.targetCategory] ?? 0) /
-                  achievement.threshold)
-              .clamp(0.0, 1.0),
-        AchievementTrigger.special => 0.0,
-      };
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
+    final medalState =
+        isUnlocked ? MedalState.unlocked : MedalState.inProgress;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      // The same sheet the full screen's medals open. These are literally
+      // the same medals one tap apart, and only one of the two responded —
+      // tapping a medal here did nothing at all, which reads as broken
+      // rather than as "this one isn't interactive".
+      onTap: () => showTierDetailSheet(context, achievement, stats,
+          unlocked: isUnlocked),
+      child: Container(
+        width: 96,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AchievementMedal(
+              tier: achievement.tier,
+              icon: achievementIconFor(achievement.trigger),
+              size: 40,
+              state: medalState,
+              progress: stats.progressFor(achievement),
+              semanticLabel: medalSemanticLabel(
+                achievement: achievement,
+                state: medalState,
+                current: stats.currentFor(achievement),
+                isAr: isAr,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              achievement.localName(isAr),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textPrimary,
+                  height: 1.2),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The small "4 / 20" chip beside a section header.
+///
+/// [accent] null means neutral — the deliberate default, so a counter never
+/// borrows a colour that implies something about the numbers it's showing.
+class _CountPill extends StatelessWidget {
+  final String label;
+  final Color? accent;
+
+  const _CountPill({required this.label, this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final c = accent;
     return Container(
-      width: 96,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: gp.surface,
-        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: gp.border, width: 0.5),
+        color: (c ?? gp.textTert).withOpacity(0.15),
+        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AchievementMedal(
-            tier: achievement.tier,
-            icon: achievementIconFor(achievement.trigger),
-            size: 40,
-            state: isUnlocked ? MedalState.unlocked : MedalState.inProgress,
-            progress: _progress,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            achievement.localName(isAr),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: gp.textPrimary,
-                height: 1.2),
-          ),
-        ],
+      child: Text(
+        label,
+        style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: c ?? gp.textSec),
       ),
+    );
+  }
+}
+
+/// Fades the scrolling edge of a horizontal strip into the page background,
+/// so a partially-visible card reads as "scroll for more" instead of as a
+/// card that got sliced off.
+///
+/// Direction-aware: under RTL the strip scrolls the other way, so the fade
+/// has to sit on the other side. A fixed `Alignment.centerRight` would have
+/// put it on the wrong edge for the app's primary language.
+class _EdgeFade extends StatelessWidget {
+  final Widget child;
+  const _EdgeFade({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = context.gp.bg;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return ShaderMask(
+      // dstIn: the gradient's alpha multiplies the child's, so opaque white
+      // keeps the strip and transparent erases it.
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (rect) => LinearGradient(
+        begin: rtl ? Alignment.centerRight : Alignment.centerLeft,
+        end: rtl ? Alignment.centerLeft : Alignment.centerRight,
+        colors: [bg, bg, bg.withOpacity(0)],
+        stops: const [0, 0.88, 1],
+      ).createShader(rect),
+      child: child,
     );
   }
 }
@@ -1436,7 +1530,7 @@ class _MiniJournalRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      DateFormat('MMM d', locale).format(entry.day),
+                      westernDate(entry.day, 'MMM d', locale),
                       style: TextStyle(fontSize: 10.5, color: gp.textTert),
                     ),
                     const SizedBox(height: 3),
@@ -1488,6 +1582,7 @@ class _CategoryBreakdownSection extends StatelessWidget {
     final entries = aggregated.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final maxCount = entries.first.value;
+    final totalCount = entries.fold<int>(0, (sum, e) => sum + e.value);
     final gp = context.gp;
 
     return Column(
@@ -1510,6 +1605,7 @@ class _CategoryBreakdownSection extends StatelessWidget {
                   category: entries[i].key,
                   count: entries[i].value,
                   maxCount: maxCount,
+                  totalCount: totalCount,
                   isAr: s.isAr,
                 ),
               ],
@@ -1525,12 +1621,16 @@ class _CategoryBar extends StatelessWidget {
   final HabitCategory category;
   final int count;
   final int maxCount;
+
+  /// Sum across every category — the denominator behind the share figure.
+  final int totalCount;
   final bool isAr;
 
   const _CategoryBar({
     required this.category,
     required this.count,
     required this.maxCount,
+    required this.totalCount,
     required this.isAr,
   });
 
@@ -1538,7 +1638,15 @@ class _CategoryBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final (icon, color) = categoryVisual(category);
+    // Bar length stays relative to the *biggest* category, which is what
+    // makes the rows comparable at a glance. The percentage is against the
+    // *total*, which is the number that answers the question this section
+    // asks ("where does my effort go"). Without it a bare "53" had no
+    // denominator anywhere on screen — the longest bar is always full, so
+    // the chart couldn't tell you whether that was half your effort or all
+    // of it.
     final ratio = maxCount <= 0 ? 0.0 : (count / maxCount).clamp(0.0, 1.0);
+    final share = totalCount <= 0 ? 0 : ((count / totalCount) * 100).round();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1555,6 +1663,13 @@ class _CategoryBar extends StatelessWidget {
               ),
             ),
             Text(
+              '$share%',
+              textDirection: TextDirection.ltr,
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w700, color: gp.textTert),
+            ),
+            const SizedBox(width: 8),
+            Text(
               '$count',
               style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: gp.textPrimary),
             ),
@@ -1566,7 +1681,11 @@ class _CategoryBar extends StatelessWidget {
           child: LinearProgressIndicator(
             value: ratio,
             minHeight: 6,
-            backgroundColor: gp.border,
+            // textTert at low opacity, not gp.border — the border shade is
+            // tuned to be a nearly invisible hairline between surfaces, so a
+            // short bar sat in what looked like empty space. Matches
+            // AchievementProgressBar.
+            backgroundColor: gp.textTert.withOpacity(0.18),
             valueColor: AlwaysStoppedAnimation(color),
           ),
         ),

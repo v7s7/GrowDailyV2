@@ -687,24 +687,31 @@ class _MyPlanCard extends ConsumerWidget {
                         .addMyLinkedHabit(room, picked.id, picked.name);
                   },
                 ),
-              _PlanIconButton(
-                icon: mine.hideDetails
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded,
-                color: gp.textTert,
-                // The tooltip says which way the tap goes, so the icon alone
-                // never has to carry both its state and its action.
-                tooltip: mine.hideDetails
-                    ? s.roomDetailsHidden
-                    : s.roomDetailsVisible,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  ref
-                      .read(roomsControllerProvider)
-                      .toggleHideDetails(room.code, !mine.hideDetails)
-                      .ignore();
-                },
-              ),
+              // 'Own' mode only, same gate as the add button above. In a
+              // shared room every member runs the leader's plan, which the
+              // header prints for everyone — so there is nothing this could
+              // hide, and a toggle that changes nothing is worse than no
+              // toggle. The names it governs are themselves only rendered
+              // for own-mode rooms (see _LeaderboardRow).
+              if (room.habitMode == RoomHabitMode.own)
+                _PlanIconButton(
+                  icon: mine.hideDetails
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                  color: gp.textTert,
+                  // The tooltip says which way the tap goes, so the icon
+                  // alone never has to carry both its state and its action.
+                  tooltip: mine.hideDetails
+                      ? s.roomDetailsHidden
+                      : s.roomDetailsVisible,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    ref
+                        .read(roomsControllerProvider)
+                        .toggleHideDetails(room.code, !mine.hideDetails)
+                        .ignore();
+                  },
+                ),
             ],
           ),
           // Index-aware rather than a filtered copy of the names: each

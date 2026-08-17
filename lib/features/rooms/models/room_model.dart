@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../habits/models/habit_model.dart';
 
 enum RoomHabitMode {
@@ -919,7 +920,17 @@ class RoomParticipant {
     return RoomParticipant(
       uid: doc.id,
       displayName: (d['displayName'] as String?) ?? '',
-      characterId: (d['characterId'] as String?) ?? 'male_ghutra_blue',
+      // Empty, NOT a real character id, when the field is absent.
+      //
+      // This used to default to 'male_ghutra_blue' — which is male1, an
+      // actual character somebody may have genuinely picked. A participant
+      // doc written before this field existed, or by a partial write, was
+      // therefore laundered into looking like a specific person's chosen
+      // avatar, with nothing downstream able to tell the difference. Two
+      // members could render identically, and a row could show a face that
+      // wasn't theirs. Keeping "unknown" as unknown lets the leaderboard
+      // draw a neutral placeholder instead — see CharacterCatalog.findById.
+      characterId: (d['characterId'] as String?) ?? '',
       accessoryId: d['accessoryId'] as String?,
       prestigeTierId: d['prestigeTierId'] as String?,
       joinedAt: (d['joinedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -989,7 +1000,9 @@ class RoomParticipant {
   Map<String, dynamic> toFirestore() => {
         'uid': uid,
         'displayName': displayName,
-        'characterId': characterId,
+        // Omitted when unknown rather than writing an empty string back —
+        // the next profile sync (_profileFields) fills in the real value.
+        if (characterId.isNotEmpty) 'characterId': characterId,
         if (accessoryId != null) 'accessoryId': accessoryId,
         if (prestigeTierId != null) 'prestigeTierId': prestigeTierId,
         'joinedAt': Timestamp.fromDate(joinedAt),
@@ -1132,16 +1145,7 @@ String generateRoomCode() {
 /// and [int.tryParse] only ever understands ASCII digits. Every character
 /// that isn't one of these ten is passed through unchanged, so this is safe
 /// to run on input that's already plain ASCII (the common case) as a no-op.
-String _normalizeDigits(String input) {
-  const arabicIndic = '٠١٢٣٤٥٦٧٨٩';
-  final buffer = StringBuffer();
-  for (final rune in input.runes) {
-    final ch = String.fromCharCode(rune);
-    final index = arabicIndic.indexOf(ch);
-    buffer.write(index == -1 ? ch : index.toString());
-  }
-  return buffer.toString();
-}
+String _normalizeDigits(String input) => toWesternDigits(input);
 
 /// Parses and bounds-checks a leader-typed custom room length in days - the
 /// one function both CreateRoomSheet's and the Extend sheet's "Custom"

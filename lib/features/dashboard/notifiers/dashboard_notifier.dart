@@ -368,6 +368,19 @@ class DashboardState {
   double get levelProgress =>
       XpCalculator.levelProgressRatio(currentLevelXp, level);
   int get xpToNext => XpCalculator.xpToNextLevel(level);
+
+  /// This account's numbers in the shape every achievement trigger is
+  /// measured against — see [AchievementStats]. Every achievement surface
+  /// (the full screen, Profile's preview strip) reads progress through
+  /// this, so none of them can drift into its own private version of
+  /// "how far along is this one".
+  AchievementStats get achievementStats => AchievementStats(
+        streak: streak,
+        level: level,
+        totalCompletions: totalCompletions,
+        greenSquares: totalGreenSquares,
+        categoryCompletions: categoryCompletions,
+      );
   bool isCompleted(String habitId, int target) =>
       (completions[habitId] ?? 0) >= target;
 
@@ -513,6 +526,85 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   }
 
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  /// Resolves every achievement the given numbers now earn, together with
+  /// the level/XP/gold those achievements' own rewards produce.
+  ///
+  /// Shared by all three writers that can cross a threshold — completeHabit,
+  /// applyGridSquareChange, and the post-load reconciliation sweep — so the
+  /// rule can't drift between them again (it already had: the grid path only
+  /// ever tested two of the five triggers).
+  ///
+  /// Iterates to a fixed point rather than checking once, because an
+  /// achievement's `xpReward` can itself raise the level and so put a
+  /// *level* achievement in reach in the same action. Every round removes at
+  /// least one achievement from the locked pool and the catalog is finite,
+  /// so this can't spin: at most `AchievementCatalog.all.length` rounds, in
+  /// practice one (or two when a reward cascades).
+  ///
+  /// Returns absolute values, not deltas — callers write them straight into
+  /// state the same way they already write level/XP.
+  ({
+    List<AchievementModel> newly,
+    List<String> unlockedIds,
+    int level,
+    int currentLevelXp,
+    int cumulativeXp,
+    int bonusGold,
+  }) _resolveUnlocks({
+    required List<String> unlockedIds,
+    required int level,
+    required int currentLevelXp,
+    required int cumulativeXp,
+    required int streak,
+    required int totalCompletions,
+    required int greenSquares,
+    required Map<String, int> categoryCompletions,
+  }) {
+    final newly = <AchievementModel>[];
+    final ids = [...unlockedIds];
+    var lvl = level;
+    var levelXp = currentLevelXp;
+    var cumXp = cumulativeXp;
+    var gold = 0;
+
+    while (true) {
+      final round = AchievementCatalog.newlyUnlocked(
+        AchievementStats(
+          streak: streak,
+          level: lvl,
+          totalCompletions: totalCompletions,
+          greenSquares: greenSquares,
+          categoryCompletions: categoryCompletions,
+        ),
+        ids,
+      );
+      if (round.isEmpty) break;
+      newly.addAll(round);
+      ids.addAll(round.map((a) => a.id));
+      gold += round.fold(0, (s, a) => s + a.goldReward);
+      final roundXp = round.fold(0, (s, a) => s + a.xpReward);
+      if (roundXp == 0) continue;
+      final r = XpCalculator.applyXpGain(
+        currentLevel: lvl,
+        currentLevelXp: levelXp,
+        cumulativeXp: cumXp,
+        xpGained: roundXp,
+      );
+      lvl = r.newLevel;
+      levelXp = r.newCurrentLevelXp;
+      cumXp = r.newCumulativeXp;
+    }
+
+    return (
+      newly: newly,
+      unlockedIds: ids,
+      level: lvl,
+      currentLevelXp: levelXp,
+      cumulativeXp: cumXp,
+      bonusGold: gold,
+    );
+  }
 
   DocumentReference<Map<String, dynamic>> get _userRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid);

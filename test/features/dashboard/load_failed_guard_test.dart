@@ -111,6 +111,27 @@ void main() {
     expect(notifier.debugState.level, 1);
   });
 
+  test('awardBonus writes nothing after a failed load', () async {
+    // The gap this closes: every other absolute-value writer either carried
+    // this guard or was turned away by a precondition of its own (spendGold
+    // can't afford anything against 0 gold; useStreakFreeze has no freeze to
+    // spend). awardBonus has no precondition at all — it just adds — so
+    // finishing a Focus session, tapping a Quick Win, ticking a Matrix task
+    // or collecting a room prize after a failed load wrote `gold: 0 + reward`
+    // straight over the real balance, and level/XP with it.
+    final notifier = await failedLoadNotifier();
+
+    await notifier.awardBonus(xp: 500, gold: 250);
+
+    final s = notifier.debugState;
+    expect(s.gold, 0, reason: 'gold moved while the load was known bad');
+    expect(s.cumulativeXp, 0);
+    expect(s.currentLevelXp, 0);
+    expect(s.level, 1);
+    expect(s.unlockedAchievements, isEmpty,
+        reason: 'the zeroed state must not mint achievements either');
+  });
+
   test('uncompleteHabit writes nothing after a failed load', () async {
     final notifier = await failedLoadNotifier();
 

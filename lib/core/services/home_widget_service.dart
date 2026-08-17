@@ -263,12 +263,13 @@ class HomeWidgetService {
   ///
   /// [isLate] mirrors the exact same "overdue" definition MatrixNotifier
   /// already uses to decide whether a missed reminder still needs to fire
-  /// (`reminderAt` set, in the past, task still open) — see
-  /// `_syncReminderSchedule`'s `isOverdueButStillRelevant` in
-  /// matrix_notifier.dart. Reused here rather than inventing a second
-  /// definition, and computed caller-side (main.dart) since that's the only
-  /// place this list already touches `DateTime.now()`. Tasks with no
-  /// reminder set are never late — there's nothing to be late against.
+  /// (a reminder set, in the past, task still open) — see
+  /// `latestMissedTaskReminder` in matrix_notifier.dart. Reused here rather
+  /// than inventing a second definition, and computed caller-side
+  /// (main.dart) since that's the only place this list already touches
+  /// `DateTime.now()`. Tasks with no reminder set are never late — there's
+  /// nothing to be late against, and a task whose stack is only partly
+  /// elapsed isn't late either until its *last* reminder has passed.
   Future<void> updateMatrixWidgetData(
     List<
             ({

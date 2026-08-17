@@ -752,14 +752,14 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       useSafeArea: true,
       builder: (_) => AddTaskSheet(
         quadrant: quadrant,
-        onAdd: (title, {description, voiceNotes, reminderAt}) {
+        onAdd: (title, {description, voiceNotes, reminderAts}) {
           HapticFeedback.mediumImpact();
           ref.read(matrixProvider.notifier).add(
                 title,
                 quadrant,
                 description: description,
                 voiceNotes: voiceNotes ?? const [],
-                reminderAt: reminderAt,
+                reminderAts: reminderAts ?? const [],
               );
         },
       ),
@@ -798,8 +798,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
             ref.read(matrixProvider.notifier).renameVoiceNote(id, noteId, name),
         onRemoveVoiceNote: (id, noteId) =>
             ref.read(matrixProvider.notifier).removeVoiceNote(id, noteId),
-        onSetReminder: (id, reminderAt) =>
-            ref.read(matrixProvider.notifier).setReminder(id, reminderAt),
+        onSetReminders: (id, reminderAts) =>
+            ref.read(matrixProvider.notifier).setReminders(id, reminderAts),
         onDelete: () => _deleteTask(task.id),
         onMove: (q) => _moveTask(task.id, q),
       ),

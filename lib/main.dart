@@ -474,11 +474,17 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             isDone: t.isDone,
             isFav: t.isFav,
             // Same "overdue" definition as MatrixNotifier's
-            // isOverdueButStillRelevant (reminder set, in the past, task
+            // latestMissedTaskReminder (reminder set, in the past, task
             // still open) — deliberately NOT gated on the notifications
             // master switch the way that one is, since this just marks the
             // task as late, it doesn't fire anything.
-            isLate: t.reminderAt != null && !t.reminderAt!.isAfter(now),
+            //
+            // Keyed off the *last* reminder, not the first: a task warned
+            // about at 3:00, 3:30 and 4:00 isn't late at 3:15 just because
+            // the first nudge has been and gone — two more are still
+            // coming. See MatrixTask.lastReminderAt.
+            isLate: t.lastReminderAt != null &&
+                !t.lastReminderAt!.isAfter(now),
           ),
       ]);
     }, fireImmediately: true);
@@ -667,6 +673,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
 
     NotificationService.instance.celebrationsEnabled =
         settings.masterEnabled && settings.celebrationsEnabled;
+    // Same reactive hand-off as the flag above: the celebration
+    // notifications fired from DashboardNotifier have no BuildContext to
+    // read the locale from. See NotificationService.isArabic.
+    NotificationService.instance.isArabic = isAr;
 
     _syncBadge();
   }

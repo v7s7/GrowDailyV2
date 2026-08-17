@@ -14,7 +14,9 @@ import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
-import 'reminder_picker.dart' show ReminderRow, pickReminderMoment;
+import '../../../shared/widgets/reminder_limit_gate.dart';
+import 'reminder_picker.dart'
+    show ReminderPicker, pickReminderMoment, remindersFor;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
 
 /// Stays open after each add so a quick brain-dump ("buy milk" ⏎ "wash car"
@@ -45,7 +47,7 @@ class AddTaskSheet extends ConsumerStatefulWidget {
     String title, {
     String? description,
     List<VoiceNote>? voiceNotes,
-    DateTime? reminderAt,
+    List<DateTime>? reminderAts,
   }) onAdd;
 
   const AddTaskSheet({
@@ -80,7 +82,15 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   // resets-after-submit treatment as _pendingNotes/_descCtrl, not a sticky
   // setting across the whole rapid multi-add session. See ReminderRow /
   // pickReminderMoment in reminder_picker.dart for the shared picking UI.
-  DateTime? _reminderAt;
+  // Anchor + signed offsets rather than a flat list of moments: that's the
+  // shape the picker edits in, and deriving the moments from it (see
+  // remindersFor) means the chips and the scheduled reminders can never
+  // disagree. Only _submit flattens them, on the way to MatrixNotifier.
+  DateTime? _anchorAt;
+  Set<int> _offsets = {};
+
+  List<DateTime> get _reminderAts =>
+      remindersFor(anchor: _anchorAt, offsets: _offsets);
 
   // ref.watch here (inside a getter, not directly in build()) is safe
   // specifically because every call site below is itself inside build() —
@@ -144,7 +154,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       return;
     }
     final description = _descCtrl.text.trim();
-    final reminderAt = _reminderAt;
+    final reminderAts = _reminderAts;
     HapticFeedback.mediumImpact();
     // Requested *before* widget.onAdd — which schedules the actual OS
     // notification synchronously inside MatrixNotifier.add — rather than
@@ -163,14 +173,14 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     // _DailyReminderRow in notification_settings_screen.dart, just with the
     // request landing before scheduling instead of after.
     var granted = true;
-    if (reminderAt != null) {
+    if (reminderAts.isNotEmpty) {
       granted = await NotificationService.instance.requestPermissions();
     }
     widget.onAdd(
       text,
       description: description.isEmpty ? null : description,
       voiceNotes: _pendingNotes,
-      reminderAt: reminderAt,
+      reminderAts: reminderAts,
     );
     if (!mounted) return;
     setState(() {
@@ -181,13 +191,14 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       // only the *reference* to them resets here, same as _voiceNotePath
       // used to just go back to null without deleting anything.
       _pendingNotes = [];
-      _reminderAt = null;
+      _anchorAt = null;
+      _offsets = {};
       // Back to the fast title-only default for the next item — adding
       // details is a deliberate, per-item choice, not a sticky mode.
       _detailsExpanded = false;
     });
     _focus.requestFocus();
-    if (reminderAt != null && !granted && mounted) {
+    if (reminderAts.isNotEmpty && !granted && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
       );
@@ -313,10 +324,36 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     setState(() => _detailsExpanded = !_detailsExpanded);
   }
 
-  Future<void> _pickReminder() async {
-    final picked = await pickReminderMoment(context, initial: _reminderAt);
+  /// The anchor: the moment the task is actually about. Straight to the
+  /// full picker, because this is the one value the app can't guess.
+  Future<void> _pickAnchor() async {
+    final picked = await pickReminderMoment(context, initial: _anchorAt);
     if (picked == null || !mounted) return;
-    setState(() => _reminderAt = picked);
+    setState(() => _anchorAt = picked);
+  }
+
+  void _clearReminders() {
+    HapticFeedback.lightImpact();
+    setState(() {
+      _anchorAt = null;
+      _offsets = {};
+    });
+  }
+
+  /// Offsets are a set, so tapping a selected chip removes it — that's what
+  /// makes the grid multi-select rather than a radio group.
+  void _toggleOffset(int signedMinutes) {
+    final next = Set<int>.from(_offsets);
+    if (!next.remove(signedMinutes)) {
+      if (_reminderAts.length >= NotificationService.kMaxTaskReminderSlots) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.of(context).matrixReminderMaxReached)),
+        );
+        return;
+      }
+      next.add(signedMinutes);
+    }
+    setState(() => _offsets = next);
   }
 
   @override
@@ -437,12 +474,16 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
             // doesn't wait for "Add details".
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: ReminderRow(
-                value: _reminderAt,
+              child: ReminderPicker(
+                anchorAt: _anchorAt,
+                offsets: _offsets,
                 color: _color,
                 isAr: isAr,
-                onTap: _pickReminder,
-                onClear: () => setState(() => _reminderAt = null),
+                canStack: canAddAnotherReminder(ref, _reminderAts.length),
+                onPickAnchor: _pickAnchor,
+                onClear: _clearReminders,
+                onToggleOffset: _toggleOffset,
+                onLocked: () => showReminderLimitGate(context, ref),
               ),
             ),
             const SizedBox(height: 8),

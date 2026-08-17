@@ -60,34 +60,30 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     }
 
     // ── Achievement check ────────────────────────────────────
-    final newly = AchievementCatalog.locked(state.unlockedAchievements)
-        .where((a) => switch (a.trigger) {
-              AchievementTrigger.level => newLevel >= a.threshold,
-              AchievementTrigger.greenSquares =>
-                newTotalGreen >= a.threshold,
-              _ => false,
-            })
-        .toList();
-
-    final newUnlockedIds = [
-      ...state.unlockedAchievements,
-      ...newly.map((a) => a.id),
-    ];
-
-    int bonusXp = newly.fold(0, (s, a) => s + a.xpReward);
-    int bonusGold = newly.fold(0, (s, a) => s + a.goldReward);
-    if (bonusXp > 0) {
-      final bonusResult = XpCalculator.applyXpGain(
-        currentLevel: newLevel,
-        currentLevelXp: newCurrentLevelXp,
-        cumulativeXp: newCumulativeXp,
-        xpGained: bonusXp,
-      );
-      newLevel = bonusResult.newLevel;
-      newCurrentLevelXp = bonusResult.newCurrentLevelXp;
-      newCumulativeXp = bonusResult.newCumulativeXp;
-    }
-    final newGold = state.gold + bonusGold;
+    //
+    // Full stats, not just the two counters this method moves. The check
+    // here used to test `level` and `greenSquares` only, so anything else
+    // already sitting past its threshold — a total-completions or Quran
+    // mastery tier — was invisible on this path and stayed locked until a
+    // habit completion happened to re-check it. Passing the unchanged
+    // counters through alongside the changed ones costs nothing and closes
+    // that hole.
+    final unlocks = _resolveUnlocks(
+      unlockedIds: state.unlockedAchievements,
+      level: newLevel,
+      currentLevelXp: newCurrentLevelXp,
+      cumulativeXp: newCumulativeXp,
+      streak: state.streak,
+      totalCompletions: state.totalCompletions,
+      greenSquares: newTotalGreen,
+      categoryCompletions: state.categoryCompletions,
+    );
+    final newly = unlocks.newly;
+    final newUnlockedIds = unlocks.unlockedIds;
+    newLevel = unlocks.level;
+    newCurrentLevelXp = unlocks.currentLevelXp;
+    newCumulativeXp = unlocks.cumulativeXp;
+    final newGold = state.gold + unlocks.bonusGold;
     final didLevelUp = newLevel > state.level;
 
     state = state.copyWith(
@@ -103,9 +99,11 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     );
 
     if (didLevelUp) NotificationService.instance.showLevelUp(newLevel);
-    for (final a in newly) {
-      NotificationService.instance.showAchievementUnlocked(a.name);
-    }
+    // One notification for the batch — see _fireCompletionNotifications.
+    NotificationService.instance.showAchievementsUnlocked([
+      for (final a in newly)
+        a.localName(NotificationService.instance.isArabic),
+    ]);
 
     if (_uid == null) {
       await _saveGuestState();
@@ -130,7 +128,11 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         'currentLevelXp': newCurrentLevelXp,
         'cumulativeXp': newCumulativeXp,
         'gold': newGold,
-        'unlockedAchievements': newUnlockedIds,
+        // arrayUnion of only what was just earned — see completeHabit's
+        // identical write for why this must never be a wholesale overwrite.
+        if (newly.isNotEmpty)
+          'unlockedAchievements':
+              FieldValue.arrayUnion(newly.map((a) => a.id).toList()),
       };
       if (greenDelta != 0) {
         userUpdate['totalGreenSquares'] = FieldValue.increment(greenDelta);
@@ -396,22 +398,72 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     }, SetOptions(merge: true)).ignore();
   }
 
-  /// Generic XP/Gold award used by Focus Timer sessions and Weekly Challenges.
+  /// Generic XP/Gold award — every lump-sum reward in the app comes through
+  /// here: Focus Timer sessions, Weekly Challenges, Matrix task completion,
+  /// Quick Wins, and Rooms' team/podium bonuses.
+  ///
+  /// Callers are responsible for paying only once. They all do, and all
+  /// differently, matched to what they can rely on: MatrixNotifier.toggle
+  /// gates on the task's persisted `rewarded` flag, QuickWinsNotifier on its
+  /// `dailyDone`/`weeklyDone` flags (local-only — see the TODO there), and
+  /// RoomsController's two bonuses on a Firestore transaction that flips the
+  /// claim flag before paying. This method itself is deliberately dumb about
+  /// that; it cannot tell a legitimate second award from a duplicate.
   Future<void> awardBonus({required int xp, required int gold}) async {
+    // Same refusal as completeHabit's and applyGridSquareChange's, and it
+    // was missing here. This method writes level, currentLevelXp,
+    // cumulativeXp and gold as ABSOLUTE values computed from `state`, and
+    // after a failed load `state` is DashboardState.initial() — level 1, 0
+    // XP, 0 gold — none of which came from the server. Unlike the writers
+    // _loadToday's catch comment lists as "turned away by their own
+    // preconditions" (spendGold can't pass an affordability check against 0
+    // gold, useStreakFreeze needs a freeze it no longer appears to have),
+    // this one has no precondition at all: finishing a Focus session or
+    // tapping a Quick Win after a failed load was enough to write `gold: 0 +
+    // reward` straight over the real balance.
+    if (_uid != null && state.loadFailed) return;
+
     final result = XpCalculator.applyXpGain(
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
       cumulativeXp: state.cumulativeXp,
       xpGained: xp,
     );
-    final newGold = state.gold + gold;
-    state = state.copyWith(
+
+    // Lump-sum XP raises the level like any other XP, so it can cross a
+    // level-achievement threshold — and this path used to be the one XP
+    // source that never checked. A Focus session or a room prize that took
+    // someone to level 25 left "نص السلّم" locked, with nothing to notice it
+    // until an unrelated habit completion happened to re-run the check.
+    // (The post-load sweep now also catches it, but a medal earned at 8pm
+    // should not first appear at next launch.)
+    final unlocks = _resolveUnlocks(
+      unlockedIds: state.unlockedAchievements,
       level: result.newLevel,
       currentLevelXp: result.newCurrentLevelXp,
       cumulativeXp: result.newCumulativeXp,
-      gold: newGold,
-      didJustLevelUp: result.newLevel > state.level,
+      streak: state.streak,
+      totalCompletions: state.totalCompletions,
+      greenSquares: state.totalGreenSquares,
+      categoryCompletions: state.categoryCompletions,
     );
+    final newGold = state.gold + gold + unlocks.bonusGold;
+
+    state = state.copyWith(
+      level: unlocks.level,
+      currentLevelXp: unlocks.currentLevelXp,
+      cumulativeXp: unlocks.cumulativeXp,
+      gold: newGold,
+      unlockedAchievements: unlocks.unlockedIds,
+      newlyUnlocked: unlocks.newly,
+      didJustLevelUp: unlocks.level > state.level,
+    );
+
+    NotificationService.instance.showAchievementsUnlocked([
+      for (final a in unlocks.newly)
+        a.localName(NotificationService.instance.isArabic),
+    ]);
+
     if (_uid == null) {
       // Guests reach this from the Focus timer and Weekly Challenges — it
       // was returning here without persisting, so the XP/gold shown on
@@ -422,10 +474,16 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     }
     try {
       await _userRef.set({
-        'level': result.newLevel,
-        'currentLevelXp': result.newCurrentLevelXp,
-        'cumulativeXp': result.newCumulativeXp,
+        'level': unlocks.level,
+        'currentLevelXp': unlocks.currentLevelXp,
+        'cumulativeXp': unlocks.cumulativeXp,
         'gold': newGold,
+        // arrayUnion, not the whole computed list — see the same call in
+        // completeHabit for why a set that only ever grows must never be
+        // written wholesale.
+        if (unlocks.newly.isNotEmpty)
+          'unlockedAchievements':
+              FieldValue.arrayUnion(unlocks.newly.map((a) => a.id).toList()),
       }, SetOptions(merge: true));
     } catch (e, st) {
       await _recordWriteFailure('awardBonus', e, st);

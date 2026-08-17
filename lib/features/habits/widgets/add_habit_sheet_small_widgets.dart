@@ -57,100 +57,14 @@ class _EqualPill extends StatelessWidget {
 // each individual label is — the plain Wrap this replaced sized each chip
 // to its own text, which produced a different chip count on every row and
 // a lot of dead space next to short labels.
-class _ChipGrid extends StatelessWidget {
-  final int columns;
-  final List<Widget> items;
-  static const double _spacing = 8;
-  const _ChipGrid({
-    required this.columns,
-    required this.items,
-  });
+// Both now live in lib/shared/widgets/choice_chip_grid.dart so the Tasks
+// reminder picker is literally the same control, not a copy that can
+// drift. Aliased rather than renamed at every call site: this file has
+// dozens of usages and the private names still read fine locally.
+typedef _ChipGrid = ChoiceChipGrid;
+typedef _PlainChoiceChip = PlainChoiceChip;
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cellWidth =
-            (constraints.maxWidth - _spacing * (columns - 1)) / columns;
-        return Wrap(
-          spacing: _spacing,
-          runSpacing: _spacing,
-          children: [
-            for (final item in items) SizedBox(width: cellWidth, child: item),
-          ],
-        );
-      },
-    );
-  }
-}
 
-class _PlainChoiceChip extends StatelessWidget {
-  final bool selected;
-  final String label;
-  final Widget? icon;
-  final VoidCallback onTap;
-
-  const _PlainChoiceChip({
-    required this.selected,
-    required this.label,
-    required this.onTap,
-    this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: TweenAnimationBuilder<double>(
-        key: ValueKey(selected),
-        tween: Tween(begin: selected ? 0.88 : 1.0, end: 1.0),
-        duration: GameMotion.standard,
-        curve: Curves.easeOutBack,
-        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
-        child: AnimatedContainer(
-          duration: GameMotion.quick,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? GameColors.gold.withOpacity(0.14) : gp.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: selected ? GameColors.gold : gp.border.withOpacity(0.8),
-              width: selected ? 1.1 : 0.8,
-            ),
-          ),
-          // Centered, not left-hugged — now that _ChipGrid gives every chip
-          // the same fixed width, a short label like "Faith" would
-          // otherwise sit at the left edge with empty space on the right.
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (icon != null) ...[
-                icon!,
-                const SizedBox(width: 7),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
-                    color: selected ? GameColors.gold : gp.textPrimary,
-                    height: 1.1,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _PlainActionChip extends StatelessWidget {
   final String label;

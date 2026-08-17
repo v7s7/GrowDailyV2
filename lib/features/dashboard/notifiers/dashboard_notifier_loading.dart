@@ -129,7 +129,12 @@ extension DashboardNotifierLoading on DashboardNotifier {
       );
     } catch (_) {
       if (mounted) state = DashboardState.initial().copyWith(isLoading: false);
+      return;
     }
+    // Outside the try on purpose — a failure in here must not be caught by
+    // the handler above and mistaken for "the load failed", which would
+    // wipe the state that just loaded correctly.
+    await _reconcileAchievements();
   }
 
   Future<void> _saveGuestState({DateTime? lastActiveDate}) async {
@@ -439,6 +444,99 @@ extension DashboardNotifierLoading on DashboardNotifier {
       // acknowledgeComeback needs a flag the failed load never set. See
       // DashboardState.loadFailed.
       if (mounted) state = state.copyWith(isLoading: false, loadFailed: true);
+      return;
+    }
+    // Outside the try for the same reason as _loadGuestToday's — see there.
+    // Unreachable after the catch, which returns: a failed load has nothing
+    // trustworthy to reconcile against, and _reconcileAchievements' own
+    // loadFailed guard would turn it away anyway.
+    await _reconcileAchievements();
+  }
+
+  // ── Achievement reconciliation ───────────────────────────────
+
+  /// How many backfilled medals get a celebration sheet on load. See the
+  /// `newlyUnlocked` write in [_reconcileAchievements].
+  static const int _maxBackfillCelebrations = 3;
+
+  /// Awards anything this account already qualifies for but never got.
+  ///
+  /// Until this existed, `unlockedAchievements` was only ever appended to
+  /// from inside completeHabit and applyGridSquareChange — the two moments a
+  /// counter moves *through this app*. Every other way a counter can change
+  /// left the medal permanently stranded:
+  ///
+  ///  * the Quran-category fix in IslamicHabitCatalog.fromJson (see its own
+  ///    comment) restored `categoryCompletions['quran']` for habits whose
+  ///    category had been collapsed to 'faith' — the count came back, but
+  ///    the quran_25/100/... tiers it had already passed did not;
+  ///  * a Firestore restore, a field edited by hand, or signing in on a
+  ///    device that had been progressing offline;
+  ///  * any threshold added to the catalog *below* where an existing user
+  ///    already sits, which would otherwise only unlock on their next tap.
+  ///
+  /// Runs once per load, after state is populated. Rewards are granted
+  /// exactly as a live unlock would grant them, and the results are surfaced
+  /// through `newlyUnlocked` so they're celebrated rather than appearing
+  /// silently in the list — earning four medals at once on the load right
+  /// after a data fix is a good moment, not a bug.
+  Future<void> _reconcileAchievements() async {
+    // Nothing to reconcile against: after a failed load `state` is the
+    // all-zeros initial value, which qualifies for nothing anyway, but the
+    // write below would still stamp a bad document. Same refusal, same
+    // reason as completeHabit's — see DashboardState.loadFailed.
+    if (!mounted || state.loadFailed) return;
+
+    final unlocks = _resolveUnlocks(
+      unlockedIds: state.unlockedAchievements,
+      level: state.level,
+      currentLevelXp: state.currentLevelXp,
+      cumulativeXp: state.cumulativeXp,
+      streak: state.streak,
+      totalCompletions: state.totalCompletions,
+      greenSquares: state.totalGreenSquares,
+      categoryCompletions: state.categoryCompletions,
+    );
+    if (unlocks.newly.isEmpty) return;
+
+    state = state.copyWith(
+      level: unlocks.level,
+      currentLevelXp: unlocks.currentLevelXp,
+      cumulativeXp: unlocks.cumulativeXp,
+      gold: state.gold + unlocks.bonusGold,
+      unlockedAchievements: unlocks.unlockedIds,
+      // Every medal is awarded, but only the first few are *celebrated*.
+      // registerDashboardReactions shows one modal sheet per entry, awaiting
+      // each before the next, so handing it a full backfill would greet
+      // someone with six sheets to dismiss one at a time on cold start —
+      // exactly the kind of thing that turns a reward into an interruption.
+      // The uncelebrated ones are still unlocked and still on the
+      // achievements screen; they just don't each demand a tap.
+      //
+      // Deliberately no local notifications from this path either (unlike
+      // completeHabit's), for the same reason: a burst of pushes for medals
+      // earned weeks ago is noise, not news.
+      newlyUnlocked: unlocks.newly.take(_maxBackfillCelebrations).toList(),
+    );
+
+    if (_uid == null) {
+      await _saveGuestState();
+      return;
+    }
+    try {
+      await _userRef.set({
+        'level': state.level,
+        'currentLevelXp': state.currentLevelXp,
+        'cumulativeXp': state.cumulativeXp,
+        'gold': state.gold,
+        // arrayUnion of only what this sweep awarded — see completeHabit's
+        // identical write. It matters most here: this runs on every load,
+        // including one that raced a write from another device.
+        'unlockedAchievements':
+            FieldValue.arrayUnion(unlocks.newly.map((a) => a.id).toList()),
+      }, SetOptions(merge: true));
+    } catch (e, st) {
+      await _recordWriteFailure('reconcileAchievements', e, st);
     }
   }
 

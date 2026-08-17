@@ -1854,16 +1854,33 @@ extension MatrixEntry {
     var lockScreenIsFallback: Bool { !tasks.contains { $0.isFav } }
 
     var lockScreenIcon: String { lockScreenIsFallback ? "checklist" : "star.fill" }
+
+    // Both faces below count against the WHOLE board, never against
+    // `lockScreenTasks`.
+    //
+    // Starring picks what to *show*; it must not change what gets *counted*.
+    // Counting the starred subset meant that starring one task out of nine
+    // made the widget report a board of one: the ring's centre label read
+    // "1" with eight tasks still open, and the rectangular face showed the
+    // starred title with no overflow line, so the other eight were invisible
+    // and unmentioned. A glanceable surface that under-reports how much is
+    // left is worse than no surface — it's the one number someone acts on
+    // without opening the app.
+    var lockScreenDone: Int { tasks.filter { $0.isDone }.count }
+    var lockScreenRemaining: Int { tasks.count - lockScreenDone }
 }
 
 struct MatrixLockScreenCircularView: View {
     var entry: MatrixEntry
-    private var shown: [WidgetMatrixTask] { entry.lockScreenTasks }
-    private var doneCount: Int { shown.filter { $0.isDone }.count }
-    private var remaining: Int { shown.count - doneCount }
+    // The whole board, not entry.lockScreenTasks — see lockScreenRemaining.
+    // The star icon still says "you have starred tasks"; the number says how
+    // much is actually left, which is a different question.
+    private var total: Int { entry.tasks.count }
+    private var doneCount: Int { entry.lockScreenDone }
+    private var remaining: Int { entry.lockScreenRemaining }
 
     var body: some View {
-        if shown.isEmpty {
+        if entry.tasks.isEmpty {
             // Only when there's genuinely nothing on the board at all —
             // "nothing starred" alone no longer lands here, it falls back
             // to the full list above.
@@ -1878,7 +1895,7 @@ struct MatrixLockScreenCircularView: View {
             // just a flat total — the center label is the still-open count
             // so there's still an immediate "how many are left" answer, or
             // a checkmark once there's nothing left open.
-            Gauge(value: Double(doneCount), in: 0...Double(shown.count)) {
+            Gauge(value: Double(doneCount), in: 0...Double(total)) {
                 Image(systemName: entry.lockScreenIcon)
             } currentValueLabel: {
                 if remaining == 0 {
@@ -1910,15 +1927,23 @@ struct MatrixLockScreenRectangularView: View {
 
     /// The tasks that actually get drawn, and how many are left over.
     ///
-    /// With more than three, the last line is spent on a "+N more" summary
-    /// instead of a third title — so only two titles are shown, and the
-    /// overflow count covers the rest.
+    /// The overflow counts against the WHOLE board, not against the starred
+    /// subset being drawn. Counting inside the subset meant one starred task
+    /// out of nine produced `shown.count == 1`, which is under the line
+    /// budget, so no overflow line was drawn at all — the widget showed one
+    /// title and silently omitted that eight other tasks were open. "+8 more"
+    /// is the entire point of starring one thing: it stays the focus, and the
+    /// rest is still accounted for.
+    ///
+    /// So a line is spent on the summary whenever anything is being left out,
+    /// whether that's because the starred selection is narrower than the
+    /// board or because the board is simply longer than three lines.
     private var visible: (tasks: [WidgetMatrixTask], overflow: Int) {
-        if shown.count > Self.lineBudget {
-            let head = Array(shown.prefix(Self.lineBudget - 1))
-            return (head, shown.count - head.count)
-        }
-        return (shown, 0)
+        let boardCount = entry.tasks.count
+        let needsSummary = shown.count > Self.lineBudget || boardCount > shown.count
+        guard needsSummary else { return (shown, 0) }
+        let head = Array(shown.prefix(Self.lineBudget - 1))
+        return (head, boardCount - head.count)
     }
 
     /// Splits the line budget across however many titles are being shown,
@@ -1965,9 +1990,13 @@ struct MatrixLockScreenRectangularView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if overflow > 0 {
-                        Text(entry.lockScreenIsFallback
-                             ? "+\(overflow) more"
-                             : "+\(overflow) more starred")
+                        // One wording for both states. It used to say
+                        // "+N more starred" in the starred case, which is
+                        // now actively wrong: the overflow is the rest of
+                        // the *board*, which is mostly unstarred. "+N more"
+                        // means the same thing either way — more open tasks
+                        // you aren't seeing.
+                        Text("+\(overflow) more")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                             .lineLimit(1)

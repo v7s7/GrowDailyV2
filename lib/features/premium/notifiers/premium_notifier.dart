@@ -11,6 +11,32 @@ import '../../../core/services/purchase_service.dart';
 /// the paywall should feel like an invitation, not a wall.
 const int kFreeHabitLimit = 10;
 
+/// How many reminders the free tier can attach to a single Matrix task.
+/// One is the whole free offering here, and deliberately so: a single
+/// reminder is what a task app is expected to do at all, while *stacking*
+/// them — nudged at 3:00, 3:30 and 4:00 for a 5pm meeting — is the alarm-
+/// clock behaviour worth paying for. Premium is uncapped rather than
+/// merely a bigger number, so the upgrade reads as "this limit goes away"
+/// instead of trading one ceiling for another.
+///
+/// Note this gates *adding*, not keeping: [canAddReminder] is only ever
+/// asked before a new reminder is created, so a task that already carries
+/// several keeps firing all of them if an entitlement lapses. Silently
+/// dropping reminders someone had set would be the worst possible way to
+/// find out a subscription expired.
+///
+/// Separately from this product cap, NotificationService.
+/// kMaxTaskReminderSlots bounds how many of a task's reminders can be
+/// armed with the OS at once — that one is an iOS platform limit, not a
+/// tier limit, and applies to Premium too.
+const int kFreeTaskReminders = 1;
+
+/// Whether another reminder may be added to a task that currently has
+/// [current] of them. Pure so it's unit-testable without Riverpod or
+/// RevenueCat, same shape and reasoning as [canBrowseHistoryMonth].
+bool canAddReminder({required int current, required bool isPremium}) =>
+    isPremium || current < kFreeTaskReminders;
+
 /// How many months of any history surface the free tier can browse — the
 /// current month plus two before it, matching the Monthly Heatmap's free
 /// window exactly so the whole app tells one consistent story: free sees

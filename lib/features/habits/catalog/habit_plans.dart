@@ -88,7 +88,7 @@ const habitPlans = <HabitPlan>[
   HabitPlan(
     id: 'discipline_30',
     nameEn: '30-Day Discipline',
-    nameAr: 'تحدي الانضباط ٣٠ يوم',
+    nameAr: 'تحدي الانضباط 30 يوم',
     descEn: 'Cold showers, early mornings, no sugar, and the gym. One month to reset.',
     descAr: 'دش بارد، صحيان مبكر، بدون سكر، ورياضة. شهر واحد يعدّل كل شي.',
     color: Color(0xFFFF6B35),

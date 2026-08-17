@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter/widgets.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/utils/western_digits.dart';
 
 /// Canonical, locale-independent identity for a habit's "cue" — the routine
 /// it's anchored to: a prayer, "before sleep", a picked clock time, or free
@@ -78,22 +79,16 @@ class HabitCue {
       RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', caseSensitive: false);
   static final RegExp _timeAr = RegExp(r'^(\d{1,2}):(\d{2})\s*(ص|م)$');
 
-  static const _arabicIndicDigits = '٠١٢٣٤٥٦٧٨٩';
-
   /// Dart's `\d` matches ASCII digits only, but Arabic keyboards (especially
   /// on mobile) commonly default to Arabic-Indic digits (٠-٩) — a time typed
   /// as "٧:٣٠ ص" must still be recognized as 7:30, not fall through to
   /// freeform text. Only used ahead of the time-pattern checks below; preset
   /// matching and the freeform fallback both still see the original,
   /// unmodified text.
-  static String _asciiDigits(String s) {
-    final buffer = StringBuffer();
-    for (final ch in s.split('')) {
-      final i = _arabicIndicDigits.indexOf(ch);
-      buffer.write(i >= 0 ? i.toString() : ch);
-    }
-    return buffer.toString();
-  }
+  ///
+  /// Delegates to the shared helper — this was one of three hand-rolled
+  /// copies of the same ten-character loop (see [toWesternDigits]).
+  static String _asciiDigits(String s) => toWesternDigits(s);
 
   /// A known routine preset by canonical key (e.g. `'maghrib'`). Falls back
   /// to freeform if [key] isn't one of the 6 recognized keys.

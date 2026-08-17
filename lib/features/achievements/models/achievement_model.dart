@@ -42,6 +42,22 @@ enum AchievementTier {
   gold,
   platinum;
 
+  /// I → IV, painted inside the medal itself. Colour alone used to be the
+  /// only thing separating the four rungs of a family, and since every
+  /// medal in a family also carries the *same* trigger icon (see
+  /// [achievementIconFor]), a ladder read as one glyph repeated four times
+  /// in four shades — unreadable at a glance for anyone who doesn't already
+  /// know bronze-silver-gold-platinum by hue, and outright ambiguous for
+  /// the ~8% of men with a red-green deficiency. The numeral carries the
+  /// ordering on its own, with colour as reinforcement rather than the
+  /// sole signal.
+  String get numeral => switch (this) {
+        bronze => 'I',
+        silver => 'II',
+        gold => 'III',
+        platinum => 'IV',
+      };
+
   String localizedName(bool isAr) => isAr
       ? switch (this) {
           bronze => 'برونزية',
@@ -140,32 +156,32 @@ abstract final class AchievementCatalog {
   static const List<AchievementFamily> families = [
     AchievementFamily(
       id: 'streak',
-      title: 'Streak Keeper',
-      titleAr: 'حارس السلسلة',
+      title: 'Unbroken',
+      titleAr: 'بدون انقطاع',
       icon: Icons.local_fire_department_rounded,
     ),
     AchievementFamily(
       id: 'level',
-      title: 'Level Climber',
-      titleAr: 'متسلّق المستويات',
+      title: 'The Climb',
+      titleAr: 'الصعود',
       icon: Icons.bolt_rounded,
     ),
     AchievementFamily(
       id: 'completions',
-      title: 'Consistency',
+      title: 'Steady',
       titleAr: 'الثبات',
       icon: Icons.check_circle_rounded,
     ),
     AchievementFamily(
       id: 'grid',
-      title: 'Victory Grid',
-      titleAr: 'شبكة الانتصار',
+      title: 'The Grid',
+      titleAr: 'الشبكة',
       icon: Icons.grid_view_rounded,
     ),
     AchievementFamily(
       id: 'quran',
-      title: 'Quran Devotion',
-      titleAr: 'التزام القرآن',
+      title: 'Daily Quran',
+      titleAr: 'ورد القرآن',
       icon: Icons.menu_book_rounded,
     ),
   ];
@@ -176,10 +192,10 @@ abstract final class AchievementCatalog {
       id: 'streak_7',
       familyId: 'streak',
       tier: AchievementTier.bronze,
-      name: 'Seven Days Strong',
-      nameAr: 'سبعة أيام بقوة',
-      description: 'Maintain a 7-day streak',
-      descriptionAr: 'حافظ على سلسلة ٧ أيام',
+      name: 'A Full Week',
+      nameAr: 'أسبوع كامل',
+      description: 'A 7-day streak',
+      descriptionAr: 'سلسلة 7 أيام متواصلة',
       trigger: AchievementTrigger.streak,
       threshold: 7,
       xpReward: 100,
@@ -189,10 +205,10 @@ abstract final class AchievementCatalog {
       id: 'streak_30',
       familyId: 'streak',
       tier: AchievementTier.silver,
-      name: 'Month of Mastery',
-      nameAr: 'شهر من الإتقان',
-      description: 'Maintain a 30-day streak',
-      descriptionAr: 'حافظ على سلسلة ٣٠ يومًا',
+      name: 'A Month Straight',
+      nameAr: 'شهر ما انقطع',
+      description: 'A 30-day streak',
+      descriptionAr: 'سلسلة 30 يوم متواصلة',
       trigger: AchievementTrigger.streak,
       threshold: 30,
       xpReward: 500,
@@ -202,10 +218,10 @@ abstract final class AchievementCatalog {
       id: 'streak_100',
       familyId: 'streak',
       tier: AchievementTier.gold,
-      name: 'Century Champion',
-      nameAr: 'بطل المئة',
-      description: 'Maintain a 100-day streak',
-      descriptionAr: 'حافظ على سلسلة ١٠٠ يوم',
+      name: 'A Hundred Days',
+      nameAr: 'مية يوم',
+      description: 'A 100-day streak',
+      descriptionAr: 'سلسلة 100 يوم متواصلة',
       trigger: AchievementTrigger.streak,
       threshold: 100,
       xpReward: 2000,
@@ -215,10 +231,10 @@ abstract final class AchievementCatalog {
       id: 'streak_365',
       familyId: 'streak',
       tier: AchievementTier.platinum,
-      name: 'Unbroken Year',
-      nameAr: 'سنة بلا انقطاع',
-      description: 'Maintain a 365-day streak',
-      descriptionAr: 'حافظ على سلسلة ٣٦٥ يومًا',
+      name: 'A Year, No Gaps',
+      nameAr: 'سنة ما فاتها يوم',
+      description: 'A 365-day streak',
+      descriptionAr: 'سلسلة 365 يوم متواصلة',
       trigger: AchievementTrigger.streak,
       threshold: 365,
       xpReward: 6000,
@@ -229,10 +245,10 @@ abstract final class AchievementCatalog {
       id: 'level_10',
       familyId: 'level',
       tier: AchievementTier.bronze,
-      name: 'Awakened',
-      nameAr: 'المستيقظ',
-      description: 'Reach Level 10',
-      descriptionAr: 'وصول للمستوى ١٠',
+      name: 'First Rung',
+      nameAr: 'أول درجة',
+      description: 'Reach level 10',
+      descriptionAr: 'الوصول للمستوى 10',
       trigger: AchievementTrigger.level,
       threshold: 10,
       xpReward: 0,
@@ -242,10 +258,10 @@ abstract final class AchievementCatalog {
       id: 'level_25',
       familyId: 'level',
       tier: AchievementTier.silver,
-      name: 'Ascendant',
-      nameAr: 'الصاعد',
-      description: 'Reach Level 25',
-      descriptionAr: 'وصول للمستوى ٢٥',
+      name: 'Halfway Up',
+      nameAr: 'نص السلّم',
+      description: 'Reach level 25',
+      descriptionAr: 'الوصول للمستوى 25',
       trigger: AchievementTrigger.level,
       threshold: 25,
       xpReward: 0,
@@ -255,10 +271,10 @@ abstract final class AchievementCatalog {
       id: 'level_50',
       familyId: 'level',
       tier: AchievementTier.gold,
-      name: 'Transcendent',
-      nameAr: 'المتسامي',
-      description: 'Reach Level 50',
-      descriptionAr: 'وصول للمستوى ٥٠',
+      name: 'Top of the Ladder',
+      nameAr: 'فوق السلّم',
+      description: 'Reach level 50',
+      descriptionAr: 'الوصول للمستوى 50',
       trigger: AchievementTrigger.level,
       threshold: 50,
       xpReward: 0,
@@ -268,10 +284,10 @@ abstract final class AchievementCatalog {
       id: 'level_100',
       familyId: 'level',
       tier: AchievementTier.platinum,
-      name: 'Enlightened',
-      nameAr: 'المستنير',
-      description: 'Reach the maximum Level 100',
-      descriptionAr: 'وصول لأعلى مستوى، ١٠٠',
+      name: 'The Summit',
+      nameAr: 'القمة',
+      description: 'Reach level 100, the maximum',
+      descriptionAr: 'الوصول لأعلى مستوى: 100',
       trigger: AchievementTrigger.level,
       threshold: 100,
       xpReward: 0,
@@ -282,10 +298,10 @@ abstract final class AchievementCatalog {
       id: 'completions_50',
       familyId: 'completions',
       tier: AchievementTier.bronze,
-      name: 'Consistent',
-      nameAr: 'الملتزم',
-      description: 'Complete any habit 50 times total',
-      descriptionAr: 'أكمل أي عادة ٥٠ مرة',
+      name: 'Now a Habit',
+      nameAr: 'صار عادة',
+      description: 'Any habit, 50 times',
+      descriptionAr: 'أي عادة، 50 مرة',
       trigger: AchievementTrigger.totalCompletions,
       threshold: 50,
       xpReward: 150,
@@ -295,10 +311,10 @@ abstract final class AchievementCatalog {
       id: 'completions_500',
       familyId: 'completions',
       tier: AchievementTier.silver,
-      name: 'Devoted',
-      nameAr: 'المتفاني',
-      description: 'Complete habits 500 times total',
-      descriptionAr: 'أكمل عاداتك ٥٠٠ مرة',
+      name: 'Steady',
+      nameAr: 'ثابت',
+      description: 'Habits, 500 times',
+      descriptionAr: 'العادات، 500 مرة',
       trigger: AchievementTrigger.totalCompletions,
       threshold: 500,
       xpReward: 750,
@@ -308,10 +324,10 @@ abstract final class AchievementCatalog {
       id: 'completions_2000',
       familyId: 'completions',
       tier: AchievementTier.gold,
-      name: 'Unstoppable',
-      nameAr: 'الذي لا يُوقَف',
-      description: 'Complete habits 2,000 times total',
-      descriptionAr: 'أكمل عاداتك ٢٠٠٠ مرة',
+      name: 'Nothing Stops It',
+      nameAr: 'ما يوقفه شي',
+      description: 'Habits, 2,000 times',
+      descriptionAr: 'العادات، 2000 مرة',
       trigger: AchievementTrigger.totalCompletions,
       threshold: 2000,
       xpReward: 2500,
@@ -321,10 +337,10 @@ abstract final class AchievementCatalog {
       id: 'completions_5000',
       familyId: 'completions',
       tier: AchievementTier.platinum,
-      name: 'Living Legend',
-      nameAr: 'أسطورة حية',
-      description: 'Complete habits 5,000 times total',
-      descriptionAr: 'أكمل عاداتك ٥٠٠٠ مرة',
+      name: 'Legend',
+      nameAr: 'أسطورة',
+      description: 'Habits, 5,000 times',
+      descriptionAr: 'العادات، 5000 مرة',
       trigger: AchievementTrigger.totalCompletions,
       threshold: 5000,
       xpReward: 6000,
@@ -335,10 +351,10 @@ abstract final class AchievementCatalog {
       id: 'quran_25',
       familyId: 'quran',
       tier: AchievementTier.bronze,
-      name: 'Steady Reciter',
-      nameAr: 'التالي المواظب',
-      description: 'Complete a Quran habit 25 times',
-      descriptionAr: 'أكمل عادة قرآن ٢٥ مرة',
+      name: 'Never Misses a Reading',
+      nameAr: 'ما يفوته ورد',
+      description: 'A Quran habit, 25 times',
+      descriptionAr: 'عادة قرآن، 25 مرة',
       trigger: AchievementTrigger.habitMastery,
       threshold: 25,
       xpReward: 150,
@@ -349,10 +365,10 @@ abstract final class AchievementCatalog {
       id: 'quran_100',
       familyId: 'quran',
       tier: AchievementTier.silver,
-      name: 'Keeper of the Word',
-      nameAr: 'حافظ الكلمة',
-      description: 'Complete a Quran habit 100 times',
-      descriptionAr: 'أكمل عادة قرآن ١٠٠ مرة',
+      name: 'Keeper of the Reading',
+      nameAr: 'صاحب الورد',
+      description: 'A Quran habit, 100 times',
+      descriptionAr: 'عادة قرآن، 100 مرة',
       trigger: AchievementTrigger.habitMastery,
       threshold: 100,
       xpReward: 750,
@@ -363,10 +379,10 @@ abstract final class AchievementCatalog {
       id: 'quran_300',
       familyId: 'quran',
       tier: AchievementTier.gold,
-      name: 'Companion of the Book',
-      nameAr: 'رفيق الكتاب',
-      description: 'Complete a Quran habit 300 times',
-      descriptionAr: 'أكمل عادة قرآن ٣٠٠ مرة',
+      name: 'Companion of the Mushaf',
+      nameAr: 'رفيق المصحف',
+      description: 'A Quran habit, 300 times',
+      descriptionAr: 'عادة قرآن، 300 مرة',
       trigger: AchievementTrigger.habitMastery,
       threshold: 300,
       xpReward: 2000,
@@ -377,10 +393,10 @@ abstract final class AchievementCatalog {
       id: 'quran_1000',
       familyId: 'quran',
       tier: AchievementTier.platinum,
-      name: 'Vessel of Light',
-      nameAr: 'وعاء النور',
-      description: 'Complete a Quran habit 1,000 times',
-      descriptionAr: 'أكمل عادة قرآن ١٠٠٠ مرة',
+      name: 'Light upon Light',
+      nameAr: 'نور على نور',
+      description: 'A Quran habit, 1,000 times',
+      descriptionAr: 'عادة قرآن، 1000 مرة',
       trigger: AchievementTrigger.habitMastery,
       threshold: 1000,
       xpReward: 5000,
@@ -392,10 +408,10 @@ abstract final class AchievementCatalog {
       id: 'green_1',
       familyId: 'grid',
       tier: AchievementTier.bronze,
-      name: 'First Victory',
-      nameAr: 'أول انتصار',
-      description: 'Color your very first square on the Victory Grid',
-      descriptionAr: 'لوّن أول مربع في شبكة الانتصار',
+      name: 'First Square',
+      nameAr: 'أول مربّع',
+      description: 'The first colored square on the Grid',
+      descriptionAr: 'أول مربّع ملوّن في الشبكة',
       trigger: AchievementTrigger.greenSquares,
       threshold: 1,
       xpReward: 25,
@@ -405,10 +421,10 @@ abstract final class AchievementCatalog {
       id: 'green_100',
       familyId: 'grid',
       tier: AchievementTier.silver,
-      name: 'Grid Painter',
-      nameAr: 'رسّام الشبكة',
-      description: 'Color 100 squares on your Victory Grid',
-      descriptionAr: 'لوّن ١٠٠ مربع في شبكة الانتصار',
+      name: 'A Hundred Squares',
+      nameAr: 'مية مربّع',
+      description: '100 colored squares on the Grid',
+      descriptionAr: '100 مربّع ملوّن في الشبكة',
       trigger: AchievementTrigger.greenSquares,
       threshold: 100,
       xpReward: 200,
@@ -418,10 +434,10 @@ abstract final class AchievementCatalog {
       id: 'green_500',
       familyId: 'grid',
       tier: AchievementTier.gold,
-      name: 'Grid Master',
-      nameAr: 'سيد الشبكة',
-      description: 'Color 500 squares on your Victory Grid',
-      descriptionAr: 'لوّن ٥٠٠ مربع في شبكة الانتصار',
+      name: 'Colored In',
+      nameAr: 'شبكة ملوّنة',
+      description: '500 colored squares on the Grid',
+      descriptionAr: '500 مربّع ملوّن في الشبكة',
       trigger: AchievementTrigger.greenSquares,
       threshold: 500,
       xpReward: 600,
@@ -431,10 +447,10 @@ abstract final class AchievementCatalog {
       id: 'green_2000',
       familyId: 'grid',
       tier: AchievementTier.platinum,
-      name: 'Living Canvas',
-      nameAr: 'لوحة حية',
-      description: 'Color 2000 squares on your Victory Grid',
-      descriptionAr: 'لوّن ٢٠٠٠ مربع في شبكة الانتصار',
+      name: 'A Full Canvas',
+      nameAr: 'لوحة كاملة',
+      description: '2,000 colored squares on the Grid',
+      descriptionAr: '2000 مربّع ملوّن في الشبكة',
       trigger: AchievementTrigger.greenSquares,
       threshold: 2000,
       xpReward: 2500,
@@ -469,4 +485,101 @@ abstract final class AchievementCatalog {
   /// Returns all achievements that [unlockedIds] has NOT yet unlocked.
   static List<AchievementModel> locked(List<String> unlockedIds) =>
       all.where((a) => !unlockedIds.contains(a.id)).toList();
+
+  /// The lowest tier of [familyId] still locked, or `null` once the whole
+  /// ladder is climbed.
+  ///
+  /// Looks the tier up by *identity* (first tier whose id isn't in
+  /// [unlockedIds]) rather than by counting how many are unlocked and
+  /// indexing that far into the list. Those two agree only while unlocks
+  /// arrive in strict bronze→platinum order, which isn't guaranteed:
+  /// `totalGreenSquares` and `categoryCompletions` both go *down* again in
+  /// uncompleteHabit, while `unlockedAchievements` is deliberately never
+  /// pruned, so a counter can cross a higher threshold, fall back, and
+  /// leave a gap in the ladder. Counting would then describe one tier while
+  /// the medal row highlighted another. AchievementsScreen used to count and
+  /// ProgressHubScreen used to search — same concept, two implementations,
+  /// one of them wrong; both now call this.
+  static AchievementModel? nextLockedIn(
+    String familyId,
+    List<String> unlockedIds,
+  ) {
+    for (final t in tiersFor(familyId)) {
+      if (!unlockedIds.contains(t.id)) return t;
+    }
+    return null;
+  }
+
+  /// How many medals of each tier [unlockedIds] holds — the trophy-case
+  /// header's bronze/silver/gold/platinum tally.
+  static Map<AchievementTier, int> tierCounts(List<String> unlockedIds) {
+    final counts = {for (final t in AchievementTier.values) t: 0};
+    for (final a in all) {
+      if (unlockedIds.contains(a.id)) counts[a.tier] = counts[a.tier]! + 1;
+    }
+    return counts;
+  }
+
+  /// Every still-locked achievement that [stats] now qualifies for.
+  ///
+  /// The single source of truth for "has this been earned" — completeHabit,
+  /// applyGridSquareChange and the post-load reconciliation sweep all call
+  /// this instead of each open-coding the same switch over
+  /// [AchievementTrigger]. They used to, and they didn't agree:
+  /// applyGridSquareChange only ever tested `level` and `greenSquares`, so a
+  /// habit-mastery or total-completions threshold crossed on that path sat
+  /// unrecognised until the next habit completion happened to re-check it.
+  static List<AchievementModel> newlyUnlocked(
+    AchievementStats stats,
+    List<String> unlockedIds,
+  ) =>
+      locked(unlockedIds).where(stats.meets).toList();
+}
+
+/// The five running totals every achievement trigger is measured against,
+/// in one object so the check can be written once (see
+/// [AchievementCatalog.newlyUnlocked]) instead of once per call site.
+///
+/// Deliberately a plain snapshot rather than a read of `DashboardState`:
+/// the unlock check inside completeHabit has to run against the values the
+/// completion is *about to* produce, which don't exist in state yet.
+class AchievementStats {
+  final int streak;
+  final int level;
+  final int totalCompletions;
+  final int greenSquares;
+  final Map<String, int> categoryCompletions;
+
+  const AchievementStats({
+    required this.streak,
+    required this.level,
+    required this.totalCompletions,
+    required this.greenSquares,
+    required this.categoryCompletions,
+  });
+
+  /// The number that counts toward [a] — the numerator of its progress bar
+  /// and the left side of its unlock comparison.
+  int currentFor(AchievementModel a) => switch (a.trigger) {
+        AchievementTrigger.streak => streak,
+        AchievementTrigger.level => level,
+        AchievementTrigger.totalCompletions => totalCompletions,
+        AchievementTrigger.greenSquares => greenSquares,
+        AchievementTrigger.habitMastery =>
+          categoryCompletions[a.targetCategory] ?? 0,
+        AchievementTrigger.special => 0,
+      };
+
+  /// Whether [a] is earned at these numbers. `special` achievements are
+  /// awarded by hand and never qualify through a counter, so they're
+  /// excluded here rather than silently comparing 0 against a threshold.
+  bool meets(AchievementModel a) =>
+      a.trigger != AchievementTrigger.special &&
+      currentFor(a) >= a.threshold;
+
+  /// 0..1 progress toward [a], clamped — the shared source for every
+  /// progress ring and bar on the achievements surfaces.
+  double progressFor(AchievementModel a) => a.threshold <= 0
+      ? 0
+      : (currentFor(a) / a.threshold).clamp(0.0, 1.0);
 }

@@ -229,8 +229,9 @@ class _InsightsBody extends ConsumerWidget {
           locale: locale,
         );
 
-        final ranked = result.patterns.values.toList()
-          ..sort((a, b) => b.rate.compareTo(a.rate));
+        // Sorted with a sample floor rather than by raw rate — see
+        // rankHabitPatterns for why a 1-of-1 habit must not top this list.
+        final ranked = rankHabitPatterns(result.patterns.values);
         // Free: just the single strongest habit's real row — a genuine
         // taste, not a stripped one (see this screen's own doc comment).
         // Premium: every habit. No teaser row at all when there's only one
@@ -263,14 +264,42 @@ class _InsightsBody extends ConsumerWidget {
                   ),
                 ).animate(delay: (i * 60).ms).fadeIn(duration: 350.ms),
               ),
-            const SizedBox(height: 8),
-            for (final p in visibleRows)
-              _HabitRateRow(
-                name: habitName(p.habitId),
-                completed: p.completed,
-                scheduled: p.scheduled,
-                rate: p.rate,
+            // The per-habit rates arrived with no label and no container —
+            // a run of bare bars starting straight after the last headline
+            // card, so "18 / 28" had nothing on screen saying what it
+            // counted. Given a header and the same card treatment every
+            // other list in the app uses.
+            const SizedBox(height: GameSpacing.lg),
+            Text(
+              s.insightsPerHabitTitle,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textSec,
+                  letterSpacing: s.isAr ? 0 : 1.5),
+            ),
+            const SizedBox(height: GameSpacing.md),
+            Container(
+              padding: const EdgeInsets.fromLTRB(
+                  GameSpacing.lg, GameSpacing.lg, GameSpacing.lg, GameSpacing.sm),
+              decoration: BoxDecoration(
+                color: gp.surface,
+                borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+                border: Border.all(color: gp.border, width: 0.5),
               ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final p in visibleRows)
+                    _HabitRateRow(
+                      name: habitName(p.habitId),
+                      completed: p.completed,
+                      scheduled: p.scheduled,
+                      rate: p.rate,
+                    ),
+                ],
+              ),
+            ),
             if (showTeaser)
               Padding(
                 padding: const EdgeInsets.only(top: 4),

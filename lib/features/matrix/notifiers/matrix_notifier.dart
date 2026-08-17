@@ -37,16 +37,54 @@ bool isMatrixQuickAddLink(Uri uri) =>
 /// overridable so "is reminderAt still in the future" stays deterministic
 /// under test — see test/features/matrix/matrix_reminder_test.dart.
 @visibleForTesting
-bool shouldScheduleTaskReminder(
+List<DateTime> futureTaskReminders(
   MatrixTask task, {
   required bool masterEnabled,
   DateTime? now,
 }) {
-  final reminderAt = task.reminderAt;
-  return reminderAt != null &&
-      !task.isDone &&
-      reminderAt.isAfter(now ?? DateTime.now()) &&
-      masterEnabled;
+  if (task.isDone || !masterEnabled) return const [];
+  final at = now ?? DateTime.now();
+  return task.reminderAts.where((r) => r.isAfter(at)).toList();
+}
+
+/// Whether [task] has any reminder still worth arming — the bool form of
+/// [futureTaskReminders], kept because that's the question
+/// [MatrixNotifier._syncReminderSchedule] actually branches on.
+@visibleForTesting
+bool shouldScheduleTaskReminder(
+  MatrixTask task, {
+  required bool masterEnabled,
+  DateTime? now,
+}) =>
+    futureTaskReminders(task, masterEnabled: masterEnabled, now: now)
+        .isNotEmpty;
+
+/// The most recent reminder on [task] whose moment has already passed, or
+/// null if none has. Drives the overdue catch-up in
+/// [MatrixNotifier._fireOverdueReminderOnce].
+///
+/// Deliberately the *latest* missed moment rather than every missed one:
+/// a task warned about at 3:00, 3:30 and 4:00 that the user only reopens
+/// the app for at 4:15 has missed all three, but firing three identical
+/// catch-up notifications at once would be indistinguishable from a bug.
+/// One nudge saying "this needed you" is the whole point of the catch-up;
+/// keying it to the last missed moment also means the [_
+/// overdueTaskReminderFiredKey] guard advances as later reminders in the
+/// same stack come due, so a stack that's missed progressively still
+/// catches up once per newly-passed moment rather than going silent after
+/// the first.
+@visibleForTesting
+DateTime? latestMissedTaskReminder(
+  MatrixTask task, {
+  required bool masterEnabled,
+  DateTime? now,
+}) {
+  if (task.isDone || !masterEnabled) return null;
+  final at = now ?? DateTime.now();
+  // reminderAts is sorted ascending, so the last non-future entry is the
+  // most recent one that's passed.
+  final passed = task.reminderAts.where((r) => !r.isAfter(at));
+  return passed.isEmpty ? null : passed.last;
 }
 
 // Hive settings-box key for "task id -> the ISO8601 reminderAt this task's
@@ -312,7 +350,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     MatrixQuadrant quadrant, {
     String? description,
     List<VoiceNote> voiceNotes = const [],
-    DateTime? reminderAt,
+    List<DateTime> reminderAts = const [],
   }) {
     if (title.trim().isEmpty) return;
     _mutatedBeforeLoad = true;
@@ -321,7 +359,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       quadrant,
       description: description,
       voiceNotes: voiceNotes,
-      reminderAt: reminderAt,
+      reminderAts: reminderAts,
     );
     state = MatrixState(
       tasks: [...state.tasks, task],
@@ -451,18 +489,20 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// as [addVoiceNote]/[removeVoiceNote] below: picking a reminder means
   /// clearing two native dialogs, not a stray keystroke, so it deserves the
   /// same immediate-save treatment as a just-recorded voice note. Pass
-  /// `null` to clear an existing reminder. AddTaskSheet never calls this —
-  /// a reminder picked before the task exists travels through [add]'s own
-  /// `reminderAt` param instead.
-  void setReminder(String id, DateTime? reminderAt) {
+  /// `const []` to clear every reminder. AddTaskSheet never calls this —
+  /// reminders picked before the task exists travel through [add]'s own
+  /// `reminderAts` param instead.
+  ///
+  /// Takes the task's whole new reminder set rather than an add/remove
+  /// delta, so the sheet stays the only place that has to reason about
+  /// ordering or the free-tier cap; this just stores what it's given (the
+  /// model normalizes) and resyncs the OS schedule to match.
+  void setReminders(String id, List<DateTime> reminderAts) {
     _mutatedBeforeLoad = true;
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final updated = tasks[idx].copyWith(
-      reminderAt: reminderAt,
-      clearReminderAt: reminderAt == null,
-    );
+    final updated = tasks[idx].copyWith(reminderAts: reminderAts);
     tasks[idx] = updated;
     state = MatrixState(
       tasks: tasks,
@@ -743,27 +783,32 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// for why.
   void _syncReminderSchedule(MatrixTask task) {
     final masterEnabled = _ref.read(notificationSettingsProvider).masterEnabled;
-    final reminderAt = task.reminderAt;
     final isAr = _ref.read(localeProvider).languageCode == 'ar';
 
-    if (shouldScheduleTaskReminder(task, masterEnabled: masterEnabled)) {
+    // Passes the whole still-future set, not a delta —
+    // scheduleTaskReminders re-arms exactly these and sweeps every slot
+    // this task no longer uses, so partially-elapsed stacks (3:00 gone,
+    // 3:30 and 4:00 still coming) resettle correctly with no orphans.
+    final future = futureTaskReminders(task, masterEnabled: masterEnabled);
+    if (future.isNotEmpty) {
       NotificationService.instance
-          .scheduleTaskReminder(
+          .scheduleTaskReminders(
             id: task.id,
             taskTitle: task.title,
-            fireTime: reminderAt!,
+            fireTimes: future,
             isAr: isAr,
           )
           .ignore();
       return;
     }
 
-    final isOverdueButStillRelevant = reminderAt != null &&
-        !task.isDone &&
-        masterEnabled &&
-        !reminderAt.isAfter(DateTime.now());
-    if (isOverdueButStillRelevant) {
-      _fireOverdueReminderOnce(task, reminderAt!, isAr).ignore();
+    // Only once *nothing* is still armed does a missed moment deserve a
+    // catch-up: while a later reminder in the same stack is still pending,
+    // the task is about to nudge on its own anyway, and firing a catch-up
+    // on top of it would just double up.
+    final missed = latestMissedTaskReminder(task, masterEnabled: masterEnabled);
+    if (missed != null) {
+      _fireOverdueReminderOnce(task, missed, isAr).ignore();
       return;
     }
 
@@ -780,18 +825,31 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// another setting flipped) would re-fire the exact same catch-up
   /// notification a second, third, ... time for as long as the task stays
   /// open. This is the duplicate a user actually reported seeing. Keyed by
-  /// [reminderAt]'s own ISO string, not just the task id, so picking a new
-  /// reminder time for the same task (which changes reminderAt) is still
-  /// free to catch up once on its own later if that one is ever missed too.
+  /// [missedAt]'s own ISO string, not just the task id, so picking a new
+  /// reminder time for the same task is still free to catch up once on its
+  /// own later if that one is ever missed too — and so is each later
+  /// moment in a multi-reminder stack as it comes due, since
+  /// [latestMissedTaskReminder] hands over a new value each time one more
+  /// passes.
   Future<void> _fireOverdueReminderOnce(
     MatrixTask task,
-    DateTime reminderAt,
+    DateTime missedAt,
     bool isAr,
   ) async {
     final stored =
         await LocalStoreService.getSettingsMap(_overdueTaskReminderFiredKey);
-    final key = reminderAt.toIso8601String();
-    if (stored[task.id] == key) return;
+    final key = missedAt.toIso8601String();
+    // Only ever move *forward*. An exact-match guard was enough when a task
+    // had one reminder, but with a stack the "latest missed" moment can move
+    // backwards: drop the 4:00 nudge from a 3:00/3:30/4:00 ladder that has
+    // already elapsed and 3:30 becomes the latest missed, which is a key
+    // we've never stored — so an exact-match guard fires a second catch-up
+    // for a moment *older* than the one already delivered, once per edit.
+    // Comparing instants instead means a catch-up only ever fires for
+    // something newer than the last one, which still lets a progressively
+    // elapsing stack catch up as each new moment comes due.
+    final previous = DateTime.tryParse(stored[task.id]?.toString() ?? '');
+    if (previous != null && !missedAt.isAfter(previous)) return;
     await LocalStoreService.putSettingsMap(_overdueTaskReminderFiredKey, {
       ...stored,
       task.id: key,

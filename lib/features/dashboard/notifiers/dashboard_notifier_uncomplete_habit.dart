@@ -224,8 +224,12 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     if (didLevelUp) {
       NotificationService.instance.showLevelUp(newLevel);
     }
-    for (final a in newlyUnlocked) {
-      NotificationService.instance.showAchievementUnlocked(a.name);
-    }
+    // One notification for the whole batch — a single completion can cross
+    // three thresholds at once, and this used to deal one push per medal on
+    // top of the habit-completed and level-up ones already going out.
+    NotificationService.instance.showAchievementsUnlocked([
+      for (final a in newlyUnlocked)
+        a.localName(NotificationService.instance.isArabic),
+    ]);
   }
 }

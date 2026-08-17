@@ -90,24 +90,58 @@ abstract final class GameColors {
 
   // ── Achievement medal tiers ──────────────────────────────────
   //
-  // Fixed, not preset-driven, on purpose: bronze/silver/platinum are real
-  // metals with a real-world color the same way iconGold/iconStreak above
-  // are fixed rather than tracking the active theme — a Bronze medal
-  // should always look like bronze no matter which of the 11 presets is
-  // active. Gold is the one exception: it deliberately reuses the app's
-  // own [gold] (preset-driven) so a Gold-tier medal stays visually the
-  // same "gold" as every coin/XP-adjacent gold accent elsewhere in the
-  // app, rather than introducing a second, slightly-different yellow.
-  // Each tier also carries a lighter `*Shine` shade for the medal
-  // widget's metallic highlight/shimmer — see AchievementMedal.
+  // All four are fixed, not preset-driven: bronze/silver/gold/platinum are
+  // real metals with a real-world color, the same way iconGold/iconStreak
+  // above stay put rather than tracking the active theme.
+  //
+  // `tierGold` used to be the one exception — an alias for the preset's
+  // [gold] accent, on the reasoning that a Gold medal should match the
+  // app's own gold. That only holds for the two warm presets. "Gold" is
+  // the *accent role* name in ThemePreset, not a hue promise: it resolves
+  // to teal on Ocean and Teal & Slate, rose on Rose & Ink, violet on Nour
+  // Violet, sky blue on Sky. So on 9 of the 11 presets the Gold tier
+  // rendered in a color that isn't gold, under a label reading
+  // "ذهبية"/"Gold", with a hardcoded warm-cream `tierGoldShine` highlight
+  // sitting on top of it. Worse, Ocean's accent (#7CBADE) lands close
+  // enough to `tierPlatinum` that the top two rungs of every ladder became
+  // near-indistinguishable — the ordering the whole tier system exists to
+  // communicate. Pinned to [iconGold], the same fixed gold the coin/XP
+  // stats already use, so the metal ladder survives a theme swap.
+  //
+  // Each tier carries three shades: `Shine` (the light catch), the base,
+  // and `Deep` (the shadowed edge) — a real three-stop metallic gradient
+  // rather than the two-stop shine→base it had, which left a silver medal
+  // as a pale disc with a near-white rim, effectively invisible against a
+  // light-mode card. `Ink` is the separate on-surface variant used for
+  // labels, rings and progress bars, split out because the fill color and
+  // the text color of a metal genuinely can't be the same value: silver's
+  // #B8C0C8 is right as a fill and only reaches 1.6:1 against a white
+  // card as text.
   static const Color tierBronze = Color(0xFFCD7F32);
   static const Color tierBronzeShine = Color(0xFFEFAD6D);
+  static const Color tierBronzeDeep = Color(0xFF8C5522);
   static const Color tierSilver = Color(0xFFB8C0C8);
   static const Color tierSilverShine = Color(0xFFF2F5F7);
-  static Color get tierGold => gold;
+  static const Color tierSilverDeep = Color(0xFF7F8B96);
+  static const Color tierGold = iconGold;
   static const Color tierGoldShine = Color(0xFFFFE9A8);
+  static const Color tierGoldDeep = Color(0xFFA97C20);
   static const Color tierPlatinum = Color(0xFF6E8CA0);
   static const Color tierPlatinumShine = Color(0xFFDCEEF9);
+  static const Color tierPlatinumDeep = Color(0xFF44606F);
+
+  // On-surface ink per tier, per mode — see the `Ink` note above. The dark
+  // values are the metals lightened enough to clear 7:1 on a dark card; the
+  // light values are darkened enough to clear 4.5:1 on a white one. Read
+  // these through `context.gp.tierInk(tier)`, never directly.
+  static const Color tierBronzeInkDark = Color(0xFFD9944F);
+  static const Color tierBronzeInkLight = Color(0xFFA5622A);
+  static const Color tierSilverInkDark = Color(0xFFC6CED6);
+  static const Color tierSilverInkLight = Color(0xFF66707A);
+  static const Color tierGoldInkDark = Color(0xFFE9C47D);
+  static const Color tierGoldInkLight = Color(0xFF8A6614);
+  static const Color tierPlatinumInkDark = Color(0xFF9DBACE);
+  static const Color tierPlatinumInkLight = Color(0xFF43616F);
 
   // Dark-mode structural — preset-driven, mutable.
   static Color background = ThemePresets.byId(ThemePresets.defaultId).darkBg;

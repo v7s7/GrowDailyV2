@@ -87,10 +87,27 @@ abstract final class CharacterCatalog {
   /// one whose saved id has gone stale) always has something valid to render
   /// rather than the caller needing its own null-handling at every call site.
   static CharacterOption findByIdOrDefault(String? id) {
-    if (id == null) return male1;
+    return findById(id) ?? male1;
+  }
+
+  /// The character [id] names, or null when it names none.
+  ///
+  /// The nullable counterpart to [findByIdOrDefault], for the one place the
+  /// distinction matters: **somebody else's** avatar. Falling back to [male1]
+  /// is right for your own account — you always have something to render and
+  /// the closet will correct it the moment you open it. It is wrong for a
+  /// room leaderboard, because male1 is a real character somebody may
+  /// genuinely have chosen, so an unknown or missing id renders as a
+  /// specific person's look with nothing to say it's a guess. Two members
+  /// then appear identical, and the row shows a face that isn't theirs.
+  ///
+  /// Callers rendering another member use this and draw a neutral
+  /// placeholder on null — see _LeaderboardRow.
+  static CharacterOption? findById(String? id) {
+    if (id == null || id.isEmpty) return null;
     for (final c in all) {
       if (c.id == id) return c;
     }
-    return male1;
+    return null;
   }
 }

@@ -273,6 +273,40 @@ class S {
   String get achievements => isAr ? 'الإنجازات' : 'ACHIEVEMENTS';
   String achievementsViewAll(int n) => isAr ? 'عرض الكل ($n)' : 'View all ($n)';
   String get achievementsShowLess => isAr ? 'عرض أقل' : 'Show less';
+
+  // ── Achievements screen ──────────────────────────────────────────────────
+  //
+  // Chrome copy for the redesigned screen — the trophy-case header (which
+  // replaced the decorative banner PNG) and the Next-up spotlight.
+  //
+  // Register: impersonal throughout, no second person. The achievement
+  // *names* in AchievementCatalog carry the Khaleji voice; the labels
+  // around them deliberately don't, so the screen states facts ("باقي 14")
+  // rather than cheering at you every time you open it — the fastest way
+  // for a gamified surface to start reading as insincere.
+  String get achievementsMedalsEarned => isAr ? 'ميداليات' : 'Medals earned';
+
+  /// Deliberately the colloquial form rather than 'التالي' — it's the one
+  /// label on the screen that names a *moment* rather than a stat, and the
+  /// Gulf phrasing carries that without addressing anyone.
+  String get achievementsNextUp => isAr ? 'اللي جاي' : 'Next up';
+
+  /// The gap left to an achievement's threshold — the single most useful
+  /// number on the screen, and the one the old layout made you work out
+  /// yourself by subtracting the two halves of a "12 / 30" fraction.
+  String achievementsRemaining(int n) => isAr ? 'باقي $n' : '$n to go';
+
+  String get achievementsAllDone =>
+      isAr ? 'كل الميداليات مفتوحة' : 'Every medal earned';
+  String get achievementsMastered => isAr ? 'مكتملة' : 'Mastered';
+  String get achievementsEarned => isAr ? 'مفتوحة' : 'Earned';
+  String get achievementsTapTierHint =>
+      isAr ? 'اضغط أي ميدالية للتفاصيل' : 'Tap any medal for details';
+
+  /// "Silver · The Climb" — the tier and its family, above the achievement
+  /// name in the detail sheet. Same shape in both languages; the separator
+  /// sits between two already-directional runs, so it needs no bidi help.
+  String achievementsTierOf(String tier, String family) => '$tier · $family';
   String get profileSection => isAr ? 'الملف الشخصي' : 'PROFILE';
   String get achievementsRowTitle => isAr ? 'الإنجازات' : 'Achievements';
   String get progressStreakTitle =>
@@ -367,14 +401,24 @@ class S {
 
   // Progress report
   String get fourteenDayProgress => isAr ? 'تقدم 14 يوم' : '14-day progress';
+  // Impersonal, matching the achievements chrome — the app states what the
+  // chart shows rather than addressing the reader. "أسبوعك الأخير قوي" and
+  // "ابدأ اليوم مجدداً" made the same surface sound like a coach one screen
+  // away from one that sounds like a scoreboard.
   String get holdingStrong =>
-      isAr ? 'أسبوعك الأخير قوي.' : 'Your recent week is holding strong.';
+      isAr ? 'الأسبوع الأخير قوي' : 'The last week is holding strong';
   String get startAgain => isAr
-      ? 'الانتصارات الصغيرة تُعتبر. ابدأ اليوم مجدداً.'
-      : 'Tiny wins still count. Start again today.';
-  String get loadingReport => isAr
-      ? 'جارٍ تحميل تقرير الاتساق...'
-      : 'Loading your consistency report...';
+      ? 'الانتصارات الصغيرة تُعتبر'
+      : 'Small wins still count';
+
+  /// The third state of the 14-day card. Without it an empty fortnight fell
+  /// through to [holdingStrong] — `0 >= 0` is technically "not declining" —
+  /// so a chart with nothing on it congratulated you.
+  String get noProgressYet =>
+      isAr ? 'ما في بيانات كافية بعد' : 'Nothing tracked yet';
+
+  String get loadingReport =>
+      isAr ? 'جارٍ تحميل التقرير...' : 'Loading the report...';
   String get activeDays => isAr ? 'الأيام النشطة' : 'ACTIVE DAYS';
   String get bestDay => isAr ? 'أفضل يوم' : 'BEST DAY';
 
@@ -815,6 +859,59 @@ class S {
   String get matrixReminderPast => isAr
       ? 'اختر وقتًا في المستقبل'
       : 'Pick a time that hasn\'t already passed';
+  // ReminderList's add row (reminder_picker.dart). Same label whether the
+  // row is unlocked or showing the Premium lock — what changes is the icon
+  // and colour, not the wording, so a free user reads what the feature
+  // actually is before the upsell rather than being told "Premium" twice.
+  String get matrixReminderAddAnother =>
+      isAr ? 'إضافة تذكير آخر' : 'Add another reminder';
+  // ReminderPicker's offset section. "Extra" matters: the row above it is
+  // already a reminder, so without that word the chips read as replacing
+  // it rather than adding to it. The hint says outright that several can
+  // be picked — every other chip grid in this app is single-choice, so a
+  // multi-select one needs telling.
+  String get matrixExtraRemindersSection =>
+      isAr ? 'تذكيرات إضافية' : 'Extra reminders';
+  String get matrixExtraRemindersHint => isAr
+      ? 'اختر واحدًا أو أكثر — يمكنك إضافة أكثر من تذكير'
+      : 'Pick one or more — you can add several';
+  // The custom-offset sheet (custom_offset_sheet.dart), opened from the
+  // "مخصص" cell of the offset grid. Lives in a sheet rather than inline so
+  // the number, its unit, and the list of what's already added each get
+  // room, without the grid growing a third control.
+  String get customReminderTitle =>
+      isAr ? 'تذكير مخصص' : 'Custom reminder';
+  String get customReminderValueHint => isAr ? 'الرقم' : 'Number';
+  String get customReminderAdd => isAr ? 'إضافة' : 'Add';
+  // Heading over the list of everything currently set, each row removable.
+  String get customReminderAdded =>
+      isAr ? 'التذكيرات المضافة' : 'Added reminders';
+  String get customReminderEmpty => isAr
+      ? 'لم تضف أي تذكير بعد'
+      : 'No extra reminders yet';
+  String get customReminderAlreadyAdded =>
+      isAr ? 'هذا التذكير مضاف بالفعل' : 'That reminder is already added';
+  // Unit selector. Plural forms, since the selector names the unit rather
+  // than counting anything — the counted forms are built separately (see
+  // formatOffsetVerbose), where Arabic needs singular/dual/plural.
+  String get unitMinutes => isAr ? 'دقائق' : 'Minutes';
+  String get unitHours => isAr ? 'ساعات' : 'Hours';
+  String get unitDays => isAr ? 'أيام' : 'Days';
+  // Shown when a task already has its full stack of OS-schedulable
+  // reminders (NotificationService.kMaxTaskReminderSlots) — a platform
+  // ceiling that applies to Premium too, so this is deliberately worded as
+  // a limit, not an upsell.
+  String get matrixReminderMaxReached => isAr
+      ? 'وصلت إلى الحد الأقصى من التذكيرات لهذه المهمة'
+      : 'That\'s the most reminders one task can have';
+  // The Premium gate for stacking reminders (reminder_limit_gate.dart).
+  // Leads with what the feature does — staggered nudges before something
+  // that matters — rather than with the cap it lifts.
+  String get reminderGateTitle =>
+      isAr ? 'تذكيرات متعددة' : 'Stack your reminders';
+  String get reminderGateBody => isAr
+      ? 'أضف أكثر من تذكير لنفس المهمة — نبّهك الساعة 3:00 و3:30 و4:00 قبل اجتماع الساعة 5. المجاني يتيح تذكيرًا واحدًا لكل مهمة.'
+      : 'Add as many reminders to one task as you need — nudged at 3:00, 3:30 and 4:00 before a 5pm meeting. Free includes one reminder per task.';
   String get matrixDone => isAr ? 'تم' : 'Done';
   String get matrixUndo => isAr ? 'تراجع' : 'Undo';
 
@@ -987,7 +1084,7 @@ class S {
   // day at all (it just isn't the official rewarded day yet) — see
   // DateTimeGameExt.isRealToday/isToday's doc comments.
   String get gridNotYetActiveHint => isAr
-      ? 'لم يصبح هذا اليوم رسميًا بعد: يمكنك تلوينه، لكن دون مكافآت حتى الساعة ٦ صباحًا.'
+      ? 'لم يصبح هذا اليوم رسميًا بعد: يمكنك تلوينه، لكن دون مكافآت حتى الساعة 6 صباحًا.'
       : "This day isn't official yet — you can color it in, but no rewards until 6 AM.";
   String get gridEmptyTitle =>
       isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
@@ -1073,26 +1170,40 @@ class S {
       : 'Your first recorded week. A sweet start.';
   String get weeklyRecapPerHabit =>
       isAr ? 'عاداتك هالأسبوع' : 'Your habits this week';
-  String get weeklyRecapTrend => isAr ? 'آخر ٤ أسابيع' : 'Last 4 weeks';
+  String get weeklyRecapTrend => isAr ? 'آخر 4 أسابيع' : 'Last 4 weeks';
   String get weeklyRecapPremiumTeaser => isAr
       ? 'تفاصيل أعمق لكل عادة، مع Premium'
       : 'Deeper per-habit detail, with Premium';
   // ── Habit Insights (Premium) ──────────────────────────────────────────────
   String get insightsTitle => isAr ? 'رؤى العادات' : 'Habit Insights';
   String get insightsWindow =>
-      isAr ? 'من آخر ٨ أسابيع' : 'From your last 8 weeks';
+      isAr ? 'آخر 8 أسابيع' : 'Last 8 weeks';
+
+  /// Header over the per-habit completion-rate list, which had none — the
+  /// bars appeared straight after the headline cards with nothing saying
+  /// what "18 / 28" was counting.
+  String get insightsPerHabitTitle =>
+      isAr ? 'نسبة الإكمال لكل عادة' : 'Completion rate per habit';
   // Habit names are quoted ("$habit") to set them visually apart from the
   // surrounding sentence — easier to scan a list of these at a glance.
+  //
+  // Impersonal and unpunctuated, matching the achievements and progress
+  // chrome. These render as a stack of six or seven cards, so they're
+  // labels rather than prose: a full stop after three words reads as
+  // machine translation in Arabic, and "أقوى أيامك"/"تفوتك" made the same
+  // screen address the reader while the card above it stated a fact. The
+  // *tips* in the detail sheet below stay second-person imperative on
+  // purpose — those are advice, which is a different thing from a stat.
   String insightWeekdayMiss(String habit, String weekday) => isAr
-      ? '"$habit" تفوتك أكثر شي يوم $weekday.'
-      : '"$habit" slips most on ${weekday}s.';
+      ? '"$habit" تنقطع أكثر يوم $weekday'
+      : '"$habit" slips most on ${weekday}s';
   String insightStrongestDay(String weekday) =>
-      isAr ? 'أقوى أيامك: $weekday.' : 'Your strongest day: $weekday.';
+      isAr ? 'أقوى يوم: $weekday' : 'Strongest day: $weekday';
   String insightMostConsistent(String habit) => isAr
-      ? 'أثبت عادة عندك: "$habit".'
-      : 'Your most consistent habit: "$habit".';
+      ? 'أثبت عادة: "$habit"'
+      : 'Most consistent habit: "$habit"';
   String insightNeedsPush(String habit) =>
-      isAr ? 'تحتاج دفعة: "$habit".' : 'Needs a push: "$habit".';
+      isAr ? 'تحتاج دفعة: "$habit"' : 'Needs a push: "$habit"';
   String get insightsEmpty => isAr
       ? 'كمّل أسبوعين على الأقل وبتشوف أنماطك هني.'
       : 'Track a couple of weeks and your patterns will show up here.';
@@ -1130,7 +1241,7 @@ class S {
   // of the detail sheet since, several taps deep in a modal, "last 8
   // weeks" alone doesn't say *which* 8 weeks.
   String insightWindowWithDates(String start, String end) =>
-      isAr ? 'آخر ٨ أسابيع · $start – $end' : 'Last 8 weeks · $start – $end';
+      isAr ? 'آخر 8 أسابيع · $start – $end' : 'Last 8 weeks · $start – $end';
   // "Most consistent" / "needs a push" are inherently habit-vs-habit
   // claims, not day-vs-day ones — these compare the named habit against
   // the next-nearest one instead of forcing it through a weekday lens
@@ -1221,7 +1332,7 @@ class S {
       ? 'عادات هذي الغرفة تدفع 2x نقاط وذهب وهي شغالة'
       : 'This room\'s habits pay 2x XP and gold while it runs';
   String get historyLockedBody => isAr
-      ? 'الحساب المجاني يرجع ٣ أشهر. Premium يفتح سجلك كامل، من أول يوم.'
+      ? 'الحساب المجاني يرجع 3 أشهر. Premium يفتح سجلك كامل، من أول يوم.'
       : 'Free goes back 3 months. Premium opens your whole history, from day one.';
   String get heatmapDayEmpty =>
       isAr ? 'ما في نشاط مسجل هاليوم' : 'Nothing recorded on this day';
@@ -1753,6 +1864,40 @@ class S {
   /// Room header: when the challenge actually began — previously nowhere on
   /// the screen; the header only ever said how many days REMAIN, so "when
   /// did this start" took mental arithmetic against the room length.
+  // Names the accented first cell of a participant's contribution strip.
+  // Always shown; the date beside it only appears for a late joiner, whose
+  // first day differs from the room's own start (already in the header).
+  String get roomStripStart => isAr ? 'البداية' : 'Start';
+
+  /// Toggle above the leaderboard that puts a per-week done-count over every
+  /// column of every participant's strip. Off by default — the strip's job
+  /// at rest is the shape of someone's month, and a number over each column
+  /// is a second reading of the same data that only some people want.
+  String get roomStripDetails => isAr ? 'تفاصيل الأسابيع' : 'Week detail';
+  // The participant-calendar sheet the strip opens. The strip's own 9pt
+  // cells can never be tapped (they fail every touch-target standard), so
+  // this sheet is where a day is actually inspectable — hence the button
+  // label naming what tapping the strip does, not what it shows.
+  String get roomStripOpenCalendar =>
+      isAr ? 'عرض التقويم' : 'Open calendar';
+  String roomCalendarTitle(String name) =>
+      isAr ? 'تقويم $name' : "$name's calendar";
+  String get roomCalendarDone => isAr ? 'أُنجز' : 'Done';
+  String get roomCalendarMissed => isAr ? 'لم يُنجز' : 'Not done';
+  String get roomCalendarPartial => isAr ? 'أُنجز جزئيًا' : 'Partly done';
+  // A day the quota asked nothing of them — see RoomParticipant.isRestDay.
+  // It scores as finished but draws empty, so the calendar has to say which
+  // it is or an empty cell reads as a miss.
+  String get roomCalendarRestDay => isAr ? 'يوم راحة' : 'Rest day';
+  // Shown when the selected day IS this participant's first counted day —
+  // the one the strip rings. Worth its own note rather than just a status,
+  // because it's the day that explains the shape of everything after it.
+  String get roomCalendarFirstDayNote => isAr
+      ? 'أول يوم لك في هذه الغرفة'
+      : 'Your first day in this room';
+  String get roomCalendarFirstDayNoteOther => isAr
+      ? 'أول يوم في هذه الغرفة'
+      : 'First day in this room';
   String roomStartedOn(String date) => isAr ? 'بدأت $date' : 'Started $date';
   String roomStartsOn(String date) => isAr ? 'تبدأ $date' : 'Starts $date';
 

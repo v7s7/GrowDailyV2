@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/history_locked_snackbar.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider;
@@ -64,7 +64,10 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
     final isAr = s.isAr;
     final locale = Localizations.localeOf(context).languageCode;
     final journal = ref.watch(gridJournalProvider);
-    final monthLabel = DateFormat.yMMMM(locale).format(journal.monthStart);
+    // westernDate, not DateFormat.yMMMM directly: this header rendered
+    // "أغسطس ٢٠٢٦" while every number under it — the 18/28 rates, the day
+    // numbers, the counts — was ASCII. Arabic month name, Western year.
+    final monthLabel = westernDate(journal.monthStart, 'MMMM y', locale);
     final habitById = {
       for (final h in ref.watch(habitListProvider)) h.id: h,
     };
@@ -175,27 +178,54 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: SizedBox(
-                height: 34,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _filterOptions.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (_, i) {
-                    final option = _filterOptions[i];
-                    return _FilterChip(
+              // Wrap, not a horizontal ListView pinned to 34pt.
+              //
+              // Four chips whose widths depend entirely on how long the
+              // words happen to be in the active language: "إنجاز إضافي"
+              // and "Bonus" are not the same size, and the row was one
+              // translation away from scrolling. A scrolling filter row is
+              // the worst kind — the chips that don't fit are simply
+              // invisible, with no scrollbar and nothing to suggest there
+              // are more, so a filter can exist and never be found. Wrap
+              // keeps all four on screen at every text size and drops to a
+              // second line rather than hiding anything.
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final option in _filterOptions)
+                    _FilterChip(
                       label: option == null
                           ? s.gridJournalFilterAll
                           : (isAr ? option.labelAr : option.label),
-                      color: option?.accent ?? gp.textSec,
+                      // How many entries of this kind the month holds,
+                      // counted before any filtering so the numbers don't
+                      // move as you tap between them. Answers "is there
+                      // anything under Failed this month" without making
+                      // you tap Failed and find out — and makes an empty
+                      // month legible as empty rather than as broken.
+                      count: option == null
+                          ? journal.entries.length
+                          : journal.entries
+                              .where((e) => e.state == option)
+                              .length,
+                      // The three state filters carry their own accent
+                      // (Skipped amber, Failed red, Bonus teal), which is
+                      // what makes a selected one readable at a glance.
+                      // "All" had no accent and fell back to `textSec`, so
+                      // the *default* selected chip rendered as grey on
+                      // grey — the one chip that's selected on arrival read
+                      // as the one chip that's disabled. GameColors.emerald
+                      // is the app's own selected-state colour everywhere
+                      // else (nav bar, choice chips).
+                      color: option?.accent ?? GameColors.emerald,
                       selected: _filter == option,
                       onTap: () {
                         HapticFeedback.selectionClick();
                         setState(() => _filter = option);
                       },
-                    );
-                  },
-                ),
+                    ),
+                ],
               ),
             ),
             Expanded(
@@ -207,19 +237,34 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                       onRefresh: () =>
                           ref.read(gridJournalProvider.notifier).refresh(),
                       child: visible.isEmpty
+                          // Padded and given a glyph, rather than a bare
+                          // sentence pinned 60pt from the top: with no
+                          // horizontal padding the text ran edge to edge
+                          // across the full width of the phone, which is
+                          // both hard to read and the one place on screen
+                          // that looked unfinished. Still a ListView so
+                          // pull-to-refresh keeps working on an empty month.
                           ? ListView(
                               physics: const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.only(top: 60),
+                              padding: const EdgeInsets.fromLTRB(32, 72, 32, 24),
                               children: [
-                                Center(
-                                  child: Text(
-                                    hasActiveSearch
-                                        ? s.gridJournalNoResults
-                                        : s.gridJournalEmpty,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        fontSize: 13, color: gp.textTert),
-                                  ),
+                                Icon(
+                                  hasActiveSearch
+                                      ? Icons.search_off_rounded
+                                      : Icons.edit_note_rounded,
+                                  size: 34,
+                                  color: gp.textTert.withOpacity(0.6),
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  hasActiveSearch
+                                      ? s.gridJournalNoResults
+                                      : s.gridJournalEmpty,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      height: 1.5,
+                                      color: gp.textTert),
                                 ),
                               ],
                             )
@@ -305,23 +350,36 @@ class _FilterChip extends StatelessWidget {
   final String label;
   final Color color;
   final bool selected;
+
+  /// Entries of this kind in the visible month. Rendered as a small trailing
+  /// number so the row doubles as a summary of what the month actually
+  /// holds; a chip reading 0 is dimmed rather than hidden, because which
+  /// kinds are *absent* is itself worth seeing.
+  final int count;
   final VoidCallback onTap;
   const _FilterChip({
     required this.label,
     required this.color,
     required this.selected,
+    required this.count,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final empty = count == 0;
+    final fg = selected
+        ? color
+        : empty
+            ? gp.textTert
+            : gp.textSec;
     return InkWell(
       borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
       onTap: onTap,
       child: AnimatedContainer(
         duration: GameMotion.quick,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? color.withOpacity(0.16) : gp.surface,
           borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
@@ -330,14 +388,34 @@ class _FilterChip extends StatelessWidget {
             width: selected ? 1.2 : 0.5,
           ),
         ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w700,
-            color: selected ? color : gp.textSec,
-          ),
+        // No `alignment:` here on purpose. Container documents that setting
+        // it makes the box "expand to fill its parent" — invisible inside
+        // the old fixed-height horizontal ListView, but under a Wrap (which
+        // hands its children loose constraints) it made every chip claim the
+        // full row width and stack one per line. The Row below is
+        // mainAxisSize.min, which is what actually sizes the pill.
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: fg,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '$count',
+              textDirection: TextDirection.ltr,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                color: fg.withOpacity(empty ? 0.55 : 0.75),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -452,7 +530,12 @@ class _DayHeader extends StatelessWidget {
     final gp = context.gp;
     final s = S.of(context);
     final label =
-        day.isToday ? s.navToday : DateFormat('EEEE, MMM d', locale).format(day);
+        day.isToday
+            ? s.navToday
+            // Arabic word order and comma, ASCII digits — this rendered
+            // "الأحد, يوليو ١٩" directly under a month header that already
+            // read "يوليو 2026".
+            : weekdayDateLabel(day, isAr: s.isAr, locale: locale);
     return Padding(
       padding: const EdgeInsets.fromLTRB(2, 14, 2, 8),
       child: Text(

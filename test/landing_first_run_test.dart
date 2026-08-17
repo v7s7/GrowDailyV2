@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
+import 'package:grow_daily_v2/features/achievements/models/achievement_model.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
@@ -133,8 +134,15 @@ void main() {
       reason: 'the tap should have registered a real, rewarded completion',
     );
 
-    // The First Victory achievement sheet celebrates the first green square.
-    expect(find.text('First Victory'), findsOneWidget);
+    // The green_1 achievement sheet celebrates the first colored square.
+    // Named through the catalog rather than by its display string: this
+    // assertion was a hardcoded 'First Victory' and broke the moment that
+    // copy was rewritten, which is a test failing for a reason that has
+    // nothing to do with what it's covering.
+    expect(
+      find.text(AchievementCatalog.findById('green_1')!.name),
+      findsOneWidget,
+    );
 
     // ── Coverage this test used to claim, and why it no longer does ────────
     // It went on to tap CLAIM REWARD and then open the heatmap. Neither step

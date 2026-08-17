@@ -17,7 +17,9 @@ import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import 'add_task_sheet.dart' show MicRecordButton;
 import 'quadrant_card.dart' show ActionRow;
-import 'reminder_picker.dart' show ReminderRow, pickReminderMoment;
+import '../../../shared/widgets/reminder_limit_gate.dart';
+import 'reminder_picker.dart'
+    show ReminderPicker, pickReminderMoment, remindersFor, splitReminders;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
 
 /// Opened from a task's pencil icon (see quadrant_card.dart's _TaskTile) —
@@ -49,7 +51,7 @@ class TaskDetailSheet extends ConsumerStatefulWidget {
   final void Function(String id, VoiceNote note) onAddVoiceNote;
   final void Function(String id, String noteId, String name) onRenameVoiceNote;
   final void Function(String id, String noteId) onRemoveVoiceNote;
-  final void Function(String id, DateTime? reminderAt) onSetReminder;
+  final void Function(String id, List<DateTime> reminderAts) onSetReminders;
   final VoidCallback onDelete;
   final void Function(MatrixQuadrant quadrant) onMove;
 
@@ -61,7 +63,7 @@ class TaskDetailSheet extends ConsumerStatefulWidget {
     required this.onAddVoiceNote,
     required this.onRenameVoiceNote,
     required this.onRemoveVoiceNote,
-    required this.onSetReminder,
+    required this.onSetReminders,
     required this.onDelete,
     required this.onMove,
   });
@@ -81,10 +83,19 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
   // never arrive.
   late List<VoiceNote> _voiceNotes;
   // Same local-mirror-plus-immediate-persist treatment as _voiceNotes
-  // above — see setReminder's doc comment (matrix_notifier.dart) for why
+  // above — see setReminders' doc comment (matrix_notifier.dart) for why
   // this saves right on pick instead of waiting for dispose() the way
   // title/description do.
-  late DateTime? _reminderAt;
+  //
+  // Held as anchor + signed offsets rather than a flat list of moments,
+  // matching AddTaskSheet and the shape ReminderPicker edits in; the
+  // moments themselves are derived (see remindersFor), so the chips and
+  // what's actually scheduled can't drift apart.
+  DateTime? _anchorAt;
+  Set<int> _offsets = {};
+
+  List<DateTime> get _reminderAts =>
+      remindersFor(anchor: _anchorAt, offsets: _offsets);
 
   bool _recording = false;
   Duration _elapsed = Duration.zero;
@@ -100,7 +111,13 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     _titleCtrl = TextEditingController(text: widget.task.title);
     _descCtrl = TextEditingController(text: widget.task.description ?? '');
     _voiceNotes = List.of(widget.task.voiceNotes);
-    _reminderAt = widget.task.reminderAt;
+    // Reopening an existing task: recover the ladder it was built with, so
+    // the offset chips come back selected rather than the user facing a
+    // flat list of times with no idea which were relative. See
+    // splitReminders on the one case this reframes.
+    final split = splitReminders(widget.task.reminderAts);
+    _anchorAt = split.anchor;
+    _offsets = split.offsets;
   }
 
   @override
@@ -247,38 +264,65 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     File(note.path).delete().ignore();
   }
 
-  Future<void> _pickReminder() async {
-    final picked = await pickReminderMoment(context, initial: _reminderAt);
+  /// The anchor: the moment the task is actually about. Straight to the
+  /// full picker, because this is the one value the app can't guess.
+  Future<void> _pickAnchor() async {
+    final picked = await pickReminderMoment(context, initial: _anchorAt);
     if (picked == null || !mounted) return;
-    // Requested *before* widget.onSetReminder — which schedules the actual
-    // OS notification synchronously inside MatrixNotifier.setReminder —
-    // rather than after. Requesting only after scheduling had already
-    // happened meant this reminder could be scheduled while permission was
-    // still undetermined; flutter_local_notifications doesn't
-    // retroactively activate a notification that was submitted before
-    // permission existed, even once the user grants it a moment later —
-    // that's what let a task's reminder silently never fire the first time
-    // anyone used this sheet. See AddTaskSheet._submit for the identical
-    // fix. (Scheduling itself always happens regardless of the outcome
-    // here — see NotificationService.scheduleTaskReminder's doc comment on
-    // why it doesn't gate on permission — this request's only job is
-    // making sure permission is actually settled *before* that scheduling
-    // call, and surfacing a denial right away instead of the reminder
-    // silently never firing.)
+    await _commit(anchor: picked, offsets: _offsets);
+  }
+
+  void _clearReminders() {
+    HapticFeedback.lightImpact();
+    setState(() {
+      _anchorAt = null;
+      _offsets = {};
+    });
+    widget.onSetReminders(widget.task.id, const []);
+  }
+
+  /// Offsets are a set, so tapping a selected chip removes it — that's what
+  /// makes the grid multi-select rather than a radio group. The premium cap
+  /// is checked by the caller (ReminderPicker routes a locked tap to the
+  /// upsell instead), but the OS slot ceiling is checked here because it
+  /// applies to Premium too.
+  Future<void> _toggleOffset(int signedMinutes) async {
+    final next = Set<int>.from(_offsets);
+    if (!next.remove(signedMinutes)) {
+      if (_reminderAts.length >= NotificationService.kMaxTaskReminderSlots) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.of(context).matrixReminderMaxReached)),
+        );
+        return;
+      }
+      next.add(signedMinutes);
+    }
+    await _commit(anchor: _anchorAt, offsets: next);
+  }
+
+  /// Saves immediately, like every other change in this sheet, and requests
+  /// notification permission *before* handing the new set to
+  /// widget.onSetReminders — which schedules synchronously inside
+  /// MatrixNotifier. Scheduling while permission is still undetermined means
+  /// flutter_local_notifications never activates the notification, even once
+  /// the user grants it a moment later; that's what used to make a task's
+  /// first-ever reminder silently never fire.
+  Future<void> _commit({
+    required DateTime? anchor,
+    required Set<int> offsets,
+  }) async {
     final granted = await NotificationService.instance.requestPermissions();
-    setState(() => _reminderAt = picked);
-    widget.onSetReminder(widget.task.id, picked);
+    if (!mounted) return;
+    setState(() {
+      _anchorAt = anchor;
+      _offsets = offsets;
+    });
+    widget.onSetReminders(widget.task.id, _reminderAts);
     if (!granted && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
       );
     }
-  }
-
-  void _clearReminder() {
-    HapticFeedback.lightImpact();
-    setState(() => _reminderAt = null);
-    widget.onSetReminder(widget.task.id, null);
   }
 
   void _delete() {
@@ -439,12 +483,17 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    ReminderRow(
-                      value: _reminderAt,
+                    ReminderPicker(
+                      anchorAt: _anchorAt,
+                      offsets: _offsets,
                       color: _color,
                       isAr: isAr,
-                      onTap: _pickReminder,
-                      onClear: _clearReminder,
+                      canStack:
+                          canAddAnotherReminder(ref, _reminderAts.length),
+                      onPickAnchor: _pickAnchor,
+                      onClear: _clearReminders,
+                      onToggleOffset: _toggleOffset,
+                      onLocked: () => showReminderLimitGate(context, ref),
                     ),
                     const SizedBox(height: 14),
                     Row(
