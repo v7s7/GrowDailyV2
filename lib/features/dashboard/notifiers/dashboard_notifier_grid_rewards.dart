@@ -303,6 +303,95 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   }
 
   /// Spend a streak freeze to restore the streak that was lost on a missed day.
+  /// Judges a streak gap the loader recorded but could not decide, now
+  /// that the habit schedule is available.
+  ///
+  /// The rule the old inline check got wrong: a day that asked for NOTHING
+  /// cannot break a streak. willCompleteAllHabitsToday refuses to earn a
+  /// point on a day with no scheduled habits, deliberately - "a day with
+  /// nothing scheduled isn't a completed day, it's a day off" - so
+  /// lastActiveDate never advances across rest days, and counting raw
+  /// calendar days read every one of them as a miss. Someone training
+  /// Sat/Mon/Wed burned a streak freeze on their first Sunday and lost the
+  /// streak on the next one; a 3x-a-week habit could not hold a streak at
+  /// all.
+  ///
+  /// So this counts only the days that actually OWED something. Zero owed
+  /// days means there was never a gap: the streak stands and
+  /// lastActiveDate moves up so the same question is not re-asked every
+  /// launch. One owed day spends a freeze if there is one, exactly as
+  /// before. More than one ends the streak, keeping it in previousStreak
+  /// where the manual restore can still reach it.
+  ///
+  /// [habits] should be everything that has EVER been scheduled, not just
+  /// what is active now (allHabitsEverProvider) - a habit paused since the
+  /// gap still demanded those days at the time.
+  Future<void> resolveStreakGap(
+    Iterable<IslamicHabitTemplate> habits,
+  ) async {
+    final from = state.pendingStreakGapFrom;
+    if (from == null) return;
+    final today = DateTime.now().effectiveDay;
+
+    // Strictly between: the last earning day is settled, and today is
+    // still in progress and must never be judged as missed.
+    var owedDays = 0;
+    for (var d = from.add(const Duration(days: 1));
+        d.isBefore(today);
+        d = d.add(const Duration(days: 1))) {
+      if (habits.any((h) => h.isScheduledFor(d))) owedDays++;
+    }
+
+    if (owedDays == 0) {
+      // Every day in the gap was a rest day. Nothing was missed, so
+      // nothing is spent and nothing is lost; close the gap by moving the
+      // marker to yesterday, the same way the freeze path always has.
+      final yesterday = today.subtract(const Duration(days: 1));
+      state = state.copyWith(clearPendingStreakGap: true);
+      if (_uid == null) {
+        await _saveGuestState(lastActiveDate: yesterday);
+      } else {
+        _userRef.set({'lastActiveDate': Timestamp.fromDate(yesterday)},
+            SetOptions(merge: true)).ignore();
+      }
+      return;
+    }
+
+    if (owedDays == 1 && state.streak > 0 && state.streakFreezes > 0) {
+      final yesterday = today.subtract(const Duration(days: 1));
+      final newFreezes = state.streakFreezes - 1;
+      state = state.copyWith(
+        streakFreezes: newFreezes,
+        didUseStreakFreeze: true,
+        clearPendingStreakGap: true,
+      );
+      if (_uid == null) {
+        await _saveGuestState(lastActiveDate: yesterday);
+      } else {
+        _userRef.set({
+          'streakFreezes': newFreezes,
+          'lastActiveDate': Timestamp.fromDate(yesterday),
+        }, SetOptions(merge: true)).ignore();
+      }
+      return;
+    }
+
+    final lost = state.streak;
+    state = state.copyWith(
+      streak: 0,
+      previousStreak: lost > 0 ? lost : state.previousStreak,
+      clearPendingStreakGap: true,
+    );
+    if (_uid == null) {
+      await _saveGuestState();
+    } else {
+      _userRef.set({
+        'currentStreak': 0,
+        if (lost > 0) 'previousStreak': lost,
+      }, SetOptions(merge: true)).ignore();
+    }
+  }
+
   Future<void> useStreakFreeze() async {
     if (state.streakFreezes <= 0 || state.previousStreak <= 0) return;
     final newFreezes = state.streakFreezes - 1;
@@ -318,12 +407,27 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       previousStreak: 0,
     );
 
+    // YESTERDAY, not today. lastActiveDate means "the last day that itself
+    // earned the streak point" (see the loader's gap check), and spending a
+    // freeze restores the streak as it stood - it does not retroactively
+    // declare that today's habits were done. Stamping today handed out a
+    // day nobody earned: tomorrow's gap check would see a one-day gap and
+    // wave it through even if today went completely untouched. The
+    // automatic freeze in the loader has always written yesterday for
+    // exactly this reason; this is the manual path catching up.
+    final yesterday =
+        DateTime.now().effectiveDay.subtract(const Duration(days: 1));
+
     if (_uid == null) {
       // This was previously missing entirely — the restore only ever
       // updated in-memory state and guests would see their streak silently
       // revert to lost on next launch. Same guest-save-on-mutation pattern
       // every other method in this class already follows.
-      await _saveGuestState();
+      //
+      // lastActiveDate passed explicitly here too: without it the guest
+      // branch wrote no date at all, so a restored guest streak kept
+      // whatever stale date it had and could break again on next launch.
+      await _saveGuestState(lastActiveDate: yesterday);
       return;
     }
     _userRef.set({
@@ -331,7 +435,7 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       'longestStreak': newLongest,
       'streakFreezes': newFreezes,
       'previousStreak': 0,
-      'lastActiveDate': Timestamp.fromDate(DateTime.now().effectiveDay),
+      'lastActiveDate': Timestamp.fromDate(yesterday),
     }, SetOptions(merge: true)).ignore();
   }
 

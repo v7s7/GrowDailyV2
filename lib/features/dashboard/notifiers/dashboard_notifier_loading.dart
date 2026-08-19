@@ -58,6 +58,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
       // comment for why this can no longer be a fresh-every-load local.
       int previousStreak = (saved['previousStreak'] as int?) ?? 0;
       bool didUseStreakFreeze = false;
+      DateTime? pendingStreakGapFrom;
       // The last calendar day that itself earned the streak point (see
       // completeHabit's lastActiveDate write) — not the last day *any*
       // activity happened. That distinction matters here: gapDays below
@@ -73,31 +74,12 @@ extension DashboardNotifierLoading on DashboardNotifier {
       if (lastActive != null) {
         final today = DateTime.now().effectiveDay;
         final lastDay = DashboardNotifier._dateOnly(lastActive);
-        final yesterday = today.subtract(const Duration(days: 1));
         final gapDays = today.difference(lastDay).inDays;
-        if (gapDays > 1) {
-          if (gapDays == 2 && streak > 0 && streakFreezes > 0) {
-            streakFreezes -= 1;
-            didUseStreakFreeze = true;
-            saved['streakFreezes'] = streakFreezes;
-            saved['lastActiveDate'] = yesterday.toIso8601String();
-            await LocalStoreService.putSettingsMap(
-              LocalStoreService.guestDashboardKey,
-              saved,
-            );
-          } else {
-            if (streak > 0) {
-              previousStreak = streak;
-              saved['previousStreak'] = previousStreak;
-            }
-            streak = 0;
-            saved['currentStreak'] = 0;
-            await LocalStoreService.putSettingsMap(
-              LocalStoreService.guestDashboardKey,
-              saved,
-            );
-          }
-        }
+        // Recorded, not judged. Whether those days were MISSED or merely
+        // days this person had nothing scheduled cannot be answered
+        // without the habit list, which this loader does not have - see
+        // DashboardState.pendingStreakGapFrom and resolveStreakGap.
+        if (gapDays > 1) pendingStreakGapFrom = lastDay;
       }
 
       if (!mounted) return;
@@ -115,6 +97,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
         unlockedAchievements:
             List<String>.from(saved['unlockedAchievements'] as List? ?? []),
         didUseStreakFreeze: didUseStreakFreeze,
+        pendingStreakGapFrom: pendingStreakGapFrom,
         previousStreak: previousStreak,
         isLoading: false,
         intentionsSetToday: intentionsSetToday,
@@ -254,6 +237,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
           streakFreezes = 1,
           previousStreak = 0;
       bool didUseStreakFreeze = false;
+      DateTime? pendingStreakGapFrom;
       List<String> unlockedAchievements = [];
       Map<String, int> completions = {};
       bool intentionsSetToday = false;
@@ -359,27 +343,10 @@ extension DashboardNotifierLoading on DashboardNotifier {
         if (lastActiveTs != null) {
           final today = DateTime.now().effectiveDay;
           final lastDay = DashboardNotifier._dateOnly(lastActiveTs.toDate());
-          final yesterday = today.subtract(const Duration(days: 1));
           final gapDays = today.difference(lastDay).inDays;
-          if (gapDays > 1) {
-            if (gapDays == 2 && streak > 0 && streakFreezes > 0) {
-              streakFreezes -= 1;
-              didUseStreakFreeze = true;
-              _userRef.set({
-                'streakFreezes': streakFreezes,
-                'lastActiveDate': Timestamp.fromDate(yesterday),
-              }, SetOptions(merge: true)).ignore();
-            } else {
-              if (streak > 0) {
-                previousStreak = streak;
-              }
-              streak = 0;
-              _userRef.set({
-                'currentStreak': 0,
-                if (previousStreak > 0) 'previousStreak': previousStreak,
-              }, SetOptions(merge: true)).ignore();
-            }
-          }
+          // Recorded, not judged - see the guest branch above and
+          // DashboardState.pendingStreakGapFrom.
+          if (gapDays > 1) pendingStreakGapFrom = lastDay;
         }
 
         if (level >= 5 &&
@@ -418,6 +385,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
           unlockedAchievements: unlockedAchievements,
           newlyUnlocked: const [],
           didUseStreakFreeze: didUseStreakFreeze,
+          pendingStreakGapFrom: pendingStreakGapFrom,
           isLoading: false,
           previousStreak: previousStreak,
           intentionsSetToday: intentionsSetToday,

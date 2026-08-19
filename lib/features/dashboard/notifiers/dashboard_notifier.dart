@@ -15,6 +15,7 @@ import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../milestones/models/milestone_event.dart';
+import '../../habits/catalog/islamic_habit_catalog.dart';
 
 part 'dashboard_notifier_loading.dart';
 part 'dashboard_notifier_complete_habit.dart';
@@ -226,6 +227,25 @@ class DashboardState {
   /// while this is set; there is nothing trustworthy to base them on.
   final bool loadFailed;
 
+  /// A streak gap the loader spotted but deliberately did NOT judge: the
+  /// last day that earned a streak point, when more than one calendar day
+  /// has passed since.
+  ///
+  /// The judgement needs the habit SCHEDULE and the loader does not have
+  /// it. A day with nothing scheduled can never earn a streak point -
+  /// willCompleteAllHabitsToday returns false on an empty list, by design,
+  /// because "a day with nothing scheduled isn't a completed day, it's a
+  /// day off" - so lastActiveDate simply does not advance across rest
+  /// days. Counting raw calendar days therefore read every rest day as a
+  /// miss: a Sat/Mon/Wed schedule burned a freeze on its first Sunday and
+  /// lost the streak on the next one, and a 3x-a-week habit could never
+  /// hold a streak at all.
+  ///
+  /// So the loader records the gap here and [DashboardNotifier.
+  /// resolveStreakGap] decides once the habit list is actually available.
+  /// Null means there is nothing outstanding to judge.
+  final DateTime? pendingStreakGapFrom;
+
   /// The streak that was just lost to a missed day, still recoverable via
   /// [DashboardNotifier.useStreakFreeze] — 0 when there's nothing pending.
   /// Persisted (Firestore's 'previousStreak' field / the guest settings
@@ -334,6 +354,7 @@ class DashboardState {
     this.lastCompletedId,
     this.isLoading = false,
     this.loadFailed = false,
+    this.pendingStreakGapFrom,
     this.previousStreak = 0,
     this.milestoneCelebration,
     this.intentionsSetToday = false,
@@ -420,6 +441,8 @@ class DashboardState {
     String? lastCompletedId,
     bool? isLoading,
     bool? loadFailed,
+    DateTime? pendingStreakGapFrom,
+    bool clearPendingStreakGap = false,
     int? previousStreak,
     int? setMilestone,
     bool clearMilestone = false,
@@ -457,6 +480,9 @@ class DashboardState {
         perfectDayCelebration: perfectDayCelebration,
         lastCompletedId: lastCompletedId ?? this.lastCompletedId,
         isLoading: isLoading ?? this.isLoading,
+        pendingStreakGapFrom: clearPendingStreakGap
+            ? null
+            : (pendingStreakGapFrom ?? this.pendingStreakGapFrom),
         loadFailed: loadFailed ?? this.loadFailed,
         previousStreak: previousStreak ?? this.previousStreak,
         milestoneCelebration:

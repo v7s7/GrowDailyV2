@@ -42,7 +42,11 @@ import 'features/habits/models/habit_cue.dart';
 import 'features/insights/insights_screen.dart';
 import 'features/habits/models/habit_model.dart' show GoalType, ReductionType;
 import 'features/habits/notifiers/custom_habits_notifier.dart'
-    show customHabitsProvider, habitListProvider, habitsStillLoadingProvider;
+    show
+        allHabitsEverProvider,
+        customHabitsProvider,
+        habitListProvider,
+        habitsStillLoadingProvider;
 import 'features/grid/models/square_state.dart' show SquareState;
 import 'features/grid/notifiers/weekly_grid_notifier.dart'
     show WeeklyGridState, isQuitAutoCleanEligible, weeklyGridProvider;
@@ -230,6 +234,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   ProviderSubscription<DashboardState>? _widgetSub;
   ProviderSubscription<NotificationSettings>? _notificationSettingsSub;
   ProviderSubscription<WeeklyGridState>? _gridSub;
+
+  /// Two subscriptions, because the streak gap can only be judged once the
+  /// dashboard AND the habit list have both settled and either may land
+  /// second. See _watchForDeferredStreakGap.
+  final List<ProviderSubscription<Object?>> _streakGapSubs = [];
   ProviderSubscription<AsyncValue<User?>>? _authSub;
   ProviderSubscription<RoomRaceSnapshot?>? _roomRaceSub;
   ProviderSubscription<MatrixState>? _matrixWidgetSub;
@@ -243,6 +252,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   @override
   void initState() {
     super.initState();
+    _watchForDeferredStreakGap();
     // So didChangeAppLifecycleState below actually fires — see its doc
     // comment for why: draining whatever the widget's Mark Done button
     // queued while the app was closed.
@@ -826,6 +836,34 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     }, SetOptions(merge: true)).catchError((_) {}));
   }
 
+  /// Judges any streak gap the dashboard loader deferred, as soon as both
+  /// the dashboard and the habit list have settled.
+  ///
+  /// The loader cannot make this call itself: deciding whether a gap was
+  /// MISSED days or merely days with nothing scheduled needs the habit
+  /// schedule, and the notifier is constructed before any of it exists.
+  /// See DashboardState.pendingStreakGapFrom.
+  ///
+  /// allHabitsEverProvider rather than the active list, so a habit paused
+  /// or removed since the gap still counts for the days it really demanded.
+  void _watchForDeferredStreakGap() {
+    void tryResolve() {
+      if (ref.read(habitsStillLoadingProvider)) return;
+      if (ref.read(dashboardProvider).pendingStreakGapFrom == null) return;
+      ref
+          .read(dashboardProvider.notifier)
+          .resolveStreakGap(ref.read(allHabitsEverProvider));
+    }
+
+    _streakGapSubs.add(
+      ref.listenManual(dashboardProvider, (_, __) => tryResolve()),
+    );
+    _streakGapSubs.add(
+      ref.listenManual(habitsStillLoadingProvider, (_, __) => tryResolve()),
+    );
+    tryResolve();
+  }
+
   /// Resolves true once the dashboard has finished its first load, false
   /// if it has not within [timeout] (or the load failed outright).
   ///
@@ -1196,6 +1234,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _roomRaceSub?.close();
     _matrixWidgetSub?.close();
     _linkSub?.cancel();
+    for (final sub in _streakGapSubs) {
+      sub.close();
+    }
     super.dispose();
   }
 

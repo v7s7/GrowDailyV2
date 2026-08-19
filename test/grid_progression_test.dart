@@ -14,6 +14,8 @@ import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
+import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
+import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 
 class _NeverBonusRandom implements Random {
   @override
@@ -25,6 +27,20 @@ class _NeverBonusRandom implements Random {
   @override
   int nextInt(int max) => 0;
 }
+
+/// A habit scheduled every day, alive for all of history — the plain case
+/// the streak-decay rules were originally written against.
+IslamicHabitTemplate _everyDayHabit() => IslamicHabitTemplate(
+      id: 'daily-habit',
+      name: 'daily',
+      description: '',
+      category: HabitCategory.custom,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 10,
+      goldReward: 5,
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -683,10 +699,76 @@ void main() {
 
       final container = await freshContainer();
       addTearDown(container.dispose);
+
+      // The loader records the gap and leaves it unjudged: deciding whether
+      // those days were MISSED or merely days with nothing scheduled needs
+      // the habit list, which the loader does not have. See
+      // DashboardState.pendingStreakGapFrom.
+      expect(
+        container.read(dashboardProvider).pendingStreakGapFrom,
+        isNotNull,
+        reason: 'the gap is spotted at load',
+      );
+      expect(container.read(dashboardProvider).streak, 5,
+          reason: 'and nothing is destroyed before it is judged');
+
+      // Judged against an every-day habit: all three days genuinely owed
+      // something, so the streak is gone.
+      await container
+          .read(dashboardProvider.notifier)
+          .resolveStreakGap([_everyDayHabit()]);
+
       final dash = container.read(dashboardProvider);
       expect(dash.streak, 0);
       expect(dash.previousStreak, 5);
       expect(dash.showComebackBonus, isTrue);
+    });
+
+    test(
+        'the SAME 3-day gap costs nothing when every day in it was a rest '
+        'day', () async {
+      // The bug this whole deferral exists for. lastActiveDate cannot
+      // advance across a day with nothing scheduled, so a Sat/Mon/Wed
+      // trainee accumulated calendar gaps they had never actually missed.
+      final today = DateTime.now().effectiveDay;
+      await LocalStoreService.putSettingsMap(
+        LocalStoreService.guestDashboardKey,
+        {
+          'currentStreak': 5,
+          'streakFreezes': 1,
+          'lastActiveDate':
+              today.subtract(const Duration(days: 3)).toIso8601String(),
+        },
+      );
+
+      final container = await freshContainer();
+      addTearDown(container.dispose);
+
+      // A habit scheduled only on the day the gap STARTED and today - so
+      // every day strictly in between asked for nothing at all.
+      final restOnly = IslamicHabitTemplate(
+        id: 'daily-habit',
+        name: 'daily',
+        description: '',
+        category: HabitCategory.custom,
+        frequencyType: HabitFrequencyType.daily,
+        frequencyTarget: 1,
+        hasTimer: false,
+        xpReward: 10,
+        goldReward: 5,
+        scheduledWeekdays: [
+          today.subtract(const Duration(days: 3)).weekday,
+          today.weekday,
+        ],
+      );
+      await container
+          .read(dashboardProvider.notifier)
+          .resolveStreakGap([restOnly]);
+
+      final dash = container.read(dashboardProvider);
+      expect(dash.streak, 5, reason: 'nothing was missed, so nothing is lost');
+      expect(dash.streakFreezes, 1, reason: 'and no freeze is spent');
+      expect(dash.pendingStreakGapFrom, isNull, reason: 'question settled');
     });
 
     test(
@@ -705,6 +787,10 @@ void main() {
 
       final container = await freshContainer();
       addTearDown(container.dispose);
+      await container
+          .read(dashboardProvider.notifier)
+          .resolveStreakGap([_everyDayHabit()]);
+
       final dash = container.read(dashboardProvider);
       expect(dash.streak, 5);
       expect(dash.streakFreezes, 0);
