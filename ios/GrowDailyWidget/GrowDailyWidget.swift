@@ -1506,7 +1506,17 @@ struct MatrixProvider: TimelineProvider {
     private func loadEntry() -> MatrixEntry {
         let defaults = UserDefaults(suiteName: appGroupId)
         let tasks = readJSON("matrixTasksJson", from: defaults, as: [WidgetMatrixTask].self) ?? []
-        let doneToday = defaults?.integer(forKey: "matrixDoneTodayCount") ?? 0
+        // The count is only meaningful on the day it was written — after
+        // midnight a stale count would sit in today's denominator until
+        // the app next foregrounds. The hourly timeline refresh makes
+        // this self-heal shortly after the day turns.
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let today = formatter.string(from: Date())
+        let stamp = defaults?.string(forKey: "matrixDoneTodayDate")
+        let doneToday = stamp == today
+            ? (defaults?.integer(forKey: "matrixDoneTodayCount") ?? 0)
+            : 0
         return MatrixEntry(date: Date(), tasks: tasks, doneToday: doneToday)
     }
 }

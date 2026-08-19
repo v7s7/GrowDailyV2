@@ -472,8 +472,18 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
               .compareTo(_matrixQuadrantRank(b.quadrant));
           return byQuadrant != 0 ? byQuadrant : a.order.compareTo(b.order);
         });
+      // Done TODAY, not "done and still in state": the board keeps a
+      // completed task visible until the midnight archive sweep, and that
+      // sweep only runs on load — an app sitting open past midnight still
+      // holds yesterday's dones, which must not fill today's ring. A null
+      // completedAt (legacy docs) counts as today rather than vanishing.
+      final doneToday = next.tasks
+          .where((t) =>
+              t.isDone &&
+              (t.completedAt == null || t.completedAt!.isSameDayAs(now)))
+          .length;
       HomeWidgetService.instance.updateMatrixWidgetData(
-        doneTodayCount: next.tasks.length - open.length,
+        doneTodayCount: doneToday,
         [
         for (final t in open)
           (

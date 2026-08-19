@@ -441,20 +441,39 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
       // already-done day is a no-op and the mirror can't drift negative.
       final done =
           value == SquareState.complete || value == SquareState.bonus;
-      FirebaseFirestore.instance
+      final historyRef = FirebaseFirestore.instance
           .collection('users')
           .doc(_uid)
           .collection('habit_history')
-          .doc(habitId)
-          .set(
-        {
-          'days': {
-            LocalStoreService.dateKey(day):
-                done ? 1 : FieldValue.delete(),
+          .doc(habitId);
+      final dayKey = LocalStoreService.dateKey(day);
+      if (done) {
+        historyRef.set(
+          {
+            'days': {dayKey: 1},
           },
-        },
-        SetOptions(merge: true),
-      ).ignore();
+          SetOptions(merge: true),
+        ).ignore();
+      } else {
+        // Clearing is conditional on the OTHER arm of the union rule: a
+        // multi-tap habit completed from Today has habitCompletions > 0
+        // and an unpainted square, so deleting on square state alone
+        // un-did days the completion arm still owns (the review's trace:
+        // paint, unpaint, mirror gone, count still 2). One doc read on
+        // the rare unpaint path buys agreement with dayIsDone.
+        _dayRef(day).get().then((snap) {
+          final completions = (snap.data()?['habitCompletions'] as Map?)
+              ?.cast<String, dynamic>();
+          final count = completions?[habitId];
+          if (count is num && count > 0) return;
+          historyRef.set(
+            {
+              'days': {dayKey: FieldValue.delete()},
+            },
+            SetOptions(merge: true),
+          ).ignore();
+        }).ignore();
+      }
       return;
     }
     await _mergeGuestDaily(day, (map) {

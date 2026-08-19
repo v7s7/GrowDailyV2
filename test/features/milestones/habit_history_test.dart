@@ -10,14 +10,14 @@ import 'package:grow_daily_v2/features/milestones/screens/year_record_screen.dar
 void main() {
   group('dayIsDone', () {
     test('a positive completion count is done', () {
-      expect(dayIsDone({'completions': {'h1': 1}}, 'h1'), isTrue);
-      expect(dayIsDone({'completions': {'h1': 3}}, 'h1'), isTrue);
+      expect(dayIsDone({'habitCompletions': {'h1': 1}}, 'h1'), isTrue);
+      expect(dayIsDone({'habitCompletions': {'h1': 3}}, 'h1'), isTrue);
     });
 
     test('zero or absent count alone is not done', () {
-      expect(dayIsDone({'completions': {'h1': 0}}, 'h1'), isFalse);
+      expect(dayIsDone({'habitCompletions': {'h1': 0}}, 'h1'), isFalse);
       expect(dayIsDone(const {}, 'h1'), isFalse);
-      expect(dayIsDone({'completions': {'h2': 5}}, 'h1'), isFalse);
+      expect(dayIsDone({'habitCompletions': {'h2': 5}}, 'h1'), isFalse);
     });
 
     test('a done-state grid square is done, partial is not', () {
@@ -35,14 +35,14 @@ void main() {
       // today completion writes completions only. Both are the same fact.
       expect(
         dayIsDone(
-          {'completions': {'h1': 0}, 'squareStates': {'h1': 'complete'}},
+          {'habitCompletions': {'h1': 0}, 'squareStates': {'h1': 'complete'}},
           'h1',
         ),
         isTrue,
       );
       expect(
         dayIsDone(
-          {'completions': {'h1': 2}, 'squareStates': {'h1': 'none'}},
+          {'habitCompletions': {'h1': 2}, 'squareStates': {'h1': 'none'}},
           'h1',
         ),
         isTrue,
@@ -55,15 +55,26 @@ void main() {
     });
   });
 
+  test("the legacy-sounding 'completions' key is NOT honored — daily docs "
+      'never contained it', () {
+    // The tripwire for the bug that shipped to exactly one account: the
+    // first draft read a field no daily doc stores, the tests fed the
+    // same wrong key back, and 730 of them passed while the backfill
+    // dropped every completion-only day. If someone renames the doc
+    // field, this fails alongside the real ones instead of both silently
+    // agreeing on fiction.
+    expect(dayIsDone({'completions': {'h1': 3}}, 'h1'), isFalse);
+  });
+
   group('aggregateHabitHistory', () {
     test('folds days per habit across both sources', () {
       final out = aggregateHabitHistory({
         '2026-06-13': {
-          'completions': {'a': 1},
+          'habitCompletions': {'a': 1},
           'squareStates': {'b': 'complete'},
         },
         '2026-06-14': {
-          'completions': {'a': 2, 'b': 0},
+          'habitCompletions': {'a': 2, 'b': 0},
         },
         '2026-06-15': {
           'squareStates': {'a': 'partial'},
@@ -78,7 +89,7 @@ void main() {
       expect(aggregateHabitHistory(const {}), isEmpty);
       final out = aggregateHabitHistory({
         '2026-06-13': {
-          'completions': {'a': 0},
+          'habitCompletions': {'a': 0},
         },
       });
       expect(out.containsKey('a'), isFalse);

@@ -28,8 +28,16 @@ import '../../grid/models/square_state.dart';
 /// guest path, and the tests all call it, so the strip can never disagree
 /// with itself between data sources.
 bool dayIsDone(Map<String, dynamic> dailyDoc, String habitId) {
+  // 'habitCompletions' is the field daily docs actually store —
+  // completeHabit, uncompleteHabit, and the guest saver all write that
+  // name (the STATE field is called completions, the DOC field is not).
+  // The first draft of this function read 'completions', which no daily
+  // doc has ever contained, so the completion arm of the union was dead
+  // against production data and only square-painted days backfilled;
+  // caught by the adversarial review, fixed before any external account
+  // was stamped.
   final completions =
-      (dailyDoc['completions'] as Map?)?.cast<String, dynamic>();
+      (dailyDoc['habitCompletions'] as Map?)?.cast<String, dynamic>();
   final count = completions?[habitId];
   if (count is num && count > 0) return true;
   final squares =
@@ -46,7 +54,7 @@ Map<String, Set<String>> aggregateHabitHistory(
   final out = <String, Set<String>>{};
   dailyDocs.forEach((dateKey, doc) {
     final ids = <String>{
-      ...((doc['completions'] as Map?)?.keys.map((k) => k.toString()) ??
+      ...((doc['habitCompletions'] as Map?)?.keys.map((k) => k.toString()) ??
           const Iterable<String>.empty()),
       ...((doc['squareStates'] as Map?)?.keys.map((k) => k.toString()) ??
           const Iterable<String>.empty()),
@@ -67,6 +75,12 @@ Map<String, Set<String>> aggregateHabitHistory(
 /// history. Guest: aggregates the local Hive daily box directly; it is
 /// in-memory, so there is no read cost to mirror away and no mirror to
 /// drift.
+/// One backfill at a time per app session. The provider is autoDispose
+/// and re-executes on auth re-emissions or screen reopen; Riverpod does
+/// not cancel the in-flight future, and two concurrent backfills would
+/// interleave their batches with each other and with the live writers.
+Future<void>? _backfillInFlight;
+
 final habitYearHistoryProvider =
     FutureProvider.autoDispose<Map<String, Set<String>>>((ref) async {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
@@ -79,38 +93,74 @@ final habitYearHistoryProvider =
 
   final userSnap = await userRef.get();
   if (userSnap.data()?['habitHistoryBackfilledAt'] == null) {
+    // Wait out any run already in flight, then re-check the stamp: the
+    // earlier run may have finished the job while we waited.
+    final inFlight = _backfillInFlight;
+    if (inFlight != null) {
+      await inFlight;
+    }
+    final fresh = await userRef.get();
+    if (fresh.data()?['habitHistoryBackfilledAt'] != null) {
+      final snap = await historyCol.get();
+      return {
+        for (final d in snap.docs)
+          d.id: ((d.data()['days'] as Map?)
+                      ?.keys
+                      .map((k) => k.toString()) ??
+                  const Iterable<String>.empty())
+              .toSet(),
+      };
+    }
     // ── One-time backfill ────────────────────────────────────────────
     // Reads the full daily history once (~2 months ≈ 70 docs for the
     // oldest current accounts) and writes one mirror doc per habit.
     // Chunked well under the 500-op batch ceiling. The stamp is written
     // in the LAST batch, so a failure mid-way retries the whole thing
     // next open rather than half-backfilling forever.
-    final dailySnap = await userRef.collection('daily').get();
-    final aggregated = aggregateHabitHistory({
-      for (final d in dailySnap.docs) d.id: d.data(),
-    });
-    var batch = FirebaseFirestore.instance.batch();
-    var ops = 0;
-    for (final entry in aggregated.entries) {
+    Future<void> run() async {
+      final dailySnap = await userRef.collection('daily').get();
+      // TODAY is excluded from the backfill on purpose: the live writers
+      // own the current day, and a backfill whose aggregate was read
+      // seconds ago would otherwise resurrect a completion the user
+      // un-did while it was running. Yesterday and older are settled.
+      final todayKey = LocalStoreService.dateKey(DateTime.now());
+      final aggregated = aggregateHabitHistory({
+        for (final d in dailySnap.docs)
+          if (d.id != todayKey) d.id: d.data(),
+      });
+      var batch = FirebaseFirestore.instance.batch();
+      var ops = 0;
+      for (final entry in aggregated.entries) {
+        batch.set(
+          historyCol.doc(entry.key),
+          {
+            'days': {for (final day in entry.value) day: 1},
+          },
+          SetOptions(merge: true),
+        );
+        if (++ops >= 400) {
+          await batch.commit();
+          batch = FirebaseFirestore.instance.batch();
+          ops = 0;
+        }
+      }
+      // The stamp rides the LAST batch: a failure anywhere above leaves
+      // the account unstamped and the whole backfill retries next open.
       batch.set(
-        historyCol.doc(entry.key),
-        {
-          'days': {for (final day in entry.value) day: 1},
-        },
+        userRef,
+        {'habitHistoryBackfilledAt': FieldValue.serverTimestamp()},
         SetOptions(merge: true),
       );
-      if (++ops >= 400) {
-        await batch.commit();
-        batch = FirebaseFirestore.instance.batch();
-        ops = 0;
-      }
+      await batch.commit();
     }
-    batch.set(
-      userRef,
-      {'habitHistoryBackfilledAt': FieldValue.serverTimestamp()},
-      SetOptions(merge: true),
-    );
-    await batch.commit();
+
+    final running = run();
+    _backfillInFlight = running;
+    try {
+      await running;
+    } finally {
+      _backfillInFlight = null;
+    }
   }
 
   final snap = await historyCol.get();

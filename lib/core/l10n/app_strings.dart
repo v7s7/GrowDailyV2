@@ -2555,6 +2555,16 @@ class S {
       : 'Add a habit and start coloring — every day you complete shows here.';
   /// ASCII digits in both languages, like every stat in the app.
   String yearRecordDaysCount(int n) => isAr ? '$n يوم' : '$n days';
+  /// The quit-habit variant: a done day on a quit habit is a day RESISTED,
+  /// and counting it as plain "days" undersells the win. التزام, not
+  /// "نظيف" — commitment language, matching the app's no-shame register.
+  String yearRecordCleanDaysCount(int n) =>
+      isAr ? '$n يوم التزام' : '$n clean days';
+  /// Collapsed section under the active habits. Archived habits keep their
+  /// history, and this screen is the one place that history still shows
+  /// after archiving — hidden by default so the past never crowds the
+  /// present.
+  String get yearRecordArchivedSection => isAr ? 'المؤرشفة' : 'Archived';
 
   // ── Month picker (shared: Monthly Story, any month-stepping screen) ────
 

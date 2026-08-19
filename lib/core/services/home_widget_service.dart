@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 
 import '../extensions/datetime_ext.dart';
+import 'local_store_service.dart';
 
 /// Dart-side bridge to the iOS home screen + Lock Screen widgets. This is
 /// only half the feature — home_widget explicitly does not let Flutter draw
@@ -292,6 +293,14 @@ class HomeWidgetService {
       await HomeWidget.saveWidgetData<int>(
         'matrixDoneTodayCount',
         doneTodayCount,
+      );
+      // The count's calendar day. Without it the widget kept yesterday's
+      // done count in today's denominator until the app next foregrounded;
+      // the Swift side treats a stale stamp as zero, and its hourly
+      // timeline refresh picks that up shortly after midnight on its own.
+      await HomeWidget.saveWidgetData<String>(
+        'matrixDoneTodayDate',
+        LocalStoreService.dateKey(DateTime.now()),
       );
       await HomeWidget.saveWidgetData<String>(
         'matrixTasksJson',
