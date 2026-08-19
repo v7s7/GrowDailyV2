@@ -21,6 +21,7 @@ import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
 import 'prayer_anchor_chips.dart';
+import '../../premium/notifiers/premium_notifier.dart';
 
 /// Stays open after each add so a quick brain-dump ("buy milk" ⏎ "wash car"
 /// ⏎ "call mom" ⏎ …) doesn't mean reopening this sheet for every single
@@ -686,7 +687,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                                   elapsed: _elapsed,
                                   color: _color,
                                   onTap: _toggleRecording,
-                                  locked: !hasVoiceNoteAccess(ref),
+                                  locked: !ref.watch(premiumProvider),
                                 ),
                               ],
                             ),
@@ -902,6 +903,9 @@ class MicRecordButton extends StatelessWidget {
     final ss = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
     return Semantics(
       button: true,
+      // A screen reader must not promise recording on a gated control:
+      // announce the premium state, not just "record".
+      hint: locked ? s.premiumBenefitVoiceTitle : null,
       label: recording ? s.voiceNoteTapToStop : s.voiceNoteTapToRecord,
       child: GestureDetector(
         onTap: onTap,

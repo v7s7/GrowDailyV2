@@ -119,7 +119,10 @@ DateTime resolvePrayerAnchor({
 }) {
   final today = timesFor(now).forKey(prayerKey);
   if (today != null && today.isAfter(now)) return today;
-  final tomorrow = now.add(const Duration(days: 1));
+  // The next CALENDAR day, not now+24h: across a DST spring-forward a
+  // 24-hour hop can skip straight past a short day's early prayer. (No
+  // DST in Bahrain, but the code shouldn't know that.)
+  final tomorrow = DateTime(now.year, now.month, now.day + 1);
   return timesFor(tomorrow).forKey(prayerKey) ??
       // forKey only returns null for an unknown key, which callers here
       // never pass — but a wrong constant must degrade to "an hour from

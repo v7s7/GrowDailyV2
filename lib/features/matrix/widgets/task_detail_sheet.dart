@@ -23,6 +23,7 @@ import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor, offsetsFrom;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
 import 'prayer_anchor_chips.dart';
+import '../../premium/notifiers/premium_notifier.dart';
 
 /// Opened from a task's pencil icon (see quadrant_card.dart's _TaskTile) —
 /// the richer counterpart to AddTaskSheet's title-only quick add: this is
@@ -586,7 +587,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                           elapsed: _elapsed,
                           color: _color,
                           onTap: _toggleRecording,
-                          locked: !hasVoiceNoteAccess(ref),
+                          locked: !ref.watch(premiumProvider),
                         ),
                       ],
                     ),

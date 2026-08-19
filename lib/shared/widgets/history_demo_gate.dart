@@ -148,12 +148,16 @@ class _DemoMonthCard extends StatelessWidget {
                     Icon(Icons.auto_awesome_rounded,
                         size: 16, color: GameColors.gold),
                     const SizedBox(width: 8),
-                    Text(
-                      s.demoGateMonthTitle,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: gp.textPrimary,
+                    Expanded(
+                      child: Text(
+                        s.demoGateMonthTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: gp.textPrimary,
+                        ),
                       ),
                     ),
                   ],

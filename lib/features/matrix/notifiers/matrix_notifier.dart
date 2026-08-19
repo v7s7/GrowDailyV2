@@ -627,7 +627,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     // cancelling a task that never had a reminder scheduled is a safe
     // no-op, and this is simpler/safer than first checking whether it did.
     NotificationService.instance.cancelTaskReminder(id).ignore();
-    _pruneReminderBookkeeping([id]).ignore();
+    _enqueueBookkeeping(() => _pruneReminderBookkeeping([id]));
   }
 
   void deleteMany(Iterable<String> ids) {
@@ -650,7 +650,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     for (final id in idSet) {
       NotificationService.instance.cancelTaskReminder(id).ignore();
     }
-    _pruneReminderBookkeeping(idSet).ignore();
+    _enqueueBookkeeping(() => _pruneReminderBookkeeping(idSet));
   }
 
   void move(String id, MatrixQuadrant newQuadrant) {
@@ -734,7 +734,10 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       quadrantColors: state.quadrantColors,
     );
     _persist(task);
-    _syncReminderSchedule(task);
+    // Seed first, THEN sync, both through the queue: the catch-up decision
+    // inside the sync reads the map the seed writes.
+    _enqueueBookkeeping(() => _reseedRestoredMarkers(task));
+    _enqueueBookkeeping(() async => _syncReminderSchedule(task));
   }
 
   /// Undoes a bulk delete (multi-select). Same double-restore guard as
@@ -752,7 +755,8 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     );
     for (final task in toRestore) {
       _persist(task);
-      _syncReminderSchedule(task);
+      _enqueueBookkeeping(() => _reseedRestoredMarkers(task));
+      _enqueueBookkeeping(() async => _syncReminderSchedule(task));
     }
   }
 
@@ -805,6 +809,21 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// calling sheet's job (AddTaskSheet._submit / TaskDetailSheet's reminder
   /// handler), see NotificationService.scheduleTaskReminder's doc comment
   /// for why.
+  /// Serializes every read-modify-write against the two reminder
+  /// bookkeeping maps. They are whole-map Hive values, so two concurrent
+  /// writers each spread a STALE copy and the last one wins — a resync
+  /// loops all tasks at once, which made losing entries the common case
+  /// rather than the race: on the first launch after this ships, every
+  /// existing multi-reminder user re-records all their tasks in one batch,
+  /// and without ordering only one entry survived. One queue, strictly
+  /// FIFO, swallow-and-continue on error (bookkeeping must never wedge
+  /// the queue for later writers).
+  Future<void> _bookkeepingQueue = Future.value();
+
+  void _enqueueBookkeeping(Future<void> Function() op) {
+    _bookkeepingQueue = _bookkeepingQueue.then((_) => op()).catchError((_) {});
+  }
+
   /// Persists the furthest reminder instant this device has armed for
   /// [id]. Forward-only, same reasoning as the catch-up marker: a stack
   /// edit that drops the latest slot must not un-remember that an earlier
@@ -818,6 +837,34 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       ...stored,
       id: through.toIso8601String(),
     });
+  }
+
+  Future<void> _revokeArmedThrough(String id) async {
+    final stored =
+        await LocalStoreService.getSettingsMap(_armedTaskReminderThroughKey);
+    if (!stored.containsKey(id)) return;
+    stored.remove(id);
+    await LocalStoreService.putSettingsMap(
+        _armedTaskReminderThroughKey, stored);
+  }
+
+  /// Re-seeds the bookkeeping for a task coming back through UNDO.
+  ///
+  /// Delete prunes both maps; restoring a task with a passed reminder then
+  /// looked exactly like the cross-device case and fired an instant "It's
+  /// time" on top of the undo snackbar — for a reminder the person already
+  /// received, about a task they were looking at two seconds ago. Seeding
+  /// the armed watermark to its latest already-passed moment keeps the
+  /// restore silent while leaving every future reminder to arm normally.
+  Future<void> _reseedRestoredMarkers(MatrixTask task) async {
+    final now = DateTime.now();
+    DateTime? latestPassed;
+    for (final at in task.reminderAts) {
+      if (at.isAfter(now)) continue;
+      if (latestPassed == null || at.isAfter(latestPassed)) latestPassed = at;
+    }
+    if (latestPassed == null) return;
+    await _recordArmedThrough(task.id, latestPassed);
   }
 
   /// Drops [ids] from both reminder bookkeeping maps. Called on delete —
@@ -849,6 +896,13 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     // 3:30 and 4:00 still coming) resettle correctly with no orphans.
     final future = futureTaskReminders(task, masterEnabled: masterEnabled);
     if (future.isNotEmpty) {
+      // Remember the furthest moment this device armed — but only once
+      // scheduling has actually SUCCEEDED. Recording alongside a failed
+      // plugin call would log a delivery that never became possible, and
+      // the catch-up this marker feeds would be suppressed for a
+      // notification nobody received (the denied-permission self-heal the
+      // resync doc promises depends on exactly this distinction).
+      final furthest = future.reduce((a, b) => a.isAfter(b) ? a : b);
       NotificationService.instance
           .scheduleTaskReminders(
             id: task.id,
@@ -856,11 +910,11 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
             fireTimes: future,
             isAr: isAr,
           )
-          .ignore();
-      // Remember the furthest moment this device armed, so that when it
-      // passes with the task still open, the resync knows the OS already
-      // delivered it and a catch-up would be a duplicate.
-      _recordArmedThrough(task.id, future.reduce((a, b) => a.isAfter(b) ? a : b))
+          .then(
+            (_) => _enqueueBookkeeping(
+              () => _recordArmedThrough(task.id, furthest),
+            ),
+          )
           .ignore();
       return;
     }
@@ -871,11 +925,19 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     // on top of it would just double up.
     final missed = latestMissedTaskReminder(task, masterEnabled: masterEnabled);
     if (missed != null) {
-      _fireOverdueReminderOnce(task, missed, isAr).ignore();
+      // Through the queue: the fired-marker write inside shares the same
+      // whole-map shape as the recorder and raced it identically.
+      _enqueueBookkeeping(() => _fireOverdueReminderOnce(task, missed, isAr));
       return;
     }
 
     NotificationService.instance.cancelTaskReminder(task.id).ignore();
+    // Slots just cancelled will never fire, so the armed watermark that
+    // covered them stops being a delivery record. Without this revocation,
+    // complete -> the moment passes -> uncomplete lost its documented
+    // catch-up: the marker claimed the OS had notified, but the cancel got
+    // there first.
+    _enqueueBookkeeping(() => _revokeArmedThrough(task.id));
   }
 
   /// Fires [NotificationService.fireOverdueTaskReminder] for [task] at most

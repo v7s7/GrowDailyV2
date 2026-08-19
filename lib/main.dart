@@ -1097,7 +1097,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // board. Same await-then-poll shape as _handleNotificationAction
       // and _processPendingWidgetTaskCompletions, which each document
       // this exact cold-start race for their own payloads.
-      await ref.read(authStateProvider.future);
+      try {
+        await ref.read(authStateProvider.future);
+      } catch (_) {
+        // Same guard as _handleNotificationAction: an auth stream error
+        // must not detonate inside a notification callback.
+        return;
+      }
       if (!mounted) return;
       for (var i = 0; i < 20 && ref.read(matrixProvider).isLoading; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 100));

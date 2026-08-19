@@ -1180,11 +1180,16 @@ class _RotatedAxisLabel extends StatelessWidget {
     final gp = context.gp;
     return Center(
       child: RotatedBox(
-        // The label column mirrors to the board's right edge under RTL,
-        // where vertical text conventionally reads top-to-bottom — so the
-        // rotation mirrors with it.
-        quarterTurns:
-            Directionality.of(context) == TextDirection.rtl ? 1 : 3,
+        // Always 3 (90° counter-clockwise), for BOTH directions — and this
+        // has been gotten wrong once already, so here is the geometry: the
+        // text's READING START moves with the rotation. Arabic starts at
+        // its right edge; 90° CCW puts that edge at the TOP, so Arabic
+        // already reads top-to-bottom (its convention) with no flip.
+        // English starts at its left edge, which lands at the BOTTOM —
+        // bottom-to-top, the Western book-spine convention. A directional
+        // flip to quarterTurns 1 under RTL (tried, reviewed, reverted)
+        // moves the Arabic start to the bottom and inverts it.
+        quarterTurns: 3,
         child: Text(
           label,
           style: TextStyle(
