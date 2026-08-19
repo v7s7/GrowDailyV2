@@ -26,7 +26,10 @@ void main() {
     // widget that no longer exists rather than catching a regression.
     expect(find.text('Morning Athkar'), findsOneWidget);
     expect(find.text('Squares filled'), findsOneWidget);
-    expect(find.text('Points'), findsOneWidget);
+    // "XP today", not "Points": the card's two small stats are both about
+    // today while the number above them is the whole week, and "Points"
+    // named a currency the app does not otherwise have.
+    expect(find.text('XP today'), findsOneWidget);
     // The slogan sits at the bottom of the scroll — bring it into view.
     await tester.scrollUntilVisible(
       find.text('Color your life, one square at a time.'),

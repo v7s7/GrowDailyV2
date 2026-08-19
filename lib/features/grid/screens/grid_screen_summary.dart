@@ -599,14 +599,11 @@ class _SummaryCard extends StatelessWidget {
           color: GameColors.emerald.withOpacity(0.30),
         );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        card,
-        const SizedBox(height: 8),
-        const _HeatmapLinkRow(),
-      ],
-    );
+    // The Progress Map link used to sit right here, directly above the
+    // board. It now lives once, as the icon in this screen's header: two
+    // doors to the same screen a few hundred pixels apart made the map
+    // look like two different things.
+    return card;
   }
 }
 
@@ -648,57 +645,6 @@ class _RingStat extends StatelessWidget {
             size: 24,
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// The worded door to the Progress Heatmap, sitting directly under the
-/// summary card it expands.
-///
-/// Shape copied from LifeTimelineScreen's own footer link and from every
-/// "View all" row on ProgressHub — leading icon, label, trailing chevron —
-/// so it behaves identically in Arabic without any directional work of its
-/// own: `Icons.chevron_right_rounded` is auto-mirrored by Flutter under an
-/// RTL Directionality, exactly as the Profile rows already are.
-class _HeatmapLinkRow extends StatelessWidget {
-  const _HeatmapLinkRow();
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final s = S.of(context);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        onTap: () {
-          HapticFeedback.selectionClick();
-          Navigator.pushNamed(context, '/heatmap');
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Icon(Icons.calendar_view_month_rounded,
-                  size: 18, color: gp.textSec),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  s.heatmapTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: gp.textSec,
-                  ),
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
-            ],
-          ),
-        ),
       ),
     );
   }

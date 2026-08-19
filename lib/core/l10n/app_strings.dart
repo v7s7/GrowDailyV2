@@ -1105,8 +1105,14 @@ class S {
     return 'مربّعًا ملوّنًا';
   }
 
-  String get gridPoints => isAr ? 'النقاط' : 'Points';
-  String get gridComplete => isAr ? 'الإكمال' : 'Complete';
+  /// The two small stats under the week's square count. Both are about
+  /// TODAY while the big number above them is the whole week, which is
+  /// what made them ambiguous - and "Points" named a currency this app
+  /// does not have. It is XP: the profile header says «مجموع XP», the task
+  /// reward float says «+20 XP», and the level bar is measured in it.
+  /// Naming it here is cheaper than explaining it anywhere.
+  String get gridPoints => isAr ? 'XP اليوم' : 'XP today';
+  String get gridComplete => isAr ? 'إنجاز اليوم' : 'Today done';
   String get gridWeekFilled => isAr ? 'اكتمل الأسبوع!' : 'Week filled!';
   String get gridPerfectDay => isAr
       ? 'يوم مثالي — كل مربّعات اليوم ملوّنة!'
