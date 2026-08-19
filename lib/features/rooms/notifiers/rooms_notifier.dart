@@ -2782,6 +2782,21 @@ class RoomsController {
     if (rooms == null || rooms.isEmpty) return;
     final uid = _uid;
     if (uid == null) return;
+    // The same warm-up guard syncLinkedHabitsProgress carries, and for a
+    // worse version of the same reason. habitListProvider is empty until
+    // custom habits, the catalog and the overrides have all landed, and an
+    // empty habitById sends EVERY linked id down the stale-link fail-open
+    // below — so all of them land in today's denominator while only the
+    // tapped square is green, and the doc is written that way with
+    // lastSyncedDay advanced to claim the day as graded.
+    //
+    // A Grid tap is unlikely to beat the load (the row has to be on screen
+    // to be tapped), but this method is also reached with no UI involved
+    // at all: main.dart's notification actions complete a habit straight
+    // from a banner on a cold start. Bailing costs one deferred update,
+    // exactly as the comment on the transaction below already says — the
+    // next full resync regrades the whole range.
+    if (_ref.read(habitsStillLoadingProvider)) return;
     final todayDate = DateTime.now().effectiveDay;
     final today = todayDate.toDateKey();
     final habitById = {for (final h in _ref.read(habitListProvider)) h.id: h};

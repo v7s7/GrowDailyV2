@@ -651,12 +651,21 @@ final allHabitsEverProvider = Provider<List<IslamicHabitTemplate>>((ref) {
 /// instead of one of them saying nothing — Grid paints the row with a
 /// pause tile and a tertiary name, and this list offers Resume.
 final pausedHabitsProvider = Provider<List<IslamicHabitTemplate>>((ref) {
+  final catalogNotifier = ref.watch(activeCatalogProvider.notifier);
   final all = <IslamicHabitTemplate>[
     ...ref.watch(customHabitsProvider.notifier).archived,
     for (final t in IslamicHabitCatalog.templates)
-      if (ref.watch(activeCatalogProvider.notifier).catalogArchivedAt[t.id]
-          case final DateTime at)
-        t.withDates(createdAt: t.createdAt, archivedAt: at),
+      if (catalogNotifier.catalogArchivedAt[t.id] case final DateTime at)
+        // createdAt from activatedAt, NOT from t.createdAt: every const
+        // catalog template leaves createdAt null, so stamping it through
+        // gave a paused preset no lower bound at all — habitExistedOn and
+        // isScheduledFor then answer "yes, it existed" for every day back
+        // to the beginning of time, including years before this account
+        // ever switched it on. Harmless while the only reader is this
+        // sheet's list of names, and a loaded gun for the next reader that
+        // does date math. [habitsArchivedTodayProvider] below has always
+        // stamped it correctly; this now matches.
+        t.withDates(createdAt: catalogNotifier.activatedAt[t.id], archivedAt: at),
   ];
   ref.watch(customHabitsProvider);
   ref.watch(activeCatalogProvider);
