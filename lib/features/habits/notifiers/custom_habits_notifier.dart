@@ -376,12 +376,26 @@ class CustomHabitsNotifier
   /// happened elsewhere this method has no way to claw back, so from that
   /// point on it always falls through to the normal archive below,
   /// permanently, regardless of how long ago that one completion was.
-  void archive(String id, {bool everCompleted = true}) {
+  ///
+  /// [eraseIfEmpty] — whether the hard-delete above is allowed at all.
+  /// True for the multi-select REMOVE path, whose whole promise is that
+  /// the habit goes away. False for PAUSE, whose promise is the opposite:
+  /// its own sheet says the record is kept and the habit comes back
+  /// whenever you want. Pausing a habit you had not completed yet used to
+  /// destroy it on the spot — the one case where the button did the exact
+  /// opposite of what the text under it said, and silently, since there
+  /// was no history to notice missing afterwards. Pause always preserves
+  /// now; Delete forever is the deliberate way to actually erase.
+  void archive(
+    String id, {
+    bool everCompleted = true,
+    bool eraseIfEmpty = true,
+  }) {
     final existing = state.where((h) => h.id == id).toList();
     if (existing.isEmpty) return;
     final habit = existing.first;
 
-    if (!everCompleted) {
+    if (!everCompleted && eraseIfEmpty) {
       state = state.where((h) => h.id != id).toList();
       if (_uid != null) {
         _col.doc(id).delete().ignore();
@@ -402,6 +416,35 @@ class CustomHabitsNotifier
           .doc(id)
           .set(archivedTemplate.toFirestore(), SetOptions(merge: true))
           .ignore();
+    } else {
+      _saveGuest().ignore();
+      _saveGuestArchived().ignore();
+    }
+  }
+
+  /// Hard-deletes a custom habit and forgets it existed — the deliberate
+  /// opposite of [archive], and the reason pausing can now be the safe
+  /// default everywhere else.
+  ///
+  /// Removes the doc whether or not the habit was ever completed, and
+  /// whether it is currently active or already paused, so nothing keeps
+  /// its name alive: it stops appearing in allHabitsEverProvider, which
+  /// is what makes it vanish from the Heatmap, Insights and Year Record
+  /// too. The daily documents keep their raw per-day numbers (rewriting
+  /// months of history is not something a delete should attempt), but with
+  /// no template carrying this id, nothing renders them — the habit is
+  /// gone everywhere a person can look.
+  ///
+  /// Only ever reachable behind an explicit "this cannot be undone"
+  /// confirmation; every non-confirmed removal path calls [archive].
+  void deleteForever(String id) {
+    final wasActive = state.any((h) => h.id == id);
+    final wasArchived = archived.any((h) => h.id == id);
+    if (!wasActive && !wasArchived) return;
+    state = state.where((h) => h.id != id).toList();
+    archived = archived.where((h) => h.id != id).toList();
+    if (_uid != null) {
+      _col.doc(id).delete().ignore();
     } else {
       _saveGuest().ignore();
       _saveGuestArchived().ignore();
@@ -586,6 +629,42 @@ final allHabitsEverProvider = Provider<List<IslamicHabitTemplate>>((ref) {
   final customArchived = ref.watch(customHabitsProvider.notifier).archived;
 
   return [...catalogEver, ...customActive, ...customArchived];
+});
+
+/// Every habit currently PAUSED — custom ones archived by
+/// [CustomHabitsNotifier.archive], and presets switched off with a
+/// recorded archive date — newest pause first.
+///
+/// This is what makes pausing reversible. Before it existed, archiving
+/// preserved a habit's whole history and then stranded it: nothing
+/// listed what was archived, so the only way back was the six-second
+/// Undo on the removal snackbar. The list is surfaced inside the Add
+/// Habit hub rather than in Settings, because "I want that habit back"
+/// and "I want a habit" are the same intent arriving at the same moment.
+///
+/// Includes habits paused TODAY, which are also still on the board for
+/// the rest of that day (see [habitsArchivedTodayProvider]). Excluding
+/// them was tried first, to avoid one habit appearing in two lists, and
+/// it left a hole with no bottom: for the rest of the day that habit was
+/// listed nowhere, so once the six-second Undo expired the pause could
+/// not be taken back until tomorrow. Both places now say the same thing
+/// instead of one of them saying nothing — Grid paints the row with a
+/// pause tile and a tertiary name, and this list offers Resume.
+final pausedHabitsProvider = Provider<List<IslamicHabitTemplate>>((ref) {
+  final all = <IslamicHabitTemplate>[
+    ...ref.watch(customHabitsProvider.notifier).archived,
+    for (final t in IslamicHabitCatalog.templates)
+      if (ref.watch(activeCatalogProvider.notifier).catalogArchivedAt[t.id]
+          case final DateTime at)
+        t.withDates(createdAt: t.createdAt, archivedAt: at),
+  ];
+  ref.watch(customHabitsProvider);
+  ref.watch(activeCatalogProvider);
+  final paused = [
+    for (final h in all)
+      if (h.archivedAt != null) h,
+  ]..sort((a, b) => b.archivedAt!.compareTo(a.archivedAt!));
+  return paused;
 });
 
 /// Habits (catalog or custom) archived on exactly today's effective day —

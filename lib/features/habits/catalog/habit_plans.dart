@@ -420,9 +420,20 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   /// catalogStintHistory forever. allHabitsEverProvider's own null-guard
   /// (custom_habits_notifier.dart) is what keeps this safe even when real
   /// earlier stints for the same id still exist in catalogStintHistory.
-  void toggle(String catalogId, {bool everCompleted = true}) {
+  ///
+  /// [eraseIfEmpty] — same split as [CustomHabitsNotifier.archive]'s
+  /// parameter of the same name: true for the remove path, false for
+  /// Pause, which promises the habit is kept and resumable. Without it,
+  /// pausing a preset that had never been completed left no
+  /// catalogArchivedAt stamp, so it was absent from the paused list and
+  /// there was nothing to resume.
+  void toggle(
+    String catalogId, {
+    bool everCompleted = true,
+    bool eraseIfEmpty = true,
+  }) {
     if (state.contains(catalogId)) {
-      if (!everCompleted) {
+      if (!everCompleted && eraseIfEmpty) {
         activatedAt = {...activatedAt}..remove(catalogId);
         state = Set.of(state)..remove(catalogId);
         _save();
@@ -444,6 +455,24 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       // the very first activation has no priorStart/priorEnd yet.
       final priorStart = activatedAt[catalogId];
       final priorEnd = catalogArchivedAt[catalogId];
+      final today = DateTime.now().effectiveDay;
+      // Paused and resumed inside the same day: nothing about this
+      // habit's timeline actually changed, so record nothing. Treating it
+      // as a real stint boundary would close a window ending today and
+      // open another starting today, and those two synthetic templates
+      // both claim today — breaking the one invariant allHabitsEverProvider
+      // states out loud ("real stints never overlap in time, so at most
+      // one of the duplicates ever claims any given day") and counting
+      // today twice in the Heatmap and Insights. Rare when the only way
+      // back was a six-second Undo; routine now that Pause sits next to
+      // Resume, one tap apart.
+      if (priorStart != null && priorEnd != null && priorEnd.isSameDayAs(today)) {
+        activatedAt = {...activatedAt, catalogId: priorStart};
+        catalogArchivedAt = {...catalogArchivedAt}..remove(catalogId);
+        state = {...state, catalogId};
+        _save();
+        return;
+      }
       if (priorStart != null && priorEnd != null) {
         catalogStintHistory = {
           ...catalogStintHistory,
@@ -455,7 +484,7 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       }
       activatedAt = {
         ...activatedAt,
-        catalogId: DateTime.now().effectiveDay,
+        catalogId: today,
       };
       // Re-activating is a fresh start (see [activatedAt]'s doc comment)
       // — clear any archive record from a previous stint so this id
@@ -508,10 +537,22 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
         selected.where((id) => !state.contains(id)).toSet();
     // Same "push the outgoing stint into history before it's overwritten"
     // step as [toggle]'s reactivation branch — see that doc comment.
+    // Same same-day rule [toggle] applies: a stint that ended today and
+    // is reopening today is not two windows, it is one uninterrupted one.
+    // Recording it would put two synthetic templates from
+    // allHabitsEverProvider on today at once, which the Heatmap and
+    // Insights both count. Reachable from Plans the moment someone
+    // switches a plan off and back on in one sitting.
+    final reopeningSameDay = {
+      for (final id in reactivating)
+        if (catalogArchivedAt[id]?.isSameDayAs(today) ?? false) id,
+    };
     catalogStintHistory = {
       ...catalogStintHistory,
       for (final id in reactivating)
-        if (activatedAt[id] != null && catalogArchivedAt[id] != null)
+        if (!reopeningSameDay.contains(id) &&
+            activatedAt[id] != null &&
+            catalogArchivedAt[id] != null)
           id: [
             ...(catalogStintHistory[id] ?? const []),
             (activatedAt[id]!, catalogArchivedAt[id]!),
@@ -520,8 +561,11 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     activatedAt = {
       ...activatedAt,
       // Only ids that are genuinely NEW get today's date — re-picking an
-      // already-active habit must not move its birth date forward.
-      for (final id in reactivating) id: today,
+      // already-active habit must not move its birth date forward, and a
+      // habit reopening the same day it closed keeps its original start
+      // for the same reason.
+      for (final id in reactivating)
+        if (!reopeningSameDay.contains(id)) id: today,
       // Erased, not just left alone — a hard-deleted id has no current
       // stint any more, same as [toggle]'s own hard-delete branch.
     }..removeWhere((id, _) => toHardDelete.contains(id));

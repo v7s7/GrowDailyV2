@@ -9,9 +9,15 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../../rooms/notifiers/rooms_notifier.dart' show roomsControllerProvider;
+import '../../../shared/widgets/overlay_notice.dart';
 import '../notifiers/custom_habits_notifier.dart';
 import 'add_habit_sheet.dart';
+import 'habit_actions_sheet.dart';
 import 'plan_picker_sheet.dart';
+import '../catalog/islamic_habit_catalog.dart';
+import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../catalog/habit_plans.dart';
 
 enum HubTab { plans, addGoal }
 
@@ -25,7 +31,15 @@ void showAddHabitHub(
   WidgetRef ref, {
   HubTab initialTab = HubTab.addGoal,
 }) {
-  if (!canAddHabits(ref)) {
+  // At the cap, this sheet normally short-circuits straight to the paywall.
+  // The exception is an account with paused habits: this sheet is the only
+  // place they are listed, so short-circuiting would hide them behind the
+  // very limit they are the way out of, with no way to resume or delete
+  // one. Letting the sheet open costs nothing, because every path that
+  // actually adds a habit gates itself again — AddHabitSheet._save,
+  // PlanPickerSheet's apply, and the Resume button below all call
+  // canAddHabits at the moment of the add.
+  if (!canAddHabits(ref) && ref.read(pausedHabitsProvider).isEmpty) {
     showHabitLimitGate(context, ref);
     return;
   }
@@ -211,6 +225,12 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
                 ],
               ),
             ),
+            // Paused habits, above the tabs so they are visible from both:
+            // someone opening this sheet to "get a habit" should meet the
+            // one they already built and paused before they meet the
+            // catalog. Renders nothing when nothing is paused, so the
+            // common case is untouched.
+            const _PausedHabitsSection(),
             // Plain tab row normally; during App Guide's addHabit lesson it
             // gets the exact same pulsing gold ring CoachMarkOverlay uses on
             // every other spotlighted target, so "these two buttons are the
@@ -427,6 +447,246 @@ class _TabPill extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+/// The resume list: every paused habit, newest pause first, each one tap
+/// from being back on the board with its whole history attached.
+///
+/// Lives in the Add Habit hub rather than a Settings screen because that
+/// is where the intent actually arrives — nobody opens Settings thinking
+/// "I want to start doing قيام again". Scroll-capped so a long pause list
+/// can never push the catalog off the sheet.
+class _PausedHabitsSection extends ConsumerStatefulWidget {
+  const _PausedHabitsSection();
+
+  /// How many paused habits show before the rest collapse behind "Show
+  /// all". Deliberately laid out inline rather than in a fixed-height
+  /// scroller: this sheet already scrolls, and a nested scroll area both
+  /// fights the sheet for the same drag and clips its last row mid-card,
+  /// which reads as a rendering bug rather than as "there is more here".
+  static const int _collapsedCount = 3;
+
+  @override
+  ConsumerState<_PausedHabitsSection> createState() =>
+      _PausedHabitsSectionState();
+}
+
+class _PausedHabitsSectionState extends ConsumerState<_PausedHabitsSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final all = ref.watch(pausedHabitsProvider);
+    if (all.isEmpty) return const SizedBox.shrink();
+    final totals = ref.watch(dashboardProvider).habitTotalCompletions;
+    final overflows = all.length > _PausedHabitsSection._collapsedCount;
+    final paused = (_expanded || !overflows)
+        ? all
+        : all.take(_PausedHabitsSection._collapsedCount).toList();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.pause_circle_outline_rounded,
+                  size: 14, color: gp.textTert),
+              const SizedBox(width: 6),
+              Text(
+                s.habitPausedSection,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textTert,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (var i = 0; i < paused.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            Builder(
+              builder: (context) {
+                final habit = paused[i];
+                final days = totals[habit.id] ?? 0;
+                return Container(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                  decoration: BoxDecoration(
+                    color: gp.surface,
+                    borderRadius:
+                        BorderRadius.circular(GameSpacing.buttonRadius),
+                    border: Border.all(color: gp.border, width: 0.5),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              habit.localName(s.isAr),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                                color: gp.textPrimary,
+                              ),
+                            ),
+                            if (days > 0) ...[
+                              const SizedBox(height: 2),
+                              // The reason to resume rather than start
+                              // over: the days are still there.
+                              Text(
+                                s.habitPausedDaysBadge(days),
+                                style: TextStyle(
+                                    fontSize: 11, color: gp.textSec),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          // Resuming puts a habit back on the active list,
+                          // which is an add as far as the cap is concerned.
+                          // Without this a free account could pause its way
+                          // under the limit, add replacements, then resume
+                          // everything and sit above the cap for good.
+                          if (!canAddHabits(ref)) {
+                            showHabitLimitGate(context, ref);
+                            return;
+                          }
+                          HapticFeedback.selectionClick();
+                          final name = habit.localName(s.isAr);
+                          if (IslamicHabitCatalog.findById(habit.id) != null) {
+                            ref
+                                .read(activeCatalogProvider.notifier)
+                                .toggle(habit.id);
+                          } else {
+                            ref
+                                .read(customHabitsProvider.notifier)
+                                .unarchive(habit.id);
+                          }
+                          // Root-overlay notice, not a SnackBar: this row
+                          // lives inside a modal bottom sheet, and a
+                          // ScaffoldMessenger SnackBar paints *behind*
+                          // that sheet — the confirmation was being shown
+                          // to nobody.
+                          showOverlayNotice(
+                            context,
+                            s.habitResumedConfirmation(name),
+                            icon: Icons.play_arrow_rounded,
+                          );
+                        },
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(44, 36),
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        // Without this every row in the list reads as the
+                        // same bare "Resume", so a screen-reader user
+                        // cannot tell which habit they are about to bring
+                        // back. Same for the trash button below.
+                        child: Semantics(
+                          label: [s.habitResume, habit.localName(s.isAr)]
+                              .join(s.isAr ? '، ' : ', '),
+                          child: Text(
+                            s.habitResume,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                              color: GameColors.gold,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Custom habits only, same rule the long-press sheet
+                      // follows: a preset "deleted" here would just
+                      // reappear in Plans, so the button would be lying.
+                      // Without this, the paused list is a one-way door —
+                      // things can only ever be added to it, and clearing
+                      // out an abandoned habit means resuming it onto the
+                      // board first just to delete it from there.
+                      if (IslamicHabitCatalog.findById(habit.id) == null)
+                        IconButton(
+                          onPressed: () async {
+                            final name = habit.localName(s.isAr);
+                            final ok = await confirmDeleteForever(
+                              context,
+                              habitName: name,
+                            );
+                            if (!ok || !context.mounted) return;
+                            // No dialog about rooms here, unlike the Grid's
+                            // delete: pause already unlinks, so a habit in
+                            // this list is normally linked to nothing. The
+                            // call still runs for rows archived by older
+                            // builds, where a stale link would otherwise
+                            // outlive the habit and stall that room.
+                            ref
+                                .read(roomsControllerProvider)
+                                .unlinkHabitEverywhere(habit.id)
+                                .ignore();
+                            ref
+                                .read(customHabitsProvider.notifier)
+                                .deleteForever(habit.id);
+                            showOverlayNotice(
+                              context,
+                              s.habitDeletedConfirmation(name),
+                              icon: Icons.delete_outline_rounded,
+                            );
+                          },
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints(
+                              minWidth: 40, minHeight: 40),
+                          padding: EdgeInsets.zero,
+                          tooltip: [
+                            s.habitDeleteForever,
+                            habit.localName(s.isAr),
+                          ].join(s.isAr ? '، ' : ', '),
+                          icon: Icon(Icons.delete_outline_rounded,
+                              size: 18, color: gp.textTert),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+          if (overflows)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _expanded = !_expanded);
+                },
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(44, 36),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  _expanded
+                      ? s.habitPausedShowLess
+                      : s.habitPausedShowAll(all.length),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textSec,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

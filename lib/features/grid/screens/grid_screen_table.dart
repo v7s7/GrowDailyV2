@@ -8,7 +8,11 @@ class _GridTable extends ConsumerStatefulWidget {
   final bool selectionMode;
   final Set<String> selectedIds;
   final void Function(String id) onSelectionToggle;
-  final void Function(String id) onSelectionStart;
+  /// Long-press on a habit's name. Opens the per-habit actions menu
+  /// (edit / pause / delete) — it used to start multi-select, which put
+  /// the rare bulk case on the common gesture and left pausing with no
+  /// route at all. Bulk selection is now an explicit header control.
+  final void Function(String id) onHabitLongPress;
   // Only set by GridScreen when this is the first-displayed table (see
   // grid_screen.dart's build method), and only actually attached to
   // *today's* square in row 0 — see _habitRow's use of it. App Guide's
@@ -23,7 +27,7 @@ class _GridTable extends ConsumerStatefulWidget {
     required this.selectionMode,
     required this.selectedIds,
     required this.onSelectionToggle,
-    required this.onSelectionStart,
+    required this.onHabitLongPress,
     this.todayCellKey,
   });
 
@@ -285,12 +289,27 @@ class _GridTableState extends ConsumerState<_GridTable> {
         children: [
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: widget.selectionMode
+            // A habit paused earlier today keeps its row for the rest of
+            // the day, but it must not be selectable: multi-select's only
+            // actions are Remove and Edit, and both are wrong for a habit
+            // that is already off the board. Remove runs the same
+            // toggle() that would RE-ACTIVATE a paused preset (while the
+            // confirmation says it was removed, and without passing the
+            // habit cap), and Edit saves into a state list that no longer
+            // holds it, so every change is silently dropped. Long-press
+            // still works on these rows — that menu offers Resume.
+            onTap: widget.selectionMode && habit.archivedAt == null
                 ? () => widget.onSelectionToggle(habit.id)
                 : null,
             onLongPress: () {
-              HapticFeedback.mediumImpact();
-              widget.onSelectionStart(habit.id);
+              // In selection mode a long-press must not open a per-habit
+              // menu on top of an active multi-select; it just toggles.
+              if (widget.selectionMode && habit.archivedAt == null) {
+                HapticFeedback.mediumImpact();
+                widget.onSelectionToggle(habit.id);
+                return;
+              }
+              widget.onHabitLongPress(habit.id);
             },
             child: SizedBox(
               width: habitCol,
@@ -307,7 +326,11 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 child: Row(
                   children: [
                     Builder(builder: (_) {
-                      if (widget.selectionMode) {
+                      // Paused rows keep their pause tile even in
+                      // selection mode: showing them an empty selection
+                      // circle would invite a tap that does nothing (see
+                      // the GestureDetector above).
+                      if (widget.selectionMode && habit.archivedAt == null) {
                         return AnimatedContainer(
                           duration: GameMotion.quick,
                           width: 22,
@@ -330,6 +353,28 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       }
                       final (_, categoryColor) = categoryVisual(habit.category);
                       final color = habit.customColor ?? categoryColor;
+                      // Only ever true for a habit paused *today*: the row
+                      // is kept for the rest of the day so pausing at 9pm
+                      // doesn't blank out squares already earned that day
+                      // (see habitsArchivedTodayProvider). Without a visible
+                      // mark it looks exactly like an active habit, so the
+                      // pause reads as "nothing happened" — the category
+                      // tile becomes a plain pause glyph and the name goes
+                      // tertiary, which is also the one row treatment that
+                      // costs zero layout width (see the boost-badge note
+                      // below for why that matters here).
+                      if (habit.archivedAt != null) {
+                        return Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: gp.textTert.withOpacity(0.14),
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                          child: Icon(Icons.pause_rounded,
+                              size: 13, color: gp.textTert),
+                        );
+                      }
                       // A gold ring + small trophy badge marks a habit
                       // that's part of a Room's plan (see
                       // myLinkedRoomHabitsProvider) - an inline highlight
@@ -443,16 +488,34 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       // to it. A name that isn't actually truncated is
                       // unaffected either way - see SafeWrapText.
                       // tapToRevealWhenTruncated's own doc comment.
-                      child: SafeWrapText(
-                        habit.localName(isAr),
-                        maxLines: 2,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: gp.textPrimary,
-                          height: 1.15,
+                      // The pause tile that replaced this row's category
+                      // icon is the visible signal; this is the same thing
+                      // said out loud, since a screen reader gets neither
+                      // the glyph nor the dimmed color.
+                      child: Semantics(
+                        label: habit.archivedAt != null
+                            ? [
+                                habit.localName(isAr),
+                                S.of(context).habitPausedSection,
+                              ].join(isAr ? '، ' : ', ')
+                            : null,
+                        child: SafeWrapText(
+                          habit.localName(isAr),
+                          maxLines: 2,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            // Paused today: dimmed, but only to secondary.
+                            // Tertiary on this size of text lands around
+                            // 2.3:1 in the light theme, under the 4.5:1 a
+                            // label this small needs to stay readable.
+                            color: habit.archivedAt != null
+                                ? gp.textSec
+                                : gp.textPrimary,
+                            height: 1.15,
+                          ),
+                          tapToRevealWhenTruncated: !widget.selectionMode,
                         ),
-                        tapToRevealWhenTruncated: !widget.selectionMode,
                       ),
                     ),
                   ],

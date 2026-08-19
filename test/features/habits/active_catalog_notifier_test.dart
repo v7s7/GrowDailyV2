@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
+import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/habits/catalog/habit_plans.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
@@ -101,10 +102,19 @@ void main() {
         'catalogStintHistory instead of losing it', () async {
       final notifier = container.read(activeCatalogProvider.notifier);
 
-      notifier.toggle(catalogId); // stint 1 starts
-      final firstStart = notifier.activatedAt[catalogId]!;
-      notifier.toggle(catalogId); // stint 1 ends
-      final firstEnd = notifier.catalogArchivedAt[catalogId]!;
+      // Stint 1 is seeded on real, past days rather than produced by
+      // toggling four times in a row. Those four toggles all land on one
+      // effective day, and a stint that opens and closes on the same day
+      // it reopens is no longer recorded at all — see toggle's same-day
+      // branch and pause_resume_test's coverage of it. Seeding keeps this
+      // test about what it is actually for: a SECOND, genuinely separate
+      // activation window must not clobber the first.
+      final firstStart =
+          DateTime.now().effectiveDay.subtract(const Duration(days: 30));
+      final firstEnd =
+          DateTime.now().effectiveDay.subtract(const Duration(days: 20));
+      notifier.activatedAt = {catalogId: firstStart};
+      notifier.catalogArchivedAt = {catalogId: firstEnd};
 
       // No history yet — there's only ever been one stint so far, and it's
       // still the "current-or-most-recent" one, not yet superseded.
@@ -137,8 +147,20 @@ void main() {
         'allHabitsEverProvider emits one template per stint after multiple '
         'on/off cycles, all sharing the same id', () async {
       final notifier = container.read(activeCatalogProvider.notifier);
-      notifier.toggle(catalogId);
-      notifier.toggle(catalogId);
+      // Seeded on past days for the same reason as the test above: four
+      // toggles in one run are all one effective day, which is now
+      // deliberately recorded as a single window rather than two
+      // overlapping ones.
+      notifier.activatedAt = {
+        catalogId: DateTime.now().effectiveDay.subtract(
+          const Duration(days: 30),
+        ),
+      };
+      notifier.catalogArchivedAt = {
+        catalogId: DateTime.now().effectiveDay.subtract(
+          const Duration(days: 20),
+        ),
+      };
       notifier.toggle(catalogId);
       notifier.toggle(catalogId);
 

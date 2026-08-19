@@ -19,12 +19,14 @@ import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
 import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/widgets/habit_actions_sheet.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/widgets/add_habit_hub_sheet.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
 import '../../rooms/notifiers/rooms_notifier.dart';
+import '../../../shared/widgets/habit_limit_gate.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 
@@ -112,10 +114,15 @@ class _GridScreenState extends ConsumerState<GridScreen> {
   final GlobalKey _addHabitKey = GlobalKey();
   final GlobalKey _todayCellKey = GlobalKey();
 
-  bool get _selectionMode => _selectedIds.isNotEmpty;
+  /// Selection mode entered from the header with nothing selected yet.
+  /// Without this, "selection mode" could only mean "something is already
+  /// selected", so an explicit Select control had no state to turn on.
+  bool _selectionArmed = false;
 
-  void _startSelection(String id) {
-    setState(() => _selectedIds.add(id));
+  bool get _selectionMode => _selectionArmed || _selectedIds.isNotEmpty;
+
+  void _armSelection() {
+    setState(() => _selectionArmed = true);
   }
 
   void _toggleSelection(String id) {
@@ -125,7 +132,10 @@ class _GridScreenState extends ConsumerState<GridScreen> {
   }
 
   void _clearSelection() {
-    setState(_selectedIds.clear);
+    setState(() {
+      _selectedIds.clear();
+      _selectionArmed = false;
+    });
   }
 
   /// Custom habits are archived (CustomHabitsNotifier.archive); preset
@@ -140,6 +150,16 @@ class _GridScreenState extends ConsumerState<GridScreen> {
   /// first if that applies to any of the selection, so a multi-select
   /// sweep never quietly breaks a room in the background.
   Future<void> _deleteSelected() async {
+    if (_selectedIds.isEmpty) return;
+    // Belt and braces on top of the row itself refusing selection while
+    // paused (see _GridTable's label GestureDetector): removing a habit
+    // that is already off the board runs toggle() on an inactive preset,
+    // which re-activates it — the exact opposite of what the button says,
+    // and it would slip past the habit cap on the way.
+    final pausedIds = {
+      for (final h in ref.read(habitsArchivedTodayProvider)) h.id,
+    };
+    _selectedIds.removeWhere(pausedIds.contains);
     if (_selectedIds.isEmpty) return;
     final linked = ref.read(myLinkedRoomHabitsProvider);
     final affectedRoomNames = <String>{
@@ -224,6 +244,9 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // removed habits can actually come back.
     final restorable =
         removed.where((r) => r.isCatalog || r.everCompleted).toList();
+    // Same reason as _pauseHabit's: an Undo that is still on screen for a
+    // batch the user has already moved past is worse than no Undo.
+    messenger.clearSnackBars();
     messenger.showSnackBar(
       SnackBar(
         content: Text(
@@ -252,7 +275,15 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                     if (r.isCatalog) {
                       // Toggling a catalog id back on re-activates it and
                       // clears its archive date - the same path Plans uses.
-                      ref.read(activeCatalogProvider.notifier).toggle(r.id);
+                      // Only while it is genuinely still off, though:
+                      // toggle() is a toggle, and this button lives for six
+                      // seconds, long enough to put one of these habits back
+                      // by hand first. Undo would then switch that one off
+                      // again, which is not undoing anything. Same guard the
+                      // single-habit pause Undo carries.
+                      if (!ref.read(activeCatalogProvider).contains(r.id)) {
+                        ref.read(activeCatalogProvider.notifier).toggle(r.id);
+                      }
                     } else {
                       ref.read(customHabitsProvider.notifier).unarchive(r.id);
                     }
@@ -263,11 +294,257 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     );
   }
 
-  /// Opens the full edit sheet for the single selected habit — kept so
-  /// repurposing long-press for selection doesn't quietly remove Grid's
-  /// only way to edit a custom habit's cue/frequency. Only ever offered
-  /// for a single, custom selection; preset habits aren't editable here,
-  /// matching Today's own onEdit gating.
+  /// Resolves a long-pressed id to its template before opening the menu.
+  /// Reads the same combined list the board renders (active plus habits
+  /// paused earlier today, which stay visible until the day is over), so
+  /// a long-press can never miss a row the user can actually see.
+  void _onHabitLongPress(String id) {
+    final all = [
+      ...ref.read(habitListProvider),
+      ...ref.read(habitsArchivedTodayProvider),
+    ];
+    final match = all.where((h) => h.id == id).toList();
+    if (match.isEmpty) return;
+    _showHabitActions(match.first);
+  }
+
+  /// Long-press on one habit: edit, pause, or delete forever.
+  ///
+  /// Replaces long-press-starts-multi-select. Pause routes to the same
+  /// archive path the old "remove" used (history preserved, id preserved,
+  /// resumable from Add Habit), which is what that button always did —
+  /// it just never said so and never offered a way back.
+  Future<void> _showHabitActions(IslamicHabitTemplate habit) async {
+    final isCatalog = IslamicHabitCatalog.findById(habit.id) != null;
+    final name = habit.localName(S.of(context).isAr);
+    // Only ever true for a habit paused earlier today, whose row stays on
+    // the board for the rest of the day — see showHabitActions's isPaused.
+    final isPaused = habit.archivedAt != null;
+    final action = await showHabitActions(
+      context,
+      habitName: name,
+      canDeleteForever: !isCatalog,
+      isPaused: isPaused,
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case HabitAction.edit:
+        _editSelected(habit);
+      case HabitAction.pause:
+        await _pauseHabit(habit, isCatalog: isCatalog, name: name);
+      case HabitAction.resume:
+        _resumeHabit(habit, isCatalog: isCatalog, name: name);
+      case HabitAction.deleteForever:
+        if (!await _confirmRoomImpact(habit.id, pausing: false)) return;
+        if (!mounted) return;
+        final ok = await confirmDeleteForever(context, habitName: name);
+        if (!ok || !mounted) return;
+        HapticFeedback.mediumImpact();
+        // Unlink first, same as every other permanent removal path (see
+        // _deleteSelected). A room left pointing at a habit that no longer
+        // exists doesn't over-credit — syncLinkedHabitsProgress bails on an
+        // unresolvable id — it does something quieter and worse: that
+        // member's WHOLE room stops syncing, every other linked habit
+        // included, until someone notices the hint on Room Detail.
+        ref.read(roomsControllerProvider).unlinkHabitEverywhere(habit.id).ignore();
+        ref.read(customHabitsProvider.notifier).deleteForever(habit.id);
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(S.of(context).habitDeletedConfirmation(name)),
+              behavior: SnackBarBehavior.floating,
+              dismissDirection: DismissDirection.down,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            ),
+          );
+    }
+  }
+
+  /// Heads-up dialog for the rooms a habit is counted in, before an action
+  /// that takes it off the board. Returns false if the person backs out.
+  ///
+  /// The same dialog _deleteSelected shows, for the same reason: a room
+  /// pointing at a habit this device can no longer resolve does not
+  /// over-credit (syncLinkedHabitsProgress returns early on an
+  /// unresolvable linked id) — it stops that member's room syncing
+  /// entirely, every other linked habit in it included. Unlinking the one
+  /// habit is strictly better for them than freezing the whole room, but
+  /// it is not reversible, so it is never done silently.
+  Future<bool> _confirmRoomImpact(String habitId, {required bool pausing}) async {
+    final rooms = ref.read(myLinkedRoomHabitsProvider)[habitId] ?? const [];
+    final roomNames = <String>{
+      // Pausing only affects a room that is actually running: a lobby
+      // room has not started grading anyone yet, and an ended one is a
+      // finished record that today's absence cannot change. Delete
+      // forever still names them all, because unlinking really does
+      // reach every room.
+      for (final room in rooms)
+        if (!pausing || room.isLive) room.name,
+    };
+    if (roomNames.isEmpty) return true;
+    final s = S.of(context);
+    final names = roomNames.toList();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(s.habitLinkedRoomWarningTitle),
+        content: Text(pausing
+            ? s.habitPauseLinkedRoomBody(names)
+            : s.habitLinkedRoomWarningBody(names)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(s.habitDeleteLinkedRoomCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            // Red is for the one that cannot be taken back. Pause can.
+            style: pausing
+                ? null
+                : TextButton.styleFrom(foregroundColor: GameColors.error),
+            child: Text(pausing
+                ? s.habitPauseAnywayAction
+                : s.habitDeleteAnywayAction),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  /// Puts a paused habit back on the board, from the long-press menu on a
+  /// row paused earlier today.
+  ///
+  /// Gated on the habit cap: resuming adds to the active list exactly like
+  /// adding does, so without this a free account at its limit could pause
+  /// habits, add replacements, then resume the old ones and sit above the
+  /// cap indefinitely.
+  void _resumeHabit(
+    IslamicHabitTemplate habit, {
+    required bool isCatalog,
+    required String name,
+  }) {
+    if (!canAddHabits(ref)) {
+      showHabitLimitGate(context, ref);
+      return;
+    }
+    HapticFeedback.lightImpact();
+    if (isCatalog) {
+      ref.read(activeCatalogProvider.notifier).toggle(habit.id);
+    } else {
+      ref.read(customHabitsProvider.notifier).unarchive(habit.id);
+    }
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(S.of(context).habitResumedConfirmation(name)),
+          behavior: SnackBarBehavior.floating,
+          dismissDirection: DismissDirection.down,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        ),
+      );
+  }
+
+  /// Pauses one habit, with Undo. Same archive call the multi-select
+  /// remove makes, so a preset switches off and a custom habit soft-
+  /// archives, both keeping every recorded day. The one difference is
+  /// eraseIfEmpty below: remove may hard-delete a habit that was never
+  /// completed, pause never does.
+  Future<void> _pauseHabit(
+    IslamicHabitTemplate habit, {
+    required bool isCatalog,
+    required String name,
+  }) async {
+    // Rooms get a heads-up, but NOT an unlink. Unlinking was tried first,
+    // to spare the member the daily hit below, and it is the wrong trade
+    // for an action whose whole promise is that it can be taken back:
+    // RoomsController.unlinkHabitEverywhere walks every code in
+    // users/{uid}.roomCodes, so it reaches rooms whose competition ended
+    // months ago; it decides shared-slot preservation from an in-memory
+    // roomProvider read that is empty until those streams warm up; and
+    // nothing puts the link back on Resume. Worst of all, the warning is
+    // built from myLinkedRoomHabitsProvider, which is legitimately empty
+    // on a cold start — so a pause moments after launch would unlink
+    // silently, with no dialog at all.
+    //
+    // Leaving the link alone costs the member real points while the habit
+    // is away (syncTodayForHabit's `habit == null` branch fails open, so
+    // each day counts it as scheduled and never done) and costs nothing
+    // permanent: resuming brings the habit back and the next full resync
+    // regrades the last kRoomSyncWindowDays. The dialog says exactly that.
+    if (!await _confirmRoomImpact(habit.id, pausing: true)) return;
+    if (!mounted) return;
+    final s = S.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final everCompleted =
+        (ref.read(dashboardProvider).habitTotalCompletions[habit.id] ?? 0) > 0;
+    HapticFeedback.mediumImpact();
+    // eraseIfEmpty: false — Pause never destroys, not even a habit that
+    // was never completed. The sheet's own hint promises the record is
+    // kept and the habit comes back whenever you want; the remove path
+    // keeps the old hard-delete, because "remove" promises the opposite.
+    if (isCatalog) {
+      ref.read(activeCatalogProvider.notifier).toggle(
+            habit.id,
+            everCompleted: everCompleted,
+            eraseIfEmpty: false,
+          );
+    } else {
+      ref.read(customHabitsProvider.notifier).archive(
+            habit.id,
+            everCompleted: everCompleted,
+            eraseIfEmpty: false,
+          );
+    }
+    // Newest action wins. SnackBars QUEUE by default, and each of these
+    // lives 6 seconds with its own Undo, so pausing three habits in a row
+    // left the third one's confirmation sitting behind two stale ones:
+    // for the next 12 seconds the board said "X paused" about a habit
+    // that was paused two taps ago, offering an Undo for it. Clearing
+    // first means the visible confirmation always describes what just
+    // happened.
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(s.habitPausedConfirmation(name)),
+        duration: const Duration(seconds: 6),
+        behavior: SnackBarBehavior.floating,
+        dismissDirection: DismissDirection.down,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        // Always offered. Pause passes eraseIfEmpty: false above, so there
+        // is always something to put back — including a habit that had
+        // never been completed, which the old rule silently destroyed and
+        // then, correctly for that behavior, refused to offer an Undo for.
+        action: SnackBarAction(
+          label: s.undo,
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            if (isCatalog) {
+              // toggle() is a toggle, and this button sits on screen for
+              // six seconds — long enough to Resume the same habit from
+              // the Add Habit sheet first. Undo would then take an active
+              // habit and pause it again, which is not undoing anything.
+              // Only act while the habit is genuinely still paused.
+              // unarchive() below is already a no-op on an active habit,
+              // so the custom branch needs no equivalent.
+              if (!ref.read(activeCatalogProvider).contains(habit.id)) {
+                ref.read(activeCatalogProvider.notifier).toggle(habit.id);
+              }
+            } else {
+              ref.read(customHabitsProvider.notifier).unarchive(habit.id);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Opens the full edit sheet for one habit. Reached two ways now: the
+  /// Edit row of the long-press actions menu, and the toolbar button that
+  /// appears when exactly one editable habit is selected. Preset habits
+  /// aren't editable here either way, matching Today's own onEdit gating.
   void _editSelected(IslamicHabitTemplate habit) {
     HapticFeedback.lightImpact();
     _clearSelection();
@@ -374,6 +651,8 @@ class _GridScreenState extends ConsumerState<GridScreen> {
           slivers: [
             SliverToBoxAdapter(
               child: _GridHeader(
+                onStartSelection:
+                    habits.isEmpty || _selectionMode ? null : _armSelection,
                 state: grid,
                 // Mirrors the old FAB's own condition exactly: while there
                 // are no habits, _GridEmptyState below owns _addHabitKey and
@@ -478,7 +757,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                                     selectionMode: _selectionMode,
                                     selectedIds: _selectedIds,
                                     onSelectionToggle: _toggleSelection,
-                                    onSelectionStart: _startSelection,
+                                    onHabitLongPress: _onHabitLongPress,
                                     todayCellKey: _todayCellKey,
                                   )
                                 : Column(
@@ -497,7 +776,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                                         selectionMode: _selectionMode,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
-                                        onSelectionStart: _startSelection,
+                                        onHabitLongPress: _onHabitLongPress,
                                         todayCellKey: _todayCellKey,
                                       ),
                                       const SizedBox(height: 18),
@@ -517,7 +796,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                                         selectionMode: _selectionMode,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
-                                        onSelectionStart: _startSelection,
+                                        onHabitLongPress: _onHabitLongPress,
                                       ),
                                     ],
                                   ),

@@ -2172,6 +2172,32 @@ class S {
       isAr ? 'حذف على أي حال' : 'Delete Anyway';
   String get habitDeleteLinkedRoomCancel => isAr ? 'إلغاء' : 'Cancel';
 
+  /// The pause-side wording of [habitLinkedRoomWarningBody]. Pause does
+  /// NOT unlink (see GridScreen._pauseHabit for why that was reverted), so
+  /// this says the one thing that is actually true of a paused habit in a
+  /// live room: the days it is away are days that room does not credit,
+  /// and resuming puts it back. Nothing here is permanent, which is why
+  /// the confirm button is a plain Pause rather than an "anyway".
+  String habitPauseLinkedRoomBody(List<String> roomNames) {
+    final quoted = roomNames.map((n) => '"$n"').toList();
+    if (isAr) {
+      final list = quoted.join('، ');
+      return roomNames.length == 1
+          ? 'هذه العادة محسوبة في غرفة $list. أيام إيقافها لن تُحتسب لك هناك، وترجع كما كانت عند الاستئناف. لن تخرج من الغرفة، وسجل العادة محفوظ بالكامل.'
+          : 'هذه العادة محسوبة في غرف $list. أيام إيقافها لن تُحتسب لك فيها، وترجع كما كانت عند الاستئناف. لن تخرج من أي غرفة، وسجل العادة محفوظ بالكامل.';
+    }
+    final list = quoted.length == 1
+        ? quoted.first
+        : quoted.length == 2
+            ? '${quoted[0]} and ${quoted[1]}'
+            : '${quoted.sublist(0, quoted.length - 1).join(', ')}, and ${quoted.last}';
+    return roomNames.length == 1
+        ? "This habit counts toward $list. Days it is paused won't count for you there, and resuming puts it back the way it was. You stay in the room, and the habit's own record is kept in full."
+        : "This habit counts toward $list. Days it is paused won't count for you in them, and resuming puts it back the way it was. You stay in every room, and the habit's own record is kept in full.";
+  }
+
+  String get habitPauseAnywayAction => isAr ? 'أوقف مؤقتًا' : 'Pause';
+
   /// Snackbar shown right after a habit is removed (see
   /// AddHabitSheet._deleteExisting/GridScreen._deleteSelected) — removal
   /// is now an archive under the hood (IslamicHabitTemplate.archivedAt),
@@ -2182,6 +2208,63 @@ class S {
   /// of a floating snackbar sitting over the nav bar, and used «خريطة
   /// الحرارة» for a screen this app calls «خريطة التقدّم» everywhere else
   /// (see [heatmapTitle]), so it named a screen that does not exist by that
+  // ── Pause / resume a habit ──────────────────────────────────────────
+  //
+  // "Pause", not "archive": what this does is stop a habit appearing
+  // without touching a day of its history, and pause is the word that
+  // carries no verdict. Deleting says "that was a mistake"; pausing says
+  // "not now" — which for قيام الليل after Ramadan, or a study habit after
+  // exams, is simply the truth. The DATA layer still calls it archive
+  // (CustomHabitsNotifier.archive / archivedAt); only what people read
+  // changed, because renaming stored fields buys nothing and risks a
+  // migration.
+  String get habitEdit => isAr ? 'تعديل' : 'Edit';
+  String get habitActionsCancel => isAr ? 'إلغاء' : 'Cancel';
+  String get habitPause => isAr ? 'إيقاف مؤقت' : 'Pause';
+  String get habitPauseHint => isAr
+      ? 'تختفي من لوحتك، وسجلها كامل محفوظ، وترجعها متى شئت.'
+      : 'It leaves your board, keeps every day of its history, and comes back whenever you want.';
+  String get habitResume => isAr ? 'استئناف' : 'Resume';
+  String get habitResumeHint => isAr
+      ? 'ترجع إلى لوحتك من اليوم، بكل سجلها السابق.'
+      : 'Back on your board from today, with all of its past record.';
+  String habitPausedConfirmation(String name) =>
+      isAr ? 'تم إيقاف "$name" مؤقتًا' : '"$name" paused';
+  String habitResumedConfirmation(String name) =>
+      isAr ? 'رجعت "$name" إلى لوحتك' : '"$name" is back on your board';
+  /// The paused section heading in the Add Habit sheet — where someone
+  /// goes when they want a habit back, so resuming lives at the exact
+  /// moment of intent rather than in a settings screen nobody visits.
+  String get habitPausedSection => isAr ? 'موقوفة مؤقتًا' : 'Paused';
+  String habitPausedDaysBadge(int n) =>
+      isAr ? '$n يوم محفوظ' : '$n days saved';
+  /// Collapsed-list control. Three paused habits fit before the section
+  /// starts pushing the sheet's actual subject (adding a habit) off the
+  /// screen, so the rest sit behind this one tap.
+  String habitPausedShowAll(int n) =>
+      isAr ? 'عرض الكل ($n)' : 'Show all ($n)';
+  String get habitPausedShowLess => isAr ? 'عرض أقل' : 'Show less';
+  /// Shown in the selection bar the moment multi-select is switched on
+  /// from the header, before anything has been picked. "0 selected" next
+  /// to a red Delete button describes the state accurately and still
+  /// reads as broken; this says what to do instead.
+  String get gridSelectPrompt =>
+      isAr ? 'اختر العادات التي تريدها' : 'Tap the habits you want';
+
+  // ── Delete forever ──────────────────────────────────────────────────
+  String get habitDeleteForever => isAr ? 'حذف نهائي' : 'Delete forever';
+  String habitDeleteForeverBody(String name) => isAr
+      ? 'سيُحذف "$name" وسجله بالكامل، ولا يمكن التراجع. إذا كنت تريد إخفاءه فقط، استخدم الإيقاف المؤقت.'
+      : 'This deletes "$name" and its whole history, and cannot be undone. If you only want it off your board, pause it instead.';
+  String get habitDeleteForeverConfirm => isAr ? 'احذف نهائيًا' : 'Delete forever';
+  String habitDeletedConfirmation(String name) =>
+      isAr ? 'تم حذف "$name" نهائيًا' : '"$name" deleted';
+  /// The long-press sheet's title.
+  String get habitActionsTitle => isAr ? 'خيارات العادة' : 'Habit options';
+  /// Header control that turns on multi-select, which long-press used to
+  /// start before it became the actions menu.
+  String get habitSelectMultiple => isAr ? 'تحديد' : 'Select';
+
   /// name. A confirmation only has to answer "did I just lose my history?" —
   /// "no" is the whole message, and Undo sits right beside it.
   String get habitArchivedConfirmation =>

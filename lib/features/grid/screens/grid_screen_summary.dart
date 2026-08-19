@@ -35,11 +35,16 @@ class _SelectionBar extends StatelessWidget {
           ),
           Expanded(
             child: Text(
-              s.matrixSelectedCount(count),
+              // Selection can now be switched on from the header with
+              // nothing picked yet, which used to render "0 selected"
+              // beside a live red Delete — an accurate label that still
+              // reads as a broken screen. At zero this says what to do,
+              // and the Delete button below isn't there to be pressed.
+              count == 0 ? s.gridSelectPrompt : s.matrixSelectedCount(count),
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
-                color: gp.textPrimary,
+                color: count == 0 ? gp.textSec : gp.textPrimary,
               ),
             ),
           ),
@@ -49,12 +54,13 @@ class _SelectionBar extends StatelessWidget {
               icon: Icon(Icons.edit_outlined, size: 18, color: gp.textSec),
               onPressed: onEdit,
             ),
-          TextButton.icon(
-            onPressed: onDelete,
-            icon: const Icon(Icons.delete_outline_rounded, size: 17),
-            label: Text(s.matrixDeleteSelected),
-            style: TextButton.styleFrom(foregroundColor: GameColors.error),
-          ),
+          if (count > 0)
+            TextButton.icon(
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline_rounded, size: 17),
+              label: Text(s.matrixDeleteSelected),
+              style: TextButton.styleFrom(foregroundColor: GameColors.error),
+            ),
         ],
       ),
     ).animate().fadeIn(duration: 180.ms).slideY(begin: -0.15);
@@ -76,10 +82,18 @@ class _GridHeader extends ConsumerWidget {
   /// the button: it used to sit on the floating action button.
   final GlobalKey? addHabitKey;
 
+  /// Turns on multi-select. Long-press used to do this, but long-press is
+  /// now the per-habit actions menu (edit / pause / delete) — the common
+  /// case. Selecting several habits at once is the rare one, so it gets
+  /// an explicit control instead of the gesture. Null while there are no
+  /// habits to select.
+  final VoidCallback? onStartSelection;
+
   const _GridHeader({
     required this.state,
     required this.showAddAction,
     this.addHabitKey,
+    this.onStartSelection,
   });
 
   @override
@@ -179,6 +193,15 @@ class _GridHeader extends ConsumerWidget {
                       ),
                     ),
                   ),
+                ),
+              if (onStartSelection != null)
+                IconButton(
+                  icon: Icon(Icons.checklist_rounded, color: gp.textSec),
+                  tooltip: s.habitSelectMultiple,
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    onStartSelection!();
+                  },
                 ),
               IconButton(
                 // Not a moon: Sleep already uses a crescent
