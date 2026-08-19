@@ -1472,6 +1472,13 @@ private let matrixQuickAddURL = URL(string: "growdaily://matrix/add")!
 struct MatrixEntry: TimelineEntry {
     let date: Date
     let tasks: [WidgetMatrixTask]
+    // Tasks completed IN-APP today. The app deliberately writes only OPEN
+    // tasks into matrixTasksJson (every list face assumes open-only), so
+    // without this the lock-screen ring computed done/total over a list
+    // where isDone is false by construction and rendered 0% forever —
+    // completing 9 of 10 tasks showed an empty ring. Defaulted so older
+    // snapshots and placeholders keep working.
+    var doneToday: Int = 0
 }
 
 struct MatrixProvider: TimelineProvider {
@@ -1499,7 +1506,8 @@ struct MatrixProvider: TimelineProvider {
     private func loadEntry() -> MatrixEntry {
         let defaults = UserDefaults(suiteName: appGroupId)
         let tasks = readJSON("matrixTasksJson", from: defaults, as: [WidgetMatrixTask].self) ?? []
-        return MatrixEntry(date: Date(), tasks: tasks)
+        let doneToday = defaults?.integer(forKey: "matrixDoneTodayCount") ?? 0
+        return MatrixEntry(date: Date(), tasks: tasks, doneToday: doneToday)
     }
 }
 
@@ -1866,8 +1874,14 @@ extension MatrixEntry {
     // and unmentioned. A glanceable surface that under-reports how much is
     // left is worse than no surface — it's the one number someone acts on
     // without opening the app.
-    var lockScreenDone: Int { tasks.filter { $0.isDone }.count }
-    var lockScreenRemaining: Int { tasks.count - lockScreenDone }
+    // App-completed tasks (doneToday) never appear in the open-only list;
+    // widget-checkmark completions (MarkTaskDoneIntent) flip isDone in
+    // place and stay in the list until the app next rewrites it. Both are
+    // progress; count both. The denominator grows by doneToday for the
+    // same reason: those tasks left the list but not the day.
+    var lockScreenDone: Int { tasks.filter { $0.isDone }.count + doneToday }
+    var lockScreenTotal: Int { tasks.count + doneToday }
+    var lockScreenRemaining: Int { lockScreenTotal - lockScreenDone }
 }
 
 struct MatrixLockScreenCircularView: View {
@@ -1875,15 +1889,19 @@ struct MatrixLockScreenCircularView: View {
     // The whole board, not entry.lockScreenTasks — see lockScreenRemaining.
     // The star icon still says "you have starred tasks"; the number says how
     // much is actually left, which is a different question.
-    private var total: Int { entry.tasks.count }
+    private var total: Int { entry.lockScreenTotal }
     private var doneCount: Int { entry.lockScreenDone }
     private var remaining: Int { entry.lockScreenRemaining }
 
     var body: some View {
-        if entry.tasks.isEmpty {
+        if entry.tasks.isEmpty && entry.doneToday == 0 {
             // Only when there's genuinely nothing on the board at all —
             // "nothing starred" alone no longer lands here, it falls back
-            // to the full list above.
+            // to the full list above. An empty list WITH doneToday > 0 is
+            // the opposite of nothing: it's a finished day, and it falls
+            // through to the ring below, full, with the checkmark — a
+            // state that used to be unreachable because completing the
+            // last task emptied the list.
             ZStack {
                 AccessoryWidgetBackground()
                 Image(systemName: "checklist")

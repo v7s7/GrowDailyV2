@@ -2547,6 +2547,15 @@ class S {
           ? 'قصتي على Grow Daily، $month\n\nمربعات خضراء: $greenSquares\nأيام مثالية: $perfectDays\nترقيات مستوى: $levelUps\nإنجازات مفتوحة: $achievements\n\nأبني عادات أفضل، يومًا بعد يوم.'
           : 'My Grow Daily Story, $month\n\nGreen squares: $greenSquares\nPerfect days: $perfectDays\nLevel-ups: $levelUps\nAchievements unlocked: $achievements\n\nBuilding better habits, one day at a time.';
 
+  // ── Year Record (per-habit yearly strips) ──────────────────────────────
+
+  String get yearRecordTitle => isAr ? 'سجل السنة' : 'Year Record';
+  String get yearRecordEmpty => isAr
+      ? 'أضف عادة وابدأ التلوين — كل يوم تنجزه يظهر هنا.'
+      : 'Add a habit and start coloring — every day you complete shows here.';
+  /// ASCII digits in both languages, like every stat in the app.
+  String yearRecordDaysCount(int n) => isAr ? '$n يوم' : '$n days';
+
   // ── Month picker (shared: Monthly Story, any month-stepping screen) ────
 
   String get monthPickerTitle => isAr ? 'اختر الشهر' : 'Pick a month';

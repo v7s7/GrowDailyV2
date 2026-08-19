@@ -58,6 +58,16 @@ class LocalStoreService {
   static Future<Map<String, dynamic>> getDailyMap(String dateKey) async =>
       asStringMap((await dailyBox()).get(dateKey));
 
+  /// Every stored day at once, keyed by dateKey — what the guest side of
+  /// the yearly strip aggregates from. The box is in memory, so unlike the
+  /// Firestore daily collection there is no per-day read cost to avoid.
+  static Future<Map<String, Map<String, dynamic>>> allDailyMaps() async {
+    final box = await dailyBox();
+    return {
+      for (final key in box.keys) key.toString(): asStringMap(box.get(key)),
+    };
+  }
+
   static Future<void> putDailyMap(String dateKey, Map<String, dynamic> value) async =>
       (await dailyBox()).put(dateKey, value);
 }

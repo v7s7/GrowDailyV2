@@ -36,6 +36,7 @@ import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/milestones/models/milestone_event.dart';
 import '../../../features/milestones/notifiers/milestone_notifier.dart';
 import '../../../features/milestones/screens/monthly_story_screen.dart';
+import '../../milestones/screens/year_record_screen.dart';
 import '../../../features/night_review/notifiers/night_review_notifier.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../features/rooms/notifiers/rooms_notifier.dart';

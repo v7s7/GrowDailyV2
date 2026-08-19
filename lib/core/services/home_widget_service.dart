@@ -280,10 +280,19 @@ class HomeWidgetService {
               bool isFav,
               bool isLate,
             })>
-        tasks,
-  ) async {
+        tasks, {
+    // Written as its own key rather than folded into the list: every list
+    // face on the Swift side assumes matrixTasksJson is open-only, and the
+    // lock-screen ring needs completed-today to fill at all — see
+    // MatrixEntry.doneToday in GrowDailyWidget.swift.
+    required int doneTodayCount,
+  }) async {
     if (kIsWeb) return;
     try {
+      await HomeWidget.saveWidgetData<int>(
+        'matrixDoneTodayCount',
+        doneTodayCount,
+      );
       await HomeWidget.saveWidgetData<String>(
         'matrixTasksJson',
         jsonEncode(tasks

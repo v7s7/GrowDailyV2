@@ -181,6 +181,20 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
         SetOptions(merge: true),
       );
 
+      // Writer 2 of 3 for the yearly strip's mirror (see habitHistoryRef).
+      // Undone only when the LAST completion of the day is being removed —
+      // a 3x-a-day habit dropping from 2 to 1 is still a done day. Uses
+      // newCompletions (already decremented above): absence means zero.
+      if (!newCompletions.containsKey(habitId)) {
+        batch.set(
+          habitHistoryRef(habitId),
+          {
+            'days': {DashboardNotifier._todayKey: FieldValue.delete()},
+          },
+          SetOptions(merge: true),
+        );
+      }
+
       batch.set(
         _userRef,
         {

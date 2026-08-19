@@ -165,6 +165,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       'weekly_challenges',
       'milestones',
       'fcmTokens',
+      'habit_history',
     ];
     // Before the user doc goes, since that is where the room codes live.
     await _leaveAllRooms(uid, userRef);

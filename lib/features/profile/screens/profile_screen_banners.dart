@@ -329,8 +329,8 @@ class _ProfileLinksSection extends ConsumerWidget {
               ),
               Container(height: 0.5, color: gp.divider),
               // Monthly Story: shareable month-in-review — see
-              // MonthlyStoryScreen's own doc comment. Last row, so this is
-              // the one that carries the bottom corner radius now.
+              // MonthlyStoryScreen's own doc comment. No longer the last
+              // row (Year Record sits under it now), so no corner radius.
               InkWell(
                 onTap: () {
                   HapticFeedback.selectionClick();
@@ -340,10 +340,6 @@ class _ProfileLinksSection extends ConsumerWidget {
                         builder: (_) => const MonthlyStoryScreen()),
                   );
                 },
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(GameSpacing.cardRadius),
-                  bottomRight: Radius.circular(GameSpacing.cardRadius),
-                ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12),
@@ -358,6 +354,44 @@ class _ProfileLinksSection extends ConsumerWidget {
                       // makes all three rows one shape.
                       Expanded(
                         child: Text(s.monthlyStoryTitle,
+                            style: TextStyle(
+                                fontSize: 15,
+                                color: gp.textPrimary,
+                                fontWeight: FontWeight.w500)),
+                      ),
+                      Icon(Icons.chevron_right_rounded,
+                          size: 18, color: gp.textTert),
+                    ],
+                  ),
+                ),
+              ),
+              Container(height: 0.5, color: gp.divider),
+              // Year Record: every habit's own year of history as a heat
+              // strip — see YearRecordScreen. Last row, so this one carries
+              // the bottom corner radius.
+              InkWell(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const YearRecordScreen()),
+                  );
+                },
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(GameSpacing.cardRadius),
+                  bottomRight: Radius.circular(GameSpacing.cardRadius),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_view_month_rounded,
+                          size: 20, color: gp.textSec),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(s.yearRecordTitle,
                             style: TextStyle(
                                 fontSize: 15,
                                 color: gp.textPrimary,

@@ -472,7 +472,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
               .compareTo(_matrixQuadrantRank(b.quadrant));
           return byQuadrant != 0 ? byQuadrant : a.order.compareTo(b.order);
         });
-      HomeWidgetService.instance.updateMatrixWidgetData([
+      HomeWidgetService.instance.updateMatrixWidgetData(
+        doneTodayCount: next.tasks.length - open.length,
+        [
         for (final t in open)
           (
             id: t.id,

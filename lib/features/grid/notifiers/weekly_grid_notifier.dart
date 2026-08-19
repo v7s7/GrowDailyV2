@@ -434,6 +434,27 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
         },
         SetOptions(merge: true),
       ).ignore();
+      // Writer 3 of 3 for the yearly strip's mirror — the one that covers
+      // PAST days, since the complete/uncomplete pair only ever writes
+      // today. Done exactly when the square lands on a done state; any
+      // other state clears the day. Presence-based, so repainting an
+      // already-done day is a no-op and the mirror can't drift negative.
+      final done =
+          value == SquareState.complete || value == SquareState.bonus;
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(_uid)
+          .collection('habit_history')
+          .doc(habitId)
+          .set(
+        {
+          'days': {
+            LocalStoreService.dateKey(day):
+                done ? 1 : FieldValue.delete(),
+          },
+        },
+        SetOptions(merge: true),
+      ).ignore();
       return;
     }
     await _mergeGuestDaily(day, (map) {

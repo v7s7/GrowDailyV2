@@ -456,6 +456,17 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         SetOptions(merge: true),
       );
 
+      // Writer 1 of 3 for the per-habit yearly strip's mirror — see
+      // habitHistoryRef. Presence-based and idempotent: completing twice
+      // writes the same 1.
+      batch.set(
+        habitHistoryRef(habitId),
+        {
+          'days': {DashboardNotifier._todayKey: 1},
+        },
+        SetOptions(merge: true),
+      );
+
       // Auto-id per entry — an append-only log, never merged/overwritten,
       // so there's no meaningful key to set() against the way _dailyRef/
       // _userRef use their fixed doc ids above.

@@ -621,6 +621,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   /// and its milestone entry either both land or both don't.
   CollectionReference<Map<String, dynamic>> get _milestonesRef =>
       _userRef.collection('milestones');
+
+  /// One mirror doc per habit — `{days: {dateKey: 1}}`, presence = done
+  /// that day. See habit_history_notifier.dart for the full contract and
+  /// the list of the three writers that keep it true.
+  DocumentReference<Map<String, dynamic>> habitHistoryRef(String habitId) =>
+      _userRef.collection('habit_history').doc(habitId);
 }
 
 final dashboardProvider =
