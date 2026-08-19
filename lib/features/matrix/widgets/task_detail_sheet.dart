@@ -22,6 +22,7 @@ import 'quadrant_card.dart' show ActionRow;
 import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor, offsetsFrom;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
+import 'prayer_anchor_chips.dart';
 
 /// Opened from a task's pencil icon (see quadrant_card.dart's _TaskTile) —
 /// the richer counterpart to AddTaskSheet's title-only quick add: this is
@@ -560,6 +561,12 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       onToggleOffset: _toggleOffset,
                       onLocked: () => showReminderLimitGate(context, ref),
                     ),
+                    if (_anchorAt == null)
+                      PrayerAnchorChips(
+                        color: _color,
+                        onPicked: (anchor) =>
+                            setState(() => _anchorAt = anchor),
+                      ),
                     const SizedBox(height: 14),
                     Row(
                       children: [
