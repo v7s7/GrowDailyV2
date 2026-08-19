@@ -20,7 +20,6 @@ import '../../../shared/widgets/overlay_notice.dart';
 import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
-import 'prayer_anchor_chips.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 
 /// Stays open after each add so a quick brain-dump ("buy milk" ⏎ "wash car"
@@ -575,17 +574,6 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                         onLocked: () => showReminderLimitGate(context, ref),
                       ),
                     ),
-                    // The one-tap path to an anchor; disappears the moment
-                    // an anchor exists (the offset grid takes this spot).
-                    if (_anchorAt == null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: PrayerAnchorChips(
-                          color: _color,
-                          onPicked: (anchor) =>
-                              setState(() => _anchorAt = anchor),
-                        ),
-                      ),
                     const SizedBox(height: 8),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),

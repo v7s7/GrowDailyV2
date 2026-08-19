@@ -2599,11 +2599,6 @@ class S {
   /// Latin "XP" in both languages, matching every other stat in the app.
   String matrixRewardFloat(int xp, int gold) =>
       isAr ? '‎+$xp XP · +$gold ذهب' : '+$xp XP · +$gold gold';
-  /// Above the prayer chips in the task reminder picker. "اربطه" — anchor
-  /// it — not "ذكرني عند": the chip sets the anchor moment; whether the
-  /// nudge lands at, before, or after it is the offset grid's job.
-  String get matrixPrayerAnchorHint =>
-      isAr ? 'أو اربطه بصلاة' : 'Or anchor it to a prayer';
   /// Shown in the add sheet after adding a task whose reminder anchors on a
   /// later day: under the default Today lens the new task is legitimately
   /// not visible, which read as the add having silently failed.
