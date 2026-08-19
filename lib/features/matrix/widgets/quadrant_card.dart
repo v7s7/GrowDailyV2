@@ -9,6 +9,7 @@ import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import 'edit_quadrant_sheet.dart';
 import 'move_task_sheet.dart';
+import 'reward_float.dart';
 
 part 'quadrant_card_animated_stack.dart';
 part 'quadrant_card_task_tile.dart';

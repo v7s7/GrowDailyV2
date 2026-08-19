@@ -522,6 +522,11 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           s.premiumBenefitVoiceDesc,
         ),
         (
+          Icons.notifications_active_rounded,
+          s.premiumBenefitTaskRemindersTitle,
+          s.premiumBenefitTaskRemindersDesc,
+        ),
+        (
           Icons.favorite_rounded,
           s.premiumBenefitSupportTitle,
           s.premiumBenefitSupportDesc,

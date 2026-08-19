@@ -95,6 +95,15 @@ DateTime? latestMissedTaskReminder(
 // _roomNotifiedHabitCountsKey for the same pattern applied to Rooms).
 const _overdueTaskReminderFiredKey = 'matrixOverdueTaskReminderFired';
 
+/// taskId -> ISO instant of the LATEST reminder this device has actually
+/// handed to the OS for that task. The catch-up path reads it to tell
+/// "the OS already delivered this on time" apart from "this moment was
+/// never armed here" (created on another device, or scheduling failed) —
+/// a distinction [_syncReminderSchedule] itself has no other way to make,
+/// which is why an on-time reminder used to earn one duplicate catch-up
+/// at the next app open. See [shouldFireTaskCatchUp].
+const _armedTaskReminderThroughKey = 'matrixTaskReminderArmedThrough';
+
 class MatrixState {
   final List<MatrixTask> tasks;
   final bool isLoading;
@@ -618,6 +627,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     // cancelling a task that never had a reminder scheduled is a safe
     // no-op, and this is simpler/safer than first checking whether it did.
     NotificationService.instance.cancelTaskReminder(id).ignore();
+    _pruneReminderBookkeeping([id]).ignore();
   }
 
   void deleteMany(Iterable<String> ids) {
@@ -640,6 +650,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     for (final id in idSet) {
       NotificationService.instance.cancelTaskReminder(id).ignore();
     }
+    _pruneReminderBookkeeping(idSet).ignore();
   }
 
   void move(String id, MatrixQuadrant newQuadrant) {
@@ -794,6 +805,40 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// calling sheet's job (AddTaskSheet._submit / TaskDetailSheet's reminder
   /// handler), see NotificationService.scheduleTaskReminder's doc comment
   /// for why.
+  /// Persists the furthest reminder instant this device has armed for
+  /// [id]. Forward-only, same reasoning as the catch-up marker: a stack
+  /// edit that drops the latest slot must not un-remember that an earlier
+  /// arming already covered the moments before it.
+  Future<void> _recordArmedThrough(String id, DateTime through) async {
+    final stored =
+        await LocalStoreService.getSettingsMap(_armedTaskReminderThroughKey);
+    final previous = DateTime.tryParse(stored[id]?.toString() ?? '');
+    if (previous != null && !through.isAfter(previous)) return;
+    await LocalStoreService.putSettingsMap(_armedTaskReminderThroughKey, {
+      ...stored,
+      id: through.toIso8601String(),
+    });
+  }
+
+  /// Drops [ids] from both reminder bookkeeping maps. Called on delete —
+  /// without this the settings box grew one orphaned entry per deleted
+  /// task, forever (ids are UUIDs, so never reused; pure bloat).
+  Future<void> _pruneReminderBookkeeping(Iterable<String> ids) async {
+    for (final key in const [
+      _overdueTaskReminderFiredKey,
+      _armedTaskReminderThroughKey,
+    ]) {
+      final stored = await LocalStoreService.getSettingsMap(key);
+      final before = stored.length;
+      for (final id in ids) {
+        stored.remove(id);
+      }
+      if (stored.length != before) {
+        await LocalStoreService.putSettingsMap(key, stored);
+      }
+    }
+  }
+
   void _syncReminderSchedule(MatrixTask task) {
     final masterEnabled = _ref.read(notificationSettingsProvider).masterEnabled;
     final isAr = _ref.read(localeProvider).languageCode == 'ar';
@@ -811,6 +856,11 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
             fireTimes: future,
             isAr: isAr,
           )
+          .ignore();
+      // Remember the furthest moment this device armed, so that when it
+      // passes with the task still open, the resync knows the OS already
+      // delivered it and a catch-up would be a duplicate.
+      _recordArmedThrough(task.id, future.reduce((a, b) => a.isAfter(b) ? a : b))
           .ignore();
       return;
     }
@@ -851,6 +901,8 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   ) async {
     final stored =
         await LocalStoreService.getSettingsMap(_overdueTaskReminderFiredKey);
+    final armed =
+        await LocalStoreService.getSettingsMap(_armedTaskReminderThroughKey);
     final key = missedAt.toIso8601String();
     // Only ever move *forward*. An exact-match guard was enough when a task
     // had one reminder, but with a stack the "latest missed" moment can move
@@ -862,7 +914,14 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     // something newer than the last one, which still lets a progressively
     // elapsing stack catch up as each new moment comes due.
     final previous = DateTime.tryParse(stored[task.id]?.toString() ?? '');
-    if (previous != null && !missedAt.isAfter(previous)) return;
+    final armedThrough = DateTime.tryParse(armed[task.id]?.toString() ?? '');
+    if (!shouldFireTaskCatchUp(
+      missedAt: missedAt,
+      previousCatchUp: previous,
+      armedThrough: armedThrough,
+    )) {
+      return;
+    }
     await LocalStoreService.putSettingsMap(_overdueTaskReminderFiredKey, {
       ...stored,
       task.id: key,
@@ -932,3 +991,34 @@ final matrixProvider =
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
   return MatrixNotifier(ref, uid);
 });
+
+
+/// Whether a passed-but-open reminder moment deserves an immediate
+/// catch-up notification.
+///
+/// Three inputs, three rules, in order:
+///  1. never re-fire for a moment at or before the last catch-up already
+///     delivered ([previousCatchUp] — forward-only, see the caller);
+///  2. never fire for a moment this device actually armed
+///     ([armedThrough]): zonedSchedule notifications are delivered by the
+///     OS whether or not the app is running, so "armed here and now past"
+///     means the person was already notified on time — the catch-up would
+///     be the duplicate a user reported seeing on every app open after an
+///     on-time reminder;
+///  3. otherwise fire: the moment was never armed on this device (task
+///     synced from another device, or scheduling was impossible then),
+///     which is the situation the catch-up exists for.
+///
+/// Top-level and pure so the truth table is testable without Hive or the
+/// notifier — same reasoning as [futureTaskReminders].
+bool shouldFireTaskCatchUp({
+  required DateTime missedAt,
+  DateTime? previousCatchUp,
+  DateTime? armedThrough,
+}) {
+  if (previousCatchUp != null && !missedAt.isAfter(previousCatchUp)) {
+    return false;
+  }
+  if (armedThrough != null && !missedAt.isAfter(armedThrough)) return false;
+  return true;
+}

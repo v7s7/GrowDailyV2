@@ -396,7 +396,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                             fontSize: 22,
                             fontWeight: FontWeight.w800,
                             color: gp.textPrimary,
-                            letterSpacing: -0.4,
+                            letterSpacing: s.isAr ? 0 : -0.4,
                           ),
                         ),
                       ),
@@ -1161,7 +1161,9 @@ class _AxisLabel extends StatelessWidget {
             fontSize: 10,
             fontWeight: FontWeight.w700,
             color: gp.textTert,
-            letterSpacing: 1.0,
+            // Tracking disconnects joined Arabic glyphs — the same guard
+            // every other small-caps label in this feature already has.
+            letterSpacing: S.of(context).isAr ? 0 : 1.0,
           ),
         ),
       ],
@@ -1178,14 +1180,18 @@ class _RotatedAxisLabel extends StatelessWidget {
     final gp = context.gp;
     return Center(
       child: RotatedBox(
-        quarterTurns: 3,
+        // The label column mirrors to the board's right edge under RTL,
+        // where vertical text conventionally reads top-to-bottom — so the
+        // rotation mirrors with it.
+        quarterTurns:
+            Directionality.of(context) == TextDirection.rtl ? 1 : 3,
         child: Text(
           label,
           style: TextStyle(
             fontSize: 9,
             fontWeight: FontWeight.w700,
             color: gp.textTert,
-            letterSpacing: 1.2,
+            letterSpacing: S.of(context).isAr ? 0 : 1.2,
           ),
         ),
       ),

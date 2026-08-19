@@ -16,6 +16,7 @@ import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
+import '../../../shared/widgets/overlay_notice.dart';
 import 'add_task_sheet.dart' show MicRecordButton;
 import 'quadrant_card.dart' show ActionRow;
 import 'reminder_picker.dart'
@@ -216,8 +217,11 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     final granted = await VoiceNoteService.instance.hasPermission();
     if (!granted) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.of(context).voiceNoteMicPermissionDenied)),
+        // Overlay, not SnackBar — invisible behind this modal otherwise.
+        showOverlayNotice(
+          context,
+          S.of(context).voiceNoteMicPermissionDenied,
+          icon: Icons.mic_off_rounded,
         );
       }
       return;
@@ -343,8 +347,14 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
       reminderAnchorAt: _anchorAt,
     );
     if (!granted && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
+      // Overlay, not SnackBar: this sheet is a modal, and a SnackBar
+      // renders on the Scaffold BEHIND it — the user who denied
+      // notifications never saw this warning and believed the reminder
+      // was armed. See showOverlayNotice.
+      showOverlayNotice(
+        context,
+        S.of(context).reminderPermissionDenied,
+        icon: Icons.notifications_off_outlined,
       );
     }
   }
@@ -569,6 +579,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                           elapsed: _elapsed,
                           color: _color,
                           onTap: _toggleRecording,
+                          locked: !hasVoiceNoteAccess(ref),
                         ),
                       ],
                     ),

@@ -16,6 +16,7 @@ import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
+import '../../../shared/widgets/overlay_notice.dart';
 import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
@@ -72,6 +73,14 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   final _descCtrl = TextEditingController();
   final _focus = FocusNode();
   final List<String> _addedTitles = [];
+
+  /// Whether any task added in this session anchors its reminder on a
+  /// LATER calendar day. Under the default Today lens such a task is
+  /// legitimately invisible the moment the sheet closes — which, with no
+  /// explanation, read as the add having silently failed. One quiet line
+  /// under the confirmation list closes that dead end without touching
+  /// the lens semantics.
+  bool _addedFutureAnchored = false;
   bool _hasText = false;
   bool _detailsExpanded = false;
 
@@ -190,7 +199,13 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       reminderAnchorAt: _anchorAt,
     );
     if (!mounted) return;
+    final now = DateTime.now();
+    final anchor = _anchorAt;
+    final anchorsLater = anchor != null &&
+        DateTime(anchor.year, anchor.month, anchor.day)
+            .isAfter(DateTime(now.year, now.month, now.day));
     setState(() {
+      _addedFutureAnchored = _addedFutureAnchored || anchorsLater;
       _addedTitles.add(text);
       _ctrl.clear();
       _descCtrl.clear();
@@ -206,8 +221,14 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     });
     _focus.requestFocus();
     if (reminderAts.isNotEmpty && !granted && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
+      // Overlay, not SnackBar: this sheet is a modal, and a SnackBar
+      // renders on the Scaffold BEHIND it — the user who denied
+      // notifications never saw this warning and believed the reminder
+      // was armed. See showOverlayNotice.
+      showOverlayNotice(
+        context,
+        S.of(context).reminderPermissionDenied,
+        icon: Icons.notifications_off_outlined,
       );
     }
   }
@@ -261,8 +282,11 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     final granted = await VoiceNoteService.instance.hasPermission();
     if (!granted) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.of(context).voiceNoteMicPermissionDenied)),
+        // Overlay, not SnackBar — invisible behind this modal otherwise.
+        showOverlayNotice(
+          context,
+          S.of(context).voiceNoteMicPermissionDenied,
+          icon: Icons.mic_off_rounded,
         );
       }
       return;
@@ -650,6 +674,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                                   elapsed: _elapsed,
                                   color: _color,
                                   onTap: _toggleRecording,
+                                  locked: !hasVoiceNoteAccess(ref),
                                 ),
                               ],
                             ),
@@ -758,6 +783,27 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                             ),
                           ),
                         ).animate().fadeIn(duration: 200.ms),
+                      if (_addedFutureAnchored)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
+                          child: Row(
+                            children: [
+                              Icon(Icons.schedule_rounded,
+                                  size: 13, color: gp.textTert),
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: Text(
+                                  S.of(context).matrixAddedForLater,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: gp.textSec,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                     ],
                   ],
                 ),
@@ -820,12 +866,21 @@ class MicRecordButton extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
 
+  /// Draws the small gold lock on the mic for free accounts. The gate
+  /// itself still lives at the tap (showVoiceNoteGate) — this is only the
+  /// missing WARNING: an unlocked-looking mic that upsells after the tap
+  /// reads as a trap, and voice_note_gate.dart's own doc comment has asked
+  /// for a locked affordance all along. The button stays tappable — the
+  /// tap IS the pitch.
+  final bool locked;
+
   const MicRecordButton({
     super.key,
     required this.recording,
     required this.elapsed,
     required this.color,
     required this.onTap,
+    this.locked = false,
   });
 
   @override
@@ -852,11 +907,39 @@ class MicRecordButton extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                recording ? Icons.stop_rounded : Icons.mic_rounded,
-                size: 18,
-                color: recording ? GameColors.error : color,
-              ),
+              if (locked && !recording)
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(Icons.mic_rounded, size: 18, color: color),
+                    PositionedDirectional(
+                      end: -5,
+                      bottom: -3,
+                      child: Container(
+                        padding: const EdgeInsets.all(1.5),
+                        decoration: BoxDecoration(
+                          color: GameColors.gold,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(0xFF14100A),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.lock_rounded,
+                          size: 8,
+                          color: Color(0xFF14100A),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Icon(
+                  recording ? Icons.stop_rounded : Icons.mic_rounded,
+                  size: 18,
+                  color: recording ? GameColors.error : color,
+                ),
               if (recording) ...[
                 const SizedBox(width: 6),
                 Text(

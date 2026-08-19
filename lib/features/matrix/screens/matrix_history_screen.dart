@@ -11,6 +11,8 @@ import '../../../shared/widgets/calendar_month_scaffold.dart';
 import '../../../shared/widgets/safe_wrap_text.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
+import '../../../shared/widgets/history_demo_gate.dart';
+import '../../premium/notifiers/premium_notifier.dart';
 
 /// Saturday-start, matching the Victory Grid's own week convention
 /// (`startOfGridWeek` in weekly_grid_notifier.dart) so the app doesn't mix
@@ -49,8 +51,24 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
   // highlighted day and the list below it from ever disagreeing.
   void _changeMonth(int delta) {
     HapticFeedback.selectionClick();
+    final target =
+        DateTime(_visibleMonth.year, _visibleMonth.month + delta);
+    // Same free window as every other history surface — the heatmap,
+    // journal, and night review all gate at kFreeHistoryMonths, and this
+    // archive was the one place the "Premium owns its whole history" story
+    // quietly wasn't true. Answered with the demo gate, not a refusal,
+    // like everywhere else.
+    if (delta < 0 &&
+        !canBrowseHistoryMonth(
+          monthStart: target,
+          now: DateTime.now().effectiveDay,
+          isPremium: ref.read(premiumProvider),
+        )) {
+      showHistoryDemoGate(context);
+      return;
+    }
     setState(() {
-      _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + delta);
+      _visibleMonth = target;
       _selectedDate = null;
     });
   }
@@ -535,8 +553,10 @@ class _HistoryRow extends ConsumerWidget {
           ),
         );
       },
+      // centerEnd, not centerRight — see quadrant_card_task_tile.dart's
+      // dismiss background for the RTL reasoning.
       background: Container(
-        alignment: Alignment.centerRight,
+        alignment: AlignmentDirectional.centerEnd,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         decoration: BoxDecoration(
           color: GameColors.error.withOpacity(0.12),

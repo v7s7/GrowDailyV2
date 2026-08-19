@@ -11,6 +11,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import '../models/matrix_task.dart';
+import '../../../shared/widgets/overlay_notice.dart';
 import 'custom_offset_sheet.dart';
 
 /// Formats [dt] for display on [ReminderRow] / anywhere else a task's
@@ -180,8 +181,14 @@ Future<DateTime?> pickReminderMoment(
   final picked =
       DateTime(date.year, date.month, date.day, time.hour, time.minute);
   if (!picked.isAfter(DateTime.now())) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(S.of(context).matrixReminderPast)),
+    // Overlay, not SnackBar: both host sheets are modals, so the SnackBar
+    // version of this message drew behind them — the user picked a past
+    // time, both dialogs closed, and the row still said "set a reminder"
+    // with no visible explanation of why.
+    showOverlayNotice(
+      context,
+      S.of(context).matrixReminderPast,
+      icon: Icons.history_toggle_off_rounded,
     );
     return null;
   }

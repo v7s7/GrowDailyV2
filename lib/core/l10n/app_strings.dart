@@ -1488,6 +1488,15 @@ class S {
   String get premiumBenefitAppearanceDesc => isAr
       ? '9 سمات حصرية لإعادة تصميم التطبيق بالكامل.'
       : '9 exclusive themes to restyle the whole app.';
+  // Real gate: kFreeTaskReminders = 1 (premium_notifier.dart), enforced by
+  // ReminderPicker.canStack via showReminderLimitGate. This was the Tasks
+  // page's main cap and the paywall never mentioned it — a free user first
+  // learned the feature existed by hitting its wall.
+  String get premiumBenefitTaskRemindersTitle =>
+      isAr ? 'تذكيرات متعددة للمهمة' : 'Stacked task reminders';
+  String get premiumBenefitTaskRemindersDesc => isAr
+      ? 'سلسلة تنبيهات للمهمة الواحدة — قبلها بيوم، بساعة، وعند موعدها.'
+      : 'A ladder of nudges per task — a day out, an hour out, and on time.';
   String get premiumBenefitVoiceTitle => isAr ? 'ملاحظات صوتية' : 'Voice notes';
   // Real gate: hasVoiceNoteAccess (voice_note_gate.dart), flat premium-only
   // check, no free tier.
@@ -2502,6 +2511,17 @@ class S {
       isAr ? '$name أنجز عادة اليوم!' : '$name just finished today!';
 
   // ── Monthly Story (shareable month-in-review) ──────────────────────────
+
+  /// The first-completion reward float on a task row. ASCII digits and the
+  /// Latin "XP" in both languages, matching every other stat in the app.
+  String matrixRewardFloat(int xp, int gold) =>
+      isAr ? '‎+$xp XP · +$gold ذهب' : '+$xp XP · +$gold gold';
+  /// Shown in the add sheet after adding a task whose reminder anchors on a
+  /// later day: under the default Today lens the new task is legitimately
+  /// not visible, which read as the add having silently failed.
+  String get matrixAddedForLater => isAr
+      ? 'مجدولة ليوم لاحق — تظهر تحت «الكل»'
+      : 'Scheduled for a later day — find it under "All"';
 
   String get monthlyStoryTitle => isAr ? 'قصة الشهر' : 'Monthly Story';
   String get monthlyStoryEmpty => isAr

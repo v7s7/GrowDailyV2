@@ -179,6 +179,12 @@ class _TaskTileState extends State<_TaskTile>
       return;
     }
     _spring.forward(from: 0.0);
+    // The reward is paid exactly once per task (MatrixTask.rewarded), so
+    // announce it exactly once too — recompleting a toggled-off task shows
+    // nothing, matching what the economy actually does.
+    if (!widget.task.isDone && !widget.task.rewarded) {
+      showTaskRewardFloat(context);
+    }
     widget.onToggle();
   }
 
@@ -190,9 +196,13 @@ class _TaskTileState extends State<_TaskTile>
       key: ValueKey('dismiss-${widget.task.id}'),
       direction: widget.selectionMode ? DismissDirection.none : DismissDirection.endToStart,
       onDismissed: (_) => widget.onDelete(),
+      // Directional, not physical: endToStart reveals the START side of
+      // the background in RTL, so an icon pinned at physical right stayed
+      // hidden under the sliding tile and Arabic users swiped over an
+      // anonymous red strip. centerEnd renders identically in LTR.
       background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 14),
+        alignment: AlignmentDirectional.centerEnd,
+        padding: const EdgeInsetsDirectional.only(end: 14),
         decoration: BoxDecoration(
           color: GameColors.error.withOpacity(0.12),
           borderRadius: BorderRadius.circular(GameSpacing.chipRadius),

@@ -1083,16 +1083,32 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// not a link from anywhere — so tapping a reminder dropped someone onto a
   /// screen they had never seen and could not get back to on purpose. It's
   /// gone now; everything it did for a habit, the Grid row does.
-  void _handleNotificationBodyTap(String? payload) {
+  Future<void> _handleNotificationBodyTap(String? payload) async {
     if (payload == null || payload.isEmpty) return;
     final String route;
     if (payload == NotificationService.openTodayPayload ||
         _resolveHabit(payload) != null) {
       route = '/grid';
-    } else if (ref.read(matrixProvider).tasks.any((t) => t.id == payload)) {
-      route = '/matrix';
     } else {
-      return;
+      // A task id. On a cold launch this tap is replayed the moment
+      // onAction is assigned — before matrixProvider's async load has
+      // produced any tasks — so a synchronous membership check always
+      // failed and the app opened on the default tab instead of the
+      // board. Same await-then-poll shape as _handleNotificationAction
+      // and _processPendingWidgetTaskCompletions, which each document
+      // this exact cold-start race for their own payloads.
+      await ref.read(authStateProvider.future);
+      if (!mounted) return;
+      for (var i = 0; i < 20 && ref.read(matrixProvider).isLoading; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (!mounted) return;
+      }
+      if (!ref.read(matrixProvider).tasks.any((t) => t.id == payload)) {
+        // Fully loaded and genuinely absent: a stale payload for a task
+        // deleted since the notification fired. Nothing useful to open.
+        return;
+      }
+      route = '/matrix';
     }
     final nav = _navKey.currentState;
     if (nav != null) {
