@@ -14,6 +14,7 @@ import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../../shared/widgets/comeback_card.dart';
 import '../../../shared/widgets/get_started_checklist_card.dart';
 import '../../../shared/widgets/safe_wrap_text.dart';
+import '../../../shared/widgets/week_picker_sheet.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';

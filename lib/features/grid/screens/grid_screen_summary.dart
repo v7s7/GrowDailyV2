@@ -104,10 +104,30 @@ class _GridHeader extends ConsumerWidget {
     final notifier = ref.read(weeklyGridProvider.notifier);
     final start = state.weekStart;
     final end = start.add(const Duration(days: 6));
-    final range = state.isCurrentWeek
-        ? s.gridThisWeek
-        : '${DateFormat('MMM d', locale).format(start)} – '
-            '${DateFormat('MMM d', locale).format(end)}';
+    // !canGoForward, not isCurrentWeek. Those two disagree for six hours
+    // once a week: isCurrentWeek asks whether the visible week holds the
+    // REWARD day (effectiveDay), while the board deliberately seeds itself
+    // from the real calendar so that 1am Saturday opens on the new week
+    // (see WeeklyGridState's own seed comment). During Saturday 00:00-05:59
+    // the app therefore puts you on the newest week and isCurrentWeek then
+    // called it a past week: the header showed a date range plus a gold
+    // "this week" prompt, and tapping that prompt ran goToCurrentWeek() ->
+    // _goToWeek(the week you are already on) -> early return. A control
+    // that argued you were lost and then did nothing about it.
+    //
+    // canGoForward is the honest question for a HEADER: is there a newer
+    // week to move to. Deliberately not changing isCurrentWeek itself,
+    // which reward-eligibility reads (rewardEligiblePoints /
+    // todayCompletionRatio, both of which additionally check that the
+    // effective today is one of the visible days, so they stay correct).
+    final isNewestWeek = !state.canGoForward;
+    // weekSpanLabel, not DateFormat('MMM d'): the raw pattern renders
+    // Arabic-Indic digits and puts the month before the day, so the header
+    // read «يوليو ١١ – يوليو ١٧» while the picker that sets it read
+    // «11 – 17 يوليو». Same week, two different-looking dates, one tap
+    // apart. See westernDate's doc comment for why day-before-month is the
+    // correct Arabic order.
+    final range = isNewestWeek ? s.gridThisWeek : weekSpanLabel(start, locale);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -240,7 +260,14 @@ class _GridHeader extends ConsumerWidget {
               ),
               Expanded(
                 child: GestureDetector(
-                  onTap: state.isCurrentWeek
+                  // Tap the title to pick a week outright. The arrows move
+                  // seven days per tap, which is fine for last week and
+                  // useless for last spring - and they never say how far
+                  // back the board goes, so a week you know you filled in
+                  // is unaimable. Long-press keeps the old one-tap jump
+                  // home for anyone already used to it.
+                  onTap: () => _pickWeek(context, ref, state),
+                  onLongPress: isNewestWeek
                       ? null
                       : () {
                           HapticFeedback.selectionClick();
@@ -248,20 +275,34 @@ class _GridHeader extends ConsumerWidget {
                         },
                   child: Column(
                     children: [
-                      AnimatedSwitcher(
-                        duration: GameMotion.standard,
-                        child: Text(
-                          range,
-                          key: ValueKey(range),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: gp.textPrimary,
+                      // Chevron so the title reads as a control. Without
+                      // it the week label looked like a caption between two
+                      // arrows, and nobody tries tapping a caption.
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: AnimatedSwitcher(
+                              duration: GameMotion.standard,
+                              child: Text(
+                                range,
+                                key: ValueKey(range),
+                                textAlign: TextAlign.center,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  color: gp.textPrimary,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 2),
+                          Icon(Icons.expand_more_rounded,
+                              size: 16, color: gp.textSec),
+                        ],
                       ),
-                      if (!state.isCurrentWeek)
+                      if (!isNewestWeek)
                         Text(
                           s.gridThisWeek,
                           style: TextStyle(
@@ -289,6 +330,55 @@ class _GridHeader extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Opens the week picker and moves the board to whatever comes back.
+///
+/// The list runs from the account's earliest recorded square up to the
+/// newest week, so it doubles as an answer to "how far back does this go" -
+/// the question the arrows could never answer. No premium floor here on
+/// purpose: the Grid has never gated past weeks (WeeklyGridNotifier.
+/// previousWeek steps back without a canBrowseHistoryMonth check anywhere),
+/// and a picker is not the place to introduce a paywall that did not exist
+/// a moment ago.
+Future<void> _pickWeek(
+  BuildContext context,
+  WidgetRef ref,
+  WeeklyGridState state,
+) async {
+  final notifier = ref.read(weeklyGridProvider.notifier);
+  // Every day that has ever been written, in date-key form. Cheap: this is
+  // the dashboard rollup the Heatmap already reads, not a fresh query.
+  final counts = ref.read(dashboardProvider).dailyGreenCounts;
+  final newest = DateTime.now().startOfDisplayWeek;
+  DateTime earliest = newest;
+  for (final key in counts.keys) {
+    final day = DateTime.tryParse(key);
+    if (day == null) continue;
+    final weekStart = day.startOfDisplayWeek;
+    if (weekStart.isBefore(earliest)) earliest = weekStart;
+  }
+  // Always offer at least a few weeks back, so a brand-new account gets a
+  // picker that demonstrates what it is for instead of a single chip.
+  final floor = newest.subtract(const Duration(days: 7 * 7));
+  if (earliest.isAfter(floor)) earliest = floor;
+  // And never fewer weeks than the person has already arrowed to.
+  if (state.weekStart.isBefore(earliest)) earliest = state.weekStart;
+
+  final picked = await showWeekPicker(
+    context,
+    weeks: weeksBetween(earliest, newest),
+    selected: state.weekStart,
+    hasData: (weekStart) {
+      for (var i = 0; i < 7; i++) {
+        final key = weekStart.add(Duration(days: i)).toDateKey();
+        if ((counts[key] ?? 0) > 0) return true;
+      }
+      return false;
+    },
+  );
+  if (picked == null) return;
+  notifier.goToWeek(picked);
 }
 
 class _NavArrow extends StatelessWidget {

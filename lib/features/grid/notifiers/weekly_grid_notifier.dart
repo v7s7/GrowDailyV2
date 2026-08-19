@@ -261,6 +261,15 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// effectiveDay's.
   void goToCurrentWeek() => _goToWeek(startOfGridWeek(DateTime.now()));
 
+  /// Jumps to the week holding [day] — what the header's week picker calls.
+  /// Never past the newest real week, so a picker built from stale bounds
+  /// can't strand the board in the future.
+  void goToWeek(DateTime day) {
+    final target = startOfGridWeek(day);
+    final newest = startOfGridWeek(DateTime.now());
+    _goToWeek(target.isAfter(newest) ? newest : target);
+  }
+
   void _goToWeek(DateTime newStart) {
     final start = startOfGridWeek(newStart);
     if (start.isSameDayAs(state.weekStart)) return;

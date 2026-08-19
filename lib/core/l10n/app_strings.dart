@@ -2652,6 +2652,7 @@ class S {
   // ── Month picker (shared: Monthly Story, any month-stepping screen) ────
 
   String get monthPickerTitle => isAr ? 'اختر الشهر' : 'Pick a month';
+  String get weekPickerTitle => isAr ? 'اختر الأسبوع' : 'Pick a week';
   /// Screen-reader suffix on a month the free tier cannot open. The full
   /// explanation lives in [historyLockedBody], which the snackbar shows on
   /// tap; this only has to say that the cell is out of reach.
