@@ -58,6 +58,23 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // destroy, and _loadGuestToday owns its own failure path.
     if (_uid != null && state.loadFailed) return false;
 
+    // And refuse while the first load simply hasn't ARRIVED yet, for the
+    // identical reason. DashboardState.initial() is isLoading: true with
+    // loadFailed: false, so the guard above does not cover the cold-start
+    // window at all — and that window has a caller: main.dart drains the
+    // home widget's queued Mark Done taps from initState
+    // (_processPendingWidgetCompletions), and a notification action that
+    // cold-launched the app flushes through the same path the moment
+    // NotificationService.onAction is assigned. Both can land before
+    // _loadToday resolves, and every field this method persists would then
+    // be computed from zeros and written back as an ABSOLUTE value.
+    //
+    // Returning false rather than queueing: this method cannot know whether
+    // its caller can retry. The widget path is careful not to drain its
+    // queue until the load lands (see _processPendingWidgetCompletions), so
+    // nothing is lost there; this is the backstop for every other caller.
+    if (_uid != null && state.isLoading) return false;
+
     final current = state.completions[habitId] ?? 0;
     if (current >= frequencyTarget) return false;
 

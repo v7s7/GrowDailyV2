@@ -826,6 +826,34 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     }, SetOptions(merge: true)).catchError((_) {}));
   }
 
+  /// Resolves true once the dashboard has finished its first load, false
+  /// if it has not within [timeout] (or the load failed outright).
+  ///
+  /// Callers that WRITE reward state on behalf of a queued action use this
+  /// so they never compute from DashboardState.initial()'s zeros. A false
+  /// answer means "do nothing and leave the work queued", never "go ahead
+  /// anyway".
+  Future<bool> _awaitDashboardLoaded({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    bool ready(DashboardState s) => !s.isLoading && !s.loadFailed;
+    if (ready(ref.read(dashboardProvider))) return true;
+    final completer = Completer<bool>();
+    final sub = ref.listenManual<DashboardState>(dashboardProvider,
+        (previous, next) {
+      if (completer.isCompleted) return;
+      // loadFailed is terminal for this purpose: the state is the same
+      // untrustworthy zeros and no amount of waiting improves it.
+      if (next.loadFailed) completer.complete(false);
+      if (ready(next)) completer.complete(true);
+    });
+    try {
+      return await completer.future.timeout(timeout, onTimeout: () => false);
+    } finally {
+      sub.close();
+    }
+  }
+
   /// Drains habit ids the large widget's Mark Done button queued (see the
   /// AppIntent in WIDGET_SETUP.md) and runs each through the exact same
   /// completeHabit + grid-mirror path as a real in-app tap — reusing
@@ -835,6 +863,21 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// ever read); this is what makes that tap *count* — XP, streak, gold —
   /// which can only safely happen through the app's real, live state.
   Future<void> _processPendingWidgetCompletions() async {
+    // Wait for the dashboard's first load before draining the queue.
+    //
+    // This runs from initState, so on a cold start the dashboard is still
+    // DashboardState.initial() - level 1, 0 XP, 0 gold, no streak, no
+    // achievements - and completeHabit writes every one of those back as an
+    // ABSOLUTE value. Draining here without waiting would persist those
+    // zeros over the real account, which is exactly the destruction
+    // DashboardState.loadFailed exists to prevent; it just never covered
+    // the not-loaded-YET case, only the load-threw case.
+    //
+    // Draining is what makes this urgent rather than merely wrong:
+    // takePendingCompletions REMOVES the ids, so a tap refused here would
+    // be gone. Waiting first means a slow load costs the tap a moment, and
+    // a load that never arrives leaves the queue untouched for next launch.
+    if (!await _awaitDashboardLoaded()) return;
     final ids = await HomeWidgetService.instance.takePendingCompletions();
     for (final id in ids) {
       await _handleNotificationAction(NotificationService.actionMarkDone, id);
