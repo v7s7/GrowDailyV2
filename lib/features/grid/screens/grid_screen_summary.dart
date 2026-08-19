@@ -103,7 +103,6 @@ class _GridHeader extends ConsumerWidget {
     final locale = Localizations.localeOf(context).languageCode;
     final notifier = ref.read(weeklyGridProvider.notifier);
     final start = state.weekStart;
-    final end = start.add(const Duration(days: 6));
     // !canGoForward, not isCurrentWeek. Those two disagree for six hours
     // once a week: isCurrentWeek asks whether the visible week holds the
     // REWARD day (effectiveDay), while the board deliberately seeds itself
@@ -214,15 +213,21 @@ class _GridHeader extends ConsumerWidget {
                     ),
                   ),
                 ),
-              if (onStartSelection != null)
-                IconButton(
-                  icon: Icon(Icons.checklist_rounded, color: gp.textSec),
-                  tooltip: s.habitSelectMultiple,
-                  onPressed: () {
-                    HapticFeedback.selectionClick();
-                    onStartSelection!();
-                  },
-                ),
+              // The Progress Map, in the slot the multi-select control used
+              // to hold. Same glyph as the worded row further down the
+              // summary card, which stays: that row is the discoverable
+              // introduction, this is the shortcut once you know what it
+              // is. Icons.calendar_view_month_rounded rather than a chart
+              // glyph, because the thing it opens is a calendar of days.
+              IconButton(
+                icon: Icon(Icons.calendar_view_month_rounded,
+                    color: gp.textSec),
+                tooltip: s.heatmapTitle,
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pushNamed(context, '/heatmap');
+                },
+              ),
               IconButton(
                 // Not a moon: Sleep already uses a crescent
                 // (Icons.bedtime_rounded, see HabitCategory.icon) and a
