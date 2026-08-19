@@ -5,7 +5,7 @@ import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
 import '../../core/utils/western_digits.dart';
 import 'choice_chip_grid.dart';
-import 'history_locked_snackbar.dart';
+import 'history_demo_gate.dart';
 
 /// Pick a month directly, instead of stepping one arrow-tap at a time.
 ///
@@ -198,7 +198,7 @@ class _MonthChip extends StatelessWidget {
       onTap: () {
         if (!unlocked) {
           // Deliberately does NOT pop. See showMonthPicker's doc comment.
-          showHistoryLockedSnackBar(context);
+          showHistoryDemoGate(context);
           return;
         }
         HapticFeedback.selectionClick();

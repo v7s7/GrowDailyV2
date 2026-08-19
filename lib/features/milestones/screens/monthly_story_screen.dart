@@ -8,7 +8,7 @@ import '../../../core/services/share_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/calendar_month_scaffold.dart';
-import '../../../shared/widgets/history_locked_snackbar.dart';
+import '../../../shared/widgets/history_demo_gate.dart';
 import '../../../shared/widgets/month_picker_sheet.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
@@ -388,7 +388,7 @@ class _MonthlyStoryScreenState extends ConsumerState<MonthlyStoryScreen> {
             onBack: () {
               HapticFeedback.selectionClick();
               if (!unlocked(previousMonth)) {
-                showHistoryLockedSnackBar(context);
+                showHistoryDemoGate(context);
                 return;
               }
               setState(() => _viewedMonth = previousMonth);

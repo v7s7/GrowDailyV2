@@ -7,7 +7,7 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
-import '../../../shared/widgets/history_locked_snackbar.dart';
+import '../../../shared/widgets/history_demo_gate.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider;
 import '../../premium/notifiers/premium_notifier.dart';
@@ -120,7 +120,7 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                         now: DateTime.now().effectiveDay,
                         isPremium: ref.read(premiumProvider),
                       )) {
-                        showHistoryLockedSnackBar(context);
+                        showHistoryDemoGate(context);
                         return;
                       }
                       ref.read(gridJournalProvider.notifier).previousMonth();

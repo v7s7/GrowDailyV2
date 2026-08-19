@@ -1375,6 +1375,19 @@ class S {
   String get historyLockedBody => isAr
       ? 'الحساب المجاني يرجع 3 أشهر. Premium يفتح سجلك كامل، من أول يوم.'
       : 'Free goes back 3 months. Premium opens your whole history, from day one.';
+  // ── History demo gate (shared: every locked-history surface) ─────────
+  //
+  // Wording note: the sheet SHOWS a fake perfect month stamped مثال, so
+  // these strings never need to explain what history looks like — the
+  // preview does that. They only name the thing and invite.
+  String get demoGateExample => isAr ? 'مثال' : 'EXAMPLE';
+  String get demoGateMonthTitle =>
+      isAr ? 'شهر من سجلّك' : 'A month of your history';
+  String get demoGatePerfectStamp => isAr ? 'شهر كامل' : 'PERFECT MONTH';
+  String get demoGateCta =>
+      isAr ? 'افتح سجلّك الكامل' : 'Unlock your full history';
+  String get demoGateNotNow => isAr ? 'ليس الآن' : 'Not now';
+
   String get heatmapDayEmpty =>
       isAr ? 'ما في نشاط مسجل هاليوم' : 'Nothing recorded on this day';
   String get heatmapUpgradeTitle =>

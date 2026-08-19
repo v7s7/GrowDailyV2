@@ -7,7 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../shared/widgets/history_locked_snackbar.dart';
+import '../../../shared/widgets/history_demo_gate.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../matrix/notifiers/matrix_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
@@ -53,7 +53,7 @@ class NightReviewHistoryScreen extends ConsumerWidget {
                         now: DateTime.now().effectiveDay,
                         isPremium: ref.read(premiumProvider),
                       )) {
-                        showHistoryLockedSnackBar(context);
+                        showHistoryDemoGate(context);
                         return;
                       }
                       ref
