@@ -9,11 +9,13 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
+import '../../../shared/widgets/month_picker_sheet.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 
@@ -30,7 +32,7 @@ import '../notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 /// Premium unlocks *lifetime*: every month from the first day that ever had
 /// a colored square to now. The underlying data is already loaded either
 /// way, so this is purely a display cap, not a data-access restriction.
-class MonthlyHeatmapScreen extends ConsumerWidget {
+class MonthlyHeatmapScreen extends ConsumerStatefulWidget {
   const MonthlyHeatmapScreen({super.key});
 
   static const int _freeMonthsToShow = 3;
@@ -42,7 +44,23 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
   static const int _maxLifetimeMonths = 240;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MonthlyHeatmapScreen> createState() =>
+      _MonthlyHeatmapScreenState();
+}
+
+class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
+  /// One key per rendered month, so picking a month can scroll to it.
+  /// Keyed by 'yyyy-MM' rather than by DateTime, which does not compare
+  /// equal across separately-constructed instances of the same month.
+  final Map<String, GlobalKey> _monthKeys = {};
+
+  GlobalKey _keyFor(DateTime month) => _monthKeys.putIfAbsent(
+        '${month.year}-${month.month}',
+        () => GlobalKey(),
+      );
+
+  @override
+  Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
     final dark = gp.dark;
@@ -130,12 +148,14 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 14),
                 child: _MonthSection(
+                  key: _keyFor(months[i]),
                   month: months[i],
                   counts: counts,
                   habits: habits,
                   today: today,
                   dark: dark,
                   onTapDay: (day, count) => _showDayInfo(context, day, count),
+                  onTapMonth: () => _pickMonth(months, counts),
                 )
                     // Only stagger the first screenful — a lifetime list
                     // shouldn't make month #40 wait seconds to appear.
@@ -147,7 +167,7 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
             if (!isPremium) ...[
               const SizedBox(height: 18),
               _UpgradeForFullHistoryCard(
-                freeMonths: _freeMonthsToShow,
+                freeMonths: MonthlyHeatmapScreen._freeMonthsToShow,
               ).animate(delay: 200.ms).fadeIn(duration: 350.ms),
             ],
           ],
@@ -161,12 +181,87 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
   /// Premium: every month from the earliest colored day on record to now —
   /// but never fewer than the free tier's three, so a brand-new Premium
   /// account still sees a full-looking screen instead of one lonely month.
+  /// Tapping any month header opens the month list and scrolls to the
+  /// month chosen.
+  ///
+  /// This screen is one long scroll of month sections, which for a Premium
+  /// account can be years deep: reaching a month two winters back meant an
+  /// unaided flick with no index and no way to aim. The header was the
+  /// obvious thing to tap and did nothing at all.
+  ///
+  /// The picker deliberately lists MORE months than the screen renders. A
+  /// free account only ever draws three sections, so without the locked
+  /// months in the list there is nothing to tap to find out what is behind
+  /// the gate — the same reason Monthly Story shows them. A locked month
+  /// answers with the shared history gate and leaves the sheet open (see
+  /// showMonthPicker), so the next tap can land on a month they do own.
+  Future<void> _pickMonth(
+    List<DateTime> rendered,
+    Map<String, int> counts,
+  ) async {
+    final today = DateTime.now().effectiveDay;
+    final currentMonth = DateTime(today.year, today.month, 1);
+
+    // Every month from the earliest recorded day to now, so the list
+    // doubles as the answer to "how far back does this go".
+    DateTime earliest = currentMonth;
+    for (final entry in counts.entries) {
+      if (entry.value <= 0) continue;
+      final parsed = DateTime.tryParse(entry.key);
+      if (parsed == null) continue;
+      final month = DateTime(parsed.year, parsed.month, 1);
+      if (month.isBefore(earliest)) earliest = month;
+    }
+    final span = (currentMonth.year - earliest.year) * 12 +
+        (currentMonth.month - earliest.month) +
+        1;
+    final months = [
+      for (var i = 0; i < span.clamp(1, MonthlyHeatmapScreen._maxLifetimeMonths); i++)
+        DateTime(currentMonth.year, currentMonth.month - i, 1),
+    ];
+
+    bool hasGreens(DateTime month) {
+      final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+      for (var d = 1; d <= daysInMonth; d++) {
+        if ((counts[DateTime(month.year, month.month, d).toDateKey()] ?? 0) > 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    final picked = await showMonthPicker(
+      context,
+      months: months,
+      selected: currentMonth,
+      isUnlocked: (month) => canBrowseHistoryMonth(
+        monthStart: month,
+        now: currentMonth,
+        isPremium: ref.read(premiumProvider),
+      ),
+      hasStory: hasGreens,
+    );
+    if (picked == null || !mounted) return;
+
+    final key = _monthKeys['${picked.year}-${picked.month}'];
+    final target = key?.currentContext;
+    if (target == null) return;
+    await Scrollable.ensureVisible(
+      target,
+      duration: GameMotion.standard,
+      curve: Curves.easeOutCubic,
+      // Just under the top edge rather than flush against it, so the
+      // month's own header is not the very first pixel on screen.
+      alignment: 0.05,
+    );
+  }
+
   static List<DateTime> _visibleMonths({
     required DateTime currentMonth,
     required Map<String, int> counts,
     required bool isPremium,
   }) {
-    var monthsBack = _freeMonthsToShow;
+    var monthsBack = MonthlyHeatmapScreen._freeMonthsToShow;
     if (isPremium) {
       DateTime? earliest;
       for (final entry in counts.entries) {
@@ -179,7 +274,7 @@ class MonthlyHeatmapScreen extends ConsumerWidget {
         final span = (currentMonth.year - earliest.year) * 12 +
             (currentMonth.month - earliest.month) +
             1;
-        monthsBack = span.clamp(_freeMonthsToShow, _maxLifetimeMonths);
+        monthsBack = span.clamp(MonthlyHeatmapScreen._freeMonthsToShow, MonthlyHeatmapScreen._maxLifetimeMonths);
       }
     }
     return [
@@ -240,20 +335,30 @@ class _MonthSection extends StatelessWidget {
   final bool dark;
   final void Function(DateTime day, int count) onTapDay;
 
+  /// Opens the month picker. Every section's header calls the same one.
+  final VoidCallback onTapMonth;
+
   const _MonthSection({
+    super.key,
     required this.month,
     required this.counts,
     required this.habits,
     required this.today,
     required this.dark,
     required this.onTapDay,
+    required this.onTapMonth,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final locale = Localizations.localeOf(context).languageCode;
-    final monthLabel = DateFormat.yMMMM(locale).format(month);
+    // toWesternDigits: the raw pattern renders «أغسطس ٢٠٢٦» while the
+    // picker one tap away renders «أغسطس 2026», so the same month wore two
+    // different years. ASCII digits everywhere is the app's rule — see
+    // westernDate's doc comment.
+    final monthLabel =
+        toWesternDigits(DateFormat.yMMMM(locale).format(month));
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
 
     // This month's own little total — lets the eye compare months at a
@@ -304,13 +409,30 @@ class _MonthSection extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  monthLabel,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: gp.textPrimary,
-                    letterSpacing: -0.2,
+                // The header is the thing people instinctively tap to
+                // change month, and it used to be inert text. Chevron so
+                // it reads as a control rather than a caption.
+                child: GestureDetector(
+                  onTap: onTapMonth,
+                  behavior: HitTestBehavior.opaque,
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          monthLabel,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: gp.textPrimary,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(Icons.expand_more_rounded,
+                          size: 16, color: gp.textSec),
+                    ],
                   ),
                 ),
               ),
@@ -459,11 +581,18 @@ class _HeatCell extends StatelessWidget {
             decoration: BoxDecoration(
               color: heatColor(level, dark),
               borderRadius: BorderRadius.circular(7),
-              // isRealToday, not isToday: purely the "today" ring — see
-              // DateTimeGameExt.isRealToday's doc comment.
+              // isToday (effectiveDay), NOT isRealToday. Every cell on
+              // this grid IS an effective day: dailyGreenCounts is keyed
+              // by DateTime.now().effectiveDay.toDateKey(), so a square
+              // coloured at 2am lands on the previous cell. Ringing the
+              // real calendar day therefore marked a cell that cannot
+              // receive today's work — and on the 1st of a month before
+              // 6am it marked a cell in a month this screen does not even
+              // render (the newest section is effectiveDay's month), so
+              // the ring vanished entirely.
               border: Border.all(
-                color: day.isRealToday ? GameColors.gold : gp.border,
-                width: day.isRealToday ? 1.4 : 0.5,
+                color: day.isToday ? GameColors.gold : gp.border,
+                width: day.isToday ? 1.4 : 0.5,
               ),
             ),
             child: Text(
@@ -471,8 +600,8 @@ class _HeatCell extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight:
-                    day.isRealToday ? FontWeight.w800 : FontWeight.w600,
-                color: day.isRealToday ? GameColors.gold : numberColor,
+                    day.isToday ? FontWeight.w800 : FontWeight.w600,
+                color: day.isToday ? GameColors.gold : numberColor,
               ),
             ),
           ),
