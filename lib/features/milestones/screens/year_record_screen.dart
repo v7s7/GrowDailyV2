@@ -14,6 +14,7 @@ import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../notifiers/habit_history_notifier.dart';
+import '../../../shared/widgets/month_picker_sheet.dart';
 
 // ─── Pure layout math ────────────────────────────────────────────────────
 //
@@ -179,6 +180,29 @@ class _YearRecordScreenState extends ConsumerState<YearRecordScreen> {
   /// history still lives.
   bool _showArchived = false;
 
+  /// Opens the year picker and moves the record to the choice.
+  ///
+  /// Years below the free floor stay listed and locked rather than hidden,
+  /// the same call the month picker makes: hiding them leaves a free
+  /// account unable to see that its history goes further at all.
+  Future<void> _pickYear({
+    required int earliestDataYear,
+    required bool isPremium,
+    required int freeFloorYear,
+  }) async {
+    final thisYear = DateTime.now().year;
+    final floor = earliestDataYear <= thisYear ? earliestDataYear : thisYear;
+    final picked = await showYearPicker(
+      context,
+      years: [for (var y = thisYear; y >= floor; y--) y],
+      selected: _year,
+      isUnlocked: (year) => isPremium || year >= freeFloorYear,
+      hasData: (year) => year >= earliestDataYear,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _year = picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
@@ -318,13 +342,37 @@ class _YearRecordScreenState extends ConsumerState<YearRecordScreen> {
                     visualDensity: VisualDensity.compact,
                   ),
                   Expanded(
-                    child: Text(
-                      toWesternDigits('$_year'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: gp.textPrimary,
+                    // Tap the year to pick one. Two chevrons could reach
+                    // 2024 in two taps but never said whether 2024 held
+                    // anything, or how far back the record went at all.
+                    child: InkWell(
+                      onTap: () => _pickYear(
+                        earliestDataYear: earliestDataYear,
+                        isPremium: isPremium,
+                        freeFloorYear: freeFloor.year,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(GameSpacing.pillRadius),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              toWesternDigits('$_year'),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: gp.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(Icons.expand_more_rounded,
+                                size: 18, color: gp.textSec),
+                          ],
+                        ),
                       ),
                     ),
                   ),

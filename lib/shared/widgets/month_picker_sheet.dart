@@ -44,6 +44,171 @@ Future<DateTime?> showMonthPicker(
   );
 }
 
+/// Every month from [earliest] to [current] inclusive, newest first.
+///
+/// Both ends are normalised to the 1st. A floor later than the ceiling
+/// yields just the ceiling rather than an empty list or a runaway loop -
+/// the same guard every caller used to write for itself, since a corrupt
+/// stored date is the realistic way that happens.
+List<DateTime> monthsBetween(DateTime earliest, DateTime current) {
+  final floor = DateTime(earliest.year, earliest.month);
+  final ceiling = DateTime(current.year, current.month);
+  if (floor.isAfter(ceiling)) return [ceiling];
+  final months = <DateTime>[];
+  for (var m = ceiling; !m.isBefore(floor); m = DateTime(m.year, m.month - 1)) {
+    months.add(m);
+  }
+  return months;
+}
+
+/// Pick a year directly. The year-grain sibling of [showMonthPicker], for
+/// Year Record, whose two chevrons were the only way to reach 2024 and
+/// said nothing about whether 2024 even existed.
+///
+/// Same locked behaviour as the month picker: a locked year answers with
+/// the history gate and leaves the sheet open rather than bouncing the
+/// person out to reopen it.
+Future<int?> showYearPicker(
+  BuildContext context, {
+  /// Newest first.
+  required List<int> years,
+  required int selected,
+  required bool Function(int year) isUnlocked,
+  required bool Function(int year) hasData,
+}) {
+  HapticFeedback.selectionClick();
+  return showModalBottomSheet<int>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => _YearPickerSheet(
+      years: years,
+      selected: selected,
+      isUnlocked: isUnlocked,
+      hasData: hasData,
+    ),
+  );
+}
+
+class _YearPickerSheet extends StatelessWidget {
+  final List<int> years;
+  final int selected;
+  final bool Function(int year) isUnlocked;
+  final bool Function(int year) hasData;
+
+  const _YearPickerSheet({
+    required this.years,
+    required this.selected,
+    required this.isUnlocked,
+    required this.hasData,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        constraints:
+            BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                ),
+              ),
+            ),
+            Text(
+              s.yearPickerTitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: ChoiceChipGrid(
+                  columns: 3,
+                  items: [
+                    for (final year in years)
+                      _YearChip(
+                        year: year,
+                        selected: year == selected,
+                        unlocked: isUnlocked(year),
+                        hasData: hasData(year),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _YearChip extends StatelessWidget {
+  final int year;
+  final bool selected;
+  final bool unlocked;
+  final bool hasData;
+
+  const _YearChip({
+    required this.year,
+    required this.selected,
+    required this.unlocked,
+    required this.hasData,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final label = toWesternDigits(year.toString());
+    final chip = PlainChoiceChip(
+      selected: selected,
+      label: label,
+      semanticsLabel: unlocked ? label : '$label, ${s.monthPickerLocked}',
+      icon: unlocked
+          ? null
+          : Icon(Icons.lock_rounded, size: 13, color: context.gp.textTert),
+      onTap: () {
+        if (!unlocked) {
+          showHistoryDemoGate(context);
+          return;
+        }
+        HapticFeedback.selectionClick();
+        Navigator.pop(context, year);
+      },
+    );
+    if (selected || (unlocked && hasData)) return chip;
+    return Opacity(opacity: unlocked ? 0.55 : 0.35, child: chip);
+  }
+}
+
 class _MonthPickerSheet extends StatelessWidget {
   final List<DateTime> months;
   final DateTime selected;

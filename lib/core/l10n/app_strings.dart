@@ -2648,6 +2648,7 @@ class S {
 
   String get monthPickerTitle => isAr ? 'اختر الشهر' : 'Pick a month';
   String get weekPickerTitle => isAr ? 'اختر الأسبوع' : 'Pick a week';
+  String get yearPickerTitle => isAr ? 'اختر السنة' : 'Pick a year';
   /// Screen-reader suffix on a month the free tier cannot open. The full
   /// explanation lives in [historyLockedBody], which the snackbar shows on
   /// tap; this only has to say that the cell is out of reach.

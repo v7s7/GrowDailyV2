@@ -13,6 +13,7 @@ import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
 import '../../premium/notifiers/premium_notifier.dart';
+import '../../../shared/widgets/month_picker_sheet.dart';
 
 /// Saturday-start, matching the Victory Grid's own week convention
 /// (`startOfGridWeek` in weekly_grid_notifier.dart) so the app doesn't mix
@@ -44,6 +45,35 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
     final today = DateTime.now().startOfDay;
     _visibleMonth = DateTime(today.year, today.month);
     _selectedDate = today;
+  }
+
+  /// Jump straight to a month instead of arrowing to it. Same picker,
+  /// same locked-month behaviour, as Monthly Story and the heatmap.
+  Future<void> _pickMonth(
+    DateTime earliestMonth,
+    DateTime currentMonth,
+    Map<DateTime, List<MatrixTask>> byDate,
+  ) async {
+    final picked = await showMonthPicker(
+      context,
+      months: monthsBetween(earliestMonth, currentMonth),
+      selected: _visibleMonth,
+      isUnlocked: (month) => canBrowseHistoryMonth(
+        monthStart: month,
+        now: DateTime.now().effectiveDay,
+        isPremium: ref.read(premiumProvider),
+      ),
+      hasStory: (month) => byDate.keys.any(
+        (d) => d.year == month.year && d.month == month.month,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _visibleMonth = picked;
+      // Same reasoning as _changeMonth: a selection from a month no longer
+      // on screen would leave the grid and the list below disagreeing.
+      _selectedDate = null;
+    });
   }
 
   // Switching months clears the selected day rather than carrying a
@@ -156,6 +186,10 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
             canGoForward: canGoNext,
             onBack: () => _changeMonth(-1),
             onForward: () => _changeMonth(1),
+            // The header already knew how to be a picker; this screen was
+            // simply never passing the callback, so it rendered its
+            // caption-only variant and the title looked like a label.
+            onTapMonth: () => _pickMonth(earliestMonth, currentMonth, byDate),
           ),
           _WeekdayHeader(locale: locale),
           const SizedBox(height: 2),

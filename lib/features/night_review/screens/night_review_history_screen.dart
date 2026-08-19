@@ -12,6 +12,8 @@ import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../matrix/notifiers/matrix_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../notifiers/night_review_history_notifier.dart';
+import '../../../shared/widgets/month_picker_sheet.dart';
+import '../../../core/utils/western_digits.dart';
 
 /// A month calendar of past mood/reflection check-ins, color-coded by mood —
 /// the same "browse an interactive calendar, tap a day to reopen that
@@ -27,7 +29,11 @@ class NightReviewHistoryScreen extends ConsumerWidget {
     final s = S.of(context);
     final state = ref.watch(nightReviewHistoryProvider);
     final locale = Localizations.localeOf(context).languageCode;
-    final monthLabel = DateFormat.yMMMM(locale).format(state.monthStart);
+    // westernDate, not the raw pattern: this header rendered «أغسطس ٢٠٢٦»
+    // while the picker it now opens renders «أغسطس 2026», and every day
+    // number in the grid below is ASCII. Same call CalendarMonthHeader and
+    // Habit Notes already settled on.
+    final monthLabel = westernDate(state.monthStart, 'MMMM y', locale);
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -63,15 +69,37 @@ class NightReviewHistoryScreen extends ConsumerWidget {
                   ),
                   Expanded(
                     child: Center(
-                      child: AnimatedSwitcher(
-                        duration: GameMotion.standard,
-                        child: Text(
-                          monthLabel,
-                          key: ValueKey(monthLabel),
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: gp.textPrimary,
+                      // Tappable, like every other month header in the app.
+                      child: InkWell(
+                        onTap: () => _pickMonth(context, ref, state),
+                        borderRadius:
+                            BorderRadius.circular(GameSpacing.pillRadius),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 6),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: AnimatedSwitcher(
+                                  duration: GameMotion.standard,
+                                  child: Text(
+                                    monthLabel,
+                                    key: ValueKey(monthLabel),
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      color: gp.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.expand_more_rounded,
+                                  size: 18, color: gp.textSec),
+                            ],
                           ),
                         ),
                       ),
@@ -534,4 +562,34 @@ class _DayDetailSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Opens the month picker for the Night Review calendar.
+Future<void> _pickMonth(
+  BuildContext context,
+  WidgetRef ref,
+  NightReviewHistoryState state,
+) async {
+  final now = DateTime.now().effectiveDay;
+  final currentMonth = DateTime(now.year, now.month, 1);
+  // One month is loaded at a time, so the visible month is the only floor
+  // this screen can prove; a year back keeps the list useful before anyone
+  // has arrowed anywhere.
+  final earliest = state.monthStart.isBefore(currentMonth)
+      ? state.monthStart
+      : DateTime(currentMonth.year - 1, currentMonth.month, 1);
+  final picked = await showMonthPicker(
+    context,
+    months: monthsBetween(earliest, currentMonth),
+    selected: state.monthStart,
+    isUnlocked: (month) => canBrowseHistoryMonth(
+      monthStart: month,
+      now: now,
+      isPremium: ref.read(premiumProvider),
+    ),
+    hasStory: (month) =>
+        month.isSameMonthAs(state.monthStart) && state.entries.isNotEmpty,
+  );
+  if (picked == null || !context.mounted) return;
+  ref.read(nightReviewHistoryProvider.notifier).goToMonth(picked);
 }

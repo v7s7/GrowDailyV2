@@ -215,18 +215,8 @@ const int _maxHistoryMonths = 240;
 /// Every month from [earliest] through [current] inclusive, newest first —
 /// what the month picker lists. Both ends are normalised to the first of
 /// the month, so callers may pass any day.
-List<DateTime> storyMonthsBetween(DateTime earliest, DateTime current) {
-  final floor = DateTime(earliest.year, earliest.month);
-  final ceiling = DateTime(current.year, current.month);
-  if (floor.isAfter(ceiling)) return [ceiling];
-  final months = <DateTime>[];
-  for (var m = ceiling;
-      !m.isBefore(floor);
-      m = DateTime(m.year, m.month - 1)) {
-    months.add(m);
-  }
-  return months;
-}
+List<DateTime> storyMonthsBetween(DateTime earliest, DateTime current) =>
+    monthsBetween(earliest, current);
 
 /// A shareable "your month in review" card — the monthly-grain, richer
 /// sibling of WeeklyRecapCard (grid/widgets/weekly_recap_card.dart), which

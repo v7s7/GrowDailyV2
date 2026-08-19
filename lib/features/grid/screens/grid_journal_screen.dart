@@ -13,6 +13,7 @@ import '../../habits/notifiers/custom_habits_notifier.dart'
 import '../../premium/notifiers/premium_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/grid_journal_notifier.dart';
+import '../../../shared/widgets/month_picker_sheet.dart';
 
 /// Read-only "browse everything I've ever written or skipped, later,
 /// nicely" screen for the notes and Skipped/Failed/Bonus marks left from
@@ -128,15 +129,39 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                   ),
                   Expanded(
                     child: Center(
-                      child: AnimatedSwitcher(
-                        duration: GameMotion.standard,
-                        child: Text(
-                          monthLabel,
-                          key: ValueKey(monthLabel),
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: gp.textPrimary,
+                      // Tap the month to pick one. The arrows move a month
+                      // per tap and say nothing about how far back the
+                      // journal goes; this title used to be a caption.
+                      child: InkWell(
+                        onTap: () => _pickMonth(context, ref, journal),
+                        borderRadius:
+                            BorderRadius.circular(GameSpacing.pillRadius),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 6),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: AnimatedSwitcher(
+                                  duration: GameMotion.standard,
+                                  child: Text(
+                                    monthLabel,
+                                    key: ValueKey(monthLabel),
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      color: gp.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.expand_more_rounded,
+                                  size: 18, color: gp.textSec),
+                            ],
                           ),
                         ),
                       ),
@@ -312,6 +337,44 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
 // kept as its own private copy here rather than shared, matching how this
 // codebase already treats other tiny per-screen widgets (e.g. Rooms' _Tag,
 // duplicated rather than factored out for something this small).
+
+/// Opens the month picker for Habit Notes and jumps to the choice.
+///
+/// The journal only holds months the person actually wrote in, so the
+/// picker's range runs from the earliest recorded entry - which also makes
+/// "how far back does this go" answerable, something two chevrons never
+/// could.
+Future<void> _pickMonth(
+  BuildContext context,
+  WidgetRef ref,
+  GridJournalState journal,
+) async {
+  final now = DateTime.now().effectiveDay;
+  final currentMonth = DateTime(now.year, now.month, 1);
+  // The journal loads one month at a time, so the visible month is the
+  // only floor it can prove. Anything earlier is still reachable by
+  // arrowing, and the picker grows as they go.
+  final earliest = journal.monthStart.isBefore(currentMonth)
+      ? journal.monthStart
+      : currentMonth.subtract(const Duration(days: 365));
+  final picked = await showMonthPicker(
+    context,
+    months: monthsBetween(earliest, currentMonth),
+    selected: journal.monthStart,
+    isUnlocked: (month) => canBrowseHistoryMonth(
+      monthStart: month,
+      now: now,
+      isPremium: ref.read(premiumProvider),
+    ),
+    // Only the loaded month's entries are known here, so every other month
+    // renders in the neutral "no story yet" style rather than claiming to
+    // be empty.
+    hasStory: (month) =>
+        month.isSameMonthAs(journal.monthStart) && journal.entries.isNotEmpty,
+  );
+  if (picked == null || !context.mounted) return;
+  ref.read(gridJournalProvider.notifier).goToMonth(picked);
+}
 
 class _NavArrow extends StatelessWidget {
   final IconData icon;

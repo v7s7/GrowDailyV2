@@ -199,6 +199,15 @@ class NightReviewHistoryNotifier extends StateNotifier<NightReviewHistoryState> 
     _goToMonth(DateTime(m.year, m.month + 1, 1));
   }
 
+  /// Jumps to any month, for the header's picker. Clamped to the current
+  /// month so a stale picker cannot strand the calendar in the future.
+  void goToMonth(DateTime month) {
+    final now = DateTime.now().effectiveDay;
+    final ceiling = DateTime(now.year, now.month, 1);
+    final target = DateTime(month.year, month.month, 1);
+    _goToMonth(target.isAfter(ceiling) ? ceiling : target);
+  }
+
   void _goToMonth(DateTime newMonth) {
     if (newMonth.isSameMonthAs(state.monthStart)) return;
     state = NightReviewHistoryState(
