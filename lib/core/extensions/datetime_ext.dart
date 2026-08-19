@@ -104,4 +104,19 @@ extension DateTimeGameExt on DateTime {
   /// like a completion timestamp).
   DateTime get effectiveDay =>
       subtract(const Duration(hours: kDayCutoffHour)).startOfDay;
+
+  /// The closing stretch of the CURRENT effective day: 6pm until the
+  /// cutoff. What "your streak is on the line" surfaces should key off.
+  ///
+  /// The obvious spelling, `hour >= 18`, silently stops being true at
+  /// midnight — and midnight is not when the day ends here. Someone up at
+  /// 1am still has five hours to save their streak, which is the entire
+  /// reason [kDayCutoffHour] exists, and the warning used to disappear on
+  /// them at exactly the moment it mattered most. It ran 18:00 to 23:59
+  /// and then went quiet for the six hours the cutoff had just granted.
+  ///
+  /// Deliberately a wrapped window (>= 18 OR < cutoff) rather than a
+  /// comparison against [effectiveDay]: those small hours belong to
+  /// yesterday's effective day, so they are late in it, not early.
+  bool get isDayClosing => hour >= 18 || hour < kDayCutoffHour;
 }

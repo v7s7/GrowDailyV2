@@ -14,7 +14,11 @@ class _StreakAtRiskBanner extends ConsumerWidget {
     final grid = ref.watch(weeklyGridProvider);
     final habits = ref.watch(habitListProvider);
 
-    final isEvening = DateTime.now().hour >= 18;
+    // Runs through to the 6am cutoff, not to midnight - see isDayClosing.
+    // The streak this warns about does not expire at 00:00, so neither
+    // does the warning: someone still up at 1am has five hours left to
+    // save it, and that is exactly who the cutoff exists for.
+    final isEvening = DateTime.now().isDayClosing;
     if (!isEvening ||
         dash.streak <= 0 ||
         habits.isEmpty ||
@@ -84,7 +88,11 @@ class _NightReviewPromptCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final review = ref.watch(nightReviewProvider);
-    final isEvening = DateTime.now().hour >= 18;
+    // Same wrapped window as the streak card above. NightReviewNotifier
+    // already keys tonight's entry by effectiveDay, so at 1am the review
+    // this offers is still the current day's - the prompt used to vanish
+    // at midnight while the thing it opens stayed open.
+    final isEvening = DateTime.now().isDayClosing;
     if (review.isLoading || review.saved || !isEvening) {
       return const SizedBox.shrink();
     }

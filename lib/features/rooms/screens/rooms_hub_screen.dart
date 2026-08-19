@@ -318,6 +318,9 @@ class _RoomListTile extends ConsumerWidget {
     // still-loading), quietly drop the dead code from this account's own
     // list instead of leaving a tile that can never open. See
     // RoomsController.forgetRoom's doc comment.
+    // Kept for the case it was written for — a room deleted while this
+    // list is on screen — but it is NOT what heals a code that was already
+    // dead when the screen opened. See the data branch below.
     ref.listen(roomProvider(code), (previous, next) {
       if (next.hasValue && next.value == null) {
         ref.read(roomsControllerProvider).forgetRoom(code);
@@ -355,7 +358,32 @@ class _RoomListTile extends ConsumerWidget {
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
       data: (room) {
-        if (room == null) return const SizedBox.shrink();
+        if (room == null) {
+          // The heal that actually fires. The listener above only reports
+          // CHANGES after it registers, and this provider has almost
+          // always settled long before this tile builds:
+          // myLinkedRoomHabitsProvider watches roomProvider for every code
+          // the account has and is held alive app-wide from the first
+          // frame by Grid's room-badge column. So a dead room's
+          // loading -> data(null) transition happens once, early, with
+          // nobody listening, and the tile then rendered an invisible
+          // nothing forever without ever cleaning the code up.
+          //
+          // The symptom was a room count that would not come down: the
+          // profile's Rooms badge counts raw codes while the hub renders
+          // one tile per code, so a room its leader had deleted showed as
+          // five rooms in the badge and four on the screen, permanently.
+          //
+          // Post-frame because this is a build method, and through a
+          // controller captured now rather than a later ref.read, so it
+          // stays valid if the tile is gone by then. forgetRoom is an
+          // arrayRemove, so repeating it is harmless.
+          final controller = ref.read(roomsControllerProvider);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            controller.forgetRoom(code);
+          });
+          return const SizedBox.shrink();
+        }
         final uid = ref.watch(authStateProvider).asData?.value?.uid;
         final participants = ref.watch(roomParticipantsProvider(code)).valueOrNull;
         final mine = participants?.where((p) => p.uid == uid);
