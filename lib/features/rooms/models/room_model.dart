@@ -132,7 +132,8 @@ class RoomHabitRule {
         'from': from,
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
-        if (scheduledWeekdays.isNotEmpty) 'scheduledWeekdays': scheduledWeekdays,
+        if (scheduledWeekdays.isNotEmpty)
+          'scheduledWeekdays': scheduledWeekdays,
       };
 
   factory RoomHabitRule.fromMap(Map<String, dynamic> d) => RoomHabitRule(
@@ -210,8 +211,9 @@ class RoomHabitTemplate {
         name: (d['name'] as String?) ?? '',
         category: HabitCategory.fromJson(d['category'] as String? ?? 'custom'),
         iconColorHex: d['iconColorHex'] as String?,
-        frequencyType:
-            HabitFrequencyType.fromJson(d['frequencyType'] as String? ?? 'daily'),
+        frequencyType: HabitFrequencyType.fromJson(
+          d['frequencyType'] as String? ?? 'daily',
+        ),
         frequencyTarget: d['frequencyTarget'] as int? ?? 1,
         addedAt: (d['addedAt'] as Timestamp?)?.toDate(),
         removedAt: (d['removedAt'] as Timestamp?)?.toDate(),
@@ -253,6 +255,31 @@ class RoomModel {
   /// Null when [duration] is [RoomDuration.open] - the room never locks.
   /// Always midnight-aligned when set.
   final DateTime? endDate;
+
+  /// Date-key ranges the room was NOT running — the dead time between a
+  /// room ending and a leader extending it.
+  ///
+  /// Extending used to simply push endDate out from today, which silently
+  /// swept every dead day into the denominator: a room that ended on the
+  /// 14th and was extended on the 17th handed all three members three fresh
+  /// misses for days the room did not exist. Everyone's percentage dropped
+  /// the instant the leader tapped extend, which made extending feel like a
+  /// punishment for the group.
+  ///
+  /// A paused day is excluded from BOTH sides — it is not elapsed and it is
+  /// not missed. Nobody was asked for anything, so nobody owes anything.
+  /// That is the only reading that leaves an extension score-neutral, which
+  /// is what makes it safe to offer at all.
+  ///
+  /// Stored as `[{from, to}]` inclusive date keys, oldest first. Empty for
+  /// every room that has never been extended, so this is additive: existing
+  /// rooms score exactly as they did before.
+  final List<({String from, String to})> pausedSpans;
+
+  /// Whether [dateKey] falls inside any paused span.
+  bool isPausedOn(String dateKey) => pausedSpans.any(
+        (s) => dateKey.compareTo(s.from) >= 0 && dateKey.compareTo(s.to) <= 0,
+      );
 
   /// Denormalized headcount so a "my rooms" list can show it without a
   /// second read per room - kept in sync by RoomsController.joinRoom/
@@ -302,6 +329,7 @@ class RoomModel {
     required this.duration,
     required this.startDate,
     this.endDate,
+    this.pausedSpans = const [],
     this.memberCount = 1,
     this.status = 'active',
     this.lengthDays,
@@ -340,6 +368,24 @@ class RoomModel {
   /// The last day progress counts toward this room - today, unless the room
   /// already ended (a room that ended 3 days ago shouldn't keep crediting
   /// completions logged after the fact).
+  /// Tolerant of anything that isn't the shape we wrote — a malformed entry
+  /// is dropped rather than failing the whole room's load, same posture as
+  /// _remindersFrom on MatrixTask.
+  static List<({String from, String to})> _pausedFrom(Object? raw) {
+    if (raw is! List) return const [];
+    final out = <({String from, String to})>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final from = e['from'];
+      final to = e['to'];
+      if (from is String && to is String && from.compareTo(to) <= 0) {
+        out.add((from: from, to: to));
+      }
+    }
+    out.sort((a, b) => a.from.compareTo(b.from));
+    return List.unmodifiable(out);
+  }
+
   DateTime get lastCountedDay {
     final today = DateTime.now().effectiveDay;
     final end = endDate;
@@ -365,7 +411,22 @@ class RoomModel {
   int get daysElapsed {
     final last = lastCountedDay;
     if (last.isBefore(startDate)) return 1;
-    return last.difference(startDate).inDays + 1;
+    final span = last.difference(startDate).inDays + 1;
+    if (pausedSpans.isEmpty) return span;
+    // Paused days are excluded here for the same reason
+    // RoomParticipant.daysElapsedIn excludes them: the room wasn't running.
+    // These two MUST agree — the team card divides a pause-aware numerator
+    // (teamDaysCompleted, built from daysCompleted) by this, so leaving it
+    // as the raw calendar span made the team percentage contradict every
+    // row underneath it: 88% per member above 47% for the team.
+    var paused = 0;
+    for (var d = startDate;
+        !d.isAfter(last);
+        d = d.add(const Duration(days: 1))) {
+      if (isPausedOn(d.toDateKey())) paused++;
+    }
+    final live = span - paused;
+    return live < 1 ? 1 : live;
   }
 
   factory RoomModel.fromFirestore(
@@ -381,13 +442,16 @@ class RoomModel {
       habitMode: RoomHabitMode.fromJson(d['habitMode'] as String?),
       sharedHabits: (d['sharedHabits'] as List?)
               ?.whereType<Map>()
-              .map((m) => RoomHabitTemplate.fromMap(Map<String, dynamic>.from(m)))
+              .map(
+                (m) => RoomHabitTemplate.fromMap(Map<String, dynamic>.from(m)),
+              )
               .toList() ??
           const [],
       duration: RoomDuration.fromJson(d['duration'] as String?),
       startDate: (d['startDate'] as Timestamp?)?.toDate() ??
           DateTime.now().effectiveDay,
       endDate: (d['endDate'] as Timestamp?)?.toDate(),
+      pausedSpans: _pausedFrom(d['pausedSpans']),
       memberCount: (d['memberCount'] as int?) ?? 1,
       // Pre-lobby-era rooms have no status field and were born active.
       status: (d['status'] as String?) ?? 'active',
@@ -408,6 +472,10 @@ class RoomModel {
         'duration': duration.toJson(),
         'startDate': Timestamp.fromDate(startDate),
         if (endDate != null) 'endDate': Timestamp.fromDate(endDate!),
+        if (pausedSpans.isNotEmpty)
+          'pausedSpans': [
+            for (final s in pausedSpans) {'from': s.from, 'to': s.to},
+          ],
         'memberCount': memberCount,
         'status': status,
         if (lengthDays != null) 'lengthDays': lengthDays,
@@ -510,7 +578,6 @@ class RoomParticipant {
   /// One entry per week rather than per day, so this stays small even for a
   /// long-running room.
   final List<String> quotaOkWeeks;
-
 
   /// habitId -> the cadence periods this room grades that habit by, oldest
   /// first (see [RoomHabitRule]). This is the room's own frozen copy of each
@@ -845,7 +912,18 @@ class RoomParticipant {
     final start = countedStartIn(room);
     final last = room.lastCountedDay;
     if (last.isBefore(start)) return 1;
-    return last.difference(start).inDays + 1;
+    final span = last.difference(start).inDays + 1;
+    if (room.pausedSpans.isEmpty) return span;
+    // Paused days are not elapsed — the room wasn't running, so they were
+    // never anyone's to keep. Counted by walking rather than by subtracting
+    // span lengths, so a span that only partly overlaps this participant's
+    // own window (a late joiner) is handled without special-casing.
+    var paused = 0;
+    for (var d = start; !d.isAfter(last); d = d.add(const Duration(days: 1))) {
+      if (room.isPausedOn(d.toDateKey())) paused++;
+    }
+    final live = span - paused;
+    return live < 1 ? 1 : live;
   }
 
   double daysCompleted(RoomModel room) {
@@ -853,7 +931,11 @@ class RoomParticipant {
     var day = countedStartIn(room);
     final last = room.lastCountedDay;
     while (!day.isAfter(last)) {
-      total += creditFor(day.toDateKey());
+      final key = day.toDateKey();
+      // Skipped on both sides, matching daysElapsedIn — a paused day adds
+      // nothing to the numerator and nothing to the denominator, so an
+      // extension leaves every existing percentage exactly where it was.
+      if (!room.isPausedOn(key)) total += creditFor(key);
       day = day.add(const Duration(days: 1));
     }
     return total;
@@ -970,8 +1052,10 @@ class RoomParticipant {
               k.toString(),
               (v as List?)
                       ?.whereType<Map>()
-                      .map((m) => RoomHabitRule.fromMap(
-                          Map<String, dynamic>.from(m)))
+                      .map(
+                        (m) =>
+                            RoomHabitRule.fromMap(Map<String, dynamic>.from(m)),
+                      )
                       .where((r) => r.from.isNotEmpty)
                       .toList() ??
                   const <RoomHabitRule>[],
@@ -1087,8 +1171,8 @@ extension RoomTeamProgress on RoomModel {
     if (participants.isEmpty) return 0;
     final maxPossible = participants.length * daysElapsed;
     if (maxPossible <= 0) return 0;
-    final total = participants.fold<double>(
-        0, (sum, p) => sum + p.daysCompleted(this));
+    final total =
+        participants.fold<double>(0, (sum, p) => sum + p.daysCompleted(this));
     return (total / maxPossible).clamp(0.0, 1.0);
   }
 
@@ -1097,8 +1181,9 @@ extension RoomTeamProgress on RoomModel {
   /// numbers ("14 of 20") alongside the percentage rather than just the
   /// bar. Rounded for display; the bar itself still fills from the exact
   /// fraction.
-  int teamDaysCompleted(List<RoomParticipant> participants) =>
-      participants.fold<double>(0, (sum, p) => sum + p.daysCompleted(this)).round();
+  int teamDaysCompleted(List<RoomParticipant> participants) => participants
+      .fold<double>(0, (sum, p) => sum + p.daysCompleted(this))
+      .round();
 
   int teamMaxPossibleDays(List<RoomParticipant> participants) =>
       participants.length * daysElapsed;

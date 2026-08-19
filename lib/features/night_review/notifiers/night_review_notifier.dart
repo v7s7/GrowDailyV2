@@ -48,6 +48,25 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
     _load();
   }
 
+  /// The app day the current state was loaded for, so a session left open
+  /// across midnight can tell that its answers belong to yesterday.
+  String? _loadedDay;
+
+  /// Reloads if the app day has rolled over since the last load.
+  ///
+  /// This notifier loads exactly once, in its constructor, and is not
+  /// autoDispose — so an app left running overnight kept yesterday's mood
+  /// and reflection in memory and, because `saved` was still true, silently
+  /// suppressed tonight's prompt. Worse, opening the sheet showed
+  /// yesterday's text as if it were today's, and saving wrote it against the
+  /// new day. Called from the app-resume path, which is when a rollover is
+  /// actually observable.
+  void refreshIfDayChanged() {
+    if (_loadedDay == null || _loadedDay == _todayKey) return;
+    state = const NightReviewState();
+    _load();
+  }
+
   static String get _todayKey => DateTime.now().effectiveDay.toDateKey();
 
   DocumentReference<Map<String, dynamic>> get _dailyRef => FirebaseFirestore
@@ -67,6 +86,7 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
         d = await LocalStoreService.getDailyMap(_todayKey);
       }
       if (!mounted) return;
+      _loadedDay = _todayKey;
       state = NightReviewState(
         mood: Mood.fromJsonOrNull(d['mood'] as String?),
         reflection: d['dailyReflection'] as String? ?? '',
@@ -74,7 +94,10 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
         isLoading: false,
       );
     } catch (_) {
-      if (mounted) state = state.copyWith(isLoading: false);
+      if (mounted) {
+        _loadedDay = _todayKey;
+        state = state.copyWith(isLoading: false);
+      }
     }
   }
 

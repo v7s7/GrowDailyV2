@@ -90,6 +90,22 @@ class PushNotificationService {
     // main.dart's _initDeepLinks uses for a cold-start growdaily:// link.
     final initial = await FirebaseMessaging.instance.getInitialMessage();
     if (initial != null) _onMessageOpenedApp(initial);
+
+    // Sync the token now that permission actually exists.
+    //
+    // Without this, no device ever registers one. [registerForUser] runs
+    // from main.dart's auth listener at launch — long before this prompt —
+    // and on iOS getToken() returns null until APNs registration has
+    // happened, which only follows the permission grant. So the launch-time
+    // sync writes nothing, and the only other trigger is onTokenRefresh,
+    // which fires when a token CHANGES and not when the first one is
+    // issued. The result was an empty users/{uid}/fcmTokens for everyone:
+    // notifyRoomFinish ran correctly, found no delivery target, and sent
+    // zero pushes — indistinguishable from the feature being switched off.
+    //
+    // Safe to call unconditionally: _syncToken no-ops without a uid, and
+    // no-ops again if the token is unchanged.
+    await _syncToken();
   }
 
   /// Registers (or re-registers) this device's FCM token for [uid] and
@@ -110,6 +126,27 @@ class PushNotificationService {
     final uid = _uid;
     if (uid == null) return;
     try {
+      // On iOS an FCM token cannot exist until APNs has issued one, and that
+      // arrives asynchronously some time AFTER the permission grant. A single
+      // check right after requestPermission() legitimately returns null, and
+      // giving up there is what left every account with an empty fcmTokens
+      // collection — notifyRoomFinish then ran correctly and delivered to
+      // nobody, which looks exactly like the feature being switched off.
+      //
+      // So poll briefly rather than bail. ~5s total is far longer than the
+      // grant normally takes and costs nothing when the token is already
+      // there (first iteration wins). Still gives up eventually: on the
+      // Simulator, or with permission denied, APNs never issues one and
+      // there is genuinely nothing to register.
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        String? apns;
+        for (var i = 0; i < 10; i++) {
+          apns = await FirebaseMessaging.instance.getAPNSToken();
+          if (apns != null) break;
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+        if (apns == null) return;
+      }
       final token = await FirebaseMessaging.instance.getToken();
       if (token == null || token == _lastToken) return;
       _lastToken = token;

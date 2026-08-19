@@ -127,6 +127,20 @@ class NotificationSettings {
   /// in-app celebration moments.
   final bool roomActivityEnabled;
 
+  /// The playful "they finished, still waiting on you" nudge, which replaces
+  /// the neutral room message for someone who has not finished yet.
+  ///
+  /// OFF by default, and deliberately so. It is the one notification in this
+  /// app that comments on what you have NOT done, and the habits here are
+  /// صلاة and أذكار rather than gym sets — meeting that unasked reads as the
+  /// app scolding you about worship. Opt-in means the only people who get it
+  /// are the ones who thought it sounded fun.
+  ///
+  /// The server applies the rest of the guard rails (small rooms only, never
+  /// to someone already finished, not late in their evening) — see
+  /// nudgeAllowed in functions/index.js.
+  final bool roomNudgesEnabled;
+
   final bool quietHoursEnabled;
   final TimeOfDay quietHoursStart;
   final TimeOfDay quietHoursEnd;
@@ -178,6 +192,7 @@ class NotificationSettings {
     this.bundleEnabled = true,
     this.weeklyDigestEnabled = true,
     this.roomActivityEnabled = true,
+    this.roomNudgesEnabled = false,
     this.quietHoursEnabled = true,
     this.quietHoursStart = const TimeOfDay(hour: 22, minute: 0),
     this.quietHoursEnd = const TimeOfDay(hour: 7, minute: 0),
@@ -199,6 +214,7 @@ class NotificationSettings {
     bool? bundleEnabled,
     bool? weeklyDigestEnabled,
     bool? roomActivityEnabled,
+    bool? roomNudgesEnabled,
     bool? quietHoursEnabled,
     TimeOfDay? quietHoursStart,
     TimeOfDay? quietHoursEnd,
@@ -228,6 +244,7 @@ class NotificationSettings {
         bundleEnabled: bundleEnabled ?? this.bundleEnabled,
         weeklyDigestEnabled: weeklyDigestEnabled ?? this.weeklyDigestEnabled,
         roomActivityEnabled: roomActivityEnabled ?? this.roomActivityEnabled,
+        roomNudgesEnabled: roomNudgesEnabled ?? this.roomNudgesEnabled,
         quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
         quietHoursStart: quietHoursStart ?? this.quietHoursStart,
         quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
@@ -250,6 +267,7 @@ class NotificationSettings {
         'bundleEnabled': bundleEnabled,
         'weeklyDigestEnabled': weeklyDigestEnabled,
         'roomActivityEnabled': roomActivityEnabled,
+        'roomNudgesEnabled': roomNudgesEnabled,
         'quietHoursEnabled': quietHoursEnabled,
         'quietHoursStart': _timeToMap(quietHoursStart),
         'quietHoursEnd': _timeToMap(quietHoursEnd),
@@ -278,6 +296,8 @@ class NotificationSettings {
           defaults.weeklyDigestEnabled,
       roomActivityEnabled:
           map['roomActivityEnabled'] as bool? ?? defaults.roomActivityEnabled,
+      roomNudgesEnabled:
+          map['roomNudgesEnabled'] as bool? ?? defaults.roomNudgesEnabled,
       quietHoursEnabled:
           map['quietHoursEnabled'] as bool? ?? defaults.quietHoursEnabled,
       quietHoursStart:

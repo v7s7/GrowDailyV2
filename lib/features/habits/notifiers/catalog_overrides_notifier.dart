@@ -130,6 +130,21 @@ const String kCatalogOverridesKey = 'catalog_habit_overrides_v1';
 class CatalogOverridesNotifier
     extends StateNotifier<Map<String, CatalogHabitOverride>> {
   final String? _uid;
+
+  /// True until the first load settles, exactly like CustomHabitsNotifier's.
+  ///
+  /// Without it, `const {}` — the state before anything has been read — is
+  /// indistinguishable from "this person has never edited a preset", and a
+  /// preset then resolves to its CATALOG default rather than the cadence the
+  /// member actually set. That is not merely a display glitch: a room freezes
+  /// its grading rule from the resolved habit exactly once and never revisits
+  /// it, so a 4x/week preset caught mid-load is sealed as daily/1 and that
+  /// member is mis-graded for the life of the room. Same failure that wiped a
+  /// real member's rest days in production; this is the half the first fix
+  /// missed, because habitsStillLoadingProvider never watched this notifier.
+  bool get isLoading => _isLoading;
+  bool _isLoading = true;
+
   CatalogOverridesNotifier(this._uid) : super(const {}) {
     _load();
   }
@@ -151,16 +166,22 @@ class CatalogOverridesNotifier
         final snap = await _userRef.get();
         final raw = snap.data()?[kCatalogOverridesKey];
         if (!mounted) return;
+        _isLoading = false;
         state = _parse(raw);
         return;
       }
       final box = await LocalStoreService.settingsBox();
       if (!mounted) return;
+      _isLoading = false;
       state = _parse(box.get(kCatalogOverridesKey));
     } catch (_) {
       // Offline or a malformed doc: presets simply behave as their catalog
       // defaults until the next successful load. Never a crash on boot.
       if (!mounted) return;
+      // Cleared even on failure: a read that threw has settled as much as it
+      // ever will, and leaving this true would block room grading forever
+      // for anyone who booted offline once.
+      _isLoading = false;
       state = const {};
     }
   }

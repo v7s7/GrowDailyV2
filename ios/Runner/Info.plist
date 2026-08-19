@@ -80,18 +80,22 @@
 	<string>Main</string>
 	<key>UIStatusBarHidden</key>
 	<false/>
+	<!-- Portrait only, matching main.dart's setPreferredOrientations lock.
+	     These used to allow landscape while the Dart side forbade it, so
+	     the plist and the app disagreed: iOS consults this BEFORE main()
+	     runs, which meant launching a device held sideways drew the launch
+	     screen rotated and then snapped upright. The ~ipad array is kept
+	     and kept portrait rather than deleted: this ships as an
+	     iPhone-only binary (TARGETED_DEVICE_FAMILY = 1), so it still runs
+	     on iPad in compatibility mode, and an array left declaring all
+	     four orientations would quietly reintroduce landscape there. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 </dict>
 </plist>

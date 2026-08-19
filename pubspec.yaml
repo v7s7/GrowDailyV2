@@ -1,7 +1,7 @@
 name: grow_daily_v2
 description: "GrowDaily V2 — a visual life progress system. Color your life, one square at a time."
 publish_to: 'none'
-version: 1.0.0+53
+version: 1.0.0+54
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -246,6 +246,19 @@ flutter:
     - assets/images/character/
     - assets/images/accessories/
     - assets/icons/
+    - assets/prayer/
+    # Bundled copies of the two GoogleFonts families the themes use, in the
+    # exact filenames google_fonts resolves (FamilyName-Variant.ttf). The
+    # package checks bundled assets BEFORE the network, so with these
+    # present it never fetches from fonts.gstatic.com at runtime. Without
+    # them, every fresh install downloaded its typography on first launch:
+    # a reviewer on bad hotel wifi saw the whole first session in iOS
+    # fallback type (Arabic in Geeza Pro instead of IBM Plex Sans Arabic),
+    # and each missed fetch was logged to Crashlytics as a FATAL, polluting
+    # crash-free-users from day one. ~1.3MB for typographic determinism.
+    # IBM Plex Sans Arabic has no 800/900 cuts; google_fonts resolves those
+    # requests to Bold(700), which is bundled.
+    - google_fonts/
 
 # ── App icon generation ──────────────────────────────────────────
 # Run once (and again any time icon_app.png changes):

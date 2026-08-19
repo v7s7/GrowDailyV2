@@ -5,9 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/utils/text_moderation.dart';
+import '../../../core/constants/deep_links.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../../character/models/character_option.dart';
 import '../../character/notifiers/character_notifier.dart';
 import '../../character/notifiers/prestige_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
@@ -18,7 +21,6 @@ import '../../habits/models/habit_model.dart';
 import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
-import '../../../core/constants/deep_links.dart';
 
 /// This account's room codes, streamed live from `users/{uid}.roomCodes` so
 /// RoomsHubScreen updates the instant a create/join/leave lands - no
@@ -32,9 +34,13 @@ final myRoomCodesProvider = StreamProvider<List<String>>((ref) {
       .collection('users')
       .doc(uid)
       .snapshots()
-      .map((snap) =>
-          (snap.data()?['roomCodes'] as List?)?.whereType<String>().toList() ??
-          const <String>[]);
+      .map(
+        (snap) =>
+            (snap.data()?['roomCodes'] as List?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
+      );
 });
 
 /// This account's starred room codes, streamed live from
@@ -54,11 +60,13 @@ final myStarredRoomCodesProvider = StreamProvider<List<String>>((ref) {
       .collection('users')
       .doc(uid)
       .snapshots()
-      .map((snap) =>
-          (snap.data()?['starredRoomCodes'] as List?)
-              ?.whereType<String>()
-              .toList() ??
-          const <String>[]);
+      .map(
+        (snap) =>
+            (snap.data()?['starredRoomCodes'] as List?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
+      );
 });
 
 /// Stable-partitions [codes] so every starred one comes first, each group
@@ -253,7 +261,8 @@ final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
   if (participants.isEmpty) return null;
 
   final ranked = [...participants]..sort(
-      (a, b) => b.progressRatio(bestRoom).compareTo(a.progressRatio(bestRoom)));
+      (a, b) => b.progressRatio(bestRoom).compareTo(a.progressRatio(bestRoom)),
+    );
 
   // Same trailing window every row's heatmap is built from - computed once
   // here rather than per-row, since it only depends on the room, not the
@@ -573,10 +582,29 @@ RoomParticipant? nextLeaderAfter(
 (List<String>, List<String>) removeLinkedHabit(
   List<String> linkedHabitIds,
   List<String> linkedHabitNames,
-  String habitId,
-) {
+  String habitId, {
+  /// True in a SHARED room, where linkedHabitIds is index-for-index parallel
+  /// with RoomModel.sharedHabits and every read site in the feature relies
+  /// on that (see kDeclinedSlot's doc comment).
+  ///
+  /// Deleting the entry shifts every later slot down one, so slot[1]'s habit
+  /// silently starts being graded against slot[0]'s frozen rule — a member
+  /// who unlinks the first of three shared habits gets the wrong cadence
+  /// applied to the other two, permanently and invisibly. It also shortens
+  /// the list, which is the exact condition the unresolved-plan banner reads
+  /// as "hasn't decided yet", so the slot reappears as an unanswered prompt.
+  /// The sentinel keeps the position and counts for nothing.
+  bool preserveSlots = false,
+}) {
   final idx = linkedHabitIds.indexOf(habitId);
   if (idx < 0) return (linkedHabitIds, linkedHabitNames);
+  if (preserveSlots) {
+    final ids = [...linkedHabitIds]..[idx] = kDeclinedSlot;
+    final names = idx < linkedHabitNames.length
+        ? ([...linkedHabitNames]..[idx] = '')
+        : linkedHabitNames;
+    return (ids, names);
+  }
   final ids = [...linkedHabitIds]..removeAt(idx);
   // Older docs could in theory have a names list that's already shorter
   // than ids (never expected going forward, but cheap to guard) - only
@@ -895,9 +923,15 @@ class RoomsController {
     final dashboard = _ref.read(dashboardProvider);
     final savedName = dashboard.displayName.trim();
     final email = _ref.read(authStateProvider).asData?.value?.email;
-    final displayName = savedName.isNotEmpty
+    // Every branch here ends up on a public leaderboard, so every branch
+    // is screened. savedName went through setDisplayName's filter when it
+    // was set, but screening again costs nothing and covers names saved
+    // before the filter existed; the email local-part never met any filter
+    // at all (see _createUserDoc for the same reasoning at the seed).
+    final rawName = savedName.isNotEmpty
         ? savedName
         : (email?.split('@').first ?? 'Warrior');
+    final displayName = isObjectionable(rawName) ? 'Warrior' : rawName;
     final character = _ref.read(characterProvider);
     // Same cosmetic mirror as characterId/accessoryId above - the real
     // source of truth stays prestigeProvider/DashboardState.level; this is
@@ -910,11 +944,89 @@ class RoomsController {
         _ref.read(prestigeProvider).displayedTier(dashboard.level).id;
     return {
       'displayName': displayName,
-      'characterId': character.characterId,
-      if (character.equippedAccessoryId != null)
+      // Omitted entirely while the character is still loading, rather than
+      // written as whatever CharacterState's constructor defaults to.
+      //
+      // This was a real, visible bug: `_ref.read(characterProvider)` CREATES
+      // the notifier on first read and returns `const CharacterState()`
+      // synchronously — characterId 'male_ghutra_blue', isLoading true —
+      // while its `_load()` is still in flight. Every sync that ran before
+      // anything had rendered the Profile hero (app resume, a deep link, or
+      // ticking a linked habit from the Grid) therefore *overwrote* the
+      // member's real character with the male default, and the leaderboard
+      // then faithfully drew a man for someone who had picked otherwise.
+      // The Profile hero already guards on isLoading for exactly this
+      // reason; this call site trusted the same state blindly.
+      //
+      // Leaving the key out is what makes it safe: these go through
+      // SetOptions(merge: true) / update(), so an absent key preserves
+      // whatever is already stored, and a genuinely-unknown id is already
+      // handled downstream (RoomParticipant reads '' and the leaderboard
+      // falls back to a neutral silhouette).
+      if (!character.isLoading) 'characterId': character.characterId,
+      // Gender, mirrored purely so the room-finish push can be written in
+      // correct Arabic.
+      //
+      // Arabic verbs agree with the subject, and functions/index.js had only
+      // a masculine form: a woman finishing her habits was announced as
+      // «أنهى عاداته» — "he finished HIS habits". The Cloud Function has no
+      // access to the Dart character catalog, and inferring from the id's
+      // "male_"/"female_" prefix would silently break the first time an id
+      // is renamed. So resolve it here, where the catalog actually lives.
+      //
+      // Gated on isLoading for the same reason characterId is, and omitted
+      // rather than defaulted when the character is unknown — the function
+      // falls back to neutral phrasing, which is better than confidently
+      // misgendering someone.
+      if (!character.isLoading)
+        'gender':
+            CharacterCatalog.findById(character.characterId)?.gender.name,
+      if (!character.isLoading && character.equippedAccessoryId != null)
         'accessoryId': character.equippedAccessoryId,
       'prestigeTierId': prestigeTierId,
     };
+  }
+
+  /// Re-writes this user's character onto every room they're in, once the
+  /// character is genuinely loaded.
+  ///
+  /// The repair half of the fix above. Stopping the bad write protects
+  /// rooms from here on, but it does nothing for the docs already corrupted
+  /// — those keep showing the male default until something happens to
+  /// rewrite them, and nothing routinely does. This runs after a confirmed
+  /// load and fixes them in place.
+  ///
+  /// Cheap and idempotent: one merge-set per room the user belongs to,
+  /// writing two cosmetic fields, and a no-op once the stored value already
+  /// agrees. Failures are swallowed on purpose — a cosmetic backfill must
+  /// never surface an error over a screen the user didn't ask it from.
+  Future<void> repairMyCharacterEverywhere() async {
+    final uid = _uid;
+    if (uid == null) return;
+    final character = _ref.read(characterProvider);
+    if (character.isLoading || character.characterId.isEmpty) return;
+    final codes =
+        _ref.read(myRoomCodesProvider).valueOrNull ?? const <String>[];
+    for (final code in codes) {
+      final roster = _ref.read(roomParticipantsProvider(code)).valueOrNull;
+      final mine = roster?.where((p) => p.uid == uid).firstOrNull;
+      // No roster loaded yet, or already correct — nothing to repair. The
+      // next call picks it up once the stream has data.
+      if (mine == null) continue;
+      if (mine.characterId == character.characterId) continue;
+      try {
+        await _rooms.doc(code).collection('participants').doc(uid).set(
+          {
+            'characterId': character.characterId,
+            if (character.equippedAccessoryId != null)
+              'accessoryId': character.equippedAccessoryId,
+          },
+          SetOptions(merge: true),
+        );
+      } catch (_) {
+        // Cosmetic only — see the doc comment.
+      }
+    }
   }
 
   /// Generates codes until one isn't already taken. Collisions are
@@ -981,17 +1093,18 @@ class RoomsController {
       createdAt: DateTime.now(),
       habitMode: habitMode,
       sharedHabits: planHabits
-          .map((h) => RoomHabitTemplate(
-                name: h.name,
-                category: h.category,
-                iconColorHex: h.iconColorHex,
-                frequencyType: h.frequencyType,
-                frequencyTarget: h.frequencyTarget,
-              ))
+          .map(
+            (h) => RoomHabitTemplate(
+              name: h.name,
+              category: h.category,
+              iconColorHex: h.iconColorHex,
+              frequencyType: h.frequencyType,
+              frequencyTarget: h.frequencyTarget,
+            ),
+          )
           .toList(),
       duration: duration,
       startDate: startDate,
-      endDate: null,
       status: 'lobby',
       lengthDays: duration == RoomDuration.fixed ? lengthDays : null,
       competeMode: competeMode,
@@ -1018,9 +1131,12 @@ class RoomsController {
         .collection('participants')
         .doc(uid)
         .set(participant.toFirestore());
-    await _userRef(uid).set({
-      'roomCodes': FieldValue.arrayUnion([code]),
-    }, SetOptions(merge: true));
+    await _userRef(uid).set(
+      {
+        'roomCodes': FieldValue.arrayUnion([code]),
+      },
+      SetOptions(merge: true),
+    );
     // Immediate sync so today's progress (if already done before the room
     // even existed) shows up right away instead of waiting for the next
     // Grid tap or Room Detail open.
@@ -1121,13 +1237,16 @@ class RoomsController {
     }
 
     if (existing.exists) {
-      await participantRef.set({
-        ...profile,
-        if (resolvedIds.isNotEmpty) ...{
-          'linkedHabitIds': resolvedIds,
-          'linkedHabitNames': resolvedNames,
+      await participantRef.set(
+        {
+          ...profile,
+          if (resolvedIds.isNotEmpty) ...{
+            'linkedHabitIds': resolvedIds,
+            'linkedHabitNames': resolvedNames,
+          },
         },
-      }, SetOptions(merge: true));
+        SetOptions(merge: true),
+      );
       await syncLinkedHabitsProgress(room);
       return true;
     }
@@ -1149,12 +1268,18 @@ class RoomsController {
       lastUpdated: DateTime.now(),
     );
     await participantRef.set(participant.toFirestore());
-    await _rooms.doc(room.code).set({
-      'memberCount': FieldValue.increment(1),
-    }, SetOptions(merge: true));
-    await _userRef(uid).set({
-      'roomCodes': FieldValue.arrayUnion([room.code]),
-    }, SetOptions(merge: true));
+    await _rooms.doc(room.code).set(
+      {
+        'memberCount': FieldValue.increment(1),
+      },
+      SetOptions(merge: true),
+    );
+    await _userRef(uid).set(
+      {
+        'roomCodes': FieldValue.arrayUnion([room.code]),
+      },
+      SetOptions(merge: true),
+    );
     if (resolvedIds.isNotEmpty) await syncLinkedHabitsProgress(room);
     return true;
   }
@@ -1211,10 +1336,13 @@ class RoomsController {
       ids.add(id);
       names.add(name);
     }
-    await participantRef.set({
-      'linkedHabitIds': ids,
-      'linkedHabitNames': names,
-    }, SetOptions(merge: true));
+    await participantRef.set(
+      {
+        'linkedHabitIds': ids,
+        'linkedHabitNames': names,
+      },
+      SetOptions(merge: true),
+    );
     await syncLinkedHabitsProgress(room);
   }
 
@@ -1256,9 +1384,12 @@ class RoomsController {
       frequencyTarget: habit.frequencyTarget,
       addedAt: DateTime.now(),
     );
-    await _rooms.doc(room.code).set({
-      'sharedHabits': FieldValue.arrayUnion([template.toFirestore()]),
-    }, SetOptions(merge: true));
+    await _rooms.doc(room.code).set(
+      {
+        'sharedHabits': FieldValue.arrayUnion([template.toFirestore()]),
+      },
+      SetOptions(merge: true),
+    );
 
     final participantRef =
         _rooms.doc(room.code).collection('participants').doc(uid);
@@ -1269,10 +1400,13 @@ class RoomsController {
       // leader too - same defensive positional check as resolvePlanHabit,
       // in case their own doc is somehow already out of sync.
       if (participant.linkedHabitIds.length == room.sharedHabits.length) {
-        await participantRef.set({
-          'linkedHabitIds': [...participant.linkedHabitIds, habit.id],
-          'linkedHabitNames': [...participant.linkedHabitNames, habit.name],
-        }, SetOptions(merge: true));
+        await participantRef.set(
+          {
+            'linkedHabitIds': [...participant.linkedHabitIds, habit.id],
+            'linkedHabitNames': [...participant.linkedHabitNames, habit.name],
+          },
+          SetOptions(merge: true),
+        );
       }
     }
     // syncLinkedHabitsProgress re-reads linkedHabitIds fresh from Firestore
@@ -1303,10 +1437,13 @@ class RoomsController {
     final participant = RoomParticipant.fromFirestore(snap);
     if (participant.linkedHabitIds.contains(habitId)) return;
 
-    await participantRef.set({
-      'linkedHabitIds': [...participant.linkedHabitIds, habitId],
-      'linkedHabitNames': [...participant.linkedHabitNames, habitName],
-    }, SetOptions(merge: true));
+    await participantRef.set(
+      {
+        'linkedHabitIds': [...participant.linkedHabitIds, habitId],
+        'linkedHabitNames': [...participant.linkedHabitNames, habitName],
+      },
+      SetOptions(merge: true),
+    );
     await syncLinkedHabitsProgress(room);
   }
 
@@ -1353,20 +1490,29 @@ class RoomsController {
         await deleteRoom(room);
         return;
       }
-      await _rooms.doc(room.code).set({
-        'createdBy': successor.uid,
-        'createdByName': successor.displayName,
-      }, SetOptions(merge: true));
+      await _rooms.doc(room.code).set(
+        {
+          'createdBy': successor.uid,
+          'createdByName': successor.displayName,
+        },
+        SetOptions(merge: true),
+      );
     }
 
     await participantRef.delete();
-    await _rooms.doc(room.code).set({
-      'memberCount': FieldValue.increment(-1),
-    }, SetOptions(merge: true)).catchError((_) {});
-    await _userRef(uid).set({
-      'roomCodes': FieldValue.arrayRemove([room.code]),
-      'starredRoomCodes': FieldValue.arrayRemove([room.code]),
-    }, SetOptions(merge: true));
+    await _rooms.doc(room.code).set(
+      {
+        'memberCount': FieldValue.increment(-1),
+      },
+      SetOptions(merge: true),
+    ).catchError((_) {});
+    await _userRef(uid).set(
+      {
+        'roomCodes': FieldValue.arrayRemove([room.code]),
+        'starredRoomCodes': FieldValue.arrayRemove([room.code]),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Drops [code] from this device's own room list without touching the
@@ -1378,10 +1524,13 @@ class RoomsController {
   Future<void> forgetRoom(String code) async {
     final uid = _uid;
     if (uid == null) return;
-    await _userRef(uid).set({
-      'roomCodes': FieldValue.arrayRemove([code]),
-      'starredRoomCodes': FieldValue.arrayRemove([code]),
-    }, SetOptions(merge: true));
+    await _userRef(uid).set(
+      {
+        'roomCodes': FieldValue.arrayRemove([code]),
+        'starredRoomCodes': FieldValue.arrayRemove([code]),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Leader-only: permanently deletes the room and every participant's
@@ -1409,10 +1558,13 @@ class RoomsController {
       await batch.commit();
     }
     await _rooms.doc(room.code).delete();
-    await _userRef(uid).set({
-      'roomCodes': FieldValue.arrayRemove([room.code]),
-      'starredRoomCodes': FieldValue.arrayRemove([room.code]),
-    }, SetOptions(merge: true));
+    await _userRef(uid).set(
+      {
+        'roomCodes': FieldValue.arrayRemove([room.code]),
+        'starredRoomCodes': FieldValue.arrayRemove([room.code]),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Applies this account's *current* habit settings to [room] from today
@@ -1468,12 +1620,15 @@ class RoomsController {
       changed = true;
     }
     if (!changed) return;
-    await participantRef.set({
-      'habitRules': updated.map(
-        (k, v) => MapEntry(k, v.map((r) => r.toFirestore()).toList()),
-      ),
-      'lastUpdated': Timestamp.now(),
-    }, SetOptions(merge: true));
+    await participantRef.set(
+      {
+        'habitRules': updated.map(
+          (k, v) => MapEntry(k, v.map((r) => r.toFirestore()).toList()),
+        ),
+        'lastUpdated': Timestamp.now(),
+      },
+      SetOptions(merge: true),
+    );
     await syncLinkedHabitsProgress(room);
   }
 
@@ -1498,14 +1653,17 @@ class RoomsController {
     final participant = RoomParticipant.fromFirestore(snap);
     if (participant.linkedHabitIds.length != templateIndex) return;
 
-    await participantRef.set({
-      'linkedHabitIds': [...participant.linkedHabitIds, kDeclinedSlot],
-      'linkedHabitNames': [
-        ...participant.linkedHabitNames,
-        room.sharedHabits[templateIndex].name,
-      ],
-      'lastUpdated': Timestamp.now(),
-    }, SetOptions(merge: true));
+    await participantRef.set(
+      {
+        'linkedHabitIds': [...participant.linkedHabitIds, kDeclinedSlot],
+        'linkedHabitNames': [
+          ...participant.linkedHabitNames,
+          room.sharedHabits[templateIndex].name,
+        ],
+        'lastUpdated': Timestamp.now(),
+      },
+      SetOptions(merge: true),
+    );
     await syncLinkedHabitsProgress(room);
   }
 
@@ -1549,9 +1707,12 @@ class RoomsController {
     // A whole-array rewrite, not arrayUnion/arrayRemove: those can only add
     // or drop exact element values, and this has to *change* one element in
     // place while keeping every index where it is.
-    await _rooms.doc(room.code).set({
-      'sharedHabits': updated.map((h) => h.toFirestore()).toList(),
-    }, SetOptions(merge: true));
+    await _rooms.doc(room.code).set(
+      {
+        'sharedHabits': updated.map((h) => h.toFirestore()).toList(),
+      },
+      SetOptions(merge: true),
+    );
     await syncLinkedHabitsProgress(room);
   }
 
@@ -1582,9 +1743,12 @@ class RoomsController {
   Future<void> scheduleStart(RoomModel room, DateTime startAt) async {
     final uid = _uid;
     if (uid == null || uid != room.createdBy || !room.isLobby) return;
-    await _rooms.doc(room.code).set({
-      'scheduledStartAt': Timestamp.fromDate(startAt),
-    }, SetOptions(merge: true));
+    await _rooms.doc(room.code).set(
+      {
+        'scheduledStartAt': Timestamp.fromDate(startAt),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Fires the moment a lobby's [RoomModel.scheduledStartAt] actually
@@ -1624,13 +1788,16 @@ class RoomsController {
   Future<void> _beginChallenge(RoomModel room) async {
     final start = DateTime.now().effectiveDay;
     final days = room.lengthDays;
-    await _rooms.doc(room.code).set({
-      'status': 'active',
-      'startDate': Timestamp.fromDate(start),
-      'scheduledStartAt': FieldValue.delete(),
-      if (room.duration == RoomDuration.fixed && days != null)
-        'endDate': Timestamp.fromDate(start.add(Duration(days: days - 1))),
-    }, SetOptions(merge: true));
+    await _rooms.doc(room.code).set(
+      {
+        'status': 'active',
+        'startDate': Timestamp.fromDate(start),
+        'scheduledStartAt': FieldValue.delete(),
+        if (room.duration == RoomDuration.fixed && days != null)
+          'endDate': Timestamp.fromDate(start.add(Duration(days: days - 1))),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Leader-only: pushes a fixed-duration room's end date forward, starting
@@ -1646,22 +1813,82 @@ class RoomsController {
   /// toward [RoomModel.daysElapsed], stays exactly as it was; only the
   /// cutoff for *future* progress moves. A no-op for anyone but the room's
   /// own creator.
-  Future<void> extendRoom(RoomModel room, int? lengthDays) async {
+  /// Extends a room — never restarts one. History is kept exactly as it is;
+  /// only the finish line moves.
+  ///
+  /// [resumeFrom] is the day counting picks up again, defaulting to today.
+  /// Any dead time between the old end and that day is recorded as a paused
+  /// span (see RoomModel.pausedSpans) and excluded from every score, so
+  /// extending a room that finished a week ago costs nobody a single point.
+  /// Before this, those days went straight into the denominator and every
+  /// member's percentage dropped the moment the leader tapped extend.
+  Future<void> extendRoom(
+    RoomModel room,
+    int? lengthDays, {
+    DateTime? resumeFrom,
+  }) async {
     final uid = _uid;
     if (uid == null || uid != room.createdBy) return;
+
+    final today = DateTime.now().effectiveDay;
+    final resume = (resumeFrom ?? today).startOfDay;
+    // Never resume before the room's own end, and never before today —
+    // back-dating a resume would re-open days that have already been graded
+    // and settled.
+    final start = resume.isBefore(today) ? today : resume;
+
+    // The gap: the day after the old end, through the day before we resume.
+    // Empty when the room hasn't ended yet, or is being extended the same
+    // day it ended — in both cases nothing was ever dead.
+    final oldEnd = room.endDate;
+    // Existing spans are clipped to end before the new resume point, never
+    // blindly carried forward. A leader who resumes on a FUTURE date leaves
+    // a pause covering days that are about to become live; extending again
+    // before that date arrives used to carry the stale span through intact,
+    // permanently excluding live days of a running room from every score.
+    final startKey = start.toDateKey();
+    final spans = <Map<String, String>>[];
+    for (final sp in room.pausedSpans) {
+      if (sp.from.compareTo(startKey) >= 0) continue; // wholly in the future
+      final to = sp.to.compareTo(startKey) >= 0
+          ? start.subtract(const Duration(days: 1)).toDateKey()
+          : sp.to;
+      if (sp.from.compareTo(to) <= 0) spans.add({'from': sp.from, 'to': to});
+    }
+    if (oldEnd != null) {
+      final gapFrom = oldEnd.add(const Duration(days: 1));
+      final gapTo = start.subtract(const Duration(days: 1));
+      if (!gapFrom.isAfter(gapTo)) {
+        spans.add({'from': gapFrom.toDateKey(), 'to': gapTo.toDateKey()});
+      }
+    }
+
     if (lengthDays == null) {
-      await _rooms.doc(room.code).set({
-        'duration': RoomDuration.open.toJson(),
-        'endDate': FieldValue.delete(),
-      }, SetOptions(merge: true));
+      // Open-ended. endDate is CLEARED but duration flips to open, which is
+      // what bounds the strip — see _MiniHeatmapStrip._maxOpenRoomDays.
+      // Previously this also left the room impossible to re-bound, because
+      // every extend affordance is gated on duration == fixed; the menu no
+      // longer gates that way, so an open room can be given an end again.
+      await _rooms.doc(room.code).set(
+        {
+          'duration': RoomDuration.open.toJson(),
+          'endDate': FieldValue.delete(),
+          if (spans.isNotEmpty) 'pausedSpans': spans,
+        },
+        SetOptions(merge: true),
+      );
       return;
     }
-    final today = DateTime.now().effectiveDay;
-    final newEnd = today.add(Duration(days: lengthDays - 1));
-    await _rooms.doc(room.code).set({
-      'duration': RoomDuration.fixed.toJson(),
-      'endDate': Timestamp.fromDate(newEnd),
-    }, SetOptions(merge: true));
+
+    final newEnd = start.add(Duration(days: lengthDays - 1));
+    await _rooms.doc(room.code).set(
+      {
+        'duration': RoomDuration.fixed.toJson(),
+        'endDate': Timestamp.fromDate(newEnd),
+        if (spans.isNotEmpty) 'pausedSpans': spans,
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Shows or hides this participant's linked-habit name(s) from other
@@ -1671,9 +1898,12 @@ class RoomsController {
   Future<void> toggleHideDetails(String code, bool hide) async {
     final uid = _uid;
     if (uid == null) return;
-    await _rooms.doc(code).collection('participants').doc(uid).set({
-      'hideDetails': hide,
-    }, SetOptions(merge: true));
+    await _rooms.doc(code).collection('participants').doc(uid).set(
+      {
+        'hideDetails': hide,
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// This account's own choice to silence the room-finish push notification
@@ -1686,9 +1916,12 @@ class RoomsController {
   Future<void> setRoomMuted(String code, bool muted) async {
     final uid = _uid;
     if (uid == null) return;
-    await _rooms.doc(code).collection('participants').doc(uid).set({
-      'notificationsMuted': muted,
-    }, SetOptions(merge: true));
+    await _rooms.doc(code).collection('participants').doc(uid).set(
+      {
+        'notificationsMuted': muted,
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Grants this account's one-time [RoomCompeteMode.team] bonus for room
@@ -1736,7 +1969,10 @@ class RoomsController {
       if (!snap.exists) return false;
       if (snap.data()?['teamBonusClaimed'] == true) return false;
       txn.set(
-          participantRef, {'teamBonusClaimed': true}, SetOptions(merge: true));
+        participantRef,
+        {'teamBonusClaimed': true},
+        SetOptions(merge: true),
+      );
       return true;
     });
     if (!didClaim) return;
@@ -1795,8 +2031,11 @@ class RoomsController {
       final snap = await txn.get(participantRef);
       if (!snap.exists) return false;
       if (snap.data()?['podiumBonusClaimed'] == true) return false;
-      txn.set(participantRef, {'podiumBonusClaimed': true},
-          SetOptions(merge: true));
+      txn.set(
+        participantRef,
+        {'podiumBonusClaimed': true},
+        SetOptions(merge: true),
+      );
       return true;
     });
     if (!didClaim) return;
@@ -1814,11 +2053,14 @@ class RoomsController {
   Future<void> toggleStarRoom(String code, bool starred) async {
     final uid = _uid;
     if (uid == null) return;
-    await _userRef(uid).set({
-      'starredRoomCodes': starred
-          ? FieldValue.arrayUnion([code])
-          : FieldValue.arrayRemove([code]),
-    }, SetOptions(merge: true));
+    await _userRef(uid).set(
+      {
+        'starredRoomCodes': starred
+            ? FieldValue.arrayUnion([code])
+            : FieldValue.arrayRemove([code]),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Strips [habitId] from every one of this account's currently-linked,
@@ -1893,12 +2135,23 @@ class RoomsController {
               ?.whereType<String>()
               .toList() ??
           const [];
-      final (newIds, newNames) = removeLinkedHabit(ids, names, habitId);
-      await participantRef.set({
-        'linkedHabitIds': newIds,
-        'linkedHabitNames': newNames,
-        'lastUpdated': Timestamp.now(),
-      }, SetOptions(merge: true));
+      // Shared plans keep the slot as a declined sentinel; an 'own' room has
+      // no parallel array to protect, so it genuinely removes the entry.
+      final room = _ref.read(roomProvider(code)).valueOrNull;
+      final (newIds, newNames) = removeLinkedHabit(
+        ids,
+        names,
+        habitId,
+        preserveSlots: room?.habitMode == RoomHabitMode.shared,
+      );
+      await participantRef.set(
+        {
+          'linkedHabitIds': newIds,
+          'linkedHabitNames': newNames,
+          'lastUpdated': Timestamp.now(),
+        },
+        SetOptions(merge: true),
+      );
     }
   }
 
@@ -1982,6 +2235,43 @@ class RoomsController {
     // plain map lookup rather than a re-scan of the whole habit list.
     final myHabits = _ref.read(habitListProvider);
     final habitById = {for (final h in myHabits) h.id: h};
+
+    // Refuse to grade against a habit list that hasn't loaded.
+    //
+    // This is the single most destructive failure this method has. Pass 1's
+    // "linked habit not found" branch below fails OPEN — it credits every day
+    // in the window as scheduled=1/done=1 and skips the weekly branch and
+    // pass 2 entirely. That fail-open is right for its intended case (a habit
+    // genuinely deleted from Grid after being linked, where punishing someone
+    // for a stale link would be worse). It is catastrophic for a habit that
+    // merely hasn't loaded yet, because the pass then computes
+    // dailyScheduledCount as dense — every day scheduled, so every key is
+    // REMOVED — and quotaOkWeeks as empty, so previously-earned weeks are
+    // REVOKED. All of it lands in one atomic update(). A weekly-quota member
+    // loses every rest day they had banked and drops ~19 points, while their
+    // doc still looks freshly synced.
+    //
+    // It is reachable because nothing gated it: _resyncMyRooms fires on app
+    // resume and cold start (main.dart) with no UI involved, and
+    // habitListProvider is empty until customHabits and the catalog settle —
+    // and it resets to empty on every authStateProvider emission. The room
+    // providers depend only on uid and room docs, so the sync wins that race
+    // routinely. Observed in production on room A8GEL7.
+    //
+    // Bailing is always safe: this method is called on resume, on room open,
+    // and after taps, so skipping one warm-up pass costs a deferred update,
+    // never data. Exactly the same treatment _profileFields already applies
+    // to characterProvider for the same reason — see its isLoading guard,
+    // which exists because the identical race was silently overwriting
+    // people's chosen avatar with the constructor default.
+    if (_ref.read(habitsStillLoadingProvider)) return;
+    // Belt and braces: even once loading is over, a linked id that resolves
+    // to nothing means this device cannot grade this room correctly. That is
+    // indistinguishable here from the deleted-habit case, but the cost of
+    // guessing wrong is asymmetric — a deleted habit costs one deferred
+    // sync, a not-yet-loaded one costs the member their banked weeks — so
+    // this defers rather than fails open.
+    if (habitIds.any((id) => !habitById.containsKey(id))) return;
 
     // How far back to actually re-read. This used to always be the room's
     // ENTIRE history, which meant one `daily` document fetch per day of the
@@ -2085,7 +2375,7 @@ class RoomsController {
     // side - do it today and today is a whole done day. Its quota only ever
     // decides whether a WEEK keeps the streak, collected in `okWeeks`.
     final scheduledCount = <String, int>{
-      for (final d in days) d.toDateKey(): 0
+      for (final d in days) d.toDateKey(): 0,
     };
     final doneCount = <String, int>{for (final d in days) d.toDateKey(): 0};
     // Weeks whose weekly-quota habits all held - see
@@ -2151,7 +2441,7 @@ class RoomsController {
           if (present.isEmpty) continue;
           final done = {
             for (final i in present)
-              if (isGreen(i, id)) i
+              if (isGreen(i, id)) i,
           };
           for (final i in weeklyQuotaScheduledDays(
             presentDays: present,
@@ -2306,6 +2596,15 @@ class RoomsController {
       // it was written for - someone actively using the app still can't
       // scroll back and colour in last week for credit, because those days
       // are exactly the observed ones.
+      // A paused day is not graded at all: it keeps no credit and records
+      // no miss, matching RoomParticipant.daysCompleted/daysElapsedIn which
+      // both skip it. Writing a 0 here instead would make the day look
+      // missed to anything that reads the raw map.
+      if (room.isPausedOn(dateKey)) {
+        dailyCounts.remove(dateKey);
+        dailyScheduled.remove(dateKey);
+        continue;
+      }
       var earned = doneCount[dateKey]!;
       final isPastDay = dateKey.compareTo(todayKey) < 0;
       // Capping the credit is all that's needed to deny the streak too: the
@@ -2521,11 +2820,39 @@ class RoomsController {
       // what actually grades the day - a habit switched to weekly in the app
       // but still graded daily by this room belongs on the fast path, and
       // vice versa.
-      final hasWeeklyLink = freshMine.countedHabitIds.any((id) {
-        final rule = freshMine.ruleFor(id, today);
-        final type = rule?.frequencyType ?? habitById[id]?.frequencyType;
-        return type == HabitFrequencyType.weekly;
-      });
+      // Three independent sources, ORed, and that redundancy is the whole
+      // point. This guard decides whether a room's quota bookkeeping gets
+      // computed at all, and every source it used to rely on can be empty
+      // at the moment of a tap:
+      //
+      //   * countedHabitIds is empty for a participant whose link list
+      //     hasn't loaded yet,
+      //   * ruleFor returns null before habitRules has ever been written
+      //     (i.e. before this device's first full resync),
+      //   * habitById is empty until habitListProvider resolves.
+      //
+      // Miss on all three and the tap falls into the fast transaction below,
+      // which writes dailyDoneCount and lastSyncedDay but NOT quotaOkWeeks,
+      // and only ever touches dailyScheduledCount for *today*. A device that
+      // only ever taps — never opens Room Detail — therefore accumulates a
+      // participant doc with current done-counts and permanently empty quota
+      // bookkeeping. Every met week silently stops excusing its rest days,
+      // and that member reads far below what they actually earned while
+      // someone doing identical work reads correctly. That is a real
+      // production bug, found on room A8GEL7: two members, same shared 4x
+      // habit, same 11 sessions, 76% vs 57%.
+      //
+      // The room's own shared plan is the source that cannot be empty when
+      // it matters — in shared mode the plan IS the rule, it arrives with
+      // the room document, and it needs nothing loaded on this device.
+      final roomPlanIsQuota = room.sharedHabits
+          .any((h) => h.frequencyType == HabitFrequencyType.weekly);
+      final hasWeeklyLink = roomPlanIsQuota ||
+          freshMine.countedHabitIds.any((id) {
+            final rule = freshMine.ruleFor(id, today);
+            final type = rule?.frequencyType ?? habitById[id]?.frequencyType;
+            return type == HabitFrequencyType.weekly;
+          });
       if (hasWeeklyLink) {
         // Hands the full resync this tap's own view of today (see that
         // method's [todaySquares] parameter) rather than letting it re-read
@@ -2567,6 +2894,26 @@ class RoomsController {
         // habit's days can't make this path and the full resync disagree
         // about whether today was even due. Falls back to the habit's own
         // current schedule only when no rule has been recorded yet.
+        // Last line of defence. The caller already diverts a quota room to
+        // the full resync, but that guard reads several things that can be
+        // empty mid-load; this one reads the doc the transaction just
+        // fetched, so it cannot be fooled by load order. If a quota rule is
+        // recorded here, this path must not run at all — it is structurally
+        // incapable of maintaining quotaOkWeeks, so completing it would
+        // write a doc that looks synced (fresh lastSyncedDay) while silently
+        // dropping every rest day the member earned.
+        //
+        // Bailing leaves the doc untouched rather than half-written: the
+        // next full resync grades the whole range and gets it right. A
+        // missed tap costs one deferred update; a half-write cost a member
+        // 19 percentage points until someone noticed.
+        final quotaRuleRecorded = linkedIds.any(
+          (id) =>
+              mine.ruleFor(id, today)?.frequencyType ==
+              HabitFrequencyType.weekly,
+        );
+        if (quotaRuleRecorded) return;
+
         final scheduledIds = linkedIds.where((id) {
           final habit = habitById[id];
           if (habit == null) return true; // stale link fails open

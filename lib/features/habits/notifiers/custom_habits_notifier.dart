@@ -649,8 +649,15 @@ final habitsArchivedTodayProvider = Provider<List<IslamicHabitTemplate>>((ref) {
 final habitsStillLoadingProvider = Provider<bool>((ref) {
   ref.watch(customHabitsProvider);
   ref.watch(activeCatalogProvider);
+  // catalogOverrides too, and it is not optional: habitListProvider layers a
+  // member's per-preset overrides over the const catalog template, so a
+  // preset's real cadence lives HERE, not in the template. Miss it and a
+  // habit the member set to 4x/week resolves as its catalog default —
+  // which a room then freezes as its permanent grading rule.
+  ref.watch(catalogOverridesProvider);
   return ref.watch(customHabitsProvider.notifier).isLoading ||
-      ref.watch(activeCatalogProvider.notifier).isLoading;
+      ref.watch(activeCatalogProvider.notifier).isLoading ||
+      ref.watch(catalogOverridesProvider.notifier).isLoading;
 });
 
 /// Guests get a 3-habit trial before being asked to create an account.

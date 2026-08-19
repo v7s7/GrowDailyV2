@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'bahrain_prayer_table.dart';
+
 /// Which astronomical convention to use for Fajr/Isha's sun-angle
 /// thresholds (they're the two prayers without a direct physical marker
 /// like sunrise/sunset, so different regional authorities standardized on
@@ -327,16 +329,23 @@ class PrayerTimesService {
   static final List<_PrayerRegion> _regions = [
     (
       name: 'Bahrain',
-      // Manama + Muharraq + Sitra + Hawar — RE-verified against the
-      // official Bahrain times the user supplied for 2026-07-17 (Fajr
-      // 3:27, Sunrise 4:56, Dhuhr 11:44, Asr 3:11, Maghrib 6:32, Isha
-      // 8:00): plain Karachi/Shafi matches ALL SIX values to the minute
-      // with no correction (confirmed live against Aladhan method=1 for
-      // Manama on that exact date). The earlier +9-minute Fajr correction
-      // — from a 2026-07-16 comparison — made Fajr 9 minutes late against
-      // this newer, fully self-consistent ground truth, so it's removed;
-      // if a future official calendar disagrees again, re-verify a full
-      // day's six values before touching this, not Fajr alone.
+      // Manama + Muharraq + Sitra + Hawar.
+      //
+      // Now only the FALLBACK for Bahrain: [BahrainPrayerTable] holds the
+      // Kingdom's own published timetable and outranks this whenever the
+      // date is inside its range. What's left here is what Bahrain gets
+      // past 2027-06-05, and it was measured against all 521 days the
+      // official source publishes — plain Karachi/Shafi lands within one
+      // minute on essentially every prayer and never more than two, which
+      // was the closest of seven conventions tested by a wide margin
+      // (Kuwait 3 minutes out on Isha, Umm al-Qura 14, Egyptian 9 on
+      // Fajr). No correction improves it: the residual is sub-minute
+      // rounding in the source's own solar constants, not an offset.
+      //
+      // The earlier +9-minute Fajr correction — from a single 2026-07-16
+      // comparison — is long removed. If a future calendar ever seems to
+      // disagree, re-measure a full year against the official JSON before
+      // touching this, never one prayer on one day.
       contains: (lat, lng) =>
           lat >= 25.5 && lat <= 26.5 && lng >= 50.3 && lng <= 50.9,
       method: PrayerCalcMethod.karachi,
@@ -549,6 +558,20 @@ class PrayerTimesService {
     required PrayerMadhab madhab,
     String? countryCode,
   }) async {
+    // Bahrain's own published timetable beats both the live API and the
+    // calculation — see BahrainPrayerTable for the measurement that led
+    // here. Awaited rather than assumed loaded so this path works even if
+    // main.dart's preload hasn't run (tests, a cold isolate).
+    await BahrainPrayerTable.ensureLoaded();
+    final official = _bahrainOfficial(
+      latitude,
+      longitude,
+      date,
+      madhab,
+      countryCode: countryCode,
+    );
+    if (official != null) return official;
+
     final region = resolveRegion(latitude, longitude, countryCode: countryCode);
     final online = await _fetchOnline(
       latitude: latitude,
@@ -592,6 +615,15 @@ class PrayerTimesService {
     required PrayerMadhab madhab,
     String? countryCode,
   }) {
+    final official = _bahrainOfficial(
+      latitude,
+      longitude,
+      date,
+      madhab,
+      countryCode: countryCode,
+    );
+    if (official != null) return official;
+
     final region = resolveRegion(latitude, longitude, countryCode: countryCode);
     final offline = calculateOffline(
       latitude: latitude,
@@ -608,6 +640,55 @@ class PrayerTimesService {
       asr: offline.asr,
       maghrib: offline.maghrib,
       isha: offline.isha,
+    );
+  }
+
+  /// Whether these coordinates fall inside [_regions]' Bahrain box.
+  ///
+  /// Looked up by name rather than by index so the "smallest country
+  /// first" ordering [_regions] documents stays free to change without
+  /// silently pointing this at some other country's rectangle.
+  static bool isInBahrain(double latitude, double longitude) {
+    final bahrain = _regions.firstWhere((r) => r.name == 'Bahrain');
+    return bahrain.contains(latitude, longitude);
+  }
+
+  /// Bahrain's official times for [date], or null when they don't apply —
+  /// outside Bahrain, outside the bundled table's date range, or before
+  /// the asset has loaded. See [BahrainPrayerTable].
+  static PrayerDayTimes? _bahrainOfficial(
+    double latitude,
+    double longitude,
+    DateTime date,
+    PrayerMadhab madhab, {
+    String? countryCode,
+  }) {
+    if (!isInBahrain(latitude, longitude)) return null;
+    final official = BahrainPrayerTable.lookup(date);
+    if (official == null) return null;
+    if (madhab == PrayerMadhab.shafi) return official;
+    // Bahrain publishes one Asr, computed the standard (Shafi) way. Asr is
+    // the single prayer the two schools genuinely disagree about, and by
+    // roughly an hour rather than a rounding error — measured at 42 to 80
+    // minutes against this very table — so handing a Hanafi user the
+    // published Asr would be a real error, not a small one. They still get
+    // the official figure for the other five; only Asr is computed, and
+    // only for them.
+    final region = resolveRegion(latitude, longitude, countryCode: countryCode);
+    final computed = calculateOffline(
+      latitude: latitude,
+      longitude: longitude,
+      date: date,
+      method: region.method,
+      madhab: madhab,
+    );
+    return PrayerDayTimes(
+      fajr: official.fajr,
+      sunrise: official.sunrise,
+      dhuhr: official.dhuhr,
+      asr: computed.asr,
+      maghrib: official.maghrib,
+      isha: official.isha,
     );
   }
 

@@ -272,6 +272,12 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   Future<bool> setDisplayName(String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return false;
+    // This name is shown to strangers on every room leaderboard, so it is
+    // user-generated content under App Review guideline 1.2 and gets the
+    // same filter room names get. Guarded HERE rather than in the edit
+    // sheet because this is the one write point every caller goes through
+    // — a check in the UI is a check the next new caller can forget.
+    if (isObjectionable(trimmed)) return false;
     final clamped = trimmed.length > DashboardNotifier.maxDisplayNameLength
         ? trimmed.substring(0, DashboardNotifier.maxDisplayNameLength)
         : trimmed;

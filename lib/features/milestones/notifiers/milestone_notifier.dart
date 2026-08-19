@@ -12,11 +12,26 @@ import '../models/milestone_event.dart';
 /// [MilestoneEvent]'s doc comment), so screens built on this provider don't
 /// need their own separate guest branch.
 ///
-/// Capped at 500 (`limit`) rather than unbounded — even a multi-year power
-/// user producing a handful of these a week lands nowhere near that, so
-/// this is a safety ceiling against a pathological account, not a real
-/// limit anyone hits; see JourneyPage for how a longer history would
-/// eventually want pagination instead.
+/// Capped at 500 (`limit`) rather than unbounded. That ceiling used to be
+/// justified as "a handful a week, nowhere near it", and that estimate was
+/// wrong by roughly 5x: a perfectDay is logged on every perfect day, so a
+/// consistent account produces on the order of 30 a month and crosses 500
+/// after about fourteen months. Past that, the OLDEST months silently fall
+/// off the end of this newest-first window and tally zero milestones.
+///
+/// The damage stops there, and deliberately not further: every milestone
+/// is written in the SAME batch as its dailyGreenCounts increment (see
+/// dashboard_notifier_complete_habit.dart), and that map is loaded
+/// uncapped, so a month holding milestones always holds green squares too
+/// and can never fall through to the empty state. What an affected month
+/// showed instead was its real square count above a tally grid of zeros —
+/// quieter than an empty state, and wrong in a way nobody would question.
+///
+/// The cap stays, because this provider genuinely wants a bounded live
+/// listener. What changed is that no screen now depends on it reaching
+/// back forever: any surface that needs ONE specific month reads
+/// [milestonesForMonthProvider], which queries that month directly and is
+/// unaffected by how much history sits in front of it.
 ///
 /// autoDispose: without it, this StreamProvider's live Firestore listener
 /// would stay open for the rest of the app session the instant any one
@@ -39,6 +54,35 @@ final milestoneEventsProvider =
       .collection('milestones')
       .orderBy('occurredAt', descending: true)
       .limit(500)
+      .snapshots()
+      .map((snap) => snap.docs.map(MilestoneEvent.fromFirestore).toList());
+});
+
+/// Exactly one calendar month of milestones, queried by date rather than
+/// sliced out of [milestoneEventsProvider]'s newest-first window.
+///
+/// The distinction matters once an account has more than ~500 events: the
+/// shared provider's window no longer reaches the older months at all, so
+/// filtering it client-side reports zero for months that are simply out of
+/// view. A range query has no such horizon, and reads only the handful of
+/// documents the month actually contains.
+///
+/// [month] must be normalised to the first of the month; the family key is
+/// the DateTime itself, so an un-normalised value would open a separate
+/// listener per day.
+final milestonesForMonthProvider = StreamProvider.autoDispose
+    .family<List<MilestoneEvent>, DateTime>((ref, month) {
+  final uid = ref.watch(authStateProvider).asData?.value?.uid;
+  if (uid == null) return Stream.value(const <MilestoneEvent>[]);
+  final start = DateTime(month.year, month.month);
+  final end = DateTime(month.year, month.month + 1);
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('milestones')
+      .where('occurredAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+      .where('occurredAt', isLessThan: Timestamp.fromDate(end))
+      .orderBy('occurredAt', descending: true)
       .snapshots()
       .map((snap) => snap.docs.map(MilestoneEvent.fromFirestore).toList());
 });

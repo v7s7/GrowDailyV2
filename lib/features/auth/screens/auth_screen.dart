@@ -19,6 +19,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   bool _isSignIn = true;
   bool _obscurePass = true;
   bool _obscureConfirm = true;
+  bool _isSendingReset = false;
+  /// Shown in the banner slot instead of an error after a reset email is
+  /// requested. Cleared on any mode switch or new submit, like the error.
+  bool _resetSent = false;
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
@@ -62,7 +66,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final s = S.of(context);
     final email = _emailCtrl.text.trim();
     final pass = _passCtrl.text;
-    setState(() => _errorMessage = null);
+    setState(() {
+      _errorMessage = null;
+      _resetSent = false;
+    });
 
     if (email.isEmpty || pass.isEmpty) {
       setState(() => _errorMessage = s.errFillAll);
@@ -86,6 +93,34 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     }
   }
 
+  Future<void> _sendReset() async {
+    final s = S.of(context);
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      setState(() {
+        _errorMessage = s.errEnterEmailForReset;
+        _resetSent = false;
+      });
+      return;
+    }
+    HapticFeedback.selectionClick();
+    setState(() {
+      _isSendingReset = true;
+      _errorMessage = null;
+    });
+    final ok =
+        await ref.read(authNotifierProvider.notifier).sendPasswordReset(email);
+    if (!mounted) return;
+    setState(() {
+      _isSendingReset = false;
+      // Same confirmation whether the address exists or not - see
+      // sendPasswordReset's doc comment. Only a delivery failure (offline)
+      // reads as an error.
+      _resetSent = ok;
+      _errorMessage = ok ? null : s.errNetwork;
+    });
+  }
+
   Future<void> _continueAsGuest() async {
     HapticFeedback.mediumImpact();
     await setGuestMode(ref, true);
@@ -96,6 +131,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     setState(() {
       _isSignIn = isSignIn;
       _errorMessage = null;
+      _resetSent = false;
     });
   }
 
@@ -230,6 +266,33 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 ),
               ).animate(delay: 190.ms).fadeIn(duration: 350.ms).slideY(begin: 0.04),
 
+              // Forgot password (sign-in only). AlignmentDirectional so the
+              // link hugs the trailing edge in both directions - end is
+              // where the eye lands after the password field in each script.
+              if (_isSignIn)
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: TextButton(
+                    onPressed: _isSendingReset ? null : _sendReset,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
+                      minimumSize: const Size(44, 32),
+                    ),
+                    child: _isSendingReset
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(
+                            s.authForgotPassword,
+                            style: TextStyle(
+                                fontSize: 12.5, color: gp.textSec),
+                          ),
+                  ),
+                ),
+
               // Confirm password (register only)
               AnimatedSize(
                 duration: GameMotion.relaxed,
@@ -261,6 +324,75 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                   () => _obscureConfirm = !_obscureConfirm),
                             ),
                           ),
+                        ),
+                      ),
+              ),
+
+              // Fresh-start warning for a guest who is creating the
+              // account (register mode only): their local progress will
+              // NOT carry over, and this is the last moment that fact can
+              // still change their decision. Watched, not read - the flag
+              // flips if they sign out mid-session.
+              if (!_isSignIn && ref.watch(guestModeProvider))
+                Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: gp.surface,
+                      borderRadius:
+                          BorderRadius.circular(GameSpacing.buttonRadius),
+                      border: Border.all(color: gp.border, width: 0.5),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline_rounded,
+                            size: 15, color: gp.textTert),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            s.guestFreshStartWarning,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: gp.textSec,
+                                height: 1.45),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // Reset-sent confirmation - same slot and motion as the
+              // error below, opposite tone, and mutually exclusive with it
+              // (_sendReset and _submit each clear the other's flag).
+              AnimatedSize(
+                duration: GameMotion.standard,
+                curve: Curves.easeOutCubic,
+                child: !_resetSent
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 14),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.mark_email_read_outlined,
+                                size: 15, color: GameColors.emerald),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                s.authResetSent,
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    color: GameColors.emerald,
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.35),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
               ),

@@ -26,6 +26,43 @@ part of 'room_detail_screen.dart';
 /// weeks run right-to-left in Arabic exactly like the Grid's days do, and
 /// a room longer than one line of columns folds onto the next line rather
 /// than hiding behind an unadvertised sideways scroll.
+/// The opaque fill for one cell of a participant's strip.
+///
+/// Opaque on purpose, and that is the whole reason this exists. Every heat
+/// tone is translucent (see heatColor: emerald at 0.30 to 0.92), and the
+/// البداية / اليوم markers are drawn as a BoxShadow with a spreadRadius —
+/// which is a FILLED rounded rect, not a hollow ring, so it lands behind
+/// the whole cell rather than only around it. A translucent fill then
+/// composited over that plate instead of over the card, and the marked day
+/// rendered a different colour from an unmarked day with identical credit:
+/// a half-done first day washed out to pale "white green", a missed first
+/// day (transparent fill) came out a solid white square, and a rest day
+/// nearly so. Blending here means the plate can only ever show as the ring
+/// it was meant to be.
+///
+/// [backdrop] must be the opaque colour actually behind the cell, so that
+/// an UNMARKED cell is pixel-identical to what it drew before — see
+/// _MiniHeatmapStrip._cellBackdrop, which resolves the gold-tinted "you"
+/// card separately from everyone else's.
+///
+/// Pure and top-level so the invariant is testable without building the
+/// whole room screen: same credit must give the same colour whether or not
+/// the day happens to carry a marker.
+Color roomStripCellFill({
+  required double credit,
+  required bool isRest,
+  required bool isMissed,
+  required bool dark,
+  required Color backdrop,
+}) {
+  final tone = isRest
+      ? GameColors.emerald.withOpacity(0.13)
+      : isMissed
+          ? Colors.transparent
+          : heatColor(heatmapLevelFor(credit), dark);
+  return Color.alphaBlend(tone, backdrop);
+}
+
 class _MiniHeatmapStrip extends StatelessWidget {
   final RoomModel room;
   final RoomParticipant participant;
@@ -35,22 +72,10 @@ class _MiniHeatmapStrip extends StatelessWidget {
   /// varies by whose row it is.
   final bool isYou;
 
-  /// Draws the week-of-month number over every column. Driven by one toggle
-  /// above the whole leaderboard (see _LeaderboardListState), never per-row.
-  ///
-  /// NOT named `showDetails`: _LeaderboardRow.build already declares a local
-  /// of that name for the room's privacy flag ("hide my habit names"), and
-  /// the field was being silently shadowed by it — every row got the privacy
-  /// value instead of the toggle, so the numbers showed on your own row
-  /// (isYou) regardless of the switch and never on a member who'd hidden
-  /// their details.
-  final bool showWeekNumbers;
-
   const _MiniHeatmapStrip({
     required this.room,
     required this.participant,
     required this.isYou,
-    required this.showWeekNumbers,
   });
 
   /// Ceiling for an OPEN-ENDED room only ([RoomDuration.open] - "runs until
@@ -74,7 +99,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
   /// width that was already there and doing nothing; a 15pt pitch still
   /// fits ~18 columns (four months) on one line at phone widths before any
   /// wrapping kicks in.
-  static const double _cell = 12;
+  static const double _cell = 15;
   static const double _gap = 3;
 
   /// Width reserved beside the grid for a pinned cell label, and the width
@@ -101,6 +126,15 @@ class _MiniHeatmapStrip extends StatelessWidget {
   ///
   /// Do not "fix" these back to a GameColors accent. That silently
   /// reintroduces the navy collision in exactly one preset out of eleven.
+  /// The "week closed short" bar tone. A fixed literal, NOT GameColors.gold,
+  /// for the same reason _markInk/_markPaper below are literals: every accent
+  /// in this app is preset-derived, and in the green presets `gold` resolves
+  /// to very nearly the same teal as `emerald` — so a short week and a
+  /// perfect one drew the identical bar and the summary said nothing at all.
+  /// This has to stay distinguishable from the emerald in all 11 presets,
+  /// which only a fixed hue can promise.
+  static const Color _weekShort = Color(0xFFD9A441);
+
   static const Color _markInk = Color(0xFF0B0E12);
   static const Color _markPaper = Color(0xFFFFFFFF);
 
@@ -114,13 +148,22 @@ class _MiniHeatmapStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = context.gp.dark;
+    final backdrop = _cellBackdrop(context);
     // Their own window, so a late joiner's strip starts the day they joined
     // rather than showing weeks of grey for a room they weren't in yet.
-    final elapsed = participant.daysElapsedIn(room);
-    final totalDays = room.duration == RoomDuration.open
-        ? elapsed.clamp(1, _maxOpenRoomDays)
-        : elapsed;
+    // The CALENDAR span, not the scored day count. Those two stopped being
+    // the same number once pauses existed: daysElapsedIn deliberately
+    // excludes paused days, so deriving the window from it made the strip
+    // start N days late and never draw the room's real first days — the
+    // البداية ring landed on the wrong square and the visible cells no
+    // longer matched the denominator beside them. Paused days stay in the
+    // window and simply paint nothing (see _cellFor).
+    final windowStart = participant.countedStartIn(room);
     final last = room.lastCountedDay;
+    final span = last.difference(windowStart).inDays + 1;
+    final totalDays = room.duration == RoomDuration.open
+        ? span.clamp(1, _maxOpenRoomDays)
+        : (span < 1 ? 1 : span);
     final days = List.generate(
       totalDays,
       (i) => last.subtract(Duration(days: totalDays - 1 - i)),
@@ -145,6 +188,33 @@ class _MiniHeatmapStrip extends StatelessWidget {
     final lead = (days.first.weekday + 1) % 7;
     final slots = lead + days.length;
     final weekCount = (slots + 6) ~/ 7;
+
+    // Weekday rows that no day of this room actually lands on are not drawn.
+    //
+    // The grid reserves all seven Sat–Fri rows so a horizontal slice means
+    // "every Saturday", which is right for a room of any length — except a
+    // very short one, where it is mostly emptiness. A room that began on a
+    // Friday and is four days old fills exactly four cells: one alone on the
+    // bottom row of the first column, three at the top of the second, and
+    // three entirely blank rows between them. The squares read as scattered
+    // debris and the البداية marker, pinned to that lone first cell, floated
+    // far below everything with nothing beside it.
+    //
+    // Dropping the unused rows collapses that gap without touching the
+    // meaning of the ones that remain: each is still one weekday, columns
+    // are still weeks, and every day the room has drawn stays exactly where
+    // its weekday puts it. For any room two weeks or longer every row is
+    // used, so this changes nothing at all there.
+    final usedRows = <int>[];
+    for (var r = 0; r < 7; r++) {
+      for (var w = 0; w < weekCount; w++) {
+        final i = w * 7 + r - lead;
+        if (i >= 0 && i < days.length) {
+          usedRows.add(r);
+          break;
+        }
+      }
+    }
 
     final gp = context.gp;
     final s = S.of(context);
@@ -213,14 +283,11 @@ class _MiniHeatmapStrip extends StatelessWidget {
       }
     }
 
-    // One title for the whole strip, naming the span rather than a single
-    // month — a room that started 28 July and runs into August is showing
-    // both, and labelling it just "أغسطس" quietly misdescribes the first
-    // four columns.
-    final firstMonth = monthFmt.format(days.first);
-    final lastMonth = monthFmt.format(days.last);
-    final monthTitle =
-        firstMonth == lastMonth ? firstMonth : '$firstMonth – $lastMonth';
+    // Dead since the single strip-wide title was replaced by per-column
+    // month segments (_monthSegments), which label each column run with
+    // its own month instead of naming the whole span once. Removed rather
+    // than left dangling: it still formatted two dates on every rebuild of
+    // every row.
 
     // The whole strip is the tap target, and the only one. Its rendered
     // height (11pt label slot + 7 cells + 6 gaps ≈ 89pt) and full card width
@@ -250,116 +317,180 @@ class _MiniHeatmapStrip extends StatelessWidget {
           );
         },
         child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Reserved room for the "البداية" label, which is pinned to the
-        // leading side of column 0. The grid is start-aligned, so in Arabic
-        // column 0 sits hard against the card's right edge and that label
-        // had nowhere to go — it clipped. Insetting the grid by the label's
-        // own width guarantees the space instead of hoping the card is wide
-        // enough, and costs nothing visually: the strip is a few columns
-        // wide inside a full-width card either way.
-        Padding(
-          padding: const EdgeInsetsDirectional.only(start: _labelInset),
-          child: LayoutBuilder(
-          builder: (context, constraints) {
-            // How many columns fit on one line.
-            final perRun = ((constraints.maxWidth + _gap) / (_cell + _gap))
-                .floor()
-                .clamp(1, weekCount);
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Reserved room for the "البداية" label, which is pinned to the
+            // leading side of column 0. The grid is start-aligned, so in Arabic
+            // column 0 sits hard against the card's right edge and that label
+            // had nowhere to go — it clipped. Insetting the grid by the label's
+            // own width guarantees the space instead of hoping the card is wide
+            // enough, and costs nothing visually: the strip is a few columns
+            // wide inside a full-width card either way.
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: _labelInset),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // How many columns fit on one line.
+                  final perRun =
+                      ((constraints.maxWidth + _gap) / (_cell + _gap))
+                          .floor()
+                          .clamp(1, weekCount);
 
-            // IntrinsicWidth so the Column is exactly as wide as its widest
-            // run — which is what lets the title centre over the SQUARES
-            // rather than over the card, the thing that made it look
-            // randomly placed before.
-            return IntrinsicWidth(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    monthTitle,
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w700,
-                      color: gp.textTert,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  for (var run = 0; run * perRun < weekCount; run++) ...[
-                    if (run > 0) const SizedBox(height: _gap * 2),
-                    // Row, not Wrap — it follows the ambient Directionality,
-                    // so weeks still run right-to-left in Arabic.
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
+                  // IntrinsicWidth so the Column is exactly as wide as its widest
+                  // run — which is what lets the title centre over the SQUARES
+                  // rather than over the card, the thing that made it look
+                  // randomly placed before.
+                  return IntrinsicWidth(
+                    child: Column(
                       children: [
-                        for (var c = 0;
-                            c < perRun && run * perRun + c < weekCount;
-                            c++) ...[
-                          // A wider gap wherever a new month begins, so the
-                          // months read as groups. A gap and not a rule: the
-                          // columns are 9pt and a divider would out-weigh
-                          // the cells it separates.
-                          if (c > 0)
-                            SizedBox(
-                              // A month boundary now gets 5x the ordinary
-                              // gap (15pt vs 3pt), up from 3.5x. At the old
-                              // ratio, with cells grown to 12pt, the month
-                              // break was narrower than a cell and stopped
-                              // reading as a break at all — the whole strip
-                              // looked like one undifferentiated run. The
-                              // gap has to beat the cell width to separate
-                              // groups of cells.
-                              width: monthStarts.contains(run * perRun + c)
-                                  ? _gap * 5
-                                  : _gap,
-                            ),
-                          Column(
+                        for (var run = 0; run * perRun < weekCount; run++) ...[
+                          if (run > 0) const SizedBox(height: _gap * 2),
+                          // The merged-header band: one label per month,
+                          // centred over exactly the columns that belong to
+                          // it and no others — the spreadsheet shape, where
+                          // "أغسطس" spans its own five week columns and stops.
+                          //
+                          // Replaces a single "يوليو – أغسطس" centred over
+                          // everything, which named a span without saying
+                          // where one month ended, so the week numbers under
+                          // it (they restart at 1 each month) looked like a
+                          // counter resetting for no reason. Segment widths
+                          // are derived from the very same _cell/_gap
+                          // constants the row below uses, so the header can
+                          // never drift out of alignment with its columns.
+                          Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (showWeekNumbers) ...[
+                              for (final seg in _monthSegments(
+                                run,
+                                perRun,
+                                weekCount,
+                                firstDayOf,
+                                monthFmt,
+                              )) ...[
+                                if (seg.leadingBreak)
+                                  const SizedBox(width: _gap * 5),
                                 SizedBox(
-                                  width: _cell,
+                                  width:
+                                      seg.span * _cell + (seg.span - 1) * _gap,
+                                  // Centred over its own columns, and allowed
+                                  // to spill past them rather than truncate.
+                                  // A month that only owns one 15pt column —
+                                  // the tail of the month a room started in —
+                                  // cannot fit "يوليو" and was rendering as
+                                  // "يو…", which names nothing. The overflow
+                                  // lands in the wider month-break gap beside
+                                  // it, and the neighbouring label is centred
+                                  // over three or more columns, so the two
+                                  // never reach each other.
                                   child: Text(
-                                    // 0 means a column made entirely of
-                                    // padding — there's no week there to
-                                    // number, but the slot still has to
-                                    // occupy its height or this column's
-                                    // squares would sit higher than its
-                                    // neighbours'.
-                                    weekIndex[run * perRun + c] == 0
-                                        ? ''
-                                        : '${weekIndex[run * perRun + c]}',
+                                    seg.label,
                                     textAlign: TextAlign.center,
-                                    textDirection: TextDirection.ltr,
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    overflow: TextOverflow.visible,
                                     style: TextStyle(
-                                      fontSize: 9,
-                                      height: 1,
+                                      fontSize: 9.5,
                                       fontWeight: FontWeight.w700,
                                       color: gp.textTert,
+                                      letterSpacing: 0.2,
                                     ),
                                   ),
                                 ),
-                                const SizedBox(height: 3),
                               ],
-                              for (var r = 0; r < 7; r++) ...[
-                                if (r > 0) const SizedBox(height: _gap),
-                                _cellFor(run * perRun * 7 + c * 7 + r - lead,
-                                    days, dark, s, gp.textPrimary),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          // Row, not Wrap — it follows the ambient
+                          // Directionality, so column 0 (the oldest week, and
+                          // therefore the first month) sits hard against the
+                          // RIGHT edge in Arabic and time runs right to left,
+                          // the same way the Grid's days do.
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              for (var c = 0;
+                                  c < perRun && run * perRun + c < weekCount;
+                                  c++) ...[
+                                if (c > 0)
+                                  SizedBox(
+                                    width:
+                                        monthStarts.contains(run * perRun + c)
+                                            ? _gap * 5
+                                            : _gap,
+                                  ),
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: _cell,
+                                      child: Text(
+                                        weekIndex[run * perRun + c] == 0
+                                            ? ''
+                                            : '${weekIndex[run * perRun + c]}',
+                                        textAlign: TextAlign.center,
+                                        textDirection: TextDirection.ltr,
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          height: 1,
+                                          fontWeight: FontWeight.w700,
+                                          color: gp.textTert,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    // How the week went, in the one channel a
+                                    // 12pt column has room for: green once
+                                    // every day in it is settled, amber for a
+                                    // closed week that fell short, faint while
+                                    // it is still running. Reads the same
+                                    // creditFor the percentage reads, so it
+                                    // can never contradict the number at the
+                                    // top of the card.
+                                    Container(
+                                      width: _cell,
+                                      height: 2.5,
+                                      decoration: BoxDecoration(
+                                        color: _weekTone(
+                                          run * perRun + c,
+                                          lead,
+                                          days,
+                                          gp.border,
+                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(1.5),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    for (var ri = 0;
+                                        ri < usedRows.length;
+                                        ri++) ...[
+                                      if (ri > 0) const SizedBox(height: _gap),
+                                      _cellFor(
+                                        run * perRun * 7 +
+                                            c * 7 +
+                                            usedRows[ri] -
+                                            lead,
+                                        days,
+                                        dark,
+                                        s,
+                                        gp.textPrimary,
+                                        backdrop,
+                                      ),
+                                    ],
+                                  ],
+                                ),
                               ],
                             ],
                           ),
                         ],
                       ],
                     ),
-                  ],
-                ],
+                  );
+                },
               ),
-            );
-          },
-          ),
-        ),
-      ],
+            ),
+          ],
         ),
       ),
     );
@@ -411,45 +542,202 @@ class _MiniHeatmapStrip extends StatelessWidget {
             top: topOffset,
             height: labelHeight,
             width: _labelInset,
-            child: label)
+            child: label,
+          )
         : PositionedDirectional(
             end: -(_labelInset + gapFromCell),
             top: topOffset,
             height: labelHeight,
             width: _labelInset,
-            child: label);
+            child: label,
+          );
   }
 
   /// [startLabelColour] is the card's own foreground — passed in rather
   /// than read from a palette here, because the palette type is private to
   /// game_theme.dart and this isn't a build method with a context.
-  Widget _cellFor(int index, List<DateTime> days, bool dark, S s,
-      Color startLabelColour) {
+  /// The colour of one week column's summary bar.
+  ///
+  /// Answers "how did this week go" in the one channel a 12pt column has
+  /// room for. Green once every day in the week is settled — done, or a rest
+  /// day that owed nothing; amber for a closed week that fell short; grey
+  /// while the week is still running, because nothing is lost yet.
+  ///
+  /// Deliberately reads the same creditFor the percentage reads, rather than
+  /// counting coloured squares, so the bar can never contradict the number
+  /// at the top of the card the way a square count does.
+  Color _weekTone(int w, int lead, List<DateTime> days, Color neutral) {
+    var settled = 0;
+    var real = 0;
+    var open = false;
+    for (var r = 0; r < 7; r++) {
+      final i = w * 7 + r - lead;
+      if (i < 0 || i >= days.length) continue;
+      final day = days[i];
+      if (day.isAfter(room.lastCountedDay)) continue;
+      real++;
+      if (participant.creditFor(day.toDateKey()) >= 1.0) settled++;
+      if (!_weekIsClosed(day)) open = true;
+    }
+    if (real == 0) return neutral;
+    if (settled == real) return GameColors.emerald;
+    return open ? neutral : _weekShort;
+  }
+
+  /// The month labels for one run of week columns, each with how many
+  /// columns it spans.
+  ///
+  /// [leadingBreak] marks a segment that follows a month change, so the
+  /// header inserts the same wider gap the column row inserts there
+  /// (monthStarts → `_gap * 5`). Deriving both from the same rule is what
+  /// keeps a label centred over its own weeks instead of drifting a few
+  /// points off as the strip gets longer.
+  ///
+  /// A column made entirely of padding has no first day and therefore no
+  /// month of its own; it joins whatever segment precedes it rather than
+  /// starting a new one, so a week straddling a month boundary never
+  /// produces a stray one-column header.
+  List<({String label, int span, bool leadingBreak})> _monthSegments(
+    int run,
+    int perRun,
+    int weekCount,
+    DateTime? Function(int) firstDayOf,
+    DateFormat monthFmt,
+  ) {
+    final out = <({String label, int span, bool leadingBreak})>[];
+    for (var c = 0; c < perRun && run * perRun + c < weekCount; c++) {
+      final first = firstDayOf(run * perRun + c);
+      final label = first == null ? null : monthFmt.format(first);
+      if (out.isEmpty || (label != null && label != out.last.label)) {
+        out.add(
+          (
+            label: label ?? (out.isEmpty ? '' : out.last.label),
+            span: 1,
+            leadingBreak: out.isNotEmpty,
+          ),
+        );
+      } else {
+        final last = out.removeLast();
+        out.add(
+          (
+            label: last.label,
+            span: last.span + 1,
+            leadingBreak: last.leadingBreak,
+          ),
+        );
+      }
+    }
+    return out;
+  }
+
+  /// Whether a day with no credit is genuinely lost, and can be crossed out.
+  ///
+  /// Today is never marked — it is still doable, and a square un-ticked in
+  /// the Grid five seconds ago shouldn't turn red while the person is still
+  /// working on it.
+  ///
+  /// Past days split on the habit's own rule, because "you can still save
+  /// this" only means something for a weekly quota. A DAILY habit's
+  /// yesterday is simply gone: uncheck it in the Grid and it is a miss the
+  /// moment the day ends, so it is crossed out immediately — which is what
+  /// makes the room agree with the Grid square the user just changed.
+  /// A QUOTA habit's yesterday is different: while its week is open, every
+  /// un-done day is only provisionally owed, and finishing the week converts
+  /// them all back into rest days. Crossing those out live would condemn
+  /// days the person is about to rescue, so the quota case waits for the
+  /// week to close.
+  bool _missIsFinal(DateTime day) {
+    if (day.isRealToday || day.isAfter(room.lastCountedDay)) return false;
+    final onQuota = participant.countedHabitIds.any(
+      (id) =>
+          participant.ruleFor(id, day.toDateKey())?.frequencyType ==
+          HabitFrequencyType.weekly,
+    );
+    return onQuota ? _weekIsClosed(day) : true;
+  }
+
+  /// Whether the Saturday week containing [day] has finished counting.
+  ///
+  /// The quota grader only settles a week once it is over: while a week is
+  /// still running and its target isn't met yet, *every* elapsed day in it is
+  /// treated as answerable, so an un-done day reads as a miss even though
+  /// finishing the week would turn it back into a rest day. Nothing is
+  /// actually lost until the week closes, so nothing is crossed out until
+  /// then either. Mirrors isQuotaWeekClosed in rooms_notifier.dart.
+  bool _weekIsClosed(DateTime day) => day.startOfDisplayWeek
+      .add(const Duration(days: 6))
+      .isBefore(room.lastCountedDay);
+
+  /// The opaque colour sitting immediately behind a cell.
+  ///
+  /// Needed because every heat tone is semi-transparent (see heatColor:
+  /// emerald at 0.30-0.92) and the البداية/اليوم markers paint a SOLID
+  /// ring behind the cell. A spreadRadius BoxShadow is a filled rounded
+  /// rect, not a hollow ring, so it lands under the whole cell and the
+  /// translucent fill then composited over WHITE instead of over the card:
+  /// day one of a half-done day rendered as a washed-out pale green that
+  /// did not match its own heat level, and a first day that was a MISS
+  /// (transparent fill) rendered as a solid white square. Compositing the
+  /// fill against this first makes it opaque, so the ring stays a ring.
+  ///
+  /// Computed rather than assumed: the "you" card is a translucent gold
+  /// over the page, not gp.surface, so blending everything against
+  /// gp.surface would tint your own row differently from everyone else's.
+  Color _cellBackdrop(BuildContext context) {
+    final gp = context.gp;
+    return isYou
+        ? Color.alphaBlend(GameColors.gold.withOpacity(0.06), gp.bg)
+        : gp.surface;
+  }
+
+  Widget _cellFor(
+    int index,
+    List<DateTime> days,
+    bool dark,
+    S s,
+    Color startLabelColour,
+    Color backdrop,
+  ) {
     if (index < 0 || index >= days.length) {
       return const SizedBox(width: _cell, height: _cell);
     }
     final day = days[index];
     final key = day.toDateKey();
-    // A day the quota (or a named-weekday schedule) asked nothing of
-    // them. It scores as finished — see RoomParticipant.isRestDay —
-    // but drawing it in the same full emerald as a day they actually
-    // trained is what made this strip look like it disagreed with the
-    // Grid: four workouts a week rendered as a solid week here and as
-    // four squares there. An outline says "nothing was owed" without
-    // claiming credit the person didn't earn, and without touching
-    // what the day is worth.
-    // Colour answers one question only: did they do the habit that
-    // day. So a rest day reads empty, exactly like the Grid square
-    // for it, and four workouts a week draw four cells in both
-    // places. It still SCORES as finished — see
-    // RoomParticipant.isRestDay and creditFor — so the row's
-    // percentage and streak are unchanged and will sit higher than a
-    // plain count of the coloured cells. That gap is deliberate: the
-    // strip is a record of what was done, the percentage is a measure
-    // of what was owed, and a flexible quota is exactly the case
-    // where those two stop being the same number.
-    final credit =
-        participant.isRestDay(key) ? 0.0 : participant.creditFor(key);
+    // Dead time between an ending and an extension draws nothing: the room
+    // did not exist those days, so they are neither a miss nor a rest day,
+    // and they are excluded from the score too (RoomModel.pausedSpans).
+    //
+    // A blank placeholder, NOT a removal from `days`. The column maths below
+    // is `w * 7 + r - lead`, which only holds while `days` is a contiguous
+    // calendar run — dropping days from the middle would slide every later
+    // cell onto the wrong weekday row and quietly destroy the one property
+    // the week-column layout exists for. So the gap stays in the list and
+    // simply paints nothing, which also reads correctly: a visible break
+    // where the room was paused.
+    if (room.isPausedOn(key)) {
+      return const SizedBox(width: _cell, height: _cell);
+    }
+    // Four states, not two, and the reason is that "empty" used to mean
+    // both "nothing was owed" and "you missed it".
+    //
+    // A rest day — the quota or a named-weekday schedule asked nothing of
+    // them — scores a full 1.0 (RoomParticipant.isRestDay, creditFor). It
+    // used to paint empty so the strip would match the Grid square for the
+    // same day. That made the strip honest about *training* and silent
+    // about *scoring*, and the visible cost was a card reading 76% above a
+    // row of squares that plainly didn't add up to 76%. It now paints as a
+    // faint outline: clearly credited, clearly not a session, distinct from
+    // both a full square and a miss.
+    //
+    // A missed day gets a red cross — but only once its week is closed.
+    // Inside a running week every not-yet-done day is technically "owed"
+    // (see the quota grader: an open week under target makes every elapsed
+    // day answerable), so crossing them out live would condemn days the
+    // person can still rescue by finishing the week. Until the week ends
+    // they stay neutral.
+    final isRest = participant.isRestDay(key);
+    final credit = participant.creditFor(key);
+    final isMissed = !isRest && credit <= 0 && _missIsFinal(day);
     final isStart = index == 0;
     // isRealToday, not isToday: purely the "today" marker — see
     // DateTimeGameExt.isRealToday's doc comment.
@@ -459,13 +747,25 @@ class _MiniHeatmapStrip extends StatelessWidget {
     final cell = Container(
       width: _cell,
       height: _cell,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        // Unchanged, and deliberately still the ONLY thing answering "was the
-        // habit done that day" — see the rest-day comment above. The markers
-        // below are built entirely from shadows (outside the box) plus a 1pt
-        // inset hairline, so they RING the fill rather than replace it, and
-        // this strip keeps agreeing with the Grid square for the same day.
-        color: heatColor(heatmapLevelFor(credit), dark),
+        // A rest day is a tinted outline, a miss is a red wash, and anything
+        // actually done keeps the heat ramp it has always used — so this
+        // strip still agrees with the Grid square on the one question the
+        // ramp answers ("how much did you do"), while no longer drawing
+        // "nothing was owed" and "you missed it" as the same empty box.
+        // A miss is an outline and a mark, not a red block. Filled, a month
+        // of missed days turned the whole card into a red wall that read as
+        // an error state rather than as a record — and on a daily habit,
+        // where every single day is owed, that is most of the strip. Kept
+        // faint enough to recede and specific enough to count.
+        color: roomStripCellFill(
+          credit: credit,
+          isRest: isRest,
+          isMissed: isMissed,
+          dark: dark,
+          backdrop: backdrop,
+        ),
         borderRadius: BorderRadius.circular(2.5),
         // Order matters: shadows paint in list order, then the fill, then the
         // border. blurRadius 0 installs no MaskFilter, so the second shadow
@@ -480,18 +780,36 @@ class _MiniHeatmapStrip extends StatelessWidget {
                   blurRadius: 2.4,
                   spreadRadius: 0.4,
                 ),
-                BoxShadow(color: outer, blurRadius: 0, spreadRadius: 1.0),
+                BoxShadow(color: outer, spreadRadius: 1.0),
               ]
             : null,
         // Today keeps gold — it means "today" everywhere in this app. Day 1
         // takes the achromatic hairline, the one tone that cannot collide
         // with any preset.
         border: isToday
-            ? Border.all(color: GameColors.gold, width: 1)
+            ? Border.all(color: GameColors.gold)
             : isStart
-                ? Border.all(color: inner, width: 1)
-                : null,
+                ? Border.all(color: inner)
+                : isRest
+                    ? Border.all(
+                        color: GameColors.emerald.withOpacity(0.42),
+                      )
+                    : isMissed
+                        ? Border.all(
+                            color: GameColors.error.withOpacity(0.34),
+                          )
+                        : null,
       ),
+      // A cross, not just a red box: at 12pt the tint alone is easy to read
+      // as "some other shade of done", and the mark is what makes a miss
+      // unmistakable at a glance. CustomPaint rather than a glyph so it
+      // scales with the cell and needs no font metrics.
+      child: isMissed
+          ? CustomPaint(
+              size: const Size(_cell * 0.46, _cell * 0.46),
+              painter: _MissCrossPainter(GameColors.error.withOpacity(0.62)),
+            )
+          : null,
     );
 
     if (!isStart && !isToday) return cell;
@@ -551,17 +869,35 @@ class _MiniHeatmapStrip extends StatelessWidget {
   }
 }
 
-class _LeaderboardRow extends StatelessWidget {
+/// The × on a missed day. Two strokes with rounded caps, inset so they never
+/// touch the cell's own 1pt border — at 12pt a cross drawn corner to corner
+/// reads as a filled box rather than a mark.
+class _MissCrossPainter extends CustomPainter {
+  final Color color;
+
+  const _MissCrossPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset.zero, Offset(size.width, size.height), paint);
+    canvas.drawLine(Offset(size.width, 0), Offset(0, size.height), paint);
+  }
+
+  @override
+  bool shouldRepaint(_MissCrossPainter old) => old.color != color;
+}
+
+class _LeaderboardRow extends ConsumerWidget {
   final int rank;
   final RoomParticipant participant;
   final RoomModel room;
   final bool isYou;
   final bool isLeader;
-
-  /// Passed straight through to this row's strip — see
-  /// [_MiniHeatmapStrip.showWeekNumbers] for why it's one flag for the whole
-  /// board, and why it is not called `showDetails`.
-  final bool showWeekNumbers;
 
   const _LeaderboardRow({
     required this.rank,
@@ -569,7 +905,6 @@ class _LeaderboardRow extends StatelessWidget {
     required this.room,
     required this.isYou,
     required this.isLeader,
-    required this.showWeekNumbers,
   });
 
   Color? get _medalColor => switch (rank) {
@@ -579,8 +914,41 @@ class _LeaderboardRow extends StatelessWidget {
         _ => null,
       };
 
+  /// How demanding this member's plan is — "4× a week", "Daily", or a count
+  /// when their linked habits don't agree.
+  ///
+  /// Read from the room's FROZEN rule, not the habit's current settings,
+  /// because the frozen rule is what the percentage beside it is actually
+  /// computed from. Showing the live value would put a number next to a
+  /// percentage that disagrees with it, which is the same class of silent
+  /// mismatch that made one member read 57% for the same work another read
+  /// 76% for.
+  ///
+  /// Multi-habit plans are handled by deduping: three habits all at 4x read
+  /// as one "4× a week", while a genuinely mixed plan names the count rather
+  /// than pick a winner and mislead.
+  ///
+  /// Null when nothing is linked, or when no rule has been recorded yet —
+  /// better to show nothing than to guess a cadence.
+  String? _cadenceLabel(S s) {
+    final today = DateTime.now().effectiveDay.toDateKey();
+    final labels = <String>{};
+    for (final id in participant.countedHabitIds) {
+      final rule = participant.ruleFor(id, today);
+      if (rule == null) continue;
+      labels.add(
+        rule.frequencyType == HabitFrequencyType.weekly
+            ? s.roomCadenceWeekly(rule.frequencyTarget)
+            : s.roomCadenceDaily,
+      );
+    }
+    if (labels.isEmpty) return null;
+    if (labels.length == 1) return labels.first;
+    return s.roomCadenceMixed(participant.countedHabitIds.length);
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
     final ratio = participant.progressRatio(room);
@@ -636,8 +1004,11 @@ class _LeaderboardRow extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.only(top: 6),
               child: rank == 1
-                  ? Icon(Icons.emoji_events_rounded,
-                      size: 20, color: GameColors.gold)
+                  ? Icon(
+                      Icons.emoji_events_rounded,
+                      size: 20,
+                      color: GameColors.gold,
+                    )
                   : Text(
                       '$rank',
                       textAlign: TextAlign.center,
@@ -660,13 +1031,19 @@ class _LeaderboardRow extends StatelessWidget {
               height: 42,
               width: 30,
               child: Center(
-                child: Icon(Icons.person_rounded,
-                    size: 26, color: gp.textTert.withOpacity(0.6)),
+                child: Icon(
+                  Icons.person_rounded,
+                  size: 26,
+                  color: gp.textTert.withOpacity(0.6),
+                ),
               ),
             )
           else
             CharacterAvatar(
-                character: character, accessory: accessory, height: 42),
+              character: character,
+              accessory: accessory,
+              height: 42,
+            ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -680,9 +1057,10 @@ class _LeaderboardRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w800,
-                            color: gp.textPrimary),
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: gp.textPrimary,
+                        ),
                       ),
                     ),
                     if (isYou) ...[
@@ -693,16 +1071,51 @@ class _LeaderboardRow extends StatelessWidget {
                       const SizedBox(width: 6),
                       _Tag(label: s.roomLeaderLabel, color: gp.textSec),
                     ],
+                    // Inline null-check (not a separate bool) so Dart
+                    // actually promotes prestigeTier to non-null for the
+                    // _PrestigeChip call - a bool computed from the same
+                    // check earlier doesn't carry that promotion through.
+                    //
+                    // On the name's own row rather than stacked under it.
+                    // The chip is short and the row had spare width, while
+                    // the second line cost every card ~20pt of height that
+                    // the history grid underneath wanted far more. The name
+                    // stays Flexible so it ellipsizes before the badges do —
+                    // the badges are the part you scan, the full name is
+                    // recoverable by opening the row.
+                    if (prestigeTier != null && prestigeTier.minLevel > 1) ...[
+                      const SizedBox(width: 6),
+                      _PrestigeChip(tier: prestigeTier),
+                    ],
+                    // Report/block, on everyone but yourself. An explicit
+                    // control rather than a long-press: the card body is
+                    // already a tap target (it opens the calendar), and a
+                    // moderation affordance nobody can find satisfies
+                    // neither an upset user nor App Review guideline 1.2.
+                    if (!isYou) ...[
+                      const SizedBox(width: 2),
+                      SizedBox(
+                        width: 30,
+                        height: 30,
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          iconSize: 17,
+                          color: gp.textTert,
+                          tooltip: s.roomMemberActions,
+                          icon: const Icon(Icons.more_horiz_rounded),
+                          onPressed: () => showMemberOptions(
+                            context,
+                            ref: ref,
+                            roomCode: room.code,
+                            memberUid: participant.uid,
+                            memberName: participant.displayName,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-                // Inline null-check (not a separate bool) so Dart actually
-                // promotes prestigeTier to non-null for the _PrestigeChip
-                // call below - a bool computed from the same check earlier
-                // doesn't carry that promotion through on its own.
-                if (prestigeTier != null && prestigeTier.minLevel > 1) ...[
-                  const SizedBox(height: 4),
-                  _PrestigeChip(tier: prestigeTier),
-                ],
                 if (showDetails && names.isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(
@@ -717,7 +1130,6 @@ class _LeaderboardRow extends StatelessWidget {
                   room: room,
                   participant: participant,
                   isYou: isYou,
-                  showWeekNumbers: showWeekNumbers,
                 ),
                 const SizedBox(height: 6),
                 Row(
@@ -730,7 +1142,8 @@ class _LeaderboardRow extends StatelessWidget {
                           value: ratio,
                           backgroundColor: gp.border,
                           valueColor: AlwaysStoppedAnimation(
-                              medalColor ?? GameColors.gold),
+                            medalColor ?? GameColors.gold,
+                          ),
                           minHeight: 6,
                         ),
                       ),
@@ -753,15 +1166,19 @@ class _LeaderboardRow extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.local_fire_department_rounded,
-                                size: 12, color: GameColors.iconStreak),
+                            const Icon(
+                              Icons.local_fire_department_rounded,
+                              size: 12,
+                              color: GameColors.iconStreak,
+                            ),
                             const SizedBox(width: 2),
                             Text(
                               '$streak',
-                              style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: GameColors.iconStreak),
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                color: GameColors.iconStreak,
+                              ),
                             ),
                           ],
                         ),
@@ -769,8 +1186,10 @@ class _LeaderboardRow extends StatelessWidget {
                       const SizedBox(width: 9),
                     ],
                     Text(
-                      s.roomDayCount(participant.daysCompleted(room),
-                          participant.daysElapsedIn(room)),
+                      s.roomDayCount(
+                        participant.daysCompleted(room),
+                        participant.daysElapsedIn(room),
+                      ),
                       style: TextStyle(fontSize: 10.5, color: gp.textTert),
                     ),
                   ],
@@ -781,11 +1200,51 @@ class _LeaderboardRow extends StatelessWidget {
           const SizedBox(width: 8),
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text('${(ratio * 100).round()}%',
-                style: TextStyle(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${(ratio * 100).round()}%',
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: gp.textPrimary)),
+                    color: gp.textPrimary,
+                  ),
+                ),
+                // Directly under the number it explains. Two members in one
+                // room can be graded on different terms — a 4x/week quota
+                // turns its untrained days into full credit, a daily habit
+                // never does — so identical effort can print very different
+                // percentages. Without the cadence beside it that gap looks
+                // arbitrary; with it, it's just the plan.
+                // Deliberately NOT behind hideDetails, unlike the
+                // habit-name chips. That flag hides WHAT someone is working
+                // on, which is private; this is HOW HARD their plan is,
+                // which is the denominator of a number already on public
+                // display. Hiding it protects nothing — the percentage is
+                // still there — it only makes the gap between two members
+                // unexplainable, which is the exact confusion this badge
+                // exists to remove.
+                Builder(
+                  builder: (_) {
+                    final label = _cadenceLabel(s);
+                    if (label == null) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: gp.textTert,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -812,12 +1271,14 @@ class _WarningRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.warning_amber_rounded, size: 15, color: GameColors.error),
+          const Icon(Icons.warning_amber_rounded,
+              size: 15, color: GameColors.error),
           const SizedBox(width: 7),
           Expanded(
-            child: Text(text,
-                style:
-                    TextStyle(fontSize: 11, color: gp.textSec, height: 1.35)),
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 11, color: gp.textSec, height: 1.35),
+            ),
           ),
         ],
       ),
@@ -838,9 +1299,14 @@ class _Tag extends StatelessWidget {
         color: color.withOpacity(0.14),
         borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
       ),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 9.5, fontWeight: FontWeight.w700, color: color)),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9.5,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
     );
   }
 }
@@ -870,7 +1336,10 @@ class _PrestigeChip extends StatelessWidget {
           Text(
             tier.title(S.of(context).isAr),
             style: TextStyle(
-                fontSize: 10.5, fontWeight: FontWeight.w800, color: tier.color),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              color: tier.color,
+            ),
           ),
         ],
       ),
@@ -952,15 +1421,19 @@ class _ExtendRoomSheetState extends State<_ExtendRoomSheet> {
                 ),
               ),
             ),
-            Text(s.roomExtendTitle,
-                style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: gp.textPrimary)),
+            Text(
+              s.roomExtendTitle,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+              ),
+            ),
             const SizedBox(height: 6),
-            Text(s.roomExtendBody,
-                style:
-                    TextStyle(fontSize: 12.5, color: gp.textSec, height: 1.35)),
+            Text(
+              s.roomExtendBody,
+              style: TextStyle(fontSize: 12.5, color: gp.textSec, height: 1.35),
+            ),
             const SizedBox(height: 18),
             Wrap(
               spacing: 8,
@@ -1055,12 +1528,15 @@ class _ExtendOptionChip extends StatelessWidget {
             width: selected ? 1.1 : 0.8,
           ),
         ),
-        child: Text(label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
-                color: selected ? GameColors.gold : gp.textPrimary)),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+            color: selected ? GameColors.gold : gp.textPrimary,
+          ),
+        ),
       ),
     );
   }
@@ -1079,7 +1555,7 @@ class _ExtendOptionChip extends StatelessWidget {
 /// top-20 cut would have hidden the only row that is actually about you. It
 /// appears in its true rank position when it falls inside the visible slice,
 /// and pinned below the fold with a divider when it doesn't.
-class _LeaderboardList extends StatefulWidget {
+class _LeaderboardList extends ConsumerStatefulWidget {
   final List<RoomParticipant> sorted;
   final RoomModel room;
   final String? myUid;
@@ -1090,35 +1566,43 @@ class _LeaderboardList extends StatefulWidget {
   });
 
   @override
-  State<_LeaderboardList> createState() => _LeaderboardListState();
+  ConsumerState<_LeaderboardList> createState() => _LeaderboardListState();
 }
 
-class _LeaderboardListState extends State<_LeaderboardList> {
+class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
   static const int _initialRows = 20;
   bool _expanded = false;
-
-  /// One switch for every strip on the board. Local and transient, never
-  /// persisted — same treatment [_expanded] above gets, and the same reason:
-  /// it's a way of looking at this screen right now, not a preference.
-  bool _showDetails = false;
+  /// Lets someone look past their own block without undoing it — the same
+  /// escape hatch every "hidden content" affordance needs, and the reason
+  /// blocking here can stay a view filter rather than a destructive act.
+  bool _showBlocked = false;
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final sorted = widget.sorted;
+    final blocked = ref.watch(blockedMembersProvider);
+    // Ranks are computed BEFORE filtering, deliberately: blocking someone
+    // hides their row, it does not promote you past them. A leaderboard
+    // that silently renumbered itself per viewer would make blocking a way
+    // to fake your own standing.
+    final all = widget.sorted;
+    final hiddenCount =
+        blocked.isEmpty ? 0 : all.where((p) => blocked.contains(p.uid)).length;
+    final sorted = (blocked.isEmpty || _showBlocked)
+        ? all
+        : all.where((p) => !blocked.contains(p.uid)).toList();
     final showAll = _expanded || sorted.length <= _initialRows;
     final visibleCount = showAll ? sorted.length : _initialRows;
 
     Widget rowAt(int i) => Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: _LeaderboardRow(
-            rank: i + 1,
+            rank: all.indexOf(sorted[i]) + 1,
             participant: sorted[i],
             room: widget.room,
             isYou: sorted[i].uid == widget.myUid,
             isLeader: sorted[i].uid == widget.room.createdBy,
-            showWeekNumbers: _showDetails,
           ),
         );
 
@@ -1128,70 +1612,34 @@ class _LeaderboardListState extends State<_LeaderboardList> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (hiddenCount > 0) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(Icons.block_rounded, size: 13, color: gp.textTert),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    s.roomBlockedHidden(hiddenCount),
+                    style: TextStyle(fontSize: 11.5, color: gp.textTert),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      setState(() => _showBlocked = !_showBlocked),
+                  child: Text(_showBlocked
+                      ? s.roomCancel
+                      : s.roomBlockedShow),
+                ),
+              ],
+            ),
+          ),
+        ],
         // Sits above every strip, not inside one. A control inside a card
         // whose whole body is already a tap target (the strip opens the
         // calendar sheet) is a gesture fight; up here it's unambiguous, and
         // one switch keeps every row showing the same thing.
-        Align(
-          alignment: AlignmentDirectional.centerEnd,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() => _showDetails = !_showDetails);
-              },
-              // A filled-vs-outlined pill, not Icons.toggle_on/off_rounded.
-              // Those two glyphs are directional, so Flutter auto-mirrors
-              // them under RTL and the on and off states end up looking
-              // nearly identical in Arabic — the switch appeared not to
-              // respond even when the state had flipped. Fill is not
-              // directional and carries the state on its own.
-              child: AnimatedContainer(
-                duration: GameMotion.quick,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: _showDetails
-                      ? GameColors.emerald.withOpacity(0.16)
-                      : Colors.transparent,
-                  borderRadius:
-                      BorderRadius.circular(GameSpacing.pillRadius),
-                  border: Border.all(
-                    color: _showDetails
-                        ? GameColors.emerald.withOpacity(0.55)
-                        : gp.border,
-                    width: _showDetails ? 1.2 : 0.5,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _showDetails
-                          ? Icons.check_circle_rounded
-                          : Icons.circle_outlined,
-                      size: 15,
-                      color: _showDetails ? GameColors.emerald : gp.textTert,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      s.roomStripDetails,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: _showDetails
-                            ? GameColors.emerald
-                            : gp.textSec,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
         for (var i = 0; i < visibleCount; i++) rowAt(i),
         if (myRowIsHidden) ...[
           Padding(
@@ -1201,8 +1649,10 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                 Expanded(child: Divider(color: gp.border, height: 1)),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('⋯',
-                      style: TextStyle(fontSize: 15, color: gp.textTert)),
+                  child: Text(
+                    '⋯',
+                    style: TextStyle(fontSize: 15, color: gp.textTert),
+                  ),
                 ),
                 Expanded(child: Divider(color: gp.border, height: 1)),
               ],

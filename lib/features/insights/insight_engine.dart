@@ -159,7 +159,12 @@ InsightsResult computeInsights({
     }
   }
   int? strongest;
-  var strongestRate = -1.0;
+  // Seeded at 0, not -1. At -1 a rate of 0.0 still beat the seed, so on an
+  // account where nothing has been completed the FIRST weekday with enough
+  // samples was crowned "your strongest day" at 0%. Seeding at zero means a
+  // day has to actually have completions to win, and `strongest` stays null
+  // when none does — which the caller already renders as "no insight yet".
+  var strongestRate = 0.0;
   for (final e in weekdayScheduled.entries) {
     if (e.value < 4) continue; // too few samples to crown a day
     final rate = (weekdayCompleted[e.key] ?? 0) / e.value;
@@ -171,7 +176,10 @@ InsightsResult computeInsights({
 
   String? best;
   String? worst;
-  var bestRate = -1.0;
+  // Same fix as strongestRate above: a habit completed zero times must never
+  // be announced as the most consistent one. worstRate keeps its high seed —
+  // a 0% habit genuinely IS the worst, and that half was always correct.
+  var bestRate = 0.0;
   var worstRate = 2.0;
   for (final p in patterns.values) {
     if (p.scheduled < 7 || !byId.containsKey(p.habitId)) continue;

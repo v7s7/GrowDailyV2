@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/analytics_service.dart';
+import '../../../core/utils/text_moderation.dart';
 import '../../../core/services/local_store_service.dart';
 
 final authStateProvider = StreamProvider<User?>((ref) {
@@ -51,6 +52,26 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       await _ensureUserDoc(cred.user!.uid, cred.user?.email ?? email.trim());
       AnalyticsService.instance.track('auth_signed_in');
     });
+  }
+
+  /// Sends Firebase's password-reset email.
+  ///
+  /// Deliberately NOT routed through [state]: the screen's error listener
+  /// maps AsyncError into sign-in wording ("invalid credentials"), which is
+  /// nonsense for a reset. Returns false only on a delivery-level failure
+  /// (offline); user-not-found returns TRUE on purpose, so the caller shows
+  /// the same confirmation either way and this can't be used to probe which
+  /// emails have accounts.
+  Future<bool> sendPasswordReset(String email) async {
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email.trim());
+      return true;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found' || e.code == 'invalid-email') return true;
+      return false;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> register(String email, String password) async {
@@ -113,12 +134,27 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
 
   // ── Helpers ─────────────────────────────────────────────────
 
-  /// Best-effort recursive delete of everything under `users/{uid}`. Client
-  /// SDKs can't delete a document's subcollections automatically, so each
-  /// known subcollection is fetched and batch-deleted before the parent doc.
-  /// If this ever needs to run unattended (e.g. from a support request
-  /// instead of the signed-in user themselves), move it into a Cloud
-  /// Function using the Admin SDK instead.
+  /// Best-effort recursive delete of everything under `users/{uid}`, plus
+  /// this account's membership of any Room. Client SDKs can't delete a
+  /// document's subcollections automatically, so each known subcollection is
+  /// fetched and batch-deleted before the parent doc. If this ever needs to
+  /// run unattended (e.g. from a support request instead of the signed-in
+  /// user themselves), move it into a Cloud Function using the Admin SDK
+  /// instead.
+  ///
+  /// The list below is load-bearing: privacy_policy.html tells people
+  /// deletion "permanently removes your account and all associated data",
+  /// and anything missing from this list makes that sentence false. It is
+  /// also what App Review checks under guideline 5.1.1(v). `milestones` and
+  /// `fcmTokens` were both missing — the first is a full history of what
+  /// this person achieved and when, the second an active push token, so a
+  /// deleted account could still have been sent a notification.
+  ///
+  /// Room participant docs are deleted too, and separately, because they do
+  /// not live under `users/{uid}` at all: they sit at
+  /// `rooms/{code}/participants/{uid}` and carry a display name and a
+  /// progress history that other members can read. Leaving them behind
+  /// meant a deleted account stayed visible on other people's leaderboards.
   static Future<void> _deleteAllUserData(String uid) async {
     final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
     const subcollections = [
@@ -127,7 +163,11 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       'focus_plans',
       'matrix_tasks',
       'weekly_challenges',
+      'milestones',
+      'fcmTokens',
     ];
+    // Before the user doc goes, since that is where the room codes live.
+    await _leaveAllRooms(uid, userRef);
     for (final name in subcollections) {
       final snap = await userRef.collection(name).get();
       const chunkSize = 400; // stay under Firestore's 500-write batch limit
@@ -142,6 +182,41 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     await userRef.delete();
   }
 
+  /// Removes this account from every Room it is a member of.
+  ///
+  /// Best-effort by design, and failures are swallowed: a room whose
+  /// participant doc cannot be removed must not block the account deletion
+  /// itself, because a user who asked to be deleted and got an error
+  /// instead is the worse outcome — both for them and under guideline
+  /// 5.1.1(v). firestore.rules already lets a participant delete their own
+  /// entry (`allow delete: if isOwner(uid)`), so no rules change is needed.
+  static Future<void> _leaveAllRooms(
+    String uid,
+    DocumentReference<Map<String, dynamic>> userRef,
+  ) async {
+    try {
+      final snap = await userRef.get();
+      final codes = (snap.data()?['roomCodes'] as List?)
+              ?.whereType<String>()
+              .toList() ??
+          const <String>[];
+      for (final code in codes) {
+        try {
+          await FirebaseFirestore.instance
+              .collection('rooms')
+              .doc(code)
+              .collection('participants')
+              .doc(uid)
+              .delete();
+        } catch (_) {
+          // One unreachable room must not strand the whole deletion.
+        }
+      }
+    } catch (_) {
+      // Same reasoning one level up.
+    }
+  }
+
   static Future<void> _createUserDoc(String uid, String email) async {
     final ref =
         FirebaseFirestore.instance.collection('users').doc(uid);
@@ -152,7 +227,13 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       // collection by email or signup date directly - Firebase Auth's own
       // user list supports neither, and doesn't join with this collection.
       'email': email.trim(),
-      'displayName': email.split('@')[0],
+      // The email local-part is a convenient default name, and it is also
+      // the one path a display name could reach Rooms leaderboards without
+      // ever meeting isObjectionable — setDisplayName guards every EDIT,
+      // but nobody types this value, so nothing else screens it. A neutral
+      // fallback beats seeding a slur@-address straight onto a public row.
+      'displayName':
+          isObjectionable(email.split('@')[0]) ? 'Warrior' : email.split('@')[0],
       'level': 1,
       'currentLevelXp': 0,
       'cumulativeXp': 0,

@@ -202,6 +202,25 @@ class MatrixTask {
   // MatrixNotifier, never called from these widgets directly — see
   // MatrixNotifier._syncReminderSchedule for exactly when each happens.
   final List<DateTime> reminderAts;
+  // Which entry of [reminderAts] the user actually picked, as opposed to the
+  // ones this app derived from it. Purely presentational: nothing schedules
+  // off it (MatrixNotifier.futureTaskReminders iterates reminderAts and only
+  // reminderAts), and null just means "we don't know, guess" — see
+  // [resolveAnchor].
+  //
+  // It exists because the flat list is lossy in a way the user can see. A
+  // 12:00 anchor with a +15 offset stores [12:00, 12:15]; reopening used to
+  // re-derive the anchor as the *last* entry, so the task came back claiming
+  // 12:15 was the time you'd chosen and 12:00 was a "15 minutes before"
+  // warning. Same alarms, different story, and the story is what the user
+  // recognizes. Storing which moment was the real one is the only way to
+  // reproduce it — the arithmetic genuinely cannot be inverted.
+  //
+  // Invariant: always minute-equal to some entry of [reminderAts], enforced
+  // on every read by [resolveAnchor] rather than trusted from storage, so a
+  // stale value left behind by an older build heals itself instead of
+  // showing a bold time that never fires.
+  final DateTime? reminderAnchorAt;
   // Manual sort rank within a quadrant — a plain double, not an int index,
   // so dragging a task between two others (see MatrixNotifier.reorder) can
   // just average its new neighbors' order values without ever having to
@@ -223,6 +242,7 @@ class MatrixTask {
     this.description,
     this.voiceNotes = const [],
     this.reminderAts = const [],
+    this.reminderAnchorAt,
     required this.order,
   });
 
@@ -266,6 +286,40 @@ class MatrixTask {
     return List.unmodifiable(out);
   }
 
+  /// Same minute bucket [normalizeReminders] dedupes on. Anchors are
+  /// compared this way rather than with `==` because the two sides can carry
+  /// different seconds: pickReminderMoment builds a zero-second DateTime,
+  /// while a value that round-tripped through an older storage path may not
+  /// have, and two moments the user would call "3:30" must compare equal.
+  static bool _sameMinute(DateTime a, DateTime b) =>
+      a.millisecondsSinceEpoch ~/ 60000 == b.millisecondsSinceEpoch ~/ 60000;
+
+  /// The moment to treat as [reminderAnchorAt], given what storage claims
+  /// and what the task actually fires at.
+  ///
+  /// [candidate] is kept only if it's genuinely one of [reminders] — an
+  /// anchor outside that list would render as a bold time in ReminderRow
+  /// that no notification ever matches, which is the one failure this whole
+  /// field exists to avoid.
+  ///
+  /// Otherwise falls back to `reminders.last`, which is exactly what the old
+  /// splitReminders guessed. That's deliberate: a task saved before this
+  /// field existed has no recoverable anchor (the flat list genuinely does
+  /// not contain the information), so the fallback keeps it looking
+  /// identical to how it looked yesterday rather than re-framing it a
+  /// second, differently-wrong way. Such a task starts storing a real anchor
+  /// the first time its reminders are edited.
+  static DateTime? resolveAnchor(
+    DateTime? candidate,
+    List<DateTime> reminders,
+  ) {
+    if (reminders.isEmpty) return null;
+    if (candidate != null && reminders.any((r) => _sameMinute(r, candidate))) {
+      return candidate;
+    }
+    return reminders.last;
+  }
+
   /// [voiceNotes] are already-built VoiceNote instances (id/path/name/
   /// duration all set) by the time this is called — AddTaskSheet now
   /// supports recording and naming several notes before the task even
@@ -278,8 +332,10 @@ class MatrixTask {
     String? description,
     List<VoiceNote> voiceNotes = const [],
     List<DateTime> reminderAts = const [],
+    DateTime? reminderAnchorAt,
   }) {
     final now = DateTime.now();
+    final reminders = normalizeReminders(reminderAts);
     return MatrixTask(
       id: const Uuid().v4(),
       title: title.trim(),
@@ -288,7 +344,8 @@ class MatrixTask {
       createdAt: now,
       description: description,
       voiceNotes: voiceNotes,
-      reminderAts: normalizeReminders(reminderAts),
+      reminderAts: reminders,
+      reminderAnchorAt: resolveAnchor(reminderAnchorAt, reminders),
       order: now.millisecondsSinceEpoch.toDouble(),
     );
   }
@@ -299,6 +356,8 @@ class MatrixTask {
     final d = doc.data()!;
     final createdAt =
         (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+    DateTime? parse(Object? v) => v is Timestamp ? v.toDate() : null;
+    final reminders = _remindersFrom(d, parse: parse);
     return MatrixTask(
       id: doc.id,
       title: d['title'] as String,
@@ -316,10 +375,8 @@ class MatrixTask {
       rewarded: d['rewarded'] as bool? ?? false,
       description: d['description'] as String?,
       voiceNotes: _voiceNotesFromMap(d, createdAt),
-      reminderAts: _remindersFrom(
-        d,
-        parse: (v) => v is Timestamp ? v.toDate() : null,
-      ),
+      reminderAts: reminders,
+      reminderAnchorAt: resolveAnchor(parse(d['reminderAnchorAt']), reminders),
       // A task written before `order` existed falls back to its creation
       // time, so an untouched board still reads in the same order it
       // always has.
@@ -331,8 +388,10 @@ class MatrixTask {
   /// Plain-map (de)serialization for the guest's local Hive store — no
   /// Firestore Timestamp involved, so createdAt is a plain ISO-8601 string.
   factory MatrixTask.fromMap(Map<String, dynamic> d) {
-    final createdAt = DateTime.tryParse(d['createdAt'] as String? ?? '') ??
-        DateTime.now();
+    final createdAt =
+        DateTime.tryParse(d['createdAt'] as String? ?? '') ?? DateTime.now();
+    DateTime? parse(Object? v) => v is String ? DateTime.tryParse(v) : null;
+    final reminders = _remindersFrom(d, parse: parse);
     return MatrixTask(
       id: d['id'] as String? ?? const Uuid().v4(),
       title: d['title'] as String? ?? '',
@@ -349,10 +408,8 @@ class MatrixTask {
       rewarded: d['rewarded'] as bool? ?? false,
       description: d['description'] as String?,
       voiceNotes: _voiceNotesFromMap(d, createdAt),
-      reminderAts: _remindersFrom(
-        d,
-        parse: (v) => v is String ? DateTime.tryParse(v) : null,
-      ),
+      reminderAts: reminders,
+      reminderAnchorAt: resolveAnchor(parse(d['reminderAnchorAt']), reminders),
       order: (d['order'] as num?)?.toDouble() ??
           createdAt.millisecondsSinceEpoch.toDouble(),
     );
@@ -364,7 +421,9 @@ class MatrixTask {
   /// list, unnamed. Read-time only — doesn't touch what's actually stored
   /// until this task is next saved, so it's safe to run on every load.
   static List<VoiceNote> _voiceNotesFromMap(
-      Map<String, dynamic> d, DateTime fallbackCreatedAt) {
+    Map<String, dynamic> d,
+    DateTime fallbackCreatedAt,
+  ) {
     final raw = d['voiceNotes'];
     if (raw is List) {
       return raw
@@ -413,18 +472,21 @@ class MatrixTask {
         'quadrant': quadrant.name,
         'isDone': isDone,
         'createdAt': createdAt.toIso8601String(),
-        if (completedAt != null)
-          'completedAt': completedAt!.toIso8601String(),
+        if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
         'isToday': isFav, // key unchanged on the wire — see isFav's doc
         'rewarded': rewarded,
         if (description != null) 'description': description,
         'voiceNotes': voiceNotes.map((n) => n.toMap()).toList(),
-        'reminderAts':
-            reminderAts.map((d) => d.toIso8601String()).toList(),
+        'reminderAts': reminderAts.map((d) => d.toIso8601String()).toList(),
         // Legacy single key kept in step with the array's first entry so a
         // build that predates multi-reminders — or a downgrade — still
         // finds the reminder it knows how to read. See [_remindersFrom].
         if (reminderAt != null) 'reminderAt': reminderAt!.toIso8601String(),
+        // Plain conditional omit, no delete sentinel: the guest store rewrites
+        // the whole task list on every save (MatrixNotifier._saveGuest), so an
+        // absent key genuinely means absent. toFirestore below can't do this.
+        if (reminderAnchorAt != null)
+          'reminderAnchorAt': reminderAnchorAt!.toIso8601String(),
         'order': order,
       };
 
@@ -464,6 +526,13 @@ class MatrixTask {
         'reminderAt': reminderAt != null
             ? Timestamp.fromDate(reminderAt!)
             : FieldValue.delete(),
+        // Delete sentinel rather than a conditional omit — see this method's
+        // doc comment. Clearing a task's reminders has to actually remove the
+        // anchor, or a merge-set leaves it behind to be paired with whatever
+        // reminders the task grows next.
+        'reminderAnchorAt': reminderAnchorAt != null
+            ? Timestamp.fromDate(reminderAnchorAt!)
+            : FieldValue.delete(),
         'order': order,
       };
 
@@ -482,27 +551,41 @@ class MatrixTask {
     // clearCompletedAt/clearDescription do: passing `const []` already
     // means "no reminders" unambiguously, exactly like voiceNotes above.
     List<DateTime>? reminderAts,
+    // This one *does* need a sentinel, unlike reminderAts above: a nullable
+    // DateTime? can't distinguish "leave the anchor alone" from "clear it",
+    // the same problem clearCompletedAt and clearDescription exist for.
+    DateTime? reminderAnchorAt,
+    bool clearReminderAnchorAt = false,
     double? order,
-  }) =>
-      MatrixTask(
-        id: id,
-        title: title ?? this.title,
-        quadrant: quadrant ?? this.quadrant,
-        isDone: isDone ?? this.isDone,
-        createdAt: createdAt,
-        completedAt: clearCompletedAt
-            ? null
-            : completedAt ?? this.completedAt,
-        isFav: isFav ?? this.isFav,
-        rewarded: rewarded ?? this.rewarded,
-        description:
-            clearDescription ? null : description ?? this.description,
-        voiceNotes: voiceNotes ?? this.voiceNotes,
-        reminderAts: reminderAts != null
-            ? normalizeReminders(reminderAts)
-            : this.reminderAts,
-        order: order ?? this.order,
-      );
+  }) {
+    final nextReminders = reminderAts != null
+        ? normalizeReminders(reminderAts)
+        : this.reminderAts;
+    final nextAnchor = clearReminderAnchorAt
+        ? null
+        : reminderAnchorAt ?? this.reminderAnchorAt;
+    return MatrixTask(
+      id: id,
+      title: title ?? this.title,
+      quadrant: quadrant ?? this.quadrant,
+      isDone: isDone ?? this.isDone,
+      createdAt: createdAt,
+      completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
+      isFav: isFav ?? this.isFav,
+      rewarded: rewarded ?? this.rewarded,
+      description: clearDescription ? null : description ?? this.description,
+      voiceNotes: voiceNotes ?? this.voiceNotes,
+      reminderAts: nextReminders,
+      // Re-resolved against the *new* list on every copy, not just when an
+      // anchor was passed. That's what keeps the invariant true for the many
+      // callers that change reminders without thinking about the anchor at
+      // all: clearing reminders drops it, and replacing them with a set the
+      // old anchor isn't in re-guesses rather than pointing at a moment the
+      // task no longer fires at.
+      reminderAnchorAt: resolveAnchor(nextAnchor, nextReminders),
+      order: order ?? this.order,
+    );
+  }
 
   @override
   bool operator ==(Object other) =>

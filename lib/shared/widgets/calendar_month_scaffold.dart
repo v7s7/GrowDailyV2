@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/extensions/datetime_ext.dart';
 import '../../core/theme/game_theme.dart';
+import '../../core/utils/western_digits.dart';
 import '../../features/grid/notifiers/weekly_grid_notifier.dart'
     show startOfGridWeek;
 
@@ -67,6 +69,16 @@ class CalendarMonthHeader extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onForward;
 
+  /// Makes the title itself a button that opens a month picker.
+  ///
+  /// Optional because stepping is enough when a screen only spans a few
+  /// months. Past that, arrows alone mean tapping eleven times to reach
+  /// last January, and nothing on screen says how far back you may go —
+  /// which is exactly how a range that was silently one month wide went
+  /// unnoticed. When this is set the title gains a chevron so it reads as
+  /// a control rather than a caption.
+  final VoidCallback? onTapMonth;
+
   const CalendarMonthHeader({
     super.key,
     required this.month,
@@ -74,7 +86,47 @@ class CalendarMonthHeader extends StatelessWidget {
     required this.canGoForward,
     required this.onBack,
     required this.onForward,
+    this.onTapMonth,
   });
+
+  Widget _title(BuildContext context, String locale) {
+    final gp = context.gp;
+    // westernDate, not DateFormat directly: this header rendered "أغسطس
+    // ٢٠٢٦" in Arabic-Indic digits while every number underneath it — the
+    // counts, the day numbers — stayed ASCII. Arabic month name, Western
+    // year, the same call Habit Notes already settled on.
+    final label = westernDate(month, 'MMMM yyyy', locale);
+    final text = Text(
+      label,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w800,
+        color: gp.textPrimary,
+      ),
+    );
+    if (onTapMonth == null) return text;
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTapMonth!();
+      },
+      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(child: text),
+            const SizedBox(width: 4),
+            // Vertical, so RTL mirroring has nothing to do to it.
+            Icon(Icons.expand_more_rounded, size: 18, color: gp.textSec),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +136,11 @@ class CalendarMonthHeader extends StatelessWidget {
       children: [
         IconButton(
           onPressed: canGoBack ? onBack : null,
+          // MaterialLocalizations, not a new string pair: Flutter already
+          // ships "Previous month" / "الشهر السابق" in every locale this
+          // app supports. Without a tooltip a disabled arrow announces
+          // that something is unavailable without ever saying what.
+          tooltip: MaterialLocalizations.of(context).previousMonthTooltip,
           icon: const Icon(Icons.chevron_left_rounded),
           iconSize: 22,
           color: gp.textSec,
@@ -91,18 +148,11 @@ class CalendarMonthHeader extends StatelessWidget {
           visualDensity: VisualDensity.compact,
         ),
         Expanded(
-          child: Text(
-            DateFormat('MMMM yyyy', locale).format(month),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: gp.textPrimary,
-            ),
-          ),
+          child: _title(context, locale),
         ),
         IconButton(
           onPressed: canGoForward ? onForward : null,
+          tooltip: MaterialLocalizations.of(context).nextMonthTooltip,
           icon: const Icon(Icons.chevron_right_rounded),
           iconSize: 22,
           color: gp.textSec,

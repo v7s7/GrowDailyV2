@@ -6,15 +6,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/voice_note_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/reminder_limit_gate.dart';
 import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
-import '../../../shared/widgets/reminder_limit_gate.dart';
 import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
@@ -48,6 +49,12 @@ class AddTaskSheet extends ConsumerStatefulWidget {
     String? description,
     List<VoiceNote>? voiceNotes,
     List<DateTime>? reminderAts,
+
+    /// Which entry of [reminderAts] the user actually picked, as opposed to
+    /// the ones derived from it — see MatrixTask.reminderAnchorAt. Without
+    /// it the task can't reproduce the ladder it was built with when it's
+    /// reopened.
+    DateTime? reminderAnchorAt,
   }) onAdd;
 
   const AddTaskSheet({
@@ -110,8 +117,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       final has = _ctrl.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
     });
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _focus.requestFocus());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 
   @override
@@ -181,6 +187,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       description: description.isEmpty ? null : description,
       voiceNotes: _pendingNotes,
       reminderAts: reminderAts,
+      reminderAnchorAt: _anchorAt,
     );
     if (!mounted) return;
     setState(() {
@@ -224,7 +231,9 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
         String? audioBase64;
         if (uid != null) {
           final existingSyncedBytes = _pendingNotes.fold<int>(
-              0, (sum, n) => sum + (n.audioBase64?.length ?? 0));
+            0,
+            (sum, n) => sum + (n.audioBase64?.length ?? 0),
+          );
           audioBase64 = await VoiceNoteService.instance.encodeForSync(
             result.path,
             existingSyncedBytes: existingSyncedBytes,
@@ -362,14 +371,37 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     final s = S.of(context);
     final isAr = s.isAr;
     final bottom = MediaQuery.of(context).viewInsets.bottom;
+    final screenHeight = MediaQuery.of(context).size.height;
+    // Resting size (no keyboard) stays ~85% of the screen; once the keyboard
+    // opens, cap to whatever is left above it instead. The old cap was
+    // `screenHeight * 0.85` unconditionally, computed from the FULL screen
+    // while the keyboard was subtracted only in the sibling AnimatedPadding
+    // — so ConstrainedBox clamped the card to the post-keyboard height while
+    // the Column below still demanded the pre-keyboard one. Because
+    // Flex.clipBehavior defaults to Clip.none, the overflow was *painted*
+    // outside the card rather than clipped: the ADD TASK button and the
+    // multi-add hint rendered underneath the iOS keyboard, present but
+    // unreachable, with nothing scrollable to bring them back. Same fix and
+    // same reasoning as AddHabitSheet, which hit this first.
+    //
+    // The floor matters on a landscape phone, where a keyboard can leave
+    // less than 200pt: without it the card collapses to nothing at all.
+    final rawMaxHeight =
+        bottom > 0 ? screenHeight - bottom - 24 : screenHeight * 0.85;
+    final maxHeight = rawMaxHeight < 200.0 ? 200.0 : rawMaxHeight;
     final canSubmit = (_hasText || _addedTitles.isNotEmpty) && !_recording;
     return AnimatedPadding(
       duration: GameMotion.standard,
       curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
-      child: Container(
-        constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.85),
+      // AnimatedContainer, not Container, and on the same duration/curve as
+      // the padding above: the keyboard moves both the sheet's offset and
+      // its height, and animating only one of them makes the card snap while
+      // it slides.
+      child: AnimatedContainer(
+        duration: GameMotion.standard,
+        curve: Curves.easeOut,
+        constraints: BoxConstraints(maxHeight: maxHeight),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
           borderRadius: BorderRadius.circular(24),
@@ -384,242 +416,353 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                 width: 38,
                 height: 4,
                 decoration: BoxDecoration(
-                    color: gp.border,
-                    borderRadius: BorderRadius.circular(2)),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-              child: Row(
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _color.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                                color: _color, shape: BoxShape.circle)),
-                        const SizedBox(width: 6),
-                        Text(_title(isAr),
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: _color,
-                                // Letter-spacing disconnects Arabic glyphs
-                                // (the script is cursive/joined) — only the
-                                // Latin small-caps label wants that look.
-                                letterSpacing: isAr ? 0 : 1.0)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(widget.quadrant.localSubtitle(isAr),
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: gp.textSec)),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                decoration: BoxDecoration(
-                  color: gp.surfaceHL,
-                  borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-                  border: Border.all(color: gp.border, width: 0.5),
-                ),
-                child: TextField(
-                  controller: _ctrl,
-                  focusNode: _focus,
-                  onSubmitted: (_) => _submit(),
-                  textCapitalization: TextCapitalization.sentences,
-                  textInputAction: TextInputAction.done,
-                  style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w500,
-                      color: gp.textPrimary,
-                      height: 1.4),
-                  maxLines: 3,
-                  minLines: 1,
-                  decoration: InputDecoration(
-                    hintText: s.matrixWhatToDo,
-                    hintStyle: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w400,
-                        color: gp.textTert.withOpacity(0.7)),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    filled: false,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-            // Always visible, unlike description/voice notes below - see
-            // this class's own doc comment for why the reminder specifically
-            // doesn't wait for "Add details".
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: ReminderPicker(
-                anchorAt: _anchorAt,
-                offsets: _offsets,
-                color: _color,
-                isAr: isAr,
-                canStack: canAddAnotherReminder(ref, _reminderAts.length),
-                onPickAnchor: _pickAnchor,
-                onClear: _clearReminders,
-                onToggleOffset: _toggleOffset,
-                onLocked: () => showReminderLimitGate(context, ref),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: GestureDetector(
-                  onTap: _toggleDetails,
-                  behavior: HitTestBehavior.opaque,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _detailsExpanded
-                              ? Icons.remove_circle_outline_rounded
-                              : Icons.add_circle_outline_rounded,
-                          size: 14,
-                          color: _color,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _detailsExpanded
-                              ? s.matrixHideDetails
-                              : s.matrixAddDetails,
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: _color),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (_detailsExpanded) ...[
-              const SizedBox(height: 6),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: gp.surfaceHL,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: gp.border, width: 0.5),
-                  ),
-                  child: TextField(
-                    controller: _descCtrl,
-                    textCapitalization: TextCapitalization.sentences,
-                    style: TextStyle(
-                        fontSize: 13.5, color: gp.textPrimary, height: 1.4),
-                    maxLines: 3,
-                    minLines: 1,
-                    decoration: InputDecoration(
-                      hintText: s.matrixDescriptionHint,
-                      hintStyle: TextStyle(
-                          fontSize: 13.5,
-                          color: gp.textTert.withOpacity(0.7)),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                      contentPadding:
-                          const EdgeInsets.symmetric(vertical: 10),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+            // The one Flexible in this Column, and the only thing that can
+            // absorb the shrink when the keyboard takes half the screen.
+            // Everything that grows — the reminder section most of all,
+            // which gains a chip per custom offset and a row per reminder —
+            // lives inside it, so a tall stack scrolls instead of being
+            // painted off the bottom of the card. The grabber above and the
+            // ADD TASK footer below stay fixed and always reachable.
+            Flexible(
+              child: SingleChildScrollView(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            s.voiceNotesTitle,
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: gp.textTert,
-                                letterSpacing: isAr ? 0 : 1.0),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _color.withOpacity(0.12),
+                              borderRadius:
+                                  BorderRadius.circular(GameSpacing.pillRadius),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: _color,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _title(isAr),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: _color,
+                                    // Letter-spacing disconnects Arabic glyphs
+                                    // (the script is cursive/joined) — only the
+                                    // Latin small-caps label wants that look.
+                                    letterSpacing: isAr ? 0 : 1.0,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              widget.quadrant.localSubtitle(isAr),
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12, color: gp.textSec),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: gp.surfaceHL,
+                          borderRadius:
+                              BorderRadius.circular(GameSpacing.cardRadius),
+                          border: Border.all(color: gp.border, width: 0.5),
+                        ),
+                        child: TextField(
+                          controller: _ctrl,
+                          focusNode: _focus,
+                          onSubmitted: (_) => _submit(),
+                          textCapitalization: TextCapitalization.sentences,
+                          textInputAction: TextInputAction.done,
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w500,
+                            color: gp.textPrimary,
+                            height: 1.4,
+                          ),
+                          maxLines: 3,
+                          minLines: 1,
+                          decoration: InputDecoration(
+                            hintText: s.matrixWhatToDo,
+                            hintStyle: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w400,
+                              color: gp.textTert.withOpacity(0.7),
+                            ),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                            contentPadding:
+                                const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
-                        MicRecordButton(
-                          recording: _recording,
-                          elapsed: _elapsed,
-                          color: _color,
-                          onTap: _toggleRecording,
-                        ),
-                      ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // Always visible, unlike description/voice notes below - see
+                    // this class's own doc comment for why the reminder specifically
+                    // doesn't wait for "Add details".
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: ReminderPicker(
+                        anchorAt: _anchorAt,
+                        offsets: _offsets,
+                        color: _color,
+                        isAr: isAr,
+                        canStack:
+                            canAddAnotherReminder(ref, _reminderAts.length),
+                        onPickAnchor: _pickAnchor,
+                        onClear: _clearReminders,
+                        onToggleOffset: _toggleOffset,
+                        onLocked: () => showReminderLimitGate(context, ref),
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    if (_recording)
-                      Text(s.voiceNoteRecording,
-                          style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: GameColors.error))
-                    else if (_pendingNotes.isEmpty)
-                      Text(s.voiceNoteTapToRecord,
-                          style:
-                              TextStyle(fontSize: 11.5, color: gp.textTert))
-                    else
-                      for (var i = 0; i < _pendingNotes.length; i++)
-                        Padding(
-                          padding: EdgeInsets.only(
-                              bottom:
-                                  i == _pendingNotes.length - 1 ? 0 : 8),
-                          child: VoiceNoteRow(
-                            note: _pendingNotes[i],
-                            displayName: _displayName(_pendingNotes[i]),
-                            color: _color,
-                            onRename: () => _renameNote(_pendingNotes[i]),
-                            onDelete: () => _removeNote(_pendingNotes[i]),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: GestureDetector(
+                          onTap: _toggleDetails,
+                          behavior: HitTestBehavior.opaque,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _detailsExpanded
+                                      ? Icons.remove_circle_outline_rounded
+                                      : Icons.add_circle_outline_rounded,
+                                  size: 14,
+                                  color: _color,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _detailsExpanded
+                                      ? s.matrixHideDetails
+                                      : s.matrixAddDetails,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: _color,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
+                      ),
+                    ),
+                    if (_detailsExpanded) ...[
+                      const SizedBox(height: 6),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: gp.surfaceHL,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: gp.border, width: 0.5),
+                          ),
+                          child: TextField(
+                            controller: _descCtrl,
+                            textCapitalization: TextCapitalization.sentences,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              color: gp.textPrimary,
+                              height: 1.4,
+                            ),
+                            maxLines: 3,
+                            minLines: 1,
+                            decoration: InputDecoration(
+                              hintText: s.matrixDescriptionHint,
+                              hintStyle: TextStyle(
+                                fontSize: 13.5,
+                                color: gp.textTert.withOpacity(0.7),
+                              ),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              filled: false,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    s.voiceNotesTitle,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: gp.textTert,
+                                      letterSpacing: isAr ? 0 : 1.0,
+                                    ),
+                                  ),
+                                ),
+                                MicRecordButton(
+                                  recording: _recording,
+                                  elapsed: _elapsed,
+                                  color: _color,
+                                  onTap: _toggleRecording,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            if (_recording)
+                              Text(
+                                s.voiceNoteRecording,
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: GameColors.error,
+                                ),
+                              )
+                            else if (_pendingNotes.isEmpty)
+                              Text(
+                                s.voiceNoteTapToRecord,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: gp.textTert,
+                                ),
+                              )
+                            else
+                              for (var i = 0; i < _pendingNotes.length; i++)
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                    bottom:
+                                        i == _pendingNotes.length - 1 ? 0 : 8,
+                                  ),
+                                  child: VoiceNoteRow(
+                                    note: _pendingNotes[i],
+                                    displayName: _displayName(_pendingNotes[i]),
+                                    color: _color,
+                                    onRename: () =>
+                                        _renameNote(_pendingNotes[i]),
+                                    onDelete: () =>
+                                        _removeNote(_pendingNotes[i]),
+                                  ),
+                                ),
+                          ],
+                        ),
+                      ),
+                    ] else if (_addedTitles.isEmpty) ...[
+                      const SizedBox(height: 4),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          s.matrixAddMultipleHint,
+                          style: TextStyle(fontSize: 11.5, color: gp.textTert),
+                        ),
+                      ),
+                    ],
+                    // Moved above the button and out of its own ListView. It used to
+                    // sit below the footer inside a Flexible, which by then had no
+                    // free space left to hand it — so the confirmation list rendered
+                    // at zero height and was invisible exactly when it mattered.
+                    // Above the input is also where its own comment always said it
+                    // wanted to be: "right under the input every time".
+                    if (_addedTitles.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Divider(height: 1, color: gp.divider),
+                      ),
+                      const SizedBox(height: 12),
+                      // A plain Column, not a ListView: this is already inside a
+                      // SingleChildScrollView, and nesting a second scrollable would
+                      // need a height nobody here can supply.
+                      for (var i = 0; i < _addedTitles.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _color.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(
+                                GameSpacing.buttonRadius,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 15,
+                                  color: _color,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    // Reversed so the just-added item appears
+                                    // closest to the input, not at the far end of
+                                    // the list.
+                                    _addedTitles[_addedTitles.length - 1 - i],
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: gp.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ).animate().fadeIn(duration: 200.ms),
+                    ],
                   ],
                 ),
               ),
-            ] else if (_addedTitles.isEmpty) ...[
-              const SizedBox(height: 4),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  s.matrixAddMultipleHint,
-                  style: TextStyle(fontSize: 11.5, color: gp.textTert),
-                ),
-              ),
-            ],
+            ),
             const SizedBox(height: 18),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -628,81 +771,40 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
               // could stay open) — a "Done" button is only the right
               // primary action once there's actually something to be done
               // with.
-              child: Builder(builder: (_) {
-                final showDone = !_hasText && _addedTitles.isNotEmpty;
-                return FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 52),
-                    backgroundColor: canSubmit ? _color : gp.surfaceHL,
-                    foregroundColor: canSubmit ? Colors.black : gp.textTert,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(GameSpacing.cardRadius)),
-                  ),
-                  onPressed: canSubmit ? _submit : null,
-                  child: Text(showDone ? s.matrixDone : s.matrixAddTask,
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: isAr ? 0 : 1.4)),
-                );
-              }),
-            ),
-            SizedBox(height: _addedTitles.isEmpty ? 20 : 4),
-            if (_addedTitles.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Divider(height: 1, color: gp.divider),
-              ),
-              Flexible(
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                  shrinkWrap: true,
-                  itemCount: _addedTitles.length,
-                  itemBuilder: (context, i) {
-                    // Reversed so the just-added item appears right under
-                    // the input every time, not at the bottom of a list
-                    // that's scrolled out of view.
-                    final title = _addedTitles[_addedTitles.length - 1 - i];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: _color.withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.check_circle_rounded,
-                                size: 15, color: _color),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: gp.textPrimary),
-                              ),
-                            ),
-                          ],
-                        ),
+              child: Builder(
+                builder: (_) {
+                  final showDone = !_hasText && _addedTitles.isNotEmpty;
+                  return FilledButton(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 52),
+                      backgroundColor: canSubmit ? _color : gp.surfaceHL,
+                      foregroundColor: canSubmit ? Colors.black : gp.textTert,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(GameSpacing.cardRadius),
                       ),
-                    ).animate().fadeIn(duration: 200.ms);
-                  },
-                ),
+                    ),
+                    onPressed: canSubmit ? _submit : null,
+                    child: Text(
+                      showDone ? s.matrixDone : s.matrixAddTask,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: isAr ? 0 : 1.4,
+                      ),
+                    ),
+                  );
+                },
               ),
-            ],
+            ),
+            const SizedBox(height: 20),
           ],
         ),
-      ).animate().slideY(
-          begin: 0.08,
-          duration: 280.ms,
-          curve: Curves.easeOutCubic).fadeIn(duration: 200.ms),
+      )
+          .animate()
+          .slideY(begin: 0.08, duration: 280.ms, curve: Curves.easeOutCubic)
+          .fadeIn(duration: 200.ms),
     );
   }
 }
@@ -739,8 +841,8 @@ class MicRecordButton extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: GameMotion.quick,
-          padding: EdgeInsets.symmetric(
-              horizontal: recording ? 10 : 8, vertical: 8),
+          padding:
+              EdgeInsets.symmetric(horizontal: recording ? 10 : 8, vertical: 8),
           decoration: BoxDecoration(
             color: recording
                 ? GameColors.error.withOpacity(0.14)

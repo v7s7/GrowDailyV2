@@ -180,7 +180,10 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   /// moving, or deleting a task behaves identically whichever screen it's
   /// done from.
   void _openQuadrantExpanded(
-      BuildContext context, WidgetRef ref, MatrixQuadrant quadrant) {
+    BuildContext context,
+    WidgetRef ref,
+    MatrixQuadrant quadrant,
+  ) {
     HapticFeedback.lightImpact();
     Navigator.push(
       context,
@@ -226,7 +229,10 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   /// `matrixState` local in build(), since this is only ever called from
   /// an event handler, never from inside build() itself.
   void _editQuadrant(
-      BuildContext context, WidgetRef ref, MatrixQuadrant quadrant) {
+    BuildContext context,
+    WidgetRef ref,
+    MatrixQuadrant quadrant,
+  ) {
     final matrixState = ref.read(matrixProvider);
     final isAr = S.of(context).isAr;
     showEditQuadrantSheet(
@@ -328,8 +334,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     // midnight, no timer required. (Real midnight, not the habit flex
     // cutoff — see _anchorDay's comment for the tasks-vs-habits split.)
     final todayTasks = visible
-        .where((t) =>
-            (!t.isDone && _isSameDay(_anchorDay(t), now)) || doneToday(t))
+        .where(
+          (t) => (!t.isDone && _isSameDay(_anchorDay(t), now)) || doneToday(t),
+        )
         .toList();
     final tasks = _carriedOverOnly
         ? carriedOver
@@ -399,8 +406,10 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                           isLabelVisible: completedCount > 0,
                           backgroundColor: GameColors.gold,
                           textColor: Colors.black,
-                          child: Icon(Icons.check_circle_outline_rounded,
-                              color: gp.textSec),
+                          child: Icon(
+                            Icons.check_circle_outline_rounded,
+                            color: gp.textSec,
+                          ),
                         ),
                         tooltip: s.matrixCompletedTitle,
                         onPressed: () {
@@ -408,7 +417,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => const MatrixHistoryScreen()),
+                              builder: (_) => const MatrixHistoryScreen(),
+                            ),
                           );
                         },
                       ),
@@ -451,7 +461,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                             count: carriedOver.length,
                             active: _carriedOverOnly,
                             onTap: () => setState(
-                                () => _carriedOverOnly = !_carriedOverOnly),
+                              () => _carriedOverOnly = !_carriedOverOnly,
+                            ),
                           ),
                       ],
                     ),
@@ -474,13 +485,18 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                     children: [
                       const SizedBox(width: 16),
                       Expanded(
-                          child: _AxisLabel(
-                              label: s.matrixUrgent, icon: Icons.bolt_rounded)),
+                        child: _AxisLabel(
+                          label: s.matrixUrgent,
+                          icon: Icons.bolt_rounded,
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
-                          child: _AxisLabel(
-                              label: s.matrixNotUrgent,
-                              icon: Icons.schedule_rounded)),
+                        child: _AxisLabel(
+                          label: s.matrixNotUrgent,
+                          icon: Icons.schedule_rounded,
+                        ),
+                      ),
                     ],
                   ).animate(delay: 100.ms).fadeIn(duration: 300.ms),
                 ),
@@ -494,12 +510,16 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                         Column(
                           children: [
                             Expanded(
-                                child: _RotatedAxisLabel(
-                                    label: s.matrixImportant)),
+                              child: _RotatedAxisLabel(
+                                label: s.matrixImportant,
+                              ),
+                            ),
                             const SizedBox(height: 8),
                             Expanded(
-                                child: _RotatedAxisLabel(
-                                    label: s.matrixNotImportant)),
+                              child: _RotatedAxisLabel(
+                                label: s.matrixNotImportant,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(width: 6),
@@ -514,9 +534,11 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                         key: _addTaskCardKey,
                                         quadrant: MatrixQuadrant.doFirst,
                                         tasks: tasks
-                                            .where((t) =>
-                                                t.quadrant ==
-                                                MatrixQuadrant.doFirst)
+                                            .where(
+                                              (t) =>
+                                                  t.quadrant ==
+                                                  MatrixQuadrant.doFirst,
+                                            )
                                             .toList(),
                                         onToggle: (id) {
                                           HapticFeedback.lightImpact();
@@ -530,43 +552,56 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                         onToggleFav: (id) => ref
                                             .read(matrixProvider.notifier)
                                             .toggleFav(id),
-                                        onAddTapped: () => _showAdd(context,
-                                            ref, MatrixQuadrant.doFirst),
+                                        onAddTapped: () => _showAdd(
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.doFirst,
+                                        ),
                                         onOpenDetails: (task) =>
                                             _openTaskDetails(
-                                                context, ref, task),
+                                          context,
+                                          ref,
+                                          task,
+                                        ),
                                         selectionMode: _selectionMode,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
                                         onExpand: () => _openQuadrantExpanded(
-                                            context,
-                                            ref,
-                                            MatrixQuadrant.doFirst),
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.doFirst,
+                                        ),
                                         title: matrixState.titleFor(
-                                            MatrixQuadrant.doFirst, s.isAr),
+                                          MatrixQuadrant.doFirst,
+                                          s.isAr,
+                                        ),
                                         color: matrixState
                                             .colorFor(MatrixQuadrant.doFirst),
                                         onEditQuadrant: () => _editQuadrant(
-                                            context,
-                                            ref,
-                                            MatrixQuadrant.doFirst),
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.doFirst,
+                                        ),
                                       )
                                           .animate(delay: 150.ms)
                                           .fadeIn(duration: 350.ms)
                                           .scaleXY(
-                                              begin: 0.96,
-                                              end: 1,
-                                              curve: Curves.easeOutBack),
+                                            begin: 0.96,
+                                            end: 1,
+                                            curve: Curves.easeOutBack,
+                                          ),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: QuadrantCard(
                                         quadrant: MatrixQuadrant.schedule,
                                         tasks: tasks
-                                            .where((t) =>
-                                                t.quadrant ==
-                                                MatrixQuadrant.schedule)
+                                            .where(
+                                              (t) =>
+                                                  t.quadrant ==
+                                                  MatrixQuadrant.schedule,
+                                            )
                                             .toList(),
                                         onToggle: (id) {
                                           HapticFeedback.lightImpact();
@@ -580,34 +615,45 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                         onToggleFav: (id) => ref
                                             .read(matrixProvider.notifier)
                                             .toggleFav(id),
-                                        onAddTapped: () => _showAdd(context,
-                                            ref, MatrixQuadrant.schedule),
+                                        onAddTapped: () => _showAdd(
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.schedule,
+                                        ),
                                         onOpenDetails: (task) =>
                                             _openTaskDetails(
-                                                context, ref, task),
+                                          context,
+                                          ref,
+                                          task,
+                                        ),
                                         selectionMode: _selectionMode,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
                                         onExpand: () => _openQuadrantExpanded(
-                                            context,
-                                            ref,
-                                            MatrixQuadrant.schedule),
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.schedule,
+                                        ),
                                         title: matrixState.titleFor(
-                                            MatrixQuadrant.schedule, s.isAr),
+                                          MatrixQuadrant.schedule,
+                                          s.isAr,
+                                        ),
                                         color: matrixState
                                             .colorFor(MatrixQuadrant.schedule),
                                         onEditQuadrant: () => _editQuadrant(
-                                            context,
-                                            ref,
-                                            MatrixQuadrant.schedule),
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.schedule,
+                                        ),
                                       )
                                           .animate(delay: 200.ms)
                                           .fadeIn(duration: 350.ms)
                                           .scaleXY(
-                                              begin: 0.96,
-                                              end: 1,
-                                              curve: Curves.easeOutBack),
+                                            begin: 0.96,
+                                            end: 1,
+                                            curve: Curves.easeOutBack,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -620,9 +666,11 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                       child: QuadrantCard(
                                         quadrant: MatrixQuadrant.delegate,
                                         tasks: tasks
-                                            .where((t) =>
-                                                t.quadrant ==
-                                                MatrixQuadrant.delegate)
+                                            .where(
+                                              (t) =>
+                                                  t.quadrant ==
+                                                  MatrixQuadrant.delegate,
+                                            )
                                             .toList(),
                                         onToggle: (id) {
                                           HapticFeedback.lightImpact();
@@ -636,43 +684,56 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                         onToggleFav: (id) => ref
                                             .read(matrixProvider.notifier)
                                             .toggleFav(id),
-                                        onAddTapped: () => _showAdd(context,
-                                            ref, MatrixQuadrant.delegate),
+                                        onAddTapped: () => _showAdd(
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.delegate,
+                                        ),
                                         onOpenDetails: (task) =>
                                             _openTaskDetails(
-                                                context, ref, task),
+                                          context,
+                                          ref,
+                                          task,
+                                        ),
                                         selectionMode: _selectionMode,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
                                         onExpand: () => _openQuadrantExpanded(
-                                            context,
-                                            ref,
-                                            MatrixQuadrant.delegate),
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.delegate,
+                                        ),
                                         title: matrixState.titleFor(
-                                            MatrixQuadrant.delegate, s.isAr),
+                                          MatrixQuadrant.delegate,
+                                          s.isAr,
+                                        ),
                                         color: matrixState
                                             .colorFor(MatrixQuadrant.delegate),
                                         onEditQuadrant: () => _editQuadrant(
-                                            context,
-                                            ref,
-                                            MatrixQuadrant.delegate),
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.delegate,
+                                        ),
                                       )
                                           .animate(delay: 250.ms)
                                           .fadeIn(duration: 350.ms)
                                           .scaleXY(
-                                              begin: 0.96,
-                                              end: 1,
-                                              curve: Curves.easeOutBack),
+                                            begin: 0.96,
+                                            end: 1,
+                                            curve: Curves.easeOutBack,
+                                          ),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: QuadrantCard(
                                         quadrant: MatrixQuadrant.eliminate,
                                         tasks: tasks
-                                            .where((t) =>
-                                                t.quadrant ==
-                                                MatrixQuadrant.eliminate)
+                                            .where(
+                                              (t) =>
+                                                  t.quadrant ==
+                                                  MatrixQuadrant.eliminate,
+                                            )
                                             .toList(),
                                         onToggle: (id) {
                                           HapticFeedback.lightImpact();
@@ -686,34 +747,45 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                         onToggleFav: (id) => ref
                                             .read(matrixProvider.notifier)
                                             .toggleFav(id),
-                                        onAddTapped: () => _showAdd(context,
-                                            ref, MatrixQuadrant.eliminate),
+                                        onAddTapped: () => _showAdd(
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.eliminate,
+                                        ),
                                         onOpenDetails: (task) =>
                                             _openTaskDetails(
-                                                context, ref, task),
+                                          context,
+                                          ref,
+                                          task,
+                                        ),
                                         selectionMode: _selectionMode,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
                                         onExpand: () => _openQuadrantExpanded(
-                                            context,
-                                            ref,
-                                            MatrixQuadrant.eliminate),
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.eliminate,
+                                        ),
                                         title: matrixState.titleFor(
-                                            MatrixQuadrant.eliminate, s.isAr),
+                                          MatrixQuadrant.eliminate,
+                                          s.isAr,
+                                        ),
                                         color: matrixState
                                             .colorFor(MatrixQuadrant.eliminate),
                                         onEditQuadrant: () => _editQuadrant(
-                                            context,
-                                            ref,
-                                            MatrixQuadrant.eliminate),
+                                          context,
+                                          ref,
+                                          MatrixQuadrant.eliminate,
+                                        ),
                                       )
                                           .animate(delay: 300.ms)
                                           .fadeIn(duration: 350.ms)
                                           .scaleXY(
-                                              begin: 0.96,
-                                              end: 1,
-                                              curve: Curves.easeOutBack),
+                                            begin: 0.96,
+                                            end: 1,
+                                            curve: Curves.easeOutBack,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -752,7 +824,13 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       useSafeArea: true,
       builder: (_) => AddTaskSheet(
         quadrant: quadrant,
-        onAdd: (title, {description, voiceNotes, reminderAts}) {
+        onAdd: (
+          title, {
+          description,
+          voiceNotes,
+          reminderAts,
+          reminderAnchorAt,
+        }) {
           HapticFeedback.mediumImpact();
           ref.read(matrixProvider.notifier).add(
                 title,
@@ -760,6 +838,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                 description: description,
                 voiceNotes: voiceNotes ?? const [],
                 reminderAts: reminderAts ?? const [],
+                reminderAnchorAt: reminderAnchorAt,
               );
         },
       ),
@@ -798,8 +877,12 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
             ref.read(matrixProvider.notifier).renameVoiceNote(id, noteId, name),
         onRemoveVoiceNote: (id, noteId) =>
             ref.read(matrixProvider.notifier).removeVoiceNote(id, noteId),
-        onSetReminders: (id, reminderAts) =>
-            ref.read(matrixProvider.notifier).setReminders(id, reminderAts),
+        onSetReminders: (id, reminderAts, {reminderAnchorAt}) =>
+            ref.read(matrixProvider.notifier).setReminders(
+                  id,
+                  reminderAts,
+                  reminderAnchorAt: reminderAnchorAt,
+                ),
         onDelete: () => _deleteTask(task.id),
         onMove: (q) => _moveTask(task.id, q),
       ),
@@ -950,7 +1033,7 @@ class _CarriedOverChip extends StatelessWidget {
     final s = S.of(context);
     // Not `const` — GameColors.iconStreak is a mutable `static Color`
     // (preset-driven), not a compile-time constant.
-    final color = GameColors.iconStreak;
+    const color = GameColors.iconStreak;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
@@ -974,7 +1057,7 @@ class _CarriedOverChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.history_rounded, size: 13, color: color),
+              const Icon(Icons.history_rounded, size: 13, color: color),
               const SizedBox(width: 5),
               Text(
                 s.matrixCarriedOverCount(count),

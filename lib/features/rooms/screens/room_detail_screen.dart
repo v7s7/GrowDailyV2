@@ -13,11 +13,12 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
-import '../../../core/services/push_notification_service.dart';
 import '../../../core/providers/room_finale_seen_provider.dart';
+import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/share_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/calendar_month_scaffold.dart';
+import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../../shared/widgets/xp_bar.dart';
 import '../../auth/notifiers/auth_notifier.dart';
@@ -25,10 +26,8 @@ import '../../character/models/accessory.dart';
 import '../../character/models/character_option.dart';
 import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/character_avatar.dart';
+import '../../grid/notifiers/weekly_grid_notifier.dart' show weeklyGridProvider;
 import '../../grid/screens/monthly_heatmap_screen.dart' show heatColor;
-import '../../../shared/widgets/habit_limit_gate.dart';
-import '../../grid/notifiers/weekly_grid_notifier.dart'
-    show weeklyGridProvider;
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../habits/models/habit_model.dart' show HabitFrequencyType;
@@ -36,15 +35,17 @@ import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider, canAddHabits;
 import '../models/room_model.dart';
+import '../notifiers/room_moderation.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../widgets/pick_own_habit_sheet.dart';
+import '../widgets/report_member_sheet.dart';
 import '../widgets/resolve_new_shared_habits_sheet.dart';
 import '../widgets/room_reactions.dart';
 
-part 'room_detail_screen_lobby.dart';
 part 'room_detail_screen_countdown_finale.dart';
 part 'room_detail_screen_header_progress.dart';
 part 'room_detail_screen_leaderboard_extend.dart';
+part 'room_detail_screen_lobby.dart';
 part 'room_detail_screen_participant_calendar.dart';
 
 /// The leaderboard - pushed for a single room, whether just-created (from
@@ -89,8 +90,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     // RoomDetailScreen B (not a real flow today, but cheap to guard
     // against), B's dispose firing after A's shouldn't blank out A's own
     // still-current code.
-    if (PushNotificationService.instance.currentlyOpenRoomCode ==
-        widget.code) {
+    if (PushNotificationService.instance.currentlyOpenRoomCode == widget.code) {
       PushNotificationService.instance.currentlyOpenRoomCode = null;
     }
     super.dispose();
@@ -130,11 +130,13 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
       builder: (_) => AlertDialog(
         title: Text(s.roomLeaveConfirmTitle),
         content: Text(
-            isLeader ? s.roomLeaveConfirmBodyLeader : s.roomLeaveConfirmBody),
+          isLeader ? s.roomLeaveConfirmBodyLeader : s.roomLeaveConfirmBody,
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(s.roomLeaveConfirmCancel)),
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(s.roomLeaveConfirmCancel),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: GameColors.error),
@@ -157,8 +159,9 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
         content: Text(s.roomDeleteConfirmBody),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(s.roomLeaveConfirmCancel)),
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(s.roomLeaveConfirmCancel),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: GameColors.error),
@@ -187,9 +190,30 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
       builder: (_) => const _ExtendRoomSheet(),
     );
     if (picked == null || !mounted) return;
+
+    // For a room that has already FINISHED, ask when counting should pick up
+    // again. Everything between the old ending and that day is recorded as a
+    // pause and excluded from every score (RoomModel.pausedSpans), so a room
+    // revived after a fortnight costs nobody the fourteen misses it used to.
+    // Skipped entirely for a room still running — there is no gap to place.
+    DateTime? resumeFrom;
+    if (room.isEnded) {
+      final today = DateTime.now().effectiveDay;
+      resumeFrom = await showDatePicker(
+        context: context,
+        initialDate: today,
+        firstDate: today,
+        lastDate: today.add(const Duration(days: 365)),
+        helpText: S.of(context).roomExtendResumeTitle,
+      );
+      // Backing out of the date step cancels the whole extension rather than
+      // silently defaulting to today — the leader was mid-decision.
+      if (resumeFrom == null || !mounted) return;
+    }
+
     await ref
         .read(roomsControllerProvider)
-        .extendRoom(room, picked == 0 ? null : picked);
+        .extendRoom(room, picked == 0 ? null : picked, resumeFrom: resumeFrom);
     // This room is about to have a *second* ending, and the finale announcer
     // only ever fires once per room code (see markRoomFinaleSeen). Without
     // this, extending a room that already finished means its next finish is
@@ -212,22 +236,36 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     return roomAsync.when(
       loading: () => Scaffold(
         backgroundColor: gp.bg,
-        appBar: AppBar(backgroundColor: gp.bg, surfaceTintColor: Colors.transparent),
+        appBar: AppBar(
+          backgroundColor: gp.bg,
+          surfaceTintColor: Colors.transparent,
+        ),
         body: const Center(child: CircularProgressIndicator()),
       ),
       error: (_, __) => Scaffold(
         backgroundColor: gp.bg,
-        appBar: AppBar(backgroundColor: gp.bg, surfaceTintColor: Colors.transparent),
-        body: Center(child: Text(s.roomGenericError, style: TextStyle(color: gp.textSec))),
+        appBar: AppBar(
+          backgroundColor: gp.bg,
+          surfaceTintColor: Colors.transparent,
+        ),
+        body: Center(
+          child: Text(s.roomGenericError, style: TextStyle(color: gp.textSec)),
+        ),
       ),
       data: (room) {
         if (room == null) {
           return Scaffold(
             backgroundColor: gp.bg,
-            appBar: AppBar(backgroundColor: gp.bg, surfaceTintColor: Colors.transparent),
+            appBar: AppBar(
+              backgroundColor: gp.bg,
+              surfaceTintColor: Colors.transparent,
+            ),
             body: Center(
-              child: Text(s.roomGoneMessage,
-                  textAlign: TextAlign.center, style: TextStyle(color: gp.textSec)),
+              child: Text(
+                s.roomGoneMessage,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: gp.textSec),
+              ),
             ),
           );
         }

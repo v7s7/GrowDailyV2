@@ -98,7 +98,12 @@ class _GuestLimitSheet extends ConsumerWidget {
                   const SizedBox(width: 9),
                   Expanded(
                     child: Text(
-                      s.guestDataWarning,
+                      // Two facts, same panel: the data lives here only,
+                      // AND creating an account will not move it. The
+                      // second used to be implied AWAY by the body copy
+                      // ("keep your progress synced"), which promised a
+                      // migration that does not exist.
+                      '${s.guestDataWarning}\n\n${s.guestFreshStartWarning}',
                       style: TextStyle(
                           fontSize: 12, color: gp.textSec, height: 1.45),
                     ),

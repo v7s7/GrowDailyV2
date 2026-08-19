@@ -5,10 +5,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../services/local_store_service.dart';
-import '../utils/intention_phrase.dart';
-import '../utils/bidi_fraction.dart';
 import '../constants/deep_links.dart';
+import '../services/local_store_service.dart';
+import '../utils/bidi_fraction.dart';
+import '../utils/intention_phrase.dart';
 
 // ─── Locale provider ──────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ final localeProvider = StateNotifierProvider<_LocaleNotifier, Locale>(
 );
 
 class _LocaleNotifier extends StateNotifier<Locale> {
-  _LocaleNotifier([Locale initial = const Locale('en')]) : super(initial);
+  _LocaleNotifier([super.initial = const Locale('en')]);
 
   void set(Locale locale) => state = locale;
 }
@@ -50,9 +50,12 @@ Future<void> setLocale(WidgetRef ref, Locale locale) async {
   // next successful sync.
   final uid = FirebaseAuth.instance.currentUser?.uid;
   if (uid != null) {
-    unawaited(FirebaseFirestore.instance.collection('users').doc(uid).set(
+    unawaited(
+      FirebaseFirestore.instance.collection('users').doc(uid).set(
         {'locale': locale.languageCode},
-        SetOptions(merge: true)).catchError((_) {}));
+        SetOptions(merge: true),
+      ).catchError((_) {}),
+    );
   }
 }
 
@@ -104,9 +107,18 @@ class S {
       : 'No account needed. Complete your first Quran, athkar, or focus win now.';
   String get guestLimitTitle =>
       isAr ? 'وصلت لحد التجربة' : "You've hit the guest limit";
+  // "keep your progress synced" was removed from this line deliberately:
+  // there is NO guest-to-account migration today (every notifier
+  // hard-branches on uid), so the account a guest creates starts empty and
+  // this sheet was promising the opposite at the exact moment it mattered.
+  // The fresh-start fact lives in [guestFreshStartWarning], shown alongside.
+  // If a real migration ships in 1.1, restore the promise then.
   String get guestLimitBody => isAr
-      ? 'التجربة كضيف تسمح بـ 3 عادات. أنشئ حسابًا مجانيًا لإضافة عدد غير محدود ومزامنة تقدمك.'
-      : 'Guest mode is capped at 3 habits. Create a free account to add unlimited habits and keep your progress synced.';
+      ? 'التجربة كضيف تسمح بـ 3 عادات. أنشئ حسابًا مجانيًا لإضافة عدد غير محدود من العادات والمزامنة عبر أجهزتك.'
+      : 'Guest mode is capped at 3 habits. A free account removes the cap and syncs across your devices.';
+  String get guestFreshStartWarning => isAr
+      ? 'الحساب الجديد يبدأ من الصفر: تقدمك كضيف يبقى على هذا الجهاز ولا ينتقل إلى الحساب.'
+      : 'A new account starts fresh: your guest progress stays on this device and does not carry over.';
   String get guestLimitCta => isAr ? 'إنشاء حساب مجاني' : 'Create free account';
   String get guestLimitMaybeLater => isAr ? 'ربما لاحقاً' : 'Maybe later';
 
@@ -122,6 +134,19 @@ class S {
   String get guestDataWarning => isAr
       ? 'بياناتك كضيف محفوظة على هذا الجهاز فقط. حذف التطبيق يمحوها نهائيًا، ولا يمكننا استرجاعها لأنه لا توجد لدينا نسخة.'
       : 'Guest data is saved on this device only. Deleting the app erases it permanently, and we cannot restore it because we never hold a copy.';
+
+  // Password reset
+  String get authForgotPassword =>
+      isAr ? 'نسيت كلمة المرور؟' : 'Forgot password?';
+  /// Deliberately the same message whether or not the address has an
+  /// account: answering differently would let anyone test which emails are
+  /// registered (and Firebase's own email-enumeration protection reports
+  /// success either way regardless).
+  String get authResetSent => isAr
+      ? 'إذا كان لهذا البريد حساب، وصلته رسالة لإعادة التعيين. تحقق من بريدك ومن الرسائل غير المرغوبة.'
+      : 'If that address has an account, a reset link is on its way. Check your inbox and spam folder.';
+  String get errEnterEmailForReset =>
+      isAr ? 'اكتب بريدك الإلكتروني أولًا' : 'Type your email first';
 
   // Auth errors
   String get errFillAll =>
@@ -201,7 +226,7 @@ class S {
       : '+50 XP comeback bonus when you continue';
   String restoreStreakOffer(int days) => isAr
       ? 'استخدم تجميد السلسلة لاستعادة سلسلتك ذات $days يوم بدلاً من البدء من جديد.'
-      : "Use a streak freeze to restore your $days-day streak instead of starting over.";
+      : 'Use a streak freeze to restore your $days-day streak instead of starting over.';
   String restoreStreakCta(int left) =>
       isAr ? 'استعادة السلسلة ($left متبقّية)' : 'Restore streak ($left left)';
   String get freshStreakInstead =>
@@ -407,9 +432,8 @@ class S {
   // away from one that sounds like a scoreboard.
   String get holdingStrong =>
       isAr ? 'الأسبوع الأخير قوي' : 'The last week is holding strong';
-  String get startAgain => isAr
-      ? 'الانتصارات الصغيرة تُعتبر'
-      : 'Small wins still count';
+  String get startAgain =>
+      isAr ? 'الانتصارات الصغيرة تُعتبر' : 'Small wins still count';
 
   /// The third state of the 14-day card. Without it an empty fortnight fell
   /// through to [holdingStrong] — `0 >= 0` is technically "not declining" —
@@ -562,8 +586,16 @@ class S {
   // whose cells are ~100dp on a small phone, and the live preview directly
   // underneath already spells out the resulting clock time in full — so
   // these only need to be scannable, not self-explanatory.
-  String offsetBeforeMinutes(int n) => isAr ? '$n د قبل' : '${n}m before';
-  String offsetAfterMinutes(int n) => isAr ? '$n د بعد' : '${n}m after';
+  //
+  // Arabic leads with the preposition: "قبل ٣٠ د", never "٣٠ د قبل". The
+  // trailing form these used to carry is English word order wearing Arabic
+  // words — the same mistake formatOffsetVerbose (custom_offset_sheet.dart)
+  // documents at length, shipping here unnoticed because the two were
+  // written months apart. Matrix's chips build their labels through
+  // formatOffsetCompact instead; these are Add Habit's, and the two grids
+  // are supposed to be indistinguishable.
+  String offsetBeforeMinutes(int n) => isAr ? 'قبل $n د' : '${n}m before';
+  String offsetAfterMinutes(int n) => isAr ? 'بعد $n د' : '${n}m after';
   // Direction toggle beside the Custom minutes field.
   String get offsetBeforeLabel => isAr ? 'قبل' : 'Before';
   String get offsetAfterLabel => isAr ? 'بعد' : 'After';
@@ -576,7 +608,7 @@ class S {
       : "This lands inside your quiet hours — it won't be delivered.";
   String get quietHoursOverrideOn => isAr
       ? 'سيصلك هذا التذكير رغم ساعات الهدوء.'
-      : "This reminder will be delivered anyway, despite quiet hours.";
+      : 'This reminder will be delivered anyway, despite quiet hours.';
   String get quietHoursAllowAnywayAction =>
       isAr ? 'اسمح به على أي حال' : 'Allow anyway';
   String get quietHoursRespectAction =>
@@ -865,6 +897,19 @@ class S {
   // actually is before the upsell rather than being told "Premium" twice.
   String get matrixReminderAddAnother =>
       isAr ? 'إضافة تذكير آخر' : 'Add another reminder';
+  // Screen-reader label for the × on a reminder row. Never rendered as
+  // text — the button is icon-only, so without this a screen reader
+  // announces nothing but the row's time twice over.
+  String get matrixReminderRemove => isAr ? 'إزالة التذكير' : 'Remove reminder';
+  // Why a dimmed offset chip didn't take. Distinct from
+  // matrixReminderPast, which is about the anchor the user is picking; this
+  // one is about a *derived* moment that has already gone by — "an hour
+  // before" something twenty minutes away. Shown inline under the grid,
+  // never as a SnackBar: this section lives inside a modal sheet, and the
+  // ScaffoldMessenger is behind it.
+  String get matrixReminderOffsetPast => isAr
+      ? 'هذا التذكير مضى وقته بالفعل'
+      : 'That reminder time has already passed';
   // ReminderPicker's offset section. "Extra" matters: the row above it is
   // already a reminder, so without that word the chips read as replacing
   // it rather than adding to it. The hint says outright that several can
@@ -879,16 +924,14 @@ class S {
   // "مخصص" cell of the offset grid. Lives in a sheet rather than inline so
   // the number, its unit, and the list of what's already added each get
   // room, without the grid growing a third control.
-  String get customReminderTitle =>
-      isAr ? 'تذكير مخصص' : 'Custom reminder';
+  String get customReminderTitle => isAr ? 'تذكير مخصص' : 'Custom reminder';
   String get customReminderValueHint => isAr ? 'الرقم' : 'Number';
   String get customReminderAdd => isAr ? 'إضافة' : 'Add';
   // Heading over the list of everything currently set, each row removable.
   String get customReminderAdded =>
       isAr ? 'التذكيرات المضافة' : 'Added reminders';
-  String get customReminderEmpty => isAr
-      ? 'لم تضف أي تذكير بعد'
-      : 'No extra reminders yet';
+  String get customReminderEmpty =>
+      isAr ? 'لم تضف أي تذكير بعد' : 'No extra reminders yet';
   String get customReminderAlreadyAdded =>
       isAr ? 'هذا التذكير مضاف بالفعل' : 'That reminder is already added';
   // Unit selector. Plural forms, since the selector names the unit rather
@@ -1075,7 +1118,7 @@ class S {
       : 'Tap to color · long-press for more colors';
   String get gridRewardHint => isAr
       ? 'اليوم فقط يمنحك نقاط الخبرة والذهب، ويزيد سلسلتك مرة واحدة يوميًا كحد أقصى.'
-      : "Only today earns XP, gold, and streak credit — once per day at most.";
+      : 'Only today earns XP, gold, and streak credit — once per day at most.';
   String get gridPastDayHint => isAr
       ? 'تعديل يوم سابق: يُحدّث سجلّك المرئي فقط، دون مكافآت.'
       : 'Editing a past day updates your visual record only — no rewards.';
@@ -1136,7 +1179,7 @@ class S {
   String get heatmapTitle => isAr ? 'خريطة التقدّم' : 'Progress Heatmap';
   String get heatmapSubtitle => isAr
       ? 'كثافة الإنجاز عبر الأشهر — كل مربّع يومٌ، وكل درجة لون كثافة انتصاراتك.'
-      : "Your completion density across months — every square is a day, every shade is how much you colored it.";
+      : 'Your completion density across months — every square is a day, every shade is how much you colored it.';
   String get heatmapTotalGreen => isAr ? 'مربّعات ملوّنة' : 'Squares filled';
   String get heatmapActiveDays => isAr ? 'أيام نشطة' : 'Active days';
   String get heatmapBestDay => isAr ? 'أفضل يوم' : 'Best day';
@@ -1176,8 +1219,7 @@ class S {
       : 'Deeper per-habit detail, with Premium';
   // ── Habit Insights (Premium) ──────────────────────────────────────────────
   String get insightsTitle => isAr ? 'رؤى العادات' : 'Habit Insights';
-  String get insightsWindow =>
-      isAr ? 'آخر 8 أسابيع' : 'Last 8 weeks';
+  String get insightsWindow => isAr ? 'آخر 8 أسابيع' : 'Last 8 weeks';
 
   /// Header over the per-habit completion-rate list, which had none — the
   /// bars appeared straight after the headline cards with nothing saying
@@ -1199,9 +1241,8 @@ class S {
       : '"$habit" slips most on ${weekday}s';
   String insightStrongestDay(String weekday) =>
       isAr ? 'أقوى يوم: $weekday' : 'Strongest day: $weekday';
-  String insightMostConsistent(String habit) => isAr
-      ? 'أثبت عادة: "$habit"'
-      : 'Most consistent habit: "$habit"';
+  String insightMostConsistent(String habit) =>
+      isAr ? 'أثبت عادة: "$habit"' : 'Most consistent habit: "$habit"';
   String insightNeedsPush(String habit) =>
       isAr ? 'تحتاج دفعة: "$habit"' : 'Needs a push: "$habit"';
   String get insightsEmpty => isAr
@@ -1422,18 +1463,18 @@ class S {
   String get premiumBenefitAppearanceTitle =>
       isAr ? 'لمستك الخاصة' : 'Make it yours';
   // Themes half is a real, live gate: ThemePresets.all (theme_preset.dart),
-  // 9 of 11 presets premium-only, enforced in profile_screen.dart. The
-  // "character looks on the way" half is NOT built yet — CharacterOption /
-  // CharacterCatalog (character_option.dart) has no isPremium field today
-  // and its doc comment currently says characters are never gated. Included
-  // here at the user's explicit direction as a short forward-looking
-  // clause (not the bullet's main claim), phrased as "on the way" so
-  // nothing false is implied about what exists today. Only some characters
-  // are meant to end up Premium-exclusive, mirroring the free/premium
-  // theme split — not the whole roster.
+  // 9 of 11 presets premium-only, enforced in profile_screen.dart.
+  //
+  // The "character looks coming soon" clause this bullet used to carry —
+  // added at the user's direction — was removed for the App Store
+  // submission: character gating is not built (CharacterOption has no
+  // isPremium field), and a paywall bullet selling an unbuilt feature is
+  // exactly what Guideline 2.3.1 is aimed at, on the one screen a reviewer
+  // reads line by line. Re-adding it after the feature ships is one line
+  // here; re-submitting after a rejection is a review cycle.
   String get premiumBenefitAppearanceDesc => isAr
-      ? '9 سمات حصرية لإعادة تصميم التطبيق، مع إطلالات شخصيات حصرية قريبًا.'
-      : '9 exclusive themes to restyle the app, with premium character looks coming soon.';
+      ? '9 سمات حصرية لإعادة تصميم التطبيق بالكامل.'
+      : '9 exclusive themes to restyle the whole app.';
   String get premiumBenefitVoiceTitle => isAr ? 'ملاحظات صوتية' : 'Voice notes';
   // Real gate: hasVoiceNoteAccess (voice_note_gate.dart), flat premium-only
   // check, no free tier.
@@ -1457,6 +1498,11 @@ class S {
   String get premiumBestValueBadge => isAr ? 'الأفضل قيمة' : 'BEST VALUE';
   String get premiumCta => isAr ? 'ابدأ بريميوم' : 'START PREMIUM';
   String get premiumRestore => isAr ? 'استعادة المشتريات' : 'Restore purchases';
+  /// Shown under [premiumComingSoon] when the offering failed to load —
+  /// which in App Review's sandbox is the COMMON case, not the rare one.
+  /// Without it the screen was a dead end: no plans, no retry, and (before
+  /// the same fix) no Restore either.
+  String get premiumRetry => isAr ? 'إعادة المحاولة' : 'Try again';
   String get premiumComingSoon => isAr
       ? 'بريميوم غير متاح الآن — حاول مرة أخرى بعد قليل.'
       : 'Premium isn\'t available right now — please try again shortly.';
@@ -1638,21 +1684,21 @@ class S {
           'الشلّة',
           'زملاء العمل',
           'رفاق النادي',
-          'مجموعة الدراسة'
+          'مجموعة الدراسة',
         ]
       : const [
           'Family',
           'The Squad',
           'Work Crew',
           'Gym Buddies',
-          'Study Group'
+          'Study Group',
         ];
   String get roomHabitModeLabel =>
       isAr ? 'كيف تعمل العادة؟' : 'How does the habit work?';
   String get roomHabitModeShared => isAr ? 'خطة القائد' : "Leader's plan";
   String get roomHabitModeSharedHint => isAr
       ? 'اختر من عاداتك — كل من ينضم يحصل عليها في شبكته أيضًا'
-      : "Pick from your own habits — everyone who joins gets them added to their Grid too";
+      : 'Pick from your own habits — everyone who joins gets them added to their Grid too';
   String get roomHabitModeOwn =>
       isAr ? 'عادة كل شخص الخاصة' : "Everyone's own habit";
   String get roomHabitModeOwnHint => isAr
@@ -1878,8 +1924,7 @@ class S {
   // cells can never be tapped (they fail every touch-target standard), so
   // this sheet is where a day is actually inspectable — hence the button
   // label naming what tapping the strip does, not what it shows.
-  String get roomStripOpenCalendar =>
-      isAr ? 'عرض التقويم' : 'Open calendar';
+  String get roomStripOpenCalendar => isAr ? 'عرض التقويم' : 'Open calendar';
   String roomCalendarTitle(String name) =>
       isAr ? 'تقويم $name' : "$name's calendar";
   String get roomCalendarDone => isAr ? 'أُنجز' : 'Done';
@@ -1892,12 +1937,10 @@ class S {
   // Shown when the selected day IS this participant's first counted day —
   // the one the strip rings. Worth its own note rather than just a status,
   // because it's the day that explains the shape of everything after it.
-  String get roomCalendarFirstDayNote => isAr
-      ? 'أول يوم لك في هذه الغرفة'
-      : 'Your first day in this room';
-  String get roomCalendarFirstDayNoteOther => isAr
-      ? 'أول يوم في هذه الغرفة'
-      : 'First day in this room';
+  String get roomCalendarFirstDayNote =>
+      isAr ? 'أول يوم لك في هذه الغرفة' : 'Your first day in this room';
+  String get roomCalendarFirstDayNoteOther =>
+      isAr ? 'أول يوم في هذه الغرفة' : 'First day in this room';
   String roomStartedOn(String date) => isAr ? 'بدأت $date' : 'Started $date';
   String roomStartsOn(String date) => isAr ? 'تبدأ $date' : 'Starts $date';
 
@@ -2048,7 +2091,7 @@ class S {
       : 'Your leader added a new habit: $habitName';
   String get roomNewHabitBannerBody => isAr
       ? 'اربط إحدى عاداتك لتبقى نسبة إنجازك في هذه الغرفة دقيقة.'
-      : "Link one of your own habits so your progress here stays accurate.";
+      : 'Link one of your own habits so your progress here stays accurate.';
   String get roomNewHabitBannerAction => isAr ? 'ربط الآن' : 'Link now';
   String get roomResolveHabitsSheetTitle =>
       isAr ? 'عادة جديدة في الخطة' : 'New habit in the plan';
@@ -2177,6 +2220,30 @@ class S {
       isAr ? 'هذه الغرفة لم تعد موجودة.' : 'This room no longer exists.';
   String get roomExtendAction => isAr ? 'تمديد الغرفة' : 'Extend Room';
   String get roomExtendTitle => isAr ? 'تمديد هذه الغرفة' : 'Extend this room';
+  // Title of the resume-date step, shown only when extending a room that
+  // already finished. Deliberately "resume" and never "restart": nothing is
+  // reset — the history stays, the finish line moves, and the dead days in
+  // between are excluded from everyone's score rather than counted as
+  // misses.
+  // Cadence badge under a leaderboard percentage — how demanding THIS
+  // member's plan is. Two members in one room can be graded differently
+  // (a 4x/week quota converts its untrained days into full credit, a daily
+  // habit does not), which is most of why two people doing identical work
+  // can show very different numbers. Naming the cadence is what makes that
+  // gap explainable instead of arbitrary.
+  String roomCadenceWeekly(int n) => isAr ? '$n× أسبوعياً' : '$n× a week';
+  // The opt-in playful nudge. Worded as an invitation, never an accusation:
+  // "still waiting on you" is banter, "you didn't" is a reprimand.
+  String get notifRoomNudges => isAr ? 'تحفيز ودّي' : 'Friendly nudges';
+  String get notifRoomNudgesDesc => isAr
+      ? 'لما أحد يخلّص قبلك، يوصلك تنبيه خفيف يذكّرك. في الغرف الصغيرة فقط، ومرّة وحدة باليوم.'
+      : 'When someone finishes before you, get a light teasing reminder. Small rooms only, once a day.';
+  String get roomCadenceDaily => isAr ? 'يومي' : 'Daily';
+  // Shown when a member's linked habits don't all share one cadence, so the
+  // badge names the count rather than a single misleading number.
+  String roomCadenceMixed(int n) => isAr ? '$n عادات' : '$n habits';
+  String get roomExtendResumeTitle =>
+      isAr ? 'متى نكمل؟' : 'When do we pick up?';
   String get roomExtendBody => isAr
       ? 'اختر مدة جديدة تبدأ من اليوم، أو اجعلها بلا نهاية.'
       : 'Pick a new duration starting today, or make it open-ended.';
@@ -2221,7 +2288,7 @@ class S {
   String get notifStreakRisk => isAr ? 'حماية السلسلة' : 'Streak protection';
   String get notifStreakRiskDesc => isAr
       ? 'تنبيه مسائي، فقط عندما تكون سلسلة حقيقية على وشك الضياع.'
-      : "An evening nudge, but only when a real streak is actually about to be lost.";
+      : 'An evening nudge, but only when a real streak is actually about to be lost.';
   String get notifCelebrations => isAr ? 'الاحتفالات' : 'Celebrations';
   String get notifCelebrationsDesc => isAr
       ? 'إشعارات إنجاز العادة، الترقية، وفتح الإنجازات.'
@@ -2230,7 +2297,7 @@ class S {
       isAr ? 'ذكر المهام العاجلة' : 'Mention urgent tasks';
   String get notifMatrixNudgeDesc => isAr
       ? 'يضيف مهامك العاجلة من "افعل أولاً" إلى تنبيه السلسلة — لا يُرسل كإشعار منفصل أبدًا.'
-      : "Adds your open Do First tasks to the streak nudge — never a separate notification of its own.";
+      : 'Adds your open Do First tasks to the streak nudge — never a separate notification of its own.';
   String get notifBundle =>
       isAr ? 'دمج التذكيرات المتقاربة' : 'Bundle close-together reminders';
   String get notifBundleDesc => isAr
@@ -2362,6 +2429,58 @@ class S {
       ? 'النسخة المميزة تفتح كل سنة منذ إنشاء حسابك. النسخة المجانية تعرض هذه السنة فقط.'
       : 'Premium unlocks every year back to when your account began. Free shows this year only.';
 
+  // ── Room moderation (App Review guideline 1.2) ─────────────────────────
+  //
+  // Rooms put one person's typed text (room name, display name, habit
+  // names) in front of strangers who joined by code, which makes this
+  // user-generated content. Guideline 1.2 asks for four things: filtering,
+  // reporting, blocking, and a way to reach the operator. These strings
+  // cover the middle two; TextModeration covers the first and the support
+  // email covers the last.
+
+  String get roomMemberActions => isAr ? 'خيارات العضو' : 'Member options';
+  String get roomReportAction => isAr ? 'إبلاغ' : 'Report';
+  String get roomBlockAction => isAr ? 'حظر' : 'Block';
+  String get roomUnblockAction => isAr ? 'إلغاء الحظر' : 'Unblock';
+  String roomReportTitle(String name) =>
+      isAr ? 'الإبلاغ عن $name' : 'Report $name';
+  String get roomReportSubtitle => isAr
+      ? 'اختر السبب. البلاغ يوصلنا فقط، وما يُعلم الطرف الثاني.'
+      : "Pick a reason. Reports come only to us, and the other person isn't told.";
+  String get roomReportReasonName =>
+      isAr ? 'اسم غير لائق' : 'Inappropriate name';
+  String get roomReportReasonHarassment => isAr ? 'مضايقة' : 'Harassment';
+  String get roomReportReasonSpam => isAr ? 'إزعاج أو سبام' : 'Spam';
+  String get roomReportReasonOther => isAr ? 'سبب آخر' : 'Something else';
+  String get roomReportNoteHint =>
+      isAr ? 'تفاصيل إضافية (اختياري)' : 'Anything else to add? (optional)';
+  String get roomReportSubmit => isAr ? 'إرسال البلاغ' : 'Send report';
+  String get roomReportThanks => isAr
+      ? 'وصلنا بلاغك. شكرًا لك.'
+      : 'Report received. Thank you.';
+  /// Offered right after a report, because someone who just reported a
+  /// person almost always also wants to stop seeing them.
+  String get roomReportAlsoBlock =>
+      isAr ? 'احظر هذا العضو أيضًا' : 'Also block this member';
+  String roomBlockedConfirm(String name) =>
+      isAr ? 'تم حظر $name' : '$name is blocked';
+  String roomUnblockedConfirm(String name) =>
+      isAr ? 'تم إلغاء حظر $name' : '$name is unblocked';
+  String get roomBlockExplain => isAr
+      ? 'ما راح تشوف صفه في هذه الغرفة. ما راح يعرف، وتقدر تتراجع في أي وقت.'
+      : "You won't see their row in this room. They aren't told, and you can undo it any time.";
+  String roomBlockedHidden(int n) => isAr
+      ? (n == 1 ? 'عضو محظور مخفي' : '$n أعضاء محظورين مخفيين')
+      : (n == 1 ? '1 blocked member hidden' : '$n blocked members hidden');
+  String get roomBlockedShow => isAr ? 'إظهار' : 'Show';
+
+  /// Refusal shown when a name would be published to other people. Worded
+  /// as a rule about the room rather than an accusation, since the most
+  /// common trigger is someone testing what the field accepts.
+  String get roomNameNotAllowed => isAr
+      ? 'هذا الاسم ما ينفع هنا — غيره وحاول مرة ثانية.'
+      : "That name can't be used here. Try a different one.";
+
   // ── Rooms Alive (live in-room reactions) ───────────────────────────────
 
   String roomReactionJoined(String name) =>
@@ -2389,6 +2508,21 @@ class S {
       isAr
           ? 'قصتي على Grow Daily، $month\n\nمربعات خضراء: $greenSquares\nأيام مثالية: $perfectDays\nترقيات مستوى: $levelUps\nإنجازات مفتوحة: $achievements\n\nأبني عادات أفضل، يومًا بعد يوم.'
           : 'My Grow Daily Story, $month\n\nGreen squares: $greenSquares\nPerfect days: $perfectDays\nLevel-ups: $levelUps\nAchievements unlocked: $achievements\n\nBuilding better habits, one day at a time.';
+
+  // ── Month picker (shared: Monthly Story, any month-stepping screen) ────
+
+  String get monthPickerTitle => isAr ? 'اختر الشهر' : 'Pick a month';
+  /// Screen-reader suffix on a month the free tier cannot open. The full
+  /// explanation lives in [historyLockedBody], which the snackbar shows on
+  /// tap; this only has to say that the cell is out of reach.
+  String get monthPickerLocked => isAr ? 'مقفل' : 'Locked';
+
+  /// Shown instead of the story when the dashboard failed to load, so a
+  /// network failure can never be mistaken for "you did nothing this
+  /// month" — which is what [monthlyStoryEmpty] would otherwise assert.
+  String get monthlyStoryLoadFailed => isAr
+      ? 'ما قدرنا نجيب بياناتك. تحقق من اتصالك وحاول مرة ثانية.'
+      : "We couldn't load your data. Check your connection and try again.";
 
   // ── Level Prestige System ───────────────────────────────────────────────
 

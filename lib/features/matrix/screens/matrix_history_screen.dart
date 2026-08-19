@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/calendar_month_scaffold.dart';
 import '../../../shared/widgets/safe_wrap_text.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
@@ -98,7 +99,22 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
           ..sort((a, b) => (b.completedAt ?? b.createdAt)
               .compareTo(a.completedAt ?? a.createdAt)));
 
-    final canGoNext = _visibleMonth.isBefore(DateTime(today.year, today.month));
+    final currentMonth = DateTime(today.year, today.month);
+    // The archive's own floor. Completed tasks are never auto-cleared, so
+    // the oldest completion is exactly how far back there is anything to
+    // see; before this the back arrow was a bare non-nullable callback and
+    // stepped forever into months that predate the account, each one an
+    // empty grid. byDate is non-empty here — the doneTasks.isEmpty branch
+    // above has already returned. Clamped to the current month so a
+    // future-dated completedAt (clock skew, a bad import) can't push the
+    // floor above the ceiling and freeze the screen, the same guard
+    // earliestStoryMonth documents.
+    final oldest = byDate.keys
+        .map((d) => DateTime(d.year, d.month))
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final earliestMonth = oldest.isAfter(currentMonth) ? currentMonth : oldest;
+    final canGoBack = _visibleMonth.isAfter(earliestMonth);
+    final canGoNext = _visibleMonth.isBefore(currentMonth);
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -113,11 +129,15 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
       ),
       body: Column(
         children: [
-          _MonthHeader(
-            label: DateFormat('MMMM yyyy', locale).format(_visibleMonth),
-            isRtl: isAr,
-            onPrev: () => _changeMonth(-1),
-            onNext: canGoNext ? () => _changeMonth(1) : null,
+          // The shared header, not a fourth private copy of it — Rooms'
+          // participant calendar and the Monthly Story already render this
+          // exact control, and it gets the RTL arrows right on its own.
+          CalendarMonthHeader(
+            month: _visibleMonth,
+            canGoBack: canGoBack,
+            canGoForward: canGoNext,
+            onBack: () => _changeMonth(-1),
+            onForward: () => _changeMonth(1),
           ),
           _WeekdayHeader(locale: locale),
           const SizedBox(height: 2),
@@ -195,67 +215,6 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
                       ),
                     ],
                   ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MonthHeader extends StatelessWidget {
-  final String label;
-  final bool isRtl;
-  final VoidCallback onPrev;
-  final VoidCallback? onNext;
-
-  const _MonthHeader({
-    required this.label,
-    required this.isRtl,
-    required this.onPrev,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    // Icon has no built-in RTL-mirroring flag (that's Image/ImageIcon's
-    // matchTextDirection) — flip the chevron glyph by hand so "previous"
-    // still visually points the right way once Row's own RTL mirroring
-    // has already swapped which side of the header this button sits on.
-    // (isRtl is passed in as the app's own isAr flag — this file also
-    // imports package:intl, whose own TextDirection enum shadows
-    // dart:ui's, so Directionality.of(context) == TextDirection.rtl
-    // resolves to the wrong type here.)
-    Widget chevron(IconData icon, Color color) {
-      final glyph = Icon(icon, color: color, size: 22);
-      return isRtl ? Transform.flip(flipX: true, child: glyph) : glyph;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: onPrev,
-            icon: chevron(Icons.chevron_left_rounded, gp.textSec),
-          ),
-          Expanded(
-            child: Center(
-              child: Text(
-                label,
-                style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: gp.textPrimary),
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: onNext,
-            icon: chevron(
-              Icons.chevron_right_rounded,
-              onNext == null ? gp.textTert.withOpacity(0.3) : gp.textSec,
-            ),
           ),
         ],
       ),

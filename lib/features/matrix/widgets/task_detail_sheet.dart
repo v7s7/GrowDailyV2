@@ -11,15 +11,15 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/voice_note_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/reminder_limit_gate.dart';
 import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import 'add_task_sheet.dart' show MicRecordButton;
 import 'quadrant_card.dart' show ActionRow;
-import '../../../shared/widgets/reminder_limit_gate.dart';
 import 'reminder_picker.dart'
-    show ReminderPicker, pickReminderMoment, remindersFor, splitReminders;
+    show ReminderPicker, pickReminderMoment, remindersFor, offsetsFrom;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
 
 /// Opened from a task's pencil icon (see quadrant_card.dart's _TaskTile) —
@@ -51,7 +51,16 @@ class TaskDetailSheet extends ConsumerStatefulWidget {
   final void Function(String id, VoiceNote note) onAddVoiceNote;
   final void Function(String id, String noteId, String name) onRenameVoiceNote;
   final void Function(String id, String noteId) onRemoveVoiceNote;
-  final void Function(String id, List<DateTime> reminderAts) onSetReminders;
+
+  /// [reminderAnchorAt] is which entry of [reminderAts] the user picked, so
+  /// reopening this task can show the ladder they built rather than a guess
+  /// — see MatrixTask.reminderAnchorAt. Null means "no anchor", which is
+  /// only ever paired with an empty list.
+  final void Function(
+    String id,
+    List<DateTime> reminderAts, {
+    DateTime? reminderAnchorAt,
+  }) onSetReminders;
   final VoidCallback onDelete;
   final void Function(MatrixQuadrant quadrant) onMove;
 
@@ -113,11 +122,18 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     _voiceNotes = List.of(widget.task.voiceNotes);
     // Reopening an existing task: recover the ladder it was built with, so
     // the offset chips come back selected rather than the user facing a
-    // flat list of times with no idea which were relative. See
-    // splitReminders on the one case this reframes.
-    final split = splitReminders(widget.task.reminderAts);
-    _anchorAt = split.anchor;
-    _offsets = split.offsets;
+    // flat list of times with no idea which were relative.
+    //
+    // The anchor is read, not re-derived. MatrixTask.resolveAnchor has
+    // already validated it against reminderAts (and fallen back to the old
+    // reminders.last guess for tasks saved before the field existed), so
+    // whatever it hands back is genuinely one of the moments this task fires
+    // at — which is what lets the offsets below be honest about direction.
+    _anchorAt = widget.task.reminderAnchorAt;
+    _offsets = offsetsFrom(
+      anchor: _anchorAt,
+      reminders: widget.task.reminderAts,
+    );
   }
 
   @override
@@ -169,7 +185,9 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
         String? audioBase64;
         if (uid != null) {
           final existingSyncedBytes = _voiceNotes.fold<int>(
-              0, (sum, n) => sum + (n.audioBase64?.length ?? 0));
+            0,
+            (sum, n) => sum + (n.audioBase64?.length ?? 0),
+          );
           audioBase64 = await VoiceNoteService.instance.encodeForSync(
             result.path,
             existingSyncedBytes: existingSyncedBytes,
@@ -232,7 +250,9 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
   String _displayName(VoiceNote note) {
     if (note.name.isNotEmpty) return note.name;
     final index = _voiceNotes.indexWhere((n) => n.id == note.id);
-    return S.of(context).voiceNoteDefaultName(index < 0 ? _voiceNotes.length : index + 1);
+    return S
+        .of(context)
+        .voiceNoteDefaultName(index < 0 ? _voiceNotes.length : index + 1);
   }
 
   void _renameNote(VoiceNote note) {
@@ -317,7 +337,11 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
       _anchorAt = anchor;
       _offsets = offsets;
     });
-    widget.onSetReminders(widget.task.id, _reminderAts);
+    widget.onSetReminders(
+      widget.task.id,
+      _reminderAts,
+      reminderAnchorAt: _anchorAt,
+    );
     if (!granted && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(S.of(context).reminderPermissionDenied)),
@@ -346,16 +370,26 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     final isAr = s.isAr;
     final matrixState = ref.watch(matrixProvider);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
-    final others = MatrixQuadrant.values
-        .where((q) => q != widget.task.quadrant)
-        .toList();
+    final others =
+        MatrixQuadrant.values.where((q) => q != widget.task.quadrant).toList();
+    // Keyboard-aware, same formula and same reasoning as AddTaskSheet's.
+    // This sheet never painted its content outside the card the way that one
+    // did — its body is already inside a Flexible(SingleChildScrollView) —
+    // but the cap was computed from the full screen height all the same, so
+    // it simply never bound while the keyboard was up, and the card's height
+    // snapped while its padding animated.
+    final screenHeight = MediaQuery.of(context).size.height;
+    final rawMaxHeight =
+        bottom > 0 ? screenHeight - bottom - 24 : screenHeight * 0.88;
+    final maxHeight = rawMaxHeight < 200.0 ? 200.0 : rawMaxHeight;
     return AnimatedPadding(
       duration: GameMotion.standard,
       curve: Curves.easeOut,
       padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
-      child: Container(
-        constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.88),
+      child: AnimatedContainer(
+        duration: GameMotion.standard,
+        curve: Curves.easeOut,
+        constraints: BoxConstraints(maxHeight: maxHeight),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
           borderRadius: BorderRadius.circular(24),
@@ -370,8 +404,9 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                 width: 38,
                 height: 4,
                 decoration: BoxDecoration(
-                    color: gp.border,
-                    borderRadius: BorderRadius.circular(2)),
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
             Flexible(
@@ -384,26 +419,38 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       alignment: AlignmentDirectional.centerStart,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: _color.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                          borderRadius:
+                              BorderRadius.circular(GameSpacing.pillRadius),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                                width: 7,
-                                height: 7,
-                                decoration: BoxDecoration(
-                                    color: _color, shape: BoxShape.circle)),
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: _color,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
                             const SizedBox(width: 6),
-                            Text(matrixState.titleFor(widget.task.quadrant, isAr),
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                    color: _color,
-                                    letterSpacing: isAr ? 0 : 1.0)),
+                            Text(
+                              matrixState.titleFor(
+                                widget.task.quadrant,
+                                isAr,
+                              ),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: _color,
+                                letterSpacing: isAr ? 0 : 1.0,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -411,20 +458,24 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 4),
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: gp.surfaceHL,
-                        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+                        borderRadius:
+                            BorderRadius.circular(GameSpacing.cardRadius),
                         border: Border.all(color: gp.border, width: 0.5),
                       ),
                       child: TextField(
                         controller: _titleCtrl,
                         textCapitalization: TextCapitalization.sentences,
                         style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                            color: gp.textPrimary,
-                            height: 1.4),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: gp.textPrimary,
+                          height: 1.4,
+                        ),
                         maxLines: 3,
                         minLines: 1,
                         decoration: InputDecoration(
@@ -444,16 +495,19 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       child: Text(
                         s.matrixTaskDetails,
                         style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: gp.textTert,
-                            letterSpacing: isAr ? 0 : 1.0),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: gp.textTert,
+                          letterSpacing: isAr ? 0 : 1.0,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 4),
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: gp.surfaceHL,
                         borderRadius: BorderRadius.circular(14),
@@ -463,16 +517,18 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                         controller: _descCtrl,
                         textCapitalization: TextCapitalization.sentences,
                         style: TextStyle(
-                            fontSize: 13.5,
-                            color: gp.textPrimary,
-                            height: 1.4),
+                          fontSize: 13.5,
+                          color: gp.textPrimary,
+                          height: 1.4,
+                        ),
                         maxLines: 5,
                         minLines: 2,
                         decoration: InputDecoration(
                           hintText: s.matrixDescriptionHint,
                           hintStyle: TextStyle(
-                              fontSize: 13.5,
-                              color: gp.textTert.withOpacity(0.7)),
+                            fontSize: 13.5,
+                            color: gp.textTert.withOpacity(0.7),
+                          ),
                           border: InputBorder.none,
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
@@ -488,8 +544,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       offsets: _offsets,
                       color: _color,
                       isAr: isAr,
-                      canStack:
-                          canAddAnotherReminder(ref, _reminderAts.length),
+                      canStack: canAddAnotherReminder(ref, _reminderAts.length),
                       onPickAnchor: _pickAnchor,
                       onClear: _clearReminders,
                       onToggleOffset: _toggleOffset,
@@ -502,10 +557,11 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                           child: Text(
                             s.voiceNotesTitle,
                             style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: gp.textTert,
-                                letterSpacing: isAr ? 0 : 1.0),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: gp.textTert,
+                              letterSpacing: isAr ? 0 : 1.0,
+                            ),
                           ),
                         ),
                         MicRecordButton(
@@ -518,15 +574,19 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                     ),
                     const SizedBox(height: 8),
                     if (_recording)
-                      Text(s.voiceNoteRecording,
-                          style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: GameColors.error))
+                      Text(
+                        s.voiceNoteRecording,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: GameColors.error,
+                        ),
+                      )
                     else if (_voiceNotes.isEmpty)
-                      Text(s.voiceNoteTapToRecord,
-                          style: TextStyle(
-                              fontSize: 11.5, color: gp.textTert))
+                      Text(
+                        s.voiceNoteTapToRecord,
+                        style: TextStyle(fontSize: 11.5, color: gp.textTert),
+                      )
                     else
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -534,8 +594,8 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                           for (var i = 0; i < _voiceNotes.length; i++)
                             Padding(
                               padding: EdgeInsets.only(
-                                  bottom:
-                                      i == _voiceNotes.length - 1 ? 0 : 8),
+                                bottom: i == _voiceNotes.length - 1 ? 0 : 8,
+                              ),
                               child: VoiceNoteRow(
                                 note: _voiceNotes[i],
                                 displayName: _displayName(_voiceNotes[i]),
@@ -560,22 +620,25 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       child: Text(
                         s.matrixMoveToQuadrant,
                         style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: gp.textTert,
-                            letterSpacing: isAr ? 0 : 1.2),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: gp.textTert,
+                          letterSpacing: isAr ? 0 : 1.2,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
-                    ...others.map((q) => Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: ActionRow(
-                            dotColor: _colorFor(q),
-                            label: matrixState.titleFor(q, isAr),
-                            subtitle: q.localSubtitle(isAr),
-                            onTap: () => _move(q),
-                          ),
-                        )),
+                    ...others.map(
+                      (q) => Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: ActionRow(
+                          dotColor: _colorFor(q),
+                          label: matrixState.titleFor(q, isAr),
+                          subtitle: q.localSubtitle(isAr),
+                          onTap: () => _move(q),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -589,4 +652,3 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     );
   }
 }
-

@@ -158,6 +158,34 @@ service cloud.firestore {
       }
     }
 
+    // Abuse reports (App Review guideline 1.2).
+    //
+    // Create-only, and deliberately not readable by anyone — including the
+    // person who filed it. A client that could read this collection could
+    // enumerate who reported whom, which turns a safety feature into a
+    // harassment tool. Operators read it from the Firebase console or with
+    // the Admin SDK, both of which bypass these rules entirely.
+    //
+    // No update and no delete for the same reason a report should not be
+    // retractable by the reported party: the only actor who could plausibly
+    // want to erase one is the person it is about.
+    match /reports/{reportId} {
+      allow read, update, delete: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.reporterUid == request.auth.uid
+        // Self-reports are the shape a script would use to flood the
+        // collection, and they carry no information.
+        && request.resource.data.reportedUid is string
+        && request.resource.data.reportedUid != request.auth.uid
+        && request.resource.data.roomCode is string
+        && request.resource.data.reason is string
+        && request.resource.data.reason in
+             ['inappropriateName', 'harassment', 'spam', 'other']
+        && (!('note' in request.resource.data)
+            || (request.resource.data.note is string
+                && request.resource.data.note.size() <= 500));
+    }
+
     // Everything else is denied by default.
     match /{document=**} {
       allow read, write: if false;

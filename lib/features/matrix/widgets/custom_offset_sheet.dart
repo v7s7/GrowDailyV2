@@ -30,13 +30,25 @@ enum ReminderUnit {
   final int inMinutes;
 }
 
-/// "15 minutes before" / "قبل ١٥ دقيقة" — the counted, human form of a
-/// signed offset.
+/// Largest unit that divides [magnitude] evenly, and how many of it. 120 →
+/// (2, hours), 1440 → (1, days), 90 → (90, minutes) — a value that doesn't
+/// divide stays in minutes rather than becoming "1.5 hours", which would be
+/// both harder to scan and impossible to type back in.
 ///
-/// Picks the largest unit that divides evenly, so 120 reads as "2 hours"
-/// rather than "120 minutes" and 1440 as "1 day". A value that doesn't
-/// divide (say 90) stays in minutes rather than becoming "1.5 hours", which
-/// would be both harder to scan and impossible to type back in.
+/// Shared by [formatOffsetVerbose] and [formatOffsetCompact] so the two can
+/// never disagree about which unit a given offset is expressed in — a chip
+/// reading "1h before" above a list row reading "60 minutes before" would
+/// look like two different reminders.
+(int, ReminderUnit) splitOffsetUnit(int magnitude) =>
+    magnitude % ReminderUnit.days.inMinutes == 0
+        ? (magnitude ~/ ReminderUnit.days.inMinutes, ReminderUnit.days)
+        : magnitude % ReminderUnit.hours.inMinutes == 0
+            ? (magnitude ~/ ReminderUnit.hours.inMinutes, ReminderUnit.hours)
+            : (magnitude, ReminderUnit.minutes);
+
+/// "15 minutes before" / "قبل ١٥ دقيقة" — the counted, human form of a
+/// signed offset. [formatOffsetCompact] is the same fact abbreviated to fit
+/// a chip; this is the form that has room to spell itself out.
 ///
 /// Word order follows each language rather than one shared template.
 /// English trails the preposition ("15 minutes before"); Arabic *leads* with
@@ -51,9 +63,9 @@ enum ReminderUnit {
 /// دقيقتين", not "قبل دقيقتان".
 ///
 /// [withDirection] drops the preposition for callers whose surrounding UI
-/// already establishes it — the offset grid is split into قبل/بعد tabs, so
-/// every chip in view shares one direction and repeating it on each would
-/// be noise.
+/// already establishes it — this sheet's own added-chip list sits under a
+/// قبل/بعد toggle, so repeating the direction on each entry would just echo
+/// the control above them.
 String formatOffsetVerbose(
   int signedMinutes,
   bool isAr,
@@ -61,11 +73,7 @@ String formatOffsetVerbose(
   bool withDirection = true,
 }) {
   final magnitude = signedMinutes.abs();
-  final (value, unit) = magnitude % ReminderUnit.days.inMinutes == 0
-      ? (magnitude ~/ ReminderUnit.days.inMinutes, ReminderUnit.days)
-      : magnitude % ReminderUnit.hours.inMinutes == 0
-          ? (magnitude ~/ ReminderUnit.hours.inMinutes, ReminderUnit.hours)
-          : (magnitude, ReminderUnit.minutes);
+  final (value, unit) = splitOffsetUnit(magnitude);
 
   final direction =
       signedMinutes.isNegative ? s.offsetBeforeLabel : s.offsetAfterLabel;
@@ -100,15 +108,84 @@ String formatOffsetVerbose(
   return withDirection ? '$direction $counted' : counted;
 }
 
+/// The same fact as [formatOffsetVerbose], squeezed to fit a chip: "15m
+/// before" / "قبل ١٥ د".
+///
+/// Every offset chip states its own direction, which is what let the قبل/بعد
+/// toggle be deleted — a toggle is modal state the user has to remember
+/// being in, and worse, flipping it silently changed what the *already
+/// selected* chips were reporting. Self-labelling chips have no mode, so
+/// there is nothing to remember and nothing to get wrong.
+///
+/// Compactness is the whole constraint: these sit in a 3-column grid whose
+/// cells are ~98pt on a 375pt phone, so the unit is abbreviated ("m"/"د")
+/// rather than counted. Arabic keeps its natural noun for one and two —
+/// "قبل ساعة" is both shorter *and* better than "قبل ١ س" — and only falls
+/// back to digits-plus-abbreviation from three up, where the counted plural
+/// ("٣٠ دقائق") would no longer fit.
+///
+/// Word order per language, exactly as [formatOffsetVerbose] documents:
+/// Arabic leads with the preposition, English trails it.
+String formatOffsetCompact(int signedMinutes, bool isAr, S s) {
+  final direction =
+      signedMinutes.isNegative ? s.offsetBeforeLabel : s.offsetAfterLabel;
+  final counted = _magnitudeCompact(signedMinutes.abs(), isAr);
+  return isAr ? '$direction $counted' : '$counted ${direction.toLowerCase()}';
+}
+
+/// The size of an offset with no direction on it: "١٥", "٦٠", "٩٠ د", "يوم".
+///
+/// For chips whose group header already states both the direction *and* the
+/// unit, so repeating either on the chip is exactly the redundancy the
+/// grouped layout exists to remove — and repeating it is what forced 13pt
+/// type into a 36pt cell.
+///
+/// Anything up to an hour renders as a bare number, because the header says
+/// "دقائق" and a 60 sitting beside a 30 means what the header says it means.
+/// Past an hour the header's unit no longer covers the value, so it carries
+/// its own: a hand-typed −1440 reads "يوم", never "١٤٤٠".
+String formatOffsetMagnitude(int signedMinutes, bool isAr, S s) {
+  final magnitude = signedMinutes.abs();
+  if (magnitude <= ReminderUnit.hours.inMinutes) {
+    return isAr ? arabicDigits(magnitude) : '$magnitude';
+  }
+  return _magnitudeCompact(magnitude, isAr);
+}
+
+/// Shared by [formatOffsetCompact] and [formatOffsetMagnitude] so a chip and
+/// the list row under it can never name the same offset two ways.
+String _magnitudeCompact(int magnitude, bool isAr) {
+  final (value, unit) = splitOffsetUnit(magnitude);
+  if (!isAr) {
+    const abbr = {
+      ReminderUnit.minutes: 'm',
+      ReminderUnit.hours: 'h',
+      ReminderUnit.days: 'd',
+    };
+    return '$value${abbr[unit]!}';
+  }
+  const arabicForms = {
+    // singular, genitive dual, abbreviation
+    ReminderUnit.minutes: ('دقيقة', 'دقيقتين', 'د'),
+    ReminderUnit.hours: ('ساعة', 'ساعتين', 'س'),
+    ReminderUnit.days: ('يوم', 'يومين', 'ي'),
+  };
+  final (one, two, short) = arabicForms[unit]!;
+  return switch (value) {
+    1 => one,
+    2 => two,
+    _ => '${arabicDigits(value)} $short',
+  };
+}
+
 /// Enter a reminder offset in whatever unit suits it, add as many as you
 /// like, and remove any of them — without leaving the task sheet.
 ///
-/// A sheet rather than more controls inline: the offset grid already
-/// carries five presets and a direction toggle, and bolting a unit selector
-/// beside the number would have made three controls compete for one row on
-/// a phone. Bottom sheets exist for exactly this — contextual detail
-/// without losing the screen behind it — and it keeps the grid at six
-/// uniform cells.
+/// A sheet rather than more controls inline: entering a value needs a
+/// number *and* a unit *and* a direction, which is three controls competing
+/// for one row on a phone. Bottom sheets exist for exactly this —
+/// contextual detail without losing the screen behind it — and it keeps the
+/// grid behind at nine uniform cells.
 ///
 /// [offsets] is the task's live set; every add/remove is applied through
 /// [onToggle] immediately rather than batched behind a Save, so dismissing
@@ -122,6 +199,7 @@ Future<void> showCustomOffsetSheet(
   required bool isAr,
   required bool canStack,
   required void Function(int signedMinutes) onToggle,
+
   /// Fired on every direction change, not just on close, so a swipe-dismiss
   /// leaves the grid on the same tab a Done tap would have.
   required void Function(bool isAfter) onDirectionChanged,
@@ -133,6 +211,9 @@ Future<void> showCustomOffsetSheet(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
+    // Matches the sheets this opens on top of. Without it a tall added-chip
+    // list can push this sheet's own title under the notch.
+    useSafeArea: true,
     builder: (_) => _CustomOffsetSheet(
       anchor: anchor,
       initialOffsets: offsets,
@@ -179,6 +260,7 @@ class _CustomOffsetSheet extends StatefulWidget {
 
 class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
   final _ctrl = TextEditingController();
+
   late bool _isAfter = widget.initialIsAfter;
   late Set<int> _offsets = Set.of(widget.initialOffsets);
   ReminderUnit _unit = ReminderUnit.minutes;
@@ -212,9 +294,7 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
 
   DateTime? get _pendingAt {
     final offset = _pendingOffset;
-    return offset == null
-        ? null
-        : widget.anchor.add(Duration(minutes: offset));
+    return offset == null ? null : widget.anchor.add(Duration(minutes: offset));
   }
 
   /// Why the current entry can't be added, or null if it can. Returning the
@@ -301,8 +381,7 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: gp.border,
-                    borderRadius:
-                        BorderRadius.circular(GameSpacing.pillRadius),
+                    borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                   ),
                 ),
               ),
@@ -420,8 +499,7 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
-                        blocked ??
-                            formatReminderMoment(pendingAt, widget.isAr),
+                        blocked ?? formatReminderMoment(pendingAt, widget.isAr),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 13.5,

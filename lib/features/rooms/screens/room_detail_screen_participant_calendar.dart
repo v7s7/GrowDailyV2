@@ -47,8 +47,11 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
   void initState() {
     super.initState();
     _lastDay = widget.room.lastCountedDay;
-    final elapsed = widget.participant.daysElapsedIn(widget.room);
-    _firstDay = _lastDay.subtract(Duration(days: elapsed - 1));
+    // countedStartIn, not lastCountedDay minus daysElapsedIn: the latter
+    // excludes paused days, so after an extension it placed _firstDay days
+    // late and dimmed the room's real opening days as "outside your window"
+    // even though they are graded.
+    _firstDay = widget.participant.countedStartIn(widget.room);
     // Opens on the month containing the most recent activity rather than on
     // the room's first month — with a 90-day room those differ, and the end
     // is what someone checking a leaderboard is asking about.
@@ -66,8 +69,9 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
   Color? _fillFor(DateTime day, bool dark) {
     if (day.isBefore(_firstDay) || day.isAfter(_lastDay)) return null;
     final key = day.toDateKey();
-    final credit =
-        widget.participant.isRestDay(key) ? 0.0 : widget.participant.creditFor(key);
+    final credit = widget.participant.isRestDay(key)
+        ? 0.0
+        : widget.participant.creditFor(key);
     return heatColor(heatmapLevelFor(credit), dark);
   }
 
@@ -143,13 +147,13 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
               canGoForward: _canGoForward,
               onBack: () {
                 HapticFeedback.selectionClick();
-                setState(() =>
-                    _month = DateTime(_month.year, _month.month - 1));
+                setState(
+                    () => _month = DateTime(_month.year, _month.month - 1));
               },
               onForward: () {
                 HapticFeedback.selectionClick();
-                setState(() =>
-                    _month = DateTime(_month.year, _month.month + 1));
+                setState(
+                    () => _month = DateTime(_month.year, _month.month + 1));
               },
             ),
             const SizedBox(height: 6),

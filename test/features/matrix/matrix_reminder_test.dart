@@ -7,14 +7,14 @@
 // channel at all.
 import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:intl/intl.dart';
-import 'package:intl/date_symbol_data_local.dart';
+import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
 import 'package:grow_daily_v2/features/matrix/notifiers/matrix_notifier.dart';
-import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/features/matrix/widgets/custom_offset_sheet.dart';
 import 'package:grow_daily_v2/features/matrix/widgets/reminder_picker.dart';
 import 'package:grow_daily_v2/features/premium/notifiers/premium_notifier.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
 /// [reminderAt] is the single-reminder convenience the pre-multi-reminder
 /// tests below were written against and still read clearly with; pass
@@ -47,11 +47,11 @@ void main() {
   });
 
   group('formatReminderMoment', () {
-    final now = DateTime(2026, 7, 16, 9, 0);
+    final now = DateTime(2026, 7, 16, 9);
 
     test('same calendar day as now reads "Today"', () {
       expect(
-        formatReminderMoment(DateTime(2026, 7, 16, 17, 0), false, now: now),
+        formatReminderMoment(DateTime(2026, 7, 16, 17), false, now: now),
         'Today · 5:00 PM',
       );
     });
@@ -65,18 +65,18 @@ void main() {
 
     test('anything further out falls back to a month/day date', () {
       expect(
-        formatReminderMoment(DateTime(2026, 7, 20, 14, 0), false, now: now),
+        formatReminderMoment(DateTime(2026, 7, 20, 14), false, now: now),
         'Jul 20 · 2:00 PM',
       );
     });
 
     test('Arabic uses the Arabic Today/Tomorrow labels', () {
       expect(
-        formatReminderMoment(DateTime(2026, 7, 16, 17, 0), true, now: now),
+        formatReminderMoment(DateTime(2026, 7, 16, 17), true, now: now),
         startsWith('اليوم'),
       );
       expect(
-        formatReminderMoment(DateTime(2026, 7, 17, 9, 0), true, now: now),
+        formatReminderMoment(DateTime(2026, 7, 17, 9), true, now: now),
         startsWith('غدًا'),
       );
     });
@@ -90,23 +90,25 @@ void main() {
       // "Today" here means the device's actual calendar today.
       final lateNow = DateTime(2026, 7, 16, 23, 50);
       expect(
-        formatReminderMoment(DateTime(2026, 7, 17, 0, 10), false,
-            now: lateNow),
+        formatReminderMoment(DateTime(2026, 7, 17, 0, 10), false, now: lateNow),
         'Tomorrow · 12:10 AM',
       );
     });
   });
 
   group('shouldScheduleTaskReminder', () {
-    final now = DateTime(2026, 7, 16, 9, 0);
-    final future = DateTime(2026, 7, 16, 17, 0);
-    final past = DateTime(2026, 7, 16, 8, 0);
+    final now = DateTime(2026, 7, 16, 9);
+    final future = DateTime(2026, 7, 16, 17);
+    final past = DateTime(2026, 7, 16, 8);
 
     test('fires when reminderAt is future, task is open, master switch is on',
         () {
       expect(
-        shouldScheduleTaskReminder(_task(reminderAt: future),
-            masterEnabled: true, now: now),
+        shouldScheduleTaskReminder(
+          _task(reminderAt: future),
+          masterEnabled: true,
+          now: now,
+        ),
         isTrue,
       );
     });
@@ -120,16 +122,22 @@ void main() {
 
     test('does not fire once the task is already done', () {
       expect(
-        shouldScheduleTaskReminder(_task(reminderAt: future, isDone: true),
-            masterEnabled: true, now: now),
+        shouldScheduleTaskReminder(
+          _task(reminderAt: future, isDone: true),
+          masterEnabled: true,
+          now: now,
+        ),
         isFalse,
       );
     });
 
     test('does not fire once the picked moment has already passed', () {
       expect(
-        shouldScheduleTaskReminder(_task(reminderAt: past),
-            masterEnabled: true, now: now),
+        shouldScheduleTaskReminder(
+          _task(reminderAt: past),
+          masterEnabled: true,
+          now: now,
+        ),
         isFalse,
       );
     });
@@ -137,18 +145,23 @@ void main() {
     test('a reminderAt exactly equal to now does not fire (strict isAfter)',
         () {
       expect(
-        shouldScheduleTaskReminder(_task(reminderAt: now),
-            masterEnabled: true, now: now),
+        shouldScheduleTaskReminder(
+          _task(reminderAt: now),
+          masterEnabled: true,
+          now: now,
+        ),
         isFalse,
       );
     });
 
-    test(
-        'does not fire when the app-wide master notification switch is off',
+    test('does not fire when the app-wide master notification switch is off',
         () {
       expect(
-        shouldScheduleTaskReminder(_task(reminderAt: future),
-            masterEnabled: false, now: now),
+        shouldScheduleTaskReminder(
+          _task(reminderAt: future),
+          masterEnabled: false,
+          now: now,
+        ),
         isFalse,
       );
     });
@@ -178,17 +191,104 @@ void main() {
     });
   });
 
+  group('MatrixTask.reminderAnchorAt persistence', () {
+    // The user's repro, as a stored task: anchor at noon with two warnings
+    // before it and one nudge after.
+    final anchor = DateTime(2026, 8, 17, 12);
+    final ladder = [
+      DateTime(2026, 8, 17, 11, 50),
+      DateTime(2026, 8, 17, 11, 55),
+      anchor,
+      DateTime(2026, 8, 17, 12, 15),
+    ];
+
+    test('toMap/fromMap round-trips the anchor', () {
+      final original = MatrixTask.create(
+        'Try the reminder',
+        MatrixQuadrant.doFirst,
+        reminderAts: ladder,
+        reminderAnchorAt: anchor,
+      );
+      final restored = MatrixTask.fromMap(original.toMap());
+      expect(restored.reminderAnchorAt, anchor);
+      expect(restored.reminderAts, ladder);
+      // And the whole point: reopening reproduces the ladder that was built,
+      // rather than re-framing it around the latest alarm.
+      expect(
+        offsetsFrom(
+          anchor: restored.reminderAnchorAt,
+          reminders: restored.reminderAts,
+        ),
+        {-10, -5, 15},
+      );
+    });
+
+    test('toMap omits the anchor entirely when unset', () {
+      expect(_task().toMap().containsKey('reminderAnchorAt'), isFalse);
+    });
+
+    test('a task stored without an anchor still loads, falling back', () {
+      // Exactly the shape the current shipped build writes: reminderAts,
+      // no reminderAnchorAt. It must keep looking the way it looks today.
+      final legacy = _task(reminderAts: ladder).toMap()
+        ..remove('reminderAnchorAt');
+      expect(MatrixTask.fromMap(legacy).reminderAnchorAt, ladder.last);
+    });
+
+    test('clearing reminders clears the anchor with them', () {
+      final task = MatrixTask.create(
+        'Try the reminder',
+        MatrixQuadrant.doFirst,
+        reminderAts: ladder,
+        reminderAnchorAt: anchor,
+      );
+      final cleared = task.copyWith(reminderAts: const []);
+      expect(cleared.reminderAnchorAt, isNull);
+      expect(cleared.reminderAts, isEmpty);
+    });
+
+    test('replacing reminders re-resolves an anchor left behind', () {
+      // A caller that changes the list without thinking about the anchor
+      // must not be able to leave one pointing at a moment the task no
+      // longer fires at.
+      final task = MatrixTask.create(
+        'Try the reminder',
+        MatrixQuadrant.doFirst,
+        reminderAts: ladder,
+        reminderAnchorAt: anchor,
+      );
+      final moved = task.copyWith(
+        reminderAts: [
+          DateTime(2026, 8, 18, 9),
+          DateTime(2026, 8, 18, 9, 30),
+        ],
+      );
+      expect(moved.reminderAnchorAt, DateTime(2026, 8, 18, 9, 30));
+    });
+
+    test('a copyWith that touches nothing else keeps the anchor', () {
+      final task = MatrixTask.create(
+        'Try the reminder',
+        MatrixQuadrant.doFirst,
+        reminderAts: ladder,
+        reminderAnchorAt: anchor,
+      );
+      expect(task.copyWith(title: 'Renamed').reminderAnchorAt, anchor);
+      expect(task.copyWith(isDone: true).reminderAnchorAt, anchor);
+    });
+  });
+
   group('MatrixTask.normalizeReminders', () {
     test('sorts ascending so rows render in the order they will fire', () {
       final out = MatrixTask.normalizeReminders([
-        DateTime(2026, 7, 16, 16, 0),
-        DateTime(2026, 7, 16, 15, 0),
+        DateTime(2026, 7, 16, 16),
+        DateTime(2026, 7, 16, 15),
         DateTime(2026, 7, 16, 15, 30),
       ]);
       expect(out, [
-        DateTime(2026, 7, 16, 15, 0),
+        DateTime(2026, 7, 16, 15),
         DateTime(2026, 7, 16, 15, 30),
-        DateTime(2026, 7, 16, 16, 0),
+        DateTime(2026, 7, 16, 16),
       ]);
     });
 
@@ -234,7 +334,7 @@ void main() {
         'reminderAt': DateTime(2026, 7, 18, 14, 30).toIso8601String(),
         'reminderAts': [
           DateTime(2026, 7, 18, 14, 30).toIso8601String(),
-          DateTime(2026, 7, 18, 15, 0).toIso8601String(),
+          DateTime(2026, 7, 18, 15).toIso8601String(),
         ],
         'order': 0,
       });
@@ -244,20 +344,27 @@ void main() {
     test('toMap keeps the legacy key in step with the first entry', () {
       // An older install (or a downgrade) reads only this key — writing
       // the array alone would silently drop the reminder for them.
-      final map = _task(reminderAts: [
-        DateTime(2026, 7, 18, 15, 0),
-        DateTime(2026, 7, 18, 14, 30),
-      ]).toMap();
-      expect(map['reminderAt'], DateTime(2026, 7, 18, 14, 30).toIso8601String());
+      final map = _task(
+        reminderAts: [
+          DateTime(2026, 7, 18, 15),
+          DateTime(2026, 7, 18, 14, 30),
+        ],
+      ).toMap();
+      expect(
+        map['reminderAt'],
+        DateTime(2026, 7, 18, 14, 30).toIso8601String(),
+      );
       expect(map['reminderAts'], hasLength(2));
     });
 
     test('a multi-reminder task round-trips through toMap/fromMap', () {
-      final original = _task(reminderAts: [
-        DateTime(2026, 7, 18, 15, 0),
-        DateTime(2026, 7, 18, 14, 30),
-        DateTime(2026, 7, 18, 16, 0),
-      ]);
+      final original = _task(
+        reminderAts: [
+          DateTime(2026, 7, 18, 15),
+          DateTime(2026, 7, 18, 14, 30),
+          DateTime(2026, 7, 18, 16),
+        ],
+      );
       final restored = MatrixTask.fromMap(original.toMap());
       expect(restored.reminderAts, original.reminderAts);
     });
@@ -267,40 +374,52 @@ void main() {
     final now = DateTime(2026, 7, 16, 15, 15);
     // The user's own example: a 5pm meeting warned about three times.
     final stack = [
-      DateTime(2026, 7, 16, 15, 0),
+      DateTime(2026, 7, 16, 15),
       DateTime(2026, 7, 16, 15, 30),
-      DateTime(2026, 7, 16, 16, 0),
+      DateTime(2026, 7, 16, 16),
     ];
 
     test('returns only the moments still ahead of now', () {
       expect(
-        futureTaskReminders(_task(reminderAts: stack),
-            masterEnabled: true, now: now),
-        [DateTime(2026, 7, 16, 15, 30), DateTime(2026, 7, 16, 16, 0)],
+        futureTaskReminders(
+          _task(reminderAts: stack),
+          masterEnabled: true,
+          now: now,
+        ),
+        [DateTime(2026, 7, 16, 15, 30), DateTime(2026, 7, 16, 16)],
       );
     });
 
     test('a partly-elapsed stack still counts as schedulable', () {
       expect(
-        shouldScheduleTaskReminder(_task(reminderAts: stack),
-            masterEnabled: true, now: now),
+        shouldScheduleTaskReminder(
+          _task(reminderAts: stack),
+          masterEnabled: true,
+          now: now,
+        ),
         isTrue,
       );
     });
 
     test('nothing is scheduled once the whole stack has passed', () {
-      final afterAll = DateTime(2026, 7, 16, 17, 0);
+      final afterAll = DateTime(2026, 7, 16, 17);
       expect(
-        futureTaskReminders(_task(reminderAts: stack),
-            masterEnabled: true, now: afterAll),
+        futureTaskReminders(
+          _task(reminderAts: stack),
+          masterEnabled: true,
+          now: afterAll,
+        ),
         isEmpty,
       );
     });
 
     test('a done task schedules nothing even with future reminders', () {
       expect(
-        futureTaskReminders(_task(reminderAts: stack, isDone: true),
-            masterEnabled: true, now: now),
+        futureTaskReminders(
+          _task(reminderAts: stack, isDone: true),
+          masterEnabled: true,
+          now: now,
+        ),
         isEmpty,
       );
     });
@@ -308,9 +427,9 @@ void main() {
 
   group('latestMissedTaskReminder', () {
     final stack = [
-      DateTime(2026, 7, 16, 15, 0),
+      DateTime(2026, 7, 16, 15),
       DateTime(2026, 7, 16, 15, 30),
-      DateTime(2026, 7, 16, 16, 0),
+      DateTime(2026, 7, 16, 16),
     ];
 
     test('picks the most recent missed moment, not every missed one', () {
@@ -318,9 +437,12 @@ void main() {
       // once, keyed to 4:00 — three identical notifications at once would
       // be indistinguishable from a bug.
       expect(
-        latestMissedTaskReminder(_task(reminderAts: stack),
-            masterEnabled: true, now: DateTime(2026, 7, 16, 16, 15)),
-        DateTime(2026, 7, 16, 16, 0),
+        latestMissedTaskReminder(
+          _task(reminderAts: stack),
+          masterEnabled: true,
+          now: DateTime(2026, 7, 16, 16, 15),
+        ),
+        DateTime(2026, 7, 16, 16),
       );
     });
 
@@ -330,24 +452,33 @@ void main() {
       // MatrixNotifier fire again for the newly-passed moment instead of
       // going permanently silent after the first.
       expect(
-        latestMissedTaskReminder(_task(reminderAts: stack),
-            masterEnabled: true, now: DateTime(2026, 7, 16, 15, 45)),
+        latestMissedTaskReminder(
+          _task(reminderAts: stack),
+          masterEnabled: true,
+          now: DateTime(2026, 7, 16, 15, 45),
+        ),
         DateTime(2026, 7, 16, 15, 30),
       );
     });
 
     test('null when nothing has passed yet', () {
       expect(
-        latestMissedTaskReminder(_task(reminderAts: stack),
-            masterEnabled: true, now: DateTime(2026, 7, 16, 14, 0)),
+        latestMissedTaskReminder(
+          _task(reminderAts: stack),
+          masterEnabled: true,
+          now: DateTime(2026, 7, 16, 14),
+        ),
         isNull,
       );
     });
 
     test('null once the task is done, however much was missed', () {
       expect(
-        latestMissedTaskReminder(_task(reminderAts: stack, isDone: true),
-            masterEnabled: true, now: DateTime(2026, 7, 16, 17, 0)),
+        latestMissedTaskReminder(
+          _task(reminderAts: stack, isDone: true),
+          masterEnabled: true,
+          now: DateTime(2026, 7, 16, 17),
+        ),
         isNull,
       );
     });
@@ -378,7 +509,7 @@ void main() {
   });
 
   group('remindersFor', () {
-    final anchor = DateTime(2026, 7, 16, 17, 0); // the 5pm meeting
+    final anchor = DateTime(2026, 7, 16, 17); // the 5pm meeting
 
     test('the anchor alone is a reminder in its own right', () {
       expect(remindersFor(anchor: anchor, offsets: const {}), [anchor]);
@@ -394,9 +525,9 @@ void main() {
       expect(
         remindersFor(anchor: anchor, offsets: const {-120, -90, -60}),
         [
-          DateTime(2026, 7, 16, 15, 0),
+          DateTime(2026, 7, 16, 15),
           DateTime(2026, 7, 16, 15, 30),
-          DateTime(2026, 7, 16, 16, 0),
+          DateTime(2026, 7, 16, 16),
           anchor,
         ],
       );
@@ -415,74 +546,181 @@ void main() {
     });
   });
 
-  group('splitReminders', () {
+  group('offsetsFrom', () {
     test('round-trips a before-ladder exactly', () {
-      final anchor = DateTime(2026, 7, 16, 17, 0);
+      final anchor = DateTime(2026, 7, 16, 17);
       const offsets = {-60, -30};
-      final split = remindersFor(anchor: anchor, offsets: offsets);
-      final back = splitReminders(split);
-      expect(back.anchor, anchor);
-      expect(back.offsets, offsets);
-      // And the moments survive a full loop unchanged, which is the part
-      // that actually matters to the user.
-      expect(remindersFor(anchor: back.anchor, offsets: back.offsets), split);
+      final reminders = remindersFor(anchor: anchor, offsets: offsets);
+      expect(offsetsFrom(anchor: anchor, reminders: reminders), offsets);
+      expect(
+        remindersFor(
+          anchor: anchor,
+          offsets: offsetsFrom(anchor: anchor, reminders: reminders),
+        ),
+        reminders,
+      );
     });
 
-    test('empty in, empty out', () {
-      final back = splitReminders(const []);
-      expect(back.anchor, isNull);
-      expect(back.offsets, isEmpty);
+    test('no anchor means no offsets', () {
+      expect(offsetsFrom(anchor: null, reminders: const []), isEmpty);
+      expect(
+        offsetsFrom(anchor: null, reminders: [DateTime(2026, 7, 16, 17)]),
+        isEmpty,
+      );
     });
 
-    test('a single reminder comes back as a bare anchor', () {
-      final only = DateTime(2026, 7, 16, 17, 0);
-      final back = splitReminders([only]);
-      expect(back.anchor, only);
-      expect(back.offsets, isEmpty);
+    test("the anchor's own entry contributes no offset", () {
+      final only = DateTime(2026, 7, 16, 17);
+      expect(offsetsFrom(anchor: only, reminders: [only]), isEmpty);
     });
 
-    test('an after-ladder is reframed but never loses a moment', () {
-      // Documented trade-off: the latest moment becomes the anchor, so
-      // "15 after 5:00" returns as "15 before 5:15". Different labels, same
-      // two alarms — which is the promise that has to hold.
-      final anchor = DateTime(2026, 7, 16, 17, 0);
-      final original = remindersFor(anchor: anchor, offsets: const {15});
-      final back = splitReminders(original);
-      expect(back.anchor, DateTime(2026, 7, 16, 17, 15));
-      expect(back.offsets, {-15});
-      expect(remindersFor(anchor: back.anchor, offsets: back.offsets),
-          original);
+    test('THE FIX: an after-ladder comes back as an after-ladder', () {
+      // This is the bug the anchor field exists to kill. The old
+      // splitReminders assumed reminders.last was the anchor, so "15 after
+      // 5:00" reopened claiming 5:15 was the moment you'd picked and 5:00
+      // was a warning 15 minutes ahead of it — the same two alarms telling
+      // a story the user never wrote. With the real anchor supplied, the
+      // ladder comes back exactly as it was built.
+      final anchor = DateTime(2026, 7, 16, 17);
+      final reminders = remindersFor(anchor: anchor, offsets: const {15});
+      expect(offsetsFrom(anchor: anchor, reminders: reminders), {15});
+      expect(reminders.last, DateTime(2026, 7, 16, 17, 15));
+    });
+
+    test('a mixed ladder keeps every sign', () {
+      // The user's own repro: an anchor with two warnings before it and one
+      // nudge after. Every one of those three has to survive with its own
+      // direction intact.
+      final anchor = DateTime(2026, 8, 17, 12);
+      const offsets = {-10, -5, 15};
+      final reminders = remindersFor(anchor: anchor, offsets: offsets);
+      expect(reminders, [
+        DateTime(2026, 8, 17, 11, 50),
+        DateTime(2026, 8, 17, 11, 55),
+        anchor,
+        DateTime(2026, 8, 17, 12, 15),
+      ]);
+      expect(offsetsFrom(anchor: anchor, reminders: reminders), offsets);
     });
   });
 
-  group('reminderOffsetLabel', () {
-    test('spells the hours out rather than showing 60 / 120', () {
-      expect(reminderOffsetLabel(60, false), '1 hour');
-      expect(reminderOffsetLabel(60, true), 'ساعة');
-      // 120 is no longer a preset, but a user can still type it into the
-      // custom field, and "ساعتان" reads better there than "١٢٠".
-      expect(reminderOffsetLabel(120, false), '2 hours');
-      expect(reminderOffsetLabel(120, true), 'ساعتان');
+  group('MatrixTask.resolveAnchor', () {
+    final a = DateTime(2026, 7, 16, 16);
+    final b = DateTime(2026, 7, 16, 17);
+
+    test('keeps a candidate that is genuinely one of the moments', () {
+      expect(MatrixTask.resolveAnchor(a, [a, b]), a);
     });
 
-    test('Arabic chips carry Arabic-Indic codepoints', () {
-      // Deliberately NOT compared against DateFormat's output, which is
-      // ASCII ("5:05 م") — the assertion below documents that. The times on
-      // screen only *look* Arabic-Indic because the font substitutes digits
-      // inside an Arabic run; a bare chip label gets no such context, so it
-      // has to carry the Arabic-Indic codepoints itself to match what the
-      // user actually sees. See reminderOffsetLabel's doc comment.
-      expect(DateFormat('h:mm a', 'ar').format(DateTime(2026, 8, 16, 17, 5)),
-          startsWith('5:05'));
-      expect(reminderOffsetLabel(30, true), '٣٠');
-      expect(reminderOffsetLabel(5, true), '٥');
-      expect(reminderOffsetLabel(30, false), '30');
+    test('matches to the minute, not the millisecond', () {
+      // normalizeReminders dedupes on minute buckets and keeps whichever
+      // DateTime it saw first, so a stored anchor can carry seconds the
+      // list entry doesn't. Both are "4:00 PM" to the user.
+      final withSeconds = DateTime(2026, 7, 16, 16, 0, 41);
+      expect(MatrixTask.resolveAnchor(withSeconds, [a, b]), withSeconds);
+    });
+
+    test('falls back to the last moment for a task saved without one', () {
+      // Legacy tasks have no recoverable anchor — the flat list genuinely
+      // does not contain the information. reminders.last is what the old
+      // splitReminders guessed, so those tasks keep looking exactly as they
+      // did rather than being re-framed a second, differently-wrong way.
+      expect(MatrixTask.resolveAnchor(null, [a, b]), b);
+    });
+
+    test('rejects an anchor the task does not actually fire at', () {
+      // Self-healing: an old build editing a task saved by a new one writes
+      // reminderAts without touching reminderAnchorAt, and merge-set leaves
+      // the stale value behind. An anchor outside the list would render as
+      // a bold time no notification ever matches.
+      final orphan = DateTime(2026, 7, 16, 9, 30);
+      expect(MatrixTask.resolveAnchor(orphan, [a, b]), b);
+    });
+
+    test('no reminders means no anchor, whatever was stored', () {
+      expect(MatrixTask.resolveAnchor(a, const []), isNull);
+    });
+  });
+
+  group('formatOffsetCompact', () {
+    const en = S(Locale('en'));
+    const ar = S(Locale('ar'));
+
+    test('states its own direction, which is what killed the toggle', () {
+      expect(formatOffsetCompact(-15, false, en), '15m before');
+      expect(formatOffsetCompact(15, false, en), '15m after');
+    });
+
+    test('Arabic leads with the preposition and uses Arabic-Indic digits', () {
+      // Word order first: "قبل ١٥ د", never "١٥ د قبل", which is English
+      // word order wearing Arabic words.
+      expect(formatOffsetCompact(-15, true, ar), 'قبل ١٥ د');
+      expect(formatOffsetCompact(15, true, ar), 'بعد ١٥ د');
+      // Deliberately NOT DateFormat's output, which is ASCII ("5:05 م") —
+      // a bare chip label gets no Arabic run for the font to substitute
+      // digits inside, so it carries the codepoints itself.
+      expect(
+        DateFormat('h:mm a', 'ar').format(DateTime(2026, 8, 16, 17, 5)),
+        startsWith('5:05'),
+      );
+    });
+
+    test('picks the largest unit that divides, abbreviated', () {
+      expect(formatOffsetCompact(-60, false, en), '1h before');
+      expect(formatOffsetCompact(-1440, false, en), '1d before');
+      // 90 doesn't divide into hours, so it stays in minutes rather than
+      // becoming "1.5h".
+      expect(formatOffsetCompact(-90, false, en), '90m before');
+    });
+
+    test('Arabic keeps its natural noun for one and two', () {
+      // "قبل ساعة" is both shorter and better than "قبل ١ س".
+      expect(formatOffsetCompact(-60, true, ar), 'قبل ساعة');
+      expect(formatOffsetCompact(-120, true, ar), 'قبل ساعتين');
+      expect(formatOffsetCompact(-2880, true, ar), 'قبل يومين');
+    });
+
+    test('agrees with formatOffsetVerbose about the unit', () {
+      // Both go through splitOffsetUnit, so a chip reading "1h before" can
+      // never sit above a list row reading "60 minutes before".
+      for (final o in [-2880, -1440, -120, -90, -60, -15, 15, 30]) {
+        final (compactValue, compactUnit) = splitOffsetUnit(o.abs());
+        expect(
+          formatOffsetVerbose(o, false, en),
+          contains('$compactValue '),
+          reason: 'verbose and compact disagree on $o',
+        );
+        expect(compactUnit, isNotNull);
+      }
     });
 
     test('five presets plus the custom cell fill two 3-column rows', () {
       // The custom field is the sixth cell of the same grid, so the preset
       // count has to stay at five or the default layout goes ragged.
       expect(kReminderOffsetPresets, hasLength(5));
+      // Unsigned: direction is the قبل/بعد toggle above the grid, applied
+      // to whichever presets you tap.
+      expect(kReminderOffsetPresets.every((o) => !o.isNegative), isTrue);
+    });
+
+    test('spells the hours out rather than showing 60 / 120', () {
+      expect(reminderOffsetLabel(60, false), '1 hour');
+      expect(reminderOffsetLabel(60, true), 'ساعة');
+      expect(reminderOffsetLabel(120, false), '2 hours');
+      expect(reminderOffsetLabel(120, true), 'ساعتان');
+    });
+
+    test('Arabic chips carry Arabic-Indic codepoints', () {
+      // Deliberately NOT compared against DateFormat's output, which is
+      // ASCII ("5:05 م"). A bare chip label gets no Arabic run for the font
+      // to substitute digits inside, so it carries the codepoints itself.
+      expect(
+        DateFormat('h:mm a', 'ar').format(DateTime(2026, 8, 16, 17, 5)),
+        startsWith('5:05'),
+      );
+      expect(reminderOffsetLabel(30, true), '٣٠');
+      expect(reminderOffsetLabel(5, true), '٥');
+      expect(reminderOffsetLabel(30, false), '30');
     });
   });
 
@@ -539,13 +777,16 @@ void main() {
         anchor: anchor,
         offsets: {-2 * ReminderUnit.days.inMinutes},
       );
-      final now = DateTime(2026, 8, 16, 9, 0);
+      final now = DateTime(2026, 8, 16, 9);
       final labels = reminders
           .map((d) => formatReminderMoment(d, false, now: now))
           .toSet();
       expect(reminders, hasLength(2));
-      expect(labels, hasLength(2),
-          reason: 'each reminder must render as a distinct label');
+      expect(
+        labels,
+        hasLength(2),
+        reason: 'each reminder must render as a distinct label',
+      );
     });
 
     test('the offset label names the unit, not a raw minute count', () {
@@ -575,10 +816,14 @@ void main() {
     test('withDirection: false drops the preposition for tab-scoped chips', () {
       const ar = S(Locale('ar'));
       const en = S(Locale('en'));
-      expect(formatOffsetVerbose(-2880, true, ar, withDirection: false),
-          'يومين');
-      expect(formatOffsetVerbose(-2880, false, en, withDirection: false),
-          '2 days');
+      expect(
+        formatOffsetVerbose(-2880, true, ar, withDirection: false),
+        'يومين',
+      );
+      expect(
+        formatOffsetVerbose(-2880, false, en, withDirection: false),
+        '2 days',
+      );
     });
   });
 
@@ -592,12 +837,12 @@ void main() {
     test('a day offset lands on the same clock time the day before', () {
       // The whole point of the day unit: "remind me the day before" without
       // anyone typing 1440.
-      final anchor = DateTime(2026, 8, 20, 17, 0);
+      final anchor = DateTime(2026, 8, 20, 17);
       final reminders = remindersFor(
         anchor: anchor,
         offsets: {-ReminderUnit.days.inMinutes},
       );
-      expect(reminders.first, DateTime(2026, 8, 19, 17, 0));
+      expect(reminders.first, DateTime(2026, 8, 19, 17));
     });
   });
 

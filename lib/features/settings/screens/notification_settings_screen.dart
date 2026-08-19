@@ -167,6 +167,22 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       onChanged: (v) =>
                           update((c) => c.copyWith(roomActivityEnabled: v)),
                     ),
+                    // Nested under room activity, and only offered while it
+                    // is on: a nudge IS a room push, so it can never arrive
+                    // for someone who has turned room activity off, and
+                    // showing a live-looking toggle that cannot fire would
+                    // be a lie.
+                    if (settings.roomActivityEnabled) ...[
+                      const _RowDivider(),
+                      _SwitchRow(
+                        icon: Icons.emoji_emotions_outlined,
+                        label: s.notifRoomNudges,
+                        subtitle: s.notifRoomNudgesDesc,
+                        value: settings.roomNudgesEnabled,
+                        onChanged: (v) =>
+                            update((c) => c.copyWith(roomNudgesEnabled: v)),
+                      ),
+                    ],
                   ]),
                   const SizedBox(height: 20),
                   _SectionLabel(s.notifPrayerSection),
@@ -286,16 +302,25 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       },
                     ),
                   ]),
-                  const SizedBox(height: 28),
-                  Center(
-                    child: TextButton.icon(
-                      onPressed: () => _sendTestNotification(context),
-                      icon: const Icon(Icons.send_rounded, size: 16),
-                      label: Text(s.notifSendTest),
-                    ),
-                  ),
                 ],
               ),
+            ),
+          ),
+          // OUTSIDE the masterEnabled IgnorePointer, deliberately.
+          //
+          // This is the diagnostic that deliberately bypasses every in-app
+          // gate to ask the OS "would a notification actually appear right
+          // now" — so putting it inside the block that dims and disables
+          // everything when notifications are off made it unreachable in
+          // precisely the situation it was built for. Someone whose
+          // reminders had stopped could not run the one check that explains
+          // why.
+          const SizedBox(height: 28),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => _sendTestNotification(context),
+              icon: const Icon(Icons.send_rounded, size: 16),
+              label: Text(s.notifSendTest),
             ),
           ),
         ],

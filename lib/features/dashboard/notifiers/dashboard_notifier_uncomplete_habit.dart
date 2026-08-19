@@ -55,8 +55,25 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     final current = state.completions[habitId] ?? 0;
     if (current <= 0) return;
 
-    final newCompletions = Map<String, int>.from(state.completions)
-      ..remove(habitId);
+    // Decrement by one, not remove.
+    //
+    // This method refunds exactly ONE xpReward and decrements the lifetime
+    // counters by one, so clearing the whole day's count for the habit was a
+    // mismatch: a multi-tap habit (drink water 8x) sitting at 8/8 gave back
+    // one reward while eight completions vanished — and every re-tap could
+    // then be paid again, netting XP on each lap. Taking one off makes the
+    // refund and the debit the same size, and 8/8 → 7/8 is also what a
+    // person means by undoing one tap.
+    //
+    // The key is dropped entirely at zero so the map stays sparse, which is
+    // what isCompleted's `?? 0` fallback and the Firestore writes below
+    // both assume.
+    final newCompletions = Map<String, int>.from(state.completions);
+    if (current <= 1) {
+      newCompletions.remove(habitId);
+    } else {
+      newCompletions[habitId] = current - 1;
+    }
 
     final snapshot = _lastHabitCompletion.remove(habitId);
 

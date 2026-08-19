@@ -563,7 +563,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
     if (isSyncable && next == SquareState.complete) {
       final alreadyDoneToday = ref
           .read(dashboardProvider)
-          .isCompleted(habit.id, habit.frequencyTarget);
+          .isCompleted(habit.id, habit.effectiveDailyTarget);
       HapticFeedback.mediumImpact();
       if (alreadyDoneToday) {
         // Already rewarded (e.g. completed from Today and the mirror
@@ -584,19 +584,19 @@ class _GridTableState extends ConsumerState<_GridTable> {
         final todayHabits = ref
             .read(habitListProvider)
             .where((h) => h.isScheduledFor(day))
-            .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
+            .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
         await ref.read(dashboardProvider.notifier).completeHabit(
               habitId: habit.id,
               // 2x while a linked room is live — see roomBoostedReward.
               xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
               goldReward:
                   roomBoostedReward(ref, habit.id, habit.goldReward),
-              frequencyTarget: habit.frequencyTarget,
+              frequencyTarget: habit.effectiveDailyTarget,
               allHabitsDoneAfter: willCompleteAllHabitsToday(
                 state: dashState,
                 todayHabits: todayHabits,
                 habitId: habit.id,
-                frequencyTarget: habit.frequencyTarget,
+                frequencyTarget: habit.effectiveDailyTarget,
               ),
               category: habit.category.name,
               habitName: habit.localName(S.of(context).isAr),

@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -351,6 +350,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     String? description,
     List<VoiceNote> voiceNotes = const [],
     List<DateTime> reminderAts = const [],
+    DateTime? reminderAnchorAt,
   }) {
     if (title.trim().isEmpty) return;
     _mutatedBeforeLoad = true;
@@ -360,6 +360,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       description: description,
       voiceNotes: voiceNotes,
       reminderAts: reminderAts,
+      reminderAnchorAt: reminderAnchorAt,
     );
     state = MatrixState(
       tasks: [...state.tasks, task],
@@ -497,12 +498,25 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// delta, so the sheet stays the only place that has to reason about
   /// ordering or the free-tier cap; this just stores what it's given (the
   /// model normalizes) and resyncs the OS schedule to match.
-  void setReminders(String id, List<DateTime> reminderAts) {
+  ///
+  /// [reminderAnchorAt] is which of [reminderAts] the user actually picked;
+  /// null clears it, which is right for the one caller that passes an empty
+  /// list. The model re-validates it either way (MatrixTask.resolveAnchor),
+  /// so a caller can't store an anchor the task doesn't fire at.
+  void setReminders(
+    String id,
+    List<DateTime> reminderAts, {
+    DateTime? reminderAnchorAt,
+  }) {
     _mutatedBeforeLoad = true;
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final updated = tasks[idx].copyWith(reminderAts: reminderAts);
+    final updated = tasks[idx].copyWith(
+      reminderAts: reminderAts,
+      reminderAnchorAt: reminderAnchorAt,
+      clearReminderAnchorAt: reminderAnchorAt == null,
+    );
     tasks[idx] = updated;
     state = MatrixState(
       tasks: tasks,
@@ -527,8 +541,8 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final updated = tasks[idx]
-        .copyWith(voiceNotes: [...tasks[idx].voiceNotes, note]);
+    final updated =
+        tasks[idx].copyWith(voiceNotes: [...tasks[idx].voiceNotes, note]);
     tasks[idx] = updated;
     state = MatrixState(
       tasks: tasks,
@@ -570,8 +584,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     final tasks = state.tasks.toList();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    final notes =
-        tasks[idx].voiceNotes.where((n) => n.id != noteId).toList();
+    final notes = tasks[idx].voiceNotes.where((n) => n.id != noteId).toList();
     final updated = tasks[idx].copyWith(voiceNotes: notes);
     tasks[idx] = updated;
     state = MatrixState(
@@ -680,8 +693,9 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       } else {
         final before = siblings[beforeIdx];
         final prev = beforeIdx > 0 ? siblings[beforeIdx - 1] : null;
-        newOrder =
-            prev == null ? before.order - 1000 : (prev.order + before.order) / 2;
+        newOrder = prev == null
+            ? before.order - 1000
+            : (prev.order + before.order) / 2;
       }
     }
 
@@ -716,8 +730,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// [restore], applied per task.
   void restoreMany(Iterable<MatrixTask> tasks) {
     final existingIds = state.tasks.map((t) => t.id).toSet();
-    final toRestore =
-        tasks.where((t) => !existingIds.contains(t.id)).toList();
+    final toRestore = tasks.where((t) => !existingIds.contains(t.id)).toList();
     if (toRestore.isEmpty) return;
     _mutatedBeforeLoad = true;
     state = MatrixState(
@@ -901,10 +914,13 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     );
 
     if (_uid != null) {
-      _userRef.set({
-        'matrixQuadrantTitles': newTitles,
-        'matrixQuadrantColors': newColors,
-      }, SetOptions(merge: true)).ignore();
+      _userRef.set(
+        {
+          'matrixQuadrantTitles': newTitles,
+          'matrixQuadrantColors': newColors,
+        },
+        SetOptions(merge: true),
+      ).ignore();
     } else {
       _saveGuestQuadrantSettings().ignore();
     }

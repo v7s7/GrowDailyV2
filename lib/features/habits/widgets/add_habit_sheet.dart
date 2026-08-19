@@ -325,11 +325,26 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         _TimingMode.time => _pickedTime == null
             ? HabitCue.empty
             : HabitCue.time(_pickedTime!.hour, _pickedTime!.minute),
+        // The preset KEY, kept intact — never a localized label round-tripped
+        // through text.
+        //
+        // This used to build the cue from labelFor(context), prepend «قبل» /
+        // "Before" for the before-relation, and hand the result back to
+        // fromStoredValue. Nothing could parse that: "قبل الفجر" is not a
+        // preset key, so the cue collapsed to freeform text and
+        // scheduleSmartReminders — which can only resolve a real prayer
+        // moment — scheduled NOTHING, while the sheet went on showing a
+        // confident "you'll be reminded at HH:MM" pill. The habit was saved
+        // with a reminder the app had already decided not to set.
+        //
+        // Before/after for a prayer rides on reminderOffsetMinutes (the lead
+        // time), which is the mechanism built for exactly this and is
+        // resolved against the prayer's real clock time. Only the freeform
+        // Custom-text mode needs the relation baked into the string, because
+        // there is no resolvable moment to offset from.
         _TimingMode.prayer => _selectedPrayer == null
             ? HabitCue.empty
-            : HabitCue.fromStoredValue(
-                _cueWithRelation(HabitCue.preset(_selectedPrayer!).labelFor(context)),
-              ),
+            : HabitCue.preset(_selectedPrayer!),
         _TimingMode.text => HabitCue.fromStoredValue(_cueWithRelation(_cueCtrl.text)),
       };
 
@@ -888,10 +903,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     width: 24,
                     height: 24,
                     decoration: BoxDecoration(
-                      color: _iconColorHex != null
-                          ? Color(0xFF000000 |
-                              int.parse(_iconColorHex!, radix: 16))
-                          : Colors.transparent,
+                      color: _iconColor ?? Colors.transparent,
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: _iconColorHex != null
@@ -1794,7 +1806,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // splitting it into two different colors would look mismatched rather
     // than showing a clean "here's what you're about to create."
     final color = _iconColorHex != null
-        ? Color(0xFF000000 | int.parse(_iconColorHex!, radix: 16))
+        ? (_iconColor ?? context.gp.textTert)
         : (_goalType == GoalType.build ? GameColors.gold : GameColors.iconXp);
     final cue = _currentCue();
     final cueText = cue.labelForLocale(s.isAr);
@@ -1877,6 +1889,21 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
       ),
     );
+  }
+
+  /// The chosen icon colour, or null when the stored hex is unusable.
+  ///
+  /// int.parse THROWS on a malformed value, which red-screened the whole
+  /// edit sheet for a habit whose stored hex had been written by an older
+  /// build or hand-edited. The model layer already guards the identical
+  /// parse (MatrixState.colorFor) and falls back rather than crashing; this
+  /// does the same, because a wrong swatch is a far better outcome than an
+  /// uneditable habit.
+  Color? get _iconColor {
+    final hex = _iconColorHex;
+    if (hex == null) return null;
+    final parsed = int.tryParse(hex, radix: 16);
+    return parsed == null ? null : Color(0xFF000000 | parsed);
   }
 
   bool _startsWithBefore(String value) {

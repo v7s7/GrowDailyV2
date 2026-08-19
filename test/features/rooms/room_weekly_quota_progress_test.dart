@@ -111,6 +111,9 @@ IslamicHabitTemplate _namedDaysHabit(List<int> weekdays) =>
 }
 
 void main() {
+  _quotaWriterInvariant();
+  _extendIsScoreNeutral();
+  _unlinkKeepsSlots();
   group('weeklyQuotaScheduledDays - which days a quota is answerable for', () {
     test('target met exactly: only the days done count, rest days are excused',
         () {
@@ -132,8 +135,11 @@ void main() {
         target: 4,
         isWeekClosed: true,
       );
-      expect(result.toSet(), {0, 1, 2, 3, 4, 5},
-          reason: 'six sessions is six done days, not four');
+      expect(
+        result.toSet(),
+        {0, 1, 2, 3, 4, 5},
+        reason: 'six sessions is six done days, not four',
+      );
     });
 
     test('closed week short by one: the shortfall counts, the rest stays rest',
@@ -157,8 +163,11 @@ void main() {
         target: 4,
         isWeekClosed: true,
       );
-      expect(result.length, 4,
-          reason: 'you owed 4 sessions and gave none - 4 misses, not 7');
+      expect(
+        result.length,
+        4,
+        reason: 'you owed 4 sessions and gave none - 4 misses, not 7',
+      );
     });
 
     test('open week, target not met yet: every day so far still counts', () {
@@ -224,8 +233,11 @@ void main() {
             target: 4,
             isWeekClosed: closed,
           ).toSet();
-          expect(result.containsAll(doneSet), isTrue,
-              reason: 'done=$done closed=$closed dropped a completed day');
+          expect(
+            result.containsAll(doneSet),
+            isTrue,
+            reason: 'done=$done closed=$closed dropped a completed day',
+          );
         }
       }
     });
@@ -236,7 +248,7 @@ void main() {
     // تمرين green on Sat 1, Sun 2, Mon 3, Tue 4 and Thu 6; blank Wed 5 and
     // Fri 7. Five sessions against a 4x-a-week target - target beaten.
     const reporterWeek = {0, 1, 2, 3, 5};
-    final week = _room(start: DateTime(2026, 8, 1), end: DateTime(2026, 8, 7));
+    final week = _room(start: DateTime(2026, 8), end: DateTime(2026, 8, 7));
 
     test('4x a week, done 5 times -> 100%, not 71%', () {
       final stored = _storedForWeek(
@@ -275,7 +287,7 @@ void main() {
       // works: its 4 days are scheduled and done, its other 3 are excused.
       final named = _namedDaysHabit(
         [
-          for (final i in const [0, 1, 2, 3]) _weekDays[i].weekday
+          for (final i in const [0, 1, 2, 3]) _weekDays[i].weekday,
         ],
       );
       final namedDone = <String, int>{};
@@ -324,17 +336,20 @@ void main() {
         dailyDoneCount: stored.done,
         dailyScheduledCount: stored.scheduled,
       );
-      expect(p.daysCompleted(week), 3.0,
-          reason: 'the 4 owed sessions are misses; only the 3 rest days are '
-              'excused - the same score a 4-named-weekday habit gets for '
-              'doing nothing');
+      expect(
+        p.daysCompleted(week),
+        3.0,
+        reason: 'the 4 owed sessions are misses; only the 3 rest days are '
+            'excused - the same score a 4-named-weekday habit gets for '
+            'doing nothing',
+      );
       expect(p.progressRatio(week), lessThan(0.5));
     });
   });
 
   group('late joiners are scored on the days they were actually here', () {
     // A 10-day room; this participant joined on day 8.
-    final room = _room(start: DateTime(2026, 8, 1), end: DateTime(2026, 8, 10));
+    final room = _room(start: DateTime(2026, 8), end: DateTime(2026, 8, 10));
 
     RoomParticipant lateJoiner({Map<String, int> done = const {}}) =>
         RoomParticipant(
@@ -348,8 +363,11 @@ void main() {
         );
 
     test('scoring starts the day they joined, not the day the room did', () {
-      expect(lateJoiner().countedStartIn(room), DateTime(2026, 8, 8),
-          reason: 'the join time of day must not leak into the date');
+      expect(
+        lateJoiner().countedStartIn(room),
+        DateTime(2026, 8, 8),
+        reason: 'the join time of day must not leak into the date',
+      );
     });
 
     test('their denominator is their own days, not the whole room', () {
@@ -361,34 +379,46 @@ void main() {
       // Grid history exists for the room's first week, but they weren't in
       // the room for any of it. Before this, that history was credited and a
       // day-8 joiner could land straight at the top of the leaderboard.
-      final p = lateJoiner(done: {
-        for (var d = 1; d <= 7; d++) '2026-08-0\$d': 1,
-      });
+      final p = lateJoiner(
+        done: {
+          for (var d = 1; d <= 7; d++) '2026-08-0\$d': 1,
+        },
+      );
       expect(p.daysCompleted(room), 0.0);
       expect(p.progressRatio(room), 0.0);
     });
 
     test('a perfect run since joining is 100%, not a fraction of the room', () {
-      final p = lateJoiner(done: const {
-        '2026-08-08': 1,
-        '2026-08-09': 1,
-        '2026-08-10': 1,
-      });
+      final p = lateJoiner(
+        done: const {
+          '2026-08-08': 1,
+          '2026-08-09': 1,
+          '2026-08-10': 1,
+        },
+      );
       expect(p.daysCompleted(room), 3.0);
-      expect(p.progressRatio(room), 1.0,
-          reason: 'joining late must not cap what they can reach');
+      expect(
+        p.progressRatio(room),
+        1.0,
+        reason: 'joining late must not cap what they can reach',
+      );
       // The old behaviour divided by the room's 10 days.
       expect(p.progressRatio(room), isNot(closeTo(3 / 10, 0.0001)));
     });
 
     test('the streak cannot run back through days they were not here', () {
-      final p = lateJoiner(done: const {
-        '2026-08-08': 1,
-        '2026-08-09': 1,
-        '2026-08-10': 1,
-      });
-      expect(p.currentStreak(room), 3,
-          reason: 'floors at their join date, not the room start');
+      final p = lateJoiner(
+        done: const {
+          '2026-08-08': 1,
+          '2026-08-09': 1,
+          '2026-08-10': 1,
+        },
+      );
+      expect(
+        p.currentStreak(room),
+        3,
+        reason: 'floors at their join date, not the room start',
+      );
     });
 
     test('someone present from the start is unaffected', () {
@@ -396,7 +426,7 @@ void main() {
         uid: 'founder-uid',
         displayName: 'Founder',
         characterId: 'male_ghutra_blue',
-        joinedAt: DateTime(2026, 8, 1),
+        joinedAt: DateTime(2026, 8),
         linkedHabitIds: const ['h1'],
         dailyDoneCount: const {'2026-08-01': 1},
         lastUpdated: DateTime(2026, 8, 10),
@@ -425,7 +455,7 @@ void main() {
       // This is what heals the reported data: with no watermark recorded, no
       // past day can be capped against a zero nobody was there to verify, so
       // the next sync re-credits the window from real Grid history once.
-      final p = _participant(lastSyncedDay: null);
+      final p = _participant();
       expect(p.wasObservedOn('2026-08-01'), isFalse);
       expect(p.wasObservedOn('2026-07-28'), isFalse);
     });
@@ -469,10 +499,16 @@ void main() {
       // Exactly the shape the sync stores for a rest day once the weekly
       // target is met: scheduled 0, no done entry.
       final p = _participant(dailyScheduledCount: const {'2026-08-05': 0});
-      expect(p.isFullyDone('2026-08-05'), isTrue,
-          reason: 'nothing was owed, so nothing is outstanding');
-      expect(p.didCompleteAnythingOn('2026-08-05'), isFalse,
-          reason: 'resting is not something to announce to the room');
+      expect(
+        p.isFullyDone('2026-08-05'),
+        isTrue,
+        reason: 'nothing was owed, so nothing is outstanding',
+      );
+      expect(
+        p.didCompleteAnythingOn('2026-08-05'),
+        isFalse,
+        reason: 'resting is not something to announce to the room',
+      );
     });
 
     test('a plain missed day is neither', () {
@@ -496,7 +532,9 @@ void main() {
   group('RoomParticipant round-trips the watermark through Firestore', () {
     test('toFirestore omits it entirely when it has never been set', () {
       expect(
-          _participant().toFirestore().containsKey('lastSyncedDay'), isFalse);
+        _participant().toFirestore().containsKey('lastSyncedDay'),
+        isFalse,
+      );
     });
 
     test('toFirestore writes it once it exists', () {
@@ -643,7 +681,7 @@ void main() {
   // the Grid, correctly, showed Wednesday and Friday red. Same score, two
   // screens contradicting each other about which days went wrong.
   group('closed-week misses land on the same days the Grid paints red', () {
-    test("the reported تمرين week: misses are Wed and Fri, not Sat and Mon",
+    test('the reported تمرين week: misses are Wed and Fri, not Sat and Mon',
         () {
       // Sat-start week, done on Sun (1) and Thu (5), 4x target, week over.
       // Day-local: Sat/Mon/Tue passed while the target was still reachable
@@ -656,9 +694,12 @@ void main() {
         target: 4,
         isWeekClosed: true,
       );
-      expect(result.toSet(), {1, 4, 5, 6},
-          reason: 'answerable = the 2 done days + the 2 days the week '
-              'actually broke on (Wed=4, Fri=6)');
+      expect(
+        result.toSet(),
+        {1, 4, 5, 6},
+        reason: 'answerable = the 2 done days + the 2 days the week '
+            'actually broke on (Wed=4, Fri=6)',
+      );
     });
 
     test('rooms and Grid can never disagree about which days were missed', () {
@@ -670,7 +711,7 @@ void main() {
         for (var mask = 0; mask < 128; mask++) {
           final done = {
             for (var i = 0; i < 7; i++)
-              if (mask & (1 << i) != 0) i
+              if (mask & (1 << i) != 0) i,
           };
           final answerable = weeklyQuotaScheduledDays(
             presentDays: const [0, 1, 2, 3, 4, 5, 6],
@@ -688,9 +729,12 @@ void main() {
               if (demand[i] == DayDemand.owed && !done.contains(i)) i,
           };
           final roomMisses = answerable.difference(done);
-          expect(roomMisses, gridRed,
-              reason: 'target=$target done=$done: the room blames '
-                  '$roomMisses, the Grid reds $gridRed');
+          expect(
+            roomMisses,
+            gridRed,
+            reason: 'target=$target done=$done: the room blames '
+                '$roomMisses, the Grid reds $gridRed',
+          );
         }
       }
     });
@@ -776,9 +820,290 @@ void main() {
         dailyDoneCount: stored.done,
         dailyScheduledCount: stored.scheduled,
       );
-      expect(p.currentStreak(room), 0,
-          reason: 'Friday was owed and empty — the same Friday the Grid '
-              'paints red. A 2-of-4 week must not end on a live streak.');
+      expect(
+        p.currentStreak(room),
+        0,
+        reason: 'Friday was owed and empty — the same Friday the Grid '
+            'paints red. A 2-of-4 week must not end on a live streak.',
+      );
+    });
+  });
+}
+
+/// The production bug this file's arithmetic was already correct about, and
+/// which shipped anyway because nothing checked the STATE OF THE INPUTS.
+///
+/// Room A8GEL7: two members on the same shared 4x/week habit, both with 11
+/// green squares over the same 21 days. One read 76%, the other 57%. The
+/// difference was entirely bookkeeping — one participant's doc had
+/// dailyScheduledCount and quotaOkWeeks populated, the other's were empty,
+/// so every rest day she had earned by hitting her target scored as a miss.
+///
+/// The cause was syncLinkedHabitsProgress grading against a habit list that
+/// had not loaded. Its "linked habit not found" branch fails OPEN — right
+/// for a habit genuinely deleted from Grid, catastrophic for one that is
+/// merely still loading. It credits every day as scheduled=1/done=1 and
+/// skips both the weekly branch and pass 2, so dailyScheduledCount computes
+/// dense (every key removed) and quotaOkWeeks computes empty (banked weeks
+/// revoked) — all written in one atomic update that leaves the doc looking
+/// freshly synced. _resyncMyRooms fires on app resume with no UI involved,
+/// and habitListProvider is empty until its sources settle, so the race was
+/// routine rather than exotic.
+///
+/// The fix gates the sync on habitsStillLoadingProvider and on every linked
+/// id resolving, deferring instead of failing open. These tests pin the two
+/// halves of the invariant that must hold whatever the inputs did: a met
+/// week excuses its rest days, and an empty stored map must never be read
+/// as "nothing was excused".
+void _quotaWriterInvariant() {
+  group('a met quota week excuses its rest days, whoever computed it', () {
+    // Perla's real week from room A8GEL7: Saturday 2026-08-01 through
+    // Friday 2026-08-07, target 4, done on the 3rd, 4th, 5th and 7th.
+    final weekStart = DateTime(2026, 8);
+    final present = List.generate(7, (i) => i);
+    const done = {2, 3, 4, 6}; // 08-03, 08-04, 08-05, 08-07
+
+    test('four of four answers only the four days actually trained', () {
+      final answerable = weeklyQuotaScheduledDays(
+        presentDays: present,
+        doneDays: done,
+        target: 4,
+        isWeekClosed: true,
+      );
+      // The other three days are not answerable, which is what makes them
+      // rest days worth full credit rather than misses worth nothing.
+      expect(
+        answerable.toSet(),
+        done,
+        reason: 'a met target must excuse the untrained days',
+      );
+      expect(answerable.length, 4);
+    });
+
+    test('the week is closed, so this is settled and cannot change', () {
+      expect(
+        isQuotaWeekClosed(
+          weekStart: weekStart,
+          lastCountedDay: DateTime(2026, 8, 17),
+          roomEnded: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('an empty stored map must not read as "nothing was excused"', () {
+      // The exact shape of the corrupted doc left behind by a warm-up sync:
+      // done-counts present, quota bookkeeping wiped. scheduledCountFor
+      // falls back to countedHabitCount for an absent key, so every one of
+      // those days reads as owed — 4 credited days instead of 7, i.e. 57%
+      // where the member earned 76%. This asserts the SYMPTOM so an empty
+      // map is never mistaken for correct data.
+      final corrupted = RoomParticipant(
+        uid: 'perla',
+        displayName: 'Perla',
+        joinedAt: DateTime(2026, 7, 28),
+        characterId: 'female_abaya_rose',
+        lastUpdated: DateTime(2026, 8, 17),
+        linkedHabitIds: const ['h1'],
+        linkedHabitNames: const ['تمرين'],
+        dailyDoneCount: const {
+          '2026-08-03': 1,
+          '2026-08-04': 1,
+          '2026-08-05': 1,
+          '2026-08-07': 1,
+        },
+      );
+      // 08-01 was a rest day she earned; with the map empty it is owed.
+      expect(
+        corrupted.isRestDay('2026-08-01'),
+        isFalse,
+        reason: 'documents the corrupted state — an empty map cannot '
+            'express an excusal, which is why the sync must defer rather '
+            'than grade against a habit list that has not loaded',
+      );
+      expect(corrupted.creditFor('2026-08-01'), 0.0);
+      // And the days she did train still count, so the failure is silent:
+      // the number is wrong but nothing looks broken.
+      expect(corrupted.creditFor('2026-08-03'), 1.0);
+    });
+  });
+}
+
+/// Extending a finished room must not cost anyone a single point.
+///
+/// Before paused spans, extendRoom simply pushed endDate out from today,
+/// which swept every dead day straight into the denominator: a room that
+/// ended on the 14th and was extended on the 17th handed every member three
+/// fresh misses for days the room did not exist. The percentage dropped the
+/// instant the leader tapped extend, which made extending feel like a
+/// punishment for the group — the opposite of what it is for.
+///
+/// A paused day is excluded from BOTH sides. Nobody was asked for anything,
+/// so nobody owes anything.
+void _extendIsScoreNeutral() {
+  RoomModel roomWith({
+    required DateTime endDate,
+    List<({String from, String to})> paused = const [],
+  }) =>
+      RoomModel(
+        code: 'TEST01',
+        name: 'test',
+        createdBy: 'leader',
+        createdByName: 'Leader',
+        createdAt: DateTime(2026, 7, 28),
+        startDate: DateTime(2026, 7, 28),
+        endDate: endDate,
+        duration: RoomDuration.fixed,
+        habitMode: RoomHabitMode.shared,
+        pausedSpans: paused,
+      );
+
+  // Trained on four of the room's first seven days, then the room ended.
+  final participant = RoomParticipant(
+    uid: 'u1',
+    displayName: 'Member',
+    characterId: 'male_ghutra_blue',
+    joinedAt: DateTime(2026, 7, 28),
+    lastUpdated: DateTime(2026, 8, 3),
+    linkedHabitIds: const ['h1'],
+    linkedHabitNames: const ['تمرين'],
+    dailyDoneCount: const {
+      '2026-07-28': 1,
+      '2026-07-29': 1,
+      '2026-07-30': 1,
+      '2026-07-31': 1,
+    },
+  );
+
+  group('extending a finished room is score-neutral', () {
+    // Room ran 07-28 .. 08-03 (7 days), 4 of them trained.
+    final ended = roomWith(endDate: DateTime(2026, 8, 3));
+
+    test('baseline before any extension', () {
+      expect(participant.daysElapsedIn(ended), 7);
+      expect(participant.daysCompleted(ended), 4.0);
+    });
+
+    test('the dead days are excluded, so the ratio is unchanged', () {
+      // Leader extends on 08-11, resuming that day: 08-04..08-10 was dead.
+      final extended = roomWith(
+        endDate: DateTime(2026, 8, 20),
+        paused: const [(from: '2026-08-04', to: '2026-08-10')],
+      );
+      // Seven dead days sit inside the window and must not appear on either
+      // side of the fraction.
+      final elapsed = participant.daysElapsedIn(extended);
+      final done = participant.daysCompleted(extended);
+      expect(
+        elapsed,
+        lessThan(24),
+        reason: 'paused days leaked into the denominator',
+      );
+      expect(done, 4.0, reason: 'paused days must not be graded');
+      // Without exclusion this member would read 4/24 = 17%. The pause keeps
+      // the seven dead days out entirely.
+      expect(
+        participant.progressRatio(ended),
+        greaterThan(participant.progressRatio(extended)),
+        reason: 'live days after the resume are genuinely still owed',
+      );
+    });
+
+    test('a room never extended is completely unaffected', () {
+      // The field is additive: an empty pausedSpans list must reproduce the
+      // old arithmetic exactly, or this change would silently move every
+      // existing room's numbers.
+      expect(ended.pausedSpans, isEmpty);
+      expect(participant.daysElapsedIn(ended), 7);
+      expect(participant.daysCompleted(ended), 4.0);
+      expect(participant.progressRatio(ended), closeTo(4 / 7, 0.0001));
+    });
+
+    test('the team denominator agrees with each member row', () {
+      // These are rendered on the same screen — the team card above the
+      // rows. Dividing a pause-aware numerator by a raw calendar span made
+      // the card read 47% over rows reading 88%.
+      final extended = roomWith(
+        endDate: DateTime(2026, 8, 20),
+        paused: const [(from: '2026-08-04', to: '2026-08-10')],
+      );
+      expect(
+        extended.daysElapsed,
+        participant.daysElapsedIn(extended),
+        reason: 'the room-level and per-member elapsed counts must not '
+            'disagree about paused days',
+      );
+    });
+
+    test('a future-dated pause is clipped, never carried forward', () {
+      // A leader who resumes on a future date leaves a pause covering days
+      // about to become live. Extending again before that date must trim it,
+      // or those live days stay permanently unscored.
+      final withFuturePause = roomWith(
+        endDate: DateTime(2026, 9, 7),
+        paused: const [(from: '2026-08-15', to: '2026-08-24')],
+      );
+      // Days inside the stale span read as paused until it is clipped —
+      // which is exactly why extendRoom must clip rather than append.
+      expect(withFuturePause.isPausedOn('2026-08-20'), isTrue);
+      // And the clip boundary is inclusive at the resume day itself.
+      expect(withFuturePause.isPausedOn('2026-08-25'), isFalse);
+    });
+
+    test('isPausedOn covers the span inclusively at both ends', () {
+      final extended = roomWith(
+        endDate: DateTime(2026, 8, 20),
+        paused: const [(from: '2026-08-04', to: '2026-08-10')],
+      );
+      expect(extended.isPausedOn('2026-08-03'), isFalse);
+      expect(extended.isPausedOn('2026-08-04'), isTrue);
+      expect(extended.isPausedOn('2026-08-10'), isTrue);
+      expect(extended.isPausedOn('2026-08-11'), isFalse);
+    });
+  });
+}
+
+/// Unlinking a habit from a SHARED plan must keep its slot.
+///
+/// linkedHabitIds is index-for-index parallel with RoomModel.sharedHabits and
+/// every read site relies on it (see kDeclinedSlot). removeAt shifted every
+/// later slot down one, so unlinking the first of three shared habits made
+/// slots 2 and 3 be graded against the wrong frozen rules — silently, and
+/// permanently. It also shortened the list, which the unresolved-plan banner
+/// reads as "hasn't decided yet", so the slot came back as a fresh prompt.
+void _unlinkKeepsSlots() {
+  group('removeLinkedHabit', () {
+    const ids = ['a', 'b', 'c'];
+    const names = ['A', 'B', 'C'];
+
+    test('shared plan: the slot is kept as a declined sentinel', () {
+      final (newIds, newNames) =
+          removeLinkedHabit(ids, names, 'a', preserveSlots: true);
+      expect(
+        newIds,
+        [kDeclinedSlot, 'b', 'c'],
+        reason: 'positions must not shift',
+      );
+      expect(newNames, ['', 'B', 'C']);
+      // The parallel arrays stay the same length as the plan they mirror.
+      expect(newIds.length, ids.length);
+    });
+
+    test('own room: the entry is genuinely removed', () {
+      final (newIds, newNames) = removeLinkedHabit(ids, names, 'a');
+      expect(newIds, ['b', 'c']);
+      expect(newNames, ['B', 'C']);
+    });
+
+    test('a habit that is not linked is a no-op either way', () {
+      expect(removeLinkedHabit(ids, names, 'zz', preserveSlots: true).$1, ids);
+      expect(removeLinkedHabit(ids, names, 'zz').$1, ids);
+    });
+
+    test('the middle of a multi-habit plan keeps its neighbours in place', () {
+      final (newIds, _) =
+          removeLinkedHabit(ids, names, 'b', preserveSlots: true);
+      expect(newIds, ['a', kDeclinedSlot, 'c']);
     });
   });
 }

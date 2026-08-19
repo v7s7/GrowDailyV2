@@ -13,7 +13,13 @@ import '../../../core/theme/game_theme.dart';
 // No code changes needed anywhere else once these are set.
 
 /// Plain email address, no "mailto:" prefix - e.g. 'support@growdaily.app'.
-const String? kSupportEmail = null;
+///
+/// Set to the address privacy_policy.html already publishes as the contact
+/// point, so the app and the policy agree. This being null shipped an app
+/// with NO way to reach anyone from inside it, which App Review guideline
+/// 1.2 requires for user-generated content (Rooms) and which App Store
+/// Connect separately requires as a support URL.
+const String? kSupportEmail = 'alkubaisi1818@gmail.com';
 
 /// Full international phone number, digits only, no '+' or spaces -
 /// e.g. '97312345678' for a Bahrain number. This is what wa.me/<number>

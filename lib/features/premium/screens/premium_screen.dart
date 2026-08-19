@@ -26,11 +26,22 @@ enum _PlanKind { monthly, lifetime }
 const String _termsOfUseUrl =
     'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
 
-/// GrowDaily's actual Privacy Policy - published Google Doc. Guideline
-/// 3.1.2 requires this alongside the Terms link above. If this ever moves
-/// to a custom domain, this is the only line that needs to change.
+/// GrowDaily's Privacy Policy, served from our own Firebase Hosting site —
+/// the same origin the app's universal links already use (see
+/// Runner.entitlements' `applinks:grow-daily-339ef.web.app`). Guideline
+/// 3.1.2 requires this alongside the Terms link above.
+///
+/// Moved off a published Google Doc deliberately. The doc was the live
+/// policy while privacy_policy.html sat in the repo unread, so the two
+/// drifted: the published text claimed the app never touches GPS and never
+/// uploads voice notes, and by then it did both. A policy that lives in the
+/// repo is reviewed in the same diff as the code that makes it true or
+/// false. public/privacy.html is the served copy; privacy_policy.html at
+/// the repo root is its source.
+///
+/// REQUIRES `firebase deploy --only hosting` to be live.
 const String _privacyPolicyUrl =
-    'https://docs.google.com/document/d/e/2PACX-1vT1weIyykC2Bdbz6aVMBae9PNtCXoFNdfUnpFZ1Po9A87pseQFOfogWPV4CLytHwolFhVKcaLrw-4aD/pub';
+    'https://grow-daily-339ef.web.app/privacy.html';
 
 /// The GrowDaily Premium paywall.
 ///
@@ -346,6 +357,19 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 6),
+                // In App Review's sandbox a failed or slow offering fetch is
+                // the COMMON case. One tap to retry beats a dead end.
+                Center(
+                  child: TextButton(
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _loadingOffering = true);
+                      _loadOffering();
+                    },
+                    child: Text(s.premiumRetry),
+                  ),
+                ),
               ] else ...[
                 // Plan picker
                 Row(
@@ -396,6 +420,14 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                         )
                       : Text(s.premiumCta),
                 ).animate(delay: 580.ms).fadeIn().slideY(begin: 0.2),
+              ],
+              // Restore and the 3.1.2 legal links live OUTSIDE the plan
+              // branch on purpose. They used to render only when the
+              // offering loaded, which meant the sandbox's most common
+              // failure mode — offerings unavailable — showed a reviewer a
+              // paywall with no Restore button and no privacy policy, and
+              // this screen is the app's ONLY restore entry point.
+              if (!isPremium && !_loadingOffering) ...[
                 const SizedBox(height: 10),
                 TextButton(
                   onPressed: _isRestoring ? null : _restore,

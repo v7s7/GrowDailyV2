@@ -279,13 +279,13 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     final isSyncable = day.isToday;
     final alreadyDoneToday = ref
         .read(dashboardProvider)
-        .isCompleted(habit.id, habit.frequencyTarget);
+        .isCompleted(habit.id, habit.effectiveDailyTarget);
     if (isSyncable && picked == SquareState.complete && !alreadyDoneToday) {
       final dashState = ref.read(dashboardProvider);
       final todayHabits = ref
           .read(habitListProvider)
           .where((h) => h.isScheduledFor(day))
-          .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
+          .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
       // No branch on the return value — see _handleSquareTap's doc
       // comment; alreadyDoneToday above already guarantees this lands.
       await ref.read(dashboardProvider.notifier).completeHabit(
@@ -293,12 +293,12 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             // 2x while a linked room is live — see roomBoostedReward.
             xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
             goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
-            frequencyTarget: habit.frequencyTarget,
+            frequencyTarget: habit.effectiveDailyTarget,
             allHabitsDoneAfter: willCompleteAllHabitsToday(
               state: dashState,
               todayHabits: todayHabits,
               habitId: habit.id,
-              frequencyTarget: habit.frequencyTarget,
+              frequencyTarget: habit.effectiveDailyTarget,
             ),
             category: habit.category.name,
             habitName: habit.localName(S.of(context).isAr),

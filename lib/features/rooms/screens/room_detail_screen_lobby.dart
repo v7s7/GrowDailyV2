@@ -1,6 +1,5 @@
 part of 'room_detail_screen.dart';
 
-
 class _RoomBody extends ConsumerWidget {
   final RoomModel room;
   final void Function(RoomModel, RoomParticipant?) onSyncIfNeeded;
@@ -48,7 +47,10 @@ class _RoomBody extends ConsumerWidget {
         title: Text(room.name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: gp.textPrimary)),
+            style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary)),
         actions: [
           // Only offered once this account's own participant doc is known -
           // see [mine]'s own doc comment above for the one brief window
@@ -118,8 +120,8 @@ class _RoomBody extends ConsumerWidget {
         data: (participants) {
           final mine = mineOf(participants);
           onSyncIfNeeded(room, mine);
-          final sorted = [...participants]
-            ..sort((a, b) => b.progressRatio(room).compareTo(a.progressRatio(room)));
+          final sorted = [...participants]..sort(
+              (a, b) => b.progressRatio(room).compareTo(a.progressRatio(room)));
 
           return RefreshIndicator(
             onRefresh: () => onManualSync(room, mine),
@@ -164,7 +166,8 @@ class _RoomBody extends ConsumerWidget {
                     participants.length > 1 &&
                     room.competeMode == RoomCompeteMode.team) ...[
                   const SizedBox(height: 14),
-                  _TeamProgressCard(room: room, participants: participants, mine: mine),
+                  _TeamProgressCard(
+                      room: room, participants: participants, mine: mine),
                 ],
                 if (mine != null && mine.linkedHabitIds.isNotEmpty) ...[
                   const SizedBox(height: 14),
@@ -233,8 +236,7 @@ Future<void> _toggleMute(
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content:
-          Text(next ? s.roomMutedConfirmation : s.roomUnmutedConfirmation),
+      content: Text(next ? s.roomMutedConfirmation : s.roomUnmutedConfirmation),
     ),
   );
 }
@@ -364,6 +366,7 @@ class _LobbyCardState extends ConsumerState<_LobbyCard> {
         memberCount: widget.memberCount,
         isLeader: widget.isLeader,
         onPickTime: _openScheduleSheet,
+        onStartNow: _confirmStartNow,
       );
     }
     return _ScheduledLobbyCard(
@@ -383,10 +386,23 @@ class _EmptyLobbyCard extends StatelessWidget {
   final int memberCount;
   final bool isLeader;
   final VoidCallback onPickTime;
+
+  /// Starting today, in one tap.
+  ///
+  /// "Start now" already existed but only ever rendered on the SCHEDULED
+  /// card, so beginning a room today meant committing to a future moment the
+  /// leader didn't want (the soonest option is an hour out), waiting for a
+  /// countdown to appear, then overriding it — five interactions to do the
+  /// most obvious thing. Nothing in the data layer ever required that:
+  /// startRoom guards only on leader + isLobby, so an immediate start was
+  /// always legal and merely unreachable.
+  final VoidCallback onStartNow;
+
   const _EmptyLobbyCard({
     required this.memberCount,
     required this.isLeader,
     required this.onPickTime,
+    required this.onStartNow,
   });
 
   @override
@@ -405,8 +421,7 @@ class _EmptyLobbyCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.groups_rounded,
-                  size: 20, color: GameColors.emerald),
+              Icon(Icons.groups_rounded, size: 20, color: GameColors.emerald),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -428,6 +443,11 @@ class _EmptyLobbyCard extends StatelessWidget {
           ),
           if (isLeader) ...[
             const SizedBox(height: 12),
+            // Starting today is the primary action and gets the filled
+            // button; scheduling is the deliberate, less common choice and
+            // steps down to an outline beneath it. That ordering is the
+            // whole fix — the two paths always existed, but only the rarer
+            // one was reachable from here.
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
@@ -438,12 +458,32 @@ class _EmptyLobbyCard extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
+                onPressed: onStartNow,
+                icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                label: Text(
+                  s.roomStartNowAction,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: GameColors.emerald,
+                  minimumSize: const Size.fromHeight(44),
+                  side: BorderSide(color: GameColors.emerald.withOpacity(0.45)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
                 onPressed: onPickTime,
-                icon: const Icon(Icons.schedule_rounded, size: 20),
+                icon: const Icon(Icons.schedule_rounded, size: 18),
                 label: Text(
                   s.roomPickStartTimeAction,
                   style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w800),
+                      fontSize: 13.5, fontWeight: FontWeight.w700),
                 ),
               ),
             ),

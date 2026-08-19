@@ -10,6 +10,7 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/utils/text_moderation.dart';
 import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';

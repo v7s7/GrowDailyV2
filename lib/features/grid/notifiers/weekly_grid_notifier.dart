@@ -186,13 +186,31 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
 
     try {
       if (_uid != null) {
-        final snaps = await Future.wait(
-          state.days.map((d) => _dayRef(d).get()),
-        );
-        for (final snap in snaps) {
-          if (!snap.exists) continue;
-          final d = snap.data()!;
-          _parseInto(snap.id, d, states, notes);
+        // Each day read is awaited and caught on its OWN, never batched.
+        //
+        // Future.wait rejects on the first failure and discards the rest, and
+        // a missing day is the normal case offline: a `get()` for a date the
+        // person never coloured throws "client is offline" rather than
+        // returning a non-existent doc. One such day therefore blanked the
+        // ENTIRE week — six successful reads thrown away with it — and the
+        // catch below, which promises to "fall through with whatever we
+        // parsed", had nothing parsed to fall through with. Colour Sat–Mon,
+        // board a plane, reopen: the whole week reads empty, and re-tapping
+        // squares to fix it pays rewards against a state that has forgotten
+        // they were already earned.
+        //
+        // dashboard_notifier_loading.dart already un-batched its own two
+        // reads for exactly this reason; this is the same fix applied to the
+        // seven the Grid does.
+        for (final day in state.days) {
+          try {
+            final snap = await _dayRef(day).get();
+            if (!snap.exists) continue;
+            _parseInto(snap.id, snap.data()!, states, notes);
+          } catch (_) {
+            // This one day is unreadable; the rest of the week still is.
+            continue;
+          }
         }
       } else {
         for (final day in state.days) {

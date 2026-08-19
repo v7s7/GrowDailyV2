@@ -1,13 +1,14 @@
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
-import '../../../core/utils/western_digits.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import '../models/matrix_task.dart';
 import 'custom_offset_sheet.dart';
@@ -74,26 +75,27 @@ List<DateTime> remindersFor({
 /// Inverse of [remindersFor], for reopening a task whose reminders were
 /// saved on a previous visit.
 ///
-/// Takes the latest reminder as the anchor, which is right for every stack
-/// built out of "before" offsets — the overwhelmingly common shape, and the
-/// one the direction toggle defaults to. A stack that used "after" offsets
-/// comes back reframed (its last alarm becomes the anchor, the rest read as
-/// "before"), but the set of moments is preserved exactly: a round trip
-/// never loses or moves a reminder, it only relabels one. The alternative —
-/// persisting the anchor as its own field — buys tidier labels for the rare
-/// case at the cost of another schema migration, which isn't worth it.
-({DateTime? anchor, Set<int> offsets}) splitReminders(
-  List<DateTime> reminders,
-) {
-  if (reminders.isEmpty) return (anchor: null, offsets: <int>{});
-  final anchor = reminders.last;
-  return (
-    anchor: anchor,
-    offsets: {
-      for (final r in reminders.take(reminders.length - 1))
-        r.difference(anchor).inMinutes,
-    },
-  );
+/// Takes the anchor as an input rather than guessing it, which is the whole
+/// fix: the arithmetic genuinely cannot be inverted, so an earlier version
+/// that assumed `reminders.last` was the anchor reframed every "after" stack
+/// on reopen. A 12:00 anchor with a +15 offset came back claiming 12:15 was
+/// the moment you'd picked and 12:00 was a warning about it — the same
+/// alarms telling a story the user never wrote. Which entry was really
+/// chosen now lives on the task (MatrixTask.reminderAnchorAt), and
+/// MatrixTask.resolveAnchor supplies the old `reminders.last` guess only for
+/// tasks saved before that field existed.
+///
+/// The anchor's own entry contributes no offset (it would be zero), so a
+/// task with a single reminder comes back with an empty set.
+Set<int> offsetsFrom({
+  required DateTime? anchor,
+  required List<DateTime> reminders,
+}) {
+  if (anchor == null) return <int>{};
+  return {
+    for (final r in reminders)
+      if (r.difference(anchor).inMinutes != 0) r.difference(anchor).inMinutes,
+  };
 }
 
 /// Arabic-Indic digits (٠-٩) mapped to plain ASCII, so [int.tryParse] can
@@ -102,8 +104,18 @@ List<DateTime> remindersFor({
 /// the minutes field must get 45, not a silent no-op.
 String normalizeArabicDigits(String input) => toWesternDigits(input);
 
-/// Western digits → Arabic-Indic codepoints. See [reminderOffsetLabel] for
-/// why a chip has to do this by hand.
+/// Western digits → Arabic-Indic codepoints, for labels that have to do this
+/// by hand.
+///
+/// The reason is font shaping, not number formatting. intl produces ASCII
+/// either way: `DateFormat('h:mm a', 'ar')` returns the string "9:20 م". But
+/// [ReminderRow] renders its time *inside* an Arabic run ("اليوم · 9:20 ص"),
+/// where the font applies Arabic contextual digit substitution and the user
+/// sees ٩:٢٠. A chip label like a bare "15" has no Arabic context, so the
+/// same font leaves it Western — two identical ASCII strings, two different
+/// glyph sets on screen, side by side. So matching the row means matching
+/// what's *rendered*, hence the explicit conversion. Used by
+/// [formatOffsetCompact] and formatOffsetVerbose.
 String arabicDigits(int n) => n
     .toString()
     .split('')
@@ -111,25 +123,8 @@ String arabicDigits(int n) => n
     .join();
 
 /// Chip label for an offset: the number for minutes, a word for the hours,
-/// since "120" reads worse than "ساعتان" at a glance.
-///
-/// Under `ar` the number is converted to Arabic-Indic codepoints, and the
-/// reason is font shaping rather than number formatting — which is worth
-/// spelling out, because two previous attempts here got it wrong in
-/// opposite directions.
-///
-/// intl produces ASCII either way: `DateFormat('h:mm a', 'ar')` returns the
-/// string "9:20 م", and `NumberFormat.decimalPattern('ar')` returns "15".
-/// But [ReminderRow] renders its time *inside* an Arabic run ("اليوم · 9:20
-/// ص"), where the font applies Arabic contextual digit substitution and the
-/// user sees ٩:٢٠. A chip's label is a bare "15" with no Arabic context, so
-/// the same font leaves it Western. Two identical ASCII strings, two
-/// different glyph sets on screen, side by side.
-///
-/// So matching the row means matching what's *rendered*, not what intl
-/// returns — hence the explicit conversion. Formatting the number through
-/// NumberFormat looks more principled and does nothing at all here; don't
-/// swap it back.
+/// since "120" reads worse than "ساعتان" at a glance. Direction comes from
+/// the قبل/بعد toggle above the grid, not from the label.
 @visibleForTesting
 String reminderOffsetLabel(int minutes, bool isAr) {
   if (minutes == 60) return isAr ? 'ساعة' : '1 hour';
@@ -247,7 +242,9 @@ class ReminderRow extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                set ? formatReminderMoment(value!, isAr) : s.matrixReminderLabel,
+                set
+                    ? formatReminderMoment(value!, isAr)
+                    : s.matrixReminderLabel,
                 style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: set ? FontWeight.w700 : FontWeight.w600,
@@ -340,11 +337,40 @@ class ReminderPicker extends StatefulWidget {
 }
 
 class _ReminderPickerState extends State<ReminderPicker> {
-  /// Which direction the offset chips currently mean. Defaults to "before":
-  /// a reminder about a thing almost always wants to arrive ahead of it,
-  /// and it's the direction every stack in the feature's motivating example
-  /// (3:00, 3:30, 4:00 for a 5pm meeting) uses.
-  bool _isAfter = false;
+  /// Offsets the task carries that no preset chip stands for — a hand-typed
+  /// 45, or a day-scale one.
+  ///
+  /// No direction filter, unlike the version that had a قبل/بعد toggle: with
+  /// signed presets there is no "current tab" for an offset to fall outside
+  /// of, so every reminder the task holds has a chip, always. That filter was
+  /// the reason a stored offset could vanish from the grid entirely while
+  /// still being scheduled.
+  ///
+  /// Which direction the offset chips currently mean.
+  ///
+  /// Seeded from the task's own offsets rather than hardcoded to "before",
+  /// and that is half the bug this screen had. The old initialiser was a
+  /// plain `= false`, so a task built entirely out of "after" offsets
+  /// reopened on the قبل tab with an empty-looking grid — every chip it
+  /// actually had was in the other tab.
+  ///
+  /// It went unnoticed because the *other* half of the bug hid it: the
+  /// anchor used to be re-guessed as the last reminder on reopen, which
+  /// forced every reconstructed offset negative, so everything really was
+  /// "before" and the wrong default happened to look right. Now that the
+  /// anchor is stored and an after-ladder comes back as an after-ladder
+  /// (see offsetsFrom), this has to read the data or it lands on the wrong
+  /// tab. The two fixes only work together.
+  ///
+  /// Ties and empties go to "before": a reminder about a thing almost
+  /// always wants to arrive ahead of it.
+  late bool _isAfter = _initialIsAfter();
+
+  bool _initialIsAfter() {
+    final offsets = widget.offsets;
+    if (offsets.isEmpty) return false;
+    return offsets.every((o) => !o.isNegative);
+  }
 
   int _signed(int minutes) => _isAfter ? minutes : -minutes;
 
@@ -367,12 +393,6 @@ class _ReminderPickerState extends State<ReminderPicker> {
 
   /// The counted, unit-aware form — "يومين", not "٢٨٨٠".
   ///
-  /// Shares [formatOffsetVerbose] with the sheet that creates these, so a
-  /// value reads identically in both places. An earlier version built the
-  /// label from [reminderOffsetLabel], which only knows how to name 60 and
-  /// 120 minutes; every other multi-hour value came out as a raw minute
-  /// count nobody could interpret at a glance.
-  ///
   /// No direction word: [_unlistedOffsets] only ever yields offsets matching
   /// the selected tab, so every chip on screen already shares the قبل/بعد
   /// above them — printing it on each one would just repeat the tab.
@@ -388,7 +408,36 @@ class _ReminderPickerState extends State<ReminderPicker> {
     return at != null && at.isAfter(DateTime.now());
   }
 
+  /// Why the last tap didn't do anything, shown inline under the grid.
+  ///
+  /// Inline rather than a SnackBar, because this widget lives inside a
+  /// showModalBottomSheet and the ScaffoldMessenger is *behind* that sheet —
+  /// a SnackBar posted from here is drawn under the sheet and never seen.
+  /// The custom-offset sheet already learned this the hard way and states it
+  /// in its own source; the two rejections reachable from this grid (the
+  /// slot ceiling, an offset that has already elapsed) were still answering
+  /// with nothing at all.
+  String? _notice;
+  Timer? _noticeTimer;
+
+  void _showNotice(String message) {
+    setState(() => _notice = message);
+    _noticeTimer?.cancel();
+    // Roughly a SnackBar's dwell. Cleared rather than left in place so the
+    // section doesn't accumulate a permanent scolding line.
+    _noticeTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _notice = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _noticeTimer?.cancel();
+    super.dispose();
+  }
+
   void _toggle(int minutes) {
+    final s = S.of(context);
     final signed = _signed(minutes);
     // Deselecting is always allowed, whatever the entitlement says. The
     // premium gate is on *adding* — see kFreeTaskReminders' doc comment,
@@ -404,7 +453,20 @@ class _ReminderPickerState extends State<ReminderPicker> {
       widget.onLocked();
       return;
     }
-    if (!_isReachable(signed)) return;
+    // The anchor occupies a slot too, so this is the same arithmetic the
+    // host sheets do before they persist. Checked here as well because here
+    // is where the tap happens and so here is where it can be explained.
+    if (widget.offsets.length + 1 >=
+        NotificationService.kMaxTaskReminderSlots) {
+      HapticFeedback.lightImpact();
+      _showNotice(s.matrixReminderMaxReached);
+      return;
+    }
+    if (!_isReachable(signed)) {
+      HapticFeedback.lightImpact();
+      _showNotice(s.matrixReminderOffsetPast);
+      return;
+    }
     HapticFeedback.selectionClick();
     widget.onToggleOffset(signed);
   }
@@ -430,11 +492,8 @@ class _ReminderPickerState extends State<ReminderPicker> {
       canStack: widget.canStack,
       onToggle: widget.onToggleOffset,
       // The sheet owns the direction while it's open, and the grid adopts
-      // whatever it ends on: switch to بعد in the sheet, add a couple, and
-      // the tab behind is already بعد when you come back — so the offsets
-      // you just created are the ones in view. Reported on every change
-      // rather than on close, so a swipe-dismiss lands the same as tapping
-      // Done.
+      // whatever it ends on, so the offsets you just created are the ones in
+      // view when you come back.
       onDirectionChanged: (after) => setState(() => _isAfter = after),
       onLocked: widget.onLocked,
       maxOffsets: NotificationService.kMaxTaskReminderSlots,
@@ -520,12 +579,10 @@ class _ReminderPickerState extends State<ReminderPicker> {
         // several at once. Selection is read back off `offsets` rather than
         // held locally, so the chips can't drift out of step with the
         // reminders actually stored on the task.
+        //
         // Five presets plus the custom field: six cells on three columns,
         // two complete rows in the default state. Any offset the presets
-        // don't cover — a hand-typed value, or one left over from the other
-        // direction after the toggle was flipped — is appended as its own
-        // chip, so every reminder the task carries stays visible and
-        // removable instead of existing only in the preview line.
+        // don't cover is appended as its own chip.
         //
         // Unreachable offsets (an hour's lead on something 20 minutes away)
         // are dimmed rather than hidden, so the grid keeps its shape
@@ -538,6 +595,7 @@ class _ReminderPickerState extends State<ReminderPicker> {
                 selected: widget.offsets.contains(_signed(m)),
                 reachable: _isReachable(_signed(m)),
                 label: reminderOffsetLabel(m, widget.isAr),
+                semanticsLabel: formatOffsetVerbose(_signed(m), widget.isAr, s),
                 color: widget.color,
                 onTap: () => _toggle(m),
               ),
@@ -546,6 +604,7 @@ class _ReminderPickerState extends State<ReminderPicker> {
                 selected: true,
                 reachable: true,
                 label: _unlistedLabel(s, o),
+                semanticsLabel: formatOffsetVerbose(o, widget.isAr, s),
                 color: widget.color,
                 onTap: () {
                   HapticFeedback.selectionClick();
@@ -555,8 +614,7 @@ class _ReminderPickerState extends State<ReminderPicker> {
             // The custom cell opens a sheet rather than being an inline
             // field: entering a value needs a number *and* a unit *and* a
             // way to review what's already there, which is three controls
-            // more than this row can hold on a phone. Keeping it a plain
-            // chip also keeps the grid six uniform cells.
+            // more than this row can hold on a phone.
             PlainChoiceChip(
               selected: false,
               label: s.leadCustomOption,
@@ -565,6 +623,28 @@ class _ReminderPickerState extends State<ReminderPicker> {
             ),
           ],
         ),
+        if (_notice != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 13, color: gp.textTert),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _notice!,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: gp.textTert,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         _ReminderPreview(
           anchor: anchor,
           offsets: widget.offsets,
@@ -572,11 +652,9 @@ class _ReminderPickerState extends State<ReminderPicker> {
           isAr: widget.isAr,
           // Opens the same sheet the "مخصص" cell does. Once a task carries
           // four or five reminders this line wraps into a dense run of
-          // times that's readable only with effort — and it's precisely
-          // then that someone wants to look at what they've set and drop
-          // one. The sheet already lists them as labelled rows with remove
-          // buttons, so the summary is the natural way in rather than a
-          // dead end you have to know to route around.
+          // times, and it's precisely then that someone wants to look at
+          // what they've set and drop one — the sheet lists them as
+          // labelled rows with remove buttons.
           onTap: _openCustomSheet,
         ),
       ],
@@ -584,10 +662,18 @@ class _ReminderPickerState extends State<ReminderPicker> {
   }
 }
 
-/// A preset offset. Wraps [PlainChoiceChip] purely to add the dimmed,
-/// untappable state for an offset whose moment has already passed —
-/// selection styling, geometry and motion all still come from the shared
-/// chip, so this can't drift from Add Habit's.
+/// A preset offset. Wraps [PlainChoiceChip] purely to add the dimmed state
+/// for an offset whose moment has already passed — selection styling,
+/// geometry and motion all still come from the shared chip, so this can't
+/// drift from Add Habit's.
+///
+/// Dimmed but still tappable, deliberately. It used to be wrapped in an
+/// IgnorePointer, so a user setting a reminder ten minutes out saw the
+/// longer leads greyed and could not find out why — the tap simply did
+/// nothing. Letting it through means [_ReminderPickerState._toggle] gets to
+/// say "that time has already passed" instead of the chip silently
+/// swallowing the press. Marked disabled for assistive tech either way,
+/// since 0.35 opacity conveys nothing to a screen reader.
 ///
 /// An already-selected chip never dims: it represents a reminder the task
 /// genuinely has, and greying it out would imply it isn't real while also
@@ -596,6 +682,7 @@ class _OffsetChip extends StatelessWidget {
   final bool selected;
   final bool reachable;
   final String label;
+  final String semanticsLabel;
   final Color color;
   final VoidCallback onTap;
 
@@ -603,6 +690,7 @@ class _OffsetChip extends StatelessWidget {
     required this.selected,
     required this.reachable,
     required this.label,
+    required this.semanticsLabel,
     required this.color,
     required this.onTap,
   });
@@ -612,11 +700,15 @@ class _OffsetChip extends StatelessWidget {
     final chip = PlainChoiceChip(
       selected: selected,
       label: label,
+      semanticsLabel: semanticsLabel,
       selectedColor: color,
       onTap: onTap,
     );
     if (selected || reachable) return chip;
-    return Opacity(opacity: 0.35, child: IgnorePointer(child: chip));
+    return Semantics(
+      enabled: false,
+      child: Opacity(opacity: 0.35, child: chip),
+    );
   }
 }
 
@@ -649,42 +741,48 @@ class _ReminderPreview extends StatelessWidget {
     // stack can span dates, and "10:31 AM · 10:31 AM" for two reminders two
     // days apart is worse than no preview at all. This carries Today /
     // Tomorrow / a date, so every entry is distinguishable.
-    final label = (DateTime d) => formatReminderMoment(d, isAr);
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onTap();
-      },
-      child: Padding(
-        padding: const EdgeInsets.only(top: 12, bottom: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.notifications_active_rounded, size: 14, color: color),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                all.map(label).join('   ·   '),
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: context.gp.textSec,
-                  height: 1.35,
+    String label(DateTime d) => formatReminderMoment(d, isAr);
+    return Semantics(
+      button: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.notifications_active_rounded, size: 14, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  all.map(label).join('   ·   '),
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: context.gp.textSec,
+                    height: 1.35,
+                  ),
                 ),
               ),
-            ),
-            // A quiet affordance — without it the summary looks like a
-            // caption, and nobody discovers that it opens anything.
-            Padding(
-              padding: const EdgeInsets.only(top: 1),
-              // chevron_right, same as ReminderRow's — Flutter mirrors it
-              // under RTL, so hardcoding "left" here would point the wrong
-              // way in the language this screen is mostly used in.
-              child: Icon(Icons.chevron_right_rounded,
-                  size: 16, color: context.gp.textTert),
-            ),
-          ],
+              // A quiet affordance — without it the summary looks like a
+              // caption, and nobody discovers that it opens anything.
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                // chevron_right, same as ReminderRow's — Flutter mirrors it
+                // under RTL, so hardcoding "left" here would point the wrong
+                // way in the language this screen is mostly used in.
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 16,
+                  color: context.gp.textTert,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

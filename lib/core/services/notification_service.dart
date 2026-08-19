@@ -312,9 +312,17 @@ class NotificationService {
   /// that path exactly as it was.
   Future<bool> requestPermissions() async {
     if (kIsWeb) return false;
+    // The cached 'granted' flag is a fast path, NOT the truth.
+    //
+    // It used to short-circuit and return true forever, so a permission the
+    // person revoked in iOS Settings stayed masked: every later call claimed
+    // success, nothing was ever actually scheduled, and the "notifications
+    // are off" warning this method exists to trigger never appeared. Asking
+    // the OS is cheap and, once answered, never re-prompts — so the cache
+    // buys nothing worth a permanently wrong answer. Kept only as the
+    // fallback for platforms that return null below.
     final cached =
         await LocalStoreService.getSettingsMap(_kPermissionGrantedKey);
-    if (cached['granted'] == true) return true;
     final ios = await _plugin
         .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>()
@@ -323,11 +331,16 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
-    final granted = (ios ?? true) && (android ?? true);
-    if (granted) {
-      await LocalStoreService.putSettingsMap(
-          _kPermissionGrantedKey, {'granted': true});
-    }
+    // Null means "this platform doesn't answer" (e.g. Android below 13),
+    // not "denied" — so a null side is simply not evidence either way and
+    // the other platform's answer decides. If neither answers, fall back to
+    // the last real answer we recorded rather than assuming success.
+    final answered = ios ?? android;
+    final granted = answered ?? (cached['granted'] == true);
+    // Written on every call, not only on success — that one-sided write is
+    // what let a revoked permission stay cached as granted forever.
+    await LocalStoreService.putSettingsMap(
+        _kPermissionGrantedKey, {'granted': granted});
     return granted;
   }
 
@@ -896,6 +909,11 @@ class NotificationService {
   // reminder (_habitReminderId) and an evening check-in at once, so the two
   // must never share notification ids.
   static const _quitCheckInBase = 70000;
+
+  /// Kept clear of [_quitCheckInBase]'s 70000–70999 window. Both use a
+  /// `base + hash % 1000` id, so overlapping bases means one feature can
+  /// cancel the other's notification by coincidence.
+  static const _foregroundRoomPushBase = 72000;
   final Set<String> _quitCheckInHabitIds = {};
   int _quitCheckInId(String habitId) =>
       _quitCheckInBase + habitId.hashCode.abs() % 1000;
@@ -1396,8 +1414,12 @@ class NotificationService {
   }) async {
     if (kIsWeb) return;
     await init();
+    // 72000, not 70000: _quitCheckInBase is 70000 with a 0–999 hash spread,
+    // so this shared that exact range. A foreground room push whose title
+    // hashed into the same slot as a scheduled quit check-in replaced it —
+    // silently cancelling a reminder the person had set.
     await _plugin.show(
-      70000 + title.hashCode.abs() % 1000,
+      _foregroundRoomPushBase + title.hashCode.abs() % 1000,
       title,
       body,
       _details,

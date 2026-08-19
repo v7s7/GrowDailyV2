@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/utils/text_moderation.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/share_service.dart';
 import '../../../core/theme/game_theme.dart';
@@ -97,6 +98,17 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
 
   Future<void> _submit() async {
     if (!_canSubmit || _isSubmitting) return;
+    // A room name reaches everyone who joins by code, which makes it
+    // user-generated content under App Review guideline 1.2. Refused here
+    // rather than silently sanitised: quietly renaming someone's room
+    // would be more confusing than telling them it can't be used.
+    if (isObjectionable(_nameCtrl.text)) {
+      HapticFeedback.heavyImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.of(context).roomNameNotAllowed)),
+      );
+      return;
+    }
     setState(() => _isSubmitting = true);
     HapticFeedback.mediumImpact();
     // Read before the await below, so this never touches context across an

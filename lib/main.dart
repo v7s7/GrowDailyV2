@@ -24,6 +24,7 @@ import 'core/providers/onboarding_provider.dart';
 import 'core/providers/room_finale_seen_provider.dart';
 import 'core/providers/weekly_recap_collapsed_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/services/bahrain_prayer_table.dart';
 import 'core/services/analytics_service.dart';
 import 'core/services/app_badge_service.dart';
 import 'core/services/home_widget_service.dart';
@@ -53,6 +54,7 @@ import 'features/matrix/notifiers/matrix_notifier.dart'
     show MatrixState, isMatrixQuickAddLink, matrixProvider;
 import 'features/matrix/widgets/voice_note_player.dart'
     show GlobalVoiceNotePlayerOverlay;
+import 'features/night_review/notifiers/night_review_notifier.dart';
 import 'features/night_review/screens/night_review_screen.dart';
 import 'features/onboarding/screens/app_guide_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
@@ -161,6 +163,11 @@ Future<void> main() async {
     };
 
     await NotificationService.instance.init();
+    // After NotificationService, which is what initialises the timezone
+    // database this table converts through. Preloaded here so the one
+    // synchronous prayer-time caller (AddHabitSheet's live cue preview)
+    // can reach it — see BahrainPrayerTable.ensureLoaded.
+    await BahrainPrayerTable.ensureLoaded();
     await HomeWidgetService.instance.init();
     // Configures the RevenueCat SDK with the production API key (see
     // PurchaseService's doc comment). Safe to call unconditionally even if
@@ -533,7 +540,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       for (final h in ref.read(habitListProvider))
         if (isQuitAutoCleanEligible(
           isQuit: h.goalType == GoalType.quit,
-          isSingleTap: h.frequencyTarget == 1,
+          isSingleTap: h.effectiveDailyTarget == 1,
           wasScheduled: h.isScheduledFor(yesterday),
           hasEverCompleted: dash.habitLastCompletedDate.containsKey(h.id),
         ))
@@ -578,7 +585,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     final reminders = <HabitReminderInput>[];
     var pendingCount = 0;
     for (final habit in todayHabits) {
-      final done = dash.isCompleted(habit.id, habit.frequencyTarget);
+      final done = dash.isCompleted(habit.id, habit.effectiveDailyTarget);
       if (!done) pendingCount++;
       final cue = HabitCue.fromStoredValue(habit.cueAfter);
       reminders.add((
@@ -637,13 +644,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     final grid = ref.read(weeklyGridProvider);
     final quitCheckIns = <QuitCheckInInput>[
       for (final habit in todayHabits)
-        if (habit.goalType == GoalType.quit && habit.frequencyTarget == 1)
+        if (habit.goalType == GoalType.quit && habit.effectiveDailyTarget == 1)
           (
             id: habit.id,
             name: habit.localName(isAr),
             isLimit: habit.reductionType == ReductionType.limit,
             isResolvedToday:
-                dash.isCompleted(habit.id, habit.frequencyTarget) ||
+                dash.isCompleted(habit.id, habit.effectiveDailyTarget) ||
                     grid.squareFor(habit.id, today) == SquareState.failed,
           ),
     ];
@@ -722,6 +729,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         PushNotificationService.instance.registerForUser(uid);
         _resyncMyRooms();
       }
+      // A phone left open overnight crosses the app-day boundary without any
+      // provider noticing: NightReviewNotifier loads once in its constructor
+      // and is not autoDispose, so yesterday's answers stayed in memory and
+      // its `saved` flag suppressed tonight's prompt entirely. Outside the
+      // uid branch on purpose — a guest rolls over at midnight exactly like
+      // a signed-in account does.
+      ref.read(nightReviewProvider.notifier).refreshIfDayChanged();
     }
   }
 
@@ -751,10 +765,26 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     final controller = ref.read(roomsControllerProvider);
     for (final code in codes) {
       final room = ref.read(roomProvider(code)).valueOrNull;
+      if (room == null) continue;
+      // A lobby whose scheduled moment has arrived starts here, on resume
+      // and cold start, rather than only while somebody happens to have the
+      // room screen open.
+      //
+      // autoStartIfDue's only other caller is _LobbyCard's timer, which
+      // exists solely while that widget is mounted, and no Cloud Function
+      // backs it. So a room scheduled for 20:00 with everyone's app closed
+      // sat in the lobby all night: the hub pill clamps its countdown at
+      // zero and read "starts in <1m" for thirteen hours, and whoever opened
+      // the app next stamped startDate to THAT day — quietly losing the
+      // first day the group had agreed on.
+      if (room.isLobby) {
+        controller.autoStartIfDue(room).ignore();
+        continue;
+      }
       // Skipped for a room that hasn't started or has already finished -
       // syncLinkedHabitsProgress would no-op on the first anyway, and the
       // second can't gain new progress.
-      if (room == null || !room.hasStarted || room.isEnded) continue;
+      if (!room.hasStarted || room.isEnded) continue;
       controller.syncLinkedHabitsProgress(room).ignore();
     }
   }
@@ -813,6 +843,28 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   Future<void> _processPendingWidgetTaskCompletions() async {
     final ids = await HomeWidgetService.instance.takePendingTaskCompletions();
     if (ids.isEmpty) return;
+
+    // Wait for auth and for the task list to actually load first.
+    //
+    // This runs on cold start, where matrixProvider keys on a uid that
+    // authStateProvider has not produced yet — so `tasks` was empty, no id
+    // matched anything, and every queued checkmark was silently discarded.
+    // takePendingTaskCompletions has ALREADY cleared the queue by then, so
+    // those taps were unrecoverable: the widget showed them ticked while the
+    // app never recorded them.
+    try {
+      await ref.read(authStateProvider.future);
+    } catch (_) {
+      // Guest: matrixProvider's local load is the right target below.
+    }
+    if (!mounted) return;
+    // The notifier loads asynchronously after construction; give it up to a
+    // few frames rather than reading an empty list the instant it exists.
+    for (var i = 0; i < 20 && ref.read(matrixProvider).isLoading; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      if (!mounted) return;
+    }
+
     final tasks = ref.read(matrixProvider).tasks;
     final notifier = ref.read(matrixProvider.notifier);
     for (final id in ids) {
@@ -874,7 +926,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     var completed = 0;
     final habits = <({String id, String name, bool done})>[];
     for (final h in scheduled) {
-      final done = dash.isCompleted(h.id, h.frequencyTarget);
+      final done = dash.isCompleted(h.id, h.effectiveDailyTarget);
       if (done) completed++;
       habits.add((id: h.id, name: h.localName(isAr), done: done));
     }
@@ -922,6 +974,32 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       return;
     }
     if (habitId == null || habitId.isEmpty) return;
+
+    // Wait for auth before touching ANY uid-keyed provider.
+    //
+    // On a cold launch this runs synchronously the moment onAction is
+    // assigned (the setter replays a pending response on that same tick),
+    // which is before authStateProvider — a StreamProvider over
+    // authStateChanges — has produced its first value. dashboardProvider and
+    // customHabitsProvider both key on that uid, so reading them here built
+    // a GUEST notifier: the completion was written to guest Hive, auth then
+    // resolved, the provider rebuilt against Firestore, and the whole thing
+    // vanished. A signed-in person tapping "Mark Done" on a lock-screen
+    // reminder with the app closed got no XP, no gold, no streak and no
+    // square — deterministically, not as a race. Custom habits failed a
+    // second way: _resolveHabit's list was empty too, so it returned null
+    // and this bailed silently.
+    //
+    // Awaiting the future settles the provider first, so everything below
+    // reads the real account.
+    try {
+      await ref.read(authStateProvider.future);
+    } catch (_) {
+      // Signed out, or auth genuinely unavailable — the guest path below is
+      // then the correct one, which is exactly what the un-awaited version
+      // could never distinguish.
+    }
+    if (!mounted) return;
     final habit = _resolveHabit(habitId);
     if (habit == null) return;
     final isAr = ref.read(localeProvider).languageCode == 'ar';
@@ -966,7 +1044,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       final todayHabits = ref
           .read(habitListProvider)
           .where((h) => h.isScheduledFor(DateTime.now().effectiveDay))
-          .map((h) => (id: h.id, frequencyTarget: h.frequencyTarget));
+          .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
       final justFinishedSingleTap =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
@@ -974,12 +1052,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
                 goldReward:
                     roomBoostedReward(ref, habit.id, habit.goldReward),
-                frequencyTarget: habit.frequencyTarget,
+                frequencyTarget: habit.effectiveDailyTarget,
                 allHabitsDoneAfter: willCompleteAllHabitsToday(
                   state: dashState,
                   todayHabits: todayHabits,
                   habitId: habit.id,
-                  frequencyTarget: habit.frequencyTarget,
+                  frequencyTarget: habit.effectiveDailyTarget,
                 ),
                 category: habit.category.name,
                 habitName: habit.localName(isAr),
@@ -1248,6 +1326,40 @@ class _OnboardingOrGrid extends ConsumerWidget {
             .push(MaterialPageRoute(builder: (_) => RoomDetailScreen(code: code)));
       });
     });
+
+    // ── Drain a code that arrived BEFORE this widget's first build ──────
+    //
+    // ref.listen reports changes made after registration, and both pending
+    // codes above can be set earlier than that: a cold start from a tapped
+    // link or push sets them while the language/auth gates above this
+    // widget are still on screen. For a signed-in user those gates resolve
+    // asynchronously, so the value was already sitting in the provider when
+    // the listeners registered — and a listener that never fires meant the
+    // app opened normally with the join silently dropped. One post-frame
+    // read closes the gap; the null-and-consume shape keeps it idempotent
+    // with the listeners (whichever runs first wins, the other no-ops).
+    //
+    // Deferred to a post-frame callback because consuming the code writes
+    // provider state, which Riverpod forbids during build.
+    if (ref.read(pendingJoinCodeProvider) != null ||
+        ref.read(pendingOpenRoomCodeProvider) != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        final joinCode = ref.read(pendingJoinCodeProvider);
+        if (joinCode != null) {
+          // Re-set to itself is not enough to fire the listener (no
+          // change); null-then-set is. This replays the exact listener
+          // path rather than duplicating its navigation logic here.
+          ref.read(pendingJoinCodeProvider.notifier).state = null;
+          ref.read(pendingJoinCodeProvider.notifier).state = joinCode;
+        }
+        final roomCode = ref.read(pendingOpenRoomCodeProvider);
+        if (roomCode != null) {
+          ref.read(pendingOpenRoomCodeProvider.notifier).state = null;
+          ref.read(pendingOpenRoomCodeProvider.notifier).state = roomCode;
+        }
+      });
+    }
 
     // App Guide is NOT auto-opened for a new user any more.
     //
