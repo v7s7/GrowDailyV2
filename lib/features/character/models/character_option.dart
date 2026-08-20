@@ -190,7 +190,27 @@ abstract final class CharacterCatalog {
   static const List<CharacterOption> females = [
     female1, female2, female3, female4, female5,
   ];
-  static const List<CharacterOption> all = [...males, ...females];
+  /// Ordered as a LADDER: free looks first, then by the level that opens
+  /// them, rarest last.
+  ///
+  /// This is the order the picker scrolls through, so it should read the
+  /// way the progression actually works. Declaration order put the gold
+  /// bisht (level 20) second and the free cream thobe fifth, which told
+  /// the user nothing. Sorted, the row goes from what you have, through
+  /// what is next, to what is furthest away.
+  ///
+  /// `final`, not `const`: a const list cannot be sorted. The index
+  /// tiebreaker keeps looks that share a level in their declared order,
+  /// since Dart's sort is not stable on its own.
+  static final List<CharacterOption> all = () {
+    final out = [...males, ...females];
+    final declared = {for (var i = 0; i < out.length; i++) out[i].id: i};
+    out.sort((a, b) {
+      final byLevel = (a.unlock?.amount ?? 0).compareTo(b.unlock?.amount ?? 0);
+      return byLevel != 0 ? byLevel : declared[a.id]!.compareTo(declared[b.id]!);
+    });
+    return List<CharacterOption>.unmodifiable(out);
+  }();
 
   static List<CharacterOption> forGender(CharacterGender gender) =>
       gender == CharacterGender.male ? males : females;
