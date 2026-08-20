@@ -14,6 +14,7 @@ import '../widgets/accessory_detail_sheet.dart';
 import '../widgets/accessory_shop_tile.dart';
 import '../widgets/character_avatar.dart';
 import '../widgets/character_locked_sheet.dart';
+import '../../../shared/widgets/segmented_tabs.dart';
 import '../widgets/gold_coin.dart';
 
 /// The closet, rebuilt around five things instead of twelve.
@@ -361,6 +362,20 @@ class _CharacterRowState extends ConsumerState<_CharacterRow> {
   /// two different questions that were sharing one signal.
   final _visible = ValueNotifier<int>(0);
 
+  /// Which half of the wardrobe is showing. Defaults to the gender of the
+  /// look already worn, so the screen opens on your own side rather than
+  /// making you find it. Not persisted: it is a view filter, not a
+  /// setting, and next launch the equipped character implies it again.
+  CharacterGender? _gender;
+
+  CharacterGender get _shownGender =>
+      _gender ??
+      CharacterCatalog.findByIdOrDefault(widget.state.characterId).gender;
+
+  List<CharacterOption> get _shown => CharacterCatalog.all
+      .where((c) => c.gender == _shownGender)
+      .toList(growable: false);
+
   @override
   void initState() {
     super.initState();
@@ -384,7 +399,7 @@ class _CharacterRowState extends ConsumerState<_CharacterRow> {
     // lights the first dot, the end lights the last, and it moves
     // monotonically in between.
     final max = p.maxScrollExtent;
-    final count = CharacterCatalog.all.length;
+    final count = _shown.length;
     final fraction = max <= 0 ? 0.0 : (p.pixels / max).clamp(0.0, 1.0);
     final i = (fraction * (count - 1)).round();
     if (i != _visible.value) _visible.value = i;
@@ -392,8 +407,7 @@ class _CharacterRowState extends ConsumerState<_CharacterRow> {
 
   void _revealSelected() {
     if (!mounted || !_controller.hasClients) return;
-    final i = CharacterCatalog.all
-        .indexWhere((c) => c.id == widget.state.characterId);
+    final i = _shown.indexWhere((c) => c.id == widget.state.characterId);
     if (i < 0) return;
     const step = _CharacterRow._cell + _CharacterRow._gap;
     final viewport = _controller.position.viewportDimension;
@@ -431,11 +445,41 @@ class _CharacterRowState extends ConsumerState<_CharacterRow> {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final all = CharacterCatalog.all;
+    final s = S.of(context);
+    final all = _shown;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Narrow, not the full-width SegmentedTabs default: two options do
+        // not need the whole screen, and the hero area above is already
+        // carrying the stage and the worn-item caption.
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Center(
+            child: SizedBox(
+              width: 188,
+              child: SegmentedTabs(
+                labels: [s.closetMen, s.closetWomen],
+                selected: _shownGender == CharacterGender.male ? 0 : 1,
+                onChanged: (i) {
+                  HapticFeedback.selectionClick();
+                  setState(() {
+                    _gender = i == 0
+                        ? CharacterGender.male
+                        : CharacterGender.female;
+                  });
+                  // Switching sides starts that side at its beginning
+                  // rather than wherever the other side happened to be.
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (_controller.hasClients) _controller.jumpTo(0);
+                    _onScroll();
+                  });
+                },
+              ),
+            ),
+          ),
+        ),
         SizedBox(
           height: _CharacterRow._cell + 4,
           child: _strip(all),

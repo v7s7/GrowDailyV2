@@ -1035,6 +1035,12 @@ class S {
   String closetCharacterLocked(String requirement) =>
       isAr ? '$requirement يفتح هذا المظهر' : 'Unlocked at $requirement';
 
+  // The picker holds fifteen looks, ten of them male. Without a split, a
+  // woman scrolls past ten men to reach five. Plain nouns rather than
+  // ذكر/أنثى: this is choosing a look, not declaring anything.
+  String get closetMen => isAr ? 'رجال' : 'Men';
+  String get closetWomen => isAr ? 'نساء' : 'Women';
+
   String get closetNoAccessory => isAr ? 'بدون قطعة' : 'Nothing worn';
 
   /// Shown on a locked item's button. Deliberately states the rule rather
