@@ -100,7 +100,12 @@ if [ "$DO_IOS" = "1" ] && [ "$BUMP" = "1" ]; then
   # -i '' is the BSD/macOS form; GNU sed would need plain -i.
   sed -i '' "s/^version: .*/version: $NAME+$NEXT/" pubspec.yaml
   BUILD="$NEXT"
-  echo "  pubspec.yaml updated"
+  # Committed here, not left loose: preflight refuses on a dirty tree, so
+  # an uncommitted bump would block the NEXT release with a change this
+  # script made itself.
+  git add pubspec.yaml
+  git commit -q -m "Build $NAME+$NEXT"
+  echo "  pubspec.yaml updated and committed"
 fi
 VERSION="$NAME+$BUILD"
 
@@ -153,10 +158,6 @@ fi
 # ── Tag ──────────────────────────────────────────────────────────────
 if [ "$DO_TAG" = "1" ]; then
   step "Tag v$VERSION"
-  if [ -n "$(git status --porcelain)" ]; then
-    git add pubspec.yaml
-    git commit -m "Release $VERSION"
-  fi
   git tag -a "v$VERSION" -m "Release $VERSION"
   echo
   printf '%sTagged locally. Push it yourself when you are ready:%s\n' "$DIM" "$OFF"
