@@ -16,6 +16,9 @@ import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../milestones/models/milestone_event.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../grid/models/square_state.dart';
+import '../../milestones/reports/habit_day_marks.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 part 'dashboard_notifier_loading.dart';
 part 'dashboard_notifier_complete_habit.dart';
@@ -83,6 +86,18 @@ const double kStreakDayCompletionThreshold = 0.8;
 /// rule this answers is now "at or above the threshold," not literally
 /// every habit.
 ///
+/// [halfDoneHabitIds] are today's habits sitting on a جزئي square. They
+/// count HALF, because half the work is worth half the credit everywhere
+/// else in this app.
+///
+/// It is opt-in with an empty default on purpose. Only callers that actually
+/// hold today's Grid squares can answer it, and a caller that cannot simply
+/// gets exactly the behaviour it had before. This deliberately does NOT
+/// create a new way to EARN a streak: a جزئي square never calls completeHabit,
+/// so this predicate only ever runs when a real completion is landing anyway.
+/// A day made entirely of half-done squares still earns nothing at all, which
+/// is the property that keeps the streak honest.
+///
 /// [todayHabits] is today's scheduled habit list reduced to just the two
 /// fields this needs (id + weekly target), passed in as records so this
 /// stays free of any dependency on the habit catalog type — every caller
@@ -94,10 +109,11 @@ bool willCompleteAllHabitsToday({
   required Iterable<({String id, int frequencyTarget})> todayHabits,
   required String habitId,
   required int frequencyTarget,
+  Set<String> halfDoneHabitIds = const {},
 }) {
   var sawTarget = false;
   var total = 0;
-  var doneCount = 0;
+  var credited = 0.0;
   for (final h in todayHabits) {
     total++;
     final isTarget = h.id == habitId;
@@ -105,12 +121,21 @@ bool willCompleteAllHabitsToday({
     final done = isTarget
         ? (state.completions[h.id] ?? 0) + 1 >= frequencyTarget
         : state.isCompleted(h.id, h.frequencyTarget);
-    if (done) doneCount++;
+    if (done) {
+      credited += 1;
+    } else if (halfDoneHabitIds.contains(h.id)) {
+      // A جزئي square is half a habit, the same 0.5 it is worth everywhere
+      // else in this app. Three of four habits done plus one half done is
+      // 87.5% rather than 75%, which crosses the threshold: exactly the
+      // "nearly succeeded" case kStreakDayCompletionThreshold's own comment
+      // says it exists to be kind to.
+      credited += 0.5;
+    }
   }
   // An empty (or habitId-missing) list never earns a streak point — a day
   // with nothing scheduled isn't a completed day, it's a day off.
   if (total == 0 || !sawTarget) return false;
-  return doneCount / total >= kStreakDayCompletionThreshold;
+  return credited / total >= kStreakDayCompletionThreshold;
 }
 
 // Milestone flavor titles ("3-Day Starter", "بداية النشامى", ...) live in

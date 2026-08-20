@@ -203,6 +203,41 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                       ),
               ],
             ),
+            const SizedBox(height: 12),
+            // What the current choice DOES, in one line, changing as the
+            // choice changes. This is the only place in the app that
+            // explains how تخطّي, فشل and an empty square differ, and it is
+            // deliberately placed at the moment somebody is choosing between
+            // them rather than in a help screen nobody opens.
+            AnimatedSwitcher(
+              duration: GameMotion.relaxed,
+              child: Row(
+                key: ValueKey(current),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    current == SquareState.skipped
+                        ? Icons.bedtime_rounded
+                        : Icons.info_outline_rounded,
+                    size: 13,
+                    color: current == SquareState.skipped
+                        ? GameColors.gold
+                        : gp.textTert,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      s.squareStateEffect(current),
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: gp.textSec,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 20),
             Text(
               s.gridNoteLabel,
@@ -299,6 +334,10 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               todayHabits: todayHabits,
               habitId: habit.id,
               frequencyTarget: habit.effectiveDailyTarget,
+              // A جزئي square counts half toward the threshold, so a day
+              // that is nearly full still keeps its streak.
+              halfDoneHabitIds:
+                  ref.read(weeklyGridProvider).halfDoneTodayIds(),
             ),
             category: habit.category.name,
             habitName: habit.localName(S.of(context).isAr),

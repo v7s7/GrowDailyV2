@@ -660,6 +660,10 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 todayHabits: todayHabits,
                 habitId: habit.id,
                 frequencyTarget: habit.effectiveDailyTarget,
+                // A جزئي square counts half toward the threshold, so a day
+                // that is nearly full still keeps its streak.
+                halfDoneHabitIds:
+                    ref.read(weeklyGridProvider).halfDoneTodayIds(),
               ),
               category: habit.category.name,
               habitName: habit.localName(S.of(context).isAr),

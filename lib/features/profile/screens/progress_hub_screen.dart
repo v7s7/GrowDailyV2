@@ -232,6 +232,12 @@ class ProgressHubScreen extends ConsumerWidget {
                 fontWeight: FontWeight.w800,
                 color: gp.textPrimary)),
       ),
+      // Everything here is period-agnostic on purpose: a 14-day chart,
+      // lifetime medals, a lifetime category share, the newest notes. The
+      // أسبوعي / شهري / سنوي report is NOT here, it is its own destination
+      // (see ReportsScreen). They shared this scroll for exactly one round
+      // and the medals ended up reading as part of whichever month was
+      // being viewed above them, which is the confusion that split them.
       body: ListView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),

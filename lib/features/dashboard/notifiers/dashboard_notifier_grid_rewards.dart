@@ -265,6 +265,32 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     return true;
   }
 
+  /// Puts gold back after a purchase that debited the balance and then
+  /// failed to deliver the thing it bought.
+  ///
+  /// Deliberately NOT a general "grant gold" API — the only caller is the
+  /// rollback path in CharacterNotifier.buyAccessory, where [spendGold]
+  /// has already succeeded (so the money is really gone from the server)
+  /// but the ownership write did not land. Without this, a failed write
+  /// costs up to 700 gold and hands over nothing.
+  ///
+  /// Best effort: if this write also fails the balance stays optimistic
+  /// locally and the next load corrects it. That is the right trade — the
+  /// alternative is quietly keeping money for an item the user never got.
+  Future<void> refundGold(int amount) async {
+    if (amount <= 0) return;
+    state = state.copyWith(gold: state.gold + amount);
+    if (_uid == null) {
+      try {
+        await _saveGuestState();
+      } catch (_) {}
+      return;
+    }
+    try {
+      await _userRef.set({'gold': state.gold}, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   /// Sets the stored display name (see [DashboardState.displayName]).
   /// No-ops on an empty/whitespace name — same "don't let an edit blank
   /// this out" guard MatrixNotifier.rename uses for task titles. Same

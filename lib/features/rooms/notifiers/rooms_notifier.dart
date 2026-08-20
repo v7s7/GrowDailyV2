@@ -2340,6 +2340,37 @@ class RoomsController {
           SquareState.fromJson(raw[habitId]?.toString()).isGreen;
     }
 
+    /// Whether this habit was half done (جزئي) that day.
+    ///
+    /// Feeds RoomParticipant.dailyPartialCount, which DOES score, at half a
+    /// habit each. See creditFor for why that is safe on a ranked surface.
+    bool isPartial(int dayIndex, String habitId) {
+      final live = todaySquares;
+      if (live != null && days[dayIndex].toDateKey() == todayKey) {
+        return (live[habitId] ?? SquareState.none) == SquareState.partial;
+      }
+      final raw = snaps[dayIndex].data()?['squareStates'];
+      return raw is Map &&
+          SquareState.fromJson(raw[habitId]?.toString()) ==
+              SquareState.partial;
+    }
+
+    /// Whether this habit was deliberately stood down (تخطّي) that day.
+    ///
+    /// Mirrors [isGreen] exactly, including the todaySquares override, for
+    /// the same race reason documented there. Feeds ONLY
+    /// RoomParticipant.dailyRestedCount, which nothing that scores may read.
+    bool isSkipped(int dayIndex, String habitId) {
+      final live = todaySquares;
+      if (live != null && days[dayIndex].toDateKey() == todayKey) {
+        return (live[habitId] ?? SquareState.none) == SquareState.skipped;
+      }
+      final raw = snaps[dayIndex].data()?['squareStates'];
+      return raw is Map &&
+          SquareState.fromJson(raw[habitId]?.toString()) ==
+              SquareState.skipped;
+    }
+
     // The rules this ROOM grades each linked habit by, which is
     // deliberately NOT the same thing as the habit's current settings - see
     // RoomParticipant.habitRules' doc comment for the whole reason this
@@ -2378,6 +2409,14 @@ class RoomsController {
       for (final d in days) d.toDateKey(): 0,
     };
     final doneCount = <String, int>{for (final d in days) d.toDateKey(): 0};
+    // Display only. See RoomParticipant.dailyRestedCount for why this is
+    // walled off from everything that produces a score.
+    final restedCount = <String, int>{
+      for (final d in days) d.toDateKey(): 0,
+    };
+    final partialCount = <String, int>{
+      for (final d in days) d.toDateKey(): 0,
+    };
     // Weeks whose weekly-quota habits all held - see
     // RoomParticipant.quotaOkWeeks. Filled in pass 2.
     final okWeeks = <String>{};
@@ -2455,7 +2494,13 @@ class RoomsController {
           )) {
             final key = days[i].toDateKey();
             scheduledCount[key] = scheduledCount[key]! + 1;
-            if (done.contains(i)) doneCount[key] = doneCount[key]! + 1;
+            if (done.contains(i)) {
+              doneCount[key] = doneCount[key]! + 1;
+            } else if (isPartial(i, id)) {
+              partialCount[key] = partialCount[key]! + 1;
+            } else if (isSkipped(i, id)) {
+              restedCount[key] = restedCount[key]! + 1;
+            }
           }
           continue;
         }
@@ -2478,7 +2523,13 @@ class RoomsController {
             continue;
           }
           scheduledCount[key] = scheduledCount[key]! + 1;
-          if (isGreen(i, id)) doneCount[key] = doneCount[key]! + 1;
+          if (isGreen(i, id)) {
+            doneCount[key] = doneCount[key]! + 1;
+          } else if (isPartial(i, id)) {
+            partialCount[key] = partialCount[key]! + 1;
+          } else if (isSkipped(i, id)) {
+            restedCount[key] = restedCount[key]! + 1;
+          }
         }
       }
     }
@@ -2546,6 +2597,8 @@ class RoomsController {
     // starts from the room's first day anyway, so seeding is a no-op there.
     final dailyCounts = <String, int>{...mineNow.dailyDoneCount};
     final dailyScheduled = <String, int>{...mineNow.dailyScheduledCount};
+    final dailyRested = <String, int>{...mineNow.dailyRestedCount};
+    final dailyPartial = <String, int>{...mineNow.dailyPartialCount};
     // Same merge-then-overwrite-the-window treatment: keep every held week
     // from outside this window, replace the ones inside it.
     final okWeekSet = <String>{...mineNow.quotaOkWeeks};
@@ -2603,6 +2656,8 @@ class RoomsController {
       if (room.isPausedOn(dateKey)) {
         dailyCounts.remove(dateKey);
         dailyScheduled.remove(dateKey);
+        dailyRested.remove(dateKey);
+        dailyPartial.remove(dateKey);
         continue;
       }
       var earned = doneCount[dateKey]!;
@@ -2619,10 +2674,49 @@ class RoomsController {
       // stored value that no longer applies (a square un-ticked, a habit
       // unlinked), and a sparse map has to actually drop the key for that to
       // read as zero rather than keeping the stale number forever.
-      if (scheduled != habitIds.length) {
+      // Compared against countedHabitCount, which is what
+      // [RoomParticipant.scheduledCountFor] falls back to when the key is
+      // absent, NOT against habitIds.length.
+      //
+      // The two differ by exactly the slots whose shared template the leader
+      // has withdrawn: countedHabitIdsIn drops them, countedHabitCount does
+      // not. Comparing against habitIds.length meant that after a withdrawal
+      // a fully done day looked equal to the total, wrote no key, and then
+      // fell back to the LARGER count. One of two slots withdrawn left every
+      // day in the window at 0.5 credit with isFullyDone false, permanently,
+      // and the clamp above pinned it there.
+      //
+      // The invariant room_model.dart:805-809 asserts is exactly this: a key
+      // is written whenever the true count differs from the plain total the
+      // fallback assumes. Both sides now say "plain total" the same way.
+      if (scheduled != mineNow.countedHabitCount) {
         dailyScheduled[dateKey] = scheduled;
       } else {
         dailyScheduled.remove(dateKey);
+      }
+      // NO clamp on this one, unlike `earned` above. The clamp exists to stop
+      // someone back-painting a past day for CREDIT, and this field pays
+      // nothing. A تخطّي marked on an old day must reach the strip, or the
+      // Grid and the room would sit side by side telling the user two
+      // different stories about the same square.
+      final rested = restedCount[dateKey]!;
+      if (rested > 0) {
+        dailyRested[dateKey] = rested;
+      } else {
+        dailyRested.remove(dateKey);
+      }
+      // This one DOES pay, so it takes the same clamp `earned` takes: a past
+      // day the room was watching cannot be improved by back-painting a
+      // جزئي onto it, exactly as it cannot by back-painting a green.
+      var partial = partialCount[dateKey]!;
+      if (hasPriorRecord && isPastDay && mineNow.wasObservedOn(dateKey)) {
+        final alreadyPartial = mineNow.dailyPartialCount[dateKey] ?? 0;
+        if (partial > alreadyPartial) partial = alreadyPartial;
+      }
+      if (partial > 0) {
+        dailyPartial[dateKey] = partial;
+      } else {
+        dailyPartial.remove(dateKey);
       }
       if (earned > 0) {
         dailyCounts[dateKey] = earned;
@@ -2719,6 +2813,13 @@ class RoomsController {
         'linkedHabitNames': names,
       'dailyDoneCount': dailyCounts,
       'dailyScheduledCount': dailyScheduled,
+      'dailyRestedCount': dailyRested,
+      'dailyPartialCount': dailyPartial,
+      // Stamped once and never moved. Everything behind it is outside the
+      // rest allowance, which is what makes shipping this move nobody's
+      // standing: on the first launch after the update every stored
+      // percentage comes out identical, and the allowance earns from today.
+      if (mineNow.restAllowanceFrom == null) 'restAllowanceFrom': todayKey,
       'quotaOkWeeks': storedOkWeeks,
       // Persists whatever this pass had to seed (see effectiveRules above),
       // so the room's frozen grading rules survive to the next sync instead
@@ -2940,10 +3041,31 @@ class RoomsController {
         final doneCount = scheduledIds
             .where((id) => (todaySquares[id] ?? SquareState.none).isGreen)
             .length;
+        // Display only, same wall as the full resync. Counted among the same
+        // scheduledIds so the two paths cannot disagree about what was even
+        // stood down.
+        final restedToday = scheduledIds
+            .where((id) =>
+                (todaySquares[id] ?? SquareState.none) == SquareState.skipped)
+            .length;
+        final partialToday = scheduledIds
+            .where((id) =>
+                (todaySquares[id] ?? SquareState.none) == SquareState.partial)
+            .length;
         final existingCounts = (snap.data()?['dailyDoneCount'] as Map?)?.map(
               (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
             ) ??
             const <String, int>{};
+        final existingPartial =
+            (snap.data()?['dailyPartialCount'] as Map?)?.map(
+                  (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+                ) ??
+                const <String, int>{};
+        final existingRested =
+            (snap.data()?['dailyRestedCount'] as Map?)?.map(
+                  (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+                ) ??
+                const <String, int>{};
         final existingScheduled =
             (snap.data()?['dailyScheduledCount'] as Map?)?.map(
                   (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
@@ -2952,11 +3074,19 @@ class RoomsController {
         // null means "fully scheduled, nothing excused" - the same sparse
         // convention syncLinkedHabitsProgress writes, so an absent key and
         // an explicit null both mean the same thing here.
-        final newScheduled = scheduledIds.length == linkedIds.length
+        // countedHabitCount, not linkedIds.length, for the same reason the
+        // full resync compares against it: linkedIds drops slots the leader
+        // has withdrawn while scheduledCountFor's fallback does not, so
+        // "equal to the total" here has to mean equal to the total the
+        // FALLBACK will assume, or the key is omitted and the day silently
+        // reverts to a larger denominator.
+        final newScheduled = scheduledIds.length == mine.countedHabitCount
             ? null
             : scheduledIds.length;
         if ((existingCounts[today] ?? 0) == doneCount &&
-            existingScheduled[today] == newScheduled) {
+            existingScheduled[today] == newScheduled &&
+            (existingRested[today] ?? 0) == restedToday &&
+            (existingPartial[today] ?? 0) == partialToday) {
           return; // Already correct - skip the write.
         }
         final updatedCounts = {...existingCounts};
@@ -2964,6 +3094,18 @@ class RoomsController {
           updatedCounts[today] = doneCount;
         } else {
           updatedCounts.remove(today);
+        }
+        final updatedRested = {...existingRested};
+        if (restedToday > 0) {
+          updatedRested[today] = restedToday;
+        } else {
+          updatedRested.remove(today);
+        }
+        final updatedPartial = {...existingPartial};
+        if (partialToday > 0) {
+          updatedPartial[today] = partialToday;
+        } else {
+          updatedPartial.remove(today);
         }
         final updatedScheduled = {...existingScheduled};
         if (newScheduled != null) {
@@ -3006,6 +3148,8 @@ class RoomsController {
         txn.update(participantRef, {
           'dailyDoneCount': updatedCounts,
           'dailyScheduledCount': updatedScheduled,
+          'dailyRestedCount': updatedRested,
+          'dailyPartialCount': updatedPartial,
           'lastUpdated': Timestamp.now(),
           // This path graded today too, so it moves the watching-watermark
           // exactly like the full resync does - otherwise a person whose only

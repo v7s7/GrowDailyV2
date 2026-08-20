@@ -554,6 +554,63 @@ class RoomParticipant {
   /// "everything was scheduled as normal."
   final Map<String, int> dailyScheduledCount;
 
+  /// How many linked habits this participant deliberately stood down
+  /// (تخطّي / [SquareState.skipped]) on a given day.
+  ///
+  /// ── A DISPLAY FIELD, AND ONLY A DISPLAY FIELD ─────────────────────────
+  /// Nothing that produces a number a leaderboard sorts, renders or pays out
+  /// on may read this. Not [creditFor], not [isFullyDone], not
+  /// [scheduledCountFor], not the streak. It exists so a rest can stop being
+  /// DRAWN as a miss, which is a different claim from a rest being scored as
+  /// one, and the two must not be conflated by a later change. There is a
+  /// test that fails if this field ever reaches the scoring code.
+  ///
+  /// The reason for the wall: a room is ranked. Subtracting a rested habit
+  /// from the denominator would let a member paint تخطّي on the habits they
+  /// did not do and watch a half-done day settle at full credit, invisibly,
+  /// which is a dial rather than a mercy. What the app owes someone who
+  /// rested is that it not call them a failure in public; it does not owe
+  /// them the points.
+  ///
+  /// Sparse and remove-when-zero, exactly like its two siblings.
+  final Map<String, int> dailyRestedCount;
+
+  /// How many linked habits were marked جزئي ([SquareState.partial]) on a
+  /// given day.
+  ///
+  /// UNLIKE [dailyRestedCount], this one DOES score: [creditFor] counts each
+  /// partial as half a habit. Half the work is worth half the credit, and it
+  /// was worth nothing here while the personal reports had already given it
+  /// 0.5, so the same square meant two different things depending on which
+  /// screen you were looking at.
+  ///
+  /// It cannot be gamed, which is why it may score where a rest may not:
+  /// marking جزئي is always strictly worse than marking مكتمل, so nobody can
+  /// improve a standing by reaching for it. A rest, by contrast, would have
+  /// shrunk the denominator, which is a dial.
+  ///
+  /// Deliberately NOT read by [isFullyDone]. A half-finished day is not a
+  /// finished day, so it moves the percentage and the bar without keeping a
+  /// streak alive or lighting the "all done" state.
+  ///
+  /// Sparse and remove-when-zero, exactly like its siblings.
+  final Map<String, int> dailyPartialCount;
+
+  /// The first day this participant's rest concessions may apply from.
+  ///
+  /// Stamped once, to the day the concession code first runs for them, and
+  /// never moved backward. That single field is what guarantees NO STANDING
+  /// IN ANY RUNNING ROOM MOVES when this ships: every day already behind them
+  /// is outside the window, so every stored percentage comes out identical on
+  /// the first launch after the update, and the allowance starts earning from
+  /// that day forward.
+  ///
+  /// It is deliberately NOT derived from [wasObservedOn]. That reads "at or
+  /// before lastSyncedDay", which every day becomes the moment a sync runs, so
+  /// gating on it would refuse every concession the feature was built to
+  /// grant and the whole thing would quietly never fire.
+  final String? restAllowanceFrom;
+
   /// Week-start date keys (Saturday, matching startOfDisplayWeek - the same
   /// week the Grid screen draws) whose flexible weekly-quota habits all
   /// actually REACHED their target. The one thing that lets a rest day count
@@ -697,6 +754,9 @@ class RoomParticipant {
     this.hideDetails = false,
     this.dailyDoneCount = const {},
     this.dailyScheduledCount = const {},
+    this.dailyRestedCount = const {},
+    this.dailyPartialCount = const {},
+    this.restAllowanceFrom,
     this.quotaOkWeeks = const [],
     this.habitRules = const {},
     required this.lastUpdated,
@@ -810,6 +870,42 @@ class RoomParticipant {
   int scheduledCountFor(String dateKey) =>
       dailyScheduledCount[dateKey] ?? countedHabitCount;
 
+  /// How many habits were stood down on [dateKey]. Display only, see
+  /// [dailyRestedCount].
+  int restedCountFor(String dateKey) => dailyRestedCount[dateKey] ?? 0;
+
+  /// How many habits were half done on [dateKey]. Scores, see
+  /// [dailyPartialCount].
+  int partialCountFor(String dateKey) => dailyPartialCount[dateKey] ?? 0;
+
+  /// Whether [dateKey] should be DRAWN as a rest rather than a miss.
+  ///
+  /// Requires that nothing was done, so a mixed day (one habit done, one
+  /// rested) still reads as the partial day it is rather than borrowing the
+  /// calm of a full rest. Excludes a day that was structurally empty anyway
+  /// ([isRestDay]), which already has its own treatment and is not a choice
+  /// anybody made.
+  bool isDeclaredRest(String dateKey) {
+    if (!hasCountedHabits) return false;
+    // A structurally empty day already has its own treatment and its own
+    // full credit. Nothing was owed, which is the calendar's doing, not a
+    // choice anybody made.
+    if (isRestDay(dateKey)) return false;
+    // Anything done at all makes this a partial day, and a partial day must
+    // look like one.
+    if ((dailyDoneCount[dateKey] ?? 0) != 0) return false;
+    // EVERY scheduled habit, not merely one of them.
+    //
+    // Caught on device: with three linked habits, standing down a single one
+    // and doing nothing else painted the whole day as a calm rest. That
+    // overstates it. Two habits were plainly missed, and drawing the day as
+    // a rest quietly forgives them in the one place other people are
+    // looking. A rest is a day you decided not to train; a day you stood one
+    // thing down and then let the rest slide is not that day.
+    final scheduled = scheduledCountFor(dateKey);
+    return scheduled > 0 && restedCountFor(dateKey) >= scheduled;
+  }
+
   /// This participant's completion credit for [dateKey] - 0.0 to 1.0,
   /// proportional to how many of that day's actually-scheduled linked
   /// habits (see [scheduledCountFor]) were done (1 of 2 -> 0.5, 2 of 2 ->
@@ -831,7 +927,17 @@ class RoomParticipant {
     final scheduled = scheduledCountFor(dateKey);
     if (scheduled == 0) return 1.0;
     final done = dailyDoneCount[dateKey] ?? 0;
-    return (done / scheduled).clamp(0.0, 1.0);
+    // A جزئي habit is half a habit. The weight is 0.5 everywhere in this app
+    // (SquareState.xpValue pays it 5 against complete's 10, the Grid's own
+    // day ratio scores it 0.5, and the reports credit it 0.5), and Rooms was
+    // the one surface still scoring it as nothing at all.
+    //
+    // Safe on a ranked surface because it is strictly dominated: marking
+    // جزئي can only ever earn LESS than marking مكتمل, so it is never worth
+    // reaching for. Compare dailyRestedCount, which must not score because
+    // it would shrink the denominator instead of adding to the numerator.
+    final credited = done + partialCountFor(dateKey) * 0.5;
+    return (credited / scheduled).clamp(0.0, 1.0);
   }
 
   /// Whether [dateKey] asked nothing of this participant — a rest day a
@@ -913,17 +1019,84 @@ class RoomParticipant {
     final last = room.lastCountedDay;
     if (last.isBefore(start)) return 1;
     final span = last.difference(start).inDays + 1;
-    if (room.pausedSpans.isEmpty) return span;
+    final conceded = concededDaysIn(room);
+    // The early return is conditional on BOTH exemptions being empty now.
+    // It used to check only pausedSpans, which would have skipped the rest
+    // allowance entirely in the common case of a room that was never paused,
+    // and the feature would have silently done nothing for almost everybody.
+    if (room.pausedSpans.isEmpty && conceded.isEmpty) return span;
     // Paused days are not elapsed — the room wasn't running, so they were
     // never anyone's to keep. Counted by walking rather than by subtracting
     // span lengths, so a span that only partly overlaps this participant's
     // own window (a late joiner) is handled without special-casing.
-    var paused = 0;
+    //
+    // Conceded days leave the same way, and only ever days that scored zero
+    // (see [concededDaysIn]), so this can lift a percentage but never invent
+    // completion that did not happen.
+    var excused = 0;
     for (var d = start; !d.isAfter(last); d = d.add(const Duration(days: 1))) {
-      if (room.isPausedOn(d.toDateKey())) paused++;
+      final key = d.toDateKey();
+      if (room.isPausedOn(key) || conceded.contains(key)) excused++;
     }
-    final live = span - paused;
+    final live = span - excused;
     return live < 1 ? 1 : live;
+  }
+
+  /// How many rest days a week a room excuses. One.
+  ///
+  /// The smallest bound that makes the app's own position true without
+  /// turning the leaderboard into a contest about who rests best. It caps the
+  /// mercy ceiling at seven sixths: someone who genuinely does six of seven
+  /// days reads 100% instead of 86%, and no arrangement of rests can beat
+  /// "your best six of seven". Two a week would make it best five of seven,
+  /// at which point resting starts to be the strategy.
+  ///
+  /// Fixed for every room on purpose. A per-room setting would mean the rule
+  /// is not one rule, so the one sentence that explains it becomes "it
+  /// depends which room you are in".
+  static const int kRestConcessionsPerWeek = 1;
+
+  /// Days excused by the weekly rest allowance, as dateKeys.
+  ///
+  /// A day qualifies only when EVERY scheduled habit was stood down and
+  /// nothing at all was done ([isDeclaredRest], which by construction means
+  /// [creditFor] is exactly 0). That single condition is what makes this safe
+  /// on a ranked surface:
+  ///
+  ///  - A concession can never RAISE a day's credit. It can only remove a day
+  ///    that already scored zero, which is arithmetically identical to
+  ///    crediting that day at your own trailing rate. Somebody sitting at 0%
+  ///    gains precisely nothing by resting.
+  ///  - A MIXED day is untouched. Standing down the one habit you did not do
+  ///    changes nothing, so there is no dial on a partial day.
+  ///
+  /// Earliest-first allocation within a week is therefore a display decision
+  /// rather than a scoring one: every candidate day is worth zero, so which
+  /// one the allowance lands on cannot change anybody's number.
+  Set<String> concededDaysIn(RoomModel room) {
+    final from = restAllowanceFrom;
+    if (from == null) return const {};
+    final out = <String>{};
+    final usedPerWeek = <String, int>{};
+    var day = countedStartIn(room);
+    final last = room.lastCountedDay;
+    while (!day.isAfter(last)) {
+      final key = day.toDateKey();
+      // Before the stamp, nothing is excused. This is the whole of the
+      // no-standing-moves guarantee.
+      if (key.compareTo(from) >= 0 &&
+          !room.isPausedOn(key) &&
+          isDeclaredRest(key)) {
+        final week = day.startOfDisplayWeek.toDateKey();
+        final used = usedPerWeek[week] ?? 0;
+        if (used < kRestConcessionsPerWeek) {
+          usedPerWeek[week] = used + 1;
+          out.add(key);
+        }
+      }
+      day = day.add(const Duration(days: 1));
+    }
+    return out;
   }
 
   double daysCompleted(RoomModel room) {
@@ -1028,6 +1201,15 @@ class RoomParticipant {
       // automatically on every Room Detail open, see _syncIfNeeded) rebuilds
       // this from real Grid history within moments, same as any other
       // self-healing recompute in this app.
+      dailyRestedCount: (d['dailyRestedCount'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+          ) ??
+          const <String, int>{},
+      dailyPartialCount: (d['dailyPartialCount'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+          ) ??
+          const <String, int>{},
+      restAllowanceFrom: d['restAllowanceFrom'] as String?,
       dailyDoneCount: (d['dailyDoneCount'] as Map?)?.map(
             (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
           ) ??
@@ -1094,6 +1276,9 @@ class RoomParticipant {
         'linkedHabitNames': linkedHabitNames,
         'hideDetails': hideDetails,
         'dailyDoneCount': dailyDoneCount,
+        'dailyRestedCount': dailyRestedCount,
+        'dailyPartialCount': dailyPartialCount,
+        if (restAllowanceFrom != null) 'restAllowanceFrom': restAllowanceFrom,
         'dailyScheduledCount': dailyScheduledCount,
         'quotaOkWeeks': quotaOkWeeks,
         'habitRules': habitRules.map(
@@ -1117,6 +1302,9 @@ class RoomParticipant {
     List<String>? linkedHabitNames,
     bool? hideDetails,
     Map<String, int>? dailyDoneCount,
+    Map<String, int>? dailyRestedCount,
+    Map<String, int>? dailyPartialCount,
+    String? restAllowanceFrom,
     Map<String, int>? dailyScheduledCount,
     List<String>? quotaOkWeeks,
     Map<String, List<RoomHabitRule>>? habitRules,
@@ -1140,6 +1328,9 @@ class RoomParticipant {
         hideDetails: hideDetails ?? this.hideDetails,
         dailyDoneCount: dailyDoneCount ?? this.dailyDoneCount,
         dailyScheduledCount: dailyScheduledCount ?? this.dailyScheduledCount,
+        dailyRestedCount: dailyRestedCount ?? this.dailyRestedCount,
+        dailyPartialCount: dailyPartialCount ?? this.dailyPartialCount,
+        restAllowanceFrom: restAllowanceFrom ?? this.restAllowanceFrom,
         quotaOkWeeks: quotaOkWeeks ?? this.quotaOkWeeks,
         habitRules: habitRules ?? this.habitRules,
         lastUpdated: lastUpdated ?? this.lastUpdated,
