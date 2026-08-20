@@ -268,10 +268,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
                           onTapMonth: () => _pickMonth(ordered, counts),
                         ),
                       ),
-                    const SizedBox(height: 14),
-                    // Sits directly under the current month, so it is on
-                    // screen the moment the list lands.
-                    _HeatLegend(dark: dark),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -1223,42 +1220,6 @@ class _OutcomeRow extends StatelessWidget {
               ),
             ),
           ),
-      ],
-    );
-  }
-}
-
-// ─── Legend ───────────────────────────────────────────────────────────────
-
-class _HeatLegend extends StatelessWidget {
-  final bool dark;
-  const _HeatLegend({required this.dark});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final s = S.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Text(s.heatmapLess,
-            style: TextStyle(fontSize: 11, color: gp.textTert)),
-        const SizedBox(width: 6),
-        for (var level = 0; level <= 4; level++)
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Container(
-              width: 14,
-              height: 14,
-              decoration: BoxDecoration(
-                color: heatColor(level, dark),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        const SizedBox(width: 2),
-        Text(s.heatmapMore,
-            style: TextStyle(fontSize: 11, color: gp.textTert)),
       ],
     );
   }

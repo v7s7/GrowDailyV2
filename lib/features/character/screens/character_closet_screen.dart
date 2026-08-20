@@ -444,7 +444,6 @@ class _CharacterRowState extends ConsumerState<_CharacterRow> {
 
   @override
   Widget build(BuildContext context) {
-    final gp = context.gp;
     final s = S.of(context);
     final all = _shown;
 
