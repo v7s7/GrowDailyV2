@@ -69,6 +69,16 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
   Color? _fillFor(DateTime day, bool dark) {
     if (day.isBefore(_firstDay) || day.isAfter(_lastDay)) return null;
     final key = day.toDateKey();
+    // A day the whole room was paused is not this member's day to answer
+    // for. The strip paints it blank; this sheet used to paint it as a miss
+    // and then label it لم يُنجز beside it.
+    if (widget.room.isPausedOn(key)) return null;
+    // A deliberate تخطّي gets the same gold the strip and the personal
+    // reports give it, so one act has one colour everywhere. It does NOT
+    // change what the day scored, which is still nothing.
+    if (widget.participant.isDeclaredRest(key)) {
+      return GameColors.gold.withOpacity(0.16);
+    }
     final credit = widget.participant.isRestDay(key)
         ? 0.0
         : widget.participant.creditFor(key);
@@ -89,7 +99,13 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
 
   String _statusFor(DateTime day, S s) {
     final key = day.toDateKey();
+    // Same precedence as _fillFor above, so the word and the colour can
+    // never describe two different things about one square.
+    if (widget.room.isPausedOn(key)) return s.roomCalendarPaused;
     if (widget.participant.isRestDay(key)) return s.roomCalendarRestDay;
+    if (widget.participant.isDeclaredRest(key)) {
+      return s.roomCalendarStoodDown;
+    }
     final credit = widget.participant.creditFor(key);
     if (credit >= 1.0) return s.roomCalendarDone;
     if (credit > 0) return s.roomCalendarPartial;

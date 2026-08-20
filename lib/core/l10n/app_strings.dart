@@ -9,6 +9,7 @@ import '../constants/deep_links.dart';
 import '../services/local_store_service.dart';
 import '../utils/bidi_fraction.dart';
 import '../utils/intention_phrase.dart';
+import '../../features/grid/models/square_state.dart';
 
 // ─── Locale provider ──────────────────────────────────────────────────────────
 
@@ -995,7 +996,9 @@ class S {
   String get closetSubtitle =>
       isAr ? 'خصص رفيقك بشخصية وإكسسوار' : 'Customize your companion';
   String get closetCharacterSection => isAr ? 'الشخصية' : 'CHARACTER';
-  String get closetOwned => isAr ? 'مملوك' : 'Owned';
+  // Was 'مملوك', which is the word used for a possessed person. 'لديك'
+  // is the ordinary register for "you have this".
+  String get closetOwned => isAr ? 'لديك' : 'Owned';
   String get closetEquipped => isAr ? 'مرتدى' : 'Equipped';
   String get closetEquip => isAr ? 'ارتداء' : 'Equip';
   String get closetUnequip => isAr ? 'خلع' : 'Remove';
@@ -1011,6 +1014,67 @@ class S {
       : "Couldn't complete the purchase — try again";
   String get closetPurchased => isAr ? 'تم الفتح!' : 'Unlocked!';
   String get closetCancel => isAr ? 'إلغاء' : 'Cancel';
+
+  // ── Closet: the three bands the grid is grouped into ──────────
+  //
+  // Grouping replaced a row of filter chips. The chips made the user
+  // operate the screen to learn what they had; three titled bands answer
+  // "what do I have / what can I get / what am I working toward" by
+  // scrolling, with no taps at all. An empty band is not rendered.
+  String get closetBandOwned => isAr ? 'لديك' : 'Yours';
+  String get closetBandReach => isAr ? 'بمتناولك' : 'Within reach';
+  String get closetBandGoal => isAr ? 'بالتقدّم' : 'Earned with progress';
+
+  /// Why a character is locked at all: progress, never gold.
+  String get closetCharacterEarned => isAr
+      ? 'المظاهر تُكتسب، ما تُشترى.'
+      : 'Looks are earned with progress, not gold.';
+
+  /// Shown when someone taps a character they have not reached yet.
+  /// Names what opens it rather than just refusing.
+  String closetCharacterLocked(String requirement) =>
+      isAr ? '$requirement يفتح هذا المظهر' : 'Unlocked at $requirement';
+
+  // The picker holds fifteen looks, ten of them male. Without a split, a
+  // woman scrolls past ten men to reach five. Plain nouns rather than
+  // ذكر/أنثى: this is choosing a look, not declaring anything.
+  String get closetMen => isAr ? 'رجال' : 'Men';
+  String get closetWomen => isAr ? 'نساء' : 'Women';
+
+  String get closetNoAccessory => isAr ? 'بدون قطعة' : 'Nothing worn';
+
+  /// Shown on a locked item's button. Deliberately states the rule rather
+  /// than the shortfall: the point of a requirement is that no amount of
+  /// gold substitutes for it.
+  String get closetUnlockedByProgress =>
+      isAr ? 'تُفتح بالتقدّم، لا بالذهب' : 'Unlocked by progress, not gold';
+
+  String closetShortBy(int amount) =>
+      isAr ? 'ينقصك $amount' : '$amount short';
+
+  String closetBalanceIs(int gold) =>
+      isAr ? 'رصيدك $gold ذهبًا' : 'You have $gold gold';
+
+  String closetBalanceAfter(int gold) =>
+      isAr ? 'يتبقى لك $gold ذهبًا' : '$gold left after this';
+
+  String closetBalanceOf(int gold, int cost) =>
+      isAr ? 'رصيدك $gold من $cost' : '$gold of $cost';
+
+  /// "12 من 20", never "12 / 20". A slash is bidi-neutral, so in an RTL
+  /// paragraph the two numbers around it swap and the label reads as its
+  /// own inverse: 12 of 20 renders as "20 / 12". The word من is a strong
+  /// RTL character and pins the order. Same pattern as streakFreezeStatus.
+  String closetProgress(int have, int total) =>
+      isAr ? '$have من $total' : '$have / $total';
+
+  String closetPriceLater(int cost) =>
+      isAr ? 'ثمنها بعد ذلك $cost ذهبًا' : 'Then it costs $cost gold';
+
+  /// The payoff nobody is told about today: room leaderboards already
+  /// render every member's equipped accessory.
+  String get closetSeenByRooms =>
+      isAr ? 'هكذا يراك أعضاء غرفك' : 'This is how your rooms see you';
 
   // ── Edit display name (Profile) ─────────────────────────────────────────
   String get profileEditNameTitle => isAr ? 'اسمك' : 'Your name';
@@ -1146,6 +1210,37 @@ class S {
       ? 'اضغط "استعرض الخطط" تحت عشان تضيف أول عادة وتبدأ تلوّن أسبوعك.'
       : 'Tap Browse Plans below to add your first habit and start coloring your week.';
   String get gridEditSquare => isAr ? 'حدّد المربّع' : 'Set this square';
+
+  /// What the CHOSEN square actually does, shown under the palette and
+  /// changing as the choice changes.
+  ///
+  /// The six squares are the one part of this app that cannot be understood
+  /// by looking at it. Three of them mean some version of "not done", and
+  /// nothing on screen said how they differ, so the honest question a person
+  /// arrives with, "what is the difference between تخطّي and فشل and just
+  /// leaving it empty", had no answer anywhere in the product.
+  ///
+  /// These lines answer it in terms of CONSEQUENCE, not definition. Nobody
+  /// needs to be told that تخطّي means skipped. What they need to know is
+  /// that it will not be counted against them, and that فشل will.
+  String squareStateEffect(SquareState state) => switch (state) {
+        SquareState.complete =>
+          isAr ? 'يُحتسب يومًا كاملًا.' : 'Counts as a full day.',
+        SquareState.bonus => isAr
+            ? 'أكثر من المطلوب، ويُحتسب يومًا كاملًا.'
+            : 'More than asked, and counts as a full day.',
+        SquareState.partial =>
+          isAr ? 'يُحتسب نصف يوم.' : 'Counts as half a day.',
+        SquareState.skipped => isAr
+            ? 'راحة باختيارك. لا تُحسب عليك.'
+            : 'A rest you chose. It is not counted against you.',
+        SquareState.failed => isAr
+            ? 'تُحسب عليك، وتُحفظ في ملاحظات العادات.'
+            : 'Counted against you, and kept in Habit Notes.',
+        SquareState.none => isAr
+            ? 'لا شيء مسجّل. تُحسب عليك إذا كان اليوم مطلوبًا.'
+            : 'Nothing recorded. Counted against you if the day was due.',
+      };
   String get gridNoteLabel => isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
   String get gridNoteHint =>
       isAr ? 'اكتب انعكاسًا قصيرًا…' : 'Write a short reflection…';
@@ -1184,7 +1279,7 @@ class S {
   // ── Monthly Heatmap ──────────────────────────────────────────────────────
   String get heatmapTitle => isAr ? 'خريطة التقدّم' : 'Progress Heatmap';
   String get heatmapSubtitle => isAr
-      ? 'كثافة الإنجاز عبر الأشهر — كل مربّع يومٌ، وكل درجة لون كثافة انتصاراتك.'
+      ? 'كل مربّع يومٌ، وكلما ارتفع اللون فيه زاد ما أنجزته. اليوم الممتلئ يضيء.'
       : 'Your completion density across months — every square is a day, every shade is how much you colored it.';
   String get heatmapTotalGreen => isAr ? 'مربّعات ملوّنة' : 'Squares filled';
   String get heatmapActiveDays => isAr ? 'أيام نشطة' : 'Active days';
@@ -1962,6 +2057,19 @@ class S {
   // It scores as finished but draws empty, so the calendar has to say which
   // it is or an empty cell reads as a miss.
   String get roomCalendarRestDay => isAr ? 'يوم راحة' : 'Rest day';
+
+  /// A day the member deliberately stood everything down (تخطّي), as opposed
+  /// to [roomCalendarRestDay], which is a day nothing was owed on in the
+  /// first place. Different facts, so different words: one is a choice, the
+  /// other is the calendar.
+  ///
+  /// Said in the passive, not as "you rested", because this sheet is opened
+  /// on OTHER participants as often as on yourself.
+  String get roomCalendarStoodDown => isAr ? 'راحة مُعلَنة' : 'Rested';
+
+  /// A day the whole ROOM was paused. Nobody was being graded, which is not
+  /// the same as nobody doing anything, and the strip already draws it blank.
+  String get roomCalendarPaused => isAr ? 'الغرفة متوقفة' : 'Room paused';
   // Shown when the selected day IS this participant's first counted day —
   // the one the strip rings. Worth its own note rather than just a status,
   // because it's the day that explains the shape of everything after it.
@@ -2686,4 +2794,103 @@ class S {
 
   String get categoryBreakdownTitle =>
       isAr ? 'توزيع الفئات' : 'Category Breakdown';
+
+  // ── Reports hub (ProgressHubScreen's أسبوعي/شهري/سنوي tabs) ────────────
+  //
+  // The three segments replace what used to be two separate destinations
+  // (Monthly Story, Year Record) plus this screen's own untabbed body. Kept
+  // to one word each so all three fit the pill at any text scale, in both
+  // languages.
+
+  /// The reports destination's own title.
+  ///
+  /// Separate from [progressTitle] because they are separate screens again:
+  /// the three period tabs answer "what did I do, and when", while التقدّم
+  /// keeps the things that are not period-scoped at all (lifetime medals,
+  /// lifetime category share, the newest notes). Stacking them in one
+  /// scroll made the medals read like part of the month being viewed.
+  String get reportsTitle => isAr ? 'التقارير' : 'Reports';
+
+  String get reportsWeekly => isAr ? 'أسبوعي' : 'Weekly';
+  String get reportsMonthly => isAr ? 'شهري' : 'Monthly';
+  String get reportsYearly => isAr ? 'سنوي' : 'Yearly';
+
+  /// The four numbers under every tab's grid.
+  ///
+  /// "نسبة الإنجاز" is measured against what the habits actually owed (see
+  /// expectedCompletions), not against calendar days, so it stays honest
+  /// for a habit scheduled twice a week.
+  String get reportsRate => isAr ? 'نسبة الإنجاز' : 'Completion';
+  String get reportsTotalDone => isAr ? 'المجموع' : 'Total done';
+
+  /// Deliberately not "السلسلة": the app's real streak is an account-wide
+  /// 80%-of-habits rule that survives rest days, and this is only the
+  /// longest unbroken run INSIDE the period on screen. Two different
+  /// numbers sharing one word would make the report look wrong.
+  String get reportsLongestRun => isAr ? 'أطول تتابع' : 'Longest run';
+
+  /// The ribbon on a habit card whose period was fully met.
+  String get reportsPerfect => isAr ? 'كامل' : 'PERFECT';
+
+  String get reportsHabitsSection => isAr ? 'عاداتك' : 'Your habits';
+
+  /// Weekday rhythm block: the one thing on this screen nobody can work
+  /// out for themselves by looking at a grid.
+  String get reportsRhythmTitle => isAr ? 'إيقاع أيامك' : 'Your rhythm';
+  /// Says WEEKDAY, not day, because "أفضل يوم" already appears three
+  /// centimetres above it in the summary row meaning a specific date (18
+  /// أغسطس). Two stats on one screen called the same thing, one answering
+  /// with a date and one with a weekday, is the ambiguity this wording
+  /// exists to remove.
+  String reportsRhythmBest(String weekday) => isAr
+      ? 'أفضل يوم في الأسبوع: $weekday'
+      : 'Best weekday: $weekday';
+  String reportsRhythmWorst(String weekday) => isAr
+      ? 'أضعف يوم في الأسبوع: $weekday'
+      : 'Weakest weekday: $weekday';
+
+  /// Empty state per tab. Phrased about the PERIOD, never about the person:
+  /// an empty August is a month with nothing in it yet, not a verdict.
+  String get reportsEmptyWeek =>
+      isAr ? 'ما فيه شيء مسجّل في هذا الأسبوع.' : 'Nothing recorded this week.';
+  String get reportsEmptyMonth =>
+      isAr ? 'ما فيه شيء مسجّل في هذا الشهر.' : 'Nothing recorded this month.';
+  String get reportsEmptyYear =>
+      isAr ? 'ما فيه شيء مسجّل في هذي السنة.' : 'Nothing recorded this year.';
+
+  // ── One habit's own page ───────────────────────────────────────────────
+  //
+  // Four numbers, not eight. The obvious model for this screen puts Volume,
+  // Total Volume, Daily Average and Overall Rate side by side, and a
+  // "Daily Avg. 0.02" tells nobody anything at all. These are the questions
+  // someone actually opens a habit to ask: how consistent am I lately, how
+  // long have I kept it up, and how much have I done altogether.
+
+  String get habitStatsThisPeriod => isAr ? 'هذا الشهر' : 'This month';
+  String get habitStatsCurrentStreak => isAr ? 'السلسلة' : 'Streak';
+  String get habitStatsBestStreak => isAr ? 'الأطول' : 'Best';
+
+  /// The caption under the calendar, filled in when a day is tapped.
+  ///
+  /// A tap inside a sheet opening ANOTHER sheet is the kind of stacking that
+  /// makes an app feel heavy, so a day answers in place instead: one line,
+  /// naming the date and what was recorded on it.
+  String habitStatsDayLine(String date, String state) => '$date · $state';
+
+  /// Shown in that line before anything has been tapped, so the line is
+  /// never an empty gap waiting to be understood.
+  String get habitStatsDayHint => isAr
+      ? 'اضغط أي يوم لتعرف ماذا سُجّل فيه.'
+      : 'Tap any day to see what it recorded.';
+
+  /// The day-detail sheet opened by tapping any cell in the weekly matrix.
+  /// Passive on purpose. 'أنجزت' is read as either first person or a
+  /// gendered second person depending on a vowel nobody types, so the same
+  /// four letters address a man in one reading and speak for the reader in
+  /// another. 'تم إنجاز' states what happened and belongs to nobody.
+  String reportsDayDone(int n) => isAr ? 'تم إنجاز $n' : '$n done';
+  String get reportsDayNothing =>
+      isAr ? 'ما فيه إنجاز في هذا اليوم.' : 'Nothing done on this day.';
+  String get reportsDayScheduled => isAr ? 'مطلوب' : 'Due';
+  String get reportsDayNotDue => isAr ? 'غير مطلوب' : 'Not due';
 }

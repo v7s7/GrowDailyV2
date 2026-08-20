@@ -5,7 +5,9 @@
 // depend on it agreeing with itself, so its truth table is pinned first.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/features/milestones/notifiers/habit_history_notifier.dart';
-import 'package:grow_daily_v2/features/milestones/screens/year_record_screen.dart';
+import 'package:grow_daily_v2/features/grid/models/square_state.dart';
+import 'package:grow_daily_v2/features/milestones/reports/habit_day_marks.dart';
+import 'package:grow_daily_v2/features/milestones/reports/year_strip.dart';
 
 void main() {
   group('dayIsDone', () {
@@ -67,7 +69,7 @@ void main() {
   });
 
   group('aggregateHabitHistory', () {
-    test('folds days per habit across both sources', () {
+    test('folds days per habit across both sources, keeping the mark', () {
       final out = aggregateHabitHistory({
         '2026-06-13': {
           'habitCompletions': {'a': 1},
@@ -76,15 +78,59 @@ void main() {
         '2026-06-14': {
           'habitCompletions': {'a': 2, 'b': 0},
         },
+        // The day that used to vanish: partial was not green, so the old
+        // presence-only mirror dropped it and every report saw silence.
         '2026-06-15': {
           'squareStates': {'a': 'partial'},
         },
       });
-      expect(out['a'], {'2026-06-13', '2026-06-14'});
-      expect(out['b'], {'2026-06-13'});
+      expect(out['a'], {
+        '2026-06-13': SquareState.complete,
+        '2026-06-14': SquareState.complete,
+        '2026-06-15': SquareState.partial,
+      });
+      expect(out['b'], {'2026-06-13': SquareState.complete});
     });
 
-    test('empty input aggregates to empty, not to entries of empty sets',
+    test('a rest day survives into the mirror', () {
+      // The whole point of storing marks: تخطّي has to reach the report,
+      // because it is what removes the day from the denominator.
+      final out = aggregateHabitHistory({
+        '2026-06-13': {
+          'squareStates': {'a': 'skipped'},
+        },
+        '2026-06-14': {
+          'squareStates': {'a': 'failed'},
+        },
+      });
+      expect(out['a'], {
+        '2026-06-13': SquareState.skipped,
+        '2026-06-14': SquareState.failed,
+      });
+    });
+
+    test('a completion outranks a non-green square on the same day', () {
+      // dayMark's precedence: a completion is a fact, a square is a label.
+      final out = aggregateHabitHistory({
+        '2026-06-13': {
+          'habitCompletions': {'a': 1},
+          'squareStates': {'a': 'skipped'},
+        },
+      });
+      expect(out['a'], {'2026-06-13': SquareState.complete});
+    });
+
+    test('bonus keeps its flavour instead of flattening to complete', () {
+      final out = aggregateHabitHistory({
+        '2026-06-13': {
+          'habitCompletions': {'a': 1},
+          'squareStates': {'a': 'bonus'},
+        },
+      });
+      expect(out['a'], {'2026-06-13': SquareState.bonus});
+    });
+
+    test('empty input aggregates to empty, not to entries of empty maps',
         () {
       expect(aggregateHabitHistory(const {}), isEmpty);
       final out = aggregateHabitHistory({
@@ -93,6 +139,30 @@ void main() {
         },
       });
       expect(out.containsKey('a'), isFalse);
+    });
+  });
+
+  group('markFromStored', () {
+    test('legacy numeric 1 reads as complete, not as none', () {
+      // The migration trap this exists to make impossible: every account
+      // backfilled before marks existed holds 1 on its done days, and
+      // SquareState.fromJson('1') is none. Getting this wrong erases an
+      // account's entire recorded history from its own report.
+      expect(markFromStored(1), SquareState.complete);
+      expect(markFromStored('1'), SquareState.complete);
+      expect(markFromStored(0), SquareState.none);
+    });
+
+    test('state names round-trip', () {
+      for (final state in SquareState.values) {
+        expect(markFromStored(markToStored(state)), state);
+      }
+    });
+
+    test('junk degrades to none rather than throwing', () {
+      expect(markFromStored(null), SquareState.none);
+      expect(markFromStored(''), SquareState.none);
+      expect(markFromStored('nonsense'), SquareState.none);
     });
   });
 

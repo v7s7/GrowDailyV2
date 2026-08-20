@@ -21,16 +21,24 @@ import 'matrix_history_screen.dart';
 bool _isSameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
-/// The day [t] should be judged against for the Today lens and the Carried
-/// Over chip: its reminder's day if it has one, otherwise the day it was
-/// created. A task created today with a reminder set two days out is a
-/// deliberate "not now" — it shouldn't read as fresh in Today (it isn't,
-/// yet), and it shouldn't read as stale in Carried Over either (it's not
-/// overdue, it just hasn't arrived) until that reminder day itself has come
-/// and gone without the task being done. A task with no reminder falls back
-/// to createdAt, exactly the old behavior. See _isVisibleUnderFilter and
-/// build()'s carriedOver/todayTasks below — the only three places this is
-/// used.
+/// The day [t] is judged against for the Today lens and the Carried Over
+/// chip: ALWAYS the day it was created.
+///
+/// This used to prefer the reminder's day, on the reasoning that a task
+/// set two days out is a deliberate "not now" and shouldn't clutter Today
+/// until it arrives. Reasonable in theory, and it lost people their tasks
+/// in practice: users reported adding a task, setting a reminder for
+/// tomorrow morning because that is when they meant to do it, and then
+/// being unable to find the task at all. It had silently moved to a day
+/// they were not looking at, with nothing on the board to say so.
+///
+/// A todo you just typed must appear where you typed it. A reminder is a
+/// notification, not a filing instruction, and the task already shows its
+/// reminder chip, so "later" stays visible without the task going missing.
+/// Losing a task is far worse than a slightly fuller Today.
+///
+/// See _isVisibleUnderFilter and build()'s carriedOver/todayTasks below —
+/// the only three places this is used.
 // startOfDay, NOT effectiveDay: tasks roll over at real midnight, on
 // purpose. The 6 AM flex window exists for HABITS — a late sleeper's
 // 1 AM workout still counting toward the day they haven't slept on yet
@@ -39,7 +47,7 @@ bool _isSameDay(DateTime a, DateTime b) =>
 // board should agree — yesterday's finished tasks clear off to history,
 // "Today" means the actual calendar day. This was effectiveDay once, which
 // left the board looking stuck on yesterday until 6 in the morning.
-DateTime _anchorDay(MatrixTask t) => (t.reminderAt ?? t.createdAt).startOfDay;
+DateTime _anchorDay(MatrixTask t) => t.createdAt.startOfDay;
 
 /// The three top-level lenses on the board — see _MatrixScreenState._filter.
 /// Deliberately just three plain client-side filters over one already-loaded

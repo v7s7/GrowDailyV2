@@ -158,9 +158,18 @@ Future<DateTime?> pickReminderMoment(
   DateTime? initial,
 }) async {
   final now = DateTime.now();
+  // ONE moment drives both pickers, so the date and the time can never
+  // disagree. They used to be derived separately: the date defaulted to
+  // today while the time defaulted to now + 1 hour, so any task added
+  // after 23:00 offered today at 00:30 — a moment already in the past,
+  // which the guard below then rejected. The user was left to work out on
+  // their own that they had to advance the date by a day.
+  final suggested = initial != null && initial.isAfter(now)
+      ? initial
+      : now.add(const Duration(hours: 1));
   final date = await showDatePicker(
     context: context,
-    initialDate: initial != null && initial.isAfter(now) ? initial : now,
+    initialDate: suggested,
     firstDate: now,
     lastDate: now.add(const Duration(days: 365)),
   );
@@ -168,9 +177,7 @@ Future<DateTime?> pickReminderMoment(
 
   final time = await showTimePicker(
     context: context,
-    initialTime: initial != null
-        ? TimeOfDay(hour: initial.hour, minute: initial.minute)
-        : TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+    initialTime: TimeOfDay.fromDateTime(suggested),
     builder: (context, child) => MediaQuery(
       data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
       child: child!,

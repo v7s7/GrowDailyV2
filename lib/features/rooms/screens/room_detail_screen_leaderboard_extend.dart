@@ -54,12 +54,28 @@ Color roomStripCellFill({
   required bool isMissed,
   required bool dark,
   required Color backdrop,
+  bool isDeclaredRest = false,
 }) {
-  final tone = isRest
-      ? GameColors.emerald.withOpacity(0.13)
-      : isMissed
-          ? Colors.transparent
-          : heatColor(heatmapLevelFor(credit), dark);
+  // Order matters. A day the member deliberately stood down is checked
+  // before the miss arm, because تخطّي is a choice somebody made and a miss
+  // is the absence of one, and drawing them the same is precisely the thing
+  // the personal reports stopped doing.
+  //
+  // GOLD, not emerald: the same tone the reports paint a rest with (see
+  // report_sections.dart's MatrixCellState.rest), so the two surfaces name
+  // the same act the same way. The emerald above is the STRUCTURAL rest,
+  // a day where nothing was owed at all, which is a different fact.
+  //
+  // The fill does not change what the day SCORES. A declared rest still
+  // earns whatever creditFor says it earned, which is nothing. See
+  // RoomParticipant.dailyRestedCount for why that wall exists.
+  final tone = isDeclaredRest
+      ? GameColors.gold.withOpacity(0.16)
+      : isRest
+          ? GameColors.emerald.withOpacity(0.13)
+          : isMissed
+              ? Colors.transparent
+              : heatColor(heatmapLevelFor(credit), dark);
   return Color.alphaBlend(tone, backdrop);
 }
 
@@ -737,7 +753,12 @@ class _MiniHeatmapStrip extends StatelessWidget {
     // they stay neutral.
     final isRest = participant.isRestDay(key);
     final credit = participant.creditFor(key);
-    final isMissed = !isRest && credit <= 0 && _missIsFinal(day);
+    // A declared rest is settled the instant it is marked, so it bypasses the
+    // _missIsFinal week gate entirely: there is nothing left to rescue on a
+    // day somebody has already said they are resting.
+    final isDeclaredRest = participant.isDeclaredRest(key);
+    final isMissed =
+        !isRest && !isDeclaredRest && credit <= 0 && _missIsFinal(day);
     final isStart = index == 0;
     // isRealToday, not isToday: purely the "today" marker — see
     // DateTimeGameExt.isRealToday's doc comment.
@@ -763,6 +784,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
           credit: credit,
           isRest: isRest,
           isMissed: isMissed,
+          isDeclaredRest: isDeclaredRest,
           dark: dark,
           backdrop: backdrop,
         ),

@@ -1,5 +1,37 @@
 part of 'dashboard_notifier.dart';
 
+/// The value to write for [habitId] into a SPARSE map that is persisted with
+/// `SetOptions(merge: true)`.
+///
+/// Returns the new value when the habit still has one, and an explicit
+/// [FieldValue.delete] when it does not.
+///
+/// This exists because merge semantics are the opposite of the obvious
+/// reading: merging a nested map updates the keys PRESENT in the written
+/// data and leaves every other key untouched. So "copy the map, remove the
+/// key, write the map" removes nothing at all on the server. Every sparse
+/// per-habit map in this file (completions, total completions, streak
+/// counts, longest streaks, last completed date) drops its key at zero and
+/// so must go through here.
+///
+/// Returns the WRAPPED map, `{habitId: value}`, and not the bare value, so a
+/// call site physically cannot write the delta as the field itself. An earlier
+/// version returned the bare value and left the wrapping to five call sites;
+/// they were written unwrapped, so `'habitCompletions': FieldValue.delete()`
+/// removed the entire field rather than one key. That wiped a whole day of
+/// completions and an account's entire habitTotalCompletions map, and the next
+/// load threw on `as Map` and set DashboardState.loadFailed, which blocks
+/// every reward write. The API now makes that mistake unrepresentable.
+///
+/// Nested map rather than a dotted key on purpose: inside `set(merge: true)`
+/// a dotted string is a literal field name, not a path. The file's other
+/// writes already comment on that.
+Map<String, Object> habitCompletionDelta<T extends Object>(
+  String habitId,
+  Map<String, T>? updated,
+) =>
+    {habitId: updated?[habitId] ?? FieldValue.delete()};
+
 extension DashboardNotifierUncompleteHabit on DashboardNotifier {
 
   /// Reverses a same-day completion made via [completeHabit] — the "I
@@ -177,7 +209,26 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
 
       batch.set(
         _dailyRef,
-        {'habitCompletions': newCompletions},
+        // A DELTA for this one habit, not the whole map.
+        //
+        // SetOptions(merge: true) merges a nested map key by key, so a key
+        // that is ABSENT from the data being written is left exactly as it
+        // was on the server. Removing the key from a local copy and writing
+        // that copy therefore deletes nothing: the completion survives in
+        // Firestore, dayMark's rule 2 keeps reading it as complete forever,
+        // and _loadToday rehydrates state.completions from it on the next
+        // launch, so the undo silently reverts.
+        //
+        // It only bites when ANOTHER habit is still completed that day. Undo
+        // the day's only completion and newCompletions is empty, the empty
+        // map is itself the leaf, the field is written whole, and it clears.
+        // Which is why every obvious manual test passed.
+        //
+        // The mirror write ten lines below always did this correctly with
+        // FieldValue.delete(); this one did not.
+        {
+          'habitCompletions': habitCompletionDelta(habitId, newCompletions),
+        },
         SetOptions(merge: true),
       );
 
@@ -212,11 +263,18 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
           // literal field name inside set(merge: true), not a path).
           'totalGreenSquares': FieldValue.increment(-1),
           'dailyGreenCounts': {DashboardNotifier._todayKey: FieldValue.increment(-1)},
-          'habitTotalCompletions': newHabitTotalCompletions,
+          // Deltas, for the same merge reason as habitCompletions above.
+          // Every one of these four drops the habit's key at zero, and every
+          // one of them was written as a whole map, so none of the removals
+          // ever reached the server. habitTotalCompletions matters most: it
+          // is the ONLY signal the removal flow reads to decide hard delete
+          // versus archive, so a stale entry made a never-completed habit
+          // refuse to hard-delete and silently soft-archive instead.
+          'habitTotalCompletions': habitCompletionDelta(habitId, newHabitTotalCompletions),
           if (snapshot != null) ...{
-            'habitStreakCounts': newHabitStreakCounts,
-            'habitLongestStreaks': newHabitLongestStreaks,
-            'habitLastCompletedDate': newHabitLastCompletedDate,
+            'habitStreakCounts': habitCompletionDelta(habitId, newHabitStreakCounts),
+            'habitLongestStreaks': habitCompletionDelta(habitId, newHabitLongestStreaks),
+            'habitLastCompletedDate': habitCompletionDelta(habitId, newHabitLastCompletedDate),
           },
         },
         SetOptions(merge: true),

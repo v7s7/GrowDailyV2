@@ -152,11 +152,53 @@ extension DashboardNotifierLoading on DashboardNotifier {
     );
   }
 
+  /// A per-habit int map read from a document, degrading to empty on anything
+  /// that is not a map of numbers.
+  ///
+  /// Every one of these fields used to be read with `as Map?`, which throws on
+  /// a field that is PRESENT but the wrong shape, and a throw anywhere in the
+  /// load fails the whole thing: the account renders at level 1 with zero XP
+  /// and gold, and DashboardState.loadFailed then refuses every reward write
+  /// until it parses again. One malformed field should cost that field, not
+  /// the account.
+  ///
+  /// Per ENTRY, not just per field: a single junk value inside an otherwise
+  /// good map drops that habit rather than the whole map.
+  static Map<String, int> _asIntMap(Object? raw) {
+    if (raw is! Map) return {};
+    final out = <String, int>{};
+    raw.forEach((key, value) {
+      if (value is num) out[key.toString()] = value.toInt();
+    });
+    return out;
+  }
+
+  /// The string-valued counterpart, for habitLastCompletedDate.
+  static Map<String, String> _asStringMap(Object? raw) {
+    if (raw is! Map) return {};
+    final out = <String, String>{};
+    raw.forEach((key, value) {
+      if (value is String) out[key.toString()] = value;
+    });
+    return out;
+  }
+
   Future<void> _saveGuestDaily(
     Map<String, int> completions, {
     bool? streakEarnedToday,
+    Map<String, int>? completedAtMinutes,
   }) async {
     final existing = await LocalStoreService.getDailyMap(DashboardNotifier._todayKey);
+    // Merged by hand, because the local store writes the map whole. Without
+    // this the guest path would keep only the newest stamp per day while the
+    // signed-in path (which gets Firestore's deep merge for free) kept them
+    // all, and the two stores would disagree about the same day.
+    final mergedMinutes = <String, int>{
+      ...?(existing['completedAtMinutes'] as Map?)?.map(
+        (key, value) => MapEntry('$key', (value as num).toInt()),
+      ),
+      ...?completedAtMinutes,
+    };
     await LocalStoreService.putDailyMap(
       DashboardNotifier._todayKey,
       {
@@ -164,6 +206,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
         'habitCompletions': completions,
         'date': DateTime.now().effectiveDay.toIso8601String(),
         if (streakEarnedToday != null) 'streakEarnedToday': streakEarnedToday,
+        if (mergedMinutes.isNotEmpty) 'completedAtMinutes': mergedMinutes,
       },
     );
   }
@@ -307,31 +350,26 @@ extension DashboardNotifierLoading on DashboardNotifier {
               junkKey: FieldValue.delete(),
           }, SetOptions(merge: true)).ignore();
         }
-        final rawCategoryCompletions =
-            (d['categoryCompletions'] as Map?)?.cast<String, dynamic>() ?? {};
-        categoryCompletions = rawCategoryCompletions.map(
-          (key, value) => MapEntry(key, (value as num).toInt()),
-        );
-        final rawHabitStreakCounts =
-            (d['habitStreakCounts'] as Map?)?.cast<String, dynamic>() ?? {};
-        habitStreakCounts = rawHabitStreakCounts.map(
-          (key, value) => MapEntry(key, (value as num).toInt()),
-        );
-        final rawHabitLongestStreaks =
-            (d['habitLongestStreaks'] as Map?)?.cast<String, dynamic>() ?? {};
-        habitLongestStreaks = rawHabitLongestStreaks.map(
-          (key, value) => MapEntry(key, (value as num).toInt()),
-        );
+        final rawCategoryCompletions = _asIntMap(d['categoryCompletions']);
+        categoryCompletions = rawCategoryCompletions;
+        final rawHabitStreakCounts = _asIntMap(d['habitStreakCounts']);
+        habitStreakCounts = rawHabitStreakCounts;
+        final rawHabitLongestStreaks = _asIntMap(d['habitLongestStreaks']);
+        habitLongestStreaks = rawHabitLongestStreaks;
+        // `as Map?` throws on a field that is present but NOT a map, and a
+        // throw here fails the whole load: the account renders as level 1
+        // with zero XP, zero gold and no streak, and every reward write is
+        // refused until it parses again.
+        //
+        // That is far too much blast radius for one bad field. A wrong shape
+        // degrades to empty, exactly as an absent field already does, so a
+        // single corrupt entry costs its own map and nothing else. Written
+        // after a bad write set this field to a bare int and locked the
+        // account out of its own progression.
         final rawHabitTotalCompletions =
-            (d['habitTotalCompletions'] as Map?)?.cast<String, dynamic>() ??
-                {};
-        habitTotalCompletions = rawHabitTotalCompletions.map(
-          (key, value) => MapEntry(key, (value as num).toInt()),
-        );
-        habitLastCompletedDate = (d['habitLastCompletedDate'] as Map?)
-                ?.cast<String, dynamic>()
-                .map((key, value) => MapEntry(key, value as String)) ??
-            {};
+            _asIntMap(d['habitTotalCompletions']);
+        habitTotalCompletions = rawHabitTotalCompletions;
+        habitLastCompletedDate = _asStringMap(d['habitLastCompletedDate']);
 
         // See _loadGuestToday's identical comment: this is the last day
         // that itself earned the streak point, not the last day any
@@ -400,7 +438,12 @@ extension DashboardNotifierLoading on DashboardNotifier {
           accountCreatedAt: accountCreatedAt,
         );
       }
-    } catch (_) {
+    } catch (e, st) {
+      // Logged, not swallowed. This catch used to be `catch (_)`, so a single
+      // malformed field bricked the whole account into the zeros state with
+      // nothing on screen or in the console to say why, and finding it cost a
+      // full device session.
+      debugPrint('[dash] load failed: $e\n$st');
       // state is still DashboardState.initial() here — level 1, 0 XP, 0 gold,
       // no streak, no achievements — and none of that came from the server.
       // Flag it so the writers that persist progression as absolute values —

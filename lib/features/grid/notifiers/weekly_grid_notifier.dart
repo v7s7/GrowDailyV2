@@ -5,6 +5,7 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../../milestones/reports/habit_day_marks.dart';
 import '../models/square_state.dart';
 
 /// Returns the Saturday that starts the week containing [d].
@@ -88,6 +89,24 @@ class WeeklyGridState {
     return count;
   }
 
+  /// Today's habits sitting on a جزئي square.
+  ///
+  /// Fed to [willCompleteAllHabitsToday] so a half-done habit counts half
+  /// toward the streak threshold. Only today's row, and only when the
+  /// visible week actually contains today, for the same reason
+  /// [todayCompletionRatio] guards that way: a backfilled square on some
+  /// other week is history, not a claim about today.
+  Set<String> halfDoneTodayIds() {
+    final today = DateTime.now().effectiveDay;
+    if (!isCurrentWeek || !days.any((d) => d.isSameDayAs(today))) return const {};
+    final row = states[today.toDateKey()];
+    if (row == null) return const {};
+    return {
+      for (final entry in row.entries)
+        if (entry.value == SquareState.partial) entry.key,
+    };
+  }
+
   /// Completion ratio for today's habit list in the visible week.
   ///
   /// The Grid can show a whole week of history, but the completion percent is
@@ -106,14 +125,37 @@ class WeeklyGridState {
     if (row == null) return 0;
 
     var completedUnits = 0.0;
+    // Habits that were actually owed today. A تخطّي leaves this entirely
+    // rather than scoring zero inside it.
+    //
+    // It used to score zero and STAY in the denominator, which meant marking
+    // a deliberate rest lowered your percentage by exactly as much as
+    // forgetting would have. The app's whole position is that a rest day is
+    // not a missed day, and until this line the arithmetic on the app's own
+    // home screen disagreed with it, while the reports (see
+    // expectedCompletions) had already been fixed.
+    //
+    // Safe to exempt here because this ratio is DISPLAY ONLY: it feeds the
+    // "إنجاز اليوم" figure in grid_screen_summary and nothing else. No XP, no
+    // gold, no streak reads it, so there is nothing to game by resting. The
+    // Rooms leaderboard, which IS ranked, deliberately does not do this; see
+    // RoomParticipant.dailyRestedCount for why.
+    var owed = 0;
     for (final id in ids) {
-      completedUnits += switch (row[id] ?? SquareState.none) {
+      final state = row[id] ?? SquareState.none;
+      if (state == SquareState.skipped) continue;
+      owed++;
+      completedUnits += switch (state) {
         SquareState.complete || SquareState.bonus => 1.0,
         SquareState.partial => 0.5,
         SquareState.none || SquareState.failed || SquareState.skipped => 0.0,
       };
     }
-    return completedUnits / ids.length;
+    // Nothing was owed, because everything was deliberately stood down. That
+    // is a finished day, not an empty one, which is the same answer
+    // RoomParticipant.creditFor gives when its scheduled count reaches zero.
+    if (owed == 0) return 1;
+    return completedUnits / owed;
   }
 
   /// Points that are actually reward-eligible for the visible week.
@@ -443,41 +485,67 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
         },
         SetOptions(merge: true),
       ).ignore();
-      // Writer 3 of 3 for the yearly strip's mirror — the one that covers
-      // PAST days, since the complete/uncomplete pair only ever writes
-      // today. Done exactly when the square lands on a done state; any
-      // other state clears the day. Presence-based, so repainting an
-      // already-done day is a no-op and the mirror can't drift negative.
-      final done =
-          value == SquareState.complete || value == SquareState.bonus;
+      // Writer 3 of 3 for the report mirror — the one that covers PAST days,
+      // since the complete/uncomplete pair only ever writes today. This is
+      // also the ONLY writer that knows about the four non-green states, so
+      // it is what makes تخطّي, فشل and جزئي reportable at all.
       final historyRef = FirebaseFirestore.instance
           .collection('users')
           .doc(_uid)
           .collection('habit_history')
           .doc(habitId);
       final dayKey = LocalStoreService.dateKey(day);
-      if (done) {
+      if (value.isGreen) {
+        // Written as painted, so bonus keeps its flavour instead of being
+        // flattened into complete. Idempotent: repainting the same day is a
+        // no-op and the mirror cannot drift.
         historyRef.set(
           {
-            'days': {dayKey: 1},
+            'days': {dayKey: markToStored(value)},
           },
           SetOptions(merge: true),
         ).ignore();
       } else {
-        // Clearing is conditional on the OTHER arm of the union rule: a
-        // multi-tap habit completed from Today has habitCompletions > 0
-        // and an unpainted square, so deleting on square state alone
-        // un-did days the completion arm still owns (the review's trace:
-        // paint, unpaint, mirror gone, count still 2). One doc read on
-        // the rare unpaint path buys agreement with dayIsDone.
+        // Everything below the green line is conditional on the OTHER arm of
+        // the union rule (see dayMark): a multi-tap habit completed from
+        // Today has habitCompletions > 0 and an unpainted square, so acting
+        // on square state alone un-did days the completion arm still owns
+        // (the review's trace: paint, unpaint, mirror gone, count still 2).
+        // One doc read on this path buys agreement with dayMark.
         _dayRef(day).get().then((snap) {
           final completions = (snap.data()?['habitCompletions'] as Map?)
               ?.cast<String, dynamic>();
           final count = completions?[habitId];
-          if (count is num && count > 0) return;
+          if (count is num && count > 0) {
+            // LEAVE IT ALONE. The completion arm of the union owns this key
+            // (completeHabit writes it, uncompleteHabit deletes it), and this
+            // writer must not touch a day a completion is speaking for.
+            //
+            // A version of this wrote 'complete' here instead, reasoning that
+            // a real completion outranks a non-green label. It reads well and
+            // it is a race: un-completing runs uncompleteHabit's batch (which
+            // removes the completion AND deletes this key) alongside
+            // setSquare's fire-and-forget read here. When the read lands
+            // first it still sees the old count and writes 'complete' back,
+            // resurrecting exactly what the undo just removed. Reproduced on
+            // device: complete a habit, undo it, and the reports kept showing
+            // it as مكتمل while the Grid, the XP and the day percentage had
+            // all correctly returned to zero.
+            //
+            // Single ownership is the fix. Reading a value to decide whether
+            // to overwrite another writer's key is the shape of the bug, not
+            // the details.
+            return;
+          }
           historyRef.set(
             {
-              'days': {dayKey: FieldValue.delete()},
+              // none is an absence, and absence is how the mirror spells it.
+              // partial, failed and skipped are recorded facts and are kept.
+              'days': {
+                dayKey: value == SquareState.none
+                    ? FieldValue.delete()
+                    : markToStored(value),
+              },
             },
             SetOptions(merge: true),
           ).ignore();

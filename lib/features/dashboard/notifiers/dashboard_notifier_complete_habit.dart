@@ -1,5 +1,33 @@
 part of 'dashboard_notifier.dart';
 
+/// Minutes since local midnight, the value stamped into a daily doc's
+/// `completedAtMinutes` map whenever a habit is completed.
+///
+/// ── Why this is recorded when nothing reads it ──────────────────────────
+/// Time of completion is the one thing about a habit that cannot be
+/// recovered later. Every other number in this app can be recomputed from
+/// what is already stored, but a day that ended without recording WHEN can
+/// never be asked again. The report it exists for (which prayer window a
+/// habit actually gets done in, which a generic tracker structurally cannot
+/// produce because the windows move daily and by location) is only ever as
+/// good as how far back this field reaches, so every release without it is
+/// a release that report can never describe.
+///
+/// ── Two things any reader of this map must know ─────────────────────────
+/// 1. It is a SIDECAR, not a record of completion. Uncompleting a habit
+///    back to zero leaves its stamp behind on purpose: clearing one key
+///    nested inside a merge-written map is its own class of bug, and a
+///    stale entry is harmless as long as consumers intersect with
+///    `habitCompletions` first, which any "when did I do this" question
+///    does anyway. Never read this map on its own.
+/// 2. It is WALL CLOCK, measured from real local midnight, while the
+///    document it lives on is keyed by effectiveDay, which rolls at
+///    kDayCutoffHour (6am). A value below 6 * 60 therefore belongs to the
+///    calendar day AFTER the document's own date: qiyam prayed at 02:00 is
+///    stamped 120 on the previous day's doc, which is the night it belongs
+///    to.
+int minutesSinceMidnight(DateTime at) => at.hour * 60 + at.minute;
+
 extension DashboardNotifierCompleteHabit on DashboardNotifier {
 
   // ── Actions ──────────────────────────────────────────────────
@@ -383,7 +411,11 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     );
 
     if (_uid == null) {
-      await _saveGuestDaily(newCompletions, streakEarnedToday: newStreakEarnedToday);
+      await _saveGuestDaily(
+        newCompletions,
+        streakEarnedToday: newStreakEarnedToday,
+        completedAtMinutes: {habitId: minutesSinceMidnight(DateTime.now())},
+      );
       // lastActiveDate means "the last calendar day that itself qualified
       // for the streak point" (see _loadGuestToday's gap-check doc comment)
       // — NOT "the last day anything happened," which is what let a streak
@@ -413,6 +445,15 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           'habitCompletions': newCompletions,
           'date': Timestamp.fromDate(now),
           'streakEarnedToday': newStreakEarnedToday,
+          // A nested map merged key by key, not written whole:
+          // SetOptions(merge: true) deep-merges maps, so two habits
+          // completed from two devices cannot erase each other the way a
+          // wholesale write of this field would. See
+          // [minutesSinceMidnight] for what this is for and the two things
+          // any reader of it must know.
+          'completedAtMinutes': {
+            habitId: minutesSinceMidnight(DateTime.now()),
+          },
         },
         SetOptions(merge: true),
       );
@@ -479,7 +520,14 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       batch.set(
         habitHistoryRef(habitId),
         {
-          'days': {DashboardNotifier._todayKey: 1},
+          // 'complete', not 1: the mirror stores the six-state mark now (see
+          // habit_day_marks.dart). A day already painted bonus is flattened
+          // to complete by this write, which is accepted rather than paid
+          // for with a read: both are green, so no count or percentage
+          // moves, and only the flourish is lost in a rare double-entry.
+          'days': {
+            DashboardNotifier._todayKey: markToStored(SquareState.complete),
+          },
         },
         SetOptions(merge: true),
       );

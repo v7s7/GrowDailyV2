@@ -7,7 +7,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/features/milestones/models/milestone_event.dart';
-import 'package:grow_daily_v2/features/milestones/screens/monthly_story_screen.dart';
+import 'package:grow_daily_v2/features/milestones/reports/monthly_story_math.dart';
 
 void main() {
   final july = DateTime(2026, 7);
