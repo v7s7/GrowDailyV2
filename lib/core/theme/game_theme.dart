@@ -84,7 +84,15 @@ abstract final class GameColors {
 
   static const Color rarityCommon = Color(0xFF8C9A92);
   static Color get rarityUncommon => emerald;
-  static Color get rarityRare => xpBlue;
+  // Pinned to the fixed [iconXp] rather than the preset's `xpBlue` accent,
+  // for exactly the reason the medal tiers were pinned (see tierGold's
+  // comment): "xpBlue" is an accent *role*, not a hue promise. On the
+  // default Emerald & Gold preset it resolves to #E49F25 while
+  // rarityLegendary resolves to #E4B45F — two near-identical ambers, so
+  // the rarity ladder stopped communicating the one thing it exists to
+  // communicate. A fixed blue keeps rare distinguishable from legendary
+  // under every preset.
+  static const Color rarityRare = iconXp;
   static const Color rarityEpic = Color(0xFFB982FF);
   static Color get rarityLegendary => gold;
 

@@ -19,14 +19,35 @@ class CharacterState {
   /// [AccessoryCatalog.defaultOwnedId] which every account starts with.
   final Set<String> ownedAccessoryIds;
 
+  /// Every character this account has ever worn.
+  ///
+  /// Characters are gated by level (see [CharacterOption.unlock]), and some
+  /// looks that used to be free are not any more. Without a record of what
+  /// somebody has actually used, raising a gate strands them: the picker
+  /// can avoid locking what they are wearing right now, but the moment
+  /// they switch away, a look they have had for months becomes
+  /// unreachable. This is that record. A look you have worn is yours.
+  final Set<String> wornCharacterIds;
+
   final bool isLoading;
 
   const CharacterState({
     this.characterId = 'male_ghutra_blue',
     this.equippedAccessoryId = 'misbah_amber',
     this.ownedAccessoryIds = const {'misbah_amber'},
+    this.wornCharacterIds = const {},
     this.isLoading = true,
   });
+
+  /// Whether [option] can be selected: free, already earned, or worn before.
+  bool canWear(CharacterOption option, {required int level,
+      required int streak, required int completedDays}) {
+    if (option.unlock == null) return true;
+    if (wornCharacterIds.contains(option.id)) return true;
+    if (option.id == characterId) return true;
+    return option.unlock!.isMetBy(
+      level: level, streak: streak, completedDays: completedDays);
+  }
 
   CharacterOption get character => CharacterCatalog.findByIdOrDefault(characterId);
   Accessory? get equippedAccessory => AccessoryCatalog.findById(equippedAccessoryId);
@@ -37,6 +58,7 @@ class CharacterState {
     String? equippedAccessoryId,
     bool clearEquipped = false,
     Set<String>? ownedAccessoryIds,
+    Set<String>? wornCharacterIds,
     bool? isLoading,
   }) =>
       CharacterState(
@@ -44,6 +66,7 @@ class CharacterState {
         equippedAccessoryId:
             clearEquipped ? null : (equippedAccessoryId ?? this.equippedAccessoryId),
         ownedAccessoryIds: ownedAccessoryIds ?? this.ownedAccessoryIds,
+        wornCharacterIds: wornCharacterIds ?? this.wornCharacterIds,
         isLoading: isLoading ?? this.isLoading,
       );
 }
@@ -80,6 +103,34 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
   DocumentReference<Map<String, dynamic>> get _userRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid);
 
+  /// Everything that was free before characters were gated by level.
+  ///
+  /// An account that predates the gating never had a reason to record what
+  /// it had worn, so on first read we hand it the whole legacy free set.
+  /// Otherwise raising a gate would retroactively confiscate a look
+  /// somebody has used for months, which is the one thing a cosmetic
+  /// system must never do. New accounts get an empty set and earn theirs.
+  static const _legacyFreeCharacterIds = {
+    'male_ghutra_blue',
+    'male_bisht_gold',
+    'male_shmagh_red',
+    'female_hijab_pink',
+    'female_niqab',
+    'female_hijab_teal',
+  };
+
+  Set<String> _readWorn(Map<String, dynamic> data) {
+    final raw = data['wornCharacterIds'];
+    if (raw is List) return raw.map((e) => e.toString()).toSet();
+    // Absent. If this account has saved a character at all it predates the
+    // field, so grandfather it. A genuinely new account has saved nothing.
+    if (!data.containsKey('characterId')) return const {};
+    return {
+      ..._legacyFreeCharacterIds,
+      if (data['characterId'] is String) data['characterId'] as String,
+    };
+  }
+
   Set<String> _readOwned(dynamic raw) {
     final owned = <String>{};
     if (raw is List) {
@@ -110,9 +161,15 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
       }
       state = CharacterState(
         characterId: (data['characterId'] as String?) ?? state.characterId,
-        equippedAccessoryId:
-            (data['equippedAccessoryId'] as String?) ?? AccessoryCatalog.defaultOwnedId,
+        // containsKey, not `??`: the field is genuinely nullable now.
+        // `?? defaultOwnedId` could not tell "this account predates the
+        // field" from "this user chose to wear nothing", so every unequip
+        // came back wearing the default misbah at the next launch.
+        equippedAccessoryId: data.containsKey('equippedAccessoryId')
+            ? data['equippedAccessoryId'] as String?
+            : AccessoryCatalog.defaultOwnedId,
         ownedAccessoryIds: _readOwned(data['ownedAccessoryIds']),
+        wornCharacterIds: _readWorn(data),
         isLoading: false,
       );
     } catch (_) {
@@ -136,9 +193,12 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
       }
       state = CharacterState(
         characterId: (saved['characterId'] as String?) ?? state.characterId,
-        equippedAccessoryId:
-            (saved['equippedAccessoryId'] as String?) ?? AccessoryCatalog.defaultOwnedId,
+        // Same nullability fix as the Firestore path above.
+        equippedAccessoryId: saved.containsKey('equippedAccessoryId')
+            ? saved['equippedAccessoryId'] as String?
+            : AccessoryCatalog.defaultOwnedId,
         ownedAccessoryIds: _readOwned(saved['ownedAccessoryIds']),
+        wornCharacterIds: _readWorn(saved),
         isLoading: false,
       );
     } catch (_) {
@@ -151,26 +211,38 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
   // deliberately), so it can never be `await`ed. The optimistic state
   // update already happened by the time callers reach this.
   void _persist() {
+    _persistNow().ignore();
+  }
+
+  /// The same write, awaitable. Cosmetic changes (picking a character,
+  /// equipping something you already own) can stay fire-and-forget because
+  /// nothing is spent on them. A *purchase* cannot: see [buyAccessory].
+  Future<void> _persistNow() {
     final data = {
       'characterId': state.characterId,
       'equippedAccessoryId': state.equippedAccessoryId,
       'ownedAccessoryIds': state.ownedAccessoryIds.toList(),
+      'wornCharacterIds': state.wornCharacterIds.toList(),
     };
     if (_uid == null) {
-      LocalStoreService.putSettingsMap(
+      return LocalStoreService.putSettingsMap(
         LocalStoreService.guestCharacterKey,
         data,
-      ).ignore();
-    } else {
-      _userRef.set(data, SetOptions(merge: true)).ignore();
+      );
     }
+    return _userRef.set(data, SetOptions(merge: true));
   }
 
   /// Free and instant — characters are never gold-gated.
   void selectCharacter(String id) {
     if (CharacterCatalog.findByIdOrDefault(id).id != id) return;
     _mutatedBeforeLoad = true;
-    state = state.copyWith(characterId: id);
+    // Worn once, yours for good. The level gate decides what you may
+    // REACH, never what you may go back to.
+    state = state.copyWith(
+      characterId: id,
+      wornCharacterIds: {...state.wornCharacterIds, id},
+    );
     _persist();
   }
 
@@ -203,12 +275,25 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
         await _ref.read(dashboardProvider.notifier).spendGold(accessory.goldCost);
     if (!spent) return false;
 
+    final previous = state;
     _mutatedBeforeLoad = true;
     state = state.copyWith(
       ownedAccessoryIds: {...state.ownedAccessoryIds, id},
       equippedAccessoryId: id,
     );
-    _persist();
+
+    // The gold is already gone from the server at this point, so this
+    // write is the half of the transaction that actually delivers the
+    // item. It used to be fire-and-forget, and this method returned true
+    // regardless: a failed write cost up to 700 gold, granted nothing,
+    // and still showed "تم الفتح!". Await it, and refund on failure.
+    try {
+      await _persistNow();
+    } catch (_) {
+      state = previous;
+      await _ref.read(dashboardProvider.notifier).refundGold(accessory.goldCost);
+      return false;
+    }
     return true;
   }
 }

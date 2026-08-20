@@ -157,6 +157,8 @@ class CharacterAvatar extends StatelessWidget {
     'misbah_amber': Offset(0.5205, 0.0161),
     'misbah_wood': Offset(0.4350, 0.0689),
     'misbah_black': Offset(0.5831, 0.0163),
+    'misbah_blue': Offset(0.4990, 0.0064),
+    'misbah_red': Offset(0.4893, 0.0025),
     // Ported from a sibling project without this override, and it showed:
     // notebook is much wider (69% of its canvas) than lantern (47%), so the
     // notebook category's dead-center default left it swallowing the torso
@@ -196,6 +198,46 @@ class CharacterAvatar extends StatelessWidget {
     'female_hijab_teal': _HandPoints(
       right: Offset(0.3112, 0.6045),
       left: Offset(0.6863, 0.6046),
+    ),
+    'male_bisht_black': _HandPoints(
+      right: Offset(0.3160, 0.7092),
+      left: Offset(0.6464, 0.7095),
+    ),
+    'male_bisht_grey': _HandPoints(
+      right: Offset(0.3080, 0.6760),
+      left: Offset(0.6472, 0.6761),
+    ),
+    'male_thobe_cream': _HandPoints(
+      right: Offset(0.3315, 0.6868),
+      left: Offset(0.6496, 0.6854),
+    ),
+    'male_daglah_brown': _HandPoints(
+      right: Offset(0.3538, 0.6483),
+      left: Offset(0.6684, 0.6478),
+    ),
+    'male_daglah_navy': _HandPoints(
+      right: Offset(0.3170, 0.6256),
+      left: Offset(0.6583, 0.6257),
+    ),
+    'male_daglah_maroon': _HandPoints(
+      right: Offset(0.3323, 0.6471),
+      left: Offset(0.6661, 0.6469),
+    ),
+    'male_daglah_olive': _HandPoints(
+      right: Offset(0.3366, 0.6474),
+      left: Offset(0.6602, 0.6472),
+    ),
+    'female_abaya_navy': _HandPoints(
+      right: Offset(0.3425, 0.6477),
+      left: Offset(0.6907, 0.6476),
+    ),
+    'male_daglah_black': _HandPoints(
+      right: Offset(0.3687, 0.6483),
+      left: Offset(0.6576, 0.6452),
+    ),
+    'female_hijab_olive': _HandPoints(
+      right: Offset(0.3779, 0.6389),
+      left: Offset(0.6212, 0.6316),
     ),
   };
 

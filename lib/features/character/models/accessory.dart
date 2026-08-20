@@ -41,6 +41,84 @@ enum AccessoryCategory {
       };
 }
 
+/// What a top-tier accessory demands *besides* gold.
+///
+/// The closet used to be gold-only, which made it a race rather than a
+/// reward: the whole catalog totals 3,230 gold against roughly 60 a day
+/// from six habits, so it emptied in under two months and gold became
+/// inert afterwards. Requiring real progress on the rarer half moves the
+/// wall out and, more importantly, changes what a locked tile *means* —
+/// a price tag says "come back when you've grinded", a requirement says
+/// "come back when you've done the thing this app exists for".
+///
+/// Deliberately checked *after* ownership everywhere, so anyone who
+/// already bought an item keeps it. This is never applied retroactively.
+enum UnlockMetric { level, streak, completedDays }
+
+class UnlockRequirement {
+  final UnlockMetric metric;
+  final int amount;
+
+  const UnlockRequirement(this.metric, this.amount);
+
+  /// How far along the user is against this requirement right now.
+  int progressFrom({
+    required int level,
+    required int streak,
+    required int completedDays,
+  }) =>
+      switch (metric) {
+        UnlockMetric.level => level,
+        UnlockMetric.streak => streak,
+        UnlockMetric.completedDays => completedDays,
+      };
+
+  bool isMetBy({
+    required int level,
+    required int streak,
+    required int completedDays,
+  }) =>
+      progressFrom(
+        level: level,
+        streak: streak,
+        completedDays: completedDays,
+      ) >=
+      amount;
+
+  /// The tile version. A three-column cell gives a chip about 95pt, and
+  /// the full label overflows it: "100 يوم مكتمل" truncated to
+  /// "100 يوم مكت..." and "سلسلة 30 يومًا" to "سلسلة 30 ي...". The unit
+  /// word is the redundant part (the band is already titled
+  /// "تحتاج تقدمًا" and the sheet spells the requirement out in full), so
+  /// it is what gets dropped rather than the number.
+  String shortLabel(bool isAr) => isAr
+      ? switch (metric) {
+          UnlockMetric.level => 'المستوى $amount',
+          UnlockMetric.streak => 'سلسلة $amount',
+          UnlockMetric.completedDays => '$amount يوم',
+        }
+      : switch (metric) {
+          UnlockMetric.level => 'Level $amount',
+          UnlockMetric.streak => 'Streak $amount',
+          UnlockMetric.completedDays => '$amount days',
+        };
+
+  /// The full sentence, for the detail sheet. Arabic avoids second-person
+  /// verbs entirely (the app is used by men and women alike), so these are
+  /// noun phrases rather than commands.
+  String label(bool isAr) => isAr
+      ? switch (metric) {
+          UnlockMetric.level => 'المستوى $amount',
+          UnlockMetric.streak => 'سلسلة $amount يومًا',
+          UnlockMetric.completedDays => '$amount يوم مكتمل',
+        }
+      : switch (metric) {
+          UnlockMetric.level => 'Level $amount',
+          UnlockMetric.streak => '$amount day streak',
+          UnlockMetric.completedDays => '$amount days done',
+        };
+}
+
 /// A single cosmetic accessory. Unlike the character catalog, accessories
 /// are gated by [goldCost] — spend once via CharacterNotifier.buyAccessory
 /// to own it forever, then equip/unequip freely at no further cost. This
@@ -58,6 +136,9 @@ class Accessory {
   final AchievementRarity rarity;
   final int goldCost;
 
+  /// Null means gold alone unlocks it. See [UnlockRequirement].
+  final UnlockRequirement? unlock;
+
   const Accessory({
     required this.id,
     required this.category,
@@ -69,6 +150,7 @@ class Accessory {
     required this.color,
     required this.rarity,
     required this.goldCost,
+    this.unlock,
   });
 
   String name(bool isAr) => isAr ? nameAr : nameEn;
@@ -117,6 +199,7 @@ abstract final class AccessoryCatalog {
     color: Color(0xFF20242A),
     rarity: AchievementRarity.rare,
     goldCost: 260,
+    unlock: const UnlockRequirement(UnlockMetric.streak, 14),
   );
 
   static const blueUmbrella = Accessory(
@@ -143,6 +226,7 @@ abstract final class AccessoryCatalog {
     color: Color(0xFFD6AA4A),
     rarity: AchievementRarity.rare,
     goldCost: 320,
+    unlock: const UnlockRequirement(UnlockMetric.level, 10),
   );
 
   static const redUmbrella = Accessory(
@@ -154,8 +238,9 @@ abstract final class AccessoryCatalog {
     descriptionAr: 'لمسة جريئة تناسب الشماغ الأحمر.',
     imagePath: 'assets/images/accessories/umbrella_red.png',
     color: Color(0xFFBE3F35),
-    rarity: AchievementRarity.uncommon,
+    rarity: AchievementRarity.rare,
     goldCost: 240,
+    unlock: const UnlockRequirement(UnlockMetric.level, 5),
   );
 
   static const goldFrame = Accessory(
@@ -169,6 +254,7 @@ abstract final class AccessoryCatalog {
     color: Color(0xFFD6AA4A),
     rarity: AchievementRarity.epic,
     goldCost: 550,
+    unlock: const UnlockRequirement(UnlockMetric.completedDays, 100),
   );
 
   static const knowledgeBadge = Accessory(
@@ -182,6 +268,7 @@ abstract final class AccessoryCatalog {
     color: Color(0xFF1F6F5C),
     rarity: AchievementRarity.legendary,
     goldCost: 450,
+    unlock: const UnlockRequirement(UnlockMetric.streak, 30),
   );
 
   static const goldLantern = Accessory(
@@ -195,6 +282,7 @@ abstract final class AccessoryCatalog {
     color: Color(0xFFD6AA4A),
     rarity: AchievementRarity.rare,
     goldCost: 500,
+    unlock: const UnlockRequirement(UnlockMetric.level, 20),
   );
 
   static const tealNotebook = Accessory(
@@ -208,12 +296,43 @@ abstract final class AccessoryCatalog {
     color: Color(0xFF36645B),
     rarity: AchievementRarity.epic,
     goldCost: 700,
+    unlock: const UnlockRequirement(UnlockMetric.level, 30),
+  );
+
+  static const blueMisbah = Accessory(
+    id: 'misbah_blue',
+    category: AccessoryCategory.misbah,
+    nameEn: 'Blue Tasbih',
+    nameAr: 'مسباح أزرق',
+    descriptionEn: 'Sea-calm, for the quiet part of the day.',
+    descriptionAr: 'أزرق هادئ، يريّح العين.',
+    imagePath: 'assets/images/accessories/misbah_blue.png',
+    color: Color(0xFF3D6FA8),
+    rarity: AchievementRarity.uncommon,
+    goldCost: 180,
+    unlock: const UnlockRequirement(UnlockMetric.level, 8),
+  );
+
+  static const redMisbah = Accessory(
+    id: 'misbah_red',
+    category: AccessoryCategory.misbah,
+    nameEn: 'Red Tasbih',
+    nameAr: 'مسباح أحمر',
+    descriptionEn: 'Warmth to keep the evening adhkar company.',
+    descriptionAr: 'لون دافئ يناسب أذكار المساء.',
+    imagePath: 'assets/images/accessories/misbah_red.png',
+    color: Color(0xFFB23A3A),
+    rarity: AchievementRarity.rare,
+    goldCost: 300,
+    unlock: const UnlockRequirement(UnlockMetric.streak, 21),
   );
 
   static const List<Accessory> all = [
     amberMisbah,
     woodMisbah,
     blackMisbah,
+    blueMisbah,
+    redMisbah,
     blueUmbrella,
     goldUmbrella,
     redUmbrella,
