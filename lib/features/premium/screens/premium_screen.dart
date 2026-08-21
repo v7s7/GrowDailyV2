@@ -116,7 +116,29 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       // see PremiumNotifier.applyCustomerInfo's doc comment. This is what
       // makes "Premium is active" appear the instant the purchase clears,
       // with no gap where someone who just paid still sees the paywall.
-      ref.read(premiumProvider.notifier).applyCustomerInfo(outcome.customerInfo!);
+      final info = outcome.customerInfo!;
+      ref.read(premiumProvider.notifier).applyCustomerInfo(info);
+      // A cleared purchase whose CustomerInfo does not actually carry the
+      // entitlement used to return here silently: applyCustomerInfo would
+      // set false, false-to-false is a no-op so nothing rebuilt, and the
+      // screen sat unchanged after a real charge. The buyer had paid and
+      // the app said nothing at all.
+      //
+      // The restore path a few lines below already branches on exactly this
+      // (see premiumRestoreSuccess vs premiumRestoreNothingFound), which is
+      // what makes the silence here an oversight rather than a decision.
+      // The realistic trigger is a dashboard mismatch on the entitlement id,
+      // so the message points at Restore rather than blaming the buyer.
+      if (!PurchaseService.instance.isEntitled(info)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(S.of(context).premiumPurchaseNotEntitled),
+            duration: const Duration(seconds: 8),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          ),
+        );
+      }
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
@@ -441,9 +463,15 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  s.premiumFinePrint,
+                  // Per plan: a renewing subscription and a one-time
+                  // purchase owe the buyer different sentences, and saying
+                  // "cancel anytime" over a non-consumable is a promise the
+                  // product cannot keep. See premiumFinePrintMonthly.
+                  _selected == _PlanKind.monthly
+                      ? s.premiumFinePrintMonthly
+                      : s.premiumFinePrintLifetime,
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: gp.textTert),
+                  style: TextStyle(fontSize: 11, color: gp.textTert, height: 1.35),
                 ),
                 const SizedBox(height: 6),
                 // Required alongside the subscription itself, not just

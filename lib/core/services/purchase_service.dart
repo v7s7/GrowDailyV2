@@ -234,6 +234,20 @@ class PurchaseService {
   /// (no guaranteed ordering between this call returning and the stream
   /// delivering the same update).
   Future<PurchaseOutcome> purchase(Package package) async {
+    // The SDK must be configured before this is called, and this guard is
+    // not defensive tidiness: calling into RevenueCat unconfigured reaches
+    // `Self.sharedInstance` in the native layer, which is a Swift
+    // `fatalError`. That terminates the process. A Dart try/catch cannot
+    // catch it, so the app does not show an error, it DIES.
+    //
+    // It is reachable in practice. configure() deliberately swallows every
+    // exception so a store hiccup can never block launch, which means
+    // _configured can legitimately be false at runtime, and the paywall
+    // deliberately keeps Restore tappable in exactly that state so someone
+    // who already paid is never stranded. App Review taps Restore as a
+    // matter of routine. Every sibling method here already has this guard;
+    // these two were the only ones without it.
+    if (!_configured) return PurchaseOutcome.failure('not_configured');
     try {
       final result = await Purchases.purchase(PurchaseParams.package(package));
       return PurchaseOutcome.success(result.customerInfo);
@@ -253,6 +267,9 @@ class PurchaseService {
   /// tap (see RestoringPurchases' own guidance: this can trigger OS-level
   /// sign-in prompts, so it must never fire on its own).
   Future<PurchaseOutcome> restore() async {
+    // See purchase() above: unconfigured, this is a native fatalError, not
+    // a catchable Dart exception.
+    if (!_configured) return PurchaseOutcome.failure('not_configured');
     try {
       final info = await Purchases.restorePurchases();
       return PurchaseOutcome.success(info);

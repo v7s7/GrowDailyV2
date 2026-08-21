@@ -1648,9 +1648,34 @@ class S {
   String get premiumRestoreNothingFound => isAr
       ? 'لم يتم العثور على مشتريات سابقة لهذا الحساب.'
       : 'No previous purchase found for this store account.';
-  String get premiumFinePrint => isAr
-      ? 'إلغاء في أي وقت. الأسعار النهائية تُعرض في المتجر.'
-      : 'Cancel anytime. Final prices are shown in the store.';
+  // ── The subscription disclosure App Store Guideline 3.1.2 requires ────
+  //
+  // The old single line said only "Cancel anytime. Final prices are shown in
+  // the store." Three things were wrong with it. It never said the monthly
+  // plan RENEWS, which is the disclosure Apple actually asks for and one of
+  // the most common reasons a subscription paywall is rejected. It rendered
+  // unchanged when the LIFETIME plan was selected, promising cancellation on
+  // a non-consumable that cannot be cancelled. And "final prices are shown in
+  // the store" told a reviewer the price on screen might not be the price
+  // charged, while the screen was already showing the real localized
+  // storeProduct.priceString.
+  //
+  // Split per plan, because the two products make genuinely different
+  // promises. Arabic stays impersonal, with no second-person verb.
+  String get premiumFinePrintMonthly => isAr
+      ? 'اشتراك يتجدد تلقائيًا. تُخصم القيمة من حساب Apple عند التأكيد، ويتجدد ما لم يُلغَ قبل ٢٤ ساعة من نهاية المدة. الإدارة والإلغاء من إعدادات حساب Apple.'
+      : 'Auto-renewing subscription. Your Apple ID is charged at confirmation, and it renews unless cancelled at least 24 hours before the end of the period. Manage or cancel it in your Apple ID settings.';
+  String get premiumFinePrintLifetime => isAr
+      ? 'دفعة واحدة. لا يتجدد ولا يُخصم منك مرة أخرى.'
+      : 'One time purchase. It does not renew and you are not charged again.';
+  // Shown when the store reports a completed purchase but the entitlement
+  // it hands back is not active. Rare, and always a configuration problem
+  // rather than the buyer's fault, so the wording says the money is safe and
+  // points at the one control that fixes it. Never leave a paid customer
+  // looking at an unchanged screen.
+  String get premiumPurchaseNotEntitled => isAr
+      ? 'تمت عملية الشراء، لكن لم يتم تفعيل بريميوم بعد. لم يُخصم منك مرتين. جرّب «استعادة المشتريات»، وإن استمرت المشكلة تواصل معنا.'
+      : 'The purchase went through, but Premium is not active yet. You have not been charged twice. Try Restore Purchases, and contact us if it keeps happening.';
   String get premiumTermsOfUse => isAr ? 'شروط الاستخدام' : 'Terms of Use';
   String get premiumPrivacyPolicy => isAr ? 'سياسة الخصوصية' : 'Privacy Policy';
   String get premiumLinkOpenError =>
