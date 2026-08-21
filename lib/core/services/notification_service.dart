@@ -429,30 +429,30 @@ class NotificationService {
   // twice, reminder time tweaked, etc). English/Arabic pools are kept the
   // same length so a given day picks the same *story* in either language.
   static const _dailyLines = [
-    ('Time for your habits', "Don't break the streak — color today's square."),
+    ('Time for your habits', "Don't break the streak. Color today's square."),
     (
       'Your habits are waiting',
       'A few minutes now, one more square colored today.'
     ),
-    ('Keep the streak alive', "You've come this far — don't stop now."),
+    ('Keep the streak alive', "You've come this far. Don't stop now."),
     ('Quick check-in', 'Which habit can you knock out right now?'),
     ('Still time today', 'Small steps count. Go color your grid.'),
   ];
   static const _dailyLinesAr = [
-    ('حان وقت عاداتك', 'لا تكسر السلسلة — لوّن مربع اليوم.'),
+    ('حان وقت عاداتك', 'لا تكسر السلسلة. لوّن مربع اليوم.'),
     ('عاداتك تنتظرك', 'بضع دقائق الآن، ولوّنت مربعًا آخر اليوم.'),
-    ('حافظ على السلسلة', 'وصلت إلى هنا — لا تتوقف الآن.'),
+    ('حافظ على السلسلة', 'وصلت إلى هنا. لا تتوقف الآن.'),
     ('تسجيل سريع', 'أي عادة يمكنك إنجازها الآن؟'),
     ('ما زال هناك وقت اليوم', 'خطوات صغيرة تُحتسب. اذهب ولوّن شبكتك.'),
   ];
   static const _habitLines = [
-    "It's time — keep the streak going.",
+    "It's time. Keep the streak going.",
     'A few minutes for this one today.',
     "Don't let today slip by.",
     'Ready when you are.',
   ];
   static const _habitLinesAr = [
-    'حان الوقت — حافظ على استمرار السلسلة.',
+    'حان الوقت. حافظ على استمرار السلسلة.',
     'بضع دقائق لهذه العادة اليوم.',
     'لا تدع اليوم يفوتك.',
     'جاهز عندما تكون مستعدًا.',
@@ -827,8 +827,8 @@ class NotificationService {
             : ' · $urgentMatrixCount urgent task${urgentMatrixCount == 1 ? '' : 's'} waiting')
         : '';
     final body = isAr
-        ? '$habitsPart — حافظ على سلسلة $streak يوم.$matrixPart'
-        : '$habitsPart — keep your $streak-day streak alive.$matrixPart';
+        ? '$habitsPart. حافظ على سلسلة $streak يوم.$matrixPart'
+        : '$habitsPart. Keep your $streak-day streak alive.$matrixPart';
 
     await _plugin.zonedSchedule(
       _streakRiskId,
@@ -872,14 +872,14 @@ class NotificationService {
     final title = isAr ? 'أسبوعك' : 'Your week';
     final body = isAr
         ? (greenDays == 0
-            ? 'لم يُلوَّن أي يوم بعد هذا الأسبوع — لا يزال الوقت متاحًا.'
+            ? 'لم يُلوَّن أي يوم بعد هذا الأسبوع. لا يزال الوقت متاحًا.'
             : streak > 0
-                ? 'لوّنت $greenDays من 7 أيام هذا الأسبوع — وسلسلة $streak يوم مستمرة.'
+                ? 'لوّنت $greenDays من 7 أيام هذا الأسبوع، وسلسلة $streak يوم مستمرة.'
                 : 'لوّنت $greenDays من 7 أيام هذا الأسبوع.')
         : (greenDays == 0
-            ? "No days colored yet this week — there's still time."
+            ? "No days colored yet this week. There's still time."
             : streak > 0
-                ? 'You colored $greenDays of 7 days this week — a $streak-day streak going.'
+                ? 'You colored $greenDays of 7 days this week, a $streak-day streak going.'
                 : 'You colored $greenDays of 7 days this week.');
 
     await _plugin.zonedSchedule(
@@ -1094,7 +1094,7 @@ class NotificationService {
     await _plugin.zonedSchedule(
       _snoozeId(habitId),
       habitName,
-      isAr ? 'تأجيل — حان الوقت.' : "Snoozed — it's time.",
+      isAr ? 'تأجيل: حان الوقت.' : "Snoozed: it's time.",
       tz.TZDateTime.now(tz.local).add(const Duration(hours: 1)),
       _habitReminderDetails,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,

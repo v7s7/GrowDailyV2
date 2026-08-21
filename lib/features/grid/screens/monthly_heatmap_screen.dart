@@ -246,7 +246,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
                       const SizedBox(width: 10),
                       _StatTile(
                         label: s.heatmapBestDay,
-                        value: best == 0 ? '—' : '$best',
+                        value: best == 0 ? '–' : '$best',
                       ),
                     ],
                   ),

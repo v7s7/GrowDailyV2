@@ -179,7 +179,7 @@ void showLevelUpSnackBar(BuildContext context, int level) {
           Icon(Icons.arrow_upward_rounded,
               color: GameColors.gold, size: 18),
           const SizedBox(width: 8),
-          Text('${s.levelUpMsg}  —  LVL $level',
+          Text('${s.levelUpMsg}  ·  LVL $level',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,

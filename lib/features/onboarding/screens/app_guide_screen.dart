@@ -99,8 +99,8 @@ class AppGuideScreen extends ConsumerWidget {
         children: [
           Text(
             isAr
-                ? 'دروس سريعة وعملية — كل درس يدلّك على الزر الحقيقي لتجرّبه بنفسك.'
-                : 'Quick, hands-on lessons — each one points you to the real button so you can try it yourself.',
+                ? 'دروس سريعة وعملية، كل درس يدلّك على الزر الحقيقي لتجرّبه بنفسك.'
+                : 'Quick, hands-on lessons: each one points you to the real button so you can try it yourself.',
             style: TextStyle(fontSize: 13, height: 1.5, color: gp.textSec),
           ),
           const SizedBox(height: 20),
@@ -238,8 +238,8 @@ void startGuideLesson(
         SnackBar(
           duration: const Duration(seconds: 2),
           content: Text(isAr
-              ? 'أضف عادة أولاً — لنفعل ذلك الآن.'
-              : "Add a habit first — let's do that now."),
+              ? 'أضف عادة أولاً. لنفعل ذلك الآن.'
+              : "Add a habit first. Let's do that now."),
         ),
       );
     }

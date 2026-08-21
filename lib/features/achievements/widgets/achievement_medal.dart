@@ -209,11 +209,11 @@ class AchievementMedal extends StatelessWidget {
   String _fallbackLabel(bool isAr) {
     final t = tier.localizedName(isAr);
     return switch (state) {
-      MedalState.unlocked => isAr ? 'ميدالية $t — مفتوحة' : '$t medal, earned',
+      MedalState.unlocked => isAr ? 'ميدالية $t، مفتوحة' : '$t medal, earned',
       MedalState.inProgress => isAr
-          ? 'ميدالية $t — قيد التقدّم'
+          ? 'ميدالية $t، قيد التقدّم'
           : '$t medal, in progress',
-      MedalState.locked => isAr ? 'ميدالية $t — مقفلة' : '$t medal, locked',
+      MedalState.locked => isAr ? 'ميدالية $t، مقفلة' : '$t medal, locked',
     };
   }
 }
@@ -276,12 +276,12 @@ String medalSemanticLabel({
   final name = achievement.localName(isAr);
   return switch (state) {
     MedalState.unlocked =>
-      isAr ? 'ميدالية $tier: $name — مفتوحة' : '$tier medal: $name, earned',
+      isAr ? 'ميدالية $tier: $name، مفتوحة' : '$tier medal: $name, earned',
     MedalState.inProgress => isAr
-        ? 'ميدالية $tier: $name — ${progressFraction(current, achievement.threshold)}'
+        ? 'ميدالية $tier: $name، ${progressFraction(current, achievement.threshold)}'
         : '$tier medal: $name, ${progressFraction(current, achievement.threshold)}',
     MedalState.locked =>
-      isAr ? 'ميدالية $tier: $name — مقفلة' : '$tier medal: $name, locked',
+      isAr ? 'ميدالية $tier: $name، مقفلة' : '$tier medal: $name, locked',
   };
 }
 

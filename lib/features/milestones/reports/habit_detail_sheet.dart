@@ -266,7 +266,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
             Row(
               children: [
                 _Stat(
-                  value: stat == null ? '—' : '${(stat.rate * 100).round()}%',
+                  value: stat == null ? '–' : '${(stat.rate * 100).round()}%',
                   label: s.habitStatsThisPeriod,
                   color: GameColors.emerald,
                 ),

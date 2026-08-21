@@ -87,8 +87,8 @@ String appGuideLessonCoachTitle(AppGuideLesson lesson, bool isAr) =>
 String appGuideLessonCoachBody(AppGuideLesson lesson, bool isAr) =>
     switch (lesson) {
       AppGuideLesson.addHabit => isAr
-          ? 'هذا هو الزر الحقيقي — جرّبه بنفسك.'
-          : "This is the real button — give it a try.",
+          ? 'هذا هو الزر الحقيقي. جرّبه بنفسك.'
+          : "This is the real button. Give it a try.",
       AppGuideLesson.colorSquare => isAr
           ? 'أبيض ← أصفر ← أخضر. اضغط مطولاً لخيارات أكثر.'
           : 'White, then yellow, then green. Long-press for more options.',

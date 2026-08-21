@@ -337,7 +337,7 @@ class _RecapBody extends ConsumerWidget {
                 _RecapDivider(),
                 _RecapStat(
                   value: recap.bestDay == null
-                      ? '—'
+                      ? '–'
                       : DateFormat('EEEE', locale).format(recap.bestDay!),
                   label: s.heatmapBestDay,
                   small: true,

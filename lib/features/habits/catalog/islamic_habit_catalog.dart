@@ -549,9 +549,9 @@ abstract final class IslamicHabitCatalog {
     IslamicHabitTemplate(
       id: 'gym_consistency',
       name: 'Gym Consistency',
-      description: 'Maintain fitness — your body is an amanah',
+      description: 'Maintain fitness: your body is an amanah',
       nameAr: 'الالتزام بالرياضة',
-      descriptionAr: 'حافظ على لياقتك — جسمك أمانة',
+      descriptionAr: 'حافظ على لياقتك، جسمك أمانة',
       // Late afternoon is both the physiological strength/performance peak
       // and the Gulf's own pre-Maghrib gym hour — anchoring to Asr gives a
       // real prayer-timed reminder instead of none at all.
@@ -583,9 +583,9 @@ abstract final class IslamicHabitCatalog {
     IslamicHabitTemplate(
       id: 'daily_sadaqah',
       name: 'Daily Sadaqah',
-      description: 'Give in charity daily — even a smile counts',
+      description: 'Give in charity daily: even a smile counts',
       nameAr: 'صدقة يومية',
-      descriptionAr: 'تصدّق كل يوم — حتى الابتسامة صدقة',
+      descriptionAr: 'تصدّق كل يوم، حتى الابتسامة صدقة',
       // Morning giving is the timing with actual textual basis — the two
       // angels' daily dua for the one who gives comes each morning (صحيح
       // البخاري ١٤٤٢) — and it front-loads the habit before the day fills up.

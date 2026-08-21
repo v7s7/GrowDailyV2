@@ -138,8 +138,8 @@ const habitPlans = <HabitPlan>[
     id: 'five_daily_prayers',
     nameEn: 'The Five Daily Prayers',
     nameAr: 'الصلوات الخمس',
-    descEn: 'Fajr, Dhuhr, Asr, Maghrib, and Isha — each reminded at its real calculated time, wherever you are.',
-    descAr: 'الفجر والظهر والعصر والمغرب والعشاء — تذكير بكل وقت حسب حسابه الفعلي أينما كنت.',
+    descEn: 'Fajr, Dhuhr, Asr, Maghrib, and Isha: each reminded at its real calculated time, wherever you are.',
+    descAr: 'الفجر والظهر والعصر والمغرب والعشاء: تذكير بكل وقت حسب حسابه الفعلي أينما كنت.',
     color: Color(0xFFE0A82E),
     icon: Icons.mosque_outlined,
     catalogIds: [

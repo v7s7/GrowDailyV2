@@ -227,7 +227,7 @@ class ReportHeaderCard extends StatelessWidget {
               ),
               _SummaryCell(
                 value: summary.bestDay == null
-                    ? '—'
+                    ? '–'
                     : westernDate(summary.bestDay!, 'd MMM', locale),
                 label: s.heatmapBestDay,
                 color: GameColors.gold,
