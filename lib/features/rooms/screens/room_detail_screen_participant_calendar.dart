@@ -148,13 +148,19 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            Text(
-              s.roomCalendarTitle(widget.participant.displayName),
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: gp.textPrimary,
-              ),
+            // Who this is, before what they did.
+            //
+            // The sheet used to open on a bare "تقويم m7md" and a grid of
+            // squares, which answers "when" without ever answering "who".
+            // Opening a person's row is the one moment their identity is the
+            // subject, and the room already carries everything needed to say
+            // it: their chosen character and accessory, their title, and the
+            // three numbers the leaderboard row is ranked on. None of it
+            // costs a read.
+            _ParticipantHeader(
+              room: widget.room,
+              participant: widget.participant,
+              isYou: widget.isYou,
             ),
             const SizedBox(height: 4),
             CalendarMonthHeader(
@@ -267,6 +273,194 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The identity and the score at the top of a member's sheet.
+///
+/// Every figure here is read through the SAME accessor the leaderboard row
+/// ranks on: progressRatio, daysCompleted/daysElapsedIn and currentStreak. A
+/// second way of computing any of them would eventually disagree with the row
+/// that opened this sheet, and two numbers for one fact on two surfaces is the
+/// bug this codebase has already paid for more than once.
+class _ParticipantHeader extends StatelessWidget {
+  final RoomModel room;
+  final RoomParticipant participant;
+  final bool isYou;
+
+  const _ParticipantHeader({
+    required this.room,
+    required this.participant,
+    required this.isYou,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+
+    // findById, NOT findByIdOrDefault, for the same reason _LeaderboardRow
+    // documents: OrDefault returns a real character somebody may genuinely
+    // have chosen, so an unknown id would render as a specific person's look
+    // with nothing marking it a guess. A neutral silhouette says "not known
+    // yet" and self-heals on that member's next sync.
+    final character = CharacterCatalog.findById(participant.characterId);
+    final accessory = AccessoryCatalog.findById(participant.accessoryId);
+    final prestige = PrestigeCatalog.findById(participant.prestigeTierId);
+
+    final ratio = participant.progressRatio(room);
+    final done = participant.daysCompleted(room);
+    final elapsed = participant.daysElapsedIn(room);
+    final streak = participant.currentStreak(room);
+
+    // The privacy half, copied from the row rather than reinvented: joining a
+    // room to compete on consistency without publishing what you are working
+    // on. Your own sheet always shows your own names, since there is nobody to
+    // hide them from.
+    final showDetails = isYou || !participant.hideDetails;
+    final names = showDetails
+        ? participant.linkedHabitNames
+            .where((n) => n.trim().isNotEmpty)
+            .toList()
+        : const <String>[];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (character == null)
+              SizedBox(
+                height: 56,
+                width: 40,
+                child: Center(
+                  child: Icon(Icons.person_rounded,
+                      size: 32, color: gp.textTert.withOpacity(0.6)),
+                ),
+              )
+            else
+              CharacterAvatar(
+                character: character,
+                accessory: accessory,
+                height: 56,
+              ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          participant.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: gp.textPrimary,
+                          ),
+                        ),
+                      ),
+                      if (isYou) ...[
+                        const SizedBox(width: 6),
+                        _Tag(label: s.roomYouLabel, color: GameColors.gold),
+                      ],
+                      if (participant.uid == room.createdBy) ...[
+                        const SizedBox(width: 4),
+                        _Tag(label: s.roomLeaderLabel, color: gp.textSec),
+                      ],
+                    ],
+                  ),
+                  // Same level-1 restraint the row and the Profile card both
+                  // use: a base tier is not something to show off, so it
+                  // renders nothing rather than a chip everybody would have.
+                  if (prestige != null && prestige.minLevel > 1) ...[
+                    const SizedBox(height: 5),
+                    _PrestigeChip(tier: prestige),
+                  ],
+                  if (names.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      names.join('، '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(height: 0.5, color: gp.divider),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _HeaderStat(
+              value: '${(ratio * 100).round()}%',
+              label: s.reportsRate,
+              color: GameColors.emerald,
+            ),
+            _HeaderStat(
+              value: s.roomDayCount(done, elapsed),
+              label: s.roomStatDays,
+              color: gp.textPrimary,
+            ),
+            _HeaderStat(
+              value: '$streak',
+              label: s.habitStatsCurrentStreak,
+              color: GameColors.iconStreak,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One of the three figures under a member's name.
+class _HeaderStat extends StatelessWidget {
+  final String value;
+  final String label;
+  final Color color;
+
+  const _HeaderStat({
+    required this.value,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Expanded(
+      child: Column(
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 10.5, color: gp.textSec),
+          ),
+        ],
       ),
     );
   }

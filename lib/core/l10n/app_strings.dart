@@ -2464,6 +2464,10 @@ class S {
     return isAr ? '$doneStr من $total' : '$doneStr/$total days';
   }
 
+  // Label under the day count on a member's sheet. The value beside it is
+  // roomDayCount ("3 من 7"), which already carries its own denominator, so
+  // this only has to name what is being counted.
+  String get roomStatDays => isAr ? 'الأيام' : 'Days';
   String get roomYouLabel => isAr ? 'أنت' : 'You';
   String get roomLeaderLabel => isAr ? 'القائد' : 'Leader';
   String get roomLeaveAction => isAr ? 'مغادرة الغرفة' : 'Leave Room';
