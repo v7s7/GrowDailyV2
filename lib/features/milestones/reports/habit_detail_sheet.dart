@@ -6,12 +6,14 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
+import '../../../shared/widgets/history_demo_gate.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show weeklyGridProvider;
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../habits/models/habit_model.dart' show GoalType;
+import '../../premium/notifiers/premium_notifier.dart';
 import '../notifiers/habit_history_notifier.dart';
 import 'habit_day_marks.dart';
 import 'report_period.dart';
@@ -86,10 +88,34 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     _month = DateTime(today.year, today.month);
   }
 
+  /// Steps the calendar a month, refusing with the shared demo sheet rather
+  /// than moving when the target month sits outside the free window.
+  ///
+  /// This sheet shows the same days the reports hub shows, so it has to
+  /// refuse the same way: without this check a free account reached every
+  /// month it had ever recorded, one back-tap at a time, from the أسبوعي
+  /// tab that is deliberately ungated - while the شهري tab beside it
+  /// refused anything older than [kFreeHistoryMonths]. Same data, two
+  /// prices, and the cheaper one was a tap away.
+  ///
+  /// Only the backward step is checked. Forward can never leave the free
+  /// window (it is bounded by today), and running the predicate on it would
+  /// raise the sheet while walking back TOWARD the present.
   void _stepMonth(int delta) {
+    final next = DateTime(_month.year, _month.month + delta);
+    if (delta < 0 &&
+        !canBrowseHistoryMonth(
+          monthStart: next,
+          now: DateTime.now().effectiveDay,
+          isPremium: ref.read(premiumProvider),
+        )) {
+      // The sheet brings its own haptic, so none is fired here.
+      showHistoryDemoGate(context);
+      return;
+    }
     HapticFeedback.selectionClick();
     setState(() {
-      _month = DateTime(_month.year, _month.month + delta);
+      _month = next;
       _picked = null;
     });
   }
@@ -122,6 +148,39 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
           gridKnowsToday: !grid.isLoading && grid.isCurrentWeek,
         )[habit.id] ??
         const <String, SquareState>{};
+
+    final isPremium = ref.watch(premiumProvider);
+
+    // The earliest day THIS habit recorded anything. Bounds how far back the
+    // stepper may walk, for exactly the reason the reports hub bounds its
+    // own (see the earliestKey block in period_report_section.dart): without
+    // a floor the back chevron marches into blank pre-account months
+    // forever, and nothing on screen says the record has ended.
+    //
+    // Deliberately the DATA floor and never the premium one. A live arrow
+    // that answers with the demo sheet sells the upgrade; an arrow killed by
+    // the paywall just reads as broken. So a free account keeps a live
+    // chevron all the way back to its first recorded day, and every press
+    // past the free window raises the sheet instead of moving.
+    String? earliestKey;
+    for (final key in marks.keys) {
+      if (earliestKey == null || key.compareTo(earliestKey) < 0) {
+        earliestKey = key;
+      }
+    }
+    final earliestData =
+        earliestKey == null ? null : DateTime.tryParse(earliestKey);
+    final canGoBack = earliestData != null && _month.isAfter(earliestData);
+
+    // The free-history floor for the year strip below, from the same shared
+    // definition the reports hub draws (see [historyFloorFor], which also
+    // documents why this is null for a year that sits entirely inside the
+    // free window rather than a floor that would mute nothing).
+    final stripLockedBefore = historyFloorFor(
+      windowStart: DateTime(_month.year),
+      today: today,
+      isPremium: isPremium,
+    );
 
     // This month, measured the same way every other report measures: against
     // what the habit actually owed, with rest days excused.
@@ -227,6 +286,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
             _MonthHeader(
               month: _month,
               locale: locale,
+              canGoBack: canGoBack,
               canGoForward: DateTime(_month.year, _month.month)
                   .isBefore(DateTime(today.year, today.month)),
               onBack: () => _stepMonth(-1),
@@ -264,29 +324,59 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
             ),
             const SizedBox(height: 10),
             LayoutBuilder(
-              builder: (context, constraints) => CustomPaint(
-                size: Size(constraints.maxWidth, constraints.maxWidth / 7.6),
-                painter: YearStripPainter(
-                  year: _month.year,
-                  doneDays: {
-                    for (final entry in marks.entries)
-                      if (markIsDone(entry.value)) entry.key,
-                  },
-                  color: color,
-                  // The REAL calendar day for the ring, matching every other
-                  // strip in the app: this is a calendar, and before 6am the
-                  // ring belongs on the date the phone's own calendar shows.
-                  today: DateTime.now(),
-                  isRtl: isRtl,
-                  lockedBefore: null,
-                  emptyColor: gp.dark
-                      ? Colors.white.withOpacity(0.06)
-                      : Colors.black.withOpacity(0.06),
-                  lockedColor: gp.dark
-                      ? Colors.white.withOpacity(0.03)
-                      : Colors.black.withOpacity(0.03),
-                ),
-              ),
+              builder: (context, constraints) {
+                final height = constraints.maxWidth / 7.6;
+                return GestureDetector(
+                  // A tap on a muted day answers with the demo sheet, the
+                  // same way the hub's own year rows do. Null when nothing
+                  // is muted, so an unlocked strip stays inert rather than
+                  // swallowing taps.
+                  onTapUp: stripLockedBefore == null
+                      ? null
+                      : (details) {
+                          final dx =
+                              (details.localPosition.dx / constraints.maxWidth)
+                                  .clamp(0.0, 1.0);
+                          final row = (details.localPosition.dy / (height / 7))
+                              .floor()
+                              .clamp(0, 6);
+                          final day = yearStripDayAt(
+                            year: _month.year,
+                            dxFraction: dx,
+                            row: row,
+                            isRtl: isRtl,
+                          );
+                          if (day.year == _month.year &&
+                              day.isBefore(stripLockedBefore)) {
+                            showHistoryDemoGate(context);
+                          }
+                        },
+                  child: CustomPaint(
+                    size: Size(constraints.maxWidth, height),
+                    painter: YearStripPainter(
+                      year: _month.year,
+                      doneDays: {
+                        for (final entry in marks.entries)
+                          if (markIsDone(entry.value)) entry.key,
+                      },
+                      color: color,
+                      // The REAL calendar day for the ring, matching every
+                      // other strip in the app: this is a calendar, and
+                      // before 6am the ring belongs on the date the phone's
+                      // own calendar shows.
+                      today: DateTime.now(),
+                      isRtl: isRtl,
+                      lockedBefore: stripLockedBefore,
+                      emptyColor: gp.dark
+                          ? Colors.white.withOpacity(0.06)
+                          : Colors.black.withOpacity(0.06),
+                      lockedColor: gp.dark
+                          ? Colors.white.withOpacity(0.03)
+                          : Colors.black.withOpacity(0.03),
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -386,6 +476,11 @@ class _Stat extends StatelessWidget {
 class _MonthHeader extends StatelessWidget {
   final DateTime month;
   final String locale;
+
+  /// Whether anything was ever recorded before the month on screen. False
+  /// kills the back chevron; the premium floor never does (see the
+  /// earliestData block in the sheet's build).
+  final bool canGoBack;
   final bool canGoForward;
   final VoidCallback onBack;
   final VoidCallback onForward;
@@ -393,6 +488,7 @@ class _MonthHeader extends StatelessWidget {
   const _MonthHeader({
     required this.month,
     required this.locale,
+    required this.canGoBack,
     required this.canGoForward,
     required this.onBack,
     required this.onForward,
@@ -404,10 +500,11 @@ class _MonthHeader extends StatelessWidget {
     return Row(
       children: [
         IconButton(
-          onPressed: onBack,
+          onPressed: canGoBack ? onBack : null,
           icon: const Icon(Icons.chevron_left_rounded),
           iconSize: 22,
           color: gp.textSec,
+          disabledColor: gp.textTert.withOpacity(0.3),
           visualDensity: VisualDensity.compact,
         ),
         Expanded(

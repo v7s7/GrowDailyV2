@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purchases_flutter/purchases_flutter.dart' show CustomerInfo;
 
 import '../../../core/services/analytics_service.dart';
+import '../../../core/services/local_store_service.dart';
 import '../../../core/services/purchase_service.dart';
 
 /// Free-tier limits. Guests keep their existing 3-habit trial; signed-in
@@ -72,18 +73,141 @@ bool canBrowseHistoryMonth({
 /// account, so the same purchase already follows the account across
 /// devices/reinstalls without this notifier needing to sync anything
 /// itself.
+/// Hive key for the last known entitlement, with the account it belonged to.
+/// See [loadPersistedPremium] for why this exists at all.
+const _kPremiumCacheKey = 'premium_entitlement_v1';
+
+/// The entitlement this device last saw, for seeding [premiumProvider]
+/// before the first frame.
+///
+/// ── Why a cache, when RevenueCat is the source of truth ────────────────
+/// It used to start at `false` every single launch and only become true
+/// after [PurchaseService.logIn] finished a NETWORK ROUND TRIP. Three things
+/// followed from that, all of them reported as "the app does not know I am
+/// Premium until I open the Premium page":
+///
+///  1. Every cold start flashed the free UI at a paying customer: locked
+///     history, muted year strips, a blurred recap card, an upgrade banner.
+///  2. Offline, it never recovered. A paying customer on a plane was simply
+///     a free customer, because the only thing that could correct the guess
+///     was a request that could not complete.
+///  3. If that one request failed, nothing retried until the app was
+///     resumed or the paywall screen was opened by hand, which is exactly
+///     the "open the page and then it notices" behaviour.
+///
+/// So the entitlement is now persisted like every other boot-time setting
+/// this app already restores before its first frame (theme mode, preset,
+/// font, locale, guest mode). RevenueCat stays the ONLY authority: this is
+/// a warm start, not a second source of truth, and the first authoritative
+/// answer that arrives overwrites it in both directions, including a lapse
+/// or a refund flipping it back off.
+///
+/// It is deliberately NOT a Firestore field. One used to exist and was
+/// removed on purpose (see firestore.rules' premiumFieldOk() comment):
+/// anything the client can write, the client can grant itself. A local
+/// cache carries no such risk, because it can only ever make THIS device
+/// briefly optimistic about an account that already had the entitlement,
+/// and the SDK corrects it within seconds. Cross-device is already solved
+/// by RevenueCat itself, which keys entitlement to the App User ID that
+/// [PurchaseService.logIn] binds to the account.
+Future<bool> loadPersistedPremium() async {
+  final box = await LocalStoreService.settingsBox();
+  final raw = box.get(_kPremiumCacheKey);
+  if (raw is! Map) return false;
+  return raw['entitled'] == true;
+}
+
+/// The account the cached entitlement belonged to, so a DIFFERENT account
+/// signing in on this device can never inherit it.
+Future<String?> loadPersistedPremiumUid() async {
+  final box = await LocalStoreService.settingsBox();
+  final raw = box.get(_kPremiumCacheKey);
+  if (raw is! Map) return null;
+  final uid = raw['uid'];
+  return uid is String && uid.isNotEmpty ? uid : null;
+}
+
 class PremiumNotifier extends StateNotifier<bool> {
   StreamSubscription<CustomerInfo>? _sub;
 
-  PremiumNotifier() : super(false) {
+  /// The account this device's cached entitlement was written for, read from
+  /// disk at boot. Compared against the account that actually signs in, in
+  /// [bindAccount].
+  String? _cachedUid;
+
+  /// The signed-in account, once known. Null for a guest.
+  String? _uid;
+
+  PremiumNotifier({bool initial = false, String? cachedUid})
+      : _cachedUid = cachedUid,
+        _uid = cachedUid,
+        super(initial) {
     // Live updates for anything that happens *after* construction — a
     // purchase completing, a renewal or refund picked up on next launch,
     // a restore. See PurchaseService.customerInfoUpdates' doc comment.
     _sub = PurchaseService.instance.customerInfoUpdates.listen(applyCustomerInfo);
-    // Plus an immediate one-time look so state isn't just `false` until the
-    // first update happens to arrive — mirrors every other notifier here
-    // that seeds itself at construction.
+    // Plus an immediate one-time look so state isn't just the cached guess
+    // until the first update happens to arrive — mirrors every other
+    // notifier here that seeds itself at construction.
     refresh();
+  }
+
+  /// Ties the cached entitlement to the account that actually signed in.
+  ///
+  /// Called from main.dart's auth listener, alongside [PurchaseService.logIn].
+  /// If this device's cache belonged to a DIFFERENT account, the seeded guess
+  /// is wrong and is dropped immediately rather than left standing until
+  /// RevenueCat answers: a shared or resold device must never show one
+  /// person's subscription to the next person who signs in.
+  void bindAccount(String uid) {
+    _uid = uid;
+    final stale = _cachedUid != null && _cachedUid != uid;
+    _cachedUid = uid;
+    if (stale && state) {
+      // Deferred by a microtask, and that is not a detail.
+      //
+      // main.dart's auth listener is registered with fireImmediately, so on
+      // a cold start this runs SYNCHRONOUSLY inside initState, while the
+      // widget tree is still building. Dropping `state` right here would
+      // notify every widget watching premiumProvider mid-build, which
+      // Flutter asserts on ('!_dirty': markNeedsBuild during build) and
+      // which takes the whole app to a red screen rather than to the free
+      // tier. A microtask runs the moment that synchronous work finishes,
+      // so the wrong entitlement is never painted, and never mutated from
+      // inside a build either.
+      Future.microtask(() => _set(false));
+      return;
+    }
+    // Re-stamp the cache under this uid so a guest who signs up keeps the
+    // entitlement they just bought.
+    if (state) _persist();
+  }
+
+  /// Signed out. Drops the entitlement and the cache together, so the next
+  /// account on this device starts from nothing rather than from whatever
+  /// the last one had.
+  void detachAccount() {
+    _uid = null;
+    _cachedUid = null;
+    _set(false);
+  }
+
+  void _set(bool entitled) {
+    if (!mounted) return;
+    if (entitled && !state) {
+      AnalyticsService.instance.track('premium_activated');
+    }
+    final changed = entitled != state;
+    state = entitled;
+    if (changed || entitled) _persist();
+  }
+
+  void _persist() {
+    // Fire and forget: a failed write costs one cold start's worth of
+    // optimism, never correctness, since RevenueCat still answers.
+    LocalStoreService.settingsBox().then((box) {
+      box.put(_kPremiumCacheKey, {'uid': _uid, 'entitled': state});
+    }).catchError((_) {});
   }
 
   /// Applies [info] to [state] right now, synchronously - no waiting on
@@ -99,11 +223,7 @@ class PremiumNotifier extends StateNotifier<bool> {
   /// `entitled == state` and nothing changes.
   void applyCustomerInfo(CustomerInfo info) {
     if (!mounted) return;
-    final entitled = PurchaseService.instance.isEntitled(info);
-    if (entitled && !state) {
-      AnalyticsService.instance.track('premium_activated');
-    }
-    state = entitled;
+    _set(PurchaseService.instance.isEntitled(info));
   }
 
   /// Forces a fresh look at RevenueCat's cached entitlement. Cheap and
@@ -113,7 +233,10 @@ class PremiumNotifier extends StateNotifier<bool> {
   Future<void> refresh() async {
     final info = await PurchaseService.instance.getCustomerInfo();
     if (info != null && mounted) {
-      state = PurchaseService.instance.isEntitled(info);
+      // Through _set, not a bare assignment: a refresh that finds a lapsed
+      // subscription has to clear the cache too, or the next cold start
+      // would seed the entitlement straight back.
+      _set(PurchaseService.instance.isEntitled(info));
     }
   }
 

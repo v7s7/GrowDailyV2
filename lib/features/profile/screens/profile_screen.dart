@@ -12,7 +12,6 @@ import 'package:google_fonts/google_fonts.dart';
 // TextDirection.rtl) - DateFormat and everything else this file uses from
 // intl are unaffected. Same fix as room_detail_screen.dart's identical
 // import, which hit this exact collision first.
-import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
@@ -21,7 +20,6 @@ import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/theme/theme_preset.dart';
 import '../../../core/utils/bidi_fraction.dart';
-import '../../../features/achievements/models/achievement_model.dart';
 import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/character/notifiers/character_notifier.dart';
 import '../../../features/character/notifiers/prestige_notifier.dart';
@@ -33,14 +31,13 @@ import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/grid/widgets/weekly_recap_card.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/language/widgets/language_option_card.dart';
-import '../../../features/milestones/models/milestone_event.dart';
-import '../../../features/milestones/notifiers/milestone_notifier.dart';
 import '../../../features/night_review/notifiers/night_review_notifier.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../features/rooms/notifiers/rooms_notifier.dart';
 import '../../../features/rooms/screens/rooms_hub_screen.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../milestones/reports/reports_screen.dart';
+import '../../milestones/screens/life_timeline_screen.dart';
 import '../widgets/delete_account_sheet.dart';
 import '../widgets/edit_name_sheet.dart';
 import '../widgets/stat_info_sheet.dart';

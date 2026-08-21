@@ -1242,6 +1242,12 @@ class S {
             : 'Nothing recorded. Counted against you if the day was due.',
       };
   String get gridNoteLabel => isAr ? 'ماذا حدث اليوم؟' : 'What happened today?';
+  // Shown in place of a note written on a day the free tier may no longer
+  // browse. Past WEEKS stay free on the Grid by design (see _pickWeek), so
+  // this names the note itself rather than the week, and never suggests the
+  // board is locked.
+  String get gridNoteLocked =>
+      isAr ? 'هذه الملاحظة ضمن سجلّك الكامل' : 'This note is part of your full history';
   String get gridNoteHint =>
       isAr ? 'اكتب انعكاسًا قصيرًا…' : 'Write a short reflection…';
   String get gridSave => isAr ? 'حفظ' : 'Save';
@@ -2638,15 +2644,27 @@ class S {
 
   String get lifeTimelineTitle => isAr ? 'خط الحياة الزمني' : 'Life Timeline';
   String get lifeTimelineSubtitle => isAr
-      ? 'رحلتك كاملة، سنة بسنة — كل مربع يوم، وكل شارة إنجاز مررت به.'
-      : 'Your whole journey, year by year — every square a day, every badge a milestone you passed.';
+      ? 'رحلتك كاملة، سنة بسنة. كل مربع يوم، وكل شارة إنجاز مررت به.'
+      : 'Your whole journey, year by year. Every square a day, every badge a milestone you passed.';
+  /// The line that frames the whole screen: the month the record starts.
+  /// Nothing else in the app says when you began, which is most of why this
+  /// screen earns its own destination rather than echoing the Profile stats
+  /// a few taps away.
+  String lifeTimelineSince(String monthYear) =>
+      isAr ? 'منذ $monthYear' : 'Since $monthYear';
   String lifeTimelineYearTotal(int total) =>
       isAr ? '$total مربع أخضر' : '$total green squares';
   String get lifeTimelineOpenHeatmap =>
       isAr ? 'فتح خريطة النشاط الكاملة' : 'Open full Heatmap';
-  String get lifeTimelineUpgradeBody => isAr
-      ? 'النسخة المميزة تفتح كل سنة منذ إنشاء حسابك. النسخة المجانية تعرض هذه السنة فقط.'
-      : 'Premium unlocks every year back to when your account began. Free shows this year only.';
+  // Rewritten when the gate moved off the year list and onto the days: every
+  // year is listed for everyone now, and what Premium buys is the COLOUR in
+  // the older squares. The previous wording ("Free shows this year only")
+  // described a screen that no longer exists.
+  //
+  // Arabic stays impersonal - no second-person verb, which would be gendered.
+  String lifeTimelineUpgradeBody(int freeMonths) => isAr
+      ? 'الأيام الأقدم من آخر $freeMonths أشهر تظهر باهتة. Premium يلوّنها كلها، من أول يوم.'
+      : 'Days older than the last $freeMonths months show muted. Premium colours them all, from day one.';
 
   // ── Room moderation (App Review guideline 1.2) ─────────────────────────
   //

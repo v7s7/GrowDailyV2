@@ -5,7 +5,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart'
 import '../../grid/models/square_state.dart';
 import '../../habits/models/habit_model.dart' show HabitFrequencyType;
 import '../../premium/notifiers/premium_notifier.dart'
-    show canBrowseHistoryMonth;
+    show canBrowseHistoryMonth, kFreeHistoryMonths;
 import 'habit_day_marks.dart';
 
 /// Which grain the reports hub is showing: the three segments of the
@@ -87,6 +87,72 @@ bool reportPeriodUnlocked({
         isPremium: isPremium,
       );
   }
+}
+
+/// The first day of the oldest month a free account may open, given
+/// [today].
+///
+/// The single definition of the free-history floor for every reports
+/// surface. It exists as a shared function rather than a private helper
+/// because two screens now draw the same floor: the reports hub's period
+/// stepper and per-habit year strips, and the per-habit detail sheet the
+/// hub opens. Those two show the SAME habit's SAME days, so a floor that
+/// drifted between them would let one screen lock a day the other still
+/// paints in full colour, which is exactly the "same data, two prices"
+/// bug this floor exists to prevent.
+///
+/// Pure, so [kFreeHistoryMonths] can be moved without hunting call sites,
+/// and so the boundary is unit-testable without Riverpod or RevenueCat -
+/// see test/features/milestones/habit_detail_gate_test.dart.
+DateTime freeHistoryFloor(DateTime today) =>
+    DateTime(today.year, today.month - (kFreeHistoryMonths - 1));
+
+/// The floor a surface showing days from [windowStart] onward should draw
+/// muted, or null when it should draw no lock styling at all.
+///
+/// Null in two different cases, and both matter:
+///  * Premium, which is never floored.
+///  * A window that does not reach back past the floor. Handing a painter a
+///    floor that nothing on screen predates drew lock icons over a fully
+///    visible period - the bug the reports hub's own `floorBites` check was
+///    added for. A year strip is the sharp case: from January through the
+///    month the floor lands in, the whole visible year sits INSIDE the free
+///    window, so a strip that muted "everything before the floor" would mute
+///    nothing and must say so by returning null rather than a floor.
+///
+/// Shared by the reports hub's period stepper and by the per-habit detail
+/// sheet's year strip so the two cannot disagree about which days are
+/// walled. See [freeHistoryFloor] for the floor itself.
+DateTime? historyFloorFor({
+  required DateTime windowStart,
+  required DateTime today,
+  required bool isPremium,
+}) {
+  if (isPremium) return null;
+  final floor = freeHistoryFloor(today);
+  return windowStart.isBefore(floor) ? floor : null;
+}
+
+/// [days], with everything the free tier may not see removed.
+///
+/// The rule this exists to enforce is already written down one layer below,
+/// on the per-habit year row: "the label counts what the strip SHOWS", so a
+/// full-history count never sits beside a mostly-muted strip. The aggregate
+/// cards at the TOP of a report have to obey the same rule, or one screen
+/// tells two stories: muted strips reading zero, under a header printing the
+/// real total for a year the strips are hiding.
+///
+/// Returns [days] itself when [floor] is null, so a premium report and an
+/// unwalled period both skip the copy entirely.
+List<DateTime> visibleDaysFrom({
+  required List<DateTime> days,
+  required DateTime? floor,
+}) {
+  if (floor == null) return days;
+  return [
+    for (final day in days)
+      if (!day.isBefore(floor)) day,
+  ];
 }
 
 /// Every calendar day from [start] through [end] inclusive, never running
@@ -490,6 +556,13 @@ int? periodDelta({
   required List<IslamicHabitTemplate> habits,
   required DateTime today,
   required DateTime? earliestData,
+
+  /// The free-history floor, when one is in force. A comparison against a
+  /// period the viewer is not allowed to see is not a comparison, it is the
+  /// walled number arriving by subtraction, so any overlap between the
+  /// previous window and the walled past suppresses the delta entirely.
+  /// Null for premium and for any period no floor reaches.
+  DateTime? floor,
 }) {
   final current = reportWindow(scope, anchor);
   final currentDays =
@@ -504,6 +577,11 @@ int? periodDelta({
   };
   final previous = reportWindow(scope, previousAnchor);
   if (earliestData != null && previous.end.isBefore(earliestData)) return null;
+  // Deliberately previous.START, not previous.end: a window that merely
+  // reaches into the walled past is already unusable as a comparison, and
+  // showing a delta computed from days the strips below are muting would
+  // hand back the exact number the floor exists to withhold.
+  if (floor != null && previous.start.isBefore(floor)) return null;
 
   // The same number of days, taken from the start of the previous window,
   // and never more days than that window actually holds (comparing "through

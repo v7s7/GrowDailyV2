@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 // moment either is referenced unqualified anywhere in this library -
 // _ProgressReportBody's chart Row below needs the material one. Same fix as
 // profile_screen.dart/room_detail_screen.dart's identical import.
-import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
@@ -25,7 +24,6 @@ import '../../../features/grid/models/square_state.dart';
 import '../../../features/grid/notifiers/grid_journal_notifier.dart';
 import '../../../features/grid/screens/grid_journal_screen.dart';
 import '../../../features/grid/screens/grid_screen.dart' show categoryVisual;
-import '../../../features/habits/catalog/islamic_habit_catalog.dart';
 import '../../../features/habits/models/habit_model.dart' show HabitCategory;
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/insights/insight_engine.dart';

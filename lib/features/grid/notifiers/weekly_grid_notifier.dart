@@ -6,6 +6,8 @@ import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../milestones/reports/habit_day_marks.dart';
+import '../../premium/notifiers/premium_notifier.dart'
+    show canBrowseHistoryMonth, kFreeHistoryMonths;
 import '../models/square_state.dart';
 
 /// Returns the Saturday that starts the week containing [d].
@@ -75,6 +77,38 @@ class WeeklyGridState {
 
   String noteFor(String habitId, DateTime day) =>
       notes[day.toDateKey()]?[habitId] ?? '';
+
+  /// Whether the note stored on [day] is one the free tier may no longer
+  /// read.
+  ///
+  /// Past WEEKS stay free on the Grid by design (see _pickWeek: "a picker is
+  /// not the place to introduce a paywall that did not exist a moment ago"),
+  /// so this gates nothing about navigation, the board, or the palette. The
+  /// leak it closes is narrower: Grid Journal paywalls notes older than
+  /// [kFreeHistoryMonths], and long-pressing the same square on the board
+  /// handed the same sentence over for free.
+  ///
+  /// False whenever the note is EMPTY, and that is the safety property, not
+  /// a convenience. Writing a fresh note on an old day stays open, and more
+  /// importantly the editor only swaps its text field and Save button out
+  /// when this is true, so there is no state in which a blanked field can be
+  /// saved over a note the user was not allowed to see. Withholding must
+  /// never be able to destroy.
+  ///
+  /// Pure so the boundary is unit-testable without Riverpod or RevenueCat.
+  /// See test/features/grid/grid_note_gate_test.dart.
+  static bool noteIsWalled({
+    required String note,
+    required DateTime day,
+    required DateTime now,
+    required bool isPremium,
+  }) =>
+      note.isNotEmpty &&
+      !canBrowseHistoryMonth(
+        monthStart: DateTime(day.year, day.month),
+        now: now,
+        isPremium: isPremium,
+      );
 
   /// Green (or bonus) squares logged across the visible week.
   int greenSquares(Iterable<String> habitIds) {

@@ -14,13 +14,36 @@ class _CellEditorSheet extends ConsumerStatefulWidget {
 class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
   late final TextEditingController _noteCtrl;
 
+  /// Whether a note stored on this day sits outside the free-history window.
+  ///
+  /// The Grid keeps past WEEKS free on purpose (see _pickWeek's doc comment:
+  /// "a picker is not the place to introduce a paywall that did not exist a
+  /// moment ago"), so nothing here gates navigation, the board, or the
+  /// palette. What did leak is the note TEXT: Grid Journal paywalls notes
+  /// older than kFreeHistoryMonths, and long-pressing the same square on the
+  /// board handed the same sentence over for free.
+  ///
+  /// Deliberately only ever true when a note ALREADY EXISTS. Writing a fresh
+  /// note on an old day stays open, because this is about reading what is
+  /// stored, not about renting the keyboard. That distinction is also what
+  /// keeps it safe: an emptied field whose Save button still wrote through
+  /// would erase the very note it was meant to withhold, so the editor drops
+  /// the Save button entirely in this state rather than saving a blank.
+  late final bool _noteWalled;
+
   @override
   void initState() {
     super.initState();
     final note = ref
         .read(weeklyGridProvider)
         .noteFor(widget.habit.id, widget.day);
-    _noteCtrl = TextEditingController(text: note);
+    _noteWalled = WeeklyGridState.noteIsWalled(
+      note: note,
+      day: widget.day,
+      now: DateTime.now().effectiveDay,
+      isPremium: ref.read(premiumProvider),
+    );
+    _noteCtrl = TextEditingController(text: _noteWalled ? '' : note);
   }
 
   @override
@@ -248,30 +271,68 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               ),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: _noteCtrl,
-              maxLines: 3,
-              minLines: 2,
-              textInputAction: TextInputAction.newline,
-              style: TextStyle(fontSize: 14, color: gp.textPrimary),
-              decoration: InputDecoration(hintText: s.gridNoteHint),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  HapticFeedback.lightImpact();
-                  ref.read(weeklyGridProvider.notifier).setNote(
-                        widget.habit.id,
-                        widget.day,
-                        _noteCtrl.text,
-                      );
-                  Navigator.pop(context);
-                },
-                child: Text(s.gridSave),
+            if (_noteWalled)
+              // No text field and no Save button: there is nothing to type
+              // over, and nothing that could write a blank through.
+              InkWell(
+                onTap: () => showHistoryDemoGate(context),
+                borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: GameColors.gold.withOpacity(gp.dark ? 0.10 : 0.08),
+                    borderRadius:
+                        BorderRadius.circular(GameSpacing.cardRadius),
+                    border:
+                        Border.all(color: GameColors.gold.withOpacity(0.35)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.lock_rounded,
+                          size: 16, color: GameColors.gold),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          s.gridNoteLocked,
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: gp.textSec,
+                              height: 1.35),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded,
+                          size: 16,
+                          color: GameColors.gold.withOpacity(0.7)),
+                    ],
+                  ),
+                ),
+              )
+            else ...[
+              TextField(
+                controller: _noteCtrl,
+                maxLines: 3,
+                minLines: 2,
+                textInputAction: TextInputAction.newline,
+                style: TextStyle(fontSize: 14, color: gp.textPrimary),
+                decoration: InputDecoration(hintText: s.gridNoteHint),
               ),
-            ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    ref.read(weeklyGridProvider.notifier).setNote(
+                          widget.habit.id,
+                          widget.day,
+                          _noteCtrl.text,
+                        );
+                    Navigator.pop(context);
+                  },
+                  child: Text(s.gridSave),
+                ),
+              ),
+            ],
           ],
         ),
       ),
