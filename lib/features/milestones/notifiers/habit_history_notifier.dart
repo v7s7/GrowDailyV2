@@ -107,7 +107,9 @@ final habitYearHistoryProvider =
   //
   //  habitHistoryBackfilledAt        presence only, green days
   //  habitHistoryMarksBackfilledAt   the six-state marks
-  //  habitHistoryMarksV2BackfilledAt this one
+  //  habitHistoryMarksV2BackfilledAt non-green squares painted before the
+  //                                  Grid's writer recorded them
+  //  habitHistoryMarksV3BackfilledAt this one
   //
   // V2 exists because the marks generation could still miss history. The
   // mirror only gained non-green squares once the Grid's own writer started
@@ -119,7 +121,7 @@ final habitYearHistoryProvider =
   //
   // The pass is idempotent and merge-only, so an account that has nothing to
   // recover simply rewrites what it already had.
-  if (userSnap.data()?['habitHistoryMarksV2BackfilledAt'] == null) {
+  if (userSnap.data()?['habitHistoryMarksV3BackfilledAt'] == null) {
     // Wait out any run already in flight, then re-check the stamp: the
     // earlier run may have finished the job while we waited.
     final inFlight = _backfillInFlight;
@@ -129,8 +131,12 @@ final habitYearHistoryProvider =
       await inFlight.catchError((_) {});
     }
     final fresh = await userRef.get();
-    if (fresh.data()?['habitHistoryMarksV2BackfilledAt'] != null) {
-      return _readMirror(historyCol);
+    if (fresh.data()?['habitHistoryMarksV3BackfilledAt'] != null) {
+      return _repairRecentWindow(
+        userRef: userRef,
+        historyCol: historyCol,
+        mirror: await _readMirror(historyCol),
+      );
     }
     // ── One-time backfill ────────────────────────────────────────────
     // Reads the full daily history once (~2 months ≈ 70 docs for the
@@ -186,6 +192,7 @@ final habitYearHistoryProvider =
           'habitHistoryBackfilledAt': FieldValue.serverTimestamp(),
           'habitHistoryMarksBackfilledAt': FieldValue.serverTimestamp(),
           'habitHistoryMarksV2BackfilledAt': FieldValue.serverTimestamp(),
+          'habitHistoryMarksV3BackfilledAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
       );
@@ -220,8 +227,185 @@ final habitYearHistoryProvider =
     }
   }
 
-  return _readMirror(historyCol);
+  return _repairRecentWindow(
+    userRef: userRef,
+    historyCol: historyCol,
+    mirror: await _readMirror(historyCol),
+  );
 });
+
+/// What one habit's mirror has to change over a repair window.
+///
+/// Pure, and split out of [_repairRecentWindow] so the rule can be tested
+/// without Firestore: this is the part that decides whether somebody's
+/// history is about to be corrected or quietly rewritten, and it is not the
+/// sort of logic to leave only integration-tested.
+class MirrorWindowDiff {
+  /// Days whose mark is missing or wrong in the mirror.
+  final Map<String, SquareState> write;
+
+  /// Days the mirror still claims that the daily documents no longer do.
+  final Set<String> remove;
+
+  const MirrorWindowDiff({required this.write, required this.remove});
+
+  bool get isEmpty => write.isEmpty && remove.isEmpty;
+}
+
+/// Compares the truth ([want], derived from the daily documents) against the
+/// mirror ([have]) across exactly [windowKeys], and reports what to change.
+///
+/// Only days inside the window are ever considered. Everything older is left
+/// strictly alone: this repair is bounded, and silently rewriting history
+/// outside the window it actually read would be the opposite of a fix.
+MirrorWindowDiff mirrorWindowDiff({
+  required List<String> windowKeys,
+  required Map<String, SquareState> want,
+  required Map<String, SquareState> have,
+}) {
+  final write = <String, SquareState>{};
+  final remove = <String>{};
+  for (final key in windowKeys) {
+    final w = want[key];
+    if (w == have[key]) continue;
+    if (w == null) {
+      remove.add(key);
+    } else {
+      write[key] = w;
+    }
+  }
+  return MirrorWindowDiff(write: write, remove: remove);
+}
+
+/// How many settled days the rolling repair re-derives on each run.
+///
+/// Bounded on purpose. The live writers only ever touch today (completeHabit
+/// and uncompleteHabit) or a day the user reaches back to paint, so lost
+/// writes cluster in the recent past. Two weeks covers that at a cost of 14
+/// document reads, once a day. It is NOT a full audit: a write lost on a day
+/// older than this window stays lost until a new generation stamp rebuilds
+/// the whole mirror, and that is the honest trade for not reading 365 docs
+/// every time somebody opens their reports.
+const int kMirrorRepairWindowDays = 14;
+
+/// Local stamp for "the rolling repair already ran for this day".
+const String _kMirrorRepairedOnKey = 'habit_history_repaired_on_v1';
+
+/// Re-derives the last [kMirrorRepairWindowDays] settled days from the daily
+/// documents and corrects the mirror where the two disagree.
+///
+/// ── Why this has to exist ──────────────────────────────────────────────
+/// The mirror is a CACHE. `daily/{date}` is the truth, and three live
+/// writers keep the mirror in step with it. Every one of those writes is
+/// fire-and-forget, so any of them can be lost: the app is killed mid-batch,
+/// the device is offline long enough for the queued write to be dropped, two
+/// devices race. Nothing put that back. The one-time backfill above is
+/// stamped, so once an account is stamped it never re-derives again, and a
+/// single lost write meant that day was gone from the reports FOREVER while
+/// the Grid, reading the daily docs, kept showing it.
+///
+/// That is not hypothetical. It was found on a real account: the Grid read 25
+/// squares for a week and the report read 21, because four completions on one
+/// settled day had never reached the mirror. It stayed invisible until the day
+/// settled, since the reports resolve TODAY from live state and only consult
+/// the mirror for days that are done moving.
+///
+/// ── Why it is safe ─────────────────────────────────────────────────────
+///  * SETTLED DAYS ONLY. Today is excluded for the same reason the backfill
+///    excludes it: the live writers own it, and re-deriving from an aggregate
+///    read moments ago could resurrect something the user just un-did.
+///  * IT WRITES NOTHING WHEN NOTHING DRIFTED. The diff runs against the
+///    mirror already in memory, so an account in step costs 14 reads and zero
+///    writes.
+///  * IT CORRECTS BOTH WAYS. A merge-only repair could add a missing day but
+///    never remove one the user had undone, so a lost DELETE would have been
+///    permanent in the other direction. Days the daily docs no longer claim
+///    are removed with FieldValue.delete().
+///  * IT NEVER BREAKS THE SCREEN. Any failure falls through to the mirror as
+///    read, which is exactly what the caller would have got anyway.
+///
+/// Returns the corrected map, so the screen that triggered this shows the
+/// repaired numbers immediately rather than on some later open.
+Future<Map<String, Map<String, SquareState>>> _repairRecentWindow({
+  required DocumentReference<Map<String, dynamic>> userRef,
+  required CollectionReference<Map<String, dynamic>> historyCol,
+  required Map<String, Map<String, SquareState>> mirror,
+}) async {
+  try {
+    final box = await LocalStoreService.settingsBox();
+    final today = DateTime.now().effectiveDay;
+    final todayKey = today.toDateKey();
+    // Once a day. Cheap enough to be unremarkable, frequent enough that a
+    // lost write is corrected by the next day rather than never.
+    if (box.get(_kMirrorRepairedOnKey) == todayKey) return mirror;
+
+    final windowKeys = [
+      for (var i = 1; i <= kMirrorRepairWindowDays; i++)
+        DateTime(today.year, today.month, today.day - i).toDateKey(),
+    ];
+    final snaps = await Future.wait(
+      windowKeys.map((k) => userRef.collection('daily').doc(k).get()),
+    );
+    final truth = aggregateHabitHistory({
+      for (final s in snaps)
+        if (s.exists) s.id: s.data() ?? const <String, dynamic>{},
+    });
+
+    final repaired = {
+      for (final e in mirror.entries) e.key: {...e.value},
+    };
+    final batch = FirebaseFirestore.instance.batch();
+    var changed = 0;
+    for (final habitId in {...mirror.keys, ...truth.keys}) {
+      final diff = mirrorWindowDiff(
+        windowKeys: windowKeys,
+        want: truth[habitId] ?? const <String, SquareState>{},
+        have: mirror[habitId] ?? const <String, SquareState>{},
+      );
+      if (diff.isEmpty) continue;
+      final dotted = <String, dynamic>{};
+      final nested = <String, dynamic>{};
+      for (final entry in diff.write.entries) {
+        dotted['days.${entry.key}'] = markToStored(entry.value);
+        nested[entry.key] = markToStored(entry.value);
+        (repaired[habitId] ??= <String, SquareState>{})[entry.key] = entry.value;
+      }
+      for (final key in diff.remove) {
+        dotted['days.$key'] = FieldValue.delete();
+        repaired[habitId]?.remove(key);
+      }
+      changed += dotted.length;
+      if (mirror.containsKey(habitId)) {
+        // update(), not set(merge:), because only update() takes
+        // FieldValue.delete() at a dotted path. Safe here precisely because
+        // this habit already has a mirror doc.
+        batch.update(historyCol.doc(habitId), dotted);
+      } else {
+        // No doc yet, so there is nothing to delete and a nested merge is
+        // both correct and creates the document. Note the NESTED map: inside
+        // set(), a dotted string is a literal field name, not a path.
+        batch.set(historyCol.doc(habitId), {'days': nested},
+            SetOptions(merge: true));
+      }
+    }
+
+    if (changed > 0) {
+      await batch.commit();
+      debugPrint(
+        '[habitHistory] rolling repair corrected $changed day mark(s) '
+        'across the last $kMirrorRepairWindowDays settled days',
+      );
+    }
+    // Stamped only after a successful pass, so a failure retries next open
+    // rather than skipping the day.
+    await box.put(_kMirrorRepairedOnKey, todayKey);
+    return repaired;
+  } catch (e) {
+    // The reports are still perfectly usable on the mirror as it stands.
+    debugPrint('[habitHistory] rolling repair deferred: $e');
+    return mirror;
+  }
+}
 
 /// Reads the mirror collection into per-habit day marks.
 ///
