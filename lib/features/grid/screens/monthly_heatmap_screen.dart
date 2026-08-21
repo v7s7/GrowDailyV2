@@ -12,6 +12,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
+import '../../../shared/widgets/history_demo_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
@@ -152,10 +153,26 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
     // the day you stopped, so leaving old obligations in the denominator
     // punishes people for pruning. One line to reverse if it ever gets
     // abused: put the filter back on the numerator.
-    final liveIds = {for (final h in habits) h.id};
+    // ARCHIVED IS NOT DELETED, and only deleted was ever the target here.
+    //
+    // [derivedDayCounts]' doc comment explains at length why habits the user
+    // THREW AWAY must stop marking their past: orphaned ids from a rebuilt
+    // habit list were painting glowing perfect days. Archiving is a
+    // different act. The reports hub keeps archived history and folds it
+    // under المؤرشفة rather than dropping it, and the Year Record does the
+    // same, so filtering archived habits out here made this screen the only
+    // one that quietly forgot them: on Aziz's own account the heatmap read
+    // 82 squares beside a yearly report reading 83, for the same window, one
+    // archived habit apart.
+    //
+    // So: the NUMERATOR counts every habit that still exists, archived or
+    // not (below), while the DENOMINATOR keeps counting only live ones (see
+    // `habits` above) - archiving is still "not part of my present", and
+    // nobody should be graded against a habit they deliberately put away.
+    final countedIds = {for (final h in ref.watch(allHabitsEverProvider)) h.id};
     final counts = ref.watch(habitYearHistoryProvider).maybeWhen(
           data: (mirror) => {
-            ...derivedDayCounts(mirror, liveIds),
+            ...derivedDayCounts(mirror, countedIds),
             todayKey: todayDone,
           },
           orElse: () => {...dash.dailyGreenCounts, todayKey: todayDone},
@@ -469,6 +486,13 @@ int _todayDoneCount(
 /// The cost is real and worth stating: a month spent on habits you have
 /// since deleted now reads as quiet. That is the honest reading of "how
 /// did I do at the habits I keep", and it can never overstate a day.
+///
+/// [countedHabitIds] is every habit that STILL EXISTS, archived included.
+/// Archiving is not deleting: the reports hub and the Year Record both keep
+/// archived history (folded under المؤرشفة rather than dropped), and passing
+/// only the live ids here made this screen disagree with them by exactly the
+/// archived habits' days. Deleted habits are still excluded, because their
+/// ids are simply absent from the caller's habit list.
 Map<String, int> derivedDayCounts(
   Map<String, Map<String, SquareState>> mirror,
   Set<String> countedHabitIds,
@@ -1285,10 +1309,19 @@ class _UpgradeForFullHistoryCard extends StatelessWidget {
     final gp = context.gp;
     final s = S.of(context);
     return InkWell(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        Navigator.pushNamed(context, '/premium');
-      },
+      // The demo sheet, not a jump straight to /premium.
+      //
+      // This card is the only paywall affordance on the heatmap: locked
+      // months are never rendered here (see _visibleMonths), so unlike
+      // every other history surface there is no chevron or locked chip to
+      // tap through. It used to answer with the bare paywall while the
+      // month picker on this same screen answered the same question with
+      // the preview sheet, which is two answers to one question on one
+      // screen. The gate also happens to fit this screen best of all: its
+      // fake month is painted with this file's own heatColor, so the thing
+      // being previewed is a picture of the thing that was reached for.
+      // The gate's own CTA still leads to /premium, one tap further on.
+      onTap: () => showHistoryDemoGate(context),
       borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
       child: Container(
         padding: const EdgeInsets.all(16),

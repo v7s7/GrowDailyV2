@@ -7,6 +7,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
+import '../../../shared/widgets/milestone_tally_chip.dart';
 import '../../../shared/widgets/month_picker_sheet.dart';
 import '../../../shared/widgets/week_picker_sheet.dart';
 import '../../../shared/widgets/segmented_tabs.dart';
@@ -96,10 +97,6 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     // back. Same reasoning MonthlyStoryScreen documents for its own open.
     _anchor = DateTime.now().effectiveDay;
   }
-
-  /// The first day of the oldest month a free account may open.
-  DateTime _freeFloor(DateTime today) =>
-      DateTime(today.year, today.month - (kFreeHistoryMonths - 1));
 
   void _setScope(ReportScope scope) {
     setState(() {
@@ -318,12 +315,24 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
           if (markIsDone(entry.value)) entry.key,
     };
 
-    final freeFloor = _freeFloor(today);
-    // Only meaningful where it actually bites the window on screen: passing
-    // a floor that nothing in the period predates drew lock icons over a
-    // fully visible month.
-    final floorBites = window.start.isBefore(freeFloor);
-    final lockedBefore = isPremium || !floorBites ? null : freeFloor;
+    // The free-history floor this period is drawn against, or null when
+    // nothing on screen is walled. [historyFloorFor] carries the "only
+    // meaningful where it actually bites" rule that stops a floor nothing
+    // predates from drawing lock icons over a fully visible month, and it is
+    // the same function the per-habit detail sheet's year strip reads, so
+    // the two surfaces cannot disagree about which days are walled.
+    //
+    // Scoped to skip the WEEKLY tab outright. The week is deliberately never
+    // gated (see [reportPeriodUnlocked]), and unlike the other two grains it
+    // can be navigated freely into the walled past, so a floor here would
+    // both mute a free surface and, worse, empty out the aggregates below.
+    final lockedBefore = _scope == ReportScope.week
+        ? null
+        : historyFloorFor(
+            windowStart: window.start,
+            today: today,
+            isPremium: isPremium,
+          );
 
     // Bounded by the DATA, never by Premium: a live arrow that answers with
     // the demo sheet sells the upgrade, a dead one just looks broken. This
@@ -571,16 +580,40 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     required DateTime? lockedBefore,
     required S s,
   }) {
+    // Two views of the same period, and the split is the whole point.
+    //
+    // [stats] covers the WHOLE window and feeds the per-habit strips and
+    // grids below, which need every day so the walled ones can be drawn
+    // muted and sell on tap. [visibleStats] covers only what the viewer may
+    // actually see, and feeds every AGGREGATE above them.
+    //
+    // Without that split the year tab told two stories at once: each habit
+    // strip muted its walled days and honestly reported "0 يوم", while the
+    // header directly above printed the real full-year total, completion
+    // rate, strongest and weakest weekday, and the year-over-year delta for
+    // a year whose every strip was blank. The aggregate is named in this
+    // file's own gating comment as "the thing actually being sold", so it
+    // was the one number that most needed the floor.
     final stats = computeHabitPeriodStats(
       habits: habits,
       history: history,
       days: days,
     );
-    // Every count on the screen comes from this one map, derived from the
-    // same per-habit truth the grids are painted from. See [dayCountsFrom].
-    final dayCounts = dayCountsFrom(stats);
+    final visibleDays = visibleDaysFrom(days: days, floor: lockedBefore);
+    final visibleStats = identical(visibleDays, days)
+        ? stats
+        : computeHabitPeriodStats(
+            habits: habits,
+            history: history,
+            days: visibleDays,
+          );
+    // Every count in the header and the rhythm card comes from this one map,
+    // derived from the same per-habit truth the grids are painted from. See
+    // [dayCountsFrom].
+    final dayCounts = dayCountsFrom(visibleStats);
     // A period whose predecessor predates the account shows no delta rather
-    // than one identical to its own total.
+    // than one identical to its own total, and a predecessor sitting behind
+    // the paywall shows none either.
     final delta = periodDelta(
       scope: _scope,
       anchor: _anchor,
@@ -588,11 +621,12 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
       habits: habits,
       today: today,
       earliestData: earliestData,
+      floor: lockedBefore,
     );
     final summary = computePeriodSummary(
       dayCounts: dayCounts,
-      days: days,
-      habitStats: stats,
+      days: visibleDays,
+      habitStats: visibleStats,
     );
 
     if (!summary.hasAnything && stats.every((st) => st.doneCount == 0)) {
@@ -629,6 +663,7 @@ void tapDay(DateTime day) => _showDay(
           stats: stats,
           summary: summary,
           dayCounts: dayCounts,
+          days: visibleDays,
           delta: delta,
           dash: dash,
           today: today,
@@ -641,6 +676,7 @@ void tapDay(DateTime day) => _showDay(
           stats: stats,
           summary: summary,
           dayCounts: dayCounts,
+          days: visibleDays,
           delta: delta,
           dash: dash,
           today: today,
@@ -709,6 +745,11 @@ void tapDay(DateTime day) => _showDay(
     required PeriodSummary summary,
     required int? delta,
     required Map<String, int> dayCounts,
+
+    /// The days the viewer may actually SEE, already floored. Handed down
+    /// rather than recomputed from the period so the weekday rhythm card
+    /// cannot describe days the grids below it are muting.
+    required List<DateTime> days,
     required DashboardState dash,
     required DateTime today,
     required String locale,
@@ -730,11 +771,6 @@ void tapDay(DateTime day) => _showDay(
         accountCreatedAt: dash.accountCreatedAt,
         currentMonth: DateTime(today.year, today.month),
       ),
-    );
-    final days = elapsedDaysIn(
-      start: month,
-      end: DateTime(month.year, month.month + 1, 0),
-      today: today,
     );
     final split = splitArchived(stats);
     return Column(
@@ -817,6 +853,10 @@ void tapDay(DateTime day) => _showDay(
     required PeriodSummary summary,
     required int? delta,
     required Map<String, int> dayCounts,
+
+    /// See [_monthBody]'s identical parameter: the floored days, so the
+    /// rhythm card never speaks for a walled part of the year.
+    required List<DateTime> days,
     required DashboardState dash,
     required DateTime today,
     required String locale,
@@ -825,11 +865,6 @@ void tapDay(DateTime day) => _showDay(
     required S s,
   }) {
     final year = _anchor.year;
-    final days = elapsedDaysIn(
-      start: DateTime(year),
-      end: DateTime(year, 12, 31),
-      today: today,
-    );
     // Archived habits keep their history but move under a fold: archiving
     // means "not part of my present", so the past shows up when asked for.
     // Shared with the other two tabs via [splitArchived] so all three agree
@@ -1068,29 +1103,7 @@ List<Widget> milestoneChips(BuildContext context, MonthlyStoryData story) {
   ];
   return [
     for (final e in entries)
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        decoration: BoxDecoration(
-          color: e.$2.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-          border: Border.all(color: e.$2.withOpacity(0.28), width: 0.5),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(e.$1, size: 12, color: e.$2),
-            const SizedBox(width: 5),
-            Text(
-              '${toWesternDigits('${e.$3}')} ${e.$4}',
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                color: e.$2,
-              ),
-            ),
-          ],
-        ),
-      ),
+      MilestoneTallyChip(icon: e.$1, color: e.$2, count: e.$3, label: e.$4),
   ];
 }
 

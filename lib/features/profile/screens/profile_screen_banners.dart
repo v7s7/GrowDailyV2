@@ -301,6 +301,50 @@ class _ProfileLinksSection extends ConsumerWidget {
                 ),
               ),
               Container(height: 0.5, color: gp.divider),
+              // خط الحياة الزمني: the whole record, year by year, with the
+              // milestones earned in each. Wired back up deliberately, and
+              // only after it stopped being a duplicate: the reason its door
+              // was removed in the first place was that it "re-rendered the
+              // Progress Heatmap's own day-square grid" (see the note above),
+              // and the two things it now leads with - when the record
+              // STARTS, and every year side by side - are the two things no
+              // other screen in the app says. التقدّم answers "where am I
+              // now", التقارير answers "how was this week/month/year", and
+              // this answers "how far have I come".
+              //
+              // Sits third rather than last so the three data rows stay
+              // together and الغرف (people, not numbers) keeps the bottom.
+              InkWell(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const LifeTimelineScreen()),
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                  child: Row(
+                    children: [
+                      Icon(Icons.timeline_rounded,
+                          size: 20, color: gp.textSec),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(s.lifeTimelineTitle,
+                            style: TextStyle(
+                                fontSize: 15,
+                                color: gp.textPrimary,
+                                fontWeight: FontWeight.w500)),
+                      ),
+                      Icon(Icons.chevron_right_rounded,
+                          size: 18, color: gp.textTert),
+                    ],
+                  ),
+                ),
+              ),
+              Container(height: 0.5, color: gp.divider),
               // The Character Closet row used to sit here. It opened exactly
               // the same screen as the hero avatar a few hundred pixels above
               // it on this very scroll (see _HeroHeader's InkWell) — one

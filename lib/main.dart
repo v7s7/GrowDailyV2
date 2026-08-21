@@ -188,6 +188,15 @@ Future<void> main() async {
     final persistedRoomFinaleSeen = await loadPersistedRoomFinaleSeen();
     final persistedAppGuideBadgeSeen = await loadPersistedAppGuideBadgeSeen();
     final persistedRecapCollapsed = await loadPersistedWeeklyRecapCollapsed();
+    // The entitlement this device last saw. Restored alongside every other
+    // boot-time setting so a paying customer's first frame is already the
+    // paid one, instead of flashing the free UI (locked history, muted
+    // strips, an upgrade banner) until a RevenueCat round trip lands - or
+    // staying free indefinitely when that round trip cannot complete at all.
+    // See [loadPersistedPremium] for why a local cache is safe here and a
+    // Firestore field is not.
+    final persistedPremium = await loadPersistedPremium();
+    final persistedPremiumUid = await loadPersistedPremiumUid();
     final persistedThemeMode = await loadPersistedThemeMode();
     // Also applies the preset's colors to GameColors immediately, so the
     // very first frame already renders in the right preset.
@@ -206,6 +215,10 @@ Future<void> main() async {
         roomFinaleSeenProvider.overrideWith((ref) => persistedRoomFinaleSeen),
         appGuideBadgeSeenProvider.overrideWith((ref) => persistedAppGuideBadgeSeen),
         weeklyRecapCollapsedProvider.overrideWith((ref) => persistedRecapCollapsed),
+        premiumProvider.overrideWith((ref) => PremiumNotifier(
+              initial: persistedPremium,
+              cachedUid: persistedPremiumUid,
+            )),
         if (persistedThemeMode != null)
           themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
         if (persistedThemePreset != null)
@@ -321,6 +334,29 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // a real guard here (unlike the synchronous calls above): this
         // fires after a network round trip, so the app could in principle
         // have torn this widget down before it lands.
+        // Bind the restored entitlement to the account that actually signed
+        // in, well before the network call below can answer. If this
+        // device's cache belonged to someone else, this is what drops it,
+        // rather than showing one person's subscription to the next person
+        // who signs in.
+        //
+        // Deferred by a microtask, and it has to be. This listener is
+        // registered with fireImmediately, so on a cold start it runs inside
+        // initState while the root ProviderScope above is still MOUNTING.
+        // Reading premiumProvider there is what creates the notifier, and
+        // creating a provider during the scope's own first build marks that
+        // scope dirty mid-build: '!_dirty' fails and the app opens on a red
+        // screen instead of the grid. Every other premium touch in this file
+        // is already async for the same reason (see the logIn().then below),
+        // which is why this was the only one that tripped it.
+        //
+        // A microtask still lands orders of magnitude before any network
+        // round trip, so nothing about the "drop a stale entitlement fast"
+        // guarantee is weakened.
+        Future.microtask(() {
+          if (!mounted) return;
+          ref.read(premiumProvider.notifier).bindAccount(uid);
+        });
         PurchaseService.instance.logIn(uid).then((info) {
           if (info != null && mounted) {
             ref.read(premiumProvider.notifier).applyCustomerInfo(info);
@@ -333,6 +369,14 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         ref.read(reminderTimeProvider.notifier).detachAccount();
         ref.read(notificationSettingsProvider.notifier).detachAccount();
         PurchaseService.instance.logOut();
+        // Clears the cached entitlement with it. Without this the signed-out
+        // device would keep answering "Premium" from disk on the next cold
+        // start, for an account that is no longer signed in. Deferred for
+        // the same mounting reason as bindAccount above.
+        Future.microtask(() {
+          if (!mounted) return;
+          ref.read(premiumProvider.notifier).detachAccount();
+        });
         // Drops this device's own token doc so a shared/reset device stops
         // being a room-finish push target for the account that just left it.
         PushNotificationService.instance.clearForSignOut();
