@@ -1676,6 +1676,28 @@ class S {
   String get premiumPurchaseNotEntitled => isAr
       ? 'تمت عملية الشراء، لكن لم يتم تفعيل بريميوم بعد. لم يُخصم منك مرتين. جرّب «استعادة المشتريات»، وإن استمرت المشكلة تواصل معنا.'
       : 'The purchase went through, but Premium is not active yet. You have not been charged twice. Try Restore Purchases, and contact us if it keeps happening.';
+  // ── Room push delivery status ─────────────────────────────────────────
+  //
+  // Room notifications had one failure mode and no way to see it: every
+  // switch read "on", the server ran and reported success, and nothing
+  // arrived, because there was no device token to deliver to. These name the
+  // first broken link instead of leaving someone to guess.
+  //
+  // Arabic stays impersonal, with no second-person verb.
+  String get notifRoomPushReady => isAr
+      ? 'جاهز. إشعارات الغرف تصل إلى هذا الجهاز.'
+      : 'Ready. Room notifications can reach this device.';
+  String get notifRoomPushNoPermission => isAr
+      ? 'الإشعارات موقوفة من إعدادات الجهاز، فلا شيء يصل مهما كانت الإعدادات هنا.'
+      : 'Notifications are turned off in device settings, so nothing can arrive whatever is set here.';
+  String get notifRoomPushNoToken => isAr
+      ? 'هذا الجهاز غير مسجَّل لاستقبال إشعارات الغرف بعد. افتح صفحة الغرف مرة واحدة لتسجيله. المحاكي لا يستقبلها إطلاقًا.'
+      : 'This device is not registered for room notifications yet. Open the Rooms page once to register it. The Simulator never receives them at all.';
+  String get notifRoomPushCategoryOff => isAr
+      ? 'إشعارات الغرف موقوفة من المفتاح أعلاه.'
+      : 'Room notifications are turned off by the switch above.';
+  String get notifOpenSystemSettings =>
+      isAr ? 'افتح إعدادات الجهاز' : 'Open device settings';
   String get premiumTermsOfUse => isAr ? 'شروط الاستخدام' : 'Terms of Use';
   String get premiumPrivacyPolicy => isAr ? 'سياسة الخصوصية' : 'Privacy Policy';
   String get premiumLinkOpenError =>

@@ -8,6 +8,7 @@ import '../../../core/services/country_lookup_service.dart';
 import '../../../core/services/device_location_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/prayer_times_service.dart';
+import '../../../core/services/push_notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../models/notification_settings.dart';
@@ -166,6 +167,12 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       value: settings.roomActivityEnabled,
                       onChanged: (v) =>
                           update((c) => c.copyWith(roomActivityEnabled: v)),
+                    ),
+                    // Directly under the switch it explains, because the
+                    // switch alone was the lie: it read "on" while nothing
+                    // could arrive.
+                    _RoomPushStatus(
+                      roomActivityEnabled: settings.roomActivityEnabled,
                     ),
                     // Nested under room activity, and only offered while it
                     // is on: a nudge IS a room push, so it can never arrive
@@ -583,6 +590,149 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
 
 /// The "iOS/Android has this app's notifications switched off" warning —
 /// rendered at the very top of Notification Settings, and only when the OS
+
+/// The delivery chain behind the room-activity switch, in plain words.
+///
+/// This exists because of a specific complaint that could not be answered:
+/// "I never get a room notification." Every in-app switch read on, the Cloud
+/// Function ran hourly and logged success, and nothing arrived. The missing
+/// link was a device token that had never been registered, and NOTHING
+/// anywhere said so. A switch that reads "on" while delivery is impossible is
+/// worse than no switch, because it ends the investigation.
+///
+/// Three facts, in delivery order, and it names the FIRST one that is false
+/// rather than listing everything: permission, then a registered device, then
+/// the category switch. Re-checked on resume, like [_SystemPermissionBanner]
+/// above, since the fix for the first two happens outside the app.
+///
+/// Deliberately quiet when everything is fine: one green line, no card, no
+/// icon competing with the switch it sits under. A diagnosis screen that
+/// shouts when there is nothing wrong is just more noise.
+class _RoomPushStatus extends ConsumerStatefulWidget {
+  final bool roomActivityEnabled;
+  const _RoomPushStatus({required this.roomActivityEnabled});
+
+  @override
+  ConsumerState<_RoomPushStatus> createState() => _RoomPushStatusState();
+}
+
+class _RoomPushStatusState extends ConsumerState<_RoomPushStatus>
+    with WidgetsBindingObserver {
+  PushDeliveryStatus? _status;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _check();
+  }
+
+  @override
+  void didUpdateWidget(_RoomPushStatus old) {
+    super.didUpdateWidget(old);
+    if (old.roomActivityEnabled != widget.roomActivityEnabled) _check();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _check();
+  }
+
+  Future<void> _check() async {
+    final status = await PushNotificationService.instance.deliveryStatus(
+      roomActivityEnabled: widget.roomActivityEnabled,
+    );
+    if (mounted) setState(() => _status = status);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _status;
+    // Unknown renders nothing: a wrong diagnosis is worse than none, the
+    // same rule _SystemPermissionBanner follows.
+    if (status == null) return const SizedBox.shrink();
+    final gp = context.gp;
+    final s = S.of(context);
+
+    if (status.canDeliver) {
+      return Padding(
+        padding: const EdgeInsetsDirectional.only(
+            start: 52, end: 16, bottom: 12),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_rounded,
+                size: 14, color: GameColors.emerald),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                s.notifRoomPushReady,
+                style: TextStyle(fontSize: 11.5, color: gp.textSec),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // First broken link only. Listing all three would make somebody fix the
+    // wrong one.
+    final needsSystemSettings = !status.permissionGranted;
+    final message = !status.permissionGranted
+        ? s.notifRoomPushNoPermission
+        : !status.tokenRegistered
+            ? s.notifRoomPushNoToken
+            : s.notifRoomPushCategoryOff;
+
+    return Padding(
+      padding:
+          const EdgeInsetsDirectional.only(start: 52, end: 16, bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline_rounded,
+                  size: 14, color: GameColors.warning),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(
+                      fontSize: 11.5, color: gp.textSec, height: 1.35),
+                ),
+              ),
+            ],
+          ),
+          if (needsSystemSettings) ...[
+            const SizedBox(height: 6),
+            GestureDetector(
+              onTap: () => launchUrl(Uri.parse('app-settings:'),
+                  mode: LaunchMode.externalApplication),
+              child: Text(
+                s.notifOpenSystemSettings,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: GameColors.gold,
+                  decoration: TextDecoration.underline,
+                  decorationColor: GameColors.gold,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 /// itself is blocking delivery (see NotificationService.checkSystemPermission,
 /// and the real incident described there: every in-app toggle read "on",
 /// every schedule call "succeeded", and the system silently dropped all of

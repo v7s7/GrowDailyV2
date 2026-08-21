@@ -24,6 +24,40 @@ import 'notification_service.dart';
 /// pullFromAccount-style sync in main.dart's `_authSub` listener — a guest
 /// has no `users/{uid}` doc for a token to live on, so this is simply never
 /// called for one.
+/// Why a room push can or cannot reach this device, as three plain facts.
+///
+/// Room notifications had one failure mode and no way to see it. Every
+/// in-app switch read "on", the Cloud Function ran on schedule and reported
+/// success, and nothing ever arrived, because there was no device token to
+/// deliver to. Nothing anywhere said so. "I never get a notification" and
+/// "everything is working" were the same screen.
+///
+/// These three are the whole delivery chain, in order. The first one that is
+/// false is the answer.
+class PushDeliveryStatus {
+  /// The OS notification permission. False means iOS is refusing delivery no
+  /// matter what the app or the server does.
+  final bool permissionGranted;
+
+  /// A device token exists for this account. This is the one that was
+  /// silently false: iOS issues no APNs token on the Simulator, and none
+  /// before permission is granted, so there was simply nothing to send to.
+  final bool tokenRegistered;
+
+  /// The in-app room category switch, which the server also honours.
+  final bool roomActivityEnabled;
+
+  const PushDeliveryStatus({
+    required this.permissionGranted,
+    required this.tokenRegistered,
+    required this.roomActivityEnabled,
+  });
+
+  /// Whether a room push could actually arrive right now.
+  bool get canDeliver =>
+      permissionGranted && tokenRegistered && roomActivityEnabled;
+}
+
 class PushNotificationService {
   PushNotificationService._();
   static final instance = PushNotificationService._();
@@ -120,6 +154,51 @@ class PushNotificationService {
     _refreshSub = FirebaseMessaging.instance.onTokenRefresh.listen((_) {
       _syncToken();
     });
+  }
+
+  /// Reads the delivery chain for the signed-in account.
+  ///
+  /// One Firestore read, and only when somebody has opened notification
+  /// settings and is asking the question. Never called on a hot path.
+  Future<PushDeliveryStatus> deliveryStatus({
+    required bool roomActivityEnabled,
+  }) async {
+    final uid = _uid;
+    if (uid == null) {
+      // A guest is never registered at all, by design, so the honest answer
+      // is "nothing can arrive" rather than a half-filled chain.
+      return PushDeliveryStatus(
+        permissionGranted: false,
+        tokenRegistered: false,
+        roomActivityEnabled: roomActivityEnabled,
+      );
+    }
+    var granted = false;
+    try {
+      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      granted = settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional;
+    } catch (_) {
+      // Treated as not granted: claiming delivery works when the check
+      // itself failed is the exact false reassurance this exists to end.
+    }
+    var registered = false;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('fcmTokens')
+          .limit(1)
+          .get();
+      registered = snap.docs.isNotEmpty;
+    } catch (_) {
+      // Offline. Same reasoning as above.
+    }
+    return PushDeliveryStatus(
+      permissionGranted: granted,
+      tokenRegistered: registered,
+      roomActivityEnabled: roomActivityEnabled,
+    );
   }
 
   Future<void> _syncToken() async {
