@@ -362,7 +362,28 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             ref.read(premiumProvider.notifier).applyCustomerInfo(info);
           }
         });
-      } else {
+      } else if (next.hasValue) {
+        // ── Only a RESOLVED sign-out counts ───────────────────────────
+        //
+        // `uid == null` is two different states wearing one face:
+        // genuinely signed out (AsyncData(null)) and "Firebase Auth has
+        // not answered yet" (AsyncLoading, which is what fireImmediately
+        // hands us on EVERY cold start). An auth network blip adds a
+        // third, AsyncError. All three have a null asData.
+        //
+        // Without this guard the branch below ran at every launch, before
+        // auth had resolved, and detachAccount() wiped the entitlement
+        // restored from disk moments earlier along with its cache. That
+        // defeated the whole point of caching it: the app was right again
+        // only once RevenueCat answered over the network, which is exactly
+        // the round trip the cache exists to remove. Offline, it never
+        // came back at all.
+        //
+        // hasValue is the precise test. It is true for AsyncData(null),
+        // which is a real sign-out, and it stays true while a later
+        // refresh is in flight, so a reconnect does not flap the session
+        // either. It is false for a first load and for an error with
+        // nothing behind it, which are the two cases that must do nothing.
         ref.read(themeModeProvider.notifier).detachAccount();
         ref.read(themePresetProvider.notifier).detachAccount();
         ref.read(appFontProvider.notifier).detachAccount();

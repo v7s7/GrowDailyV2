@@ -39,6 +39,16 @@ import 'package:grow_daily_v2/features/premium/notifiers/premium_notifier.dart';
 
 import '../../helpers/fake_user.dart';
 
+/// Whether the harness guards its sign-out branch the way main.dart does.
+enum _SignOut {
+  /// `uid == null` treated as a sign-out, which is what shipped briefly and
+  /// wiped the entitlement on every cold start.
+  unguarded,
+
+  /// Only a RESOLVED null counts, which is what main.dart does now.
+  guarded,
+}
+
 /// How the harness reaches for premium from inside the mounting scope.
 enum _Reach {
   /// What main.dart used to do, and what red-screened the app.
@@ -72,17 +82,22 @@ void main() {
     bool premium = true,
     String cachedUid = 'u1',
     String signedInUid = 'u1',
+    _SignOut signOut = _SignOut.guarded,
+    bool signedIn = true,
   }) async {
     await tester.pumpWidget(ProviderScope(
       overrides: [
-        authStateProvider
-            .overrideWith((ref) => Stream<User?>.value(fakeUser(signedInUid))),
+        // A Stream.value emits ASYNCHRONOUSLY, so the listener's first
+        // fire is AsyncLoading with a null uid, exactly as on a real cold
+        // start. That first fire is the whole subject of these tests.
+        authStateProvider.overrideWith((ref) => Stream<User?>.value(
+            signedIn ? fakeUser(signedInUid) : null)),
         premiumProvider.overrideWith((ref) => PremiumNotifier(
               initial: premium,
               cachedUid: cachedUid,
             )),
       ],
-      child: _BootHarness(reach: reach),
+      child: _BootHarness(reach: reach, signOut: signOut),
     ));
   }
 
@@ -135,6 +150,52 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('a cold start does NOT wipe the restored entitlement',
+        (tester) async {
+      // The bug: authStateProvider's first fire on every cold start is
+      // AsyncLoading with a null uid. Read as "signed out", it wiped the
+      // entitlement restored from disk before Firebase Auth had answered,
+      // so the app was only right again once RevenueCat replied over the
+      // network. Offline it never recovered, which is precisely what the
+      // cache was added to fix.
+      await boot(tester, reach: _Reach.deferred);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(_BootHarness)),
+      );
+      expect(container.read(premiumProvider), isTrue,
+          reason: 'a launch that has not resolved auth yet is not a sign-out');
+    });
+
+    testWidgets('and the unguarded version really does wipe it',
+        (tester) async {
+      // The control. Without this the test above could pass against a build
+      // where the sign-out branch had simply stopped running at all.
+      await boot(tester, reach: _Reach.deferred, signOut: _SignOut.unguarded);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(_BootHarness)),
+      );
+      expect(container.read(premiumProvider), isFalse,
+          reason: 'this is the shape that shipped briefly, and it must still '
+              'be observable or the guarded test proves nothing');
+    });
+
+    testWidgets('a real sign-out still drops the entitlement', (tester) async {
+      // The guard must not swallow the case it exists beside: a RESOLVED
+      // null is a genuine sign-out and has to clear everything.
+      await boot(tester, reach: _Reach.deferred, signedIn: false);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(_BootHarness)),
+      );
+      expect(container.read(premiumProvider), isFalse,
+          reason: 'AsyncData(null) is a sign-out, and hasValue is true for it');
+    });
+
     testWidgets('a free device stays free and still boots clean',
         (tester) async {
       await boot(tester, reach: _Reach.deferred, premium: false);
@@ -156,7 +217,8 @@ void main() {
 /// exists.
 class _BootHarness extends ConsumerStatefulWidget {
   final _Reach reach;
-  const _BootHarness({required this.reach});
+  final _SignOut signOut;
+  const _BootHarness({required this.reach, required this.signOut});
 
   @override
   ConsumerState<_BootHarness> createState() => _BootHarnessState();
@@ -168,7 +230,18 @@ class _BootHarnessState extends ConsumerState<_BootHarness> {
     super.initState();
     ref.listenManual(authStateProvider, (previous, next) {
       final uid = next.asData?.value?.uid;
-      if (uid == null) return;
+      if (uid == null) {
+        // main.dart's sign-out branch, in both its shapes.
+        final treatAsSignOut =
+            widget.signOut == _SignOut.unguarded || next.hasValue;
+        if (treatAsSignOut) {
+          Future.microtask(() {
+            if (!mounted) return;
+            ref.read(premiumProvider.notifier).detachAccount();
+          });
+        }
+        return;
+      }
       switch (widget.reach) {
         case _Reach.synchronous:
           ref.read(premiumProvider.notifier).bindAccount(uid);
