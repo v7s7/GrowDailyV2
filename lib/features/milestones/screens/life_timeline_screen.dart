@@ -13,6 +13,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
+import '../../../shared/widgets/milestone_tally_chip.dart';
 import '../notifiers/habit_history_notifier.dart';
 import '../models/milestone_event.dart';
 import '../notifiers/milestone_notifier.dart';
@@ -526,7 +527,12 @@ class _YearSection extends StatelessWidget {
               runSpacing: 8,
               children: [
                 for (final entry in tally.entries)
-                  _MilestoneTallyChip(type: entry.key, count: entry.value),
+                  MilestoneTallyChip(
+                    icon: entry.key.icon,
+                    color: entry.key.color,
+                    count: entry.value,
+                    label: entry.key.localizedName(S.of(context).isAr),
+                  ),
               ],
             ),
           ],
@@ -555,33 +561,3 @@ class _DaySquare extends StatelessWidget {
   }
 }
 
-class _MilestoneTallyChip extends StatelessWidget {
-  final MilestoneType type;
-  final int count;
-  const _MilestoneTallyChip({required this.type, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    final isAr = S.of(context).isAr;
-    final color = type.color;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-        border: Border.all(color: color.withOpacity(0.3), width: 0.5),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(type.icon, size: 12, color: color),
-          const SizedBox(width: 5),
-          Text(
-            '${type.localizedName(isAr)} ×$count',
-            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: color),
-          ),
-        ],
-      ),
-    );
-  }
-}

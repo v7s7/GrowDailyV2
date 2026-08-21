@@ -7,6 +7,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
+import '../../../shared/widgets/milestone_tally_chip.dart';
 import '../../../shared/widgets/month_picker_sheet.dart';
 import '../../../shared/widgets/week_picker_sheet.dart';
 import '../../../shared/widgets/segmented_tabs.dart';
@@ -1102,29 +1103,7 @@ List<Widget> milestoneChips(BuildContext context, MonthlyStoryData story) {
   ];
   return [
     for (final e in entries)
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        decoration: BoxDecoration(
-          color: e.$2.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-          border: Border.all(color: e.$2.withOpacity(0.28), width: 0.5),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(e.$1, size: 12, color: e.$2),
-            const SizedBox(width: 5),
-            Text(
-              '${toWesternDigits('${e.$3}')} ${e.$4}',
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                color: e.$2,
-              ),
-            ),
-          ],
-        ),
-      ),
+      MilestoneTallyChip(icon: e.$1, color: e.$2, count: e.$3, label: e.$4),
   ];
 }
 
