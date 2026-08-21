@@ -128,13 +128,22 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
         20 + MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
+        // Capped and scrollable. The header below is deliberately tall (the
+        // character is the point of opening a member), and a Column with
+        // mainAxisSize.min will happily overflow a short phone in landscape
+        // or at a large text size rather than scroll.
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.86,
+        ),
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
           borderRadius: BorderRadius.circular(22),
           border: Border.all(color: gp.border),
         ),
-        child: Column(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Center(
@@ -273,6 +282,7 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -315,6 +325,10 @@ class _ParticipantHeader extends StatelessWidget {
     final elapsed = participant.daysElapsedIn(room);
     final streak = participant.currentStreak(room);
 
+    // Your own sheet is gold, everyone else's is the grid's green. The same
+    // two-colour split the leaderboard card already uses to mark your row.
+    final accent = isYou ? GameColors.gold : GameColors.emerald;
+
     // The privacy half, copied from the row rather than reinvented: joining a
     // room to compete on consistency without publishing what you are working
     // on. Your own sheet always shows your own names, since there is nobody to
@@ -327,102 +341,142 @@ class _ParticipantHeader extends StatelessWidget {
         : const <String>[];
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            if (character == null)
-              SizedBox(
-                height: 56,
-                width: 40,
-                child: Center(
-                  child: Icon(Icons.person_rounded,
-                      size: 32, color: gp.textTert.withOpacity(0.6)),
-                ),
-              )
-            else
-              CharacterAvatar(
-                character: character,
-                accessory: accessory,
-                height: 56,
-              ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          participant.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: gp.textPrimary,
-                          ),
-                        ),
-                      ),
-                      if (isYou) ...[
-                        const SizedBox(width: 6),
-                        _Tag(label: s.roomYouLabel, color: GameColors.gold),
-                      ],
-                      if (participant.uid == room.createdBy) ...[
-                        const SizedBox(width: 4),
-                        _Tag(label: s.roomLeaderLabel, color: gp.textSec),
-                      ],
+        // ── The character, at the size the character deserves ────────────
+        //
+        // Opening a member is the one moment another person is the subject,
+        // and they picked this look on purpose. At 56pt it was a bullet point
+        // next to their name; at 132 with a glow behind it, it is the reason
+        // you opened the sheet. The glow is a radial fade rather than a solid
+        // disc so nothing has a hard edge to fight the artwork's own outline.
+        SizedBox(
+          height: 168,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 176,
+                height: 176,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      accent.withOpacity(0.20),
+                      accent.withOpacity(0.06),
+                      accent.withOpacity(0),
                     ],
+                    stops: const [0, 0.55, 1],
                   ),
-                  // Same level-1 restraint the row and the Profile card both
-                  // use: a base tier is not something to show off, so it
-                  // renders nothing rather than a chip everybody would have.
-                  if (prestige != null && prestige.minLevel > 1) ...[
-                    const SizedBox(height: 5),
-                    _PrestigeChip(tier: prestige),
-                  ],
-                  if (names.isNotEmpty) ...[
-                    const SizedBox(height: 5),
-                    Text(
-                      names.join('، '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
-                    ),
-                  ],
-                ],
+                ),
+              ),
+              if (character == null)
+                Icon(Icons.person_rounded,
+                    size: 88, color: gp.textTert.withOpacity(0.55))
+              else
+                CharacterAvatar(
+                  character: character,
+                  accessory: accessory,
+                  height: 132,
+                ),
+            ],
+          ),
+        )
+            .animate()
+            // Rises and settles rather than popping: the sheet is already
+            // sliding up, so the character arriving a beat later reads as
+            // them stepping forward inside it.
+            .fadeIn(duration: 260.ms)
+            .scale(
+              begin: const Offset(0.88, 0.88),
+              end: const Offset(1, 1),
+              duration: 420.ms,
+              curve: Curves.easeOutBack,
+            ),
+        const SizedBox(height: 6),
+        // ── Who they are ─────────────────────────────────────────────────
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            Text(
+              participant.displayName,
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
               ),
             ),
+            if (isYou) _Tag(label: s.roomYouLabel, color: GameColors.gold),
+            if (participant.uid == room.createdBy)
+              _Tag(label: s.roomLeaderLabel, color: gp.textSec),
+            // Same level-1 restraint the row and the Profile card both use: a
+            // base tier is not something to show off, so it renders nothing
+            // rather than a chip everybody would have from day one.
+            if (prestige != null && prestige.minLevel > 1)
+              _PrestigeChip(tier: prestige),
           ],
-        ),
-        const SizedBox(height: 12),
-        Container(height: 0.5, color: gp.divider),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            _HeaderStat(
-              value: '${(ratio * 100).round()}%',
-              label: s.reportsRate,
-              color: GameColors.emerald,
-            ),
-            _HeaderStat(
-              value: s.roomDayCount(done, elapsed),
-              label: s.roomStatDays,
-              color: gp.textPrimary,
-            ),
-            _HeaderStat(
-              value: '$streak',
-              label: s.habitStatsCurrentStreak,
-              color: GameColors.iconStreak,
-            ),
-          ],
-        ),
+        ).animate(delay: 90.ms).fadeIn(duration: 240.ms).moveY(begin: 6, end: 0),
+        if (names.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            names.join('، '),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: gp.textSec),
+          ).animate(delay: 130.ms).fadeIn(duration: 240.ms),
+        ],
+        const SizedBox(height: 14),
+        // ── What they have done ──────────────────────────────────────────
+        //
+        // One container rather than three loose columns, so the numbers read
+        // as a single scoreboard instead of three unrelated facts.
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            color: gp.dark
+                ? Colors.white.withOpacity(0.04)
+                : Colors.black.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+            border: Border.all(color: gp.border, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              _HeaderStat(
+                value: '${(ratio * 100).round()}%',
+                label: s.reportsRate,
+                color: GameColors.emerald,
+              ),
+              _StatDivider(color: gp.border),
+              _HeaderStat(
+                value: s.roomDayCount(done, elapsed),
+                label: s.roomStatDays,
+                color: gp.textPrimary,
+              ),
+              _StatDivider(color: gp.border),
+              _HeaderStat(
+                value: '$streak',
+                label: s.habitStatsCurrentStreak,
+                color: GameColors.iconStreak,
+              ),
+            ],
+          ),
+        ).animate(delay: 170.ms).fadeIn(duration: 260.ms).moveY(begin: 8, end: 0),
       ],
     );
   }
+}
+
+/// A hairline between two figures in the scoreboard.
+class _StatDivider extends StatelessWidget {
+  final Color color;
+  const _StatDivider({required this.color});
+
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 0.5, height: 26, color: color);
 }
 
 /// One of the three figures under a member's name.

@@ -319,19 +319,12 @@ class _MiniHeatmapStrip extends StatelessWidget {
       label: s.roomStripOpenCalendar,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          HapticFeedback.selectionClick();
-          showModalBottomSheet<void>(
-            context: context,
-            backgroundColor: Colors.transparent,
-            isScrollControlled: true,
-            builder: (_) => _ParticipantCalendarSheet(
-              room: room,
-              participant: participant,
-              isYou: isYou,
-            ),
-          );
-        },
+        onTap: () => showParticipantSheet(
+          context,
+          room: room,
+          participant: participant,
+          isYou: isYou,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1008,7 +1001,7 @@ class _LeaderboardRow extends ConsumerWidget {
             .toList()
         : const <String>[];
 
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: isYou ? GameColors.gold.withOpacity(0.06) : gp.surface,
@@ -1271,6 +1264,29 @@ class _LeaderboardRow extends ConsumerWidget {
         ],
       ),
     );
+
+    // The WHOLE card opens the member, not only the strip inside it.
+    //
+    // The strip has been the tap target since it was written, for a reason of
+    // its own: its 9pt cells can never be tapped individually, so it routes to
+    // a full-size surface. But that left the two things a person actually aims
+    // at, the name and the face, doing nothing at all. You tap someone to find
+    // out about them, and the app ignored you.
+    //
+    // Plain onTap, for the same reason the strip uses one: it loses the
+    // gesture arena to a vertical drag, so the enclosing list still scrolls
+    // and pull-to-refresh still works. The strip's own detector and the "..."
+    // actions button both sit inside this one and still take their own taps,
+    // because a child claims the arena before its ancestor does.
+    return GestureDetector(
+      onTap: () => showParticipantSheet(
+        context,
+        room: room,
+        participant: participant,
+        isYou: isYou,
+      ),
+      child: card,
+    );
   }
 }
 
@@ -1306,6 +1322,30 @@ class _WarningRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Opens one member's sheet.
+///
+/// Shared by the whole leaderboard card and by the contribution strip inside
+/// it, so the two can never drift into opening different things, and so the
+/// strip's own long-standing tap keeps behaving exactly as before.
+void showParticipantSheet(
+  BuildContext context, {
+  required RoomModel room,
+  required RoomParticipant participant,
+  required bool isYou,
+}) {
+  HapticFeedback.selectionClick();
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (_) => _ParticipantCalendarSheet(
+      room: room,
+      participant: participant,
+      isYou: isYou,
+    ),
+  );
 }
 
 class _Tag extends StatelessWidget {
