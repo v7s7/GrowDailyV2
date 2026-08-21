@@ -111,20 +111,31 @@ const _kPremiumCacheKey = 'premium_entitlement_v1';
 /// by RevenueCat itself, which keys entitlement to the App User ID that
 /// [PurchaseService.logIn] binds to the account.
 Future<bool> loadPersistedPremium() async {
-  final box = await LocalStoreService.settingsBox();
-  final raw = box.get(_kPremiumCacheKey);
-  if (raw is! Map) return false;
-  return raw['entitled'] == true;
+  // A read that throws would take main.dart's boot sequence with it, so a
+  // broken box answers "free" and lets RevenueCat correct it, exactly as it
+  // would for a device that had never cached anything.
+  try {
+    final box = await LocalStoreService.settingsBox();
+    final raw = box.get(_kPremiumCacheKey);
+    if (raw is! Map) return false;
+    return raw['entitled'] == true;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// The account the cached entitlement belonged to, so a DIFFERENT account
 /// signing in on this device can never inherit it.
 Future<String?> loadPersistedPremiumUid() async {
-  final box = await LocalStoreService.settingsBox();
-  final raw = box.get(_kPremiumCacheKey);
-  if (raw is! Map) return null;
-  final uid = raw['uid'];
-  return uid is String && uid.isNotEmpty ? uid : null;
+  try {
+    final box = await LocalStoreService.settingsBox();
+    final raw = box.get(_kPremiumCacheKey);
+    if (raw is! Map) return null;
+    final uid = raw['uid'];
+    return uid is String && uid.isNotEmpty ? uid : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 class PremiumNotifier extends StateNotifier<bool> {
@@ -205,9 +216,42 @@ class PremiumNotifier extends StateNotifier<bool> {
   void _persist() {
     // Fire and forget: a failed write costs one cold start's worth of
     // optimism, never correctness, since RevenueCat still answers.
-    LocalStoreService.settingsBox().then((box) {
-      box.put(_kPremiumCacheKey, {'uid': _uid, 'entitled': state});
-    }).catchError((_) {});
+    //
+    // try/catch AND catchError, which is not belt and braces. Opening the
+    // box can fail SYNCHRONOUSLY (LocalStoreService.settingsBox throws a
+    // HiveError outright when Hive has not been initialised), and a
+    // synchronous throw walks straight past .catchError, which only ever
+    // sees a failed Future. This is called from bindAccount during app
+    // start, so an escaping throw there would land mid-mount and take the
+    // first frame with it. Caching the entitlement must never be able to
+    // stop the app opening.
+    unawaited(_write());
+  }
+
+  /// The actual write, `await`ed inside a try so BOTH failure shapes land in
+  /// the same catch.
+  ///
+  /// Opening a Hive box can fail synchronously (no path configured) and can
+  /// also complete its future with an error, and a `.then(...).catchError(...)`
+  /// chain does not reliably contain both: the synchronous throw escapes to
+  /// the caller, which here is bindAccount, which main.dart calls during app
+  /// start. An escaping throw there lands mid-mount and takes the first frame
+  /// with it, turning a best-effort cache write into a launch failure.
+  ///
+  /// Not unit-testable, and worth saying why so nobody tries again: Hive
+  /// completes its own internal opening-box completer with the same error, so
+  /// in a test zone the failure is reported as unhandled no matter how
+  /// completely the CALLER handles it. A test asserting "this does not throw"
+  /// fails even when the code under test is perfect, which is how the first
+  /// attempt at one fooled itself. In the app there is no such zone, and this
+  /// catch is what keeps the throw off bindAccount's caller.
+  Future<void> _write() async {
+    try {
+      final box = await LocalStoreService.settingsBox();
+      await box.put(_kPremiumCacheKey, {'uid': _uid, 'entitled': state});
+    } catch (_) {
+      // Nothing to do: the next authoritative answer rewrites this anyway.
+    }
   }
 
   /// Applies [info] to [state] right now, synchronously - no waiting on
