@@ -1585,7 +1585,6 @@ class _CategoryBreakdownSection extends StatelessWidget {
 
     final entries = aggregated.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final maxCount = entries.first.value;
     final totalCount = entries.fold<int>(0, (sum, e) => sum + e.value);
     final gp = context.gp;
 
@@ -1608,7 +1607,6 @@ class _CategoryBreakdownSection extends StatelessWidget {
                 _CategoryBar(
                   category: entries[i].key,
                   count: entries[i].value,
-                  maxCount: maxCount,
                   totalCount: totalCount,
                   isAr: s.isAr,
                 ),
@@ -1621,10 +1619,25 @@ class _CategoryBreakdownSection extends StatelessWidget {
   }
 }
 
+/// How much of the track one category's bar fills: its share of the total.
+///
+/// Pure and public so the rule can be tested, because it is the rule that
+/// decides whether the picture agrees with the number printed beside it.
+///
+/// A category that really happened never renders as nothing: below 3% the
+/// fill is floored, since at 1% of a ~340pt track the bar rounds to about
+/// three pixels and reads as an empty row. "You did this once" is precisely
+/// what a habit app must not draw as zero. The floor only ever affects
+/// slivers, so it cannot make a small category look like a large one.
+double categoryBarRatio({required int count, required int totalCount}) {
+  if (totalCount <= 0 || count <= 0) return 0;
+  final exact = (count / totalCount).clamp(0.0, 1.0);
+  return exact < 0.03 ? 0.03 : exact;
+}
+
 class _CategoryBar extends StatelessWidget {
   final HabitCategory category;
   final int count;
-  final int maxCount;
 
   /// Sum across every category — the denominator behind the share figure.
   final int totalCount;
@@ -1633,7 +1646,6 @@ class _CategoryBar extends StatelessWidget {
   const _CategoryBar({
     required this.category,
     required this.count,
-    required this.maxCount,
     required this.totalCount,
     required this.isAr,
   });
@@ -1642,15 +1654,24 @@ class _CategoryBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final (icon, color) = categoryVisual(category);
-    // Bar length stays relative to the *biggest* category, which is what
-    // makes the rows comparable at a glance. The percentage is against the
-    // *total*, which is the number that answers the question this section
-    // asks ("where does my effort go"). Without it a bare "53" had no
-    // denominator anywhere on screen — the longest bar is always full, so
-    // the chart couldn't tell you whether that was half your effort or all
-    // of it.
-    final ratio = maxCount <= 0 ? 0.0 : (count / maxCount).clamp(0.0, 1.0);
+    // The bar and the number now measure the SAME thing: share of total.
+    //
+    // They used to disagree. The bar was drawn relative to the biggest
+    // category, so the top row was always full width, while the number beside
+    // it was a share of the total. On a real account that put "68%" against a
+    // bar filling the whole track, and the row underneath at 26% drawn about
+    // 40% wide. Both numbers were right and the picture was wrong: whichever
+    // one you read, the other contradicted it. A chart whose length has to be
+    // explained is not doing its job.
+    //
+    // Sharing the denominator costs the old version's one real advantage,
+    // that the longest bar always reached the end. What it buys is a bar you
+    // can read without a footnote: the track is the whole of your effort, and
+    // each fill is that category's piece of it. The rows stay comparable to
+    // each other because they are all on one scale, which is the same reason
+    // the old version was comparable, just an honest scale.
     final share = totalCount <= 0 ? 0 : ((count / totalCount) * 100).round();
+    final ratio = categoryBarRatio(count: count, totalCount: totalCount);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

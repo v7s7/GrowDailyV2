@@ -87,6 +87,18 @@ class YearStripPainter extends CustomPainter {
   final Color emptyColor;
   final Color lockedColor;
 
+  /// Days that have not happened yet.
+  ///
+  /// They used to be skipped entirely, which left a hole: in an RTL build the
+  /// unlived part of the year sits on the LEFT, so a strip viewed in August
+  /// was blank down its whole leading third and the card read as broken
+  /// rather than as a year in progress. Drawn at a whisper instead, so the
+  /// shape of the full year is there and the lived part reads as filling it.
+  /// Fainter than [lockedColor] on purpose: locked means "there is something
+  /// here you cannot see yet", future means "there is nothing here yet", and
+  /// the quieter of the two should be the one that holds nothing.
+  final Color futureColor;
+
   const YearStripPainter({
     required this.year,
     required this.doneDays,
@@ -96,6 +108,7 @@ class YearStripPainter extends CustomPainter {
     required this.lockedBefore,
     required this.emptyColor,
     required this.lockedColor,
+    required this.futureColor,
   });
 
   @override
@@ -113,14 +126,20 @@ class YearStripPainter extends CustomPainter {
       for (var r = 0; r < 7; r++) {
         final day = yearStripDay(origin, c * 7 + r);
         if (day.year != year) continue;
-        if (day.isAfter(todayDay)) continue;
-        final locked = lockedBefore != null && day.isBefore(lockedBefore!);
-        final done = doneDays.contains(day.toDateKey());
-        paint.color = locked
-            ? lockedColor
-            : done
-                ? color
-                : emptyColor;
+        // A day still to come is neither locked nor empty, and asking either
+        // of those questions about it would be meaningless: it cannot hold a
+        // completion and there is nothing behind a paywall about it.
+        final future = day.isAfter(todayDay);
+        final locked =
+            !future && lockedBefore != null && day.isBefore(lockedBefore!);
+        final done = !future && doneDays.contains(day.toDateKey());
+        paint.color = future
+            ? futureColor
+            : locked
+                ? lockedColor
+                : done
+                    ? color
+                    : emptyColor;
         final drawColumn = isRtl ? columns - 1 - c : c;
         final rect = RRect.fromRectAndRadius(
           Rect.fromLTWH(
@@ -147,6 +166,7 @@ class YearStripPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(YearStripPainter old) =>
+      old.futureColor != futureColor ||
       old.year != year ||
       // By contents, not identity: the day sets are rebuilt every build,
       // so identity comparison repainted every strip on any rebuild.

@@ -373,6 +373,10 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                       lockedColor: gp.dark
                           ? Colors.white.withOpacity(0.03)
                           : Colors.black.withOpacity(0.03),
+                      // Quieter than locked: see YearStripPainter.futureColor.
+                      futureColor: gp.dark
+                          ? Colors.white.withOpacity(0.015)
+                          : Colors.black.withOpacity(0.015),
                     ),
                   ),
                 );
