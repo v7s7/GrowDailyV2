@@ -20,6 +20,7 @@ import 'core/providers/app_guide_provider.dart';
 import 'core/providers/get_started_checklist_provider.dart';
 import 'core/providers/home_tab_provider.dart'
     show requestedHomeTabProvider, requestedMatrixQuickAddProvider;
+import 'core/providers/first_run_offer_provider.dart';
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/room_finale_seen_provider.dart';
 import 'core/providers/weekly_recap_collapsed_provider.dart';
@@ -61,6 +62,7 @@ import 'features/matrix/widgets/voice_note_player.dart'
 import 'features/night_review/notifiers/night_review_notifier.dart';
 import 'features/night_review/screens/night_review_screen.dart';
 import 'features/onboarding/screens/app_guide_screen.dart';
+import 'features/onboarding/screens/first_run_offer_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/premium/notifiers/premium_notifier.dart';
 import 'features/premium/screens/premium_screen.dart';
@@ -188,6 +190,11 @@ Future<void> main() async {
     final persistedRoomFinaleSeen = await loadPersistedRoomFinaleSeen();
     final persistedAppGuideBadgeSeen = await loadPersistedAppGuideBadgeSeen();
     final persistedRecapCollapsed = await loadPersistedWeeklyRecapCollapsed();
+    // Whether this device has already been asked "want to see how it works?".
+    // See resolveFirstRunOfferAsked for why this derives from the onboarding
+    // flag rather than defaulting, and for the test that covers it.
+    final persistedFirstRunOfferAsked =
+        await resolveFirstRunOfferAsked(onboardingSeen: persistedOnboardingSeen);
     // The entitlement this device last saw. Restored alongside every other
     // boot-time setting so a paying customer's first frame is already the
     // paid one, instead of flashing the free UI (locked history, muted
@@ -201,6 +208,7 @@ Future<void> main() async {
     // Also applies the preset's colors to GameColors immediately, so the
     // very first frame already renders in the right preset.
     final persistedThemePreset = await loadPersistedThemePreset();
+    final persistedSavedColours = await loadPersistedSavedColours();
     // Also applies the font to GameTextStyles immediately, so the very first
     // frame already renders in the right typeface instead of flashing the
     // default and then swapping.
@@ -215,6 +223,7 @@ Future<void> main() async {
         roomFinaleSeenProvider.overrideWith((ref) => persistedRoomFinaleSeen),
         appGuideBadgeSeenProvider.overrideWith((ref) => persistedAppGuideBadgeSeen),
         weeklyRecapCollapsedProvider.overrideWith((ref) => persistedRecapCollapsed),
+        firstRunOfferAskedProvider.overrideWith((ref) => persistedFirstRunOfferAsked),
         premiumProvider.overrideWith((ref) => PremiumNotifier(
               initial: persistedPremium,
               cachedUid: persistedPremiumUid,
@@ -223,6 +232,8 @@ Future<void> main() async {
           themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
         if (persistedThemePreset != null)
           themePresetProvider.overrideWith((ref) => ThemePresetNotifier(persistedThemePreset)),
+          savedThemeColoursProvider.overrideWith(
+              (ref) => SavedThemeColoursNotifier(persistedSavedColours)),
         if (persistedFont != null)
           appFontProvider.overrideWith((ref) => AppFontNotifier(persistedFont)),
       ],
@@ -386,6 +397,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // nothing behind it, which are the two cases that must do nothing.
         ref.read(themeModeProvider.notifier).detachAccount();
         ref.read(themePresetProvider.notifier).detachAccount();
+        ref.read(savedThemeColoursProvider.notifier).detachAccount();
         ref.read(appFontProvider.notifier).detachAccount();
         ref.read(reminderTimeProvider.notifier).detachAccount();
         ref.read(notificationSettingsProvider.notifier).detachAccount();
@@ -1462,6 +1474,11 @@ class _OnboardingOrGrid extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final seen = ref.watch(onboardingSeenProvider);
+    // One question between onboarding and the Grid, asked once per device.
+    // See FirstRunOfferScreen for why it is a question rather than a tour, and
+    // firstRunOfferProvider for why only the ASKING is persisted and never the
+    // answer.
+    final offerAsked = ref.watch(firstRunOfferAskedProvider);
     // A growdaily://join/CODE link (see main.dart's AppLinks wiring above)
     // may have arrived before this widget ever existed - cold start, or
     // while the language/auth/onboarding gates above this one were still
@@ -1570,9 +1587,11 @@ class _OnboardingOrGrid extends ConsumerWidget {
         duration: const Duration(milliseconds: 400),
         switchInCurve: Curves.easeOut,
         switchOutCurve: Curves.easeIn,
-        child: seen
-            ? const HomeShell(key: ValueKey('home'))
-            : const OnboardingScreen(key: ValueKey('onboarding')),
+        child: !seen
+            ? const OnboardingScreen(key: ValueKey('onboarding'))
+            : offerAsked
+                ? const HomeShell(key: ValueKey('home'))
+                : const FirstRunOfferScreen(key: ValueKey('offer')),
       ),
     );
   }

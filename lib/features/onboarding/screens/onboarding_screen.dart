@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/onboarding_provider.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../matrix/models/matrix_task.dart';
 
 /// One slide's content: a small hand-built mock of the real UI element it
 /// introduces (language-neutral — icons and shapes only, so EN/AR need no
@@ -93,17 +94,29 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     //  - Grid: the whole idea in one picture. Its body already covers habits
     //    ("Every habit you finish colors a square"), so the separate Habits
     //    slide was restating it.
-    //  - Rooms: the reason to come back, and the one pillar the Get Started
-    //    checklist never mentions.
-    // Habits and Tasks are both taught at the moment of action instead, by
-    // that checklist — which is the more effective place for them anyway;
-    // see GetStartedChecklistCard's doc comment on why a tour gets skimmed
-    // and a first real action does not.
+    //  - Tasks: the second pillar, and nothing else in first run shows it.
+    //  - Rooms: the reason to come back.
+    //
+    // Three slides, not two, and this is not a walk back to the four that
+    // were cut. The problem with four was REPETITION, not coverage: the
+    // Habits slide restated the Grid slide almost word for word, and an
+    // Achievements slide restated the gold and XP the Habits slide had
+    // already mentioned. What is here now is three pillars, three pictures,
+    // no sentence said twice. Leaving Tasks out entirely meant a person could
+    // finish onboarding without ever learning the app has a second half: the
+    // guide's third step («أضف مهمة») names it, but by then they have already
+    // formed a picture of what this app is, and half of it is missing from
+    // that picture.
     final pages = [
       _OnboardingPage(
         visual: const _MockWeekRow(),
         title: s.onboardingGridTitle,
         body: s.onboardingGridBody,
+      ),
+      _OnboardingPage(
+        visual: const _MockMatrix(),
+        title: s.onboardingTasksTitle,
+        body: s.onboardingTasksBody,
       ),
       _OnboardingPage(
         visual: const _MockLeaderboard(),
@@ -142,11 +155,23 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        // Composed rather than centred. The whole block used
+                        // to be MainAxisAlignment.center around a 150pt
+                        // visual, which left roughly 600pt of empty screen
+                        // above it and read as unfinished rather than
+                        // spacious. The art now takes real space and the
+                        // block sits above centre, which is where the eye
+                        // expects a title to be.
+                        const Spacer(flex: 2),
                         SizedBox(
-                          height: 150,
-                          child: Center(child: page.visual),
+                          height: 250,
+                          // The art is built from fixed-size widgets, so the
+                          // taller box alone would not enlarge it.
+                          child: FittedBox(
+                            fit: BoxFit.contain,
+                            child: page.visual,
+                          ),
                         )
                             .animate(key: ValueKey('visual-$i'))
                             .fadeIn(duration: 400.ms)
@@ -156,13 +181,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                               curve: Curves.easeOutBack,
                               duration: 450.ms,
                             ),
-                        const SizedBox(height: 26),
+                        const SizedBox(height: 38),
                         Text(
                           page.title,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 21,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 25,
+                            fontWeight: FontWeight.w900,
                             color: gp.textPrimary,
                             letterSpacing: -0.3,
                           ),
@@ -175,14 +200,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           page.body,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 14,
-                            height: 1.5,
+                            fontSize: 15,
+                            height: 1.55,
                             color: gp.textSec,
                           ),
                         )
                             .animate(key: ValueKey('body-$i'), delay: 180.ms)
                             .fadeIn(duration: 400.ms)
                             .slideY(begin: 0.15, end: 0, curve: Curves.easeOut),
+                        const Spacer(flex: 3),
                       ],
                     ),
                   );
@@ -211,7 +237,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(double.infinity, 52),
                   backgroundColor: GameColors.gold,
-                  foregroundColor: Colors.black,
+                  // onGold, not Colors.black. That token exists precisely
+                  // because some theme presets ship a gold that black text
+                  // fails contrast on, and this is the most pressed button in
+                  // the app's first thirty seconds.
+                  foregroundColor: GameColors.onGold,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(GameSpacing.cardRadius)),
@@ -276,7 +306,98 @@ class _MockWeekRow extends StatelessWidget {
   }
 }
 
-/// Slide 2: a three-row leaderboard — crowned leader, streak flames — the
+/// Slide 2: the four boxes, with their real names and their real colours.
+///
+/// Labels come from [MatrixQuadrant.localLabel] rather than being written out
+/// here, so the picture can never teach a word the Tasks screen does not use.
+/// Same for the colours: [MatrixQuadrant.defaultColor] is what an untouched
+/// account actually sees, and a person who later recolours a quadrant is long
+/// past onboarding.
+///
+/// One card is drawn as filled and the other three as outlines. A person meets
+/// this picture for two seconds, and four equally weighted boxes read as a
+/// colour swatch; one filled box reads as "this is where today's thing goes",
+/// which is the actual idea.
+class _MockMatrix extends StatelessWidget {
+  const _MockMatrix();
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final isAr = S.of(context).isAr;
+
+    Widget cell(MatrixQuadrant q, {required bool filled}) {
+      final c = q.defaultColor;
+      return Container(
+        width: 116,
+        height: 62,
+        margin: const EdgeInsets.all(4),
+        padding: const EdgeInsetsDirectional.fromSTEB(12, 10, 10, 10),
+        decoration: BoxDecoration(
+          color: filled ? c.withOpacity(gp.dark ? 0.22 : 0.14) : gp.surface,
+          borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+          border: Border.all(
+            color: filled ? c.withOpacity(0.55) : gp.border,
+            width: filled ? 1.2 : 0.5,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              q.localLabel(isAr),
+              // Every label carries its OWN quadrant colour, filled or not.
+              // Tinting only the filled one made the other three read as
+              // disabled, which is the opposite of true: all four are places
+              // a task can go, and the app colour-codes them everywhere else.
+              // The hierarchy is carried by the fill and the border instead.
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: filled ? FontWeight.w800 : FontWeight.w700,
+                color: c,
+              ),
+            ),
+            // A short bar rather than fake task text: a line of lorem in a
+            // 116pt box is unreadable at slide scale and reads as a loading
+            // skeleton, which is the exact mistake the leaderboard mock above
+            // was changed to stop making.
+            Container(
+              width: filled ? 58 : 40,
+              height: 5,
+              decoration: BoxDecoration(
+                color: c.withOpacity(filled ? 0.55 : 0.3),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            cell(MatrixQuadrant.doFirst, filled: true),
+            cell(MatrixQuadrant.schedule, filled: false),
+          ],
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            cell(MatrixQuadrant.delegate, filled: false),
+            cell(MatrixQuadrant.eliminate, filled: false),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Slide 3: a three-row leaderboard, crowned leader and streak flames, the
 /// Rooms pitch without a word of text.
 class _MockLeaderboard extends StatelessWidget {
   const _MockLeaderboard();
@@ -284,7 +405,17 @@ class _MockLeaderboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    Widget row({required int rank, required bool crowned, required double w}) {
+    // Names, not grey bars. This is the ONLY picture a brand-new user gets of
+    // what a Room is, and three anonymous grey rectangles do not say "you and
+    // your people on a leaderboard" — they say "loading". The names are
+    // deliberately ordinary first names rather than the user's own, since we
+    // do not have one yet at this point in onboarding.
+    final names = S.of(context).isAr
+        ? const ['عبد العزيز', 'سعود', 'خالد']
+        : const ['Abdulaziz', 'Saud', 'Khalid'];
+    final streaks = const [12, 9, 7];
+
+    Widget row({required int rank, required bool crowned}) {
       return Container(
         width: 250,
         margin: const EdgeInsets.symmetric(vertical: 3),
@@ -322,17 +453,26 @@ class _MockLeaderboard extends StatelessWidget {
                     ),
             ),
             const SizedBox(width: 10),
-            Container(
-              width: w,
-              height: 8,
-              decoration: BoxDecoration(
-                color: gp.border,
-                borderRadius: BorderRadius.circular(4),
+            Text(
+              names[rank - 1],
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: crowned ? FontWeight.w800 : FontWeight.w600,
+                color: gp.textPrimary,
               ),
             ),
             const Spacer(),
             Icon(Icons.local_fire_department_rounded,
                 size: 14, color: GameColors.iconStreak),
+            const SizedBox(width: 4),
+            Text(
+              '${streaks[rank - 1]}',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                color: GameColors.iconStreak,
+              ),
+            ),
           ],
         ),
       );
@@ -341,9 +481,9 @@ class _MockLeaderboard extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        row(rank: 1, crowned: true, w: 92),
-        row(rank: 2, crowned: false, w: 70),
-        row(rank: 3, crowned: false, w: 80),
+        row(rank: 1, crowned: true),
+        row(rank: 2, crowned: false),
+        row(rank: 3, crowned: false),
       ],
     );
   }

@@ -867,8 +867,100 @@ class RoomParticipant {
   /// [dailyScheduledCount] entry whenever the true count differs from the
   /// plain total, and this fallback only ever applies to a day no sync has
   /// covered yet.
-  int scheduledCountFor(String dateKey) =>
-      dailyScheduledCount[dateKey] ?? countedHabitCount;
+  ///
+  /// ...which used to mean "and therefore you missed it", and that was wrong
+  /// in the one case it mattered most. The sync only writes a day while the
+  /// app is open, and the whole point of a weekly quota is that once you have
+  /// hit your four, the rest of the week is yours. Those are exactly the days
+  /// nobody opens the app. So a member who finished their week early stopped
+  /// syncing, the remaining days kept no entry, this fallback called every one
+  /// of them fully scheduled, and the strip crossed out days the quota had
+  /// already bought them.
+  ///
+  /// Found on room A8GEL7: Perla's week of Sat 15 Aug had four greens (15, 17,
+  /// 18, 19), her stored quotaOkWeeks contained 2026-08-15 confirming the
+  /// quota was met, and her lastSyncedDay was 2026-08-19. The 20th and 21st
+  /// carried no entry and drew as misses, while [_keepsStreak] - reading
+  /// [quotaOkWeeks] instead of this map - forgave the very same two days. One
+  /// participant document, two answers.
+  ///
+  /// So an unrecorded day now asks [quotaOkWeeks] before assuming the worst.
+  /// That set is an explicit allow-list written only when a week genuinely
+  /// reached its target, so it still fails safe: absent means not excused,
+  /// never a phantom credit. Only a day with nothing done on it can be
+  /// excused this way - a day that was actually trained must keep a real
+  /// scheduled count so [creditFor] scores it and [isRestDay] doesn't label
+  /// somebody's session a rest.
+  ///
+  /// An explicit stored entry always wins: the sync knows more than this
+  /// inference does, including about withdrawn slots.
+  ///
+  /// [wasObservedOn] bounds it to days no sync ever reached, which is both
+  /// the literal case this exists for and the thing that keeps it honest.
+  /// quotaOkWeeks is graded from raw square history with no anti-backdating
+  /// cap, so colouring in last week's squares today can make a week read as
+  /// met. Without this bound that retroactive week would then excuse all its
+  /// blank days and pay out on the ranked percentage: measured at +28.6
+  /// points from back-painting two squares. Days a sync already watched keep
+  /// their observed value instead, so back-dating still cannot buy credit
+  /// here, exactly as setSquare's past-day branch refuses to pay XP for it.
+  int scheduledCountFor(String dateKey) {
+    final stored = dailyScheduledCount[dateKey];
+    if (stored != null) return stored;
+    if (!wasObservedOn(dateKey) &&
+        (dailyDoneCount[dateKey] ?? 0) == 0 &&
+        (dailyPartialCount[dateKey] ?? 0) == 0 &&
+        _everyCountedHabitIsWeeklyOn(dateKey) &&
+        _weekQuotaWasMet(dateKey)) {
+      return 0;
+    }
+    return countedHabitCount;
+  }
+
+  /// Whether EVERY counted habit was on a weekly quota on [dateKey].
+  ///
+  /// This gate exists because [quotaOkWeeks] and [scheduledCountFor] have
+  /// different scopes, and conflating them silently forgives real misses.
+  /// The grader that writes quotaOkWeeks skips every non-weekly habit before
+  /// deciding a week held (`if (rule.frequencyType != weekly) continue`), so
+  /// the set attests to the quota habits and to nothing else. A plan of one
+  /// daily habit plus one 4x-a-week habit can therefore bank a "met" week in
+  /// which the daily habit was missed all seven days.
+  ///
+  /// Returning 0 there would zero the denominator for the WHOLE day, excusing
+  /// the daily habit on the strength of an attestation that never looked at
+  /// it. Measured on a mixed plan: 85.7% against a correct 57.1%, on a ranked
+  /// leaderboard. So the inference only runs when there is no other kind of
+  /// habit for it to speak over.
+  ///
+  /// Fails safe twice over. A missing rule means this device has not yet
+  /// recorded what cadence that habit was on, and an unproven habit is
+  /// treated as not-weekly, so the inference simply doesn't run and the old
+  /// fallback stands. Same for a plan with no counted habits at all.
+  bool _everyCountedHabitIsWeeklyOn(String dateKey) {
+    var sawOne = false;
+    for (final id in linkedHabitIds) {
+      if (id == kDeclinedSlot) continue;
+      sawOne = true;
+      final rule = ruleFor(id, dateKey);
+      if (rule == null || rule.frequencyType != HabitFrequencyType.weekly) {
+        return false;
+      }
+    }
+    return sawOne;
+  }
+
+  /// Whether [dateKey] falls in a week this participant's stored
+  /// [quotaOkWeeks] marks as having reached its weekly target. Bucketed by
+  /// [DateTimeGameExt.startOfDisplayWeek] (Saturday), the same rule
+  /// [_keepsStreak] uses, so the two can never disagree about which seven
+  /// days a week is. Empty for a purely daily-habit room, since the grader
+  /// only ever records a week when it saw a weekly habit.
+  bool _weekQuotaWasMet(String dateKey) {
+    final day = DateTime.tryParse(dateKey);
+    if (day == null) return false;
+    return quotaOkWeeks.contains(day.startOfDisplayWeek.toDateKey());
+  }
 
   /// How many habits were stood down on [dateKey]. Display only, see
   /// [dailyRestedCount].

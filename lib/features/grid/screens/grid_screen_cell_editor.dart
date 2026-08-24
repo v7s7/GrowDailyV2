@@ -29,7 +29,14 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
   /// keeps it safe: an emptied field whose Save button still wrote through
   /// would erase the very note it was meant to withhold, so the editor drops
   /// the Save button entirely in this state rather than saving a blank.
-  late final bool _noteWalled;
+  ///
+  /// NOT `final`: it was, and that froze the paywall in place. The wall's own
+  /// lock card is a purchase funnel (it opens the history demo gate, whose CTA
+  /// pushes /premium), and PremiumScreen applies the entitlement immediately
+  /// without popping — so a customer came back to this still-mounted sheet and
+  /// found no text field and no Save button, having just paid for exactly
+  /// that. See the ref.listen in build.
+  late bool _noteWalled;
 
   @override
   void initState() {
@@ -54,6 +61,27 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Recompute the wall if entitlement changes while this sheet is open.
+    // The controller has to be re-seeded in the same setState: initState put
+    // an EMPTY string in it when walled, so a rebuild alone would unlock a
+    // text field onto a blank note and Save would write that blank through
+    // over the note the user just bought access to.
+    ref.listen<bool>(premiumProvider, (_, isPremium) {
+      final stored =
+          ref.read(weeklyGridProvider).noteFor(widget.habit.id, widget.day);
+      final walled = WeeklyGridState.noteIsWalled(
+        note: stored,
+        day: widget.day,
+        now: DateTime.now().effectiveDay,
+        isPremium: isPremium,
+      );
+      if (walled == _noteWalled) return;
+      setState(() {
+        _noteWalled = walled;
+        _noteCtrl.text = walled ? '' : stored;
+      });
+    });
+
     final gp = context.gp;
     final s = S.of(context);
     final isAr = s.isAr;
@@ -83,22 +111,33 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       SquareState.none,
     ];
 
+    // The keyboard eats the height this sheet was sized for, and a Column
+    // has no way to give ground: it just paints its overflow outside the
+    // Container, which is how the Save button ended up sitting BELOW the
+    // card on its own. Bounding the height and scrolling the contents is
+    // what keeps every child inside the rounded rect at any keyboard state.
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final maxSheetHeight = MediaQuery.sizeOf(context).height - viewInsets - 96;
+
     return AnimatedPadding(
       duration: GameMotion.standard,
       curve: Curves.easeOut,
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 + viewInsets,
       ),
-      child: Container(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxSheetHeight),
+        child: Container(
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
           borderRadius: BorderRadius.circular(22),
           border: Border.all(color: gp.border, width: 0.5),
         ),
-        child: Column(
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -187,9 +226,23 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                       // imprecise, so it gets its own copy instead of
                       // reusing gridPastDayHint. See DateTimeGameExt.
                       // isRealToday/isToday's doc comments.
+                      //
+                      // A day holding an outstanding receipt is the other
+                      // day gridPastDayHint is wrong about: "no rewards"
+                      // is the rule for backfilling, and this square is
+                      // not a backfill, it is a completion this app itself
+                      // undid and can hand straight back (see
+                      // UndoneCompletion). Telling someone their own
+                      // correction pays nothing, while it silently pays,
+                      // is the worst of both.
                       widget.day.isRealToday
                           ? s.gridNotYetActiveHint
-                          : s.gridPastDayHint,
+                          : (ref.watch(dashboardProvider).undoneFor(
+                                      widget.habit.id,
+                                      widget.day.toDateKey()) !=
+                                  null
+                              ? s.gridRestorableDayHint
+                              : s.gridPastDayHint),
                       style: TextStyle(fontSize: 12, color: gp.textSec),
                     ),
                   ),
@@ -207,24 +260,21 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               ),
             ),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (var i = 0; i < palette.length; i++)
-                  _PaletteSwatch(
-                    state: palette[i],
-                    selected: palette[i] == current,
-                    label: isAr ? palette[i].labelAr : palette[i].label,
-                    onTap: () => _handlePaletteTap(isLocked, palette[i]),
-                  )
-                      .animate(delay: (i * 35).ms)
-                      .fadeIn(duration: 220.ms)
-                      .scale(
-                        begin: const Offset(0.8, 0.8),
-                        curve: Curves.easeOutBack,
-                      ),
-              ],
+            // Equal shares in a Row, not a Wrap. Six choices that are one set
+            // of options should look like one set: the Wrap broke after five
+            // and stranded "لم يكتمل" alone on a second line, which made the
+            // sixth choice read as a different KIND of thing.
+            //
+            // Past roughly 1.35x text scale the labels genuinely cannot fit a
+            // sixth of the width (مكتمل breaks to "مكت/مل"), so it drops to a
+            // deliberate 3 + 3 instead. Two even rows still read as one set;
+            // 5 + 1 never did. Nothing is clamped, so accessibility sizes get
+            // the full type they asked for.
+            _PaletteGrid(
+              palette: palette,
+              current: current,
+              isAr: isAr,
+              onPick: (state) => _handlePaletteTap(isLocked, state),
             ),
             const SizedBox(height: 12),
             // What the current choice DOES, in one line, changing as the
@@ -335,6 +385,8 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             ],
           ],
         ),
+        ),
+      ),
       ),
     );
   }
@@ -358,13 +410,34 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     final day = widget.day;
 
     if (isLocked && picked != SquareState.complete) {
-      ref.read(dashboardProvider.notifier).uncompleteHabit(
+      // AWAITED, and the await is the whole fix.
+      //
+      // The doc comment above has always said "reverse the canonical reward
+      // FIRST, then update the visual state only", but without this await
+      // "first" was only true of the call order, not of the writes. Both
+      // paths land in the same stored daily map: uncompleteHabit clears
+      // habitCompletions[id], setSquareStateOnly writes squareStates[id], and
+      // each is a read, modify, write of the whole map. Unawaited, the square
+      // write read the map BEFORE the uncomplete had written it back, so it
+      // saved its own square change on top of a stale copy and put the
+      // completion count back to 1.
+      //
+      // What that looked like to a person: correct a green square to red, the
+      // square turns red and stays red, and the habit still counts as done
+      // for XP, the streak and every report. Reproduced in
+      // test/features/grid/palette_correction_race_test.dart.
+      //
+      // Awaiting costs nothing visually: setSquareStateOnly sets its state
+      // synchronously and only persists in the background, so the square
+      // still turns red on the same frame as the tap.
+      await ref.read(dashboardProvider.notifier).uncompleteHabit(
             habitId: habit.id,
-            // Mirrors the completion's boost — see roomBoostedReward.
+            // Mirrors the completion's boost, see roomBoostedReward.
             xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
             goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
             category: habit.category.name,
           );
+      if (!mounted) return;
       ref
           .read(weeklyGridProvider.notifier)
           .setSquareStateOnly(habit.id, day, picked);
@@ -382,9 +455,14 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
           .read(habitListProvider)
           .where((h) => h.isScheduledFor(day))
           .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
-      // No branch on the return value — see _handleSquareTap's doc
-      // comment; alreadyDoneToday above already guarantees this lands.
-      await ref.read(dashboardProvider.notifier).completeHabit(
+      // BRANCHED. The comment that used to sit here said alreadyDoneToday
+      // above already guaranteed this landed, and that stopped being true
+      // when completeHabit gained its two load guards: it also refuses while
+      // the account's numbers are still loading, and after that load failed.
+      // Unbranched, a tap in either of those windows painted the square green
+      // and recorded nothing, which is the one failure a person can never
+      // see, because the square looks identical to one that worked.
+      final rewarded = await ref.read(dashboardProvider.notifier).completeHabit(
             habitId: habit.id,
             // 2x while a linked room is live — see roomBoostedReward.
             xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
@@ -403,6 +481,16 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             category: habit.category.name,
             habitName: habit.localName(S.of(context).isAr),
           );
+      if (!mounted) return;
+      if (!rewarded) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            duration: const Duration(seconds: 2),
+            content: Text(S.of(context).squareNotReadyYet),
+          ));
+        return;
+      }
       ref
           .read(weeklyGridProvider.notifier)
           .setSquareStateOnly(habit.id, day, SquareState.complete);
@@ -412,6 +500,64 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
 
     ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked);
     syncRoomToday(ref, habit.id, day);
+  }
+}
+
+/// Lays the six square states out as ONE row of six, falling back to two
+/// rows of three once the text scale makes six labels unreadable.
+class _PaletteGrid extends StatelessWidget {
+  final List<SquareState> palette;
+  final SquareState current;
+  final bool isAr;
+  final ValueChanged<SquareState> onPick;
+
+  const _PaletteGrid({
+    required this.palette,
+    required this.current,
+    required this.isAr,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Measured off a real label rather than assumed: scale(10)/10 is the
+    // effective multiplier whatever the platform's curve happens to be.
+    final scale = MediaQuery.textScalerOf(context).scale(10) / 10;
+    final perRow = scale <= 1.35 ? 6 : 3;
+
+    Widget swatch(int i) => _PaletteSwatch(
+          state: palette[i],
+          selected: palette[i] == current,
+          label: isAr ? palette[i].labelAr : palette[i].label,
+          onTap: () => onPick(palette[i]),
+        )
+            .animate(delay: (i * 35).ms)
+            .fadeIn(duration: 220.ms)
+            .scale(
+              begin: const Offset(0.8, 0.8),
+              curve: Curves.easeOutBack,
+            );
+
+    Widget row(int start, int end) => Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = start; i < end; i++) ...[
+              if (i > start) const SizedBox(width: 6),
+              Expanded(child: swatch(i)),
+            ],
+          ],
+        );
+
+    if (perRow >= palette.length) return row(0, palette.length);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var start = 0; start < palette.length; start += perRow) ...[
+          if (start > 0) const SizedBox(height: 12),
+          row(start, (start + perRow).clamp(0, palette.length)),
+        ],
+      ],
+    );
   }
 }
 
@@ -436,29 +582,45 @@ class _PaletteSwatch extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedContainer(
-            duration: GameMotion.quick,
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: state.fill(dark),
-              borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
-              border: Border.all(
-                color: selected ? state.accent : state.border(dark),
-                width: selected ? 2 : 0.8,
+          // Square, filling whatever share the Row hands it, up to the 46 it
+          // used to be fixed at. AspectRatio rather than a fixed size so six
+          // of these still fit across a 375pt phone.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 46),
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: AnimatedContainer(
+                duration: GameMotion.quick,
+                decoration: BoxDecoration(
+                  color: state.fill(dark),
+                  borderRadius:
+                      BorderRadius.circular(GameSpacing.buttonRadius),
+                  border: Border.all(
+                    color: selected ? state.accent : state.border(dark),
+                    width: selected ? 2 : 0.8,
+                  ),
+                ),
+                child: Icon(
+                  state.icon ?? Icons.circle_outlined,
+                  size: 20,
+                  color:
+                      state == SquareState.none ? gp.textTert : state.accent,
+                ),
               ),
             ),
-            child: Icon(
-              state.icon ?? Icons.circle_outlined,
-              size: 20,
-              color: state == SquareState.none ? gp.textTert : state.accent,
-            ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 6),
+          // Two lines allowed: "إنجاز إضافي" does not fit one share on one
+          // line, and shrinking every label to suit the longest one would
+          // cost legibility on all six.
           Text(
             label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 9.5,
+              height: 1.2,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
               color: selected ? state.accent : gp.textSec,
             ),

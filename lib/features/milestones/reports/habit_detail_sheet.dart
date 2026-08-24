@@ -196,7 +196,21 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     ).firstOrNull;
 
     final total = dash.habitTotalCompletions[habit.id] ?? marks.length;
-    final streak = dash.habitStreakCounts[habit.id] ?? 0;
+    // habitStreak, NOT habitStreakCounts. That map is the raw persisted
+    // counter and it only ever changes when the habit is COMPLETED, so a
+    // habit abandoned three weeks ago goes on reporting the streak it died
+    // on, forever. habitStreak applies the staleness rule (see its doc
+    // comment): more than a day since habitLastCompletedDate and the current
+    // streak is zero, because it is.
+    //
+    // HabitCard on the home screen has always read it correctly, so the two
+    // screens disagreed about the same habit in the same session: the card
+    // said 0 and this sheet said 12, with nothing to tell a person which one
+    // the app believed.
+    //
+    // `best` stays raw on purpose. A lifetime best is a record, not a claim
+    // about now, and records do not go stale.
+    final streak = dash.habitStreak(habit.id);
     final best = dash.habitLongestStreaks[habit.id] ?? 0;
 
     return DraggableScrollableSheet(

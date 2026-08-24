@@ -69,3 +69,30 @@ final guideProgressProvider = Provider<({int done, int total})>((ref) {
   final steps = ref.watch(guideStepsProvider);
   return (done: steps.where((s) => s.done).length, total: steps.length);
 });
+
+/// The step after [lesson], or null when [lesson] was the last unfinished one.
+///
+/// Reads the same single list everything else does, so "what is next" can
+/// never disagree between the card, Settings and the chain.
+AppGuideLesson? guideStepAfter(List<GuideStep> steps, AppGuideLesson lesson) {
+  var passed = false;
+  for (final step in steps) {
+    if (step.lesson == lesson) {
+      passed = true;
+      continue;
+    }
+    if (passed && !step.done) return step.lesson;
+  }
+  return null;
+}
+
+/// Which tab a lesson's target lives on: 0 Grid, 1 Profile, 2 Tasks.
+///
+/// Duplicated deliberately from startGuideLesson's own switch rather than
+/// shared, because that one also has side effects (it WRITES the tab). This
+/// is a pure question, and the chain needs to ask it without answering it.
+int guideLessonTab(AppGuideLesson lesson) => switch (lesson) {
+      AppGuideLesson.addHabit || AppGuideLesson.colorSquare => 0,
+      AppGuideLesson.discoverRooms => 1,
+      AppGuideLesson.addTask => 2,
+    };

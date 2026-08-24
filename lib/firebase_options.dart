@@ -36,7 +36,6 @@ class DefaultFirebaseOptions {
     iosClientId: '508215311979-qrr5nrjcl6til44peg3k3jmdv0smub7e.apps.googleusercontent.com',
     iosBundleId: 'com.growdaily.v2',
   );
-  // TODO: replace placeholder values after running `flutterfire configure`
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyA5x-guZJ4BGXpa-IUN9iV7Wj45ww4lBQk',

@@ -147,9 +147,9 @@ class _GridEmptyState extends ConsumerWidget {
               width: 260,
               child: FilledButton.icon(
                 onPressed: () =>
-                    showAddHabitHub(context, ref, initialTab: HubTab.plans),
-                icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                label: Text(s.browsePlans),
+                    showAddHabitHub(context, ref, initialTab: HubTab.addGoal),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: Text(s.addHabit),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(double.infinity, 50),
                   shape: RoundedRectangleBorder(
@@ -160,9 +160,9 @@ class _GridEmptyState extends ConsumerWidget {
             const SizedBox(height: 10),
             TextButton.icon(
               onPressed: () =>
-                  showAddHabitHub(context, ref, initialTab: HubTab.addGoal),
-              icon: const Icon(Icons.add_rounded, size: 16),
-              label: Text(s.addHabit),
+                  showAddHabitHub(context, ref, initialTab: HubTab.plans),
+              icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+              label: Text(s.browsePlans),
             ).animate(delay: 380.ms).fadeIn(),
           ],
         ),

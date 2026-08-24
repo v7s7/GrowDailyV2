@@ -408,6 +408,19 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
             .read(dashboardProvider.notifier)
             .recordPastDayGreenDelta(key, greenDelta);
       }
+      // The single past-day case that IS allowed to reach the reward system,
+      // and the exception the paragraph above needs: this exact habit-day was
+      // completed for real, the app itself undid it, and it kept a receipt
+      // saying so (see UndoneCompletion). Redeeming that is restoring a
+      // record, not backfilling one. A day with no receipt still gets
+      // nothing, which is every day nobody ever completed, so there is still
+      // no square anywhere that colouring in can farm.
+      if (greenDelta > 0) {
+        _ref
+            .read(dashboardProvider.notifier)
+            .restoreUndoneCompletion(habitId: habitId, day: day)
+            .ignore();
+      }
       return;
     }
 
@@ -448,7 +461,21 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// netted +5 XP per lap, repeatable forever, since the complete → none
   /// leg only ever refunds what `completeHabit` paid. Reversing the old
   /// colour here makes a full lap sum to exactly zero again.
-  void setSquareStateOnly(String habitId, DateTime day, SquareState value) {
+  void setSquareStateOnly(String habitId, DateTime day, SquareState value) =>
+      setSquareStateOnlyAsync(habitId, day, value);
+
+  /// [setSquareStateOnly], but hands back the write so a caller that changes
+  /// several squares at once can wait for all of them.
+  ///
+  /// The visible state is set synchronously either way, so awaiting this
+  /// never delays the square turning. What it buys is knowing the day has
+  /// actually been written: [autoCleanQuitDay] marks several habits in one
+  /// go, and firing those writes without waiting used to let them race each
+  /// other into the same stored day so that only the last one survived a
+  /// restart. They queue correctly now (see LocalStoreService.updateDailyMap),
+  /// but a caller that walks away still cannot know when the day is safe.
+  Future<void> setSquareStateOnlyAsync(
+      String habitId, DateTime day, SquareState value) {
     final old = state.squareFor(habitId, day);
     final key = day.toDateKey();
     final states = {
@@ -456,14 +483,14 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     };
     (states[key] ??= {})[habitId] = value;
     state = state.copyWith(states: states);
-    _persistSquare(habitId, day, value);
+    final written = _persistSquare(habitId, day, value);
 
     // Only today ever earned flat-rate XP in the first place — [setSquare]
     // returns before the reward call on any other day (anti-backdating), so
     // there is nothing banked on a past square to give back.
-    if (!day.isToday || old == value) return;
+    if (!day.isToday || old == value) return written;
     final stranded = _flatRateXp(old);
-    if (stranded == 0) return;
+    if (stranded == 0) return written;
     // greenDelta stays 0 on purpose: the green-square counters belong to
     // whichever canonical call is taking this square over, and it is
     // already adjusting them for both the old and new state.
@@ -472,6 +499,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
           greenDelta: 0,
           dateKey: key,
         );
+    return written;
   }
 
   /// Mirrors a habit completion already rewarded by
@@ -616,13 +644,14 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   }
 
   Future<void> _mergeGuestDaily(
-      DateTime day, void Function(Map<String, dynamic>) mutate) async {
-    final key = day.toDateKey();
-    final map = await LocalStoreService.getDailyMap(key);
-    mutate(map);
-    map['date'] = day.startOfDay.toIso8601String();
-    await LocalStoreService.putDailyMap(key, map);
-  }
+      DateTime day, void Function(Map<String, dynamic>) mutate) =>
+      // updateDailyMap, not a read then a put. The dashboard writes its own
+      // fields into this same stored day, and a hand-rolled read, modify,
+      // write here raced it: see LocalStoreService.updateDailyMap.
+      LocalStoreService.updateDailyMap(day.toDateKey(), (map) {
+        mutate(map);
+        map['date'] = day.startOfDay.toIso8601String();
+      });
 
   /// Retroactively marks [day]'s square green for each quit habit in
   /// [habitIds] whose square is still untouched — the "silence means
@@ -661,10 +690,14 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     }
     if (!mounted) return;
     final raw = (data['squareStates'] as Map?) ?? const {};
+    // Awaited, one after another. These all write the SAME stored day, and
+    // walking away from them meant this method could return while several
+    // writes were still in flight, which is how three auto cleaned quit
+    // habits could come back from a restart as one.
     for (final id in habitIds) {
       final existing = SquareState.fromJson(raw[id]?.toString());
       if (existing != SquareState.none) continue;
-      setSquareStateOnly(id, day, SquareState.complete);
+      await setSquareStateOnlyAsync(id, day, SquareState.complete);
     }
   }
 

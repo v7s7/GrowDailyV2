@@ -197,7 +197,15 @@ Future<void> showCustomOffsetSheet(
   required bool isAfter,
   required Color color,
   required bool isAr,
-  required bool canStack,
+  /// A CALLBACK, not a bool, and that is the point.
+  ///
+  /// It was a bool captured once in the modal route's builder closure, which
+  /// froze the paywall: the Add button's own lock is a purchase funnel, and a
+  /// customer who bought Premium from it came back to this still-mounted
+  /// sheet where Add kept showing the paywall for a limit they no longer had.
+  /// Asking at tap time costs nothing and keeps this sheet Riverpod-free, per
+  /// ReminderPicker's dumb-display contract.
+  required bool Function() canStack,
   required void Function(int signedMinutes) onToggle,
 
   /// Fired on every direction change, not just on close, so a swipe-dismiss
@@ -235,7 +243,7 @@ class _CustomOffsetSheet extends StatefulWidget {
   final bool initialIsAfter;
   final Color color;
   final bool isAr;
-  final bool canStack;
+  final bool Function() canStack;
   final void Function(int signedMinutes) onToggle;
   final void Function(bool isAfter) onDirectionChanged;
   final VoidCallback onLocked;
@@ -314,7 +322,7 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
   void _add(S s) {
     final offset = _pendingOffset;
     if (offset == null) return;
-    if (!widget.canStack) {
+    if (!widget.canStack()) {
       widget.onLocked();
       return;
     }

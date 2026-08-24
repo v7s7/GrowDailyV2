@@ -7,6 +7,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../models/prestige_tier.dart';
 import '../notifiers/prestige_notifier.dart';
+import '../widgets/prestige_mark.dart';
 
 /// Opens [PrestigePickerSheet] — the one place to browse every Level
 /// Prestige tier and choose which unlocked one to display. Reachable from
@@ -90,7 +91,8 @@ class PrestigePickerSheet extends ConsumerWidget {
                 children: [
                   _PrestigeRow(
                     icon: Icons.auto_awesome_motion_rounded,
-                    color: displayed.color,
+                    color: prestigeMarkFor(displayed)?.color(gp.dark) ??
+                        displayed.color,
                     title: s.prestigeAutoOption,
                     subtitle: s.prestigeAutoOptionDesc(displayed.title(isAr)),
                     isLocked: false,
@@ -106,7 +108,13 @@ class PrestigePickerSheet extends ConsumerWidget {
                   for (final tier in PrestigeCatalog.tiers) ...[
                     _PrestigeRow(
                       icon: tier.icon,
-                      color: tier.color,
+                      // The rank mark, so this sheet shows the ACTUAL ladder
+                      // rather than eight unrelated glyphs — a locked tier
+                      // here is the real silhouette you are climbing toward,
+                      // just dimmed.
+                      mark: prestigeMarkFor(tier),
+                      color: prestigeMarkFor(tier)?.color(gp.dark) ??
+                          tier.color,
                       title: tier.title(isAr),
                       subtitle: level >= tier.minLevel
                           ? s.prestigeUnlockedAt(tier.minLevel)
@@ -136,6 +144,10 @@ class PrestigePickerSheet extends ConsumerWidget {
 
 class _PrestigeRow extends StatelessWidget {
   final IconData icon;
+
+  /// The rank mark for a real tier; null for the "automatic" row, which is a
+  /// mode rather than a rung and so has no place on the ladder.
+  final PrestigeMarkSpec? mark;
   final Color color;
   final String title;
   final String subtitle;
@@ -145,6 +157,7 @@ class _PrestigeRow extends StatelessWidget {
 
   const _PrestigeRow({
     required this.icon,
+    this.mark,
     required this.color,
     required this.title,
     required this.subtitle,
@@ -182,7 +195,11 @@ class _PrestigeRow extends StatelessWidget {
                     color: color.withOpacity(0.14),
                     borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   ),
-                  child: Icon(icon, size: 19, color: color),
+                  child: Center(
+                    child: mark == null
+                        ? Icon(icon, size: 19, color: color)
+                        : PrestigeMark(spec: mark!, size: 22, color: color),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),

@@ -34,6 +34,26 @@ Future<void> markGetStartedDismissed(WidgetRef ref) async {
   await box.put(_kGetStartedDismissedKey, true);
 }
 
+/// Puts the checklist back, for the Undo on the dismiss snackbar.
+///
+/// The X on that card is a 16pt grey glyph sitting next to a step counter, in
+/// the corner where every app in the world puts "close this notice". Tapping
+/// it removed the ONLY thing teaching a first-time user what to do, forever,
+/// on that device, silently, with no confirmation. Somebody who taps it by
+/// reflex and then wonders where the list went has no route back except
+/// Settings, App Guide, which is exactly the place a person who dismisses
+/// things by reflex will not go looking.
+///
+/// A confirmation dialog would be the wrong fix: it puts friction on the
+/// people who meant it, to protect the people who did not. An Undo puts the
+/// cost on nobody. This app already uses that pattern for pausing and for
+/// deleting habits.
+Future<void> undoGetStartedDismissed(WidgetRef ref) async {
+  ref.read(getStartedDismissedProvider.notifier).state = false;
+  final box = await LocalStoreService.settingsBox();
+  await box.put(_kGetStartedDismissedKey, false);
+}
+
 /// Reads the persisted flag, if any. Called once at boot (see main.dart) to
 /// seed [getStartedDismissedProvider] before the first frame.
 Future<bool> loadPersistedGetStartedDismissed() async {

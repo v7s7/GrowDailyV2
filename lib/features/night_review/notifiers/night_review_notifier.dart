@@ -126,11 +126,9 @@ class NightReviewNotifier extends StateNotifier<NightReviewState> {
     state = state.copyWith(saved: true);
     if (_uid == null) {
       try {
-        final existing = await LocalStoreService.getDailyMap(_todayKey);
-        await LocalStoreService.putDailyMap(_todayKey, {
-          ...existing,
-          ...data,
-          'date': DateTime.now().effectiveDay.toIso8601String(),
+        await LocalStoreService.updateDailyMap(_todayKey, (day) {
+          day.addAll(data);
+          day['date'] = DateTime.now().effectiveDay.toIso8601String();
         });
         return true;
       } catch (_) {

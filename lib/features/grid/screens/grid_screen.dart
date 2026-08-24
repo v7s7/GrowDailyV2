@@ -8,6 +8,7 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/providers/app_guide_provider.dart';
+import '../../onboarding/notifiers/guide_chain.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
@@ -594,14 +595,24 @@ class _GridScreenState extends ConsumerState<GridScreen> {
       if ((previous?.isEmpty ?? true) &&
           next.isNotEmpty &&
           ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addHabit) {
-        ref.read(activeAppGuideLessonProvider.notifier).state = null;
+        // advanceGuideAfter, not `= null`. Clearing was the whole reason the
+        // guide stopped after one step: the circle vanished and nothing said
+        // there were three more. This hands over to "colour today's square",
+        // which lives on this same screen and is now, finally, a row that
+        // exists to point at. See guide_chain.dart for why continuing a run
+        // is not the same thing as starting one.
+        advanceGuideAfter(ref, AppGuideLesson.addHabit);
       }
     });
     ref.listen<DashboardState>(dashboardProvider, (previous, next) {
       if ((previous?.cumulativeXp ?? 0) <= 0 &&
           next.cumulativeXp > 0 &&
           ref.read(activeAppGuideLessonProvider) == AppGuideLesson.colorSquare) {
-        ref.read(activeAppGuideLessonProvider.notifier).state = null;
+        // Stops here rather than jumping to the Tasks tab: the next step
+        // lives on another screen, and moving somebody there because they
+        // finished something is the uninvited tour again. The Get Started
+        // card is on that screen too, already showing step 3.
+        advanceGuideAfter(ref, AppGuideLesson.colorSquare);
       }
     });
 
@@ -827,15 +838,22 @@ class _GridScreenState extends ConsumerState<GridScreen> {
           ],
         ),
         ),
-          // App Guide's on-demand "Add a habit" / "Track a day" lessons —
+          // App Guide's on-demand "Add a habit" / "Track a day" lessons -
           // deliberately the only thing that ever dims this screen, and only
-          // ever because the person just asked for it from Settings. First
-          // run teaches through the Get Started checklist above instead: an
-          // inline card that sits in the page and can be ignored, rather
-          // than a modal overlay thrown at someone who has not acted yet.
+          // ever because the person just asked for it: from Settings, from the
+          // Get Started card, or by answering yes to the first-run question
+          // (see FirstRunOfferScreen). Nothing here is driven by a persisted
+          // flag, so no launch can produce a dim on its own.
+          //
+          // The ValueKey is load-bearing. Both lessons render through this one
+          // widget, so without it a lesson change reuses the same Element and
+          // therefore the same State: the overlay keeps _didEnsureVisible true
+          // and never scrolls the NEW target into view, and paints the old
+          // target's rect until the next frame's measurement lands.
           if (activeLesson == AppGuideLesson.addHabit ||
               activeLesson == AppGuideLesson.colorSquare)
             CoachMarkOverlay(
+              key: ValueKey(activeLesson),
               targetKey: activeLesson == AppGuideLesson.addHabit
                   ? _addHabitKey
                   : _todayCellKey,

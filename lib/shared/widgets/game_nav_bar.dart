@@ -127,10 +127,37 @@ class _GlassNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final glassColor = dark ? const Color(0xFF17251F) : Colors.white;
+    // Was a hardcoded 0xFF17251F, which is the DEFAULT preset's elevated
+    // surface — so the nav bar stayed emerald-green under all eleven presets
+    // while every other surface changed around it. Nobody noticed because
+    // most presets are close enough to the default in the dark; the custom
+    // preset, which can put the app in plum or navy, made it obvious.
+    // In LIGHT mode this used gp.surfaceHigh, which is #FFFFFF in all eleven
+    // presets and in both custom ones. Every other light token shifts hue with
+    // the theme (bg, surface, highlight, border all do), but the "high"
+    // surface is pinned to pure white on purpose, because that is what an
+    // elevated card should be. The nav bar is not a card. Reading that token
+    // made the bar the one surface in the app that could not take the theme:
+    // pick plum, pick navy, and the bar stayed white.
+    //
+    // gp.surface instead, which is the same tone the cards on the page behind
+    // it already use: #F5EFE3 by default, #F0E3F5 in a plum custom theme,
+    // #E3E8F5 in navy. Dark mode keeps surfaceHigh, which was already themed
+    // (#17251F emerald, #171F25 plum) and correct.
+    final glassColor = dark ? context.gp.surfaceHigh : context.gp.surface;
+    // Both of these were hardcoded white and black54, so even once the fill
+    // above followed the theme they would still have sat on top of it in
+    // neutral grey. The rim in particular was 85 percent white, which is a
+    // bright ring around a tinted bar rather than an edge of it.
     final borderColor =
-        dark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.85);
-    final unselectedColor = dark ? Colors.white70 : Colors.black54;
+        dark ? Colors.white.withOpacity(0.08) : context.gp.border;
+    // textPrimary at 0.70, not textSec, and the number is measured. On the
+    // newly tinted fills above, textSec lands between 4.00 and 4.46 to 1
+    // across the thirteen presets, which is under the 4.5 AA needs for a 10pt
+    // label. Compositing textPrimary at 0.70 gives 5.28 at worst and still
+    // reads as clearly secondary next to the selected tab, which carries the
+    // accent colour, a heavier weight and a filled pill of its own.
+    final unselectedColor = context.gp.textPrimary.withOpacity(0.70);
 
     return SafeArea(
       top: false,
@@ -142,6 +169,23 @@ class _GlassNavBar extends StatelessWidget {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
             child: Container(
+              // Fixed, and it has to stay fixed.
+              //
+              // The overflow this box used to produce at the largest
+              // accessibility text size (a 22pt icon, a 2pt gap and a 10pt
+              // label against 48pt of content space, overflowing by 23) is
+              // fixed by capping the LABEL's scale in _GlassNavItem below,
+              // not by relaxing this.
+              //
+              // Relaxing it was tried and was worse: `constraints:
+              // BoxConstraints(minHeight: 60)` has no maximum, and
+              // Scaffold.bottomNavigationBar hands down loose constraints, so
+              // the Container took the whole screen height and the app came
+              // up as a blank page with a full-height nav bar. Caught on a
+              // device, not by the test, because a test that pumps this bar
+              // in an otherwise empty Scaffold has nothing for it to crowd
+              // out. See nav_bar_text_scale_test.dart, which now asserts the
+              // height directly.
               height: 60,
               padding: const EdgeInsets.symmetric(horizontal: 6),
               decoration: BoxDecoration(
@@ -221,6 +265,21 @@ class _GlassNavItem extends StatelessWidget {
                 item.label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
+                // Capped at 1.4x, measured rather than picked: the item has
+                // 48pt of content space (60 less its own 6pt margins), and a
+                // 22pt icon plus a 2pt gap leaves 24 for the label. At 1.6x
+                // the label rendered 24.5 and the row overflowed by exactly
+                // half a pixel; 1.4x lands near 19 and leaves real slack for a
+                // font whose metrics differ.
+                //
+                // Capping at all is the right trade here and nowhere else: the
+                // icon above carries the meaning at any size, and the Semantics
+                // wrapper reads the label aloud regardless, so nothing is lost
+                // to somebody who actually needs the larger type. Three tabs of
+                // 31pt text would either ellipsis into nothing readable or push
+                // the bar to a third of the screen.
+                textScaler: MediaQuery.textScalerOf(context)
+                    .clamp(maxScaleFactor: 1.4),
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,

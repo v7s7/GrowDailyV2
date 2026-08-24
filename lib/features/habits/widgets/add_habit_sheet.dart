@@ -862,6 +862,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   Widget _nameAndCategorySection(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (!_hasName && _isFirstHabit) ...[
+            _suggestionsSection(s, lead: true),
+            const SizedBox(height: 18),
+            _SectionLabel(s.orWriteYourOwn),
+            const SizedBox(height: 8),
+          ],
           TextField(
             controller: _nameCtrl,
             focusNode: _focus,
@@ -961,33 +967,46 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               );
             }).toList(),
           ),
-          // A shortcut to fill in the name field, so it's only useful
-          // before there's a name — once one's typed or picked, showing
-          // it below would just be duplicate noise. XP hinted right on the
-          // chip since tapping one is a one-tap "start earning" shortcut.
-          if (!_hasName)
-            Column(
-              key: _suggestionsKey,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 16),
-                _SectionLabel(s.smartSuggestions),
-                const SizedBox(height: 8),
-                // 2 columns, not 3 — these labels are full phrases ("Fast
-                // Monday/Thursday", "Less phone before Quran"), so 3 equal
-                // columns would force ellipsis far more often than 2 does.
-                _ChipGrid(
-                  columns: 2,
-                  items: _suggestions().map((item) {
-                    return _PlainActionChip(
-                      label: item.name(s.isAr),
-                      xp: GameConstants.categoryXpRewards[item.category.name] ?? 10,
-                      onTap: () => _applySuggestion(item),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ),
+          // Below the categories for anyone who already has habits: by then
+          // they know the form and the suggestions are a shortcut, not the
+          // main road. See _suggestionsSection for why the first habit is
+          // laid out the other way round.
+          if (!_hasName && !_isFirstHabit) _suggestionsSection(s),
+        ],
+      );
+
+  /// True when this account has no habits at all yet.
+  ///
+  /// The first habit is a different job from the fifth. On an empty account
+  /// this sheet opened on a text field, nine category chips and a greyed-out
+  /// primary button — four levels of choice before anything happens, for
+  /// somebody who has not yet seen a single square get coloured. The
+  /// suggestions are the fastest path to that moment (one tap fills the name,
+  /// picks the category and enables the button), so for a first habit they
+  /// go FIRST and everything else stays available underneath.
+  bool get _isFirstHabit => ref.read(habitListProvider).isEmpty;
+
+  Widget _suggestionsSection(S s, {bool lead = false}) => Column(
+        key: _suggestionsKey,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 16),
+          _SectionLabel(lead ? s.quickestStart : s.smartSuggestions),
+          const SizedBox(height: 8),
+          // 2 columns, not 3 — these labels are full phrases ("Fast
+          // Monday/Thursday", "Less phone before Quran"), so 3 equal
+          // columns would force ellipsis far more often than 2 does.
+          _ChipGrid(
+            columns: 2,
+            items: _suggestions().map((item) {
+              return _PlainActionChip(
+                label: item.name(s.isAr),
+                xp: GameConstants.categoryXpRewards[item.category.name] ?? 10,
+                onTap: () => _applySuggestion(item),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 4),
         ],
       );
 

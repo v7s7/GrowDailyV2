@@ -351,7 +351,12 @@ class _SettingsSection extends ConsumerWidget {
                           Container(
                             width: 7,
                             height: 7,
-                            margin: const EdgeInsets.only(right: 8),
+                            // Directional, not physical. The dot follows the
+                            // label in the Row, so the gap belongs on the
+                            // dot's leading edge: `right: 8` puts it there in
+                            // English and on the far side of the dot in
+                            // Arabic, where the Row has already mirrored.
+                            margin: const EdgeInsetsDirectional.only(start: 8),
                             // Not `const` — GameColors.gold is a mutable
                             // `static Color` (theme-preset system), not a
                             // compile-time constant. See BUILD_LESSONS.md #6.

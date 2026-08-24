@@ -26,6 +26,7 @@ import '../../character/models/accessory.dart';
 import '../../character/models/character_option.dart';
 import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/character_avatar.dart';
+import '../../character/widgets/prestige_mark.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show weeklyGridProvider;
 import '../../grid/screens/monthly_heatmap_screen.dart' show heatColor;
 import '../../habits/catalog/islamic_habit_catalog.dart'

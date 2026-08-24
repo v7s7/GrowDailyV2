@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  The WIDGET EXTENSION's own privacy manifest.
+
+	  ios/Runner/PrivacyInfo.xcprivacy covers the app. It does not cover this
+	  target: an app extension ships as its own binary inside the bundle, and
+	  Apple's required-reason check runs per binary, so the extension's
+	  UserDefaults access was undeclared even though the identical access is
+	  declared for the app. The symptom is an ITMS-91053 "missing API
+	  declaration" email after upload, which costs a re-upload rather than a
+	  review cycle, but there is no reason to take it.
+
+	  This target uses a synchronized folder group (see
+	  PBXFileSystemSynchronizedRootGroup in project.pbxproj), so a file placed
+	  in this directory is part of the target with no project edit.
+
+	  Same two rules as the app manifest: every entry has to be TRUE of what
+	  this extension actually does, and this file has to agree with the App
+	  Store Connect nutrition label.
+	-->
+
+	<!--
+	  The widget collects nothing. It READS what the app already wrote into
+	  the shared app group and draws it. No network, no analytics, no
+	  identifiers, and nothing leaves the device from here.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- UserDefaults, via UserDefaults(suiteName:) against the shared app
+		     group, which is how the widget reads today's squares and streak
+		     from the app. CA92.1 covers this app's own defaults; 1C8F.1 covers
+		     the app-group container specifically, and it is the one that
+		     applies here. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+				<string>1C8F.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

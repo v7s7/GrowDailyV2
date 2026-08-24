@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
@@ -16,7 +17,15 @@ import 'package:intl/date_symbol_data_local.dart';
 /// whole reachable range visible at once — so what is asserted here is that
 /// the range really does reach the screen, in Arabic, with the locked part
 /// distinguishable from the free part.
-Widget _host(Widget child, {String locale = 'ar'}) => MaterialApp(
+/// ProviderScope is required now, not incidental: the picker sheet watches
+/// premiumProvider so that buying Premium from one of its own locked chips
+/// repaints it. Before that it subscribed to nothing, and every history
+/// picker in the app kept showing padlocks to a customer who had just paid.
+Widget _host(Widget child, {String locale = 'ar'}) => ProviderScope(
+      child: _app(child, locale: locale),
+    );
+
+Widget _app(Widget child, {String locale = 'ar'}) => MaterialApp(
       locale: Locale(locale),
       supportedLocales: const [Locale('en'), Locale('ar')],
       localizationsDelegates: const [

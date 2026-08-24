@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
 import '../../core/utils/western_digits.dart';
+import '../../features/premium/notifiers/premium_notifier.dart';
 import 'choice_chip_grid.dart';
 import 'history_demo_gate.dart';
 
@@ -35,11 +37,13 @@ Future<DateTime?> showMonthPicker(
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (_) => _MonthPickerSheet(
-      months: months,
-      selected: selected,
-      isUnlocked: isUnlocked,
-      hasStory: hasStory,
+    builder: (_) => _EntitlementRebuilder(
+      () => _MonthPickerSheet(
+        months: months,
+        selected: selected,
+        isUnlocked: isUnlocked,
+        hasStory: hasStory,
+      ),
     ),
   );
 }
@@ -82,11 +86,13 @@ Future<int?> showYearPicker(
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (_) => _YearPickerSheet(
-      years: years,
-      selected: selected,
-      isUnlocked: isUnlocked,
-      hasData: hasData,
+    builder: (_) => _EntitlementRebuilder(
+      () => _YearPickerSheet(
+        years: years,
+        selected: selected,
+        isUnlocked: isUnlocked,
+        hasData: hasData,
+      ),
     ),
   );
 }
@@ -206,6 +212,35 @@ class _YearChip extends StatelessWidget {
     );
     if (selected || (unlocked && hasData)) return chip;
     return Opacity(opacity: unlocked ? 0.55 : 0.35, child: chip);
+  }
+}
+
+/// Watches the entitlement so the sheet rebuilds when it changes.
+///
+/// This sheet IS the upsell funnel, which is what made this necessary: a
+/// locked chip deliberately does not pop (see the chip's onTap below), it
+/// shows the demo gate, whose CTA pushes /premium on top. PremiumScreen
+/// applies the new entitlement immediately and never auto-pops, so after
+/// buying, the user is returned to this very sheet — still mounted, still
+/// holding the caller's `isUnlocked` closure, which reads entitlement but
+/// subscribes to nothing. Every old month kept its padlock, and tapping one
+/// showed the paywall again to somebody who had just paid.
+///
+/// The watch is deliberately discarded: the CALLER's closure is still the
+/// authority on what "unlocked" means (each screen has its own window rule).
+/// All this needs to do is force a rebuild so that closure runs again.
+///
+/// Fixed here rather than at the five call sites (Grid heatmap, Habit Notes,
+/// Matrix archive, Night Review history, Monthly Story) because all five had
+/// the identical bug and a sixth caller would have inherited it.
+class _EntitlementRebuilder extends ConsumerWidget {
+  final Widget Function() build_;
+  const _EntitlementRebuilder(this.build_);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(premiumProvider);
+    return build_();
   }
 }
 

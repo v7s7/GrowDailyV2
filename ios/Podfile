@@ -1,3 +1,21 @@
+# Firebase Analytics WITHOUT the advertising identifier.
+#
+# firebase_analytics defaults to the GoogleAppMeasurement variant that links
+# IdentitySupport and GoogleAdsOnDeviceConversion, which reference
+# ASIdentifierManager and put the IDFA in the binary. This app does no
+# advertising and no tracking: ios/Runner/PrivacyInfo.xcprivacy declares
+# NSPrivacyTracking false, there is no NSUserTrackingUsageDescription, and the
+# published privacy policy says diagnostics are never used for advertising.
+#
+# Shipping the default variant would make all three of those statements false
+# about the actual binary, and App Store Connect detects IDFA linkage at
+# upload: answering its advertising identifier question truthfully then
+# contradicts a build with no ATT prompt, which is a 5.1.2 rejection.
+#
+# This flag must sit ABOVE every other line, because CocoaPods reads it while
+# resolving the podspec. First party analytics is unaffected.
+$FirebaseAnalyticsWithoutAdIdSupport = true
+
 # 15.0, not just the 13.0 purchases_flutter itself needs - the hosted
 # Paywall/Customer Center UI (purchases_ui_flutter, RevenueCatUI - see
 # PurchaseService) only renders on iOS 15.0+; older devices would silently

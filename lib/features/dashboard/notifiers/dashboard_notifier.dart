@@ -14,6 +14,7 @@ import '../../../core/utils/text_moderation.dart';
 import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../models/undone_completion.dart';
 import '../../milestones/models/milestone_event.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../grid/models/square_state.dart';
@@ -136,6 +137,113 @@ bool willCompleteAllHabitsToday({
   // with nothing scheduled isn't a completed day, it's a day off.
   if (total == 0 || !sawTarget) return false;
   return credited / total >= kStreakDayCompletionThreshold;
+}
+
+/// How long an [UndoneCompletion] receipt stays redeemable.
+///
+/// Bounded so the map cannot grow forever on an account that undoes a lot and
+/// never corrects any of it, and generous because the whole point is the
+/// person who notices the mistake late. A year covers everything the yearly
+/// strip can even show them.
+const int kUndoneCompletionRetentionDays = 365;
+
+/// Whole calendar days from [from] to [to], counted on the calendar rather
+/// than in elapsed hours.
+///
+/// Via UTC on purpose: two local midnights 24 hours apart are 23 or 25 hours
+/// apart across a DST change, and `.difference().inDays` truncates that to 0
+/// or 1 accordingly. Every date in this file is a calendar day, so an hour of
+/// wall clock must never be able to move one.
+int daysBetweenDates(DateTime from, DateTime to) =>
+    DateTime.utc(to.year, to.month, to.day)
+        .difference(DateTime.utc(from.year, from.month, from.day))
+        .inDays;
+
+/// This habit's streak once a completion lands today, given [gapDays] whole
+/// days since its previous completion (null when it has never been completed)
+/// and [previousStreak], the streak that previous completion ended on.
+///
+/// A gap of ZERO is the case worth naming. It means the stored last-completed
+/// date already reads today, which happens exactly one way: an undo that found
+/// no same-session snapshot leaves the per-habit streak fields alone rather
+/// than guessing at them (see [DashboardNotifier.uncompleteHabit]), so they go
+/// on describing today's completion after the completion itself is gone.
+/// Re-ticking the habit then measures a gap of 0. Treating that like any other
+/// non-1 gap restarted the streak at 1, which turned a long streak into a 1
+/// for nothing but a mis-tap and an app restart in between. Today is already
+/// counted inside [previousStreak], so the answer is [previousStreak] itself.
+///
+/// Pure so the rule is unit-testable without Firebase — see
+/// test/features/dashboard/undo_restore_test.dart.
+int nextHabitStreak({required int? gapDays, required int previousStreak}) =>
+    switch (gapDays) {
+      1 => previousStreak + 1,
+      0 => previousStreak < 1 ? 1 : previousStreak,
+      _ => 1,
+    };
+
+/// Whether a completion landing today with [gapDays] since the previous one
+/// actually MOVED this habit's streak, and so whether it can pay a per-habit
+/// milestone bonus.
+///
+/// False only for the gap-of-zero case above: that day's milestone was already
+/// paid by the completion being put back and, with no snapshot, was never
+/// refunded, so paying it again would pay twice for one day.
+bool habitStreakAdvanced(int? gapDays) => gapDays != 0;
+
+/// What a habit's streak fields should become once a completion that was
+/// undone on [restoredDay] is put back, or null when they should be left
+/// exactly as they are.
+///
+/// Restoring a past day is the one moment the incremental streak counter can
+/// be re-linked without reading a single day of history, because the receipt
+/// already carries the missing half. [streakAtCompletion] says the restored
+/// day ended a run of that many days. [currentStreak] and
+/// [currentLastCompleted] describe the run built since. The two runs join if
+/// and only if the newer one starts the very next day, and then the habit's
+/// real streak is simply their sum.
+///
+/// Three outcomes, and the conservative one is the default:
+///  - nothing newer exists (or the restored day IS the newest): the receipt's
+///    own numbers are the truth, and the restored day becomes the last
+///    completed day;
+///  - the newer run starts the day after the restored one: the hole the undo
+///    punched is exactly what was keeping them apart, so they merge;
+///  - anything else: there is another gap in between that this function has
+///    no business guessing about, so it changes nothing. A streak that stays
+///    honestly short is recoverable; one invented from a guess is not.
+///
+/// Pure so the rule is unit-testable without Firebase — see
+/// test/features/dashboard/undo_restore_test.dart.
+({int streak, DateTime lastCompleted})? restoredHabitStreak({
+  required DateTime restoredDay,
+  required int streakAtCompletion,
+  required int currentStreak,
+  required DateTime? currentLastCompleted,
+}) {
+  if (streakAtCompletion <= 0) return null;
+  final restored = DateTime(restoredDay.year, restoredDay.month, restoredDay.day);
+  final last = currentLastCompleted == null
+      ? null
+      : DateTime(currentLastCompleted.year, currentLastCompleted.month,
+          currentLastCompleted.day);
+
+  if (last == null || restored.isAfter(last)) {
+    return (streak: streakAtCompletion, lastCompleted: restored);
+  }
+  // The counters already describe a run ending on the very day being
+  // restored, which is what an undo with no same-session snapshot leaves
+  // behind (it declines to guess at the streak, so it never rolled it back).
+  // Nothing to re-link.
+  if (!restored.isBefore(last)) return null;
+  if (currentStreak <= 0) return null;
+
+  final chainStart = DateTime(last.year, last.month, last.day - (currentStreak - 1));
+  if (daysBetweenDates(restored, chainStart) != 1) return null;
+  return (
+    streak: streakAtCompletion + currentStreak,
+    lastCompleted: last,
+  );
 }
 
 // Milestone flavor titles ("3-Day Starter", "بداية النشامى", ...) live in
@@ -337,6 +445,19 @@ class DashboardState {
   // habitId → 'YYYY-MM-DD' of that habit's most recent completion.
   final Map<String, String> habitLastCompletedDate;
 
+  /// Outstanding receipts for completions that were undone and could still be
+  /// put back, keyed by [UndoneCompletion.keyFor] — see that class for what
+  /// they are for and why they cannot be farmed. Written by
+  /// [DashboardNotifier.uncompleteHabit], consumed by the next completion of
+  /// the same habit-day, whether that lands on today through [completeHabit]
+  /// or on an already-past square through
+  /// [DashboardNotifier.restoreUndoneCompletion].
+  final Map<String, UndoneCompletion> undoneCompletions;
+
+  /// The receipt still owed for [habitId] on [dateKey], if any.
+  UndoneCompletion? undoneFor(String habitId, String dateKey) =>
+      undoneCompletions[UndoneCompletion.keyFor(habitId, dateKey)];
+
   /// Set the instant a per-habit streak crosses a milestone (see
   /// [GameConstants.habitStreakBonuses]); cleared once the celebration
   /// dialog is dismissed. Not persisted — this is a one-shot UI cue, not
@@ -391,6 +512,7 @@ class DashboardState {
     this.habitLongestStreaks = const {},
     this.habitTotalCompletions = const {},
     this.habitLastCompletedDate = const {},
+    this.undoneCompletions = const {},
     this.habitMilestoneCelebration,
     this.lastCompletionBonusXp = 0,
     this.lastCompletionBonusGold = 0,
@@ -480,6 +602,7 @@ class DashboardState {
     Map<String, int>? habitLongestStreaks,
     Map<String, int>? habitTotalCompletions,
     Map<String, String>? habitLastCompletedDate,
+    Map<String, UndoneCompletion>? undoneCompletions,
     HabitMilestoneEvent? setHabitMilestone,
     bool clearHabitMilestone = false,
     int? lastCompletionBonusXp,
@@ -523,6 +646,7 @@ class DashboardState {
             habitTotalCompletions ?? this.habitTotalCompletions,
         habitLastCompletedDate:
             habitLastCompletedDate ?? this.habitLastCompletedDate,
+        undoneCompletions: undoneCompletions ?? this.undoneCompletions,
         habitMilestoneCelebration: clearHabitMilestone
             ? null
             : (setHabitMilestone ?? this.habitMilestoneCelebration),

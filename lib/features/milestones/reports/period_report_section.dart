@@ -98,10 +98,33 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     _anchor = DateTime.now().effectiveDay;
   }
 
-  void _setScope(ReportScope scope) {
+  /// Switching grain has to re-ask whether the anchor is still allowed.
+  ///
+  /// It did not, and that leaked the paid product: only the MONTH grain is
+  /// gated, and both ungated grains can park the anchor anywhere (the week is
+  /// free at any depth, and the year picker reaches any year). So a free user
+  /// walked back on the week tab, or picked an old year, then tapped شهري and
+  /// landed on a walled month — which then rendered the real numbers, because
+  /// nothing between the tab tap and the build re-ran the gate.
+  void _setScope(
+    ReportScope scope, {
+    required DateTime today,
+    required bool isPremium,
+  }) {
     setState(() {
       _scope = scope;
       _moveDirection = 0;
+      if (!reportPeriodUnlocked(
+        scope: scope,
+        anchor: _anchor,
+        now: today,
+        isPremium: isPremium,
+      )) {
+        // Pulled forward to the newest period this account may see, rather
+        // than blocked: the tap was on a TAB, and a tab that refuses to
+        // change is a worse answer than one that lands somewhere legal.
+        _anchor = freeHistoryFloor(today);
+      }
     });
     if (!_scroll.hasClients || _scroll.offset <= 0) return;
     // Animated rather than jumped: a report that teleports gives no sense
@@ -127,9 +150,17 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
       ReportScope.month => DateTime(_anchor.year, _anchor.month + delta),
       ReportScope.year => DateTime(_anchor.year + delta),
     };
+    // Only when walking BACKWARD. delta is always -1 or +1 from the three
+    // call sites, and forward means toward today: a user parked on a walled
+    // month (which _setScope's clamp now mostly prevents, but a lapse mid-
+    // session still can) was being shown the paywall for trying to LEAVE it,
+    // with the back arrow refusing too. Matches habit_detail_sheet.dart's
+    // own stepper, which already exempts forward for this reason.
+    //
     // One rule, in one place, per grain: see [reportPeriodUnlocked] for why
     // the week is free, the month is gated and the year is muted instead.
-    if (!reportPeriodUnlocked(
+    if (delta < 0 &&
+        !reportPeriodUnlocked(
       scope: _scope,
       anchor: next,
       now: today,
@@ -358,7 +389,11 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
         SegmentedTabs(
           labels: [s.reportsWeekly, s.reportsMonthly, s.reportsYearly],
           selected: _scope.index,
-          onChanged: (i) => _setScope(ReportScope.values[i]),
+          onChanged: (i) => _setScope(
+            ReportScope.values[i],
+            today: today,
+            isPremium: isPremium,
+          ),
         ),
         const SizedBox(height: 2),
         ReportPeriodHeader(

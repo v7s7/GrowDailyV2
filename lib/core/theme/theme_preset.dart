@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'color_math.dart';
+
 /// A selectable app-wide color scheme, built around two color roles per
 /// preset — **accent** (`gold`) and **grid/success** (`emerald`) — plus two
 /// "touches" (a tint or shade) that follow the accent: `xpBlue` is the
@@ -123,6 +125,83 @@ class ThemePreset {
     required this.darkTextSecondary,
     required this.darkTextTertiary,
   });
+
+  /// Builds a preset from the only two decisions a preset actually contains:
+  /// the **accent** and the **grid/success** colour. Everything else — the
+  /// four accent touches, the dim variants, and all eighteen structural
+  /// neutrals in both modes — is derived, because it always was: read the
+  /// class doc comment above and every hand-authored preset in this file is
+  /// two hues run through the same relationships.
+  ///
+  /// Derivation is deliberately "re-hue the default preset" rather than
+  /// invented from scratch. Each neutral keeps [_emeraldGold]'s exact
+  /// saturation and LIGHTNESS and only takes a new hue, which means a custom
+  /// theme cannot produce unreadable text no matter which two colours a user
+  /// picks: contrast is a function of lightness, and no lightness moves.
+  /// Dark neutrals follow the grid hue and light neutrals follow the accent
+  /// hue, which is the crossover the built-in presets already use.
+  factory ThemePreset.custom({
+    required String id,
+    required String nameEn,
+    required String nameAr,
+    required Color accent,
+    required Color grid,
+  }) {
+    final a = HSLColor.fromColor(accent);
+    final g = HSLColor.fromColor(grid);
+
+    // Ratios measured off the default preset, so a custom accent relates to
+    // its own touches exactly as gold relates to goldDim/xpBlue/streakOrange.
+    Color from(HSLColor base, double lMul, double sMul) => base
+        .withLightness((base.lightness * lMul).clamp(0.0, 1.0))
+        .withSaturation((base.saturation * sMul).clamp(0.0, 1.0))
+        .toColor();
+
+    // Keeps the reference neutral's saturation and lightness, swapping only
+    // the hue. This is the line that guarantees contrast survives.
+    Color reHue(Color reference, double hue) =>
+        HSLColor.fromColor(reference).withHue(hue).toColor();
+
+    const ref = _emeraldGold;
+    return ThemePreset(
+      id: id,
+      nameEn: nameEn,
+      nameAr: nameAr,
+      isPremium: true,
+      gold: accent,
+      goldDim: from(a, 0.651, 0.681),
+      xpBlue: from(a, 0.821, 1.094),
+      xpBlueDim: from(a, 0.558, 0.827),
+      streakOrange: from(a, 1.071, 0.874),
+      streakOrangeDim: from(a, 0.731, 0.654),
+      emerald: grid,
+      emeraldDim: from(g, 0.641, 1.107),
+      // Light mode structure follows the ACCENT hue.
+      lightBg: reHue(ref.lightBg, a.hue),
+      lightSurface: reHue(ref.lightSurface, a.hue),
+      // White stays white: re-hueing a zero-saturation colour is a no-op, but
+      // saying so here stops anyone "fixing" it later.
+      lightSurfaceHigh: ref.lightSurfaceHigh,
+      lightSurfaceHL: reHue(ref.lightSurfaceHL, a.hue),
+      lightBorder: reHue(ref.lightBorder, a.hue),
+      lightDivider: reHue(ref.lightDivider, a.hue),
+      // Light mode TEXT does the crossover and follows the grid hue.
+      lightTextPrimary: reHue(ref.lightTextPrimary, g.hue),
+      lightTextSecondary: reHue(ref.lightTextSecondary, g.hue),
+      lightTextTertiary: reHue(ref.lightTextTertiary, g.hue),
+      // Dark mode structure follows the GRID hue.
+      darkBg: reHue(ref.darkBg, g.hue),
+      darkSurface: reHue(ref.darkSurface, g.hue),
+      darkSurfaceElevated: reHue(ref.darkSurfaceElevated, g.hue),
+      darkSurfaceHighlight: reHue(ref.darkSurfaceHighlight, g.hue),
+      darkBorder: reHue(ref.darkBorder, g.hue),
+      darkDivider: reHue(ref.darkDivider, g.hue),
+      // Dark mode TEXT crosses over to the accent hue.
+      darkTextPrimary: reHue(ref.darkTextPrimary, a.hue),
+      darkTextSecondary: reHue(ref.darkTextSecondary, a.hue),
+      darkTextTertiary: reHue(ref.darkTextTertiary, a.hue),
+    );
+  }
 }
 
 /// The original, free-for-everyone look — warm gold + emerald, in both
@@ -552,8 +631,321 @@ const _navy = ThemePreset(
   darkTextTertiary: Color(0xFF6F727A),
 );
 
+/// Twenty-seven colours: nine hues across, three tones down.
+///
+/// Rows are TONE and columns are HUE, which is what makes a grid scannable
+/// instead of a wall of colour — find your hue by column, then choose how
+/// loud you want it by row.
+///
+/// THREE TONES, NOT SIX. This table used to carry six (deep, rich, vivid,
+/// bright, soft, muted), which made the grid 248pt tall and pushed the
+/// sheet's own Done button off the bottom of the screen: the control that
+/// ends the task was the one thing you had to scroll to reach. Three rows
+/// is 99pt and the whole sheet fits without scrolling. The two tones that
+/// went are the two that were hardest to want, "soft" and "muted", tints
+/// pale enough to read as washed out rather than as colours. Fine-grained
+/// lightness now lives in the free picker beside this grid, which is a
+/// better home for it: this table's job is a fast, coarse, always-safe
+/// choice, and precision is the other tab's job.
+///
+/// NINE HUES, NOT EIGHT. The added column is BROWN, and it carries a much
+/// lower saturation than its neighbours (0.42 against 0.70 to 0.88) because
+/// that is the entire difference between brown and orange: at hue 28 a
+/// saturated colour IS orange, and only pulling the chroma down makes it
+/// read as brown. Note what the luminance floor does to this column. A true
+/// dark brown such as 0xFF8B5A2B measures 0.12, far below
+/// [kAccentLuminanceMin], so it can never be an accent at all; what this
+/// column can honestly offer is the readable end of brown, caramel and tan.
+///
+/// EVERY ROW IS SOLVED FOR A TARGET LUMINANCE rather than for a uniform HSL
+/// lightness. Perceived brightness is not spread evenly across hues: a
+/// yellow at "50% lightness" is several times as luminous as a blue at the
+/// same number, so a uniform row produces swatches whose contrast ranges
+/// wildly and a palette where some colours shout. Each of these was
+/// bisected onto its row's target instead, so within a row every hue
+/// carries the same contrast.
+///
+/// THE FLOOR THAT SHAPES THIS TABLE: the accent is the fill behind a
+/// FilledButton whose label is DARK in both themes (GameColors.background
+/// on dark, lightTextPrimary on light — see game_theme.dart). So an accent
+/// that is too DARK makes its own button label unreadable. An earlier
+/// version of this palette had a "deep" row at luminance 0.20 whose button
+/// labels came out at 3.8:1, below the 4.5 floor, on every hue.
+///
+///   row      target L   worst button label   on white   on the dark card
+///   deep       0.28            5.00            2.90          5.55
+///   vivid      0.44            7.36            2.12          8.17
+///   bright     0.60            9.79            1.60         10.87
+///
+/// The table measures 0.2810 to 0.6046 end to end, so every colour in it
+/// sits inside [kAccentLuminanceMin]..[kAccentLuminanceMax] and the
+/// readability guard returns all 27 exactly as printed. That is asserted in
+/// the tests, because a swatch that stored a different colour than the one
+/// drawn on it would be a worse bug than the one the guard prevents.
+const List<List<Color>> kCustomSwatches = [
+  // Columns: red, orange, brown, yellow, green, teal, blue, purple, pink.
+  // deep
+  [
+    Color(0xFFEB675A),
+    Color(0xFFE86D0F),
+    Color(0xFFBA8657),
+    Color(0xFFAD8E0E),
+    Color(0xFF1BA737),
+    Color(0xFF12A38F),
+    Color(0xFF3894EF),
+    Color(0xFFB276E7),
+    Color(0xFFED5AA8),
+  ],
+  // vivid
+  [
+    Color(0xFFF29A92),
+    Color(0xFFF49D59),
+    Color(0xFFCFAB8A),
+    Color(0xFFD5AD11),
+    Color(0xFF21CD44),
+    Color(0xFF16C7AF),
+    Color(0xFF79B6F4),
+    Color(0xFFCAA1EE),
+    Color(0xFFF394C6),
+  ],
+  // bright
+  [
+    Color(0xFFF6BFB9),
+    Color(0xFFF8C196),
+    Color(0xFFE0C8B2),
+    Color(0xFFEEC931),
+    Color(0xFF61E57B),
+    Color(0xFF19E5C9),
+    Color(0xFFA7D0F8),
+    Color(0xFFDDC1F4),
+    Color(0xFFF7BADB),
+  ],
+];
+
+/// Flat, for callers that just need "every colour we offer".
+List<Color> get kCustomSwatchesFlat =>
+    [for (final row in kCustomSwatches) ...row];
+
+// ─── The readability guard ──────────────────────────────────────────────────
+//
+// [kCustomSwatches] above is a CURATED table: every colour in it was solved
+// for a target luminance, which is what makes "any swatch you tap is
+// readable" true by construction. The moment a hex field exists that
+// guarantee stops being structural and has to be enforced, because a hex
+// field accepts `000000` as happily as it accepts `E4B45F`.
+//
+// These two functions are that enforcement. They are the ONLY thing standing
+// between a typed hex and [ThemePreset.custom], and they are deliberately
+// here rather than in the picker UI: the picker is one call site, and a
+// guarantee that lives in a call site is a guarantee that the next call site
+// forgets. [ThemePresetNotifier.setCustom] applies them too, so no path into
+// the stored colours can skip them.
+
+/// Luminance floor for the ACCENT, and the single most load-bearing number
+/// in this file.
+///
+/// The accent is the `backgroundColor` of every [FilledButton] in the app,
+/// whose `foregroundColor` is DARK in both themes (`GameColors.background`
+/// in dark mode, `lightTextPrimary` in light, see game_theme.dart). So a
+/// dark accent does not merely look moody, it erases its own button labels.
+///
+/// 0.26 is measured, not chosen, and it is pinned between two numbers that
+/// were both computed rather than eyeballed:
+///
+///   0.25521  the floor 4.5:1 actually demands. The binding label is light
+///            mode's, and for a custom theme `lightTextPrimary` is itself
+///            derived (re-hued per [ThemePreset.custom]), so this is the
+///            worst case over all 360 hues of that derivation, not the one
+///            fixed 0xFF18251F the built-in presets use.
+///   0.27753  the DARKEST built-in swatch, 0xFFA0910D in the "deep" row.
+///
+/// Anything in between satisfies both constraints at once, and both
+/// constraints matter. Below 0.25521 a button label drops under AA. Above
+/// 0.27753 the guard would start "correcting" the app's own palette, so
+/// tapping a built-in swatch would store a different colour than the one
+/// printed on it, which is a worse bug than the one this guard prevents.
+///
+/// Note that [kCustomSwatches]' doc comment says "nothing is allowed below
+/// luminance 0.28". That is the rounded statement of intent; the table it
+/// describes actually bottoms out at 0.27753. Taking the prose literally
+/// here is precisely the mistake the paragraph above exists to prevent, and
+/// the swatches-are-left-untouched test is what catches it.
+const double kAccentLuminanceMin = 0.26;
+
+/// Luminance ceiling for the accent.
+///
+/// Nothing fails catastrophically up here the way it does at the floor: a
+/// pale accent makes a BETTER button, because the label on it is dark. What
+/// degrades is the accent used as text and icons on the light theme's white
+/// surface. The shipped palette already tolerates that (its lightest row
+/// measures 1.56:1 on white and shipped anyway), so this is not a promise
+/// being kept, it is a cliff being avoided.
+///
+/// 0.72 puts a near-white accent at about 1.36:1 on white, the same regime
+/// as the shipped 1.56:1 rather than a new one, and in practice only catches
+/// colours paler than roughly 0xFFDFDFDF. Every built-in swatch tops out at
+/// 0.62410, so nothing curated comes near it.
+const double kAccentLuminanceMax = 0.72;
+
+/// The grid colour answers to a different question, so it gets a different
+/// band. Its job is to be visible as a filled square against the grid's own
+/// background, not to carry dark text on top of itself, and
+/// [GameColors.onEmerald] already flips black or white for the one place
+/// where a fixed glyph does sit on it. The floor is what keeps a completed
+/// square distinguishable from an empty one on the near-black dark
+/// background; the ceiling keeps it from vanishing into the light theme's
+/// white surface.
+const double kGridLuminanceMin = 0.18;
+const double kGridLuminanceMax = 0.85;
+
+/// Pulls [c] into the accent's readable band, keeping its hue.
+Color fitAccentColour(Color c) =>
+    _fitLuminance(c, kAccentLuminanceMin, kAccentLuminanceMax);
+
+/// Pulls [c] into the grid's visible band, keeping its hue.
+Color fitGridColour(Color c) =>
+    _fitLuminance(c, kGridLuminanceMin, kGridLuminanceMax);
+
+/// True when [fitAccentColour] would leave [c] alone.
+bool accentColourFits(Color c) {
+  final l = c.computeLuminance();
+  return l >= kAccentLuminanceMin && l <= kAccentLuminanceMax;
+}
+
+/// True when [fitGridColour] would leave [c] alone.
+bool gridColourFits(Color c) {
+  final l = c.computeLuminance();
+  return l >= kGridLuminanceMin && l <= kGridLuminanceMax;
+}
+
+/// The same guard, solved in the space a PICKER is working in.
+///
+/// [fitAccentColour] corrects along HSL lightness, which is right when hue
+/// and saturation are the whole of the input (a typed hex, a stored value, a
+/// pair pulled off another device). It is wrong for a finger dragging across
+/// a saturation field, and the reason is what sits at the bottom edge of
+/// that field: pure black, which has neither hue nor saturation left to
+/// preserve. Lifting the lightness of black can only ever return grey, so
+/// dragging to the bottom of a red field used to hand back grey, which is a
+/// visibly wrong answer to a completely ordinary gesture.
+///
+/// So the correction runs along the axis the user was actually moving: keep
+/// their [hue] and [sat], raise [val] until the colour is back in band.
+/// Luminance is linear in value at fixed hue and saturation, so a bisection
+/// always converges.
+///
+/// Value alone is not always enough, and the exception is not exotic. A
+/// fully saturated red peaks at luminance 0.222, a violet at 0.158 and a
+/// blue at 0.072, all under [kAccentLuminanceMin], so no amount of
+/// brightening reaches the floor and the colour has to be diluted toward
+/// white instead. That is exactly what the HSL guard does, so when even
+/// value 1 falls short this hands it the BRIGHTEST version of their hue
+/// rather than the near-black one, and gets a desaturated colour of the
+/// right hue back instead of another grey.
+Color fitPickerColour({
+  required double hue,
+  required double sat,
+  required double val,
+  required bool accent,
+}) {
+  final lo = accent ? kAccentLuminanceMin : kGridLuminanceMin;
+  final hi = accent ? kAccentLuminanceMax : kGridLuminanceMax;
+  Color at(double v) => Color(hsvToArgb(hue, sat, v));
+
+  final raw = at(val);
+  final l = raw.computeLuminance();
+  if (l >= lo && l <= hi) return raw;
+
+  // Too dark AND out of headroom: only desaturation can save this hue.
+  if (l < lo && at(1).computeLuminance() < lo) {
+    return accent ? fitAccentColour(at(1)) : fitGridColour(at(1));
+  }
+
+  final target = l < lo ? lo : hi;
+  var low = 0.0;
+  var high = 1.0;
+  for (var i = 0; i < 24; i++) {
+    final mid = (low + high) / 2;
+    if (at(mid).computeLuminance() < target) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+  // Same rule as [_fitLuminance]'s tail: come up off the floor on the side
+  // that is at or above target, come down off the ceiling on the side that
+  // is at or below it.
+  return at(l < lo ? high : low);
+}
+
+/// Moves [c] along HSL LIGHTNESS only, until its relative luminance lands on
+/// the nearest edge of [lo]..[hi]. Hue and saturation are never touched, so
+/// what comes back is recognisably the colour the user asked for: a navy
+/// that is too dark comes back a lighter blue of the same hue, not a
+/// different colour and not grey.
+///
+/// Lightness is the right axis and the only one that always works. Relative
+/// luminance is monotonic in HSL lightness for a fixed hue and saturation
+/// (lightness 0 is black at luminance 0, lightness 1 is white at luminance
+/// 1), so a bisection over lightness can always reach any target in between,
+/// for every hue, including the ones with no headroom on any other axis:
+/// pure blue tops out at luminance 0.0722 no matter what you do to its
+/// saturation, and only lightness can lift it.
+///
+/// Twenty-four steps because that is well past the point where the result
+/// stops changing: lightness resolves to 1/255 after eight steps, and the
+/// extra iterations cost nothing on a path that runs on a tap.
+Color _fitLuminance(Color c, double lo, double hi) {
+  final l = c.computeLuminance();
+  if (l >= lo && l <= hi) return c;
+  final target = l < lo ? lo : hi;
+
+  final hsl = HSLColor.fromColor(c);
+  // The invariant the loop maintains: `low` is always a lightness whose
+  // luminance is BELOW target, `high` always one at or ABOVE it.
+  var low = 0.0;
+  var high = 1.0;
+  for (var i = 0; i < 24; i++) {
+    final mid = (low + high) / 2;
+    if (hsl.withLightness(mid).toColor().computeLuminance() < target) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+  // Which side of the converged pair to return is not a rounding detail, it
+  // decides whether the guard actually holds. Coming up off the FLOOR the
+  // answer has to be at or above target, so it is `high`; coming down off
+  // the CEILING it has to be at or below, so it is `low`. Returning the
+  // midpoint either way would leave a colour a hair outside the band it was
+  // just corrected into, which is the whole thing this function exists to
+  // prevent.
+  return hsl.withLightness(l < lo ? high : low).toColor();
+}
+
 abstract final class ThemePresets {
   static const String defaultId = 'emerald_gold';
+
+  /// The one preset that is not a constant: the user builds it.
+  static const String customId = 'custom';
+
+  /// The two colours [custom] is assembled from. Mutable statics for the same
+  /// reason [GameColors]' own colour fields are: the theme has to be readable
+  /// synchronously from anywhere, including the boot path that paints the
+  /// first frame before any provider exists. [ThemePresetNotifier] owns
+  /// writing them, and persists them next to the preset id.
+  static Color customAccent = _emeraldGold.gold;
+  static Color customGrid = _emeraldGold.emerald;
+
+  /// Rebuilt on read rather than cached, so changing either colour above is
+  /// immediately reflected without an invalidation step to forget.
+  static ThemePreset get custom => ThemePreset.custom(
+        id: customId,
+        nameEn: 'Custom',
+        nameAr: 'مخصص',
+        accent: customAccent,
+        grid: customGrid,
+      );
 
   static const List<ThemePreset> all = [
     _emeraldGold,
@@ -569,6 +961,25 @@ abstract final class ThemePresets {
     _navy,
   ];
 
-  static ThemePreset byId(String? id) =>
-      all.firstWhere((p) => p.id == id, orElse: () => _emeraldGold);
+  /// What the picker lists: the built-ins, then the user's own at the end.
+  static List<ThemePreset> get selectable => [...all, custom];
+
+  /// The two looks everyone gets. Listed first, because a free user should
+  /// see what they already have before what they do not.
+  static List<ThemePreset> get free =>
+      all.where((p) => !p.isPremium).toList();
+
+  /// Everything behind Premium, [custom] excluded — that one is presented on
+  /// its own rather than as the twelfth item in a list.
+  static List<ThemePreset> get premium =>
+      all.where((p) => p.isPremium).toList();
+
+  static ThemePreset byId(String? id) => id == customId
+      ? custom
+      : all.firstWhere((p) => p.id == id, orElse: () => _emeraldGold);
+
+  /// Whether [id] names a preset this build knows how to render — used by the
+  /// account sync, which must not apply an id written by a newer version.
+  static bool isKnown(String? id) =>
+      id == customId || all.any((p) => p.id == id);
 }

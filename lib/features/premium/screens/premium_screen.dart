@@ -6,6 +6,7 @@ import 'package:purchases_flutter/purchases_flutter.dart' show Offering, Package
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/theme/theme_preset.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/purchase_service.dart';
 import '../../../core/theme/game_theme.dart';
@@ -56,8 +57,17 @@ const String _privacyPolicyUrl =
 /// the one-time RevenueCat/App Store Connect setup that only a human with
 /// those accounts can do), or the Offering has no usable packages yet,
 /// this honestly shows "not available yet" instead of a broken paywall.
+/// Why the paywall was opened, so it can lead with the benefit the user came
+/// for. All eleven entry points used to land on an identical screen opening
+/// with "unlimited habits", including the ones you reach by tapping a locked
+/// COLOUR — pitching habit limits to someone who just asked about themes.
+enum PremiumReason { general, appearance }
+
 class PremiumScreen extends ConsumerStatefulWidget {
-  const PremiumScreen({super.key});
+  /// Defaults to [PremiumReason.general] so every existing call site keeps
+  /// working untouched.
+  final PremiumReason reason;
+  const PremiumScreen({super.key, this.reason = PremiumReason.general});
 
   @override
   ConsumerState<PremiumScreen> createState() => _PremiumScreenState();
@@ -300,7 +310,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               const SizedBox(height: 22),
 
               // Benefits
-              ..._benefits(s).asMap().entries.map(
+              ..._orderedBenefits(s).asMap().entries.map(
                     (e) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _BenefitRow(
@@ -523,6 +533,16 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   // into this bullet rather than given its own, per user direction. Still
   // deliberately doesn't include a "Family grids" bullet: that one has no
   // user-directed exception and remains unbuilt with no mention anywhere.
+  /// The benefit the user came for, first. Everything else keeps its order,
+  /// so the list still reads as a considered sequence rather than a shuffle.
+  List<(IconData, String, String)> _orderedBenefits(S s) {
+    final all = _benefits(s);
+    if (widget.reason != PremiumReason.appearance) return all;
+    final i = all.indexWhere((b) => b.$1 == Icons.palette_rounded);
+    if (i <= 0) return all;
+    return [all[i], ...all]..removeAt(i + 1);
+  }
+
   List<(IconData, String, String)> _benefits(S s) => [
         (
           Icons.grid_on_rounded,
@@ -569,6 +589,12 @@ class _BenefitRow extends StatelessWidget {
   const _BenefitRow(
       {required this.icon, required this.title, required this.desc});
 
+  /// The colour benefit shows colour. This paywall sells a visual product and
+  /// had none on it: seven identical tinted squares and seven lines of text.
+  /// A strip of the real palette says what "48 colours" means faster than the
+  /// sentence above it can.
+  bool get _showsPalette => icon == Icons.palette_rounded;
+
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
@@ -603,6 +629,25 @@ class _BenefitRow extends StatelessWidget {
                 style:
                     TextStyle(fontSize: 12.5, color: gp.textSec, height: 1.35),
               ),
+              if (_showsPalette) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    for (var i = 0; i < kCustomSwatches[2].length; i++) ...[
+                      if (i > 0) const SizedBox(width: 4),
+                      Expanded(
+                        child: Container(
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: kCustomSwatches[2][i],
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ],
           ),
         ),

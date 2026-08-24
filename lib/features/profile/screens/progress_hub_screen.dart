@@ -1215,7 +1215,13 @@ class _InsightsPreviewSection extends ConsumerWidget {
     final s = S.of(context);
     final locale = Localizations.localeOf(context).languageCode;
     final uid = ref.watch(authStateProvider).asData?.value?.uid;
-    final habits = ref.watch(habitListProvider);
+    // allHabitsEver, NOT the active list: this teaser runs the same
+    // computeInsights/buildInsightHeadlines as InsightsScreen, which feeds
+    // them allHabitsEverProvider for the reason documented at
+    // insights_screen.dart:179-187. Feeding the active list here meant the
+    // preview and the screen it previews disagreed the moment anyone
+    // archived or toggled off a habit.
+    final habits = ref.watch(allHabitsEverProvider);
     final isPremium = ref.watch(premiumProvider);
 
     return Column(

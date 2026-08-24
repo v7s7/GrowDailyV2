@@ -122,6 +122,15 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     final newHabitLongestStreaks = {...state.habitLongestStreaks};
     final newHabitTotalCompletions = {...state.habitTotalCompletions};
     final newHabitLastCompletedDate = {...state.habitLastCompletedDate};
+    // An outstanding receipt for this habit TODAY means this completion is
+    // putting back one that was undone earlier today (see [UndoneCompletion]).
+    // The reward arithmetic below needs no help for that — a same-day redo
+    // recomputes it correctly — but two things do follow from it: the day's
+    // original completion TIME must survive (see [minutesSinceMidnight]'s
+    // sidecar note and the write below), and the receipt has to be spent here
+    // so it can never be redeemed a second time by repainting the same square
+    // once the day has rolled over.
+    final redeemed = state.undoneFor(habitId, DashboardNotifier._todayKey);
     // Set only when this completion just crossed one of
     // GameConstants.habitStreakBonuses' thresholds — see below.
     HabitMilestoneEvent? newHabitMilestoneEvent;
@@ -134,9 +143,11 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           : DateTime.now().effectiveDay.difference(DashboardNotifier._dateOnly(last)).inDays;
       final prevStreak = state.habitStreakCounts[habitId] ?? 0;
       // Only a same-day-yesterday completion continues the streak; a gap of
-      // 0 (shouldn't happen given the `current == 0` guard, but defensive),
-      // 2+, or no prior completion at all all restart it at 1.
-      final newHabitStreak = gap == 1 ? prevStreak + 1 : 1;
+      // 2+, or no prior completion at all, restarts it at 1. A gap of zero is
+      // reachable and used to be destructive — see [nextHabitStreak], which
+      // owns the whole rule now so it can be tested.
+      final newHabitStreak =
+          nextHabitStreak(gapDays: gap, previousStreak: prevStreak);
       newHabitStreakCounts[habitId] = newHabitStreak;
       final prevLongest = state.habitLongestStreaks[habitId] ?? 0;
       newHabitLongestStreaks[habitId] =
@@ -146,7 +157,13 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       newHabitLastCompletedDate[habitId] = DashboardNotifier._todayKey;
 
       // ── Per-habit milestone ──────────────────────────────────
-      final habitBonus = GameConstants.habitStreakBonuses[newHabitStreak];
+      //
+      // Skipped when the streak did not actually advance — see
+      // [habitStreakAdvanced] for the one case that is and why paying its
+      // bonus again would be paying twice for one day.
+      final habitBonus = habitStreakAdvanced(gap)
+          ? GameConstants.habitStreakBonuses[newHabitStreak]
+          : null;
       if (habitBonus != null) {
         habitMilestoneBonusXp = habitBonus;
         newHabitMilestoneEvent = HabitMilestoneEvent(
@@ -393,6 +410,11 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       habitLongestStreaks: newHabitLongestStreaks,
       habitTotalCompletions: newHabitTotalCompletions,
       habitLastCompletedDate: newHabitLastCompletedDate,
+      // Spent, so repainting this same square after the day rolls over can
+      // never redeem it a second time.
+      undoneCompletions: redeemed == null
+          ? null
+          : ({...state.undoneCompletions}..remove(redeemed.key)),
       setHabitMilestone: newHabitMilestoneEvent,
       lastCompletionBonusXp: surpriseBonusXp,
       lastCompletionBonusGold: surpriseBonusGold,
@@ -414,7 +436,13 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       await _saveGuestDaily(
         newCompletions,
         streakEarnedToday: newStreakEarnedToday,
-        completedAtMinutes: {habitId: minutesSinceMidnight(DateTime.now())},
+        // Not restamped when a receipt is being redeemed. Uncompleting leaves
+        // the original stamp behind on purpose (see [minutesSinceMidnight]),
+        // so the fajr adhkar that were really done at fajr keep saying so
+        // instead of being rewritten to whenever the mis-tap was corrected.
+        completedAtMinutes: redeemed != null
+            ? null
+            : {habitId: minutesSinceMidnight(DateTime.now())},
       );
       // lastActiveDate means "the last calendar day that itself qualified
       // for the streak point" (see _loadGuestToday's gap-check doc comment)
@@ -451,9 +479,13 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // wholesale write of this field would. See
           // [minutesSinceMidnight] for what this is for and the two things
           // any reader of it must know.
-          'completedAtMinutes': {
-            habitId: minutesSinceMidnight(DateTime.now()),
-          },
+          // Not restamped when a receipt is being redeemed — see the guest
+          // branch above for why the original time has to survive a
+          // correction.
+          if (redeemed == null)
+            'completedAtMinutes': {
+              habitId: minutesSinceMidnight(DateTime.now()),
+            },
         },
         SetOptions(merge: true),
       );
@@ -488,6 +520,13 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // streak could coast forever on partial days without ever
           // tripping the gap-check below.
           if (newStreakEarnedToday) 'lastActiveDate': Timestamp.fromDate(now),
+          // The offset free twin of the line above, and the one the streak
+          // gap check actually reads. See dashboard_notifier_loading's
+          // lastActiveDay branch for why a Timestamp cannot carry a calendar
+          // day across a timezone change. The Timestamp stays because
+          // UserAccount still reads it, and because an account written by an
+          // older build has only that.
+          if (newStreakEarnedToday) 'lastActiveDay': DashboardNotifier._todayKey,
           'habitStreakCounts': newHabitStreakCounts,
           'habitLongestStreaks': newHabitLongestStreaks,
           'habitTotalCompletions': newHabitTotalCompletions,
@@ -510,6 +549,10 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // without touching other days.
           'totalGreenSquares': FieldValue.increment(1),
           'dailyGreenCounts': {DashboardNotifier._todayKey: FieldValue.increment(1)},
+          // One nested key deleted, so the receipts outstanding on other
+          // habit-days survive the merge.
+          if (redeemed != null)
+            'undoneCompletions': {redeemed.key: FieldValue.delete()},
         },
         SetOptions(merge: true),
       );

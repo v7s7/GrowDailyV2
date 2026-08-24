@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/app_guide_provider.dart';
+import '../../onboarding/notifiers/guide_chain.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
@@ -49,6 +50,28 @@ bool _isSameDay(DateTime a, DateTime b) =>
 // left the board looking stuck on yesterday until 6 in the morning.
 DateTime _anchorDay(MatrixTask t) => t.createdAt.startOfDay;
 
+/// Whether [t] is deliberately dated for a day that hasn't arrived yet: it
+/// carries a reminder and the earliest one lands after [now].
+///
+/// This is the third lens on the same board, and it exists to settle the
+/// argument [_anchorDay] documents above. Filing by the reminder day lost
+/// people their tasks; filing by the creation day means a task you dated two
+/// weeks out sits in Today for two weeks, shouting at you every morning about
+/// something you already decided wasn't for now.
+///
+/// Neither is necessary. A future-dated task leaves Today, exactly as the
+/// reminder-day rule wanted, but it leaves *into a chip with a visible count*
+/// rather than into thin air - the same escape hatch [_CarriedOverChip]
+/// already gives the tasks that fall off the other end. Nothing can go
+/// missing when the board is always telling you how many are waiting.
+///
+/// Earliest reminder, not latest: a task with reminders on the 27th and the
+/// 30th is upcoming until the 27th, then it's simply today's.
+bool _isUpcoming(MatrixTask t, DateTime now) {
+  final first = t.reminderAt;
+  return first != null && first.startOfDay.isAfter(now);
+}
+
 /// The three top-level lenses on the board — see _MatrixScreenState._filter.
 /// Deliberately just three plain client-side filters over one already-loaded
 /// task list, not three separate queries: nothing here needs a network round
@@ -84,6 +107,10 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   // rather than stored on the task — nothing to migrate, and it can never
   // go stale the way a stored flag could.
   bool _carriedOverOnly = false;
+  // The forward-looking twin of [_carriedOverOnly]. Mutually exclusive with
+  // it and with the Fav/All segments: each is a separate lens on one board,
+  // and switching any of them backs out of the others.
+  bool _upcomingOnly = false;
 
   bool get _selectionMode => _selectedIds.isNotEmpty;
 
@@ -165,12 +192,25 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
         x.completedAt != null &&
         _isSameDay(x.completedAt!.startOfDay, now);
     if (t.isDone && !doneToday(t)) return false;
+    if (_upcomingOnly) return !t.isDone && _isUpcoming(t, now);
     if (_carriedOverOnly) {
-      return !t.isDone && _anchorDay(t).isBefore(now);
+      // Excluded here as well as from Today: a task dated for next week is
+      // not stale, it just hasn't come up yet, and putting it under a chip
+      // named "carried over" would be calling it late. This is what the
+      // comment on carriedOver in build() always claimed happened and, since
+      // _anchorDay stopped reading the reminder, no longer did.
+      return !t.isDone &&
+          _anchorDay(t).isBefore(now) &&
+          !_isUpcoming(t, now);
     }
     return switch (_filter) {
-      _MatrixFilter.today =>
-        (!t.isDone && _isSameDay(_anchorDay(t), now)) || doneToday(t),
+      // Fav and All are explicit lenses the user asked for by name, so an
+      // upcoming task still belongs in them. Only Today, which claims to be
+      // what is live right now, hands them over to the chip.
+      _MatrixFilter.today => (!t.isDone &&
+              _isSameDay(_anchorDay(t), now) &&
+              !_isUpcoming(t, now)) ||
+          doneToday(t),
       _MatrixFilter.fav => t.isFav || t.isDone,
       _MatrixFilter.all => true,
     };
@@ -301,7 +341,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       if ((previous?.tasks.isEmpty ?? true) &&
           next.tasks.isNotEmpty &&
           ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addTask) {
-        ref.read(activeAppGuideLessonProvider.notifier).state = null;
+        // The next step (Rooms) lives on the Profile tab, so this stops the
+        // dim rather than moving anyone. See guide_chain.dart.
+        advanceGuideAfter(ref, AppGuideLesson.addTask);
       }
     });
 
@@ -330,8 +372,18 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     // starred or not. A task deliberately deferred with a future reminder
     // is excluded here on purpose — it hasn't arrived yet, so it isn't
     // stale.
-    final carriedOver =
-        visible.where((t) => !t.isDone && _anchorDay(t).isBefore(now)).toList();
+    final carriedOver = visible
+        .where(
+          (t) =>
+              !t.isDone && _anchorDay(t).isBefore(now) && !_isUpcoming(t, now),
+        )
+        .toList();
+    // Tasks deliberately dated forward. Held out of Today so the board reads
+    // as what is actually live, and surfaced by _UpcomingChip with a count so
+    // they can never quietly disappear the way they did the last time this
+    // screen filed by the reminder day. See _isUpcoming.
+    final upcoming =
+        visible.where((t) => !t.isDone && _isUpcoming(t, now)).toList();
     // The default lens: today's own tasks (not yet done) plus anything
     // finished today. Deliberately excludes carriedOver — that's what the
     // chip below is for — so Today reads as "what's fresh right now"
@@ -343,17 +395,23 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     // cutoff — see _anchorDay's comment for the tasks-vs-habits split.)
     final todayTasks = visible
         .where(
-          (t) => (!t.isDone && _isSameDay(_anchorDay(t), now)) || doneToday(t),
+          (t) =>
+              (!t.isDone &&
+                  _isSameDay(_anchorDay(t), now) &&
+                  !_isUpcoming(t, now)) ||
+              doneToday(t),
         )
         .toList();
-    final tasks = _carriedOverOnly
-        ? carriedOver
-        : switch (_filter) {
-            _MatrixFilter.today => todayTasks,
-            _MatrixFilter.fav =>
-              visible.where((t) => t.isFav || t.isDone).toList(),
-            _MatrixFilter.all => visible,
-          };
+    final tasks = _upcomingOnly
+        ? upcoming
+        : _carriedOverOnly
+            ? carriedOver
+            : switch (_filter) {
+                _MatrixFilter.today => todayTasks,
+                _MatrixFilter.fav =>
+                  visible.where((t) => t.isFav || t.isDone).toList(),
+                _MatrixFilter.all => visible,
+              };
 
     if (matrixState.isLoading) {
       return Scaffold(
@@ -455,22 +513,48 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                         _MatrixFilterToggle(
                           filter: _filter,
                           favCount: favCount,
+                          lensOverridden: _carriedOverOnly || _upcomingOnly,
                           onChanged: (v) => setState(() {
                             _filter = v;
-                            // Each segment and carried-over are separate lenses
-                            // on the same board — switching one backs out of
-                            // the other instead of trying to combine them.
+                            // Each segment, carried-over and upcoming are
+                            // separate lenses on the same board: switching one
+                            // backs out of the others instead of trying to
+                            // combine them.
                             _carriedOverOnly = false;
+                            _upcomingOnly = false;
                           }),
                         ),
+                        // `|| _carriedOverOnly`: the chip is the only control
+                        // that clears its own lens, so it must outlive the
+                        // list it counts. Finish the last carried-over task
+                        // while filtered to them and the count hits zero; drop
+                        // the chip at that moment and the board sits empty,
+                        // still filtered, with Today painted as if it were
+                        // showing you everything. Mounting it at zero keeps
+                        // the way out on screen.
                         if (_filter != _MatrixFilter.fav &&
-                            carriedOver.isNotEmpty)
+                            (carriedOver.isNotEmpty || _carriedOverOnly))
                           _CarriedOverChip(
                             count: carriedOver.length,
                             active: _carriedOverOnly,
-                            onTap: () => setState(
-                              () => _carriedOverOnly = !_carriedOverOnly,
-                            ),
+                            onTap: () => setState(() {
+                              _carriedOverOnly = !_carriedOverOnly;
+                              _upcomingOnly = false;
+                            }),
+                          ),
+                        // Sits after carried-over on purpose, so the row reads
+                        // left to right as past then future. Hidden when
+                        // nothing is waiting, same as its twin: a permanent
+                        // "0 upcoming" would be noise on most days.
+                        if (_filter != _MatrixFilter.fav &&
+                            (upcoming.isNotEmpty || _upcomingOnly))
+                          _UpcomingChip(
+                            count: upcoming.length,
+                            active: _upcomingOnly,
+                            onTap: () => setState(() {
+                              _upcomingOnly = !_upcomingOnly;
+                              _carriedOverOnly = false;
+                            }),
                           ),
                       ],
                     ),
@@ -960,10 +1044,28 @@ class _MatrixFilterToggle extends StatelessWidget {
   final int favCount;
   final ValueChanged<_MatrixFilter> onChanged;
 
+  /// True while a chip lens (carried-over or upcoming) is driving the board
+  /// instead of [filter]. Every segment then draws unselected.
+  ///
+  /// [filter] deliberately keeps its old value underneath, so backing out of
+  /// a chip returns you to the segment you came from rather than dumping you
+  /// on Today. But leaving Today painted gold while the board actually shows
+  /// carried-over tasks makes the toggle assert something false about what
+  /// you are looking at, and the two controls then disagree on screen.
+  ///
+  /// Highlighting All instead would be worse: All is a real segment with real
+  /// contents, so the highlight would sit on a control that, when tapped,
+  /// visibly changes the list it claims to already be showing. Blank is the
+  /// honest state - "none of these three" is exactly the truth, the chip's own
+  /// active border says which lens replaced them, and tapping any segment
+  /// moves the highlight there and clears the chip in one obvious step.
+  final bool lensOverridden;
+
   const _MatrixFilterToggle({
     required this.filter,
     required this.favCount,
     required this.onChanged,
+    this.lensOverridden = false,
   });
 
   @override
@@ -984,12 +1086,12 @@ class _MatrixFilterToggle extends StatelessWidget {
           // Fav: the number would just restate what's already visible below
           // it, since this is the primary view rather than a narrowed one.
           _FilterSegment(
-            active: filter == _MatrixFilter.today,
+            active: !lensOverridden && filter == _MatrixFilter.today,
             onTap: () => onChanged(_MatrixFilter.today),
             child: Text(s.matrixToday),
           ),
           _FilterSegment(
-            active: filter == _MatrixFilter.fav,
+            active: !lensOverridden && filter == _MatrixFilter.fav,
             onTap: () => onChanged(_MatrixFilter.fav),
             // Same star glyph used to flag a task on each row — ties this
             // filter visually to "my starred tasks" instead of reading like
@@ -1004,7 +1106,7 @@ class _MatrixFilterToggle extends StatelessWidget {
             ),
           ),
           _FilterSegment(
-            active: filter == _MatrixFilter.all,
+            active: !lensOverridden && filter == _MatrixFilter.all,
             onTap: () => onChanged(_MatrixFilter.all),
             child: Text(s.matrixAll),
           ),
@@ -1069,6 +1171,76 @@ class _CarriedOverChip extends StatelessWidget {
               const SizedBox(width: 5),
               Text(
                 s.matrixCarriedOverCount(count),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// [_CarriedOverChip]'s forward-looking twin: the tasks dated for a day that
+/// hasn't arrived, which Today deliberately holds back (see [_isUpcoming]).
+///
+/// Structurally identical to that chip on purpose. This screen already taught
+/// the user that a counted pill beside the Today/Fav/All toggle means "there
+/// are tasks over here that the board isn't showing you", and the fastest way
+/// to make a second one legible is to make it obey the same grammar.
+///
+/// Blue rather than the carried-over orange, and [Icons.update_rounded]
+/// rather than history_rounded: one points behind you and is faintly a
+/// reproach, the other points ahead and is merely information. Colouring them
+/// the same would say a task you scheduled on purpose is a task you are late
+/// on.
+class _UpcomingChip extends StatelessWidget {
+  final int count;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _UpcomingChip({
+    required this.count,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    const color = GameColors.iconXp;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: AnimatedContainer(
+          duration: GameMotion.standard,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? color.withOpacity(0.18) : color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+            border: Border.all(
+              color: color.withOpacity(active ? 0.6 : 0.3),
+              width: active ? 1.2 : 0.5,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.update_rounded, size: 13, color: color),
+              const SizedBox(width: 5),
+              Text(
+                s.matrixUpcomingCount(count),
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,

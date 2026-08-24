@@ -26,6 +26,10 @@ import '../../../features/character/notifiers/prestige_notifier.dart';
 import '../../../features/character/screens/character_closet_screen.dart';
 import '../../../features/character/screens/prestige_picker_sheet.dart';
 import '../../../features/character/widgets/character_avatar.dart';
+import '../../../features/character/widgets/prestige_mark.dart';
+import '../../habits/widgets/habit_color_picker.dart'
+    show argbToHsv, hsvToArgb;
+import '../../matrix/widgets/reminder_picker.dart' show arabicDigits;
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/grid/widgets/weekly_recap_card.dart';
@@ -33,6 +37,7 @@ import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/night_review/notifiers/night_review_notifier.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
+import '../../../features/premium/screens/premium_screen.dart';
 import '../../../features/rooms/notifiers/rooms_notifier.dart';
 import '../../../features/rooms/screens/rooms_hub_screen.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';

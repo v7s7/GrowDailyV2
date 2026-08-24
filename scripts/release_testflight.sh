@@ -15,6 +15,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."   # always run from the project root
 
+# Force a UTF-8 locale. Dart's build tooling reads pubspec.yaml and this
+# app's Arabic strings as UTF-8, and a shell that inherits LANG=C (or no
+# LANG at all, which is what a fresh CI runner and some launchd contexts
+# give you) makes the build fail on the first non-ASCII byte rather than
+# on anything to do with the release.
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+
 # ---- 1. Check App Store Connect API key auth is configured ----------------
 if [[ -z "${ASC_KEY_ID:-}" || -z "${ASC_ISSUER_ID:-}" ]]; then
   cat <<'EOF'

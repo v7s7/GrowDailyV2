@@ -503,7 +503,11 @@ class _ReminderPickerState extends State<ReminderPicker> {
       isAfter: _isAfter,
       color: widget.color,
       isAr: widget.isAr,
-      canStack: widget.canStack,
+      // A closure over `widget`, not the bool: the sheet outlives this
+      // build, and `widget` is always the current one, so the answer stays
+      // live for as long as the sheet is open. Our own parents already
+      // re-supply canStack via ref.watch, so this is the only frozen link.
+      canStack: () => widget.canStack,
       onToggle: widget.onToggleOffset,
       // The sheet owns the direction while it's open, and the grid adopts
       // whatever it ends on, so the offsets you just created are the ones in

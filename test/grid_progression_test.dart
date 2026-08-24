@@ -163,6 +163,11 @@ void main() {
 
     tearDown(() async {
       container.dispose();
+      // Square writes are deliberately fire and forget (the square turns on
+      // the same frame either way), and they now queue per day so they cannot
+      // clobber each other. Deleting the store out from under a queued write
+      // is a thing only a test does, so drain first.
+      await LocalStoreService.settleDailyWrites();
       await Hive.deleteFromDisk();
       await tmp.delete(recursive: true);
     });

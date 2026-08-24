@@ -70,4 +70,79 @@ class LocalStoreService {
 
   static Future<void> putDailyMap(String dateKey, Map<String, dynamic> value) async =>
       (await dailyBox()).put(dateKey, value);
+
+  // ── Serialized day writes ────────────────────────────────────────────────
+  //
+  // One stored day is a single map holding fields owned by four different
+  // notifiers: habitCompletions and completedAtMinutes from the dashboard,
+  // squareStates and squareNotes from the grid, the intention fields, and the
+  // night review's answers. Hive writes the map WHOLE, so every one of those
+  // writers has to read the day, change its own field, and put the whole
+  // thing back.
+  //
+  // Two of those overlapping is a lost update, and it was not hypothetical.
+  // Correcting a green square to red called uncompleteHabit and then the
+  // square write without awaiting the first: the square write read the day
+  // before the uncomplete had put it back, so it saved its own change on top
+  // of a stale copy and restored habitCompletions to 1. The square went red
+  // and the habit still counted as done, for XP, for the streak and in every
+  // report. See test/features/grid/palette_correction_race_test.dart.
+  //
+  // Awaiting at that one call site fixed that one path. This makes the whole
+  // class impossible: every read, modify, write for a given day goes through
+  // here and they queue behind each other, so a caller can no longer create a
+  // lost update by forgetting an await.
+
+  /// The writes still in flight for a day, so the next one can queue behind
+  /// them. The entry is REMOVED once the last one settles, which matters: a
+  /// day with nothing in flight must start its write immediately, exactly as
+  /// the hand rolled read then put did, rather than being pushed onto a later
+  /// microtask behind a future that already completed.
+  static final Map<String, Future<void>> _dailyWriteChains = {};
+
+  /// Reads day [dateKey], hands it to [mutate], and writes it back, with the
+  /// whole sequence serialized against every other call for the same day.
+  ///
+  /// [mutate] must be synchronous. An async mutator would reopen exactly the
+  /// window this exists to close.
+  static Future<void> updateDailyMap(
+    String dateKey,
+    void Function(Map<String, dynamic> day) mutate,
+  ) {
+    Future<void> run() async {
+      final box = await dailyBox();
+      final day = asStringMap(box.get(dateKey));
+      mutate(day);
+      await box.put(dateKey, day);
+    }
+
+    final inFlight = _dailyWriteChains[dateKey];
+    final next = inFlight == null ? run() : inFlight.then((_) => run());
+
+    // The QUEUE swallows failures so one bad write cannot wedge the day for
+    // the rest of the session. The future handed back still reports the
+    // error to whoever asked for this write.
+    late final Future<void> guarded;
+    guarded = next.then((_) {}, onError: (_) {}).whenComplete(() {
+      if (identical(_dailyWriteChains[dateKey], guarded)) {
+        _dailyWriteChains.remove(dateKey);
+      }
+    });
+    _dailyWriteChains[dateKey] = guarded;
+    return next;
+  }
+
+  /// Waits for every queued day write to finish.
+  ///
+  /// Nothing in the app needs this: the boxes live as long as the process, so
+  /// a write in flight always lands. Tests are the exception, because they
+  /// tear the Hive directory down between cases, and a caller that fires a
+  /// square write without awaiting it (which is most of them, since the
+  /// square turns on the same frame either way) leaves work queued behind it.
+  /// Call this before deleting the store.
+  static Future<void> settleDailyWrites() async {
+    while (_dailyWriteChains.isNotEmpty) {
+      await Future.wait(_dailyWriteChains.values.toList());
+    }
+  }
 }

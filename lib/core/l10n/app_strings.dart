@@ -371,6 +371,65 @@ class S {
   String get appFontSheetTitle =>
       isAr ? 'اختر خط التطبيق' : 'Choose an app font';
   String get preview => isAr ? 'معاينة' : 'Preview';
+  String get themePreviewApply =>
+      isAr ? 'استخدم هذا المظهر' : 'Use this theme';
+  String get themePreviewUnlock =>
+      isAr ? 'افتحه مع Premium' : 'Unlock with Premium';
+  String get themeSectionFree => isAr ? 'مجاني' : 'Free';
+  String get themeSectionPremium => isAr ? 'مميّز' : 'Premium';
+  // The pitch. A number does the work: eleven fixed looks against everything
+  // two colours can make.
+  String get themeCustomPitch => isAr
+      ? 'ابدأ من الألوان الجاهزة، أو اكتب أي رمز لون تبيه.'
+      : 'Start from the palette, or type any hex you like.';
+  // Replaces themeCustomCombos, which multiplied the swatch count by itself.
+  // That number was exactly right and stopped being true the moment a hex
+  // field existed, and a wrong number in a paid pitch is worse than none.
+  String themeCustomReadyMade(String n) =>
+      isAr ? '$n جاهز، أو أي رمز لون' : '$n ready-made, or any hex';
+  // ── Custom theme (the last tile in the appearance sheet) ──
+  String get themeCustomName => isAr ? 'مخصص' : 'Custom';
+  String get themeCustomTitle => isAr ? 'لونك الخاص' : 'Your own colours';
+  // Says the whole feature in one line: two taps, everything else follows.
+  String get themeCustomHint => isAr
+      ? 'اختر لونين، وباقي المظهر يتكوّن منهما.'
+      : 'Pick two colours. The rest of the theme is built from them.';
+  String get themeCustomAccent => isAr ? 'اللون الأساسي' : 'Main colour';
+  String get themeCustomAccentHint =>
+      isAr ? 'الأزرار والإبرازات' : 'Buttons and highlights';
+  String get themeCustomGrid => isAr ? 'لون الإنجاز' : 'Completed colour';
+  String get themeCustomGridHint =>
+      isAr ? 'المربّعات المكتملة' : 'Squares you have filled in';
+  String get themeCustomDone => isAr ? 'تم' : 'Done';
+
+  // ── Custom theme: the palette / hex / saved-colour controls ──────────
+  // The sheet offers three ways to land on the same colour, so each label
+  // has to say which ONE it is without a sentence of explanation.
+  // "Palette" is the 48 curated swatches, "Custom" is the free picker.
+  String get themeCustomTabPalette => isAr ? 'الجاهزة' : 'Palette';
+  // 'مخصص' rather than 'حر'. Both translate "custom" in a dictionary, but
+  // only one of them says it in an interface: حر carries "hot" and "free
+  // man" long before it carries "unrestricted", so on a tab beside a
+  // colour grid it reads as a mistranslation. مخصص is what Arabic UIs
+  // actually use for Custom, and it is the natural opposite of الجاهزة.
+  String get themeCustomTabPicker => isAr ? 'مخصص' : 'Custom';
+  String get themeCustomSaved => isAr ? 'المحفوظة' : 'Saved';
+  String get themeCustomSavedEmpty =>
+      isAr ? 'ما في ألوان محفوظة' : 'nothing saved yet';
+  String get themeCustomSavedTapHint =>
+      isAr ? 'اضغط للاستخدام' : 'tap to use';
+  String get themeCustomSaveTooltip =>
+      isAr ? 'احفظ هذا اللون' : 'Save this colour';
+  String get themeCustomSavedFull =>
+      isAr ? 'القائمة ممتلئة، الأقدم ينحذف' : 'List is full, the oldest drops off';
+  // The preview strip's own label. Names a real screen so the strip reads as
+  // a sample of the app rather than as decoration.
+  String get themeCustomPreview => isAr ? 'اليوم' : 'Today';
+  String get themeCustomPreviewHabit =>
+      isAr ? 'قراءة ١٠ صفحات' : 'Read 10 pages';
+  String get themeCustomPreviewAction => isAr ? 'إنجاز' : 'Complete';
+
+
   String previewingTheme(String name) => isAr
       ? 'معاينة: $name. مرر للتصفح'
       : 'Previewing: $name. Swipe to look around';
@@ -470,7 +529,11 @@ class S {
 
   // ── Add Habit Hub (Plan / Add Goal tabs) ────────────────────────────────────
   String get hubTitle => isAr ? 'إضافة عادة' : 'Add a Habit';
-  String get plansTab => isAr ? 'خطط' : 'Plans';
+  /// "Ready-made plans", not bare "Plans". Sitting beside «إضافة هدف», a
+  /// one-word «خطط» reads as a place to WRITE a plan, which is what the other
+  /// tab already does. جاهزة says the work is already done for you, which is
+  /// the whole reason to open this tab.
+  String get plansTab => isAr ? 'خطط جاهزة' : 'Ready-made plans';
 
   // ── Plan Picker ──────────────────────────────────────────────────────────
   String get choosePlan => isAr ? 'اختر خطتك' : 'Choose Your Plan';
@@ -561,6 +624,12 @@ class S {
       ? 'اكتب هدفك أو اختر اقتراحًا'
       : 'Type your goal or pick a suggestion';
   String get smartSuggestions => isAr ? 'اقتراحات ذكية' : 'Smart suggestions';
+  // Shown INSTEAD of smartSuggestions when this is the account's first habit,
+  // where the same chips are not a shortcut but the recommended road.
+  String get quickestStart =>
+      isAr ? 'أسرع طريقة تبدأ' : 'Quickest way to start';
+  String get orWriteYourOwn => isAr ? 'أو اكتب عادتك' : 'Or write your own';
+
   String get timingBuildTitle =>
       isAr ? 'متى وكيف ستتابع؟' : 'When and how often?';
   String get timingQuitTitle =>
@@ -838,6 +907,13 @@ class S {
   // not called "yesterday": a task could be several days old, not just one.
   String matrixCarriedOverCount(int n) =>
       isAr ? '$n مُرحّلة' : '$n carried over';
+  // The mirror of [matrixCarriedOverCount] pointing the other way in time:
+  // tasks deliberately dated for a day that hasn't arrived yet (see
+  // MatrixScreen._upcomingOnly). "Upcoming", not "later" or "scheduled" -
+  // it has to read as a place those tasks went, since this chip is the only
+  // thing standing between a future-dated task and the user believing it
+  // vanished.
+  String matrixUpcomingCount(int n) => isAr ? '$n قادمة' : '$n upcoming';
   String get matrixAll => isAr ? 'الكل' : 'All';
   String get matrixTapToAdd =>
       isAr ? 'اضغط في أي مكان للإضافة' : 'Tap anywhere to add a goal';
@@ -1133,6 +1209,124 @@ class S {
   // checklist's own rows word for word.
   String get coachMarkSkip => isAr ? 'تخطّي' : 'Skip';
 
+  /// Shown when somebody taps the "colour today's square" step before they
+  /// have any habits, and the guide redirects them to "add a habit" instead.
+  ///
+  /// Written out here rather than inline at the redirect, where it used to
+  /// live as «أضف عادة أولاً. لنفعل ذلك الآن.» That is Modern Standard, and
+  /// «لنفعل ذلك الآن» in particular is a register this app never uses: the
+  /// coach mark that lands half a second later says «جرّبه بنفسك». Two
+  /// sentences from two different Arabics, back to back, on the one screen
+  /// aimed at somebody who is already unsure.
+  String get guideNeedsHabitFirst => isAr
+      ? 'ما عندك عادة بعد. يلا نضيف وحدة أول.'
+      : "No habits yet. Let's add one first.";
+
+  /// Shown when the Get Started card's X is tapped.
+  ///
+  /// It says what happened AND where it went, because the point of the
+  /// sentence is the person who did not mean to tap it. «الدليل» matches the
+  /// Settings row (دليل التطبيق) they would have to go to, so the two words
+  /// are the same word.
+  String get guideHiddenUndoHint =>
+      isAr ? 'خفينا الدليل. تلقاه في الإعدادات.' : 'Guide hidden. It is in Settings.';
+
+  /// Shown when a square tap arrives before the account's own numbers have
+  /// loaded, or after that load failed.
+  ///
+  /// DashboardNotifier.completeHabit refuses in both cases rather than
+  /// computing a streak and an XP total from zeros and writing them back as
+  /// absolute values. The tap has to say something: painting the square and
+  /// awarding nothing is the one outcome a person can never notice, because
+  /// the square looks exactly the same as one that worked.
+  String get squareNotReadyYet => isAr
+      ? 'لحظة، بعده يحمّل. جرّب مرة ثانية.'
+      : 'One moment, still loading. Try again.';
+
+  // ── First-run offer ──────────────────────────────────────────────────────
+  //
+  // The one screen between the last onboarding slide and the Grid, and the
+  // only place in the app that asks a person whether they want teaching
+  // rather than deciding for them. Every line here is Bahraini Gulf, and
+  // every word was picked against strings this app already ships.
+  //
+  // Not «تبي تفهم»: offering someone فهم frames them as not yet
+  // understanding, and sits one step from «فهمت؟». The app's own offers are
+  // always شوف (see reportsShowMore) or تعرف, so this one offers a LOOK.
+  // «كيف» is the app's own interrogative, «قبل ما» is already in the corpus.
+  ///
+  /// The two non-breaking spaces in the Arabic are deliberate. At 26pt in a
+  /// 338pt column this title wraps, and left alone it breaks in the middle of
+  /// «قبل ما», which reads as a stumble. Binding «قبل ما تبدأ؟» into one
+  /// unbreakable run moves the whole phrase to the second line instead, so the
+  /// break lands where the sense already breaks. It holds at any font scale
+  /// and any screen width, which a hardcoded newline would not.
+  String get firstRunOfferTitle => isAr
+      ? 'تبي تشوف كيف يشتغل قبل\u00A0ما\u00A0تبدأ؟'
+      : 'Want to see how it works first?';
+
+  /// "The first step" and not "one step": the card this screen points at says
+  /// «الخطوة ١ من ٤» out loud about 400ms later (see [guideStepCount]), so a
+  /// promise of one step would be contradicted by the very next screen. What
+  /// is on offer is the FIRST step, which is true against a four step card.
+  String get firstRunOfferBodyLead =>
+      isAr ? 'أول خطوة، وأنت اللي تضغط.' : "The first step, and you press it yourself.";
+
+  /// The "don't skip this" half, and the reason it is not «لا تتخطّاها»:
+  /// تخطّي is a BUTTON LABEL in this app ([coachMarkSkip], [onboardingSkip]),
+  /// so aiming it at a person imports the register of a control into a spoken
+  /// sentence, and lands as a warning label. فوّت is the app's own verb for
+  /// missing something, so this is an invitation not to miss out rather than
+  /// an order not to skip.
+  String get firstRunOfferBodyEmphasis => isAr ? 'لا تفوّتها.' : "Don't miss it.";
+
+  /// The shadda on ورّى is load-bearing, not decoration: this corpus writes
+  /// it on exactly this class of verb (لوّن, كمّل, خلّص, سوّ), and without it
+  /// the most important button in the feature reads as a typo.
+  String get firstRunOfferYes =>
+      isAr ? 'ورّيني أول خطوة' : 'Show me the first step';
+
+  /// «بعدين», not the app's existing «لاحقًا»/«ربما لاحقاً»: both of those are
+  /// Modern Standard, which would make declining sound like a legal notice.
+  /// A refusal is the one answer that most needs to sound relaxed.
+  String get firstRunOfferLater => isAr ? 'بعدين' : 'Later';
+
+  // ── Rank up ──────────────────────────────────────────────────────────────
+  //
+  // The prestige ladder's unlock moment. Seven of these exist in a lifetime
+  // (Seeker is minLevel 1, so nobody crosses into it), which is why the copy
+  // is short: it is read once and never again.
+  String get rankUpEyebrow => isAr ? 'رتبة جديدة' : 'RANK UP';
+
+  /// "Rank 5 of 8". Same shape as [guideStepCount] and the same reason: a
+  /// bare "5 of 8" reads as a score, the noun says what is being counted.
+  String rankUpLadderPosition(int rank, int total) =>
+      isAr ? 'الرتبة $rank من $total' : 'Rank $rank of $total';
+
+  /// Says the ladder's own rule out loud, which is the one sentence that
+  /// makes the marks legible without a legend.
+  ///
+  /// «شارة», not «علامة»: علامة reads first as a grade or a sign. And
+  /// «أقوى», not a literal translation of the design word (ink mass): "your
+  /// badge got heavier" is not a sentence anyone parses as good news.
+  String get rankUpMarkGrew => isAr
+      ? 'شارتك صارت أقوى، وتبين جنب اسمك في كل مكان.'
+      : 'Your badge got stronger, and it shows next to your name everywhere.';
+
+  String rankUpNextAtLevel(int level) => isAr
+      ? 'الرتبة الجاية عند المستوى $level.'
+      : 'Next rank at level $level.';
+
+  /// Rank 8 only. No ladder metaphor: السلّم appears nowhere else in the app,
+  /// and this is not the line to introduce one on.
+  String get rankUpSummitLine => isAr
+      ? 'ما فوقها رتبة. هذي آخر وحدة.'
+      : 'Nothing above this one. It is the last.';
+
+  String rankUpSemantic(String title, int rank, int total) => isAr
+      ? 'رتبة جديدة: $title، الرتبة $rank من $total'
+      : 'Rank up: $title, rank $rank of $total';
+
   // ── Victory Grid ─────────────────────────────────────────────────────────
   String get gridTitle => isAr ? 'شبكة الانتصارات' : 'Victory Grid';
   String get gridSlogan => isAr
@@ -1192,6 +1386,25 @@ class S {
   String get gridPastDayHint => isAr
       ? 'تعديل يوم سابق: يُحدّث سجلّك المرئي فقط، دون مكافآت.'
       : 'Editing a past day updates your visual record only: no rewards.';
+  // Replaces gridPastDayHint on the one past day it is wrong about: a day
+  // this habit really was completed on before the mark was cleared. Marking
+  // it again is a correction, not a backfill, and it does pay - see
+  // UndoneCompletion.
+  String get gridRestorableDayHint => isAr
+      ? 'هذا اليوم كان مكتمل وانشالت علامته. علّمه مرة ثانية وترجع لك مكافآته وسلسلتك.'
+      : 'This day was completed, then cleared. Mark it again to get its rewards and streak back.';
+  String get gridMarkRestored => isAr
+      ? 'رجّعنا إنجاز هذا اليوم بمكافآته'
+      : "Restored this day's completion and its rewards";
+  // The one confirmation on the Grid, and it is on the one tap that takes
+  // something away. Every other square tap only adds.
+  String get gridClearMarkTitle =>
+      isAr ? 'تشيل علامة اليوم؟' : "Clear today's mark?";
+  String gridClearMarkBody(String habitName, int xp, int gold) => isAr
+      ? '«$habitName» معلّمة اليوم. لو شلتها بيرجع منك $xp خبرة و$gold ذهب، وسلسلة هالعادة بترجع يوم ورا. تقدر تعلّمها مرة ثانية وكل شي يرجع لك.'
+      : '"$habitName" is marked done today. Clearing it takes back $xp XP and $gold gold, and this habit\'s streak steps back a day. Marking it again restores all of it.';
+  String get gridClearMarkConfirm => isAr ? 'شِلها' : 'Clear';
+  String get gridMarkCleared => isAr ? 'شِلنا العلامة' : 'Mark cleared';
   // Distinct from gridPastDayHint on purpose: shown for the real calendar
   // day during the 6-hour window right after midnight, which isn't a past
   // day at all (it just isn't the official rewarded day yet) — see
@@ -1201,14 +1414,16 @@ class S {
       : "This day isn't official yet. You can color it in, but no rewards until 6 AM.";
   String get gridEmptyTitle =>
       isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
-  // Points at the literal button just below it ("Browse Plans" / "استعرض
-  // الخطط") rather than the old "Today" tab, which the bottom nav retired
-  // when Grid became the app's home screen (see GameNavBar's doc comment) —
-  // this used to send brand-new users looking for a tab that no longer
-  // exists, on the very first real screen they land on.
+  // Points at the literal primary button just below it ("Add Habit" /
+  // "إضافة عادة") rather than the old "Today" tab, which the bottom nav
+  // retired when Grid became the app's home screen (see GameNavBar's doc
+  // comment): that used to send brand-new users looking for a tab that no
+  // longer exists, on the very first real screen they land on. Names the
+  // secondary "Browse Plans" button too, so the ready-made route stays
+  // discoverable now that it is no longer the loudest thing on the screen.
   String get gridEmptyDesc => isAr
-      ? 'اضغط "استعرض الخطط" تحت عشان تضيف أول عادة وتبدأ تلوّن أسبوعك.'
-      : 'Tap Browse Plans below to add your first habit and start coloring your week.';
+      ? 'اضغط "إضافة عادة" تحت عشان تبدأ تلوّن أسبوعك، أو استعرض خطة جاهزة.'
+      : 'Tap Add Habit below to start coloring your week, or browse a ready-made plan.';
   String get gridEditSquare => isAr ? 'حدّد المربّع' : 'Set this square';
 
   /// What the CHOSEN square actually does, shown under the palette and
@@ -1581,20 +1796,17 @@ class S {
   // themes, per user request to fold a premium-characters mention into
   // this bullet instead of giving it its own.
   String get premiumBenefitAppearanceTitle =>
-      isAr ? 'لمستك الخاصة' : 'Make it yours';
-  // Themes half is a real, live gate: ThemePresets.all (theme_preset.dart),
-  // 9 of 11 presets premium-only, enforced in profile_screen.dart.
-  //
-  // The "character looks coming soon" clause this bullet used to carry —
-  // added at the user's direction — was removed for the App Store
-  // submission: character gating is not built (CharacterOption has no
-  // isPremium field), and a paywall bullet selling an unbuilt feature is
-  // exactly what Guideline 2.3.1 is aimed at, on the one screen a reviewer
-  // reads line by line. Re-adding it after the feature ships is one line
-  // here; re-submitting after a rejection is a review cycle.
+      isAr ? 'ألوانك أنت' : 'Your own colours';
+  // Rewritten when the custom theme shipped. The old copy sold "9 exclusive
+  // themes", which was true and is now the SMALLER half of this benefit: a
+  // subscriber does not pick from nine looks any more, they build one from
+  // 48 colours, which is 2304 combinations. A number carries that; an
+  // adjective does not. The nine presets are still named, second, because
+  // "or pick a ready-made one" is a real answer for people who do not want
+  // to choose.
   String get premiumBenefitAppearanceDesc => isAr
-      ? '9 سمات حصرية لإعادة تصميم التطبيق بالكامل.'
-      : '9 exclusive themes to restyle the whole app.';
+      ? 'ابنِ مظهرك من ٤٨ لونًا، أو اختر واحدًا من ٩ جاهزة.'
+      : 'Build your own from 48 colours, or take one of 9 ready-made.';
   // Real gate: kFreeTaskReminders = 1 (premium_notifier.dart), enforced by
   // ReminderPicker.canStack via showReminderLimitGate. This was the Tasks
   // page's main cap and the paywall never mentioned it — a free user first
@@ -1873,13 +2085,12 @@ class S {
       isAr ? 'كيف تعمل العادة؟' : 'How does the habit work?';
   String get roomHabitModeShared => isAr ? 'خطة القائد' : "Leader's plan";
   String get roomHabitModeSharedHint => isAr
-      ? 'اختر من عاداتك. كل من ينضم يحصل عليها في شبكته أيضًا'
-      : 'Pick from your own habits. Everyone who joins gets them added to their Grid too';
+      ? 'كل من ينضم ياخذ نفس العادات'
+      : 'Everyone who joins gets the same habits';
   String get roomHabitModeOwn =>
       isAr ? 'عادة كل شخص الخاصة' : "Everyone's own habit";
-  String get roomHabitModeOwnHint => isAr
-      ? 'كل شخص يربط عادة واحدة أو أكثر من عاداته الخاصة'
-      : 'Each person links one or more of their own habits';
+  String get roomHabitModeOwnHint =>
+      isAr ? 'كل واحد يختار عاداته' : 'Each person picks their own';
   String get roomYourHabitLabel =>
       isAr ? 'عادتك لهذه الغرفة' : 'Your habit for this room';
 
@@ -1892,9 +2103,12 @@ class S {
   String get roomCompeteModeCompetitiveHint =>
       isAr ? 'لوحة صدارة تقيس من الأفضل' : "A leaderboard ranks who's ahead";
   String get roomCompeteModeTeam => isAr ? 'فريق واحد' : 'Team';
-  String get roomCompeteModeTeamHint => isAr
-      ? 'اللوحة تبقى، ويضاف هدف مشترك: أنجزوا سويةً 100% وتحصل المجموعة كاملة على مكافأة'
-      : 'Keeps the leaderboard, adds a shared goal: hit 100% together and the whole group earns a bonus';
+  // One line, because it sits under a segmented control rather than inside
+  // a card. The old version was a full sentence about the 100% bonus, which
+  // is a rule to meet inside the room, not something anyone needs in order
+  // to choose between two options here.
+  String get roomCompeteModeTeamHint =>
+      isAr ? 'نفس اللوحة، وهدف مشترك للمجموعة' : 'Same leaderboard, plus a shared goal';
 
   // Create Room - own-mode picker (multi-select from the leader's own
   // habits, tracked directly - no plan/cloning, unlike shared mode below)
@@ -1932,6 +2146,41 @@ class S {
   String get roomDurationCustomInvalid =>
       isAr ? 'أدخل رقمًا بين 1 و365' : 'Enter a number between 1 and 365';
   String get roomCreateSubmit => isAr ? 'إنشاء الغرفة' : 'Create Room';
+
+  // ── Create Room: the two-step flow ────────────────────────────────────
+  // The sheet used to ask for all four decisions on one 1241pt scroll, with
+  // the name field autofocused, so the keyboard covered everything below it
+  // and the choice that actually blocks the Create button (pick a habit) sat
+  // 600pt down out of sight. Step one is the ROOM, step two is the HABITS,
+  // and each fits on screen with nothing hidden.
+  String get roomCreateStepOne => isAr ? 'الخطوة ١ من ٢' : 'Step 1 of 2';
+  String get roomCreateStepTwo => isAr ? 'الخطوة ٢ من ٢' : 'Step 2 of 2';
+  String get roomCreateStepHabitsTitle => isAr ? 'العادات' : 'The habits';
+  String get roomCreateNext => isAr ? 'التالي: العادات' : 'Next: the habits';
+  String get roomCreateBack => isAr ? 'رجوع' : 'Back';
+
+  /// Carries step one's answers into step two's header, so the room being
+  /// built stays named on screen instead of being something you have to
+  /// remember or go back for.
+  String roomCreateRoomSummary(String name, String length) =>
+      '$name · $length';
+
+  // What the primary button says while it is disabled. A grey button with no
+  // reason was the old behaviour, and the reason was usually scrolled out of
+  // view, so the button now carries it.
+  String get roomCreateNeedsName =>
+      isAr ? 'اكتب اسم الغرفة أول' : 'Name your room first';
+  String get roomCreateNeedsHabit =>
+      isAr ? 'اختر عادة وحدة على الأقل' : 'Pick at least one habit';
+  String get roomCreateNeedsDuration =>
+      isAr ? 'اكتب عدد أيام صحيح' : 'Enter a valid number of days';
+
+  /// Segment-sized versions of the two habit modes. [SegmentedTabs] gives
+  /// each segment half a sheet and ellipsises what does not fit, and the full
+  /// "عادة كل شخص الخاصة" does not; the long form still does the explaining,
+  /// one line below the control.
+  String get roomHabitModeOwnShort =>
+      isAr ? 'عادة كل شخص' : "Everyone's own";
 
   // Just-created "share the code" moment
   String get roomCreatedTitle => isAr ? 'تم إنشاء الغرفة!' : 'Room created!';
@@ -2257,9 +2506,13 @@ class S {
   /// param) - whatever gets created here is exactly what every other
   /// participant is later offered to link or clone, so this makes that
   /// plain before they name it.
+  // Was 'سيصبح هذا هو العادة...', which disagrees with itself: عادة is
+  // feminine, so the demonstrative and the verb both have to be. Shortened
+  // at the same time, since it sits directly under the button it describes
+  // and the long form spent a line and a half restating it.
   String get roomCreateNewHabitSharedNote => isAr
-      ? 'سيصبح هذا هو العادة التي يمكن للجميع في الغرفة اتباعها أيضًا.'
-      : 'This becomes the habit everyone in the room can follow too.';
+      ? 'تصير عادة يتابعها الكل في الغرفة.'
+      : 'Everyone in the room can follow it too.';
 
   /// Non-blocking heads-up after creating a new habit through one of the
   /// room pickers, when its name closely matches one you already have (see

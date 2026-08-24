@@ -9,6 +9,8 @@ import '../../../shared/widgets/victory_burst.dart';
 import '../../achievements/models/achievement_model.dart';
 import '../../achievements/widgets/achievement_medal.dart';
 import '../../achievements/widgets/tier_palette.dart';
+import '../../character/models/prestige_tier.dart';
+import '../../character/widgets/rank_up_celebration.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../notifiers/dashboard_notifier.dart';
 
@@ -46,8 +48,34 @@ void registerDashboardReactions(
       });
     }
     if (next.didJustLevelUp) {
-      HapticFeedback.heavyImpact();
-      showLevelUpSnackBar(context, next.level);
+      // A rank crossing needs no persisted state of its own, because a tier
+      // is unlocked purely by level (see PrestigeCatalog.unlockedFor). Both
+      // sides of the level change are right here, so "did the ladder move" is
+      // a pure function of prev and next, and it can fire exactly once by
+      // construction: this listener runs once per state change and
+      // didJustLevelUp is transient (DashboardState clears it on the next
+      // change, see its doc comment).
+      final wasTier = PrestigeCatalog.highestFor(prev.level);
+      final nowTier = PrestigeCatalog.highestFor(next.level);
+      if (wasTier.id != nowTier.id) {
+        // The rank moment replaces the level-up toast rather than stacking on
+        // it. A snackbar saying "level 20" at the bottom of a full screen
+        // celebration about reaching level 20 is the same fact twice, and the
+        // rarer of the two is the one worth reading: there are 99 level ups in
+        // a lifetime and 7 of these.
+        HapticFeedback.heavyImpact();
+        // Longest delay in this listener on purpose. If a rank crossing lands
+        // on the same tick as an achievement (250ms) or a milestone (350/400),
+        // this settles in after them rather than racing.
+        Future.delayed(const Duration(milliseconds: 450), () {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          showRankUpCelebration(context, from: wasTier, to: nowTier);
+        });
+      } else {
+        HapticFeedback.heavyImpact();
+        showLevelUpSnackBar(context, next.level);
+      }
     }
     if (next.newlyUnlocked.isNotEmpty && prev.newlyUnlocked.isEmpty) {
       // Capture before acknowledging — acknowledgeAchievements clears

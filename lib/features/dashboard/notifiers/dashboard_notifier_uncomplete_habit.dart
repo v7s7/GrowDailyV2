@@ -60,6 +60,15 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
   /// today" looks identical to "completed for the first time"), which is
   /// worse than occasionally leaving a few stray XP/gold uncorrected.
   ///
+  /// Leaves behind an [UndoneCompletion] receipt whenever it takes the day's
+  /// LAST completion of this habit away, so the same habit-day being marked
+  /// done again later is recognised as putting a mistake right rather than as
+  /// backfilling a day that never happened. See that class for why the app
+  /// could not tell those apart before, and
+  /// [DashboardNotifier.restoreUndoneCompletion] for the redemption. A
+  /// multi-tap habit dropping from 8/8 to 7/8 writes nothing: the day is still
+  /// done, so there is no completion to put back.
+  ///
   /// Deliberately does **not** touch `unlockedAchievements` — nothing in
   /// this app ever revokes an unlocked achievement, the same way a real
   /// trophy doesn't get taken back once earned — or
@@ -157,6 +166,41 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     final totalXpReward = xpReward + (snapshot?.bonusXp ?? 0);
     final totalGoldReward = goldReward + (snapshot?.bonusGold ?? 0);
 
+    // ── The receipt ──────────────────────────────────────────────
+    //
+    // Only when this undo empties the day for this habit. A multi-tap habit
+    // going 8/8 to 7/8 is still a done day, so there is nothing to restore
+    // and a receipt would hand out a second reward for a completion that was
+    // never given back.
+    //
+    // The streak numbers are read from `state`, which is still pre-reversal
+    // here, and are therefore exactly what the completion being undone
+    // produced — this method only ever runs against today, so the values in
+    // state belong to today's completion and to no other. That is the half
+    // the redemption cannot recompute later, and the reason the receipt
+    // carries it at all.
+    // Read once, and used for every date in this method: the receipt, the
+    // heatmap rollup, the history mirror and the green counter all mean the
+    // SAME day, and four independent reads of a getter named "today" is how a
+    // method that runs across a day boundary ends up writing half its fields
+    // to one day and half to the next.
+    final dayKey = DashboardNotifier._todayKey;
+    final receipt = newCompletions.containsKey(habitId)
+        ? null
+        : UndoneCompletion(
+            habitId: habitId,
+            dateKey: dayKey,
+            category: category,
+            xp: totalXpReward,
+            gold: totalGoldReward,
+            streakAtCompletion: state.habitStreakCounts[habitId] ?? 0,
+            longestAtCompletion: state.habitLongestStreaks[habitId] ?? 0,
+            undoneOnKey: dayKey,
+          );
+    final newUndoneCompletions = receipt == null
+        ? null
+        : {...state.undoneCompletions, receipt.key: receipt};
+
     final xpResult = XpCalculator.applyXpDelta(
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
@@ -177,8 +221,8 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     final rawTotalGreen = state.totalGreenSquares - 1;
     final newTotalGreenSquares = rawTotalGreen < 0 ? 0 : rawTotalGreen;
     final newDailyGreenCounts = {...state.dailyGreenCounts};
-    final rawDay = (newDailyGreenCounts[DashboardNotifier._todayKey] ?? 0) - 1;
-    newDailyGreenCounts[DashboardNotifier._todayKey] = rawDay < 0 ? 0 : rawDay;
+    final rawDay = (newDailyGreenCounts[dayKey] ?? 0) - 1;
+    newDailyGreenCounts[dayKey] = rawDay < 0 ? 0 : rawDay;
 
     state = state.copyWith(
       level: xpResult.newLevel,
@@ -194,6 +238,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       habitLongestStreaks: newHabitLongestStreaks,
       habitTotalCompletions: newHabitTotalCompletions,
       habitLastCompletedDate: newHabitLastCompletedDate,
+      undoneCompletions: newUndoneCompletions,
     );
 
     if (_uid == null) {
@@ -240,7 +285,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
         batch.set(
           habitHistoryRef(habitId),
           {
-            'days': {DashboardNotifier._todayKey: FieldValue.delete()},
+            'days': {dayKey: FieldValue.delete()},
           },
           SetOptions(merge: true),
         );
@@ -262,7 +307,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
           // completeHabit's identical write for why (dot notation is a
           // literal field name inside set(merge: true), not a path).
           'totalGreenSquares': FieldValue.increment(-1),
-          'dailyGreenCounts': {DashboardNotifier._todayKey: FieldValue.increment(-1)},
+          'dailyGreenCounts': {dayKey: FieldValue.increment(-1)},
           // Deltas, for the same merge reason as habitCompletions above.
           // Every one of these four drops the habit's key at zero, and every
           // one of them was written as a whole map, so none of the removals
@@ -271,6 +316,11 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
           // versus archive, so a stale entry made a never-completed habit
           // refuse to hard-delete and silently soft-archive instead.
           'habitTotalCompletions': habitCompletionDelta(habitId, newHabitTotalCompletions),
+          // One nested key, so merge adds this receipt without rewriting the
+          // ones already outstanding — same reason every other sparse map in
+          // this write is a delta rather than the whole map.
+          if (receipt != null)
+            'undoneCompletions': {receipt.key: receipt.toJson()},
           if (snapshot != null) ...{
             'habitStreakCounts': habitCompletionDelta(habitId, newHabitStreakCounts),
             'habitLongestStreaks': habitCompletionDelta(habitId, newHabitLongestStreaks),
@@ -290,6 +340,191 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     } catch (e, st) {
       await _recordWriteFailure('uncompleteHabit', e, st);
     }
+  }
+
+  /// Puts back a completion this app itself undid, on a day that has since
+  /// stopped being today.
+  ///
+  /// The redemption half of [UndoneCompletion] — read that class first. In
+  /// short: the anti-backdating rule (see WeeklyGridNotifier.setSquare) keeps
+  /// every past day out of the reward system, which is right, and which also
+  /// meant an un-tick made by mistake could never be put right once the day
+  /// rolled over. A receipt is proof this exact habit-day was genuinely
+  /// completed and genuinely given back, so redeeming one is not a backfill
+  /// and is the one past-day case allowed to pay.
+  ///
+  /// It cannot be farmed. A receipt is only ever created by [uncompleteHabit]
+  /// reversing a real completion, it names one habit and one date, it pays
+  /// back exactly what that undo took and not a freshly computed reward, and
+  /// it is deleted the moment it is used.
+  ///
+  /// Restores one completion, not a whole day of them: a multi-tap habit only
+  /// leaves a receipt on the undo that empties its day, so 8/8 undone eight
+  /// times and then re-painted comes back as 1. That matches what the square
+  /// itself can say, and erring low is the right direction for anything that
+  /// hands out XP. Writing that 1 flat rather than incrementing is safe for
+  /// the same reason: a LIVE receipt can only ever describe a day whose count
+  /// for this habit is zero, since [uncompleteHabit] only writes one when it
+  /// empties the day and [completeHabit] spends it the moment anything is put
+  /// back on that day.
+  ///
+  /// Deliberately does not touch `dailyGreenCounts` (the caller's own
+  /// past-day green delta owns that field — see [recordPastDayGreenDelta] —
+  /// and both moving it would double-count the day on the heatmap), the
+  /// app-wide streak (a past day was never able to earn one), the habit
+  /// history mirror (the square paint that triggers this already writes it,
+  /// as painted, so writing 'complete' here would race a `bonus` square down
+  /// to plain green), or `unlockedAchievements` (the undo never revoked one,
+  /// so a counter climbing back to a level it already passed cannot unlock
+  /// anything new).
+  ///
+  /// Returns whether a receipt was found and redeemed.
+  Future<bool> restoreUndoneCompletion({
+    required String habitId,
+    required DateTime day,
+  }) async {
+    // Same two guards completeHabit carries, for the same reason: every field
+    // below is written back as an ABSOLUTE value computed from `state`, so a
+    // failed or still-arriving load would persist zeros over the real account.
+    if (_uid != null && (state.loadFailed || state.isLoading)) return false;
+
+    final dateKey = day.toDateKey();
+    final receipt = state.undoneFor(habitId, dateKey);
+    if (receipt == null) return false;
+
+    final xpResult = XpCalculator.applyXpDelta(
+      currentLevel: state.level,
+      currentLevelXp: state.currentLevelXp,
+      cumulativeXp: state.cumulativeXp,
+      xpDelta: receipt.xp,
+    );
+    final newGold = state.gold + receipt.gold;
+    final newTotal = state.totalCompletions + 1;
+
+    final newCategoryCompletions = {...state.categoryCompletions};
+    final category = receipt.category;
+    if (category != null) {
+      newCategoryCompletions[category] =
+          (newCategoryCompletions[category] ?? 0) + 1;
+    }
+
+    final newHabitTotalCompletions = {...state.habitTotalCompletions};
+    newHabitTotalCompletions[habitId] =
+        (newHabitTotalCompletions[habitId] ?? 0) + 1;
+
+    // ── Re-linking the streak ────────────────────────────────────
+    //
+    // The one thing repainting a square could never do on its own, and the
+    // reason a corrected day still read as a miss: the chain is driven by
+    // habitLastCompletedDate, which only a same-day completion ever writes.
+    // See restoredHabitStreak for the rule, including when it declines to
+    // answer and leaves the counters alone.
+    final lastKey = state.habitLastCompletedDate[habitId];
+    final relink = restoredHabitStreak(
+      restoredDay: day,
+      streakAtCompletion: receipt.streakAtCompletion,
+      currentStreak: state.habitStreakCounts[habitId] ?? 0,
+      currentLastCompleted: lastKey == null ? null : DateTime.tryParse(lastKey),
+    );
+    Map<String, int>? newHabitStreakCounts;
+    Map<String, int>? newHabitLongestStreaks;
+    Map<String, String>? newHabitLastCompletedDate;
+    if (relink != null) {
+      newHabitStreakCounts = {...state.habitStreakCounts}
+        ..[habitId] = relink.streak;
+      newHabitLongestStreaks = {...state.habitLongestStreaks};
+      newHabitLongestStreaks[habitId] = max(
+        max(state.habitLongestStreaks[habitId] ?? 0,
+            receipt.longestAtCompletion),
+        relink.streak,
+      );
+      newHabitLastCompletedDate = {...state.habitLastCompletedDate}
+        ..[habitId] = relink.lastCompleted.toDateKey();
+    }
+
+    final newUndone = {...state.undoneCompletions}..remove(receipt.key);
+
+    state = state.copyWith(
+      level: xpResult.newLevel,
+      currentLevelXp: xpResult.newCurrentLevelXp,
+      cumulativeXp: xpResult.newCumulativeXp,
+      gold: newGold,
+      totalCompletions: newTotal,
+      categoryCompletions: newCategoryCompletions,
+      totalGreenSquares: state.totalGreenSquares + 1,
+      habitTotalCompletions: newHabitTotalCompletions,
+      habitStreakCounts: newHabitStreakCounts,
+      habitLongestStreaks: newHabitLongestStreaks,
+      habitLastCompletedDate: newHabitLastCompletedDate,
+      undoneCompletions: newUndone,
+    );
+
+    if (_uid == null) {
+      // The day's own completion count, restored on the day it belongs to.
+      // Not _saveGuestDaily, which only ever writes today. Through
+      // updateDailyMap so this cannot race the square write landing for the
+      // same day — see that method's comment.
+      await LocalStoreService.updateDailyMap(dateKey, (stored) {
+        final completions = Map<String, dynamic>.from(
+            (stored['habitCompletions'] as Map?)?.cast<String, dynamic>() ??
+                {});
+        completions[habitId] = 1;
+        stored['habitCompletions'] = completions;
+      });
+      await _saveGuestState();
+      return true;
+    }
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+
+      // The completion itself, back on the day it happened, so a restored day
+      // is indistinguishable from one that was never touched: dayMark's rule 2
+      // and the room resync both read this field directly.
+      batch.set(
+        _userRef.collection('daily').doc(dateKey),
+        {
+          'habitCompletions': {habitId: 1},
+        },
+        SetOptions(merge: true),
+      );
+
+      batch.set(
+        _userRef,
+        {
+          'level': xpResult.newLevel,
+          'currentLevelXp': xpResult.newCurrentLevelXp,
+          'cumulativeXp': xpResult.newCumulativeXp,
+          'gold': newGold,
+          'totalHabitCompletions': newTotal,
+          'categoryCompletions': newCategoryCompletions,
+          // Atomic, mirroring uncompleteHabit's own decrement of this field:
+          // Grid's applyGridSquareChange writes it too, so an absolute value
+          // computed locally could lose an update.
+          'totalGreenSquares': FieldValue.increment(1),
+          'habitTotalCompletions':
+              habitCompletionDelta(habitId, newHabitTotalCompletions),
+          if (relink != null) ...{
+            'habitStreakCounts':
+                habitCompletionDelta(habitId, newHabitStreakCounts),
+            'habitLongestStreaks':
+                habitCompletionDelta(habitId, newHabitLongestStreaks),
+            'habitLastCompletedDate':
+                habitCompletionDelta(habitId, newHabitLastCompletedDate),
+          },
+          // Spent. One nested key deleted, so the other outstanding receipts
+          // survive the merge.
+          'undoneCompletions': {receipt.key: FieldValue.delete()},
+        },
+        SetOptions(merge: true),
+      );
+
+      unawaited(batch.commit().catchError((Object e, StackTrace st) =>
+          _recordWriteFailure('restoreUndoneCompletion', e, st)));
+    } catch (e, st) {
+      await _recordWriteFailure('restoreUndoneCompletion', e, st);
+    }
+    return true;
   }
 
   /// Fires local notifications for a habit completion — a habit-completed

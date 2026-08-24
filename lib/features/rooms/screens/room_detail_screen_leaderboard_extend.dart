@@ -1100,7 +1100,7 @@ class _LeaderboardRow extends ConsumerWidget {
                     // recoverable by opening the row.
                     if (prestigeTier != null && prestigeTier.minLevel > 1) ...[
                       const SizedBox(width: 6),
-                      _PrestigeChip(tier: prestigeTier),
+                      _PrestigeStamp(tier: prestigeTier),
                     ],
                     // Report/block, on everyone but yourself. An explicit
                     // control rather than a long-press: the card body is
@@ -1383,27 +1383,112 @@ class _PrestigeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mark = prestigeMarkFor(tier);
+    final color = mark?.color(context.gp.dark) ?? tier.color;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: tier.color.withOpacity(0.14),
+        color: color.withOpacity(0.14),
         borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-        border: Border.all(color: tier.color.withOpacity(0.35), width: 0.5),
+        border: Border.all(color: color.withOpacity(0.35), width: 0.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(tier.icon, size: 11, color: tier.color),
+          // Same mark as the row's stamp and the Profile chip, so one rank is
+          // one object everywhere it is seen rather than three lookalikes.
+          if (mark == null)
+            Icon(tier.icon, size: 11, color: color)
+          else
+            PrestigeMark(spec: mark, size: 12, color: color),
           const SizedBox(width: 4),
           Text(
             tier.title(S.of(context).isAr),
             style: TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w800,
-              color: tier.color,
+              color: color,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The compact form of [_PrestigeChip], for the leaderboard row only.
+///
+/// Same information, roughly half the width: the mark instead of the icon,
+/// the rung number instead of the title. The full title still shows one tap
+/// away in the participant sheet (room_detail_screen_participant_calendar
+/// .dart), which is why dropping it here costs nothing that isn't recoverable
+/// - and the Semantics label below keeps it for screen readers regardless.
+///
+/// The point of the swap is that this row is the one place in the app where
+/// the name has to compete. It's the only Flexible child on the line, so it
+/// ellipsizes first, and with أنت + القائد + a titled chip beside it there is
+/// exactly 0.00pt of spare width at the largest text size. Measured against
+/// the titles this replaces, the name gets back 22.1pt (الإرث) to 35.9pt
+/// (المجتهد), and 71.4pt on the worst English case (Accomplished). Height is
+/// unchanged at 22.0pt, so no card gets taller - and at textScale 2.0 the
+/// stamp is *shorter* than the chip it replaces, so a card can only shrink.
+///
+/// Deliberately [GameSpacing.chipRadius] where [_Tag] uses pillRadius: at
+/// 22pt tall, pillRadius means fully-round end caps, and three interchangeable
+/// lozenges in a row is exactly what made rank look like a room role. Square
+/// shoulders make this one read as a different KIND of thing.
+class _PrestigeStamp extends StatelessWidget {
+  final PrestigeTier tier;
+  const _PrestigeStamp({required this.tier});
+
+  @override
+  Widget build(BuildContext context) {
+    final spec = prestigeMarkFor(tier);
+    // An id with no mark - only reachable if PrestigeCatalog gains a tier and
+    // kPrestigeMarks isn't updated with it - falls back to the titled chip
+    // rather than rendering an empty plate or throwing on someone's row.
+    if (spec == null) return _PrestigeChip(tier: tier);
+
+    final s = S.of(context);
+    final color = spec.color(context.gp.dark);
+    // Scaled with the text scaler so the mark and the numeral stay in
+    // proportion at accessibility sizes - at 1.0 this is exactly 11.0, which
+    // is what holds the plate at its measured 30.3 x 22.0.
+    final markSize = MediaQuery.textScalerOf(context).scale(11.0);
+
+    return Semantics(
+      label: s.isAr
+          ? '${tier.titleAr}، ${spec.rank} من ${kPrestigeMarks.length}'
+          : '${tier.titleEn}, ${spec.rank} of ${kPrestigeMarks.length}',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.14),
+          borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
+          border: Border.all(color: color.withOpacity(0.35), width: 0.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PrestigeMark(spec: spec, size: markSize, color: color),
+            const SizedBox(width: 2),
+            // LTR-pinned and Latin: this file was already bitten once by
+            // Arabic reordering separating a digit from the glyph beside it
+            // (the streak flame block above). A lone digit has nothing to
+            // reorder with, and pinning it costs nothing.
+            Text(
+              '${spec.rank}',
+              textDirection: TextDirection.ltr,
+              style: TextStyle(
+                fontSize: 10.5,
+                height: 1,
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

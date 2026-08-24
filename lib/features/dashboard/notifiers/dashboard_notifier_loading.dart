@@ -51,6 +51,15 @@ extension DashboardNotifierLoading on DashboardNotifier {
               ?.cast<String, dynamic>()
               .map((key, value) => MapEntry(key, value as String)) ??
           {};
+      // `.stale` is deliberately dropped rather than written back here, and
+      // only here: _saveGuestState puts this map back WHOLE from state on the
+      // next save, so the swept keys leave the store on their own. The
+      // signed-in path has to delete them by hand because its writes are
+      // per-key merges that never rewrite the map entire.
+      final undone = _readUndoneCompletions(
+        saved['undoneCompletions'],
+        DateTime.now().effectiveDay,
+      );
 
       int streak = (saved['currentStreak'] as int?) ?? 0;
       int streakFreezes = (saved['streakFreezes'] as int?) ?? 1;
@@ -109,6 +118,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
         habitLongestStreaks: habitLongestStreaks,
         habitTotalCompletions: habitTotalCompletions,
         habitLastCompletedDate: habitLastCompletedDate,
+        undoneCompletions: undone.kept,
       );
     } catch (_) {
       if (mounted) state = DashboardState.initial().copyWith(isLoading: false);
@@ -146,6 +156,13 @@ extension DashboardNotifierLoading on DashboardNotifier {
         'habitLongestStreaks': state.habitLongestStreaks,
         'habitTotalCompletions': state.habitTotalCompletions,
         'habitLastCompletedDate': state.habitLastCompletedDate,
+        // Written whole rather than as a delta, which is safe here and is not
+        // in the signed-in path: putSettingsMap is a plain overwrite of the
+        // one key, so the map that goes in is exactly the map that comes back.
+        'undoneCompletions': {
+          for (final entry in state.undoneCompletions.entries)
+            entry.key: entry.value.toJson(),
+        },
         if (lastActiveDate != null)
           'lastActiveDate': lastActiveDate.toIso8601String(),
       },
@@ -173,6 +190,37 @@ extension DashboardNotifierLoading on DashboardNotifier {
     return out;
   }
 
+  /// The stored [UndoneCompletion] receipts, split into the ones still worth
+  /// keeping and the keys that should be swept out of storage.
+  ///
+  /// Two things get swept: anything malformed (same degrade-don't-throw
+  /// posture as [_asIntMap] — one bad entry must not cost the whole load), and
+  /// anything undone longer ago than [kUndoneCompletionRetentionDays]. Without
+  /// the sweep this map would only ever grow on an account that undoes marks
+  /// and never corrects them.
+  static ({Map<String, UndoneCompletion> kept, List<String> stale})
+      _readUndoneCompletions(Object? raw, DateTime today) {
+    final kept = <String, UndoneCompletion>{};
+    final stale = <String>[];
+    if (raw is! Map) return (kept: kept, stale: stale);
+    raw.forEach((key, value) {
+      final mapKey = key.toString();
+      final record = UndoneCompletion.fromJson(value);
+      if (record == null) {
+        stale.add(mapKey);
+        return;
+      }
+      final undoneOn = DateTime.tryParse(record.undoneOnKey);
+      if (undoneOn != null &&
+          daysBetweenDates(undoneOn, today) > kUndoneCompletionRetentionDays) {
+        stale.add(mapKey);
+        return;
+      }
+      kept[mapKey] = record;
+    });
+    return (kept: kept, stale: stale);
+  }
+
   /// The string-valued counterpart, for habitLastCompletedDate.
   static Map<String, String> _asStringMap(Object? raw) {
     if (raw is! Map) return {};
@@ -188,27 +236,26 @@ extension DashboardNotifierLoading on DashboardNotifier {
     bool? streakEarnedToday,
     Map<String, int>? completedAtMinutes,
   }) async {
-    final existing = await LocalStoreService.getDailyMap(DashboardNotifier._todayKey);
-    // Merged by hand, because the local store writes the map whole. Without
-    // this the guest path would keep only the newest stamp per day while the
-    // signed-in path (which gets Firestore's deep merge for free) kept them
-    // all, and the two stores would disagree about the same day.
-    final mergedMinutes = <String, int>{
-      ...?(existing['completedAtMinutes'] as Map?)?.map(
-        (key, value) => MapEntry('$key', (value as num).toInt()),
-      ),
-      ...?completedAtMinutes,
-    };
-    await LocalStoreService.putDailyMap(
-      DashboardNotifier._todayKey,
-      {
-        ...existing,
-        'habitCompletions': completions,
-        'date': DateTime.now().effectiveDay.toIso8601String(),
-        if (streakEarnedToday != null) 'streakEarnedToday': streakEarnedToday,
-        if (mergedMinutes.isNotEmpty) 'completedAtMinutes': mergedMinutes,
-      },
-    );
+    // Inside updateDailyMap, so this read and write cannot interleave with
+    // the grid's write to the same day. That interleaving is what let a
+    // square corrected to red keep its completion, see that method's comment.
+    await LocalStoreService.updateDailyMap(DashboardNotifier._todayKey, (day) {
+      // completedAtMinutes is merged by hand, because the local store writes
+      // the map whole. Without this the guest path would keep only the newest
+      // stamp per day while the signed-in path (which gets Firestore's deep
+      // merge for free) kept them all, and the two stores would disagree
+      // about the same day.
+      final mergedMinutes = <String, int>{
+        ...?(day['completedAtMinutes'] as Map?)?.map(
+          (key, value) => MapEntry('$key', (value as num).toInt()),
+        ),
+        ...?completedAtMinutes,
+      };
+      day['habitCompletions'] = completions;
+      day['date'] = DateTime.now().effectiveDay.toIso8601String();
+      if (streakEarnedToday != null) day['streakEarnedToday'] = streakEarnedToday;
+      if (mergedMinutes.isNotEmpty) day['completedAtMinutes'] = mergedMinutes;
+    });
   }
 
   // Fields left over from the old GrowDaily v1 schema (this project reused
@@ -292,6 +339,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
       Map<String, int> habitLongestStreaks = {};
       Map<String, int> habitTotalCompletions = {};
       Map<String, String> habitLastCompletedDate = {};
+      Map<String, UndoneCompletion> undoneCompletions = {};
       DateTime? accountCreatedAt;
 
       if (userSnap.exists) {
@@ -371,16 +419,61 @@ extension DashboardNotifierLoading on DashboardNotifier {
         habitTotalCompletions = rawHabitTotalCompletions;
         habitLastCompletedDate = _asStringMap(d['habitLastCompletedDate']);
 
+        final undone = _readUndoneCompletions(
+          d['undoneCompletions'],
+          DateTime.now().effectiveDay,
+        );
+        undoneCompletions = undone.kept;
+        if (undone.stale.isNotEmpty) {
+          // Same shape as the junk dailyGreenCounts repair above: a nested map
+          // with FieldValue.delete() per key, so merge removes exactly those
+          // entries and leaves every live one alone. Fire and forget, since a
+          // sweep that misses this launch simply runs again on the next one.
+          _userRef.set({
+            'undoneCompletions': {
+              for (final key in undone.stale) key: FieldValue.delete(),
+            },
+          }, SetOptions(merge: true)).ignore();
+        }
+
         // See _loadGuestToday's identical comment: this is the last day
         // that itself earned the streak point, not the last day any
         // activity happened — completeHabit only advances it on a
         // genuinely qualifying (>=kStreakDayCompletionThreshold) day, and
         // applyGridSquareChange no longer touches it at all (see that
         // method's doc comment).
+        // A CALENDAR DAY, not an instant.
+        //
+        // This used to read only 'lastActiveDate', a Timestamp written from
+        // the local midnight of the qualifying day. An instant is a point in
+        // time, so reading it back in a different zone hands you a different
+        // calendar day: local midnight on 2026-08-23 in Bahrain is 21:00 the
+        // previous day in UTC, which reads back as 2026-08-22 anywhere west
+        // of it. The fabricated one day gap then reaches the gap check below,
+        // which spends a streak freeze or writes currentStreak 0, within about
+        // a second of opening the app and before the person can touch
+        // anything.
+        //
+        // Someone who completed everything in Bahrain on Monday and opened the
+        // app in London on Tuesday lost the streak. So did anyone in Europe,
+        // North America, the Levant or Morocco on the day the clocks went
+        // back. Guests were never affected: their path stores an offset free
+        // string already.
+        //
+        // 'lastActiveDay' is that same string, written alongside the
+        // Timestamp since this fix. The Timestamp is still read as a fallback
+        // for accounts last written by an older build, and it is still wrong
+        // in exactly the old way, which is the best that can be done for a
+        // value that never recorded which day it meant.
+        final lastActiveKey = d['lastActiveDay'] as String?;
         final lastActiveTs = d['lastActiveDate'] as Timestamp?;
-        if (lastActiveTs != null) {
+        final lastDay = lastActiveKey != null
+            ? DateTime.tryParse(lastActiveKey)
+            : (lastActiveTs == null
+                ? null
+                : DashboardNotifier._dateOnly(lastActiveTs.toDate()));
+        if (lastDay != null) {
           final today = DateTime.now().effectiveDay;
-          final lastDay = DashboardNotifier._dateOnly(lastActiveTs.toDate());
           final gapDays = today.difference(lastDay).inDays;
           // Recorded, not judged - see the guest branch above and
           // DashboardState.pendingStreakGapFrom.
@@ -435,6 +528,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
           habitLongestStreaks: habitLongestStreaks,
           habitTotalCompletions: habitTotalCompletions,
           habitLastCompletedDate: habitLastCompletedDate,
+          undoneCompletions: undoneCompletions,
           accountCreatedAt: accountCreatedAt,
         );
       }

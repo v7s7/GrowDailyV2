@@ -363,7 +363,41 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
     if (picked == null || !mounted) return;
 
     final key = _monthKeys['${picked.year}-${picked.month}'];
-    final target = key?.currentContext;
+    var target = key?.currentContext;
+
+    // The sections live in a lazily-built ListView, so a month far from the
+    // current scroll position has no element yet and its GlobalKey resolves
+    // to null. This used to `return` there, which meant picking an old month
+    // silently did nothing — worst for exactly the accounts that PAID for
+    // long history, since the picker is the only aiming device for it.
+    //
+    // Walk toward it instead: nudge the viewport a screen at a time in the
+    // right direction until the target is realized. `rendered` is oldest
+    // first and the list is built in that order, so comparing indices gives
+    // the direction. Bounded by the section count so a month that somehow
+    // never realizes cannot spin.
+    if (target == null && _scroll.hasClients) {
+      final want = rendered.indexWhere(
+        (m) => m.year == picked.year && m.month == picked.month,
+      );
+      final here = rendered.indexWhere(
+        (m) => _monthKeys['${m.year}-${m.month}']?.currentContext != null,
+      );
+      if (want >= 0) {
+        final forward = here < 0 || want > here;
+        for (var i = 0; i < rendered.length && target == null; i++) {
+          final pos = _scroll.position;
+          final next = (_scroll.offset +
+                  (forward ? 1 : -1) * pos.viewportDimension * 0.9)
+              .clamp(pos.minScrollExtent, pos.maxScrollExtent);
+          if (next == _scroll.offset) break;
+          _scroll.jumpTo(next);
+          await WidgetsBinding.instance.endOfFrame;
+          if (!mounted) return;
+          target = _monthKeys['${picked.year}-${picked.month}']?.currentContext;
+        }
+      }
+    }
     if (target == null) return;
     await Scrollable.ensureVisible(
       target,

@@ -9,6 +9,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
+import '../../../shared/widgets/segmented_tabs.dart';
 import '../models/room_model.dart';
 import '../notifiers/rooms_notifier.dart';
 
@@ -66,6 +67,13 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
   // dismiss.
   String? _createdCode;
 
+  /// Which half of the form is showing: 0 is the ROOM (name, spirit,
+  /// length), 1 is the HABITS. Deliberately a plain int rather than a
+  /// PageView: the two steps have very different heights, and a PageView
+  /// would force both to the taller one's size and leave the shorter one
+  /// with a lot of empty sheet under it.
+  int _step = 0;
+
   @override
   void dispose() {
     _nameCtrl.dispose();
@@ -87,6 +95,26 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
   int? get _effectiveLengthDays =>
       _customDurationSelected ? _customDurationDays : _lengthDays;
 
+  /// Why step one cannot be left yet, or null when it can.
+  ///
+  /// Returned as the REASON rather than a bool because that is what the
+  /// button now says. A disabled button with no explanation was the old
+  /// behaviour, and the explanation was usually scrolled out of sight.
+  String? _stepOneBlocker(S s) {
+    if (_nameCtrl.text.trim().isEmpty) return s.roomCreateNeedsName;
+    if (_customDurationSelected && _customDurationDays == null) {
+      return s.roomCreateNeedsDuration;
+    }
+    return null;
+  }
+
+  /// Why the room cannot be created yet, or null when it can.
+  String? _stepTwoBlocker(S s) {
+    final picked = _habitMode == RoomHabitMode.shared ? _planHabitIds : _ownHabitIds;
+    if (picked.isEmpty) return s.roomCreateNeedsHabit;
+    return null;
+  }
+
   bool get _canSubmit {
     if (_nameCtrl.text.trim().isEmpty) return false;
     if (_customDurationSelected && _customDurationDays == null) return false;
@@ -94,6 +122,37 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
       return _planHabitIds.isNotEmpty;
     }
     return _ownHabitIds.isNotEmpty;
+  }
+
+  /// The length as step two's header shows it.
+  String _lengthLabel(S s) => _effectiveLengthDays == null
+      ? s.roomDurationOpenEnded
+      : s.daysCount(_effectiveLengthDays!);
+
+  /// Leaves step one for step two.
+  ///
+  /// The objectionable-name check moved here from [_submit] on purpose. It
+  /// used to fire after every other decision had been made, which is the
+  /// worst possible moment to be told the first field is unusable; now it
+  /// fires while the name is still the thing being worked on.
+  void _goToHabits() {
+    if (_stepOneBlocker(S.of(context)) != null) return;
+    if (isObjectionable(_nameCtrl.text)) {
+      HapticFeedback.heavyImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.of(context).roomNameNotAllowed)),
+      );
+      return;
+    }
+    HapticFeedback.selectionClick();
+    FocusScope.of(context).unfocus();
+    setState(() => _step = 1);
+  }
+
+  void _backToRoom() {
+    HapticFeedback.selectionClick();
+    FocusScope.of(context).unfocus();
+    setState(() => _step = 0);
   }
 
   Future<void> _submit() async {
@@ -206,255 +265,296 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
   }
 
   Widget _formContent() {
-    final gp = context.gp;
     final s = S.of(context);
     return Flexible(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-            child: Text(
-              s.roomCreateTitle,
-              style: TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w800, color: gp.textPrimary),
-            ),
-          ),
+          _stepHeader(s),
           Flexible(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: _nameCtrl,
-                    autofocus: true,
-                    textCapitalization: TextCapitalization.words,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      labelText: s.roomNameLabel,
-                      hintText: s.roomNameHint,
-                      prefixIcon: const Icon(Icons.flag_rounded, size: 20),
-                    ),
-                  ),
-                  // Tappable ideas instead of one baked-in example: the old
-                  // placeholder named a habit, which is the one thing a room
-                  // is not. Hidden once there is a name, so it never sits
-                  // under a field the user has already filled.
-                  if (_nameCtrl.text.trim().isEmpty) ...[
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Text(
-                          s.roomNameIdeas,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: gp.textSec,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: [
-                                for (final idea in s.roomNameSuggestions)
-                                  Padding(
-                                    padding:
-                                        const EdgeInsetsDirectional.only(end: 8),
-                                    child: ActionChip(
-                                      label: Text(idea),
-                                      labelStyle: TextStyle(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: gp.textPrimary,
-                                      ),
-                                      backgroundColor: gp.surface,
-                                      side: BorderSide(color: gp.border),
-                                      visualDensity: VisualDensity.compact,
-                                      onPressed: () {
-                                        HapticFeedback.selectionClick();
-                                        setState(() {
-                                          _nameCtrl.text = idea;
-                                          _nameCtrl.selection =
-                                              TextSelection.collapsed(
-                                                  offset: idea.length);
-                                        });
-                                      },
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  _SectionLabel(s.roomCompeteModeLabel),
-                  const SizedBox(height: 8),
-                  _ModeCard(
-                    icon: Icons.leaderboard_rounded,
-                    title: s.roomCompeteModeCompetitive,
-                    subtitle: s.roomCompeteModeCompetitiveHint,
-                    selected: _competeMode == RoomCompeteMode.competitive,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _competeMode = RoomCompeteMode.competitive);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  _ModeCard(
-                    icon: Icons.diversity_3_rounded,
-                    title: s.roomCompeteModeTeam,
-                    subtitle: s.roomCompeteModeTeamHint,
-                    selected: _competeMode == RoomCompeteMode.team,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _competeMode = RoomCompeteMode.team);
-                    },
-                  ),
-                  const SizedBox(height: 18),
-                  _SectionLabel(s.roomHabitModeLabel),
-                  const SizedBox(height: 8),
-                  _ModeCard(
-                    icon: Icons.groups_rounded,
-                    title: s.roomHabitModeShared,
-                    subtitle: s.roomHabitModeSharedHint,
-                    selected: _habitMode == RoomHabitMode.shared,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _habitMode = RoomHabitMode.shared);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  _ModeCard(
-                    icon: Icons.person_rounded,
-                    title: s.roomHabitModeOwn,
-                    subtitle: s.roomHabitModeOwnHint,
-                    selected: _habitMode == RoomHabitMode.own,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _habitMode = RoomHabitMode.own);
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  if (_habitMode == RoomHabitMode.shared) ...[
-                    _SectionLabel(s.roomPlanHabitsLabel),
-                    const SizedBox(height: 4),
-                    Text(s.roomPlanHabitsHint,
-                        style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.3)),
-                    const SizedBox(height: 8),
-                    _PlanHabitPicker(
-                      selectedIds: _planHabitIds,
-                      onChanged: (ids) => setState(() => _planHabitIds = ids),
-                      isSharedTemplate: true,
-                    ),
-                    if (_planHabitIds.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(s.roomPlanSelectedCount(_planHabitIds.length),
-                          style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: GameColors.gold)),
-                    ],
-                  ] else ...[
-                    _SectionLabel(s.roomOwnHabitsLabel),
-                    const SizedBox(height: 4),
-                    Text(s.roomOwnHabitsHint,
-                        style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.3)),
-                    const SizedBox(height: 8),
-                    _PlanHabitPicker(
-                      selectedIds: _ownHabitIds,
-                      onChanged: (ids) => setState(() => _ownHabitIds = ids),
-                    ),
-                    if (_ownHabitIds.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(s.roomPlanSelectedCount(_ownHabitIds.length),
-                          style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: GameColors.gold)),
-                    ],
-                  ],
-                  const SizedBox(height: 18),
-                  _SectionLabel(s.roomDurationLabel),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final days in _lengthOptions)
-                        _DurationChip(
-                          label: days == null
-                              ? s.roomDurationOpenEnded
-                              : s.daysCount(days),
-                          selected:
-                              !_customDurationSelected && _lengthDays == days,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() {
-                              _customDurationSelected = false;
-                              _lengthDays = days;
-                            });
-                          },
-                        ),
-                      _DurationChip(
-                        label: s.roomDurationCustomOption,
-                        selected: _customDurationSelected,
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _customDurationSelected = true);
-                        },
-                      ),
-                    ],
-                  ),
-                  // Only shown once Custom is picked - a plain number field
-                  // rather than a dialog, same "chip reveals a field inline"
-                  // pattern as AddHabitSheet's LimitUnit.custom/reminder-lead
-                  // Custom option, so this doesn't introduce a new mechanic
-                  // for a user who's already met the pattern elsewhere.
-                  if (_customDurationSelected) ...[
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _customDurationCtrl,
-                      autofocus: true,
-                      keyboardType: TextInputType.number,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        labelText: s.roomDurationCustomHint,
-                        helperText: s.roomDurationCustomRange,
-                        errorText: _customDurationCtrl.text.trim().isEmpty ||
-                                _customDurationDays != null
-                            ? null
-                            : s.roomDurationCustomInvalid,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: _step == 0 ? _roomStep(s) : _habitStep(s),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-            child: FilledButton(
-              onPressed: _canSubmit && !_isSubmitting ? _submit : null,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          _stepFooter(s),
+        ],
+      ),
+    );
+  }
+
+  /// Title, step counter, and on step two a back arrow plus what step one
+  /// decided. Carrying the room's name and length forward is what keeps the
+  /// second screen from feeling like it forgot the first.
+  Widget _stepHeader(S s) {
+    final gp = context.gp;
+    final onHabits = _step == 1;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (onHabits) ...[
+                Semantics(
+                  button: true,
+                  label: s.roomCreateBack,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _backToRoom,
+                    child: Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 10),
+                      child: Icon(Icons.arrow_back_ios_new_rounded,
+                          size: 17, color: gp.textSec),
+                    ),
+                  ),
+                ),
+              ],
+              Expanded(
+                child: Text(
+                  onHabits ? s.roomCreateStepHabitsTitle : s.roomCreateTitle,
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary),
+                ),
               ),
-              child: _isSubmitting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2.4),
-                    )
-                  : Text(s.roomCreateSubmit),
+              _StepDots(step: _step),
+            ],
+          ),
+          // Only step two carries a subtitle, and it is context rather than
+          // chrome: which room, how long. Step one had "Step 1 of 2" under
+          // its title, which is exactly what the two dots beside it already
+          // say, in more words.
+          if (onHabits) ...[
+            const SizedBox(height: 3),
+            Text(
+              s.roomCreateRoomSummary(_nameCtrl.text.trim(), _lengthLabel(s)),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11.5, color: gp.textTert),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Step one: what the room IS.
+  Widget _roomStep(S s) {
+    final gp = context.gp;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _nameCtrl,
+          // No autofocus. It used to open the keyboard before the sheet had
+          // finished appearing, which covered two thirds of the form with
+          // the user's first look at it.
+          textCapitalization: TextCapitalization.words,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _goToHabits(),
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: s.roomNameLabel,
+            hintText: s.roomNameHint,
+            prefixIcon: const Icon(Icons.flag_rounded, size: 20),
+          ),
+        ),
+        // Tappable ideas instead of one baked-in example: the old
+        // placeholder named a habit, which is the one thing a room is not.
+        // Hidden once there is a name, so it never sits under a field the
+        // user has already filled.
+        if (_nameCtrl.text.trim().isEmpty) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Text(
+                s.roomNameIdeas,
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w700, color: gp.textSec),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final idea in s.roomNameSuggestions)
+                        Padding(
+                          padding: const EdgeInsetsDirectional.only(end: 8),
+                          child: ActionChip(
+                            label: Text(idea),
+                            labelStyle: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: gp.textPrimary),
+                            backgroundColor: gp.surface,
+                            side: BorderSide(color: gp.border),
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              setState(() {
+                                _nameCtrl.text = idea;
+                                _nameCtrl.selection = TextSelection.collapsed(
+                                    offset: idea.length);
+                              });
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 20),
+        _SectionLabel(s.roomCompeteModeLabel),
+        const SizedBox(height: 8),
+        // Two segments and one line of explanation, rather than two stacked
+        // cards each carrying its own paragraph. The cards cost 375pt for
+        // what is, in the end, one either/or.
+        SegmentedTabs(
+          labels: [s.roomCompeteModeCompetitive, s.roomCompeteModeTeam],
+          selected: _competeMode == RoomCompeteMode.competitive ? 0 : 1,
+          onChanged: (i) => setState(() => _competeMode =
+              i == 0 ? RoomCompeteMode.competitive : RoomCompeteMode.team),
+        ),
+        const SizedBox(height: 8),
+        _ModeHint(_competeMode == RoomCompeteMode.competitive
+            ? s.roomCompeteModeCompetitiveHint
+            : s.roomCompeteModeTeamHint),
+        const SizedBox(height: 20),
+        _SectionLabel(s.roomDurationLabel),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final days in _lengthOptions)
+              _DurationChip(
+                label:
+                    days == null ? s.roomDurationOpenEnded : s.daysCount(days),
+                selected: !_customDurationSelected && _lengthDays == days,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() {
+                    _customDurationSelected = false;
+                    _lengthDays = days;
+                  });
+                },
+              ),
+            _DurationChip(
+              label: s.roomDurationCustomOption,
+              selected: _customDurationSelected,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _customDurationSelected = true);
+              },
+            ),
+          ],
+        ),
+        // Only shown once Custom is picked - a plain number field rather
+        // than a dialog, same "chip reveals a field inline" pattern as
+        // AddHabitSheet's LimitUnit.custom/reminder-lead Custom option.
+        if (_customDurationSelected) ...[
+          const SizedBox(height: 10),
+          TextField(
+            controller: _customDurationCtrl,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: s.roomDurationCustomHint,
+              helperText: s.roomDurationCustomRange,
+              errorText: _customDurationCtrl.text.trim().isEmpty ||
+                      _customDurationDays != null
+                  ? null
+                  : s.roomDurationCustomInvalid,
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  /// Step two: what everybody DOES. The mode and the picker belong together
+  /// because the mode is what decides what the picker means.
+  Widget _habitStep(S s) {
+    final shared = _habitMode == RoomHabitMode.shared;
+    final picked = shared ? _planHabitIds : _ownHabitIds;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionLabel(s.roomHabitModeLabel),
+        const SizedBox(height: 8),
+        SegmentedTabs(
+          labels: [s.roomHabitModeShared, s.roomHabitModeOwnShort],
+          selected: shared ? 0 : 1,
+          onChanged: (i) => setState(() => _habitMode =
+              i == 0 ? RoomHabitMode.shared : RoomHabitMode.own),
+        ),
+        const SizedBox(height: 8),
+        _ModeHint(shared ? s.roomHabitModeSharedHint : s.roomHabitModeOwnHint),
+        const SizedBox(height: 18),
+        // No section heading above the picker. The control right above it
+        // already says which habits it means, and a heading that repeats
+        // the sentence over it is just another line to read. The running
+        // count keeps its place, because that is the one thing here the
+        // user cannot see at a glance once the list is long.
+        if (picked.isNotEmpty) ...[
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: Text(
+              s.roomPlanSelectedCount(picked.length),
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: GameColors.gold),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        _PlanHabitPicker(
+          selectedIds: picked,
+          onChanged: (ids) => setState(() {
+            if (shared) {
+              _planHabitIds = ids;
+            } else {
+              _ownHabitIds = ids;
+            }
+          }),
+          isSharedTemplate: shared,
+        ),
+      ],
+    );
+  }
+
+  /// The one button, saying what it is waiting for while it waits.
+  Widget _stepFooter(S s) {
+    final blocker = _step == 0 ? _stepOneBlocker(s) : _stepTwoBlocker(s);
+    final enabled = blocker == null && !_isSubmitting;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+      child: FilledButton(
+        onPressed:
+            enabled ? (_step == 0 ? _goToHabits : _submit) : null,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(double.infinity, 50),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        child: _isSubmitting
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              )
+            : Text(blocker ??
+                (_step == 0 ? s.roomCreateNext : s.roomCreateSubmit)),
       ),
     );
   }
@@ -562,6 +662,54 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
   }
 }
 
+/// Two dashes: where you are, and how much is left. Chosen over "1/2" text
+/// because the counter under the title already says that in words, and over
+/// a progress bar because two steps is not a journey worth a bar.
+class _StepDots extends StatelessWidget {
+  final int step;
+  const _StepDots({required this.step});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < 2; i++) ...[
+          if (i > 0) const SizedBox(width: 5),
+          AnimatedContainer(
+            duration: GameMotion.relaxed,
+            curve: Curves.easeOutCubic,
+            width: i == step ? 22 : 10,
+            height: 4,
+            decoration: BoxDecoration(
+              color: i == step ? GameColors.gold : gp.border,
+              borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The line of explanation under a [SegmentedTabs]. Centred, tertiary, and
+/// deliberately allowed to be two lines: the Team hint is a long sentence,
+/// and the whole point of moving these out of cards was to stop a long
+/// sentence dictating the height of the control it describes.
+class _ModeHint extends StatelessWidget {
+  final String text;
+  const _ModeHint(this.text);
+
+  @override
+  Widget build(BuildContext context) => Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+            fontSize: 11.5, color: context.gp.textTert, height: 1.35),
+      );
+}
+
 class _SectionLabel extends StatelessWidget {
   final String text;
   const _SectionLabel(this.text);
@@ -571,83 +719,15 @@ class _SectionLabel extends StatelessWidget {
           fontSize: 12, fontWeight: FontWeight.w700, color: context.gp.textTert));
 }
 
-class _ModeCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ModeCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: GameMotion.quick,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected ? GameColors.gold.withOpacity(0.1) : gp.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? GameColors.gold : gp.border,
-            width: selected ? 1.1 : 0.8,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: (selected ? GameColors.gold : gp.textSec).withOpacity(0.14),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon,
-                  size: 17, color: selected ? GameColors.gold : gp.textSec),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w800,
-                          color: gp.textPrimary)),
-                  const SizedBox(height: 2),
-                  Text(subtitle,
-                      style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.3)),
-                ],
-              ),
-            ),
-            if (selected)
-              Icon(Icons.check_circle_rounded, size: 20, color: GameColors.gold),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// One quick-pick or Custom duration pill. Sized to a minimum 44x44 tap
 /// target (Apple HIG's floor for a comfortably-tappable control) via
 /// [BoxConstraints] rather than by inflating the font, so "7 Days" and a
 /// longer localized label like "No end date" - or a custom value the field
 /// below produces - all stay the same comfortable height instead of
 /// drifting with whatever text happens to be inside. Wrap (the only place
-/// this is ever laid out) already sizes each pill to its own intrinsic
-/// width, so nothing here needs to truncate or wrap text.
+/// this is ever laid out) sizes each pill to its own intrinsic width, so
+/// nothing here needs to truncate or wrap text. See the note on the missing
+/// `alignment:` below for what used to break that.
 class _DurationChip extends StatelessWidget {
   final String label;
   final bool selected;
@@ -663,7 +743,14 @@ class _DurationChip extends StatelessWidget {
       child: AnimatedContainer(
         duration: GameMotion.quick,
         constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
-        alignment: Alignment.center,
+        // No `alignment:` here, and that is the whole fix. A Container with
+        // an alignment wraps its child in an Align, which EXPANDS to the
+        // largest width it is offered; inside a Wrap that is the full row,
+        // so every pill came out full-width and the six of them stacked
+        // into six rows instead of wrapping into two. The doc comment above
+        // asserted the opposite and was wrong about it. Padding plus the
+        // label sizes each pill past the 44pt minimum on its own, so
+        // nothing is lost by dropping it.
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(
           color: selected ? GameColors.gold.withOpacity(0.14) : gp.surface,

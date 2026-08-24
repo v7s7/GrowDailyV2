@@ -624,56 +624,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
     final isSyncable = day.isToday;
 
     if (isSyncable && next == SquareState.complete) {
-      final alreadyDoneToday = ref
-          .read(dashboardProvider)
-          .isCompleted(habit.id, habit.effectiveDailyTarget);
-      HapticFeedback.mediumImpact();
-      if (alreadyDoneToday) {
-        // Already rewarded (e.g. completed from Today and the mirror
-        // hasn't caught up) — just repair the visual state, no reward call.
-        ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
-        syncRoomToday(ref, habit.id, day);
-      } else {
-        // Canonical reward first, then mirror the square. No need to
-        // branch on completeHabit's return value here — the
-        // alreadyDoneToday check above already guarantees completions is
-        // under target, so this call can't be a same-day no-op.
-        // completeHabit's return value only ever signals
-        // `frequencyTarget == 1`, a flag its *other* callers (Today,
-        // notification actions) use to decide whether *their* completion
-        // should paint the Grid square — not relevant here, since the
-        // user just painted this square themselves.
-        final dashState = ref.read(dashboardProvider);
-        final todayHabits = ref
-            .read(habitListProvider)
-            .where((h) => h.isScheduledFor(day))
-            .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
-        await ref.read(dashboardProvider.notifier).completeHabit(
-              habitId: habit.id,
-              // 2x while a linked room is live — see roomBoostedReward.
-              xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-              goldReward:
-                  roomBoostedReward(ref, habit.id, habit.goldReward),
-              frequencyTarget: habit.effectiveDailyTarget,
-              allHabitsDoneAfter: willCompleteAllHabitsToday(
-                state: dashState,
-                todayHabits: todayHabits,
-                habitId: habit.id,
-                frequencyTarget: habit.effectiveDailyTarget,
-                // A جزئي square counts half toward the threshold, so a day
-                // that is nearly full still keeps its streak.
-                halfDoneHabitIds:
-                    ref.read(weeklyGridProvider).halfDoneTodayIds(),
-              ),
-              category: habit.category.name,
-              habitName: habit.localName(S.of(context).isAr),
-            );
-        ref
-            .read(weeklyGridProvider.notifier)
-            .markCompleteFromHabit(habit.id, day);
-        syncRoomToday(ref, habit.id, day);
-        _maybeCelebrateFullRow(ref, habit);
-      }
+      await _completeSquareToday(ref, habit, day);
       return;
     }
 
@@ -692,18 +643,53 @@ class _GridTableState extends ConsumerState<_GridTable> {
       // which alone can sit well under its weekly target — isCompleted
       // would stay false and this whole branch would be skipped, leaving
       // a phantom completions entry this square could never undo again.
+      //
+      // The one confirmation on this whole board, and it is on the one tap
+      // that takes something away: every other square tap only ever adds.
+      // What a clear costs is recoverable now (the undo leaves a receipt and
+      // marking the day again redeems it, on any day — see UndoneCompletion),
+      // but recoverable is not free. A mis-tap on the busiest control in the
+      // app should not quietly move someone's XP, gold and streak and then
+      // depend on them noticing.
+      //
+      // Mirrors the completion's boost — see roomBoostedReward. Read once and
+      // passed to both the dialog and the undo, so the number a person is
+      // shown is the exact number that moves.
+      final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward);
+      final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward);
+      final confirmed = await _confirmClearMark(
+        context,
+        habitName: habit.localName(S.of(context).isAr),
+        xp: xpReward,
+        gold: goldReward,
+      );
+      if (!confirmed || !context.mounted) return;
       HapticFeedback.selectionClick();
       await ref.read(dashboardProvider.notifier).uncompleteHabit(
             habitId: habit.id,
-            // Mirrors the completion's boost — see roomBoostedReward.
-            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+            xpReward: xpReward,
+            goldReward: goldReward,
             category: habit.category.name,
           );
       ref
           .read(weeklyGridProvider.notifier)
           .setSquareStateOnly(habit.id, day, next);
       syncRoomToday(ref, habit.id, day);
+      if (!context.mounted) return;
+      // Second net behind the dialog, and the cheaper one to reach for: the
+      // same canonical completion the square's own tap would run, which also
+      // redeems the receipt the undo just wrote, so nothing is left behind.
+      final s = S.of(context);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text(s.gridMarkCleared),
+          action: SnackBarAction(
+            label: s.undo,
+            onPressed: () => _completeSquareToday(ref, habit, day),
+          ),
+        ));
       return;
     }
 
@@ -714,9 +700,170 @@ class _GridTableState extends ConsumerState<_GridTable> {
     } else {
       HapticFeedback.selectionClick();
     }
+    // Read BEFORE the tap, because the tap is what spends it: a green square
+    // landing on a past day this habit really was completed on redeems the
+    // receipt that undo left behind (see WeeklyGridNotifier.setSquare's
+    // past-day branch), and that is worth saying out loud. Silently paying
+    // for one past square and not another would read as a bug.
+    final restoring = !isSyncable &&
+        next.isGreen &&
+        ref.read(dashboardProvider).undoneFor(habit.id, day.toDateKey()) !=
+            null;
     ref.read(weeklyGridProvider.notifier).cycleSquare(habit.id, day);
     syncRoomToday(ref, habit.id, day);
     if (next.isGreen) _maybeCelebrateFullRow(ref, habit);
+    if (restoring && context.mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          duration: const Duration(seconds: 3),
+          content: Text(S.of(context).gridMarkRestored),
+        ));
+    }
+  }
+
+  /// Today's square reaching green, through the one canonical reward path.
+  ///
+  /// Lifted out of [_handleSquareTap] verbatim so the Undo on the
+  /// mark-cleared snackbar can put the square back exactly the way tapping it
+  /// would, instead of being a second, slightly different copy of the same
+  /// twenty lines.
+  Future<void> _completeSquareToday(
+      WidgetRef ref, IslamicHabitTemplate habit, DateTime day) async {
+    final alreadyDoneToday = ref
+        .read(dashboardProvider)
+        .isCompleted(habit.id, habit.effectiveDailyTarget);
+    HapticFeedback.mediumImpact();
+    if (alreadyDoneToday) {
+      // Already rewarded (e.g. completed from Today and the mirror
+      // hasn't caught up) — just repair the visual state, no reward call.
+      ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
+      syncRoomToday(ref, habit.id, day);
+    } else {
+      // Canonical reward first, then mirror the square. No need to
+      // branch on completeHabit's return value here — the
+      // alreadyDoneToday check above already guarantees completions is
+      // under target, so this call can't be a same-day no-op.
+      // completeHabit's return value only ever signals
+      // `frequencyTarget == 1`, a flag its *other* callers (Today,
+      // notification actions) use to decide whether *their* completion
+      // should paint the Grid square — not relevant here, since the
+      // user just painted this square themselves.
+      final dashState = ref.read(dashboardProvider);
+      final todayHabits = ref
+          .read(habitListProvider)
+          .where((h) => h.isScheduledFor(day))
+          .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
+      // BRANCHED, and the branch is the point.
+      //
+      // completeHabit returns false when the account's own numbers have not
+      // loaded yet, or when that load failed (see its two guards). It
+      // refuses rather than computing a streak and an XP total from zeros
+      // and writing them back as absolute values, which is right. What was
+      // wrong is that this caller painted the square anyway: open the app
+      // offline on a new day, or tap in the first second after a cold
+      // start, and the square went green, the room strip updated, the
+      // celebration fired, and nothing was recorded. The green square then
+      // persisted, so it never looked wrong afterwards.
+      //
+      // This is the primary interaction on the home screen, so the one
+      // outcome it must never have is silently doing nothing.
+      final rewarded =
+          await ref.read(dashboardProvider.notifier).completeHabit(
+                habitId: habit.id,
+                // 2x while a linked room is live — see roomBoostedReward.
+                xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+                goldReward:
+                    roomBoostedReward(ref, habit.id, habit.goldReward),
+                frequencyTarget: habit.effectiveDailyTarget,
+                allHabitsDoneAfter: willCompleteAllHabitsToday(
+                  state: dashState,
+                  todayHabits: todayHabits,
+                  habitId: habit.id,
+                  frequencyTarget: habit.effectiveDailyTarget,
+                  // A جزئي square counts half toward the threshold, so a
+                  // day that is nearly full still keeps its streak.
+                  halfDoneHabitIds:
+                      ref.read(weeklyGridProvider).halfDoneTodayIds(),
+                ),
+                category: habit.category.name,
+                habitName: habit.localName(S.of(context).isAr),
+              );
+      if (!context.mounted) return;
+      if (!rewarded) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            duration: const Duration(seconds: 2),
+            content: Text(S.of(context).squareNotReadyYet),
+          ));
+        return;
+      }
+      ref
+          .read(weeklyGridProvider.notifier)
+          .markCompleteFromHabit(habit.id, day);
+      syncRoomToday(ref, habit.id, day);
+      _maybeCelebrateFullRow(ref, habit);
+    }
+  }
+
+  /// Asks before clearing a mark that carries a real completion.
+  ///
+  /// Names the habit and says the two numbers out loud, because "are you
+  /// sure" on its own tells nobody anything. Says the mark can be put back
+  /// too: that is true on any day now (see [UndoneCompletion]), and someone
+  /// who knows it is reversible answers this dialog faster, not slower.
+  ///
+  /// Shaped after confirmDeleteForever in habit_actions_sheet.dart, so the
+  /// app has one look for "this one takes something away".
+  Future<bool> _confirmClearMark(
+    BuildContext context, {
+    required String habitName,
+    required int xp,
+    required int gold,
+  }) async {
+    final gp = context.gp;
+    final s = S.of(context);
+    HapticFeedback.mediumImpact();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: gp.surfaceHigh,
+        title: Text(
+          s.gridClearMarkTitle,
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: gp.textPrimary,
+          ),
+        ),
+        content: Text(
+          s.gridClearMarkBody(habitName, xp, gold),
+          style: TextStyle(fontSize: 13, color: gp.textSec, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(
+              s.habitActionsCancel,
+              style: TextStyle(fontSize: 13, color: gp.textSec),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(
+              s.gridClearMarkConfirm,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: GameColors.error,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   /// Fires the "full row" moment: the green that just landed completed

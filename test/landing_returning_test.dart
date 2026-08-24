@@ -57,7 +57,23 @@ void main() {
     expect(find.byType(FloatingActionButton), findsNothing,
         reason: 'the add-habit action must not float over the grid');
     final addHabit = find.text('ADD HABIT');
+    // Scroll back to the top BEFORE asserting, not after.
+    //
+    // The scroll above deliberately ran to the bottom of the page, and this
+    // control lives in the header, which scrolls away with the content. It
+    // used to still be findable from down there, so the assertion came first
+    // and the scroll back was only about making the tap land somewhere real.
+    // Then the Get Started card grew (one row to four, and then again when
+    // every row became a 44pt target) and pushed the header past the sliver
+    // cache, so it is not merely off-screen now, it is not built at all and
+    // the finder returns nothing.
+    //
+    // Asserting after the scroll is also just truer to what it means: a
+    // person who has read to the bottom of the page scrolls back up to add a
+    // habit.
+    await tester.scrollUntilVisible(addHabit, -120);
     expect(addHabit, findsOneWidget);
+    await h.settle(tester);
     await tester.tap(addHabit);
     await h.settle(tester);
     // The FAB now opens the Add-a-Habit hub (Plans / Add Goal tabs), not

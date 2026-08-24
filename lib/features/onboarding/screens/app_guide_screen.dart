@@ -226,7 +226,6 @@ void startGuideLesson(
   bool popFirst = true,
 }) {
     HapticFeedback.selectionClick();
-    final isAr = S.of(context).isAr;
     var target = lesson;
 
     // Coloring a square needs a habit row to color in the first place — if
@@ -237,9 +236,7 @@ void startGuideLesson(
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 2),
-          content: Text(isAr
-              ? 'أضف عادة أولاً. لنفعل ذلك الآن.'
-              : "Add a habit first. Let's do that now."),
+          content: Text(S.of(context).guideNeedsHabitFirst),
         ),
       );
     }

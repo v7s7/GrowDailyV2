@@ -79,10 +79,24 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     if (widget.participant.isDeclaredRest(key)) {
       return GameColors.gold.withOpacity(0.16);
     }
-    final credit = widget.participant.isRestDay(key)
-        ? 0.0
-        : widget.participant.creditFor(key);
-    return heatColor(heatmapLevelFor(credit), dark);
+    // A STRUCTURAL rest - the quota or a named-weekday schedule asked nothing
+    // of them - gets the faint emerald the leaderboard strip already paints it
+    // (see roomStripCellFill's isRest arm in
+    // room_detail_screen_leaderboard_extend.dart), not a collapse to 0.0.
+    //
+    // Collapsing to 0.0 sent it through heatmapLevelFor -> level 0 ->
+    // SquareState.none.fill, which is byte-identical to a miss. So the cell
+    // was drawn as "you missed this" while _statusFor beside it returned
+    // roomCalendarRestDay, and _statusFor's own comment claims the word and
+    // the colour can never describe two different things about one square.
+    // They did, on every rest day, which is most of the week for a 4x quota.
+    if (widget.participant.isRestDay(key)) {
+      return GameColors.emerald.withOpacity(0.13);
+    }
+    return heatColor(
+      heatmapLevelFor(widget.participant.creditFor(key)),
+      dark,
+    );
   }
 
   /// Start and today, ringed the same way the strip rings them, so the two

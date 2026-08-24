@@ -24,6 +24,11 @@ class _HeroHeader extends ConsumerWidget {
     // account keeps this feeling like a genuine milestone, not a color
     // that's just always been there.
     final showsPrestigeTint = prestigeTier.minLevel > 1;
+    // The rank mark and its pinned colour (see prestige_mark.dart). Falls
+    // back to the tier's own colour only if a tier ever ships without a mark,
+    // so this card can never render colourless.
+    final prestigeMark = prestigeMarkFor(prestigeTier);
+    final prestigeColor = prestigeMark?.color(gp.dark) ?? prestigeTier.color;
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -31,7 +36,7 @@ class _HeroHeader extends ConsumerWidget {
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(
           color: showsPrestigeTint
-              ? prestigeTier.color.withOpacity(0.45)
+              ? prestigeColor.withOpacity(0.45)
               : gp.border,
           width: showsPrestigeTint ? 1 : 0.5,
         ),
@@ -173,19 +178,31 @@ class _HeroHeader extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
               decoration: BoxDecoration(
-                color: prestigeTier.color.withOpacity(0.14),
+                color: prestigeColor.withOpacity(0.14),
                 borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-                border: Border.all(color: prestigeTier.color.withOpacity(0.35), width: 0.5),
+                border:
+                    Border.all(color: prestigeColor.withOpacity(0.35), width: 0.5),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(prestigeTier.icon, size: 12, color: prestigeTier.color),
+                  // The title STAYS here. This is the surface that teaches the
+                  // ladder — the leaderboard row is the only place that drops
+                  // it for a rung number, and only because the name has to
+                  // compete for width there.
+                  if (prestigeMark == null)
+                    Icon(prestigeTier.icon, size: 12, color: prestigeColor)
+                  else
+                    PrestigeMark(
+                      spec: prestigeMark,
+                      size: 13,
+                      color: prestigeColor,
+                    ),
                   const SizedBox(width: 5),
                   Text(
                     prestigeTier.title(S.of(context).isAr),
                     style: TextStyle(
-                        fontSize: 11.5, fontWeight: FontWeight.w800, color: prestigeTier.color),
+                        fontSize: 11.5, fontWeight: FontWeight.w800, color: prestigeColor),
                   ),
                 ],
               ),

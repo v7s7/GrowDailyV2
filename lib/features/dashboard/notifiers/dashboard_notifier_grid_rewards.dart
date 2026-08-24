@@ -515,14 +515,12 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     if (_uid == null) {
       // Persist for guests too, so the prompt shows once per day — not on
       // every cold start.
-      final existing = await LocalStoreService.getDailyMap(DashboardNotifier._todayKey);
-      await LocalStoreService.putDailyMap(DashboardNotifier._todayKey, {
-        ...existing,
-        'intentionsSet': true,
-        'priorities': priorities,
-        'intentionAnchor': anchor,
-        'intentionAction': intention,
-        'date': DateTime.now().effectiveDay.toIso8601String(),
+      await LocalStoreService.updateDailyMap(DashboardNotifier._todayKey, (day) {
+        day['intentionsSet'] = true;
+        day['priorities'] = priorities;
+        day['intentionAnchor'] = anchor;
+        day['intentionAction'] = intention;
+        day['date'] = DateTime.now().effectiveDay.toIso8601String();
       });
       return;
     }
