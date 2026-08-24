@@ -143,6 +143,100 @@ function effectiveTodayParts(tzOffsetMinutes) {
   return { year, month, day, weekday, key };
 }
 
+// The TASK board's today, which is not the habit board's today.
+//
+// effectiveTodayParts above shifts by the 6 AM habit cutoff, and using it for
+// tasks was a real bug in this tool: matrix_screen.dart is explicit that a
+// todo board runs on the calendar day, not the flex window ("at 12 AM the
+// phone says a new day, and the board should agree ... This was effectiveDay
+// once, which left the board looking stuck on yesterday until 6 in the
+// morning"). Between midnight and 6 AM this page was therefore showing a
+// different board than the user's own phone was.
+function calendarTodayParts(tzOffsetMinutes) {
+  const now = new Date();
+  const localMs = typeof tzOffsetMinutes === 'number'
+    ? now.getTime() + tzOffsetMinutes * 60000
+    : now.getTime() - now.getTimezoneOffset() * 60000;
+  const d = new Date(localMs);
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth() + 1;
+  const day = d.getUTCDate();
+  const key = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return { year, month, day, key, startMs: Date.UTC(year, month - 1, day) };
+}
+
+/// The earliest reminder a task carries, or null.
+///
+/// Reads `reminderAts` (the list the app writes now) and falls back to the
+/// singular `reminderAt` it still mirrors for older clients. The previous
+/// version of this file only ever read the singular one, so a task with three
+/// reminders showed one and a task written by a newer client showed whichever
+/// the mirror happened to hold.
+function earliestReminder(t) {
+  const all = [];
+  if (Array.isArray(t.reminderAts)) {
+    for (const r of t.reminderAts) {
+      const d = toJsDate(r);
+      if (d) all.push(d);
+    }
+  }
+  const legacy = toJsDate(t.reminderAt);
+  if (legacy) all.push(legacy);
+  if (all.length === 0) return null;
+  all.sort((a, b) => a - b);
+  return all[0];
+}
+
+/// Sorts every task into the four buckets an admin actually wants, using the
+/// app's OWN rules rather than inventing new ones:
+///
+///   done      isDone, completed on the calendar day being viewed
+///   late      open, created before today  (matrix_screen.dart calls this
+///             "carried over" — same set, and the board has a chip for it)
+///   upcoming  open, earliest reminder lands on a later day
+///   today     open, created today
+///
+/// Precedence matters and follows the app: a future-dated task LEAVES today
+/// even if it was created weeks ago, because "filing by the creation day
+/// means a task you dated two weeks out sits in Today for two weeks, shouting
+/// at you every morning about something you already decided wasn't for now".
+/// So upcoming is tested first, and the four buckets are a clean partition.
+function triageTasks(taskDocs, parts) {
+  const out = { today: [], late: [], upcoming: [], done: [], noDate: [] };
+  const startOfToday = parts.startMs;
+  for (const doc of taskDocs) {
+    const t = doc.data ? doc.data() : doc;
+    const row = { id: doc.id || '', data: t, reminder: earliestReminder(t) };
+    if (t.isDone) {
+      const c = toJsDate(t.completedAt);
+      if (c && Date.UTC(c.getFullYear(), c.getMonth(), c.getDate()) === startOfToday) {
+        out.done.push(row);
+      }
+      continue;
+    }
+    if (row.reminder) {
+      const r = row.reminder;
+      if (Date.UTC(r.getFullYear(), r.getMonth(), r.getDate()) > startOfToday) {
+        out.upcoming.push(row);
+        continue;
+      }
+    }
+    const created = toJsDate(t.createdAt);
+    if (!created) { out.noDate.push(row); continue; }
+    const cday = Date.UTC(created.getFullYear(), created.getMonth(), created.getDate());
+    if (cday < startOfToday) out.late.push(row);
+    else out.today.push(row);
+  }
+  const byQuadrant = (a, b) =>
+    (QUADRANT_ORDER[a.data.quadrant] ?? 9) - (QUADRANT_ORDER[b.data.quadrant] ?? 9);
+  const byReminder = (a, b) => (a.reminder || 0) - (b.reminder || 0);
+  out.today.sort(byQuadrant);
+  out.late.sort(byQuadrant);
+  out.noDate.sort(byQuadrant);
+  out.upcoming.sort(byReminder);
+  return out;
+}
+
 // Ports IslamicHabitTemplate.isScheduledFor (islamic_habit_catalog.dart)
 // verbatim: never before the habit's own createdAt date, never after its
 // archivedAt date (the archive day itself still counts), and on
@@ -675,7 +769,7 @@ const QUADRANT_ORDER = { doFirst: 0, schedule: 1, delegate: 2, eliminate: 3 };
 // the FIRST tab in the report (see buildReportBody) precisely so an admin
 // opening any account lands on "what's true today" before anything else.
 function renderTodayCard({
-  todayKey, habitRows, mood, nightReviewDone, reflection, tasksToday, openTasks, rooms,
+  todayKey, habitRows, mood, nightReviewDone, reflection, triage, rooms, taskDayKey,
 }) {
   const total = habitRows.length;
   const done = habitRows.filter((h) => h.done).length;
@@ -700,18 +794,55 @@ function renderTodayCard({
     reflection ? detailRow('Reflection', escapeHtml(reflection)) : '',
   ].join('');
 
-  const tasksHtml = tasksToday.length
-    ? '<div class="stack">' + tasksToday.map((t) =>
-        `<div class="stack-item">✅ ${escapeHtml(t.title || '(untitled task)')}</div>`
-      ).join('') + '</div>'
-    : '<p class="muted">No tasks completed today yet.</p>';
+  // The board, in the four states an admin actually asks about. This used to
+  // be two flat lists: "completed today", and "still open" — where "still
+  // open" meant every open task the account had ever made, newest last,
+  // truncated at eight. Which is to say the two questions that matter most,
+  // what is LATE and what is COMING, were the two you could not answer.
+  const taskCol = (key, label, tone, rows, empty, showWhen) => {
+    const items = rows.length
+      ? rows.slice(0, 12).map((r) => {
+          const t = r.data;
+          const q = QUADRANT_META[t.quadrant];
+          const when = showWhen ? showWhen(r) : '';
+          return `<div class="tk">
+            <span class="tk-dot" style="background:${q ? q.color : 'var(--text-tert)'}"
+                  title="${q ? escapeHtml(q.label) : ''}"></span>
+            <span class="tk-title">${escapeHtml(t.title || '(untitled task)')}</span>
+            ${when ? `<span class="tk-when">${escapeHtml(when)}</span>` : ''}
+          </div>`;
+        }).join('')
+        + (rows.length > 12
+            ? `<div class="tk-more">+${rows.length - 12} more</div>` : '')
+      : `<div class="tk-empty">${escapeHtml(empty)}</div>`;
+    return `<div class="tcol tone-${tone}">
+      <div class="tcol-head"><span>${escapeHtml(label)}</span><b>${rows.length}</b></div>
+      <div class="tcol-body">${items}</div>
+    </div>`;
+  };
 
-  const openHtml = openTasks.length
-    ? '<div class="stack">' + openTasks.slice(0, 8).map((t) => {
-        const q = QUADRANT_META[t.quadrant];
-        return `<div class="stack-item">☐ ${escapeHtml(t.title || '(untitled task)')}${q ? ` <span class="badge" style="background:${q.color}">${escapeHtml(q.label)}</span>` : ''}</div>`;
-      }).join('') + (openTasks.length > 8 ? `<div class="muted" style="margin-top:6px;">+${openTasks.length - 8} more open</div>` : '') + '</div>'
-    : '<p class="muted">Nothing open. 🎉</p>';
+  const dayDiff = (d) => {
+    if (!d) return '';
+    const ms = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+      - Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+    const days = Math.round(ms / 86400000);
+    if (days === 0) return 'today';
+    if (days === 1) return 'tomorrow';
+    if (days > 1) return `in ${days}d`;
+    return `${-days}d ago`;
+  };
+
+  const board = `<div class="tboard">
+    ${taskCol('late', 'Late', 'late', triage.late,
+        'Nothing overdue.',
+        (r) => dayDiff(toJsDate(r.data.createdAt)))}
+    ${taskCol('today', 'Today', 'today', triage.today, 'Nothing added today.')}
+    ${taskCol('upcoming', 'Upcoming', 'upcoming', triage.upcoming,
+        'Nothing scheduled ahead.',
+        (r) => dayDiff(r.reminder))}
+    ${taskCol('done', 'Done today', 'done', triage.done, 'Nothing finished yet.')}
+  </div>
+  ${triage.noDate.length ? `<div class="tk-more" style="margin-top:8px;">${triage.noDate.length} open task${triage.noDate.length === 1 ? '' : 's'} with no creation date, not shown above</div>` : ''}`;
 
   const roomsHtml = rooms.length
     ? '<div class="today-rooms">' + rooms.map((r) => `
@@ -740,12 +871,10 @@ function renderTodayCard({
       </div>
       ${habitsHtml}
     </div>
+    <h3>Tasks <span class="h3-note">calendar day ${escapeHtml(taskDayKey || todayKey)}</span></h3>
+    ${board}
     <h3>Mood &amp; reflection</h3>
     <div class="detail-rows">${rows}</div>
-    <h3>Tasks completed today</h3>
-    ${tasksHtml}
-    <h3>Still open</h3>
-    ${openHtml}
     <h3>Rooms</h3>
     ${roomsHtml}
   `;
@@ -813,6 +942,31 @@ const BASE_STYLES = `
     --success: #1f9d6c;
   }
   * { box-sizing: border-box; }
+  /* ---- The task board: four states, side by side, so "what is late" and
+     "what is coming" are answered by looking rather than by scrolling. Grid
+     with auto-fit so it collapses to two columns on a narrow window and one
+     on a phone, without a media query to keep in sync. ---- */
+  .tboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 6px; }
+  .tcol { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; display: flex; flex-direction: column; }
+  .tcol-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 11px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  .tcol-head b { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .tcol-body { padding: 6px; display: flex; flex-direction: column; gap: 3px; }
+  /* Tone carries the state. Late is the only one that gets a warm alarm
+     colour; the others stay quiet, because four shouting columns is the same
+     as none shouting. */
+  .tone-late .tcol-head { background: rgba(255,90,82,0.10); color: #c23b34; }
+  .tone-today .tcol-head { background: var(--accent-soft); color: var(--accent); }
+  .tone-upcoming .tcol-head { background: rgba(93,173,236,0.12); color: #2f6f9f; }
+  .tone-done .tcol-head { background: rgba(46,207,143,0.12); color: #1c7a55; }
+  .tk { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 7px; font-size: 12.5px; line-height: 1.3; }
+  .tk:hover { background: var(--bg); }
+  .tk-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+  .tk-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tk-when { flex: 0 0 auto; font-size: 10.5px; color: var(--text-tert); font-variant-numeric: tabular-nums; }
+  .tone-done .tk-title { color: var(--text-sec); text-decoration: line-through; text-decoration-color: var(--border); }
+  .tk-empty { padding: 10px 7px; font-size: 12px; color: var(--text-tert); }
+  .tk-more { padding: 4px 7px; font-size: 11px; color: var(--text-tert); }
+  .h3-note { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-tert); font-size: 11px; margin-inline-start: 6px; }
   body { font-family: -apple-system, "SF Pro Text", Helvetica, Arial, sans-serif; max-width: 960px; margin: 0 auto; padding: 0 20px 60px; color: var(--text); background: var(--bg); }
   a { color: var(--accent); }
   h1 { font-size: 22px; margin: 20px 0 2px; letter-spacing: -0.2px; }
@@ -1104,6 +1258,11 @@ function pageShell({ title, nav, header, body, backHref }) {
 <html>
 <head>
 <meta charset="utf-8">
+<!-- Without this the browser lays the page out at a virtual desktop width
+     and scales the result down, so the task board's auto-fit grid never
+     collapses: four columns just get narrower and the text turns to grey
+     mush. With it, the columns actually stack on a narrow window. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GrowDaily — ${escapeHtml(title)}</title>
 <style>${BASE_STYLES}</style>
 </head>
@@ -1139,6 +1298,9 @@ module.exports = {
   fmtDate,
   toJsDate,
   effectiveTodayParts,
+  calendarTodayParts,
+  triageTasks,
+  earliestReminder,
   habitScheduledOnParts,
   dayKeyParts,
   dayHeatLevel,

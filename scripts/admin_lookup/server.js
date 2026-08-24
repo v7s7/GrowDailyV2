@@ -61,6 +61,7 @@ app.get('/', (req, res) => {
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GrowDaily — Admin Lookup</title>
 <style>${BASE_STYLES}
   body { max-width: 1040px; padding-top: 5vh; }
@@ -368,6 +369,25 @@ app.get('/report/:uid', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`\nGrowDaily admin lookup running: http://localhost:${PORT}\n`);
+// 127.0.0.1, NOT the default.
+//
+// `app.listen(port)` with no host binds to 0.0.0.0, so this was listening on
+// every network interface: anyone on the same wifi could open
+// http://<this-machine>:4127 and read every account in the project, with no
+// password, no token and nothing in the logs to say they had. The tool holds
+// a service-account key with full Firestore access, so that is every user's
+// email, habits, notes and rooms.
+//
+// Binding to loopback is what makes "only me" true. It cannot be reached from
+// another machine at all, which is the right guarantee for a single-admin
+// local tool: a password on an open port would still be one guessed password
+// away, and this way there is no door to guess at.
+//
+// If this ever genuinely needs to be reachable from elsewhere, do not just
+// change this line. Put it behind an SSH tunnel (`ssh -L 4127:localhost:4127`)
+// so the exposure decision stays with SSH rather than with a plain HTTP port.
+const HOST = '127.0.0.1';
+app.listen(PORT, HOST, () => {
+  console.log(`\nGrowDaily admin lookup running: http://localhost:${PORT}`);
+  console.log(`Bound to ${HOST} only, so nothing outside this machine can reach it.\n`);
 });

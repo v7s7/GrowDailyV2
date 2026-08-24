@@ -22,6 +22,8 @@ const {
   QUADRANT_ORDER,
   toJsDate,
   effectiveTodayParts,
+  calendarTodayParts,
+  triageTasks,
   habitScheduledOnParts,
   renderTodayCard,
   renderCalendarSection,
@@ -160,25 +162,11 @@ async function loadAccountReport(uid, authRecord) {
     });
   }
 
+  // Tasks run on the CALENDAR day, habits on the 6 AM flex day. Two clocks
+  // on purpose, because the app itself uses two: see calendarTodayParts.
   const taskDocs = docsByCollection['matrix_tasks'] || [];
-  const tasksCompletedToday = [];
-  const openTasksToday = [];
-  for (const doc of taskDocs) {
-    const t = doc.data();
-    if (t.isDone) {
-      const completedAt = toJsDate(t.completedAt);
-      if (completedAt) {
-        const key = `${completedAt.getFullYear()}-`
-          + `${String(completedAt.getMonth() + 1).padStart(2, '0')}-`
-          + `${String(completedAt.getDate()).padStart(2, '0')}`;
-        if (key === todayParts.key) tasksCompletedToday.push(t);
-      }
-    } else {
-      openTasksToday.push(t);
-    }
-  }
-  openTasksToday.sort((a, b) =>
-    (QUADRANT_ORDER[a.quadrant] ?? 9) - (QUADRANT_ORDER[b.quadrant] ?? 9));
+  const taskParts = calendarTodayParts(profileData && profileData.tzOffsetMinutes);
+  const triage = triageTasks(taskDocs, taskParts);
 
   const roomsToday = roomRows.map((r) => ({
     name: r.room.name || r.code,
@@ -200,8 +188,8 @@ async function loadAccountReport(uid, authRecord) {
       mood: todayDailyData.mood ? MOOD_META[todayDailyData.mood] : null,
       nightReviewDone: !!todayDailyData.nightReviewDone,
       reflection: todayDailyData.dailyReflection || '',
-      tasksToday: tasksCompletedToday,
-      openTasks: openTasksToday,
+      triage,
+      taskDayKey: taskParts.key,
       rooms: roomsToday,
     }),
   });

@@ -41,6 +41,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>GrowDaily only uses your location while the app is open, to calculate accurate prayer times for your reminders. It never tracks your location in the background.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>GrowDaily uses your location to calculate accurate prayer times for your reminders. Your coordinates are sent to a prayer-time service, and if you are signed in they are saved to your account so reminders follow you across devices.</string>
 	<key>NSMicrophoneUsageDescription</key>
