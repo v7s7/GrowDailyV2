@@ -52,16 +52,20 @@ void main() {
     });
 
     tearDown(() async {
-      container.dispose();
       // ActiveCatalogNotifier.toggle kicks off _save() without awaiting it
       // (nothing in the UI waits on a Hive write), so a test that ends the
       // moment its synchronous expects pass can still have a put in flight.
-      // Deleting the boxes out from under it threw "Box has already been
-      // closed" *after* the test body had already succeeded — and the runner
-      // attributes a late async error to whichever test was running, so all
-      // five here failed for writes they had in fact made correctly. Letting
-      // the pending saves settle first is what makes this group honest.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // Deleting the boxes out from under it throws "Box has already been
+      // closed" AFTER the test body has already succeeded, and the runner
+      // attributes a late async error to whichever test happens to be
+      // running, so the failure names an innocent test.
+      //
+      // This waited 50ms and hoped. That is a bet on how fast the machine
+      // is, and it loses: saturating half this machine's cores reproduced
+      // the failure, because the put had not landed inside 50ms. `settled`
+      // waits for the actual write instead of guessing at how long it takes.
+      await container.read(activeCatalogProvider.notifier).settled;
+      container.dispose();
       await Hive.deleteFromDisk();
       // deleteFromDisk already removes the box files it created inside this
       // directory; tolerate it having taken the directory with them rather

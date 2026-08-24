@@ -20,7 +20,17 @@ void main() {
   // The ratio only answers for TODAY inside the current week, by design, so
   // every case here is built around the real current day.
   final today = DateTime.now().effectiveDay;
-  final weekStart = startOfGridWeek(DateTime.now());
+  // startOfGridWeek(today), NOT startOfGridWeek(DateTime.now()). Those
+  // two disagree for exactly six hours a week: between 00:00 and 05:59
+  // on a Saturday effectiveDay is still Friday (kDayCutoffHour = 6), so
+  // the raw clock says THIS Saturday's grid week while effectiveDay
+  // says last one. WeeklyGridState.isCurrentWeek compares against
+  // startOfGridWeek(DateTime.now().effectiveDay), so inside that
+  // window every ratio below returned 0 and seven of this file's nine
+  // tests failed, one of them inverted. The raw-vs-effectiveDay split
+  // inside the notifier is deliberate and documented; this line was
+  // simply on the wrong side of it.
+  final weekStart = startOfGridWeek(today);
 
   WeeklyGridState stateWith(Map<String, SquareState> row) => WeeklyGridState(
         weekStart: weekStart,

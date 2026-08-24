@@ -17,6 +17,8 @@ import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart'
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 
+import 'helpers/wait_until.dart';
+
 class _NeverBonusRandom implements Random {
   @override
   bool nextBool() => false;
@@ -152,12 +154,12 @@ void main() {
       // delay races the first (cold) Hive open and the late load result
       // would clobber XP earned by the test's own mutations.
       container.read(weeklyGridProvider);
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
-      while ((container.read(dashboardProvider).isLoading ||
-              container.read(weeklyGridProvider).isLoading) &&
-          DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
+      await waitUntil(
+        () =>
+            !container.read(dashboardProvider).isLoading &&
+            !container.read(weeklyGridProvider).isLoading,
+        describe: 'the dashboard and grid to finish their initial load',
+      );
       expect(container.read(dashboardProvider).isLoading, isFalse);
     });
 
@@ -632,11 +634,10 @@ void main() {
         ],
       );
       await container.read(authStateProvider.future);
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
-      while (container.read(dashboardProvider).isLoading &&
-          DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
+      await waitUntil(
+        () => !container.read(dashboardProvider).isLoading,
+        describe: 'the dashboard to finish its initial load',
+      );
       expect(container.read(dashboardProvider).isLoading, isFalse);
       return container;
     }

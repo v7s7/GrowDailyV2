@@ -172,6 +172,23 @@ const _kReminderKey = 'daily_reminder_time_v1';
 class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   final String? _uid;
 
+  /// The save currently in flight, if any.
+  ///
+  /// [_save] is deliberately fire-and-forget at every call site: nothing in
+  /// the UI waits on a Hive put, and making a toggle await one would put a
+  /// disk write between the tap and the checkmark. That is right for the app
+  /// and leaves exactly one loose end for tests, which tear the Hive
+  /// directory down between cases: a put still in flight then lands on a
+  /// closed box and throws "Box has already been closed", AFTER the test body
+  /// has already passed. The runner blames whichever test happens to be
+  /// running, so the failure names an innocent test and the write it was
+  /// really about succeeded.
+  ///
+  /// Same reasoning, and the same shape, as
+  /// [LocalStoreService.settleDailyWrites] — see its doc comment, which
+  /// describes this identical problem for the daily-log path.
+  Future<void>? _pendingSave;
+
   /// True until the very first Firestore/Hive read resolves - see
   /// CustomHabitsNotifier.isLoading's doc comment (custom_habits_notifier.
   /// dart) for why this lives as a plain field rather than being folded
@@ -342,7 +359,7 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       final localRaw = box.get(_kActiveKey);
       if (localRaw is List) {
         state = Set<String>.from(localRaw.whereType<String>());
-        if (state.isNotEmpty) _save();
+        if (state.isNotEmpty) _kickSave();
       }
     } catch (_) {
       // The signed-in read failed, so `state` is still the empty set this
@@ -360,6 +377,27 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
         isLoading = false;
         state = Set.of(state);
       }
+    }
+  }
+
+  /// Starts a save and remembers it, so [settled] can wait for it.
+  void _kickSave() {
+    _pendingSave = _save();
+  }
+
+  /// Waits until no save is in flight. Test-only, exactly like
+  /// [LocalStoreService.settleDailyWrites]; the app never needs it because
+  /// its boxes outlive the process.
+  ///
+  /// Loops rather than awaiting once: a save can be kicked off WHILE an
+  /// earlier one is being awaited (three toggles in a row is a normal test),
+  /// and returning after the first would leave the newest write racing the
+  /// teardown all over again.
+  Future<void> get settled async {
+    while (_pendingSave != null) {
+      final inFlight = _pendingSave;
+      await inFlight;
+      if (identical(inFlight, _pendingSave)) _pendingSave = null;
     }
   }
 
@@ -436,7 +474,7 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       if (!everCompleted && eraseIfEmpty) {
         activatedAt = {...activatedAt}..remove(catalogId);
         state = Set.of(state)..remove(catalogId);
-        _save();
+        _kickSave();
         return;
       }
       // Archive, don't erase: [activatedAt] keeps this stint's start
@@ -470,7 +508,7 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
         activatedAt = {...activatedAt, catalogId: priorStart};
         catalogArchivedAt = {...catalogArchivedAt}..remove(catalogId);
         state = {...state, catalogId};
-        _save();
+        _kickSave();
         return;
       }
       if (priorStart != null && priorEnd != null) {
@@ -492,7 +530,7 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       catalogArchivedAt = {...catalogArchivedAt}..remove(catalogId);
       state = {...state, catalogId};
     }
-    _save();
+    _kickSave();
   }
 
   /// Commits exactly [selected] as this account's active habits for
@@ -580,7 +618,7 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     state = {...state}
       ..removeAll(toDeactivate)
       ..addAll(selected);
-    _save();
+    _kickSave();
   }
 
   /// [everCompleted] — same meaning and default as [applyPlanSelection]'s
@@ -599,7 +637,7 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     activatedAt = {...activatedAt}
       ..removeWhere((id, _) => toHardDelete.contains(id));
     state = state.difference(plan.catalogIds.toSet());
-    _save();
+    _kickSave();
   }
 
   bool planIsActive(HabitPlan plan) =>

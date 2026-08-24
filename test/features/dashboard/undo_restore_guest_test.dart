@@ -24,6 +24,8 @@ import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/dashboard/models/undone_completion.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 
+import '../../helpers/wait_until.dart';
+
 void main() {
   late Directory tmp;
   final containers = <ProviderContainer>[];
@@ -38,11 +40,10 @@ void main() {
     containers.add(container);
     await container.read(authStateProvider.future);
     container.read(dashboardProvider);
-    final deadline = DateTime.now().add(const Duration(seconds: 10));
-    while (container.read(dashboardProvider).isLoading &&
-        DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
+    await waitUntil(
+      () => !container.read(dashboardProvider).isLoading,
+      describe: 'the dashboard to finish its initial load',
+    );
     return container;
   }
 

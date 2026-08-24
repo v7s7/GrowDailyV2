@@ -28,36 +28,36 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('a saved colour is fitted before it is stored', () {
+  test('a saved colour is fitted before it is stored', () async {
     // The swatch drawn in the row and the colour it applies have to be the
     // same colour. Storing raw and fitting on recall would make the row lie
     // about what tapping it does.
     final n = SavedThemeColoursNotifier();
     const navy = Color(0xFF14213D);
-    n.add(navy, asAccent: true);
+    await n.add(navy, asAccent: true);
 
     expect(n.state.single, isNot(navy));
     expect(accentColourFits(n.state.single), isTrue);
   });
 
-  test('saving the same colour twice does not duplicate or reorder', () {
+  test('saving the same colour twice does not duplicate or reorder', () async {
     // The + button stays enabled while the active colour is already saved
     // (a button that vanishes under a moving finger is worse), so this is
     // the press that has to do nothing gracefully.
     final n = SavedThemeColoursNotifier();
-    n.add(const Color(0xFFE4B45F), asAccent: true);
-    n.add(const Color(0xFF2ECF8F), asAccent: true);
-    n.add(const Color(0xFFE4B45F), asAccent: true);
+    await n.add(const Color(0xFFE4B45F), asAccent: true);
+    await n.add(const Color(0xFF2ECF8F), asAccent: true);
+    await n.add(const Color(0xFFE4B45F), asAccent: true);
 
     expect(n.state.length, 2);
     expect(n.state.first.value, 0xFF2ECF8F, reason: 'order changed');
   });
 
-  test('the newest colour wins when the list is full', () {
+  test('the newest colour wins when the list is full', () async {
     final n = SavedThemeColoursNotifier();
     // 12 distinct hues, into a list that holds 10.
     for (var i = 0; i < 12; i++) {
-      n.add(HSLColor.fromAHSL(1, i * 30.0, 0.6, 0.5).toColor(),
+      await n.add(HSLColor.fromAHSL(1, i * 30.0, 0.6, 0.5).toColor(),
           asAccent: true);
     }
     expect(n.state.length, kMaxSavedColours);
@@ -70,11 +70,11 @@ void main() {
         isFalse, reason: 'the oldest should have dropped off');
   });
 
-  test('removing takes out exactly the colour asked for', () {
+  test('removing takes out exactly the colour asked for', () async {
     final n = SavedThemeColoursNotifier();
-    n.add(const Color(0xFFE4B45F), asAccent: true);
-    n.add(const Color(0xFF2ECF8F), asAccent: true);
-    n.remove(const Color(0xFFE4B45F));
+    await n.add(const Color(0xFFE4B45F), asAccent: true);
+    await n.add(const Color(0xFF2ECF8F), asAccent: true);
+    await n.remove(const Color(0xFFE4B45F));
 
     expect(n.state.length, 1);
     expect(n.state.single.value, 0xFF2ECF8F);
@@ -86,7 +86,7 @@ void main() {
     // more to the point, somebody else's colours sitting in front of whoever
     // signs in next on a shared phone.
     final n = SavedThemeColoursNotifier();
-    n.add(const Color(0xFFE4B45F), asAccent: true);
+    await n.add(const Color(0xFFE4B45F), asAccent: true);
     await n.detachAccount();
 
     expect(n.state, isEmpty);

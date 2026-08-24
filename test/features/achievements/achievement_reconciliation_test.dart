@@ -9,6 +9,7 @@ import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/core/utils/xp_calculator.dart';
 import 'package:grow_daily_v2/features/achievements/models/achievement_model.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
+import '../../helpers/wait_until.dart';
 
 /// Keeps the surprise-bonus roll out of the arithmetic, so any XP that does
 /// move can only have come from the path under test. Same fixture as
@@ -66,12 +67,18 @@ void main() {
 
   Future<DashboardNotifier> loadedGuest() async {
     final notifier = DashboardNotifier(null, random: _NeverBonusRandom());
-    for (var i = 0; i < 200 && notifier.debugState.isLoading; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-    // The sweep runs after state is populated, so give the microtasks it
-    // queues (the Hive write it awaits) a chance to settle.
-    await Future<void>.delayed(const Duration(milliseconds: 40));
+    // Both waits used to be guesses: 200 x 5ms that fell through silently,
+    // then a flat 40ms for the sweep's own Hive write. On a loaded machine
+    // the first expires with the notifier still loading and every test in
+    // this file then asserts against an empty state, which reads as
+    // '_reconcileAchievements did nothing'. Worse, 'a blank new account is
+    // left completely alone' PASSES in that case, because empty is also what
+    // a never-loaded notifier looks like: a green test proving nothing.
+    await waitUntil(
+      () => !notifier.debugState.isLoading,
+      describe: 'the guest dashboard to finish its initial load',
+    );
+    await LocalStoreService.settleDailyWrites();
     return notifier;
   }
 

@@ -1798,7 +1798,13 @@ class _CustomThemeCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Icon(
-                  locked ? Icons.lock_rounded : Icons.chevron_left_rounded,
+                  // chevron_RIGHT, matching the other nineteen trailing
+                  // "go" chevrons in this app. It carries
+                  // matchTextDirection, so it renders > at the row's end in
+                  // English and < at the row's end in Arabic: pointing
+                  // outward, away from the label, in both. chevron_left was
+                  // pointing back INTO its own text, in both languages.
+                  locked ? Icons.lock_rounded : Icons.chevron_right_rounded,
                   size: 15,
                   color: gp.textTert,
                 ),

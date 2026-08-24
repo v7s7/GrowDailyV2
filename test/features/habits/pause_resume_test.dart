@@ -161,9 +161,12 @@ void main() {
       ),
       isTrue,
     );
-    // ActiveCatalogNotifier persists in the background; let those writes
-    // land before tearDown closes the boxes underneath them.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Wait for the write, not for 50ms and a hope. ActiveCatalogNotifier
+    // persists in the background, and on a loaded machine that put had
+    // not landed before tearDown closed the boxes, throwing "Box has
+    // already been closed" and failing a test whose own expects all
+    // passed.
+    await n.settled;
   });
 
   test('Plans switching a preset off and back on the same day records no '
@@ -185,7 +188,7 @@ void main() {
     expect(n.activatedAt[id]!.isSameDayAs(start), isTrue,
         reason: 'one uninterrupted window, still starting when it started');
     expect(n.catalogArchivedAt.containsKey(id), isFalse);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await n.settled;
   });
 
   test('pausing a preset and resuming on a LATER day does record the stint',
@@ -208,7 +211,7 @@ void main() {
     expect(n.catalogStintHistory[id]!.first.$1.isSameDayAs(start), isTrue);
     expect(n.catalogStintHistory[id]!.first.$2.isSameDayAs(endedYesterday),
         isTrue);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await n.settled;
   });
 
   test('a habit paused TODAY is still listed as paused, so Resume is '

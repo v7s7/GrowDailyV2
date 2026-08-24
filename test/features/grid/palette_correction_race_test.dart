@@ -33,6 +33,8 @@ import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.da
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
 
+import '../../helpers/wait_until.dart';
+
 void main() {
   late Directory tmp;
   late ProviderContainer container;
@@ -50,12 +52,12 @@ void main() {
     await container.read(authStateProvider.future);
     container.read(weeklyGridProvider);
     container.read(dashboardProvider);
-    final deadline = DateTime.now().add(const Duration(seconds: 10));
-    while ((container.read(weeklyGridProvider).isLoading ||
-            container.read(dashboardProvider).isLoading) &&
-        DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
+    await waitUntil(
+      () =>
+          !container.read(weeklyGridProvider).isLoading &&
+          !container.read(dashboardProvider).isLoading,
+      describe: 'the grid and dashboard to finish their initial load',
+    );
   });
 
   tearDown(() async {

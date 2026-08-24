@@ -8,6 +8,8 @@ import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
 import 'package:grow_daily_v2/features/matrix/notifiers/matrix_notifier.dart';
 import 'package:hive/hive.dart';
 
+import 'helpers/wait_until.dart';
+
 /// A plain (non-widget) test file on purpose: MatrixNotifier's guest save is
 /// a fire-and-forget Hive write, and starting one inside a testWidgets'
 /// fake-async zone leaves it permanently pending — real IO never resolves
@@ -43,11 +45,10 @@ void main() {
     // The save is fire-and-forget — poll the actual box instead of guessing
     // a delay, so this isn't racy against however long that write takes.
     final box = Hive.box<dynamic>('box_settings');
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (box.get('guest_matrix_tasks') == null &&
-        DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
+    await waitUntil(
+      () => box.get('guest_matrix_tasks') != null,
+      describe: 'the guest matrix tasks to be written to Hive',
+    );
     expect(box.get('guest_matrix_tasks'), isNotNull,
         reason: 'the guest save never reached disk');
     first.dispose();
@@ -63,11 +64,10 @@ void main() {
     // Providers are lazy — this read is what constructs MatrixNotifier and
     // kicks off its guest load, so it must happen before waiting for it.
     second.read(matrixProvider);
-    final loadDeadline = DateTime.now().add(const Duration(seconds: 5));
-    while (second.read(matrixProvider).tasks.isEmpty &&
-        DateTime.now().isBefore(loadDeadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
+    await waitUntil(
+      () => second.read(matrixProvider).tasks.isNotEmpty,
+      describe: 'the second session to load the guest matrix tasks from Hive',
+    );
 
     final tasks = second.read(matrixProvider).tasks;
     expect(tasks, hasLength(1));
