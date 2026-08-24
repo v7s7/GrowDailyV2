@@ -148,7 +148,15 @@ abstract final class PrestigeCatalog {
       titleEn: 'Legacy',
       titleAr: 'الإرث',
       color: GameColors.gold,
-      icon: Icons.wb_twilight_rounded,
+      // A medal, matching the mark this tier actually renders (see
+      // prestige_mark.dart's apex engraving). Was wb_twilight_rounded, a
+      // WEATHER glyph, which said nothing about a rank and least of all
+      // about this one. Note this icon is currently unreachable: every one
+      // of the eight tiers has an entry in kPrestigeMarks, and all three
+      // call sites fall back to the icon only when the mark is null. It is
+      // corrected rather than deleted because the field is the documented
+      // large-size identity slot, not accidental dead code.
+      icon: Icons.workspace_premium_rounded,
     ),
   ];
 
