@@ -303,12 +303,22 @@ class PrestigeMark extends StatelessWidget {
     this.animate = false,
   });
 
-  bool get _engraves =>
+  /// Whether this particular mark gets the apex medal: the struck rim and the
+  /// thirteen engraved squares, rather than the plain filled disc.
+  ///
+  /// Public for the same reason [prestigeMarkInkCoverage] and
+  /// [prestigeApexEngravingCells] are — so a test can assert the property
+  /// exactly instead of squinting at pixels. Here the thing worth asserting
+  /// is at the CALL SITE, not in this file: both halves of this condition are
+  /// easy to fail by accident from outside, and when a surface fails either
+  /// one it silently falls back to a gold circle with no error anywhere. The
+  /// prestige picker sheet did exactly that for the whole life of the medal.
+  bool get engraves =>
       spec.solid && color == null && size >= _kApexEngravingMinSize;
 
   @override
   Widget build(BuildContext context) {
-    if (animate && _engraves) {
+    if (animate && engraves) {
       return _AnimatedPrestigeMark(spec: spec, size: size);
     }
     return _paint(context, spec: spec, size: size, color: color, sheen: 0);

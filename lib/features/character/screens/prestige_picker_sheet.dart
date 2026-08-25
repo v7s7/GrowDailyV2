@@ -142,6 +142,25 @@ class PrestigePickerSheet extends ConsumerWidget {
   }
 }
 
+/// 48pt is not a taste call: it is exactly the apex engraving threshold in
+/// prestige_mark.dart (_kApexEngravingMinSize). One pixel under it and Legacy
+/// falls back to a plain filled disc, which is what this sheet showed for the
+/// whole life of the medal — the engraving existed but had nowhere to appear
+/// outside the rank-up moment, which fires once, at level 100.
+///
+/// This is the surface that has to clear the gate because it is the only one
+/// built for BROWSING the ladder. The other two marks stay small on purpose:
+/// the room leaderboard (12pt) and the Profile hero chip (13pt) are inline
+/// beside text, where the gate's own argument holds — an engraved figure at
+/// that size is mud, and mud that costs a save layer per scrolling row.
+const double _kMarkSize = 48;
+
+/// The tinted tile behind it, leaving a 4pt margin on each side. It grew with
+/// the mark rather than letting the mark overflow it, which puts 18pt on every
+/// row. Affordable here: nine rows at the old 38pt tile already overran the
+/// sheet's 80%-of-screen cap, so this list was always a scrolling one.
+const double _kTileSize = 56;
+
 class _PrestigeRow extends StatelessWidget {
   final IconData icon;
 
@@ -189,16 +208,23 @@ class _PrestigeRow extends StatelessWidget {
               Opacity(
                 opacity: isLocked ? 0.4 : 1,
                 child: Container(
-                  width: 38,
-                  height: 38,
+                  width: _kTileSize,
+                  height: _kTileSize,
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.14),
                     borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   ),
                   child: Center(
                     child: mark == null
-                        ? Icon(icon, size: 19, color: color)
-                        : PrestigeMark(spec: mark!, size: 22, color: color),
+                        ? Icon(icon, size: 26, color: color)
+                        // Deliberately NO flat colour. The base ink is the
+                        // same either way — this row already passes the
+                        // mark's own pinned ladder colour, and PrestigeMark
+                        // falls back to exactly that — but a flat colour
+                        // also switches off the metal gradient and the apex
+                        // engraving, which are the things worth coming here
+                        // to look at.
+                        : PrestigeMark(spec: mark!, size: _kMarkSize),
                   ),
                 ),
               ),
