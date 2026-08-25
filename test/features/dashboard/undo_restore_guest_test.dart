@@ -40,10 +40,17 @@ void main() {
     containers.add(container);
     await container.read(authStateProvider.future);
     container.read(dashboardProvider);
+    // `ready`, not just `!isLoading`. isLoading clears as soon as the saved
+    // state is in hand, while _reconcileAchievements is still running behind
+    // it and can still award XP. Waiting on isLoading alone let a completion
+    // race that reconciliation, which unlocked a medal that should already
+    // have been unlocked and put both payouts on one receipt: 15 XP where the
+    // test expects 10. Reproduced by saturating half this machine's cores.
     await waitUntil(
       () => !container.read(dashboardProvider).isLoading,
       describe: 'the dashboard to finish its initial load',
     );
+    await container.read(dashboardProvider.notifier).ready;
     return container;
   }
 

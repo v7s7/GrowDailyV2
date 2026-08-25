@@ -681,14 +681,36 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   /// mis-tap correction actually happens in.
   final Map<String, _HabitCompletionSnapshot> _lastHabitCompletion = {};
 
+  /// The initial load, kept so a caller can wait for ALL of it.
+  ///
+  /// `isLoading` is not that signal, and the difference is not academic.
+  /// _loadGuestToday/_loadToday flip `isLoading: false` as soon as the saved
+  /// state is in hand, then go on to `await _reconcileAchievements()`
+  /// (dashboard_notifier_loading.dart:111 then :130), which can still award
+  /// XP and gold for medals the account already qualified for. Anything that
+  /// samples state the moment isLoading clears is therefore reading a
+  /// baseline that is still moving.
+  ///
+  /// That window is why undo_restore_guest_test failed under load with a
+  /// receipt of 15 XP where 10 was expected: the completion raced a
+  /// reconciliation that had not finished, unlocked an achievement that
+  /// should already have been unlocked, and both payouts landed on the same
+  /// receipt.
+  ///
+  /// Test-only, like [LocalStoreService.settleDailyWrites] and
+  /// [ActiveCatalogNotifier.settled]; the app never waits on this, because
+  /// the UI is happy to render a loaded board while medals settle behind it.
+  Future<void>? _initialLoad;
+
+  /// Completes when the initial load AND its achievement reconciliation are
+  /// both done. Never null-hostile: a notifier constructed and immediately
+  /// awaited resolves as soon as its load does.
+  Future<void> get ready => _initialLoad ?? Future<void>.value();
+
   DashboardNotifier(this._uid, {Random? random})
       : _random = random ?? Random(),
         super(DashboardState.initial()) {
-    if (_uid != null) {
-      _loadToday();
-    } else {
-      _loadGuestToday();
-    }
+    _initialLoad = _uid != null ? _loadToday() : _loadGuestToday();
   }
 
   // ── Helpers ─────────────────────────────────────────────────
