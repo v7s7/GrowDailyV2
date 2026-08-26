@@ -2,11 +2,12 @@
   "name": "growdaily-admin-lookup",
   "private": true,
   "version": "1.0.0",
-  "description": "Local admin tool: search/browse any GrowDaily account (server.js) or generate a one-page HTML report for one (lookup_user.js). Not part of the app; never deployed.",
+  "description": "Local admin tool: a live dashboard of what every GrowDaily account is doing (server.js), with a full per-account report you can step back through day by day, or a one-page HTML report for one account (lookup_user.js). Read-only, loopback-only. Not part of the app; never deployed.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "lookup": "node lookup_user.js"
+    "lookup": "node lookup_user.js",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
     "express": "^4.21.2",

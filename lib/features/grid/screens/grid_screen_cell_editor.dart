@@ -435,6 +435,17 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             // Mirrors the completion's boost, see roomBoostedReward.
             xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
             goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+            // Same per-day count the completion was priced against, so
+            // the refund matches the debit — see uncompleteHabit.
+            frequencyTarget: habit.effectiveDailyTarget,
+            // The palette sets one explicit outcome for the whole day, so it
+            // clears the whole day — the same thing tapping a full square
+            // does (grid_screen_table's clear branch passes this too).
+            // Without it a counted habit at 4 of 4 came back as 3 of 4 while
+            // the square was painted red or empty: the picture said one thing
+            // and the count said another, and the next tap would have paid
+            // for the fourth slice all over again.
+            clearWholeDay: true,
             category: habit.category.name,
           );
       if (!mounted) return;
@@ -450,39 +461,60 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         .read(dashboardProvider)
         .isCompleted(habit.id, habit.effectiveDailyTarget);
     if (isSyncable && picked == SquareState.complete && !alreadyDoneToday) {
-      final dashState = ref.read(dashboardProvider);
+      final target = habit.effectiveDailyTarget;
+      final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward);
+      final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward);
       final todayHabits = ref
           .read(habitListProvider)
           .where((h) => h.isScheduledFor(day))
           .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
-      // BRANCHED. The comment that used to sit here said alreadyDoneToday
-      // above already guaranteed this landed, and that stopped being true
-      // when completeHabit gained its two load guards: it also refuses while
-      // the account's numbers are still loading, and after that load failed.
-      // Unbranched, a tap in either of those windows painted the square green
-      // and recorded nothing, which is the one failure a person can never
-      // see, because the square looks identical to one that worked.
-      final rewarded = await ref.read(dashboardProvider.notifier).completeHabit(
-            habitId: habit.id,
-            // 2x while a linked room is live — see roomBoostedReward.
-            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
-            frequencyTarget: habit.effectiveDailyTarget,
-            allHabitsDoneAfter: willCompleteAllHabitsToday(
-              state: dashState,
-              todayHabits: todayHabits,
+      // The palette sets one explicit outcome for the WHOLE day, so picking
+      // the green swatch has to FINISH the day, not add one tap to it. For a
+      // habit counted four times a day the single completeHabit call this used
+      // to make registered 1 of 4 and then painted the square fully green: the
+      // picture said done, the count said a quarter, and the next tap paid for
+      // the same day again. Looping to the target is what makes the square and
+      // the count agree. At a target of 1 this runs exactly once, which is
+      // byte-for-byte the old behaviour for every habit that existed before
+      // counting did.
+      var landed = false;
+      for (var i = 0; i < target; i++) {
+        final before = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+        if (before >= target) break;
+        final dashState = ref.read(dashboardProvider);
+        await ref.read(dashboardProvider.notifier).completeHabit(
               habitId: habit.id,
-              frequencyTarget: habit.effectiveDailyTarget,
-              // A جزئي square counts half toward the threshold, so a day
-              // that is nearly full still keeps its streak.
-              halfDoneHabitIds:
-                  ref.read(weeklyGridProvider).halfDoneTodayIds(),
-            ),
-            category: habit.category.name,
-            habitName: habit.localName(S.of(context).isAr),
-          );
+              // 2x while a linked room is live — see roomBoostedReward.
+              xpReward: xpReward,
+              goldReward: goldReward,
+              frequencyTarget: target,
+              allHabitsDoneAfter: willCompleteAllHabitsToday(
+                state: dashState,
+                todayHabits: todayHabits,
+                habitId: habit.id,
+                frequencyTarget: target,
+                // A جزئي square counts half toward the threshold, so a day
+                // that is nearly full still keeps its streak.
+                halfDoneHabitIds:
+                    ref.read(weeklyGridProvider).halfDoneTodayIds(),
+              ),
+              category: habit.category.name,
+              habitName: habit.localName(S.of(context).isAr),
+            );
+        if (!mounted) return;
+        // MEASURED, not read off the return value. completeHabit returns
+        // isGridSyncable (frequencyTarget == 1), which is false for every
+        // successful tap of a counted habit — branching on it here showed the
+        // "still loading" error on taps that had plainly landed, and then
+        // returned before painting the square or syncing the room. The count
+        // is the only honest witness, and it still detects the real refusals
+        // (a load in flight, a failed load), which is what the branch is for.
+        final after = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+        if (after <= before) break;
+        landed = true;
+      }
       if (!mounted) return;
-      if (!rewarded) {
+      if (!landed) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(

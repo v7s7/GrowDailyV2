@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+    a { color: #D6C429; } a:hover { color: #E4D45A; }
+  </style>
+</helmet>
+<div dir="rtl" style="width: 402px; height: 874px; background: #070C10; color: #FFFFFF; padding: 20px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; overflow: hidden">
+
+  <div style="font-size: 17px; font-weight: 700">شبكة الانتصارات</div>
+
+  <div style="background: #10161B; border: 1px solid #1F272E; border-radius: 16px; padding: 14px 12px; display: flex; flex-direction: column; gap: 10px">
+
+    <div style="display: flex; gap: 6px; align-items: flex-end">
+      <div style="width: 74px"></div>
+      <sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+        <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 2px">
+          <div style="font-size: 9.5px; color: {{d.tint}}">{{d.ar}}</div>
+          <div style="font-size: 12px; font-weight: 700; color: {{d.tint}}">{{d.n}}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-for list="{{rows}}" as="row" hint-placeholder-count="3">
+      <div style="display: flex; gap: 6px; align-items: center">
+        <div style="width: 74px; display: flex; flex-direction: column; gap: 2px">
+          <div style="font-size: 11.5px; font-weight: 600; color: #FFFFFF; line-height: 1.15">{{row.name}}</div>
+          <sc-if value="{{row.badge}}" hint-placeholder-val="{{ true }}">
+            <div style="font-size: 9.5px; font-weight: 700; color: #D6C429">{{row.badge}}</div>
+          </sc-if>
+        </div>
+        <sc-for list="{{row.cells}}" as="c" hint-placeholder-count="7">
+          <div style="flex-grow: 1; height: 40px; border-radius: 11px; background: #151A20; border: 1px solid {{c.ring}}; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center">
+            <div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{c.fill}}; background: #589CDE"></div>
+            <sc-if value="{{c.check}}" hint-placeholder-val="{{ true }}">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="position: relative"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </sc-if>
+            <sc-if value="{{c.label}}" hint-placeholder-val="{{ true }}">
+              <div style="position: relative; font-size: 10px; font-weight: 700; color: #FFFFFF">{{c.label}}</div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-for>
+
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 16px; background: rgba(88,156,222,0.07); border: 1px solid rgba(88,156,222,0.2)">
+    <div style="font-size: 12.5px; font-weight: 700; color: #589CDE">المربّع لعادة تتكرر في اليوم</div>
+    <div style="font-size: 11.5px; color: #B0B7C3; line-height: 1.5">كل ضغطة تزيد واحد، والمربّع يمتلي على قدّها. يمتلي كامل ويطلع الصح لمن تخلّص العدد. الضغط على مربّع ممتلي كامل يرجّعه فاضي.</div>
+    <div style="display: flex; gap: 14px; margin-top: 4px">
+      <sc-for list="{{legend}}" as="l" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 5px">
+          <div style="width: 34px; height: 34px; border-radius: 10px; background: #151A20; border: 1px solid #232A31; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center">
+            <div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{l.fill}}; background: #589CDE"></div>
+            <sc-if value="{{l.check}}" hint-placeholder-val="{{ true }}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="position: relative"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </sc-if>
+          </div>
+          <div style="font-size: 10px; color: #7A796F">{{l.cap}}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="font-size: 11px; color: #7A796F; line-height: 1.5; padding: 0 4px">العادات اللي مرة وحدة في اليوم ما تغيّرت: ضغطة وحدة، ومربّع كامل. اللي تحت ينطبق بس على عادة عدّدت مرّاتها.</div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    const gold = '#D6C429';
+    const idle = '#232A31';
+    const day = (ar, n, today) => ({ ar, n, tint: today ? gold : '#7A796F' });
+    const cell = (opts) => ({
+      fill: (opts.fill ?? 0) + '%',
+      ring: opts.today ? gold : idle,
+      check: !!opts.check,
+      label: opts.label ?? '',
+    });
+    return {
+      days: [
+        day('السبت', '٢٢', false), day('الأحد', '٢٣', false),
+        day('الاثنين', '٢٤', false), day('الثلاثاء', '٢٥', true),
+        day('الأربعاء', '٢٦', false), day('الخميس', '٢٧', false),
+        day('الجمعة', '٢٨', false),
+      ],
+      rows: [
+        {
+          name: 'سورة الملك', badge: '',
+          cells: [
+            cell({ fill: 100, check: true }), cell({ fill: 100, check: true }),
+            cell({}), cell({ today: true }), cell({}), cell({}), cell({}),
+          ],
+        },
+        {
+          name: 'صلاة الضحى', badge: '',
+          cells: [
+            cell({}), cell({ fill: 100, check: true }), cell({ fill: 100, check: true }),
+            cell({ today: true, fill: 100, check: true }), cell({}), cell({}), cell({}),
+          ],
+        },
+        {
+          name: 'الدواء', badge: '٤ مرات',
+          cells: [
+            cell({ fill: 100, check: true }), cell({ fill: 75 }), cell({ fill: 100, check: true }),
+            cell({ today: true, fill: 50, label: '٢' }), cell({}), cell({}), cell({}),
+          ],
+        },
+      ],
+      legend: [
+        { fill: '0%', cap: '٠', check: false },
+        { fill: '25%', cap: '١', check: false },
+        { fill: '75%', cap: '٣', check: false },
+        { fill: '100%', cap: '٤', check: true },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

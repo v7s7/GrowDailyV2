@@ -524,77 +524,136 @@ class _GridTableState extends ConsumerState<_GridTable> {
             ),
           ),
           for (final day in days)
-            Padding(
-              padding: const EdgeInsets.only(left: _gap),
-              child: _SquareCell(
-                // "Duha prayer, Wednesday 12 August, done" — built here
-                // because this is the only place that has both the habit's
-                // name and the active language. A locked day says so, since
-                // otherwise a screen-reader user would keep trying a square
-                // that can never respond.
-                semanticLabel: [
-                  habit.localName(isAr),
-                  DateFormat('EEEE d MMMM', isAr ? 'ar' : 'en').format(day),
-                  widget.state.squareFor(habit.id, day).localLabel(isAr),
-                  if (day.isAfter(today))
-                    isAr ? 'يوم قادم' : 'future day'
-                  else if (!habit.isScheduledFor(day))
-                    isAr ? 'غير مجدول' : 'not scheduled',
-                ].join(isAr ? '، ' : ', '),
-                // Only ever non-null for one cell in the whole table: row
-                // 0's real-today square (see _GridTableState._buildTable
-                // and _GridTable.todayCellKey's doc comment) — everywhere
-                // else this stays null, since a GlobalKey can only ever be
-                // attached to one live widget at a time.
-                key: day.isRealToday ? todayCellKey : null,
-                size: cell,
-                day: day,
-                // isRealToday, not isToday: purely which square gets the
-                // gold "today" ring — see DateTimeGameExt.isRealToday. The
-                // square that's actually *editable*/reward-eligible is
-                // decided independently inside _handleSquareTap/
-                // _handlePaletteTap (still day.isToday, unchanged) and by
-                // isFuture below, so this is cosmetic only.
-                isToday: day.isRealToday,
-                // A day after the reward day (`today` = effectiveDay) is
-                // future and stays locked — *except* the real calendar day
-                // itself during the 6-hour window right after midnight
-                // (day.isRealToday true, today/effectiveDay still
-                // yesterday): that one is allowed to open and be colored in
-                // like any other non-reward day (flat XP only, same as
-                // backfilling any past square — see WeeklyGridNotifier.
-                // setSquare's anti-backdating doc comment), instead of
-                // sitting dimmed and untappable for 6 hours for no reason.
-                // A day beyond that (tomorrow-of-tomorrow, etc.) still
-                // isn't isRealToday either, so it stays correctly locked.
-                isFuture: day.startOfDay.isAfter(today) && !day.isRealToday,
-                isScheduled: habit.isScheduledFor(day),
-                // A day this flexible quota genuinely owed and that stayed
-                // empty — the week's real miss, and the only empty square the
-                // app is entitled to call one. Rest days stay plain. Never
-                // applied to today or a future day: a day still in progress
-                // has not been missed yet, and `owed` for those means "this is
-                // your last chance", not "you failed".
-                isMissedQuotaDay: demand != null &&
-                    day.isBefore(today) &&
-                    demand[days.indexOf(day)] == DayDemand.owed &&
-                    widget.state.squareFor(habit.id, day) == SquareState.none,
-                square: widget.state.squareFor(habit.id, day),
-                hasNote: widget.state.noteFor(habit.id, day).isNotEmpty,
-                onTap: widget.selectionMode
-                    ? null
-                    : () => _handleSquareTap(ref, habit, day),
-                onLongPress: widget.selectionMode
-                    ? null
-                    : () {
-                        HapticFeedback.mediumImpact();
-                        _openEditor(context, ref, habit, day);
-                      },
-              ),
-            ),
+            // Read once per cell and shared by the square's state, its fill
+            // and its screen-reader label: three independent reads of the
+            // same count is how they end up disagreeing mid-frame.
+            Builder(builder: (context) {
+              final doneToday = habit.effectiveDailyTarget > 1 && day.isToday
+                  ? ref.watch(dashboardProvider).completions[habit.id] ?? 0
+                  : 0;
+              return Padding(
+                padding: const EdgeInsets.only(left: _gap),
+                child: _SquareCell(
+                  // "Duha prayer, Wednesday 12 August, done" — built here
+                  // because this is the only place that has both the habit's
+                  // name and the active language. A locked day says so, since
+                  // otherwise a screen-reader user would keep trying a square
+                  // that can never respond.
+                  semanticLabel: [
+                    habit.localName(isAr),
+                    DateFormat('EEEE d MMMM', isAr ? 'ar' : 'en').format(day),
+                    _effectiveSquare(habit, day, doneToday).localLabel(isAr),
+                    // "2 / 4" for a counted habit's today square. The number
+                    // is drawn inside the square, where a screen reader cannot
+                    // reach it, and "partly done" alone does not answer the
+                    // only question this habit raises — how many are left.
+                    // Costs no layout width, unlike a badge beside the name.
+                    if (day.isToday && habit.effectiveDailyTarget > 1)
+                      S.of(context).timesPerDayProgress(
+                          doneToday, habit.effectiveDailyTarget),
+                    if (day.isAfter(today))
+                      isAr ? 'يوم قادم' : 'future day'
+                    else if (!habit.isScheduledFor(day))
+                      isAr ? 'غير مجدول' : 'not scheduled',
+                  ].join(isAr ? '، ' : ', '),
+                  // Only ever non-null for one cell in the whole table: row
+                  // 0's real-today square (see _GridTableState._buildTable
+                  // and _GridTable.todayCellKey's doc comment) — everywhere
+                  // else this stays null, since a GlobalKey can only ever be
+                  // attached to one live widget at a time.
+                  key: day.isRealToday ? todayCellKey : null,
+                  size: cell,
+                  day: day,
+                  // isRealToday, not isToday: purely which square gets the
+                  // gold "today" ring — see DateTimeGameExt.isRealToday. The
+                  // square that's actually *editable*/reward-eligible is
+                  // decided independently inside _handleSquareTap/
+                  // _handlePaletteTap (still day.isToday, unchanged) and by
+                  // isFuture below, so this is cosmetic only.
+                  isToday: day.isRealToday,
+                  // A day after the reward day (`today` = effectiveDay) is
+                  // future and stays locked — *except* the real calendar day
+                  // itself during the 6-hour window right after midnight
+                  // (day.isRealToday true, today/effectiveDay still
+                  // yesterday): that one is allowed to open and be colored in
+                  // like any other non-reward day (flat XP only, same as
+                  // backfilling any past square — see WeeklyGridNotifier.
+                  // setSquare's anti-backdating doc comment), instead of
+                  // sitting dimmed and untappable for 6 hours for no reason.
+                  // A day beyond that (tomorrow-of-tomorrow, etc.) still
+                  // isn't isRealToday either, so it stays correctly locked.
+                  isFuture: day.startOfDay.isAfter(today) && !day.isRealToday,
+                  isScheduled: habit.isScheduledFor(day),
+                  // A day this flexible quota genuinely owed and that stayed
+                  // empty — the week's real miss, and the only empty square the
+                  // app is entitled to call one. Rest days stay plain. Never
+                  // applied to today or a future day: a day still in progress
+                  // has not been missed yet, and `owed` for those means "this is
+                  // your last chance", not "you failed".
+                  isMissedQuotaDay: demand != null &&
+                      day.isBefore(today) &&
+                      demand[days.indexOf(day)] == DayDemand.owed &&
+                      widget.state.squareFor(habit.id, day) == SquareState.none,
+                  square: _effectiveSquare(habit, day, doneToday),
+                  // Only today, and only for a habit that is actually counted:
+                  // `completions` holds today's count and nothing else, so
+                  // handing it to any other day's square would draw today's
+                  // progress onto Tuesday.
+                  dayCount: day.isToday && habit.effectiveDailyTarget > 1
+                      ? (done: doneToday, target: habit.effectiveDailyTarget)
+                      : null,
+                  hasNote: widget.state.noteFor(habit.id, day).isNotEmpty,
+                  onTap: widget.selectionMode
+                      ? null
+                      : () => _handleSquareTap(ref, habit, day),
+                  onLongPress: widget.selectionMode
+                      ? null
+                      : () {
+                          HapticFeedback.mediumImpact();
+                          _openEditor(context, ref, habit, day);
+                        },
+                ),
+              );
+            }),
         ],
       ),
     );
+  }
+
+  /// Today's square state for [habit], derived from its per-day count when
+  /// it has one.
+  ///
+  /// A counted habit's square is a picture of `completions`, and it has to be
+  /// that no matter which screen did the counting. Today and the notification
+  /// actions only ever mirror a completion onto the Grid for a single-tap
+  /// habit (completeHabit returns isGridSyncable, `frequencyTarget == 1`) —
+  /// which was right when a square could not express "2 of 4" and is wrong
+  /// now that it can. Without this, finishing a 4x habit from Today left its
+  /// square sitting empty on the Grid with the day fully done.
+  ///
+  /// Deriving it here rather than widening that mirror keeps the change out
+  /// of the reward system entirely: nothing about what a completion PAYS
+  /// moves, only what the board draws.
+  SquareState _effectiveSquare(
+    IslamicHabitTemplate habit,
+    DateTime day,
+    int doneToday,
+  ) {
+    final stored = widget.state.squareFor(habit.id, day);
+    if (!day.isToday || habit.effectiveDailyTarget <= 1 || doneToday <= 0) {
+      return stored;
+    }
+    // An explicit advanced mark (failed/bonus/skipped) is a deliberate
+    // statement about the day and outranks the count, exactly as it does for
+    // every other habit.
+    if (stored == SquareState.failed ||
+        stored == SquareState.bonus ||
+        stored == SquareState.skipped) {
+      return stored;
+    }
+    return doneToday >= habit.effectiveDailyTarget
+        ? SquareState.complete
+        : SquareState.partial;
   }
 
   /// Handles a plain tap on a habit's square.
@@ -619,30 +678,72 @@ class _GridTableState extends ConsumerState<_GridTable> {
   /// falls through to the original flat-rate tap-cycle, unchanged.
   Future<void> _handleSquareTap(
       WidgetRef ref, IslamicHabitTemplate habit, DateTime day) async {
-    final current = widget.state.squareFor(habit.id, day);
+    final perDay = habit.effectiveDailyTarget;
+    // The state the person is actually looking at — see _effectiveSquare. A
+    // counted habit finished from Today has a green square on screen, and a
+    // tap on it has to mean "clear this", not "start counting".
+    final current = _effectiveSquare(
+      habit,
+      day,
+      ref.read(dashboardProvider).completions[habit.id] ?? 0,
+    );
     final next = current.next;
     final isSyncable = day.isToday;
+
+    // ── A habit counted more than once a day ─────────────────────
+    //
+    // Today's square stops being a three-colour cycle and becomes a counter:
+    // each tap adds one and fills the square that much further, and the
+    // check only appears once the whole count is done
+    // (design/Grid.dc.html). The colour cycle still owns every other square
+    // — past days, and every habit that is once a day — so nothing that
+    // existed before this feature changes behaviour here.
+    //
+    // Deliberately ahead of the two branches below: for a counted habit the
+    // question "is the next colour green" is the wrong question, and letting
+    // it be asked first is what would pay a full day's reward for one tap.
+    if (isSyncable && perDay > 1) {
+      final done = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+      if (done < perDay) {
+        await _addOneToday(ref, habit, day, done: done, target: perDay);
+        return;
+      }
+      // Already at the full count — falls through to the clear-confirm
+      // branch below, which is the same "tap a finished square to empty it"
+      // this habit had when it was once a day.
+    }
 
     if (isSyncable && next == SquareState.complete) {
       await _completeSquareToday(ref, habit, day);
       return;
     }
 
-    if (isSyncable &&
-        current == SquareState.complete &&
-        (ref.read(dashboardProvider).completions[habit.id] ?? 0) > 0) {
+    // isGreen, not `== complete`, and no test on the completions map.
+    //
+    // Both narrowings leaked. `== complete` let today's BLUE bonus square
+    // through — isGreen is complete||bonus, and bonus.next is none, so a
+    // single tap emptied a bonus square with no dialog at all, while the
+    // identical square one day earlier got one. And ANDing on
+    // `completions > 0` meant a green square whose completion is not in
+    // memory (a swallowed daily-doc read, a failed load, a legacy pre-sync
+    // square) also cleared silently. Reading the SQUARE is the right test:
+    // it is what the person can see, and it is what they are acting on.
+    // uncompleteHabit's own `current <= 0` early return already handles the
+    // case where there is no completion to reverse.
+    if (isSyncable && current.isGreen) {
+      final backedByCompletion =
+          (ref.read(dashboardProvider).completions[habit.id] ?? 0) > 0;
       // Today's completed, synced squares should still behave like every
       // other editable square: tapping green cycles it back to empty, and
       // long-press still opens the explicit palette. Because this green
-      // state was rewarded through DashboardNotifier.completeHabit, undo
-      // that canonical completion first so Today un-checks the task and
+      // state was normally rewarded through DashboardNotifier.completeHabit,
+      // undo that canonical completion first so Today un-checks the task and
       // XP/gold/green counters are refunded before the visual square is
-      // cleared. Checks completions[habitId] > 0 directly rather than
-      // isCompleted (completions >= frequencyTarget): for a multi-target
-      // habit, one Grid-driven tap only ever registers one completion,
-      // which alone can sit well under its weekly target — isCompleted
-      // would stay false and this whole branch would be skipped, leaving
-      // a phantom completions entry this square could never undo again.
+      // cleared. [backedByCompletion] is what says whether there IS such a
+      // completion: a bonus square never has one, and a green square can
+      // outlive its record. It decides only what the dialog PROMISES —
+      // naming an XP refund that is not coming would be a lie — and the
+      // clear itself runs either way.
       //
       // The one confirmation on this whole board, and it is on the one tap
       // that takes something away: every other square tap only ever adds.
@@ -662,13 +763,27 @@ class _GridTableState extends ConsumerState<_GridTable> {
         habitName: habit.localName(S.of(context).isAr),
         xp: xpReward,
         gold: goldReward,
+        noReward: !backedByCompletion,
       );
       if (!confirmed || !context.mounted) return;
       HapticFeedback.selectionClick();
+      // Read BEFORE the clear, because the clear is what erases it. A counted
+      // habit's day is N taps, and clearWholeDay below refunds all of them at
+      // once, so Undo has to put all of them back — see _restoreClearedDay.
+      // Without this the Undo called completeHabit exactly once and silently
+      // left a 4/4 day sitting at 1/4.
+      final clearedCount =
+          ref.read(dashboardProvider).completions[habit.id] ?? 0;
       await ref.read(dashboardProvider.notifier).uncompleteHabit(
             habitId: habit.id,
             xpReward: xpReward,
             goldReward: goldReward,
+            // Same per-day count the completion was priced against, so
+            // the refund matches the debit — see uncompleteHabit.
+            frequencyTarget: habit.effectiveDailyTarget,
+            // Tapping a full square empties it, which for a counted habit
+            // means the whole day and not just its last tap.
+            clearWholeDay: true,
             category: habit.category.name,
           );
       ref
@@ -687,10 +802,41 @@ class _GridTableState extends ConsumerState<_GridTable> {
           content: Text(s.gridMarkCleared),
           action: SnackBarAction(
             label: s.undo,
-            onPressed: () => _completeSquareToday(ref, habit, day),
+            onPressed: () =>
+                _restoreClearedDay(ref, habit, day, clearedCount),
           ),
         ));
       return;
+    }
+
+    // ── Clearing a finished day asks first, on every day ─────────
+    //
+    // Today's clear already asked, in the branch above, and named the XP and
+    // gold it was about to take back. A past day never asked at all: one
+    // stray tap on a green square erased a completed day outright, and
+    // because past days sit outside the reward system there was no refund, no
+    // snackbar and nothing on screen to notice it had happened.
+    //
+    // That gap was survivable while a tap had to travel white → yellow →
+    // green → white to reach a clear. Now that one tap means done, green is
+    // one tap from empty, and the single most destructive thing a square can
+    // do is also the easiest to do by accident.
+    //
+    // Only for marks that say the day was DONE. A red or grey square is a
+    // note about the day rather than a record of finishing it, and asking
+    // before clearing one would be a confirmation on an ordinary edit.
+    if (!isSyncable && current.isGreen) {
+      final confirmed = await _confirmClearMark(
+        context,
+        habitName: habit.localName(S.of(context).isAr),
+        xp: 0,
+        gold: 0,
+        pastDayLabel: DateFormat(
+          'EEEE d MMMM',
+          S.of(context).isAr ? 'ar' : 'en',
+        ).format(day),
+      );
+      if (!confirmed || !context.mounted) return;
     }
 
     // A square turning green is the app's core reward moment — it gets a
@@ -807,6 +953,161 @@ class _GridTableState extends ConsumerState<_GridTable> {
     }
   }
 
+  /// Puts back a day that the clear-confirm just emptied, exactly as it stood.
+  ///
+  /// Undo has to be the inverse of what it is undoing, and what it undoes is
+  /// `uncompleteHabit(clearWholeDay: true)` — which refunds ALL of a counted
+  /// habit's taps in one call. Replaying a single completion therefore left a
+  /// 4/4 day at 1/4: three quarters of the day quietly gone, after the person
+  /// had just been told the clear was reversible. [count] is read before the
+  /// clear, because the clear is what destroys it.
+  ///
+  /// The first re-tap redeems the UndoneCompletion receipt the clear wrote (see
+  /// completeHabit); the rest are ordinary taps of the same day, so the day is
+  /// paid exactly what it was paid before, no more.
+  Future<void> _restoreClearedDay(
+    WidgetRef ref,
+    IslamicHabitTemplate habit,
+    DateTime day,
+    int count,
+  ) async {
+    if (count <= 1) {
+      // The ordinary once-a-day case, and the one this always handled: a
+      // single completion, restored through the same path a square tap uses.
+      await _completeSquareToday(ref, habit, day);
+      return;
+    }
+    final target = habit.effectiveDailyTarget;
+    final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward);
+    final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward);
+    final dashState = ref.read(dashboardProvider);
+    final todayHabits = ref
+        .read(habitListProvider)
+        .where((h) => h.isScheduledFor(day))
+        .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
+    HapticFeedback.mediumImpact();
+    for (var i = 0; i < count; i++) {
+      final before = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+      if (before >= target) break;
+      await ref.read(dashboardProvider.notifier).completeHabit(
+            habitId: habit.id,
+            xpReward: xpReward,
+            goldReward: goldReward,
+            frequencyTarget: target,
+            allHabitsDoneAfter: willCompleteAllHabitsToday(
+              state: dashState,
+              todayHabits: todayHabits,
+              habitId: habit.id,
+              frequencyTarget: target,
+              halfDoneHabitIds: ref.read(weeklyGridProvider).halfDoneTodayIds(),
+            ),
+            category: habit.category.name,
+            habitName: habit.localName(S.of(context).isAr),
+          );
+      // Measured, not assumed: completeHabit refuses while the account's own
+      // numbers are still loading or after a failed load, and its return value
+      // cannot say so (it reports isGridSyncable). A refusal must stop the
+      // replay rather than spin the loop to its count.
+      final after = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+      if (after <= before) break;
+    }
+    if (!context.mounted) return;
+    final restored = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+    if (restored <= 0) return;
+    ref.read(weeklyGridProvider.notifier).markResultFromHabit(
+          habit.id,
+          day,
+          restored >= target ? SquareState.complete : SquareState.partial,
+        );
+    syncRoomToday(ref, habit.id, day);
+    if (restored >= target) _maybeCelebrateFullRow(ref, habit);
+  }
+
+  /// One tap on the square of a habit counted more than once a day.
+  ///
+  /// Adds exactly one to today's count through the same canonical reward
+  /// path every other completion uses, so the day's XP, gold, streak and
+  /// room sync all stay in one place. [DashboardNotifier.completeHabit]
+  /// prices this tap as its share of the day rather than a whole day (see
+  /// XpCalculator.rewardSliceForTap), which is what stops "4 times a day"
+  /// from being four days' reward for the same habit.
+  ///
+  /// The square then mirrors the new count: partial while there is still
+  /// something owed, complete on the tap that finishes it. Only that last
+  /// tap celebrates, because only that one finished anything.
+  Future<void> _addOneToday(
+    WidgetRef ref,
+    IslamicHabitTemplate habit,
+    DateTime day, {
+    required int done,
+    required int target,
+  }) async {
+    final finishes = done + 1 >= target;
+    // The finishing tap is the reward moment and gets the heavier thump;
+    // the ones before it are progress, and should not feel like arrival.
+    if (finishes) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
+
+    final dashState = ref.read(dashboardProvider);
+    final todayHabits = ref
+        .read(habitListProvider)
+        .where((h) => h.isScheduledFor(day))
+        .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
+    // Read the count BEFORE, because that is the only honest way to tell
+    // whether this tap landed. completeHabit's return value cannot answer it
+    // for a counted habit: it returns isGridSyncable, `frequencyTarget == 1`,
+    // which is false for EVERY tap of a counted habit including the ones that
+    // work perfectly. Treating that false as a refusal is exactly what this
+    // method used to do, and it cost more than a wrong snackbar — it returned
+    // before painting the square, so a counted habit's stored SquareState
+    // stayed `none` all day. The count and the fill still rendered (both read
+    // `completions` directly), which is why it looked fine while the room
+    // sync, the day percentage and the heatmap — all of which read the STORED
+    // square — never heard that anything had happened.
+    final before = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+    await ref.read(dashboardProvider.notifier).completeHabit(
+          habitId: habit.id,
+          xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+          goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+          frequencyTarget: target,
+          allHabitsDoneAfter: willCompleteAllHabitsToday(
+            state: dashState,
+            todayHabits: todayHabits,
+            habitId: habit.id,
+            frequencyTarget: target,
+            halfDoneHabitIds: ref.read(weeklyGridProvider).halfDoneTodayIds(),
+          ),
+          category: habit.category.name,
+          habitName: habit.localName(S.of(context).isAr),
+        );
+    if (!context.mounted) return;
+    // Same rule as _completeSquareToday, and the same reason: a refused
+    // completion must not leave a square claiming something was recorded.
+    // Measured off the count itself rather than a return flag, so it detects
+    // the real refusals (a load still in flight, a failed load) and nothing
+    // else.
+    final after = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+    if (after <= before) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          duration: const Duration(seconds: 2),
+          content: Text(S.of(context).squareNotReadyYet),
+        ));
+      return;
+    }
+    ref.read(weeklyGridProvider.notifier).markResultFromHabit(
+          habit.id,
+          day,
+          finishes ? SquareState.complete : SquareState.partial,
+        );
+    syncRoomToday(ref, habit.id, day);
+    if (finishes) _maybeCelebrateFullRow(ref, habit);
+  }
+
   /// Asks before clearing a mark that carries a real completion.
   ///
   /// Names the habit and says the two numbers out loud, because "are you
@@ -816,11 +1117,17 @@ class _GridTableState extends ConsumerState<_GridTable> {
   ///
   /// Shaped after confirmDeleteForever in habit_actions_sheet.dart, so the
   /// app has one look for "this one takes something away".
+  /// [pastDayLabel] switches this to the past-day wording. A past day is
+  /// outside the reward system, so naming an XP refund there would be a lie;
+  /// what it promises instead is the thing that IS true, that re-marking the
+  /// same day restores it at its original time.
   Future<bool> _confirmClearMark(
     BuildContext context, {
     required String habitName,
     required int xp,
     required int gold,
+    String? pastDayLabel,
+    bool noReward = false,
   }) async {
     final gp = context.gp;
     final s = S.of(context);
@@ -830,7 +1137,9 @@ class _GridTableState extends ConsumerState<_GridTable> {
       builder: (dialogContext) => AlertDialog(
         backgroundColor: gp.surfaceHigh,
         title: Text(
-          s.gridClearMarkTitle,
+          pastDayLabel == null
+              ? s.gridClearMarkTitle
+              : s.gridClearPastMarkTitle,
           style: TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.w800,
@@ -838,7 +1147,11 @@ class _GridTableState extends ConsumerState<_GridTable> {
           ),
         ),
         content: Text(
-          s.gridClearMarkBody(habitName, xp, gold),
+          pastDayLabel != null
+              ? s.gridClearPastMarkBody(habitName, pastDayLabel)
+              : noReward
+                  ? s.gridClearMarkBodyNoReward(habitName)
+                  : s.gridClearMarkBody(habitName, xp, gold),
           style: TextStyle(fontSize: 13, color: gp.textSec, height: 1.45),
         ),
         actions: [
@@ -1019,6 +1332,40 @@ class _SquareCell extends StatelessWidget {
   final bool isMissedQuotaDay;
 
   final SquareState square;
+
+  /// Today's progress for a habit counted more than once a day, or null for
+  /// every other square — which is every square this app had before counting
+  /// existed, so they all keep rendering exactly as they did.
+  ///
+  /// When set, the square stops being one flat colour and fills in
+  /// proportion to [done] over [target] (design/Grid.dc.html), with the
+  /// running number in the middle so "how many left" is readable without
+  /// counting pixels. The check still belongs to the finished state alone.
+  final ({int done, int target})? dayCount;
+
+  /// Whether the tap about to happen is the one that finishes this day, which
+  /// is the only moment worth firing the completion burst for.
+  ///
+  /// `square.next.isGreen` answers this correctly for every square the colour
+  /// cycle owns, and exactly backwards for a counted habit: at 0 done the
+  /// effective square is `none`, whose `next` is `complete`, so the FIRST of
+  /// four taps got the full completion burst while the day was 1/4 done, and
+  /// the tap that actually finished it saw `partial` (whose next is `none`)
+  /// and fired nothing. [dayCount] is non-null only for today's square of a
+  /// habit counted more than once a day, which is precisely the case the
+  /// colour cycle cannot answer, so its presence is the branch.
+  ///
+  /// The `done < target` half matters: a tap on an already-full counted square
+  /// means CLEAR (see _handleSquareTap's fall-through), and celebrating
+  /// someone emptying their day would be the worst possible time to.
+  bool get _tapFinishesDay {
+    final count = dayCount;
+    if (count != null) {
+      return count.done < count.target && count.done + 1 >= count.target;
+    }
+    return square.next.isGreen;
+  }
+
   final bool hasNote;
   // Nullable: null while Grid's multi-select mode is active, so squares
   // stop responding to taps/long-presses and can't accidentally change a
@@ -1043,10 +1390,19 @@ class _SquareCell extends StatelessWidget {
     required this.isScheduled,
     this.isMissedQuotaDay = false,
     required this.square,
+    this.dayCount,
     required this.hasNote,
     required this.onTap,
     required this.onLongPress,
   });
+
+  /// True while this square is drawing a part-done count rather than a flat
+  /// colour. At 0 there is nothing to draw and at the target the square is
+  /// simply complete, so both ends fall back to ordinary square rendering.
+  bool get _isCounting =>
+      dayCount != null &&
+      dayCount!.done > 0 &&
+      dayCount!.done < dayCount!.target;
 
   @override
   Widget build(BuildContext context) {
@@ -1067,7 +1423,14 @@ class _SquareCell extends StatelessWidget {
         // stays correct automatically in every theme preset and in light mode.
         color: isMissedQuotaDay
             ? SquareState.failed.fill(dark)
-            : square.fill(dark),
+            // A counting square is drawn as empty-plus-a-rising-portion. Left
+            // as square.fill it painted the partial colour edge to edge, and
+            // the proportional overlay — the same colour — was invisible: the
+            // square went straight from empty to fully yellow on tap one of
+            // four, which is precisely the thing the count exists to avoid.
+            : _isCounting
+                ? SquareState.none.fill(dark)
+                : square.fill(dark),
         borderRadius: BorderRadius.circular(9),
         // Same width for every square regardless of `isToday` — Flutter
         // centers a box border on the shape's edge, so a thicker border
@@ -1092,7 +1455,44 @@ class _SquareCell extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          if (square.icon != null)
+          // The proportional fill, under everything else so the note glyph
+          // and the count still read on top of it. Drawn from the bottom
+          // because a square filling upward is the one metaphor nobody has
+          // to be taught.
+          if (_isCounting)
+            Positioned.fill(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: FractionallySizedBox(
+                  heightFactor:
+                      (dayCount!.done / dayCount!.target).clamp(0.0, 1.0),
+                  child: AnimatedContainer(
+                    duration: GameMotion.standard,
+                    curve: Curves.easeOut,
+                    decoration: BoxDecoration(
+                      color: SquareState.partial.fill(dark),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // The count itself, standing in for the partial state's own glyph.
+          // Both cannot be shown — the glyph is centred and would sit on top
+          // of the number — and between "something is part done" and "2 of 4
+          // are done", the number is the one that answers the question.
+          if (_isCounting)
+            Center(
+              child: Text(
+                '${dayCount!.done}',
+                style: TextStyle(
+                  fontSize: size * 0.42,
+                  fontWeight: FontWeight.w800,
+                  color: SquareState.partial.accent,
+                ),
+              ),
+            ),
+          if (square.icon != null && !_isCounting)
             Center(
               child: Icon(
                 square.icon,
@@ -1168,7 +1568,7 @@ class _SquareCell extends StatelessWidget {
             : () {
               // Confetti fires from the cell itself the instant the tap
               // will turn it green — the market-standard completion moment.
-              if (square.next.isGreen) {
+              if (_tapFinishesDay) {
                 final box = context.findRenderObject() as RenderBox?;
                 if (box != null && box.attached) {
                   showVictoryBurst(

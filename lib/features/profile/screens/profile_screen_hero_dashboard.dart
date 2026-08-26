@@ -65,7 +65,10 @@ class _HeroHeader extends ConsumerWidget {
                   height: 116,
                   child: CustomPaint(
                     painter: _RingPainter(
-                      progress: state.levelProgress,
+                      // Flat until the numbers are real, same reason as the
+                      // level badge's own ring below.
+                      progress:
+                          state.statsAreReal ? state.levelProgress : 0,
                       trackColor: gp.border,
                       arcColor: GameColors.gold,
                       strokeWidth: 4,
@@ -108,7 +111,11 @@ class _HeroHeader extends ConsumerWidget {
                       height: 46,
                       child: CustomPaint(
                         painter: _RingPainter(
-                          progress: state.levelProgress,
+                          // Not state.levelProgress directly: an unloaded
+                          // state is initial()'s zeros, and an arc drawn
+                          // from them is a claim about progress nobody
+                          // made. Flat until the numbers are real.
+                          progress: state.statsAreReal ? state.levelProgress : 0,
                           trackColor: gp.border,
                           arcColor: GameColors.gold,
                           strokeWidth: 3.5,
@@ -122,7 +129,15 @@ class _HeroHeader extends ConsumerWidget {
                           ),
                           child: Center(
                             child: Text(
-                              '${state.level}',
+                              // The single most prominent number on the
+                              // screen, and the one that hurt most: a failed
+                              // load renders initial()'s level 1, so a level
+                              // 12 account is told in the largest type on
+                              // Profile that it is brand new. See
+                              // DashboardState.statsAreReal.
+                              state.statsAreReal
+                                  ? '${state.level}'
+                                  : _kStatPlaceholder,
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w900,
@@ -172,6 +187,14 @@ class _HeroHeader extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 4),
+          // Hidden rather than placeholdered while the numbers are not real.
+          // The rank is derived from state.level, so an unloaded state
+          // resolves the base Level 1 tier and this chip cheerfully
+          // announces a demotion: an account showing المجتهد renders الباحث
+          // until the load lands. A rank nobody can vouch for is worse than
+          // no rank, and unlike a number there is nothing sensible to put in
+          // its place. See DashboardState.statsAreReal.
+          if (state.statsAreReal)
           InkWell(
             borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
             onTap: () => showPrestigePicker(context),
@@ -222,7 +245,12 @@ class _HeroHeader extends ConsumerWidget {
                     fontWeight: FontWeight.w500),
               ),
               Text(
-                progressFraction(state.currentLevelXp, state.xpToNext),
+                // Same rule as the stats row: "0 / 100" on a level 12
+                // account is a claim, and the wrong one. See
+                // DashboardState.statsAreReal.
+                state.statsAreReal
+                    ? progressFraction(state.currentLevelXp, state.xpToNext)
+                    : _kStatPlaceholder,
                 style: TextStyle(
                     fontSize: 12,
                     color: gp.textPrimary,
@@ -240,7 +268,10 @@ class _HeroHeader extends ConsumerWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               child: LinearProgressIndicator(
-                value: state.levelProgress,
+                // An unloaded state fills this from zeros; drawing that as
+                // a real bar under a "…" fraction says two different things
+                // at once. See DashboardState.statsAreReal.
+                value: state.statsAreReal ? state.levelProgress : 0,
                 backgroundColor: gp.border,
                 valueColor:
                     AlwaysStoppedAnimation(GameColors.gold),
@@ -309,12 +340,17 @@ class _StatsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    // Every figure on this row goes through here, so an unloaded or failed
+    // state cannot leak a single confident zero. See
+    // DashboardState.statsAreReal for why a zero here is not a harmless
+    // wrong number: it reads as a wiped account.
+    String fig(int value) => state.statsAreReal ? '$value' : _kStatPlaceholder;
     return Row(
       children: [
         _StatCell(
             icon: Icons.local_fire_department_rounded,
             color: GameColors.iconStreak,
-            value: '${state.streak}',
+            value: fig(state.streak),
             label: s.streak,
             infoTitle: s.statInfoStreakTitle,
             infoDescription: s.statInfoStreakDesc),
@@ -322,7 +358,7 @@ class _StatsRow extends StatelessWidget {
         _StatCell(
             icon: Icons.emoji_events_rounded,
             color: GameColors.iconGold,
-            value: '${state.longestStreak}',
+            value: fig(state.longestStreak),
             label: s.best,
             infoTitle: s.statInfoBestTitle,
             infoDescription: s.statInfoBestDesc),
@@ -330,7 +366,7 @@ class _StatsRow extends StatelessWidget {
         _StatCell(
             icon: Icons.check_circle_rounded,
             color: GameColors.iconSuccess,
-            value: '${state.totalCompletions}',
+            value: fig(state.totalCompletions),
             label: s.total,
             infoTitle: s.statInfoTotalTitle,
             infoDescription: s.statInfoTotalDesc),
@@ -338,7 +374,7 @@ class _StatsRow extends StatelessWidget {
         _StatCell(
             icon: Icons.toll_rounded,
             color: GameColors.iconGold,
-            value: '${state.gold}',
+            value: fig(state.gold),
             label: s.gold,
             infoTitle: s.statInfoGoldTitle,
             infoDescription: s.statInfoGoldDesc),
@@ -346,7 +382,7 @@ class _StatsRow extends StatelessWidget {
         _StatCell(
             icon: Icons.bolt_rounded,
             color: GameColors.iconXp,
-            value: '${state.cumulativeXp}',
+            value: fig(state.cumulativeXp),
             label: s.totalXp,
             infoTitle: s.statInfoXpTitle,
             infoDescription: s.statInfoXpDesc),
@@ -354,6 +390,14 @@ class _StatsRow extends StatelessWidget {
     );
   }
 }
+
+/// Stands in for any progression figure that has not loaded yet.
+///
+/// An ellipsis rather than a spinner per cell: five spinners in a row reads
+/// as an app in trouble, while this reads as "not known yet", which is
+/// exactly what it is. Deliberately not "0", which is a claim, and the one
+/// claim this state must never make.
+const String _kStatPlaceholder = '…';
 
 class _StatCell extends StatelessWidget {
   final IconData icon;

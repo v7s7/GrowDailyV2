@@ -511,8 +511,54 @@ class NotificationService {
   // list provider.
   final Set<String> _habitReminderHabitIds = {};
 
-  int _habitReminderId(String habitId) => 5000 + habitId.hashCode.abs() % 1000;
-  int _snoozeId(String habitId) => 6000 + habitId.hashCode.abs() % 1000;
+  /// The most reminder slots one habit can hold in a day.
+  ///
+  /// Mirrors the stepper's own cap (kMaxTimesPerDay in add_habit_sheet), and
+  /// is repeated rather than imported because that constant lives inside a
+  /// `part of` a widget file. Kept here as the id scheme's own bound: the
+  /// 5000..5999 band has to stay a band, so the number of slots must be
+  /// something this file can state and loop over.
+  static const int _maxHabitReminderSlots = 12;
+
+  /// The notification id for one habit's reminder in one slot of the day.
+  ///
+  /// A habit counted N times a day wants N reminders, and every one of them
+  /// has to be independently schedulable and cancellable — one id per habit
+  /// meant the second slot silently replaced the first, so a habit set to
+  /// four times a day would ping once and look broken.
+  ///
+  /// Slot 0 deliberately returns the exact id this method returned before
+  /// slots existed. Ids are the only handle the OS has on an already-
+  /// scheduled notification: changing slot 0's id would strand every
+  /// reminder currently sitting in the system scheduler on every device
+  /// that upgrades, uncancellable and unreplaceable, until it fired. The
+  /// `'$habitId#$slot'` shape for the rest matches the same trick this file
+  /// already plays for repeated task reminders.
+  /// The band-relative part of a slot's id. Public so the slot scheme itself
+  /// can be tested — the two id methods below are just this plus their band,
+  /// and the properties worth locking (slot 0 is unchanged, slots differ,
+  /// nothing escapes its band) all live here.
+  @visibleForTesting
+  static int reminderSlotOffset(String habitId, int slot) =>
+      (slot == 0 ? habitId.hashCode : '$habitId#$slot'.hashCode).abs() % 1000;
+
+  int _habitReminderId(String habitId, [int slot = 0]) =>
+      5000 + reminderSlotOffset(habitId, slot);
+
+  int _snoozeId(String habitId, [int slot = 0]) =>
+      6000 + reminderSlotOffset(habitId, slot);
+
+  /// Cancels every slot a habit could be holding, not just its first.
+  ///
+  /// Every cancel site has to use this: cancelling slot 0 alone is how a
+  /// habit that was counted four times a day and then deleted keeps pinging
+  /// three times a day forever, with nothing left in the app pointing at it.
+  Future<void> _cancelAllHabitReminderSlots(String habitId) async {
+    for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
+      await _plugin.cancel(_habitReminderId(habitId, slot));
+      await _plugin.cancel(_snoozeId(habitId, slot));
+    }
+  }
 
   static const _bundleSlotBase = 7000;
   static const _maxBundleSlots = 6;
@@ -554,8 +600,7 @@ class NotificationService {
 
     if (!settings.masterEnabled || !settings.habitRemindersEnabled) {
       for (final id in _habitReminderHabitIds) {
-        await _plugin.cancel(_habitReminderId(id));
-        await _plugin.cancel(_snoozeId(id));
+        await _cancelAllHabitReminderSlots(id);
       }
       for (var i = 0; i < _maxBundleSlots; i++) {
         await _plugin.cancel(_bundleSlotBase + i);
@@ -576,7 +621,7 @@ class NotificationService {
 
     for (final habit in habits) {
       if (habit.isDoneToday) {
-        await _plugin.cancel(_habitReminderId(habit.id));
+        await _cancelAllHabitReminderSlots(habit.id);
         continue;
       }
 
@@ -641,7 +686,7 @@ class NotificationService {
       }
 
       if (fireTime == null) {
-        await _plugin.cancel(_habitReminderId(habit.id));
+        await _cancelAllHabitReminderSlots(habit.id);
         continue;
       }
 
@@ -659,7 +704,7 @@ class NotificationService {
             settings.quietHoursStart,
             settings.quietHoursEnd,
           )) {
-        await _plugin.cancel(_habitReminderId(habit.id));
+        await _cancelAllHabitReminderSlots(habit.id);
         continue;
       }
 
@@ -671,12 +716,23 @@ class NotificationService {
       ));
     }
 
+    // Swept BEFORE anything is scheduled, never after.
+    //
+    // Reminder ids are hashes folded into shared 1000-wide bands, so two habits
+    // can land on the same id, and cancelling one habit can cancel another's.
+    // The done / unresolvable / quiet-hours cancels above all run before
+    // _scheduleResolved, so a collision there is immediately overwritten by the
+    // real schedule and costs nothing. This sweep used to run after it, which
+    // is the one ordering where a collision is permanent: delete a habit as the
+    // last thing before backgrounding the app and, on a collision, another
+    // habit's just-scheduled reminder was cancelled and simply never fired,
+    // with no recompute due until the app was next opened.
+    for (final staleId in _habitReminderHabitIds.difference(nextHabitIds)) {
+      await _cancelAllHabitReminderSlots(staleId);
+    }
+
     await _scheduleResolved(resolved, settings.bundleEnabled, isAr);
 
-    for (final staleId in _habitReminderHabitIds.difference(nextHabitIds)) {
-      await _plugin.cancel(_habitReminderId(staleId));
-      await _plugin.cancel(_snoozeId(staleId));
-    }
     _habitReminderHabitIds
       ..clear()
       ..addAll(nextHabitIds);
@@ -740,7 +796,7 @@ class NotificationService {
         // in a single day. The remaining group(s) just don't get a
         // combined notification rather than risk an unbounded id range.
         for (final r in group) {
-          await _plugin.cancel(_habitReminderId(r.id));
+          await _cancelAllHabitReminderSlots(r.id);
         }
         continue;
       }
@@ -759,7 +815,7 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
       );
       for (final r in group) {
-        await _plugin.cancel(_habitReminderId(r.id));
+        await _cancelAllHabitReminderSlots(r.id);
       }
     }
     // A bundle slot not used this round might still hold a stale

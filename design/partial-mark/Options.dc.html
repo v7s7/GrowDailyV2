@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+    a { color: #E8C55A; } a:hover { color: #F2D680; }
+    .sq { width: 30px; height: 30px; border-radius: 9px; border: 0.8px solid; position: relative; overflow: hidden; flex: none; }
+    .sq44 { width: 44px; height: 44px; border-radius: 9px; border: 0.8px solid; position: relative; overflow: hidden; flex: none; }
+    .empty { background: #26292D; border-color: #2D4037; }
+    .done  { background: #2B4864; border-color: rgba(91,155,213,0.55); }
+    .part  { background: #564C29; border-color: rgba(232,197,90,0.55); }
+    .ctr { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .cap { font-size: 11px; color: #7E8A84; line-height: 1.5; }
+    .name { font-size: 13px; font-weight: 700; color: #F7F3E8; }
+    .col { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+    .row { display: flex; gap: 14px; align-items: center; }
+    .card { background: #12161B; border: 1px solid #1E2A24; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+    .lightcard { background: #EADFCB; border-color: #D8CDBA; }
+    .l-empty { background: #EADFCB; border-color: #D8CDBA; }
+    .l-done  { background: #BFD8CE; border-color: rgba(24,138,97,0.5); }
+    .l-part  { background: #EBD9AA; border-color: rgba(200,150,20,0.5); }
+    .tag { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #9C7436; }
+  </style>
+</helmet>
+<div style="background:#07100D; padding:28px; display:flex; flex-direction:column; gap:22px; width:900px; box-sizing:border-box;">
+
+  <div class="col" style="gap:4px;">
+    <div style="font-size:19px; font-weight:700; color:#F7F3E8;">The deliberate "partly done" mark</div>
+    <div class="cap" style="max-width:640px;">Drawn at the real floor size, 30pt, with the app's own fills. The glyph inside renders at size x 0.5, so 15pt. Each option is shown beside a finished square, because telling those two apart at a glance is the whole job.</div>
+  </div>
+
+  <div class="row" style="gap:18px; align-items:flex-start; flex-wrap:wrap;">
+
+    <div class="card">
+      <div class="tag">Option A</div>
+      <div class="name">Half fill, no glyph</div>
+      <div class="row">
+        <div class="sq empty"></div>
+        <div class="sq part" style="background:#26292D;">
+          <div style="position:absolute; left:0; right:0; bottom:0; height:50%; background:#564C29;"></div>
+        </div>
+        <div class="sq done"><div class="ctr">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg>
+        </div></div>
+      </div>
+      <div class="cap" style="max-width:230px;">The fill is the mark. Nothing to learn, nothing to squint at.<br><br><strong style="color:#C9A227;">Cost:</strong> it is the same mechanism a counted habit uses, so a bare half fill and a "2 of 4" differ only by the number.</div>
+    </div>
+
+    <div class="card">
+      <div class="tag">Option B</div>
+      <div class="name">Diagonal half</div>
+      <div class="row">
+        <div class="sq empty"></div>
+        <div class="sq part" style="background:#26292D;">
+          <div style="position:absolute; inset:0; background:linear-gradient(135deg, #564C29 0 50%, transparent 50% 100%);"></div>
+        </div>
+        <div class="sq done"><div class="ctr">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg>
+        </div></div>
+      </div>
+      <div class="cap" style="max-width:230px;">Still "half", but on a diagonal, which a counted fill never is. The two part-done meanings stay apart without a legend.<br><br><strong style="color:#C9A227;">Cost:</strong> one new shape to meet.</div>
+    </div>
+
+    <div class="card">
+      <div class="tag">Option C</div>
+      <div class="name">Hollow tick</div>
+      <div class="row">
+        <div class="sq empty"></div>
+        <div class="sq part"><div class="ctr">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E8C55A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg>
+        </div></div>
+        <div class="sq done"><div class="ctr">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg>
+        </div></div>
+      </div>
+      <div class="cap" style="max-width:230px;">Same tick, drawn thin: "done, with a caveat".<br><br><strong style="color:#C9A227;">Cost:</strong> at 15pt a thin tick and a thick tick are one squint apart, and the colour is already carrying that difference.</div>
+    </div>
+
+    <div class="card">
+      <div class="tag">Option D</div>
+      <div class="name">Half tick</div>
+      <div class="row">
+        <div class="sq empty"></div>
+        <div class="sq part"><div class="ctr">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#E8C55A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2" /><path d="M12 14L20 7" stroke-opacity="0.28" stroke-dasharray="2.6 3.2"/></svg>
+        </div></div>
+        <div class="sq done"><div class="ctr">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg>
+        </div></div>
+      </div>
+      <div class="cap" style="max-width:230px;">The tick's first stroke solid, its long stroke left unfinished. Literally a half-finished done mark, at the same weight as the real one.<br><br><strong style="color:#C9A227;">Cost:</strong> the dashed tail is 3pt of detail; it survives 30pt but it is the finest thing on the board.</div>
+    </div>
+
+    <div class="card">
+      <div class="tag">Option E</div>
+      <div class="name">Wavy half</div>
+      <div class="row">
+        <div class="sq empty"></div>
+        <div class="sq part" style="background:#26292D;">
+          <svg width="30" height="30" viewBox="0 0 30 30" style="position:absolute; inset:0;">
+            <path d="M0 16 Q 3.75 12.5, 7.5 16 T 15 16 T 22.5 16 T 30 16 L30 30 L0 30 Z" fill="#564C29"/>
+          </svg>
+        </div>
+        <div class="sq done"><div class="ctr">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg>
+        </div></div>
+      </div>
+      <div class="cap" style="max-width:230px;">Your suggestion, rendered honestly at 30pt: the wave has about 3pt of amplitude.<br><br><strong style="color:#C9A227;">Cost:</strong> at this size it reads as a soft or mis-rendered edge, not a wave, and it still collides with the counted fill.</div>
+    </div>
+
+    <div class="card">
+      <div class="tag">Today</div>
+      <div class="name">What it is now</div>
+      <div class="row">
+        <div class="sq empty"></div>
+        <div class="sq part"><div class="ctr">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#E8C55A" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 12 L12 4 A8 8 0 0 1 18.9 16 Z" fill="#E8C55A" stroke="none"/></svg>
+        </div></div>
+        <div class="sq done"><div class="ctr">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg>
+        </div></div>
+      </div>
+      <div class="cap" style="max-width:230px;">A timelapse dial.<br><br><strong style="color:#C9A227;">Cost:</strong> it says "in progress", which is a different claim from "partly done", and it now collides with timer habits, which draw a real timer glyph.</div>
+    </div>
+
+  </div>
+
+  <div class="card lightcard" style="gap:14px;">
+    <div class="tag" style="color:#8A6420;">Light mode</div>
+    <div class="row">
+      <div class="col" style="gap:6px; align-items:center;">
+        <div class="sq l-part" style="background:#EADFCB;"><div style="position:absolute; left:0; right:0; bottom:0; height:50%; background:#EBD9AA;"></div></div>
+        <div class="cap" style="color:#5B6560;">A</div>
+      </div>
+      <div class="col" style="gap:6px; align-items:center;">
+        <div class="sq l-part" style="background:#EADFCB;"><div style="position:absolute; inset:0; background:linear-gradient(135deg,#EBD9AA 0 50%, transparent 50% 100%);"></div></div>
+        <div class="cap" style="color:#5B6560;">B</div>
+      </div>
+      <div class="col" style="gap:6px; align-items:center;">
+        <div class="sq l-part"><div class="ctr"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B08A1E" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg></div></div>
+        <div class="cap" style="color:#5B6560;">C</div>
+      </div>
+      <div class="col" style="gap:6px; align-items:center;">
+        <div class="sq l-part"><div class="ctr"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B08A1E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2"/><path d="M12 14L20 7" stroke-opacity="0.3" stroke-dasharray="2.6 3.2"/></svg></div></div>
+        <div class="cap" style="color:#5B6560;">D</div>
+      </div>
+      <div class="col" style="gap:6px; align-items:center;">
+        <div class="sq l-done"><div class="ctr"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#188A61" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg></div></div>
+        <div class="cap" style="color:#5B6560;">done</div>
+      </div>
+    </div>
+    <div class="cap" style="color:#5B6560; max-width:600px;">Light mode is where the fill options lose the most: the partial and empty fills are both warm creams, so a half fill has far less contrast to work with than it does on the dark board.</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

@@ -26,12 +26,14 @@ Map<String, Map<String, SquareState>> run({
   Map<String, int> completions = const {},
   bool gridKnowsToday = true,
   List<String> habits = const ['a'],
+  Map<String, int> targets = const {},
 }) =>
     withLiveToday(
       mirrored: mirrored,
       habitIds: habits,
       squareToday: (id) => squares[id] ?? SquareState.none,
       completionsToday: (id) => completions[id] ?? 0,
+      dailyTargetOf: (id) => targets[id] ?? 1,
       todayKey: _today,
       gridKnowsToday: gridKnowsToday,
     );
@@ -154,6 +156,62 @@ void main() {
       };
       run(mirrored: mirrored);
       expect(mirrored['a']?[_today], SquareState.complete);
+    });
+  });
+
+  group('a habit counted several times a day', () {
+    // The bug: the overlay read any positive count as a finished day, so a
+    // habit set to four times a day was reported DONE on tap one — while the
+    // Grid, correctly, still showed a part-filled square. The reports and the
+    // board contradicted each other about a day the user can see on both.
+    test('one of four is part done, not done', () {
+      final out = run(
+        completions: {'a': 1},
+        targets: {'a': 4},
+      );
+      expect(out['a']?[_today], SquareState.partial,
+          reason: '1 of 4 must not be reported as a completed day');
+    });
+
+    test('three of four is still not done', () {
+      final out = run(completions: {'a': 3}, targets: {'a': 4});
+      expect(out['a']?[_today], SquareState.partial);
+    });
+
+    test('four of four is done', () {
+      final out = run(completions: {'a': 4}, targets: {'a': 4});
+      expect(out['a']?[_today], SquareState.complete);
+    });
+
+    test('past the target is still done, never something stranger', () {
+      final out = run(completions: {'a': 9}, targets: {'a': 4});
+      expect(out['a']?[_today], SquareState.complete);
+    });
+
+    test('nothing done today leaves the square to speak for itself', () {
+      final out = run(
+        completions: {'a': 0},
+        targets: {'a': 4},
+        squares: {'a': SquareState.skipped},
+      );
+      expect(out['a']?[_today], SquareState.skipped,
+          reason: 'a deliberate rest must survive a habit merely being counted');
+    });
+
+    test('a green square still outranks the count', () {
+      final out = run(
+        completions: {'a': 1},
+        targets: {'a': 4},
+        squares: {'a': SquareState.bonus},
+      );
+      expect(out['a']?[_today], SquareState.bonus,
+          reason: 'an explicit mark is a statement about the day and wins');
+    });
+
+    test('an ordinary once-a-day habit is completely unchanged', () {
+      final out = run(completions: {'a': 1});
+      expect(out['a']?[_today], SquareState.complete,
+          reason: 'the default target of 1 must behave exactly as before');
     });
   });
 }

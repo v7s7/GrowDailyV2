@@ -24,6 +24,8 @@ import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/widgets/habit_actions_sheet.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../habits/notifiers/habit_resume_notifier.dart';
+import '../../habits/widgets/pause_until_sheet.dart';
 import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/widgets/add_habit_hub_sheet.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
@@ -33,6 +35,7 @@ import '../../premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
+import '../widgets/daily_quote_line.dart';
 
 // This screen used to be one ~2,160-line file. It's now split by UI concern
 // across this file plus four `part` files below — `part`/`part of` (not
@@ -389,12 +392,23 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     if (roomNames.isEmpty) return true;
     final s = S.of(context);
     final names = roomNames.toList();
+    // Rooms where this habit is the member's ONLY counted one get a
+    // different sentence, because the reassurance the normal one gives is
+    // false there: with nothing else linked there is no "rest of your
+    // habits" to be graded on, and every paused day scores zero. See
+    // mySoleRoomHabitsProvider.
+    final soleNames = <String>{
+      for (final room in ref.read(mySoleRoomHabitsProvider)[habitId] ?? const [])
+        if (!pausing || room.isLive) room.name,
+    }.toList();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: Text(s.habitLinkedRoomWarningTitle),
         content: Text(pausing
-            ? s.habitPauseLinkedRoomBody(names)
+            ? (soleNames.isNotEmpty
+                ? s.habitPauseSoleRoomHabitBody(soleNames)
+                : s.habitPauseLinkedRoomBody(names))
             : s.habitLinkedRoomWarningBody(names)),
         actions: [
           TextButton(
@@ -473,13 +487,21 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // on a cold start — so a pause moments after launch would unlink
     // silently, with no dialog at all.
     //
-    // Leaving the link alone costs the member real points while the habit
-    // is away (syncTodayForHabit's `habit == null` branch fails open, so
-    // each day counts it as scheduled and never done) and costs nothing
-    // permanent: resuming brings the habit back and the next full resync
-    // regrades the last kRoomSyncWindowDays. The dialog says exactly that.
+    // Leaving the link alone does NOT cost the member points while the habit
+    // is away: a paused habit now leaves both sides of the sum (see
+    // roomHasGradableHabit), so the member is graded on whatever else they
+    // linked, and only a plan whose every habit is paused scores zero. Nothing
+    // is permanent either: resuming brings the habit back and the next full
+    // resync regrades the last kRoomSyncWindowDays. The dialog says exactly
+    // that (habitPauseLinkedRoomBody / habitPauseSoleRoomHabitBody).
     if (!await _confirmRoomImpact(habit.id, pausing: true)) return;
     if (!mounted) return;
+    // "لي متى؟" — asked before anything is archived, so backing out here
+    // leaves the habit exactly where it was. The default answer is the
+    // manual pause this flow has always done, so confirming straight
+    // through costs one tap and changes nothing.
+    final until = await showPauseUntilSheet(context, habitName: name);
+    if (!until.confirmed || !mounted) return;
     final s = S.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final everCompleted =
@@ -509,10 +531,19 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // that was paused two taps ago, offering an Undo for it. Clearing
     // first means the visible confirmation always describes what just
     // happened.
+    // Written after the archive lands, and unconditionally: passing null
+    // for a manual pause CLEARS any date left over from a previous pause of
+    // the same habit, which would otherwise still be armed and resume it
+    // out of nowhere weeks later.
+    ref.read(habitResumeScheduleProvider.notifier).schedule(habit.id, until.at)
+        .ignore();
     messenger.clearSnackBars();
     messenger.showSnackBar(
       SnackBar(
-        content: Text(s.habitPausedConfirmation(name)),
+        content: Text(until.at == null
+            ? s.habitPausedConfirmation(name)
+            : '${s.habitPausedConfirmation(name)} · '
+                '${s.resumesOnBadge(formatResumeDate(until.at!, s.isAr, withTime: until.withTime))}'),
         duration: const Duration(seconds: 6),
         behavior: SnackBarBehavior.floating,
         dismissDirection: DismissDirection.down,
@@ -525,6 +556,13 @@ class _GridScreenState extends ConsumerState<GridScreen> {
           label: s.undo,
           onPressed: () {
             HapticFeedback.lightImpact();
+            // Undoing the pause undoes the booking with it, or a habit put
+            // straight back on the board would still be carrying a return
+            // date for a pause that no longer exists.
+            ref
+                .read(habitResumeScheduleProvider.notifier)
+                .schedule(habit.id, null)
+                .ignore();
             if (isCatalog) {
               // toggle() is a toggle, and this button sits on screen for
               // six seconds — long enough to Resume the same habit from
@@ -695,6 +733,12 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                     ref.read(requestedHomeTabProvider.notifier).state = 2,
               ),
             ),
+            // The day's line. Below the two cards above rather than above
+            // them, because both of those self-hide when they have nothing to
+            // say: on an ordinary day this sits directly under the header, and
+            // on a day that has a comeback or an unfinished checklist it stays
+            // out of their way instead of pushing them down the screen.
+            const SliverToBoxAdapter(child: DailyQuoteLine()),
             if (_selectionMode)
               SliverToBoxAdapter(
                 child: Padding(

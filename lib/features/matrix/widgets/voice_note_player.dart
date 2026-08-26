@@ -635,6 +635,173 @@ class _SpeedPill extends StatelessWidget {
   }
 }
 
+// ─── Record a new note ─────────────────────────────────────────────────────
+
+/// The "record a voice note" control, shaped as a full-width row rather
+/// than the small pill MicRecordButton is. Used by TaskDetailSheet;
+/// AddTaskSheet still carries the pill, in a section that only appears
+/// once you tap "Add details" and has no card stack around it to match.
+///
+/// The pill's problem was placement, not the button itself: it floated at
+/// the far end of a header row while the "tap to record" line that explains
+/// it sat under the section label at the *opposite* edge of the sheet, and
+/// the pair was the only block in TaskDetailSheet not inside a card. So the
+/// label and its hint move into the row, and the row takes ReminderPicker's
+/// ReminderRow card treatment — the section directly above it — which is
+/// what makes the sheet read as one stack of cards instead of three cards
+/// and a stray button.
+///
+/// Geometry is [VoiceNoteRow]'s, deliberately down to the 32px circle and
+/// the 10/8 padding, because when a task has recordings this row sits
+/// immediately on top of them: same height, same circle, one column.
+///
+/// Dumb display, same contract as [VoiceNoteRow] — it neither records nor
+/// checks premium. The sheets own VoiceNoteService and the gate; this only
+/// reports taps and draws whichever state it is handed.
+class VoiceNoteRecordRow extends StatelessWidget {
+  final bool recording;
+
+  /// How long the take has been running, for the live mm:ss. Ignored
+  /// unless [recording].
+  final Duration elapsed;
+  final Color color;
+  final VoidCallback onTap;
+
+  /// Draws the small gold lock on the mic for free accounts. The gate
+  /// itself still lives at the tap (showVoiceNoteGate) — this is only the
+  /// warning, because an unlocked-looking mic that upsells *after* the tap
+  /// reads as a trap. The row stays tappable: the tap IS the pitch.
+  final bool locked;
+
+  const VoiceNoteRecordRow({
+    super.key,
+    required this.recording,
+    required this.elapsed,
+    required this.color,
+    required this.onTap,
+    this.locked = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final mm = elapsed.inMinutes.toString().padLeft(2, '0');
+    final ss = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    final accent = recording ? GameColors.error : color;
+    return Semantics(
+      button: true,
+      // A screen reader must not promise recording on a gated control:
+      // announce the premium state, not just "record".
+      hint: locked && !recording ? s.premiumBenefitVoiceTitle : null,
+      label: recording ? s.voiceNoteTapToStop : s.voiceNoteTapToRecord,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: GameMotion.quick,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color:
+                recording ? GameColors.error.withOpacity(0.08) : gp.surfaceHL,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color:
+                  recording ? GameColors.error.withOpacity(0.35) : gp.border,
+              width: recording ? 1 : 0.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: accent.withOpacity(0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      recording ? Icons.stop_rounded : Icons.mic_rounded,
+                      size: 17,
+                      color: accent,
+                    ),
+                  ),
+                  if (locked && !recording)
+                    PositionedDirectional(
+                      end: -2,
+                      bottom: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(1.5),
+                        decoration: BoxDecoration(
+                          color: GameColors.gold,
+                          shape: BoxShape.circle,
+                          // The card behind it, not a fixed dark value —
+                          // this row is drawn on surfaceHL in both themes,
+                          // and the ring is meant to read as a cutout in it.
+                          border: Border.all(color: gp.surfaceHL, width: 1.5),
+                        ),
+                        child: const Icon(
+                          Icons.lock_rounded,
+                          size: 8,
+                          color: Color(0xFF14100A),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      recording ? s.voiceNoteRecording : s.voiceNotesTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: recording ? GameColors.error : gp.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      recording
+                          ? s.voiceNoteTapToStop
+                          : s.voiceNoteTapToRecord,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: gp.textTert),
+                    ),
+                  ],
+                ),
+              ),
+              if (recording)
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 4),
+                  child: Text(
+                    '$mm:$ss',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: GameColors.error,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── One recording's row ───────────────────────────────────────────────────
 
 class VoiceNoteRow extends StatelessWidget {

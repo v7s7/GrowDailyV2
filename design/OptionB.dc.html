@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+    a { color: #D6C429; } a:hover { color: #E4D45A; }
+  </style>
+</helmet>
+<div dir="rtl" style="width: 402px; height: 874px; background: #070C10; color: #FFFFFF; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden">
+
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px 16px">
+
+    <div style="background: #161D24; border-radius: 22px; padding: 16px 20px 20px 20px; display: flex; flex-direction: column">
+      <div style="width: 36px; height: 4px; border-radius: 100px; background: #2D3740; align-self: center; margin-bottom: 18px"></div>
+
+      <div style="font-size: 12px; font-weight: 700; color: #B0B7C3; letter-spacing: 1px; margin-bottom: 10px">التكرار</div>
+
+      <div style="display: flex; gap: 8px">
+        <div style="flex-grow: 1; padding: 12px 10px; border-radius: 12px; background: #262614; border: 1px solid rgba(214,196,41,0.5); text-align: center; font-size: 12px; font-weight: 700; color: #D6C429">يومي</div>
+        <div style="flex-grow: 1; padding: 12px 10px; border-radius: 12px; background: #10161B; border: 1px solid #2D3740; text-align: center; font-size: 12px; font-weight: 600; color: #B0B7C3">أسبوعي</div>
+        <div style="flex-grow: 1; padding: 12px 10px; border-radius: 12px; background: #10161B; border: 1px solid #2D3740; text-align: center; font-size: 12px; font-weight: 600; color: #B0B7C3">أيام محددة</div>
+      </div>
+
+      <sc-if value="{{closed}}" hint-placeholder-val="{{ true }}">
+        <div onClick="{{open}}" style="margin-top: 10px; align-self: flex-start; font-size: 11.5px; font-weight: 600; color: #7A796F; cursor: pointer; display: flex; align-items: center; gap: 6px">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7A796F" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          أكثر من مرة في اليوم
+        </div>
+      </sc-if>
+
+      <sc-if value="{{opened}}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #10161B; border: 1px solid #2D3740">
+          <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px">
+            <div style="font-size: 13px; font-weight: 600; color: #FFFFFF">{{countLabel}}</div>
+            <div style="font-size: 11px; color: #7A796F">المربّع يمتلي شوي شوي مع كل مرة</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <div onClick="{{dec}}" style="width: 30px; height: 30px; border-radius: 100px; border: 1px solid #2D3740; background: #070C10; display: flex; align-items: center; justify-content: center; cursor: pointer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B7C3" stroke-width="2.4" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </div>
+            <div style="min-width: 18px; text-align: center; font-size: 16px; font-weight: 700; color: #D6C429">{{count}}</div>
+            <div onClick="{{inc}}" style="width: 30px; height: 30px; border-radius: 100px; border: 1px solid rgba(214,196,41,0.5); background: #262614; display: flex; align-items: center; justify-content: center; cursor: pointer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D6C429" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <div style="height: 18px"></div>
+
+      <div style="height: 48px; border-radius: 12px; background: #D6C429; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #070C10">حفظ</div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"revealed":{"editor":"boolean","default":false,"section":"Demo"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const opened = this.state?.opened ?? this.props.revealed ?? false;
+    const count = this.state?.count ?? 2;
+    return {
+      opened,
+      closed: !opened,
+      count,
+      countLabel: count > 1 ? 'مرات في اليوم' : 'مرة في اليوم',
+      open: () => this.setState({ opened: true, count: 2 }),
+      inc: () => this.setState({ count: Math.min(12, count + 1) }),
+      dec: () => {
+        const next = count - 1;
+        if (next <= 1) this.setState({ opened: false, count: 1 });
+        else this.setState({ count: next });
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

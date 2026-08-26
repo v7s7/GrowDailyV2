@@ -75,8 +75,8 @@ async function main() {
     fail(e.message);
   }
 
-  const { title, nav, header, body } = buildReportBody(report);
-  const html = pageShell({ title, nav, header, body });
+  const { title, nav, header, stats, body } = buildReportBody(report);
+  const html = pageShell({ title, nav, header, stats, body });
 
   const outDir = path.join(__dirname, 'reports');
   fs.mkdirSync(outDir, { recursive: true });

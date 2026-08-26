@@ -34,7 +34,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart'
 import '../../habits/models/habit_model.dart' show HabitFrequencyType;
 import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
-    show habitListProvider, canAddHabits;
+    show habitListProvider, canAddHabits, pausedHabitsProvider;
 import '../models/room_model.dart';
 import '../notifiers/room_moderation.dart';
 import '../notifiers/rooms_notifier.dart';

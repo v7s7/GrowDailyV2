@@ -11,7 +11,9 @@ import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../rooms/notifiers/rooms_notifier.dart' show roomsControllerProvider;
 import '../../../shared/widgets/overlay_notice.dart';
+import '../../../core/extensions/datetime_ext.dart';
 import '../notifiers/custom_habits_notifier.dart';
+import '../notifiers/habit_resume_notifier.dart';
 import 'add_habit_sheet.dart';
 import 'habit_actions_sheet.dart';
 import 'plan_picker_sheet.dart';
@@ -485,6 +487,13 @@ class _PausedHabitsSectionState extends ConsumerState<_PausedHabitsSection> {
     final all = ref.watch(pausedHabitsProvider);
     if (all.isEmpty) return const SizedBox.shrink();
     final totals = ref.watch(dashboardProvider).habitTotalCompletions;
+    // Booked return dates. Until now the ONLY place a booking was ever shown
+    // was the six-second snackbar at the moment of pausing, so once it faded
+    // there was nowhere in the app to see when a habit was coming back, check
+    // that the date took, or notice one still armed after the free-tier cap
+    // blocked it. This list is where somebody looks for a paused habit, so it
+    // is where the date belongs.
+    final resumeDates = ref.watch(habitResumeScheduleProvider);
     final overflows = all.length > _PausedHabitsSection._collapsedCount;
     final paused = (_expanded || !overflows)
         ? all
@@ -549,6 +558,32 @@ class _PausedHabitsSectionState extends ConsumerState<_PausedHabitsSection> {
                                 s.habitPausedDaysBadge(days),
                                 style: TextStyle(
                                     fontSize: 11, color: gp.textSec),
+                              ),
+                            ],
+                            if (resumeDates[habit.id] case final DateTime at) ...[
+                              const SizedBox(height: 2),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.event_repeat_rounded,
+                                      size: 11, color: GameColors.gold),
+                                  const SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      s.resumesOnBadge(formatResumeDate(
+                                          at, s.isAr,
+                                          withTime: at.hour != kDayCutoffHour ||
+                                              at.minute != 0)),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: GameColors.gold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ],

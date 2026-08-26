@@ -89,9 +89,12 @@ String appGuideLessonCoachBody(AppGuideLesson lesson, bool isAr) =>
       AppGuideLesson.addHabit => isAr
           ? 'هذا هو الزر الحقيقي. جرّبه بنفسك.'
           : "This is the real button. Give it a try.",
+      // One tap means done — the cycle stopped passing through yellow (see
+      // SquareState.next), so promising a yellow step here taught the very
+      // first thing a new person tries about the board incorrectly.
       AppGuideLesson.colorSquare => isAr
-          ? 'أبيض ← أصفر ← أخضر. اضغط مطولاً لخيارات أكثر.'
-          : 'White, then yellow, then green. Long-press for more options.',
+          ? 'ضغطة وحدة تخلّص العادة. اضغط مطولاً لخيارات أكثر.'
+          : 'One tap marks it done. Long-press for more options.',
       AppGuideLesson.addTask => isAr
           ? 'رتّب مهامك حسب الأهمية والإلحاح.'
           : "Sort tasks by how important and how urgent they are.",

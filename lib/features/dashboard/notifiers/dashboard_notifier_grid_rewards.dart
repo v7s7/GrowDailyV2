@@ -426,11 +426,32 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         ? restoredStreak
         : state.longestStreak;
 
+    // The comeback bonus the card advertises above BOTH layouts. Restoring the
+    // streak is one of the three routes the card promises pays "either way"
+    // (see ComebackCard), but this path used to grant no XP at all — so the one
+    // action the restore layout LEADS with silently forfeited the +50 it was
+    // showing, while the fresh-start button (acknowledgeComeback) and finishing
+    // today's habits (completeHabit's clearsPendingComeback) both paid it, and
+    // spending the freeze also closed off those routes by zeroing
+    // previousStreak. Granting it here makes the payout match the promise.
+    final result = XpCalculator.applyXpGain(
+      currentLevel: state.level,
+      currentLevelXp: state.currentLevelXp,
+      cumulativeXp: state.cumulativeXp,
+      xpGained: DashboardNotifier.comebackBonusXp,
+    );
+    AnalyticsService.instance
+        .track('comeback_bonus_claimed', props: {'route': 'restore'});
+
     state = state.copyWith(
       streak: restoredStreak,
       longestStreak: newLongest,
       streakFreezes: newFreezes,
       previousStreak: 0,
+      level: result.newLevel,
+      currentLevelXp: result.newCurrentLevelXp,
+      cumulativeXp: result.newCumulativeXp,
+      didJustLevelUp: result.newLevel > state.level,
     );
 
     // YESTERDAY, not today. lastActiveDate means "the last day that itself
@@ -461,6 +482,9 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       'longestStreak': newLongest,
       'streakFreezes': newFreezes,
       'previousStreak': 0,
+      'level': result.newLevel,
+      'currentLevelXp': result.newCurrentLevelXp,
+      'cumulativeXp': result.newCumulativeXp,
       'lastActiveDate': Timestamp.fromDate(yesterday),
     }, SetOptions(merge: true)).ignore();
   }
@@ -474,7 +498,8 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       cumulativeXp: state.cumulativeXp,
       xpGained: DashboardNotifier.comebackBonusXp,
     );
-    AnalyticsService.instance.track('comeback_bonus_claimed');
+    AnalyticsService.instance
+        .track('comeback_bonus_claimed', props: {'route': 'card'});
     state = state.copyWith(
       previousStreak: 0,
       level: result.newLevel,

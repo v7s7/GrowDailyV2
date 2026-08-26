@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+    a { color: #E8C55A; } a:hover { color: #F2D680; }
+    .sq { width: 30px; height: 30px; border-radius: 9px; border: 0.8px solid; position: relative; overflow: hidden; flex: none; }
+    .empty { background: #26292D; border-color: #2D4037; }
+    .cap { font-size: 11px; color: #7E8A84; line-height: 1.55; }
+    .card { background: #12161B; border: 1px solid #1E2A24; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+    .row { display: flex; gap: 14px; align-items: center; }
+    .lbl { font-size: 12px; color: #B9C2BD; width: 168px; flex: none; }
+    .h { font-size: 13px; font-weight: 700; color: #F7F3E8; }
+    .num { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:12.6px; font-weight:800; color:#E8C55A; }
+  </style>
+</helmet>
+<div style="background:#07100D; padding:28px; display:flex; flex-direction:column; gap:20px; width:620px; box-sizing:border-box;">
+
+  <div style="display:flex; flex-direction:column; gap:5px;">
+    <div style="font-size:19px; font-weight:700; color:#F7F3E8;">Why this needs deciding at all</div>
+    <div class="cap" style="max-width:540px;">Yellow now carries two different claims. One is exact and one is a shrug, and until this change they never had to sit on the same board.</div>
+  </div>
+
+  <div class="card">
+    <div class="h">The two things yellow means</div>
+    <div class="row">
+      <div class="lbl">Counted habit, 2 of 4</div>
+      <div class="sq" style="background:#26292D; border-color:rgba(232,197,90,0.55);">
+        <div style="position:absolute; left:0; right:0; bottom:0; height:50%; background:#564C29;"></div>
+        <div class="num">2</div>
+      </div>
+      <div class="cap" style="flex:1;">Exact. The fill is the ratio and the number says it out loud.</div>
+    </div>
+    <div class="row">
+      <div class="lbl">Long-press, "partly done"</div>
+      <div class="sq" style="background:#564C29; border-color:rgba(232,197,90,0.55);"></div>
+      <div class="cap" style="flex:1;">A shrug. There is no number, because the person never gave one.</div>
+    </div>
+    <div class="cap" style="border-top:1px solid #1E2A24; padding-top:12px;">Same hue, same square, opposite precision. Any option that draws the shrug as a bottom-up fill is borrowing the exact one's grammar, and then the only thing separating them is a digit.</div>
+  </div>
+
+  <div class="card">
+    <div class="h">The same row, one option at a time</div>
+    <div class="cap" style="margin-top:-6px;">Sat, Sun, Mon are ordinary days. Tue is a counted habit at 2 of 4. Wed is a deliberate "partly done".</div>
+
+    <div class="row">
+      <div class="lbl">A · half fill</div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#2B4864; border-color:rgba(91,155,213,0.55);"></div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#26292D; border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#564C29;"></div><div class="num">2</div></div>
+      <div class="sq" style="background:#26292D; border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#564C29;"></div></div>
+    </div>
+    <div class="cap" style="margin-top:-6px;">The last two squares are the same picture minus a digit.</div>
+
+    <div class="row" style="margin-top:6px;">
+      <div class="lbl">B · diagonal half</div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#2B4864; border-color:rgba(91,155,213,0.55);"></div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#26292D; border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#564C29;"></div><div class="num">2</div></div>
+      <div class="sq" style="background:#26292D; border-color:rgba(232,197,90,0.55);"><div style="position:absolute;inset:0;background:linear-gradient(135deg,#564C29 0 50%, transparent 50% 100%);"></div></div>
+    </div>
+    <div class="cap" style="margin-top:-6px;">Different angle, so the two never read as the same kind of statement.</div>
+
+    <div class="row" style="margin-top:6px;">
+      <div class="lbl">D · half tick</div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#2B4864; border-color:rgba(91,155,213,0.55);"></div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#26292D; border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#564C29;"></div><div class="num">2</div></div>
+      <div class="sq" style="background:#564C29; border-color:rgba(232,197,90,0.55);"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#E8C55A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2"/><path d="M12 14L20 7" stroke-opacity="0.28" stroke-dasharray="2.6 3.2"/></svg></div></div>
+    </div>
+    <div class="cap" style="margin-top:-6px;">Fill versus glyph: the two are told apart by mechanism, not by a digit.</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+    a { color: #D6C429; } a:hover { color: #E4D45A; }
+  </style>
+</helmet>
+<div dir="rtl" style="width: 402px; height: 874px; background: #070C10; color: #FFFFFF; padding: 20px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+
+  <div style="font-size: 17px; font-weight: 700">دو الإلتزام</div>
+
+  <div style="background: rgba(214,196,41,0.08); border: 1px solid rgba(214,196,41,0.24); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+
+    <div style="display: flex; align-items: center; gap: 8px">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#B0B7C3" stroke-width="2"><circle cx="12" cy="12" r="9"></circle></svg>
+      <div style="font-size: 14px; font-weight: 700; color: #B0B7C3">لم يُنجز بعد اليوم</div>
+    </div>
+
+    <div style="display: flex; gap: 6px; flex-wrap: wrap">
+      <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+        <div style="padding: 6px 11px; border-radius: 100px; background: rgba(214,196,41,0.14); font-size: 11.5px; font-weight: 700; color: #D6C429; display: flex; align-items: center; gap: 6px">
+          <span>{{c.name}}</span>
+          <sc-if value="{{c.count}}" hint-placeholder-val="{{ true }}">
+            <span style="font-size: 10px; font-weight: 700; color: #9C8F2E">{{c.count}}</span>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 7px; padding: 11px 12px; border-radius: 12px; background: rgba(88,156,222,0.08); border: 1px solid rgba(88,156,222,0.22)">
+      <div style="display: flex; gap: 9px; align-items: flex-start">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#589CDE" stroke-width="2" stroke-linecap="round" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="11" x2="12" y2="16"></line><line x1="12" y1="8" x2="12" y2="8"></line></svg>
+        <div style="font-size: 11.5px; color: #B0B7C3; line-height: 1.5">"الدواء" تنحسب لك في الغرفة لمن تخلّص الـ ٤ مرات كلها. ٢ من ٤ اليوم يعني اليوم بعده ما تم.</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding-right: 24px">
+        <div style="flex-grow: 1; height: 6px; border-radius: 100px; background: #1C232A; overflow: hidden">
+          <div style="width: 50%; height: 100%; background: #589CDE"></div>
+        </div>
+        <div style="font-size: 10.5px; font-weight: 700; color: #589CDE">٢ / ٤</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 9px; padding: 13px; border-radius: 14px; background: rgba(255,90,82,0.07); border: 1px solid rgba(255,90,82,0.26)">
+    <div style="display: flex; gap: 9px; align-items: flex-start">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FF5A52" stroke-width="2" stroke-linecap="round" style="flex-shrink: 0; margin-top: 1px"><path d="M12 3l9 16H3z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="16" x2="12" y2="16"></line></svg>
+      <div style="font-size: 11.5px; color: #B0B7C3; line-height: 1.5">غيّرت "الدواء" من مرة وحدة إلى ٤ مرات، والغرفة لسا تحسبها بالقاعدة القديمة. هذا مقصود: التعديل ما يرجع يغيّر أيام خلصت.</div>
+    </div>
+    <div style="align-self: flex-start; padding: 8px 13px; border-radius: 100px; background: rgba(255,90,82,0.14); font-size: 11px; font-weight: 700; color: #FF5A52">حدّث قاعدة الغرفة</div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; background: #10161B; border: 1px solid #1F272E">
+    <div style="font-size: 12px; font-weight: 700; color: #B0B7C3">اللي ما يتغيّر</div>
+    <sc-for list="{{unchanged}}" as="u" hint-placeholder-count="3">
+      <div style="display: flex; gap: 9px; align-items: flex-start">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#589CDE" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <div style="font-size: 11.5px; color: #7A796F; line-height: 1.5">{{u}}</div>
+      </div>
+    </sc-for>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      chips: [
+        { name: 'سورة الملك', count: '' },
+        { name: 'صلاة الوتر', count: '' },
+        { name: 'الدواء', count: '٢/٤' },
+      ],
+      unchanged: [
+        'العادة اللي مرة وحدة في اليوم تنحسب مثل قبل بالضبط، ضغطة وحدة.',
+        'الغرفة تحسب اليوم تام بس لمن يمتلي المربّع كامل، مثل ما هي اليوم.',
+        'العادة الموقوفة مؤقتًا ما تنحسب عليك، ونسبتك من باقي عاداتك.',
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

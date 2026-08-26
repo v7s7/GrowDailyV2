@@ -191,6 +191,32 @@ int nextHabitStreak({required int? gapDays, required int previousStreak}) =>
 /// refunded, so paying it again would pay twice for one day.
 bool habitStreakAdvanced(int? gapDays) => gapDays != 0;
 
+/// Whether the tap taking a habit from [doneBefore] to [doneBefore] + 1
+/// should announce itself with the reward banner.
+///
+/// Only the tap that finishes the day does. The banner is an event — "this is
+/// done, here is what it paid" — and a habit counted N times a day would fire
+/// N of them otherwise.
+///
+/// The reason it is silence rather than a gentler cheer is that the app does
+/// not know what the habit IS. Counted habits split cleanly into two kinds
+/// that want opposite treatment: drinking water eight times is something a
+/// person may well want encouraged, and taking medicine four times is
+/// something no one should be congratulated for. One habit model cannot tell
+/// them apart, and encouragement aimed at the second kind does not read as
+/// neutral — it reads as the app misunderstanding what it is looking at.
+/// A count going up is a statement of fact, and a fact is the only thing that
+/// is right in both cases.
+///
+/// The cheerful case loses nothing: the finishing tap still fires exactly the
+/// banner the habit fired when it was once a day. And at a [target] of 1 this
+/// is always true, so nothing that predates counting is affected.
+bool completionAnnouncesItself({
+  required int doneBefore,
+  required int target,
+}) =>
+    doneBefore + 1 >= target;
+
 /// What a habit's streak fields should become once a completion that was
 /// undone on [restoredDay] is put back, or null when they should be left
 /// exactly as they are.
@@ -312,6 +338,27 @@ class _HabitCompletionSnapshot {
     required this.bonusXp,
     required this.bonusGold,
   });
+
+  /// The same snapshot with another tap's bonus folded in.
+  ///
+  /// Only the day's FIRST tap writes a snapshot, because only that tap
+  /// changes the prev* fields an undo restores. The surprise bonus does not
+  /// work that way — it rolls on every tap — so a habit counted several
+  /// times a day accumulates bonuses that the one first-tap snapshot never
+  /// heard about, and clearing the day then refunded less than it paid.
+  _HabitCompletionSnapshot copyWithAddedBonus({
+    required int xp,
+    required int gold,
+  }) =>
+      _HabitCompletionSnapshot(
+        hadPrior: hadPrior,
+        prevStreak: prevStreak,
+        prevLongest: prevLongest,
+        prevTotal: prevTotal,
+        prevLastCompletedDate: prevLastCompletedDate,
+        bonusXp: bonusXp + xp,
+        bonusGold: bonusGold + gold,
+      );
 }
 
 class DashboardState {
@@ -359,6 +406,27 @@ class DashboardState {
   /// destroy the account's actual progress. Reward writes MUST refuse to run
   /// while this is set; there is nothing trustworthy to base them on.
   final bool loadFailed;
+
+  /// Whether the progression numbers in this state actually came from
+  /// somewhere, and may therefore be shown to the person they belong to.
+  ///
+  /// [loadFailed]'s own comment above explains why a failed load must never
+  /// be WRITTEN back, and the reward writers have always honoured that. What
+  /// nothing honoured was the other half: those same zeros were still being
+  /// DRAWN, at full confidence, as "level 1, 0 XP, 0 gold, no streak". A
+  /// twelfth-level account with 7,564 XP and a 10-day best therefore renders
+  /// as a brand new one, indistinguishable from the real thing, for the
+  /// whole cold-start window and permanently if the load failed. Someone
+  /// who opens Profile in that window has no way to know they are looking at
+  /// a placeholder, and the obvious conclusion, that their account has been
+  /// wiped, is exactly the wrong one.
+  ///
+  /// [isLoading] is included and not merely [loadFailed] because the two are
+  /// indistinguishable to a reader: an in-flight load and a failed one both
+  /// show the same zeros, and only one of them will ever resolve itself.
+  /// Any widget rendering a progression number should show a placeholder
+  /// rather than a figure when this is false.
+  bool get statsAreReal => !isLoading && !loadFailed;
 
   /// A streak gap the loader spotted but deliberately did NOT judge: the
   /// last day that earned a streak point, when more than one calendar day

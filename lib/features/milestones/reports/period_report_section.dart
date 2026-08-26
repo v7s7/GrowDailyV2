@@ -321,6 +321,15 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
       habitIds: habits.map((h) => h.id),
       squareToday: (id) => grid.squareFor(id, today),
       completionsToday: (id) => dash.completions[id] ?? 0,
+      // Falls back to 1 rather than to some other habit's target: an id this
+      // list cannot resolve must not borrow a neighbour's count, which would
+      // report a perfectly ordinary habit as part-done forever.
+      dailyTargetOf: (id) {
+        for (final h in habits) {
+          if (h.id == id) return h.effectiveDailyTarget;
+        }
+        return 1;
+      },
       todayKey: today.toDateKey(),
       gridKnowsToday: !grid.isLoading && grid.isCurrentWeek,
     );

@@ -119,6 +119,83 @@ class CustomHabitsNotifier
     }
   }
 
+  /// Every fully-closed stint of a CUSTOM habit, oldest first: habitId ->
+  /// [(start, end)].
+  ///
+  /// The mirror of ActiveCatalogNotifier.catalogStintHistory, and it exists for
+  /// the same reason. A custom habit carries exactly ONE window on its document
+  /// (createdAt, archivedAt), so [unarchive] used to clear archivedAt and keep
+  /// the original createdAt — which reads, forever after, as "this habit was
+  /// active the whole time", pause included. Rooms grades days against that,
+  /// so resuming a habit silently converted a week that had been correctly
+  /// excused into a week of misses.
+  ///
+  /// Kept beside the habits rather than as a field on the template on purpose:
+  /// IslamicHabitTemplate has three hand-written copy helpers that each
+  /// enumerate every field, and a new one dropped by any of them would fail
+  /// silently and only show up as wrong history months later.
+  Map<String, List<(DateTime, DateTime)>> customStintHistory = {};
+
+  static Map<String, List<(DateTime, DateTime)>> _parseStintHistory(
+      dynamic raw) {
+    final result = <String, List<(DateTime, DateTime)>>{};
+    if (raw is! Map) return result;
+    for (final entry in raw.entries) {
+      final rawStints = entry.value;
+      if (rawStints is! List) continue;
+      final stints = <(DateTime, DateTime)>[];
+      for (final item in rawStints) {
+        if (item is! Map) continue;
+        final start = DateTime.tryParse('${item['start']}');
+        final end = DateTime.tryParse('${item['end']}');
+        if (start != null && end != null) stints.add((start, end));
+      }
+      if (stints.isNotEmpty) result[entry.key.toString()] = stints;
+    }
+    return result;
+  }
+
+  static Map<String, List<Map<String, String>>> _stintHistoryToRaw(
+          Map<String, List<(DateTime, DateTime)>> history) =>
+      {
+        for (final e in history.entries)
+          e.key: [
+            for (final stint in e.value)
+              {
+                'start': stint.$1.toIso8601String(),
+                'end': stint.$2.toIso8601String(),
+              },
+          ],
+      };
+
+  /// Records the window [habit] just finished, so resuming it cannot pretend
+  /// the pause never happened. Same-day pause-and-resume records nothing, for
+  /// the reason ActiveCatalogNotifier.toggle spells out: two windows both
+  /// claiming today would double-count it everywhere that walks stints.
+  void _closeStint(IslamicHabitTemplate habit, DateTime resumedOn) {
+    final start = habit.createdAt;
+    final end = habit.archivedAt;
+    if (start == null || end == null) return;
+    if (end.isSameDayAs(resumedOn)) return;
+    customStintHistory = {
+      ...customStintHistory,
+      habit.id: [...(customStintHistory[habit.id] ?? const []), (start, end)],
+    };
+  }
+
+  Future<void> _saveStintHistory() async {
+    final raw = _stintHistoryToRaw(customStintHistory);
+    if (_uid != null) {
+      FirebaseFirestore.instance.collection('users').doc(_uid).set(
+        {'customHabitStintHistory': raw},
+        SetOptions(merge: true),
+      ).ignore();
+      return;
+    }
+    final box = await LocalStoreService.habitsBox();
+    await box.put(LocalStoreService.guestCustomStintHistoryKey, raw);
+  }
+
   CollectionReference<Map<String, dynamic>> get _col =>
       FirebaseFirestore.instance
           .collection('users')
@@ -133,6 +210,8 @@ class CustomHabitsNotifier
     final rawArchived = LocalStoreService.asMapList(
       box.get(LocalStoreService.guestArchivedCustomHabitsKey),
     );
+    customStintHistory =
+        _parseStintHistory(box.get(LocalStoreService.guestCustomStintHistoryKey));
     if (!mounted) return;
     state = raw
         .map((item) => IslamicHabitTemplate.fromMap(
@@ -169,6 +248,18 @@ class CustomHabitsNotifier
     if (_uid == null) return;
     try {
       final snap = await _col.get();
+      // Read from the user doc, not the habit docs: the stints live beside the
+      // habits (see customStintHistory) so no per-habit copy helper can lose
+      // them. A failure here leaves the map empty, which degrades to exactly
+      // the old single-window behaviour rather than to wrong history.
+      try {
+        final userSnap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_uid)
+            .get();
+        customStintHistory =
+            _parseStintHistory(userSnap.data()?['customHabitStintHistory']);
+      } catch (_) {}
       if (mounted) {
         // Same collection for both — an archived habit's doc survives
         // with archivedAt stamped on it (see [archive]) rather than being
@@ -472,15 +563,35 @@ class CustomHabitsNotifier
   void unarchive(String id) {
     final match = archived.where((h) => h.id == id).toList();
     if (match.isEmpty) return;
-    // archivedAt cleared, createdAt kept: it's the same habit resuming, not
-    // a new one starting today, and the birth date is what stops its
-    // pre-existing days reading as misses (see isScheduledFor).
-    final restored = match.first.withDates(
-      createdAt: match.first.createdAt,
+    // The finished window is RECORDED, and the new one starts today.
+    //
+    // This used to keep the original createdAt and simply clear archivedAt,
+    // which made the habit claim it had been active the whole time — the pause
+    // included. Every surface that asks "was this habit yours on day X" then
+    // answered yes for days the person had deliberately stood it down, so a
+    // room re-graded a correctly-excused week as a week of misses the moment
+    // they resumed, which is the opposite of what pausing promises.
+    //
+    // The old window is not lost by moving createdAt: it goes into
+    // customStintHistory, and allHabitsEverProvider re-emits it as its own
+    // synthetic template, exactly as it already does for a catalog habit
+    // toggled off and back on. That is what keeps the Heatmap and Insights
+    // crediting the pre-pause days.
+    final resumedOn = DateTime.now().effectiveDay;
+    final previous = match.first;
+    _closeStint(previous, resumedOn);
+    final restored = previous.withDates(
+      // Same-day pause-and-resume is one uninterrupted window, never two:
+      // _closeStint records nothing for it, so the original start has to
+      // survive here or the day would lose its own history.
+      createdAt: (previous.archivedAt?.isSameDayAs(resumedOn) ?? false)
+          ? previous.createdAt
+          : resumedOn,
       archivedAt: null,
     );
     archived = archived.where((h) => h.id != id).toList();
     state = [...state, restored];
+    _saveStintHistory().ignore();
     if (_uid != null) {
       _col.doc(id).set(restored.toFirestore()).ignore();
     } else {
@@ -626,10 +737,119 @@ final allHabitsEverProvider = Provider<List<IslamicHabitTemplate>>((ref) {
   ];
 
   final customActive = ref.watch(customHabitsProvider);
-  final customArchived = ref.watch(customHabitsProvider.notifier).archived;
+  final customNotifier = ref.watch(customHabitsProvider.notifier);
+  final customArchived = customNotifier.archived;
+  // Every earlier, fully-closed stint of a CUSTOM habit, for the same reason
+  // the catalog loop above re-emits its own: resuming a paused habit moves its
+  // createdAt to the resume day (see CustomHabitsNotifier.unarchive), so
+  // without this the days before the pause would drop out of the Heatmap and
+  // Insights the moment the habit came back. Real stints never overlap, so at
+  // most one of the templates sharing an id ever claims a given day.
+  final customStints = <IslamicHabitTemplate>[
+    for (final entry in customNotifier.customStintHistory.entries)
+      for (final template in [
+        ...customActive.where((h) => h.id == entry.key),
+        ...customArchived.where((h) => h.id == entry.key),
+      ].take(1))
+        for (final stint in entry.value)
+          template.withDates(createdAt: stint.$1, archivedAt: stint.$2),
+  ];
 
-  return [...catalogEver, ...customActive, ...customArchived];
+  return [...catalogEver, ...customActive, ...customArchived, ...customStints];
 });
+
+/// Every window each habit has ever been ACTIVE for: habitId -> [(start, end)],
+/// where a null end means "still running".
+///
+/// One question, answered from one place: "was this habit mine on day X?"
+/// Everything that grades a stretch of days has to ask it, and asking the
+/// habit's own createdAt/archivedAt instead — which describe only its CURRENT
+/// window — gets it wrong in both directions the moment a habit is resumed.
+/// A resumed catalog habit claims it was born on the resume day, so every day
+/// before it reads as "never existed" and drops out of the denominator, paying
+/// full credit for a stretch nobody did (see RoomParticipant.creditFor, where a
+/// day that asks nothing is a finished day). A resumed custom habit used to
+/// claim the opposite, that it had been running the whole time, so the paused
+/// days it had been correctly excused from turned into misses.
+///
+/// Both are the same mistake: one window cannot describe a habit that has been
+/// stood down and picked back up. The stint list can, and both halves of it are
+/// already persisted (ActiveCatalogNotifier.catalogStintHistory and
+/// CustomHabitsNotifier.customStintHistory), so this is a read, not a new
+/// source of truth.
+final habitStintsProvider =
+    Provider<Map<String, List<(DateTime?, DateTime?)>>>((ref) {
+  final catalogNotifier = ref.watch(activeCatalogProvider.notifier);
+  final activeIds = ref.watch(activeCatalogProvider);
+  final customNotifier = ref.watch(customHabitsProvider.notifier);
+  final customActive = ref.watch(customHabitsProvider);
+
+  final out = <String, List<(DateTime?, DateTime?)>>{};
+  void add(String id, DateTime? start, DateTime? end) =>
+      (out[id] ??= []).add((start, end));
+
+  // ── Catalog ──
+  for (final entry in catalogNotifier.catalogStintHistory.entries) {
+    for (final stint in entry.value) {
+      add(entry.key, stint.$1, stint.$2);
+    }
+  }
+  for (final id in activeIds) {
+    // Open-ended: still running, so no upper bound.
+    add(id, catalogNotifier.activatedAt[id], null);
+  }
+  catalogNotifier.catalogArchivedAt.forEach((id, archivedAt) {
+    // Closed by a real archive stamp. Skipped when the habit is active again,
+    // because the open window above already describes the current stint and
+    // catalogArchivedAt is only the most recent deactivation.
+    if (activeIds.contains(id)) return;
+    add(id, catalogNotifier.activatedAt[id], archivedAt);
+  });
+
+  // ── Custom ──
+  for (final entry in customNotifier.customStintHistory.entries) {
+    for (final stint in entry.value) {
+      add(entry.key, stint.$1, stint.$2);
+    }
+  }
+  for (final h in customActive) {
+    add(h.id, h.createdAt, null);
+  }
+  for (final h in customNotifier.archived) {
+    add(h.id, h.createdAt, h.archivedAt);
+  }
+  return out;
+});
+
+/// Whether [day] falls inside any window this habit was actually active for.
+///
+/// [stints] empty means this device knows of no history at all, which is every
+/// account that has not paused anything since this shipped — [fallback] then
+/// answers exactly as the old single-window rule did, so no stored grade moves
+/// on the first launch after the update.
+///
+/// A null start keeps the existing "no birth date known means it always
+/// existed" reading, and the archive day itself still counts (isAfter, not
+/// !isBefore), which is the contract paused_habit_grading_rule_test pins.
+bool habitCountedOn(
+  List<(DateTime?, DateTime?)>? stints,
+  DateTime day, {
+  required bool Function() fallback,
+}) {
+  if (stints == null || stints.isEmpty) return fallback();
+  final d = DateTime(day.year, day.month, day.day);
+  for (final (start, end) in stints) {
+    if (start != null &&
+        d.isBefore(DateTime(start.year, start.month, start.day))) {
+      continue;
+    }
+    if (end != null && d.isAfter(DateTime(end.year, end.month, end.day))) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
 
 /// Every habit currently PAUSED — custom ones archived by
 /// [CustomHabitsNotifier.archive], and presets switched off with a

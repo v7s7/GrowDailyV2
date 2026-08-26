@@ -16,6 +16,7 @@ import '../models/mood.dart';
 import '../notifiers/night_review_notifier.dart';
 import '../../../core/utils/bidi_fraction.dart';
 import 'night_review_history_screen.dart';
+import '../../../core/utils/xp_calculator.dart';
 
 /// The evening counterpart to the morning IntentionScreen: pick a mood,
 /// write a short reflection, and see the day distilled into the numbers
@@ -85,7 +86,17 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
     }
     var habitListXpToday = 0;
     for (final h in habits) {
-      habitListXpToday += (dash.completions[h.id] ?? 0) * h.xpReward;
+      // What the day has actually PAID, not count x reward. A habit counted
+      // four times a day is worth one day's XP however many of the four are
+      // done (see XpCalculator.rewardSliceForTap), so multiplying the raw
+      // count by the full reward reported four times the XP the account was
+      // really given — and this figure is the one the night review shows the
+      // person as their day's total.
+      habitListXpToday += XpCalculator.rewardPaidSoFar(
+        total: h.xpReward,
+        target: h.effectiveDailyTarget,
+        done: dash.completions[h.id] ?? 0,
+      );
     }
     final totalXpToday = gridXpToday + habitListXpToday;
 

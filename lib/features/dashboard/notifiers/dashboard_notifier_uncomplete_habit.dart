@@ -79,10 +79,25 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
   /// documents for the "add a new habit after 100%" case — today's
   /// *whole-day* credit only ever moves forward, even though this one
   /// habit's own reward and per-habit streak now reverse precisely.
+  /// [frequencyTarget] is the habit's per-day count, and exists so the
+  /// refund is the same size as the debit: completeHabit paid this tap only
+  /// its slice of the day (see XpCalculator.rewardSliceForTap), so giving
+  /// back a whole day's xpReward here would mint XP on every undo of a
+  /// counted habit. Defaults to 1, which makes the slice the whole reward
+  /// and leaves every pre-existing caller behaving exactly as before.
+  /// [clearWholeDay] takes the habit's whole day off in one call rather than
+  /// one tap at a time, and exists for the Grid's counted square: tapping a
+  /// full square is meant to empty it (design/Grid.dc.html), and looping this
+  /// method N times to get there would decrement habitTotalCompletions N
+  /// times against the single bump completeHabit made on the day's first tap.
+  /// The refund is everything the day was actually paid, so a 2-of-4 day
+  /// gives back two slices and a 4-of-4 day gives back the whole reward.
   Future<void> uncompleteHabit({
     required String habitId,
     required int xpReward,
     required int goldReward,
+    int frequencyTarget = 1,
+    bool clearWholeDay = false,
     String? category,
   }) async {
     // See completeHabit's guard: this method writes level, currentLevelXp,
@@ -109,14 +124,27 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // The key is dropped entirely at zero so the map stays sparse, which is
     // what isCompleted's `?? 0` fallback and the Firestore writes below
     // both assume.
+    // Whether this undo takes the habit's whole day off. The day's first-tap
+    // fields — the [_lastHabitCompletion] snapshot, the per-habit streak, and
+    // the lifetime completion counter — were each written ONCE, on the tap that
+    // started the day (completeHabit's `current == 0` branch), so they may only
+    // be reversed when the day is actually emptied. A one-tap undo of a counted
+    // habit that still has taps left (4/4 → 3/4) must leave them exactly as they
+    // are. Before habits could be counted `current` was never above 1, so this
+    // was unconditionally true and the distinction did not exist.
+    final emptiesDay = clearWholeDay || current <= 1;
     final newCompletions = Map<String, int>.from(state.completions);
-    if (current <= 1) {
+    if (emptiesDay) {
       newCompletions.remove(habitId);
     } else {
       newCompletions[habitId] = current - 1;
     }
 
-    final snapshot = _lastHabitCompletion.remove(habitId);
+    // Consumed only when the day empties. Peeking-without-removing on a partial
+    // undo keeps the day's first-tap snapshot in place for the eventual clear,
+    // and — crucially — stops a one-tap undo restoring the pre-first-tap streak
+    // and clawing back every tap's accumulated bonus against a single slice.
+    final snapshot = emptiesDay ? _lastHabitCompletion.remove(habitId) : null;
 
     Map<String, int>? newHabitStreakCounts;
     Map<String, int>? newHabitLongestStreaks;
@@ -141,30 +169,44 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       }
     }
 
-    // Unlike the streak/date fields above — left untouched with no
-    // same-session snapshot on purpose, to avoid guessing at streak
-    // continuity — this lifetime counter is always safe to correct even
-    // across an app restart: the early-return at the top of this function
-    // already confirmed this undo is reversing exactly one real completion
-    // (completeHabit only ever bumps this by 1, on the day's first tap;
-    // uncompleteHabit's .remove() above always reverses that whole day's
-    // taps at once), so it can simply drop by one, floored at zero, with
-    // no history required. This is also the *only* signal
-    // add_habit_sheet/grid_screen read to decide hard-delete vs. archive
-    // when a habit is removed — leaving this stale (the old behavior,
-    // gated behind `snapshot != null` same as the fields above) is what let
-    // an already-undone, truly never-completed habit refuse to hard-delete:
-    // it would silently soft-archive instead, looking stuck in Grid.
+    // completeHabit bumps this lifetime counter once per day, on the first tap
+    // (`current == 0`), so it may only be decremented when the day is emptied —
+    // exactly like the counter, not once per undone tap. Gating on [emptiesDay]
+    // is what keeps a counted habit's one-tap undo (4/4 → 3/4, first tap's +1
+    // still standing) from dropping the counter, and two such undos from
+    // dropping it twice against a single +1. When the day does empty this is
+    // always safe to correct, even across a restart, without the same-session
+    // snapshot the streak fields need: the early-return above already confirmed
+    // a real completion is being reversed. This is also the *only* signal
+    // add_habit_sheet/grid_screen read to decide hard-delete vs. archive when a
+    // habit is removed, so a stale value here would make a truly never-completed
+    // habit refuse to hard-delete and silently soft-archive instead.
     final newHabitTotalCompletions = {...state.habitTotalCompletions};
-    final rawHabitTotal = (newHabitTotalCompletions[habitId] ?? 0) - 1;
-    if (rawHabitTotal <= 0) {
-      newHabitTotalCompletions.remove(habitId);
-    } else {
-      newHabitTotalCompletions[habitId] = rawHabitTotal;
+    if (emptiesDay) {
+      final rawHabitTotal = (newHabitTotalCompletions[habitId] ?? 0) - 1;
+      if (rawHabitTotal <= 0) {
+        newHabitTotalCompletions.remove(habitId);
+      } else {
+        newHabitTotalCompletions[habitId] = rawHabitTotal;
+      }
     }
 
-    final totalXpReward = xpReward + (snapshot?.bonusXp ?? 0);
-    final totalGoldReward = goldReward + (snapshot?.bonusGold ?? 0);
+    // The slice this exact tap was paid — tapIndex is the count BEFORE the
+    // tap, and the tap being undone is the one that took the habit from
+    // current - 1 to current. The stored bonus is refunded whole because
+    // completeHabit already sized it against the slice.
+    final xpSlice = clearWholeDay
+        ? XpCalculator.rewardPaidSoFar(
+            total: xpReward, target: frequencyTarget, done: current)
+        : XpCalculator.rewardSliceForTap(
+            total: xpReward, target: frequencyTarget, tapIndex: current - 1);
+    final goldSlice = clearWholeDay
+        ? XpCalculator.rewardPaidSoFar(
+            total: goldReward, target: frequencyTarget, done: current)
+        : XpCalculator.rewardSliceForTap(
+            total: goldReward, target: frequencyTarget, tapIndex: current - 1);
+    final totalXpReward = xpSlice + (snapshot?.bonusXp ?? 0);
+    final totalGoldReward = goldSlice + (snapshot?.bonusGold ?? 0);
 
     // ── The receipt ──────────────────────────────────────────────
     //
@@ -210,19 +252,34 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     final rawGold = state.gold - totalGoldReward;
     final newGold = rawGold < 0 ? 0 : rawGold;
 
+    // ── The day-counters ────────────────────────────────────────
+    //
+    // Mirrors completeHabit, which now bumps these four only on the tap that
+    // FINISHES the habit's day (see its own note). So there is a day to give
+    // back only if the day was actually finished — a habit sitting at 2 of 4
+    // never earned a completion, a category count or a green square, and
+    // taking one off for it would quietly bill the user for a day they were
+    // never paid.
+    //
+    // Always true for an ordinary once-a-day habit, whose single tap both
+    // starts and finishes its day.
+    final hadFinishedDay = current >= frequencyTarget;
+
     final newCategoryCompletions = {...state.categoryCompletions};
-    if (category != null) {
+    if (category != null && hadFinishedDay) {
       final rawCategory = (newCategoryCompletions[category] ?? 0) - 1;
       newCategoryCompletions[category] = rawCategory < 0 ? 0 : rawCategory;
     }
-    final rawTotal = state.totalCompletions - 1;
+    final rawTotal = state.totalCompletions - (hadFinishedDay ? 1 : 0);
     final newTotal = rawTotal < 0 ? 0 : rawTotal;
 
-    final rawTotalGreen = state.totalGreenSquares - 1;
+    final rawTotalGreen = state.totalGreenSquares - (hadFinishedDay ? 1 : 0);
     final newTotalGreenSquares = rawTotalGreen < 0 ? 0 : rawTotalGreen;
     final newDailyGreenCounts = {...state.dailyGreenCounts};
-    final rawDay = (newDailyGreenCounts[dayKey] ?? 0) - 1;
-    newDailyGreenCounts[dayKey] = rawDay < 0 ? 0 : rawDay;
+    if (hadFinishedDay) {
+      final rawDay = (newDailyGreenCounts[dayKey] ?? 0) - 1;
+      newDailyGreenCounts[dayKey] = rawDay < 0 ? 0 : rawDay;
+    }
 
     state = state.copyWith(
       level: xpResult.newLevel,
@@ -278,14 +335,26 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       );
 
       // Writer 2 of 3 for the yearly strip's mirror (see habitHistoryRef).
-      // Undone only when the LAST completion of the day is being removed —
-      // a 3x-a-day habit dropping from 2 to 1 is still a done day. Uses
-      // newCompletions (already decremented above): absence means zero.
+      // Uses newCompletions (already decremented above): absence means zero.
+      // Deleted when the undo empties the day; otherwise the day still has taps
+      // but is no longer full, so the mirror drops from complete back to
+      // partial — matching completeHabit, which now records partial for a
+      // non-finishing tap. Without the else a 4/4 day undone to 3/4 would keep
+      // its 'complete' mark and settle as a fully-done day. The else is only
+      // reachable for a counted habit; a single-tap habit always empties here.
       if (!newCompletions.containsKey(habitId)) {
         batch.set(
           habitHistoryRef(habitId),
           {
             'days': {dayKey: FieldValue.delete()},
+          },
+          SetOptions(merge: true),
+        );
+      } else {
+        batch.set(
+          habitHistoryRef(habitId),
+          {
+            'days': {dayKey: markToStored(SquareState.partial)},
           },
           SetOptions(merge: true),
         );
@@ -306,8 +375,13 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
           // risk a lost update. Nested map, not a dotted key — see
           // completeHabit's identical write for why (dot notation is a
           // literal field name inside set(merge: true), not a path).
-          'totalGreenSquares': FieldValue.increment(-1),
-          'dailyGreenCounts': {dayKey: FieldValue.increment(-1)},
+          // Gated on hadFinishedDay, same as the local counters above: an
+          // unfinished day never earned a green square, so there is none to
+          // take back.
+          'totalGreenSquares': FieldValue.increment(hadFinishedDay ? -1 : 0),
+          'dailyGreenCounts': {
+            dayKey: FieldValue.increment(hadFinishedDay ? -1 : 0),
+          },
           // Deltas, for the same merge reason as habitCompletions above.
           // Every one of these four drops the habit's key at zero, and every
           // one of them was written as a whole map, so none of the removals

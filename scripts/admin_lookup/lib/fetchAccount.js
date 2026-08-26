@@ -23,10 +23,11 @@ const {
   toJsDate,
   effectiveTodayParts,
   calendarTodayParts,
-  triageTasks,
+  triageTasksForDay,
   habitScheduledOnParts,
-  renderTodayCard,
+  renderDayCard,
   renderCalendarSection,
+  dayKeyParts,
 } = require('./render');
 
 function db() {
@@ -61,16 +62,18 @@ async function resolveAccount(query) {
 }
 
 /**
- * Loads everything about one account: Auth record (if any), the
- * users/{uid} profile doc, every subcollection under it (discovered live
- * via listCollections — not hardcoded, so a feature added after this tool
- * was written still shows up without a change here), and every room this
- * account participates in. Returns { uid, authRecord, profileData,
- * sections } — `sections` is the [{id,label,html,count?}] list both
- * lookup_user.js and server.js hand straight to render.js's
- * buildReportBody.
+ * Reads one account's whole tree once: the users/{uid} profile doc, every
+ * subcollection under it (discovered live via listCollections, not
+ * hardcoded, so a feature added after this tool was written still shows up
+ * without a change here), and every room it participates in.
+ *
+ * Split out from loadAccountReport, and cached, because the day picker
+ * turned one report into many: stepping back through a month used to mean
+ * re-reading the entire account from Firestore per day, for data that
+ * cannot have changed between two clicks a second apart. Now the read
+ * happens once and each day is rendered from it.
  */
-async function loadAccountReport(uid, authRecord) {
+async function loadAccountRaw(uid, authRecord) {
   const userRef = db().collection('users').doc(uid);
   const userDoc = await userRef.get();
   if (!userDoc.exists && !authRecord) {
@@ -78,14 +81,10 @@ async function loadAccountReport(uid, authRecord) {
   }
   const profileData = userDoc.exists ? userDoc.data() : null;
 
-  const sections = [];
-
-  // Fetched up front (not inline in the render loop below) so
-  // buildHabitContext always has this account's full custom_habits list
-  // ready before the 'daily' section renders, regardless of which order
-  // listCollections() happens to return them in. Also feeds the Today card
-  // below, which needs the same custom_habits + daily data this loop
-  // already gathers.
+  // Fetched up front (not inline in the render loop) so buildHabitContext
+  // always has this account's full custom_habits list ready before the
+  // 'daily' section renders, regardless of which order listCollections()
+  // happens to return them in.
   const subcollections = await userRef.listCollections();
   const docsByCollection = {};
   for (const col of subcollections) {
@@ -102,10 +101,7 @@ async function loadAccountReport(uid, authRecord) {
   // parent paths. Needs the fieldOverrides entry in firestore.indexes.json
   // (COLLECTION_GROUP scope on participants.uid) - wrapped in its own
   // try/catch so a hiccup on just this one query degrades to a note in its
-  // own section instead of losing the whole report. Fetched here (not
-  // inline further down) because the Today card below also needs it, for
-  // each room's allDoneToday/allDoneDate - see room_model.dart's
-  // RoomParticipant doc comments for exactly what those two fields mean.
+  // own section instead of losing the whole report.
   let roomRows = [];
   let roomsSectionHtml;
   try {
@@ -133,66 +129,126 @@ async function loadAccountReport(uid, authRecord) {
     roomsSectionHtml = `<p class="muted">Couldn't load this section — ${escapeHtml(e.message)}</p>`;
   }
 
-  // ---- Today: "did this account do their habits today", the first thing
-  // an admin sees (see renderTodayCard) - built from this account's own
-  // reported timezone offset (mirrored by main.dart's
-  // _syncAmbientAccountFacts) and the exact scheduling rule the app itself
-  // uses (habitScheduledOnParts), so this can't disagree with what the
-  // user's own app would show them for "today".
-  const todayParts = effectiveTodayParts(profileData && profileData.tzOffsetMinutes);
+  return {
+    uid, authRecord, profileData, subcollections, docsByCollection,
+    habitCtx, roomRows, roomsSectionHtml,
+  };
+}
+
+// Short-lived so day-stepping is free while an admin is reading one
+// account, and short enough that coming back to a report a minute later
+// still re-reads rather than showing a frozen page.
+const RAW_TTL_MS = 60 * 1000;
+const _rawCache = new Map(); // uid -> { at, raw }
+
+async function getAccountRaw(uid, authRecord, { fresh } = {}) {
+  // Drop everything already past its TTL, not just this uid's entry. Each
+  // value holds an account's entire document tree, so keeping expired ones
+  // around means a server left running while the roster is browsed retains
+  // every account it ever rendered, none of which can be read again.
+  const now = Date.now();
+  for (const [key, entry] of _rawCache) {
+    if (now - entry.at >= RAW_TTL_MS) _rawCache.delete(key);
+  }
+  const hit = _rawCache.get(uid);
+  if (!fresh && hit) return hit.raw;
+  const raw = await loadAccountRaw(uid, authRecord);
+  _rawCache.set(uid, { at: Date.now(), raw });
+  return raw;
+}
+
+/**
+ * The Day section, for whatever day is asked for.
+ *
+ * [dateKey] is 'YYYY-MM-DD', or omitted for this ACCOUNT's own today (their
+ * last-reported device offset and this app's 6 AM habit cutoff, never this
+ * machine's clock), so the headline number can't disagree with what the
+ * user's own phone is showing them.
+ *
+ * Habits and tasks run on two different clocks here, on purpose, because
+ * the app itself uses two: habits on the 6 AM flex day (effectiveTodayParts)
+ * and the todo board on the plain calendar day (calendarTodayParts). See
+ * calendarTodayParts' own comment for the bug that came of conflating them.
+ */
+function buildDaySection(raw, dateKey) {
+  const { profileData, docsByCollection, roomRows } = raw;
+  const tz = profileData && profileData.tzOffsetMinutes;
+  const todayParts = effectiveTodayParts(tz);
+  const isToday = !dateKey || dateKey === todayParts.key;
+  const parts = isToday ? todayParts : dayKeyParts(dateKey);
+  const dayKey = parts.key;
+
   const habitDocs = docsByCollection['custom_habits'] || [];
   const dailyDocs = docsByCollection['daily'] || [];
-  const todayDailyDoc = dailyDocs.find((d) => d.id === todayParts.key);
-  const todayDailyData = todayDailyDoc ? todayDailyDoc.data() : {};
-  const todayCompletions = todayDailyData.habitCompletions
-      && typeof todayDailyData.habitCompletions === 'object'
-    ? todayDailyData.habitCompletions
+  const dayDoc = dailyDocs.find((d) => d.id === dayKey);
+  const dayData = dayDoc ? dayDoc.data() : {};
+  const completions = dayData.habitCompletions && typeof dayData.habitCompletions === 'object'
+    ? dayData.habitCompletions
     : {};
-  const scheduledHabitRows = [];
+
+  const habitRows = [];
   for (const doc of habitDocs) {
     const h = doc.data();
-    if (!habitScheduledOnParts(h, todayParts)) continue;
-    const count = Number(todayCompletions[doc.id] || 0);
+    if (!habitScheduledOnParts(h, parts)) continue;
+    const count = Number(completions[doc.id] || 0);
     const cat = CATEGORY_META[h.category] || { emoji: '⭐' };
-    scheduledHabitRows.push({
-      name: h.name || '(unnamed habit)',
-      emoji: cat.emoji,
-      done: count > 0,
-      count,
-    });
+    habitRows.push({ name: h.name || '(unnamed habit)', emoji: cat.emoji, done: count > 0, count });
   }
 
-  // Tasks run on the CALENDAR day, habits on the 6 AM flex day. Two clocks
-  // on purpose, because the app itself uses two: see calendarTodayParts.
   const taskDocs = docsByCollection['matrix_tasks'] || [];
-  const taskParts = calendarTodayParts(profileData && profileData.tzOffsetMinutes);
-  const triage = triageTasks(taskDocs, taskParts);
+  const taskParts = isToday ? calendarTodayParts(tz) : dayKeyParts(dayKey);
+  const triage = triageTasksForDay(taskDocs, taskParts);
 
-  const roomsToday = roomRows.map((r) => ({
+  const rooms = roomRows.map((r) => ({
     name: r.room.name || r.code,
-    allDone: r.participant.allDoneToday === true
-      && r.participant.allDoneDate === todayParts.key,
+    allDone: r.participant.allDoneToday === true && r.participant.allDoneDate === dayKey,
     muted: r.participant.notificationsMuted === true,
   }));
 
-  const todayDone = scheduledHabitRows.filter((h) => h.done).length;
-  const todayTotal = scheduledHabitRows.length;
+  const done = habitRows.filter((h) => h.done).length;
+  const total = habitRows.length;
 
-  sections.push({
+  return {
     id: 'today',
-    label: '📍 Today',
-    count: `${todayDone}/${todayTotal}`,
-    html: renderTodayCard({
+    label: '📍 Day',
+    count: `${done}/${total}`,
+    done,
+    total,
+    dayKey,
+    isToday,
+    todayKey: todayParts.key,
+    html: renderDayCard({
+      dayKey,
+      isToday,
       todayKey: todayParts.key,
-      habitRows: scheduledHabitRows,
-      mood: todayDailyData.mood ? MOOD_META[todayDailyData.mood] : null,
-      nightReviewDone: !!todayDailyData.nightReviewDone,
-      reflection: todayDailyData.dailyReflection || '',
+      habitRows,
+      mood: dayData.mood ? MOOD_META[dayData.mood] : null,
+      nightReviewDone: !!dayData.nightReviewDone,
+      reflection: dayData.dailyReflection || '',
+      xp: dayData.totalXpEarned || 0,
+      gold: dayData.totalGoldEarned || 0,
+      hasDoc: !!dayDoc,
       triage,
       taskDayKey: taskParts.key,
-      rooms: roomsToday,
+      rooms,
     }),
-  });
+  };
+}
+
+/**
+ * One account's full report: the Day section (for [dateKey], default their
+ * today), the Auth record, the profile, every subcollection, and rooms.
+ * Returns { uid, authRecord, profileData, sections, todaySummary } - the
+ * shape both lookup_user.js and server.js hand straight to render.js's
+ * buildReportBody.
+ */
+async function loadAccountReport(uid, authRecord, dateKey) {
+  const raw = await getAccountRaw(uid, authRecord);
+  const { profileData, subcollections, docsByCollection, habitCtx, roomsSectionHtml } = raw;
+
+  const sections = [];
+  const day = buildDaySection(raw, dateKey);
+  sections.push(day);
 
   if (authRecord) {
     sections.push({
@@ -227,7 +283,8 @@ async function loadAccountReport(uid, authRecord) {
         id: 'daily',
         label: KNOWN_LABELS.daily,
         count: docsByCollection.daily.length,
-        html: renderCalendarSection(docsByCollection.daily, habitDocs, habitCtx, todayParts.key),
+        html: renderCalendarSection(
+          docsByCollection.daily, docsByCollection['custom_habits'] || [], habitCtx, day.todayKey),
       });
       continue;
     }
@@ -235,7 +292,7 @@ async function loadAccountReport(uid, authRecord) {
       col.id,
       KNOWN_LABELS[col.id] || col.id,
       docsByCollection[col.id],
-      { habitCtx, todayKey: todayParts.key },
+      { habitCtx, todayKey: day.todayKey },
     ));
   }
 
@@ -246,8 +303,17 @@ async function loadAccountReport(uid, authRecord) {
     authRecord,
     profileData,
     sections,
-    todaySummary: { done: todayDone, total: todayTotal },
+    dayKey: day.dayKey,
+    isToday: day.isToday,
+    todayKey: day.todayKey,
+    todaySummary: { done: day.done, total: day.total },
   };
+}
+
+/** Just the Day section's HTML, for the report page's day stepper. */
+async function loadDayFragment(uid, authRecord, dateKey) {
+  const raw = await getAccountRaw(uid, authRecord);
+  return buildDaySection(raw, dateKey);
 }
 
 // ---- Search across every account (server.js's live search box) ----
@@ -297,7 +363,10 @@ async function listAllUsers(forceRefresh) {
     pageToken = page.pageToken;
   } while (pageToken);
 
-  const namesSnap = await db().collection('users').select('displayName', 'createdAt').get();
+  const namesSnap = await db().collection('users')
+    .select('displayName', 'createdAt', 'level', 'currentStreak', 'gold',
+      'totalHabitCompletions', 'tzOffsetMinutes', 'locale')
+    .get();
   const names = new Map(); // uid -> displayName
   const firestoreCreatedAt = new Map(); // uid -> ISO string, fallback only
   namesSnap.forEach((doc) => {
@@ -361,7 +430,10 @@ async function searchAccounts(q, limit = 25) {
 
 module.exports = {
   resolveAccount,
+  loadAccountRaw,
   loadAccountReport,
+  loadDayFragment,
+  buildDaySection,
   searchAccounts,
   listAllUsers,
 };

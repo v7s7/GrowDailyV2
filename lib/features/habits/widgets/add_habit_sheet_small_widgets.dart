@@ -168,3 +168,137 @@ class _SmallPick extends StatelessWidget {
     );
   }
 }
+
+// ─── Times per day ────────────────────────────────────────────────────────
+//
+// Option A from design/canvas.json: one quiet row, always present while
+// Daily is selected, reading "مرة في اليوم" at its resting value of 1. The
+// alternative was to hide it behind a disclosure, which costs nothing in
+// height and is found by nobody; this row also teaches what the default is,
+// which is most of the reason it earns its line.
+//
+// A daily habit's per-day count IS its frequencyTarget — see
+// IslamicHabitTemplate.effectiveDailyTarget, which has always read it that
+// way. So this control edits the same field the Weekly dropdown does; it is
+// only the meaning of that field that differs between the two modes.
+
+/// Upper bound on the stepper. Twelve is deliberately generous (hourly water
+/// through a waking day is about this) and deliberately finite: the square
+/// has to divide into visible slices, and past a dozen a single tap stops
+/// moving it enough to feel like anything happened.
+const int kMaxTimesPerDay = 12;
+
+class _TimesPerDayRow extends StatelessWidget {
+  final int count;
+  final ValueChanged<int> onChanged;
+  const _TimesPerDayRow({required this.count, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final isMulti = count > 1;
+    final canDec = count > 1;
+    final canInc = count < kMaxTimesPerDay;
+
+    Widget step(IconData icon, bool enabled, int delta, String tip) => Semantics(
+          button: true,
+          enabled: enabled,
+          label: tip,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+            onTap: enabled
+                ? () {
+                    HapticFeedback.selectionClick();
+                    onChanged(count + delta);
+                  }
+                : null,
+            child: Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: gp.surface,
+                borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+                border: Border.all(color: gp.border),
+              ),
+              child: Icon(
+                icon,
+                size: 18,
+                // Dimmed rather than removed at the ends, so the control
+                // keeps its shape and the row never reflows under a thumb.
+                color: enabled ? gp.textSec : gp.border,
+              ),
+            ),
+          ),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            step(Icons.remove_rounded, canDec, -1, s.timesPerDayDecrease(count)),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 34,
+              child: Text(
+                '$count',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  // Gold only once it is actually saying something — at 1
+                  // this row is describing the default, not a choice.
+                  color: isMulti ? GameColors.gold : gp.textPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            step(Icons.add_rounded, canInc, 1, s.timesPerDayIncrease(count)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    s.timesPerDayLabel(count),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    s.timesPerDayHint(count),
+                    style: TextStyle(fontSize: 11, color: gp.textTert),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        // Only once the count is a choice. At 1 there is nothing to explain,
+        // and a permanent paragraph under an untouched control is the exact
+        // clutter Option A was supposed to avoid.
+        if (isMulti) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: GameColors.gold.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+              border: Border.all(color: GameColors.gold.withOpacity(0.25)),
+            ),
+            child: Text(
+              s.timesPerDayNote(count),
+              style: TextStyle(fontSize: 11, height: 1.5, color: gp.textSec),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}

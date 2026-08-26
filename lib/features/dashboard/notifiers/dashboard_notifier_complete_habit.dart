@@ -109,6 +109,39 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     final newCompletions = Map<String, int>.from(state.completions)
       ..[habitId] = current + 1;
 
+    // ── This tap's share of the day ──────────────────────────────
+    //
+    // xpReward/goldReward are the price of the DAY, not of one tap. A habit
+    // counted 4 times a day is not worth 4 days' XP for the same habit, so
+    // the day's price is split across its taps and this tap takes its slice
+    // (see XpCalculator.rewardSliceForTap for why the slices are uneven and
+    // why that is the point). frequencyTarget is already the per-day count:
+    // every caller passes IslamicHabitTemplate.effectiveDailyTarget, which
+    // is frequencyTarget for a daily habit and 1 for a weekly one.
+    //
+    // At a target of 1 both slices ARE xpReward/goldReward, so every habit
+    // that existed before counting did is paid to the byte what it always
+    // was — that equivalence is pinned in test/core/reward_per_day_test.dart.
+    // Whether this tap is the one that finishes the habit's day. Always true
+    // at a target of 1, which is what every caller passed before habits could
+    // be counted — so everything gated on it below behaves for an ordinary
+    // habit exactly as it did when the gate did not exist.
+    final finishesDay = completionAnnouncesItself(
+      doneBefore: current,
+      target: frequencyTarget,
+    );
+
+    final xpSlice = XpCalculator.rewardSliceForTap(
+      total: xpReward,
+      target: frequencyTarget,
+      tapIndex: current,
+    );
+    final goldSlice = XpCalculator.rewardSliceForTap(
+      total: goldReward,
+      target: frequencyTarget,
+      tapIndex: current,
+    );
+
     // ── Per-habit streak bump ────────────────────────────────
     //
     // Fires once per habit per day — `current == 0` means this is the
@@ -182,12 +215,17 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // action, not "did something today"). Always additive on top of the
     // normal reward, capped at half again its size — see
     // GameConstants.surpriseBonusChance for the reasoning.
+    //
+    // Scaled off the SLICE rather than the day's full price, for the same
+    // reason the slice exists: this fires per tap, so paying it against the
+    // whole day would let a habit counted 4 times a day roll four bonuses
+    // that were each priced as though they were the entire day.
     final rolledBonus = _random.nextDouble() < GameConstants.surpriseBonusChance;
     final surpriseBonusXp = rolledBonus
-        ? (xpReward * GameConstants.surpriseBonusMultiplier).ceil()
+        ? (xpSlice * GameConstants.surpriseBonusMultiplier).ceil()
         : 0;
     final surpriseBonusGold = rolledBonus
-        ? (goldReward * GameConstants.surpriseBonusMultiplier).ceil()
+        ? (goldSlice * GameConstants.surpriseBonusMultiplier).ceil()
         : 0;
 
     // ── Same-day-undo snapshot ───────────────────────────────────
@@ -209,6 +247,26 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         bonusXp: habitMilestoneBonusXp + surpriseBonusXp,
         bonusGold: surpriseBonusGold,
       );
+    } else {
+      // A later tap of a counted habit keeps the day's first-tap snapshot —
+      // those prev* fields are the ones an undo has to restore — but its own
+      // surprise bonus still has to be recorded, because the bonus rolls on
+      // EVERY tap while the snapshot was only ever written on the first.
+      //
+      // Left unaccumulated, clearing a finished day gave back the day's
+      // reward plus only the first tap's bonus, stranding every later one.
+      // Tap to full, clear, repeat, and each lap nets whatever those later
+      // taps happened to roll — the same repeatable lap that
+      // setSquareStateOnly exists to close, reopened through a different
+      // door. Pinned by "clearing a finished day gives back exactly what it
+      // paid" in times_per_day_economy_test.dart.
+      final prior = _lastHabitCompletion[habitId];
+      if (prior != null && (surpriseBonusXp > 0 || surpriseBonusGold > 0)) {
+        _lastHabitCompletion[habitId] = prior.copyWithAddedBonus(
+          xp: surpriseBonusXp,
+          gold: surpriseBonusGold,
+        );
+      }
     }
 
     // Only single-tap habits are synced with the Grid in this phase — see
@@ -232,7 +290,30 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // completing habits again would keep the offer dangling indefinitely,
     // and using it later would clobber the real progress they've since
     // rebuilt.
-    final clearsPendingComeback = justReachedAllDone && state.previousStreak > 0;
+    // Not when a freeze is banked. previousStreak > 0 with streakFreezes > 0 is
+    // the card offering a real streak RESTORE, and useStreakFreeze guards on
+    // previousStreak > 0 — so zeroing it here the instant today goes all-done
+    // would spend a multi-day restore the user never chose, trading it for
+    // 50 XP and a day-1 streak, and the card would vanish before they could
+    // pick. Leaving it armed keeps the choice open; the bonus is still paid by
+    // whichever route they then take (restore or fresh start both pay it — see
+    // useStreakFreeze / acknowledgeComeback), just not auto-collected here. With
+    // no freeze there is nothing to protect, so continuing clears and pays it as
+    // before, which is what comebackEitherWay promises for that layout.
+    final clearsPendingComeback = justReachedAllDone &&
+        state.previousStreak > 0 &&
+        state.streakFreezes <= 0;
+    // Clearing the offer used to be ALL this did, and the bonus attached to
+    // it was simply forfeited: DashboardNotifier.comebackBonusXp was spent
+    // in exactly one place, acknowledgeComeback, which only ever runs from
+    // the card's own button. So the person who ignored the card and went
+    // and finished their habits, which is the entire behaviour the card is
+    // asking for, was the one person who got nothing for it, while the
+    // person who tapped a button and did nothing else got 50 XP. The card
+    // even promised the opposite in writing ("+50 XP comeback bonus when
+    // you continue"). Continuing is the comeback, so continuing pays it.
+    final comebackBonusXp =
+        clearsPendingComeback ? DashboardNotifier.comebackBonusXp : 0;
     final bump = justReachedAllDone
         ? _computeStreakBump()
         : (
@@ -250,14 +331,32 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
       cumulativeXp: state.cumulativeXp,
-      xpGained:
-          xpReward + milestoneBonusXp + habitMilestoneBonusXp + surpriseBonusXp,
+      xpGained: xpSlice +
+          milestoneBonusXp +
+          habitMilestoneBonusXp +
+          surpriseBonusXp +
+          comebackBonusXp,
     );
-    final newGold = state.gold + goldReward + surpriseBonusGold;
-    final newTotal = state.totalCompletions + 1;
+    final newGold = state.gold + goldSlice + surpriseBonusGold;
+    // ── The day-counters ────────────────────────────────────────
+    //
+    // A completion is a habit-DAY, not a tap. These four feed the lifetime
+    // stats on Profile, the Monthly Heatmap, and the achievement thresholds
+    // (completions_50/500/2000/5000 and green_1/100/500/2000), and every one
+    // of them means "days", so a habit counted four times a day must not
+    // advance them four times as fast. Left per-tap it was the same class of
+    // leak as paying XP per tap: pick a bigger number, unlock medals sooner.
+    //
+    // The comment that used to sit here claimed the guard above already made
+    // this "at most a one-time bump per habit per day". That was true only
+    // because effectiveDailyTarget could never exceed 1 — daily habits were
+    // pinned to 1 by the editor and weekly ones resolve to 1 — so the claim
+    // was correct by accident and stopped being correct the moment the
+    // stepper could set it. Gating on finishesDay makes it true on purpose.
+    final newTotal = state.totalCompletions + (finishesDay ? 1 : 0);
 
     final newCategoryCompletions = {...state.categoryCompletions};
-    if (category != null) {
+    if (category != null && finishesDay) {
       newCategoryCompletions[category] =
           (newCategoryCompletions[category] ?? 0) + 1;
     }
@@ -277,10 +376,16 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // guard above (`current >= frequencyTarget`) already makes this at
     // most a one-time bump per habit per day, same as everything else in
     // this method.
-    final newTotalGreenSquares = state.totalGreenSquares + 1;
+    // Green squares are literally squares, and a counted habit turns exactly
+    // one square green per day — on the tap that fills it. Counting the
+    // part-done taps too would put more green squares in the heatmap than
+    // the board has squares to show.
+    final newTotalGreenSquares = state.totalGreenSquares + (finishesDay ? 1 : 0);
     final newDailyGreenCounts = {...state.dailyGreenCounts};
-    newDailyGreenCounts[DashboardNotifier._todayKey] =
-        (newDailyGreenCounts[DashboardNotifier._todayKey] ?? 0) + 1;
+    if (finishesDay) {
+      newDailyGreenCounts[DashboardNotifier._todayKey] =
+          (newDailyGreenCounts[DashboardNotifier._todayKey] ?? 0) + 1;
+    }
 
     // ── Achievement check ────────────────────────────────────
     // See _resolveUnlocks for why this resolves to a fixed point instead of
@@ -311,6 +416,16 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       'streakJustEarned': justReachedAllDone,
       'milestone': newMilestone,
     });
+    // Same event the card's button fires, so the funnel counts a comeback
+    // once however it was finished. 'route' is the only way to tell the two
+    // apart afterwards, and worth knowing: if almost nobody ever arrives
+    // here by 'continue', the card is doing the work and the bonus is
+    // really a tap reward, which would be worth redesigning rather than
+    // quietly paying for.
+    if (clearsPendingComeback) {
+      AnalyticsService.instance
+          .track('comeback_bonus_claimed', props: {'route': 'continue'});
+    }
 
     final didLevelUp = bonusResult.newLevel > state.level;
 
@@ -420,22 +535,51 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       lastCompletionBonusGold: surpriseBonusGold,
     );
 
-    _fireCompletionNotifications(
-      habitId: habitName ?? habitId,
-      xpEarned: xpReward +
-          milestoneBonusXp +
-          habitMilestoneBonusXp +
-          surpriseBonusXp,
-      goldEarned: goldReward + surpriseBonusGold,
-      didLevelUp: didLevelUp,
-      newLevel: bonusResult.newLevel,
-      newlyUnlocked: newly,
-    );
+    // ── Only the tap that finishes the day announces itself ──────
+    //
+    // The reward banner is an EVENT — "this is done, here is what it paid" —
+    // and a habit counted N times a day would otherwise fire N of them. Four
+    // a day is wrong even when the habit is a happy one, and it is worse than
+    // wrong when it is not: the app does not know whether this habit is
+    // drinking water or taking medicine, and it must not congratulate someone
+    // four times a day for taking medicine. Neutral is the only safe default,
+    // because it is the only one that is never insulting.
+    //
+    // Nothing is taken away from the cheerful case either. The finishing tap
+    // fires exactly the banner the habit fired when it was once a day, so a
+    // water habit still gets its celebration — one a day, the same one it
+    // always had. What the intermediate taps get instead is the square
+    // filling and its count going up, which is a statement of fact and reads
+    // as progress without claiming anything about how the person should feel.
+    //
+    // At frequencyTarget 1 this is unconditionally true, so no habit that
+    // existed before counting did notices any of it.
+    if (finishesDay) {
+      _fireCompletionNotifications(
+        habitId: habitName ?? habitId,
+        // The slice, not the day's price: this is the number the person is
+        // shown, and showing them "+10 XP" on each of four taps that together
+        // paid 10 would be telling them they earned 40.
+        xpEarned: xpSlice +
+            milestoneBonusXp +
+            habitMilestoneBonusXp +
+            surpriseBonusXp,
+        goldEarned: goldSlice + surpriseBonusGold,
+        didLevelUp: didLevelUp,
+        newLevel: bonusResult.newLevel,
+        newlyUnlocked: newly,
+      );
+    }
 
     if (_uid == null) {
       await _saveGuestDaily(
         newCompletions,
         streakEarnedToday: newStreakEarnedToday,
+        // Only for a habit that is counted more than once a day: at a target
+        // of 1 the absence of an entry already means 1, and writing it for
+        // every habit would grow every day document for nothing.
+        habitTargets:
+            frequencyTarget > 1 ? {habitId: frequencyTarget} : null,
         // Not restamped when a receipt is being redeemed. Uncompleting leaves
         // the original stamp behind on purpose (see [minutesSinceMidnight]),
         // so the fajr adhkar that were really done at fajr keep saying so
@@ -471,6 +615,14 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         _dailyRef,
         {
           'habitCompletions': newCompletions,
+          // What this day asked of this habit, stamped on the day itself so a
+          // report reading it back years later can tell a finished counted day
+          // from a part-done one without guessing from today's settings — see
+          // dayMark. Only written above a target of 1, where absence already
+          // means 1. Nested map, so merge updates this habit's entry and leaves
+          // the other habits' alone.
+          if (frequencyTarget > 1)
+            'habitTargets': {habitId: frequencyTarget},
           'date': Timestamp.fromDate(now),
           'streakEarnedToday': newStreakEarnedToday,
           // A nested map merged key by key, not written whole:
@@ -547,8 +699,12 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // folds the stranded junk fields back in. merge: true merges
           // maps per-leaf-field, so this increments just today's entry
           // without touching other days.
-          'totalGreenSquares': FieldValue.increment(1),
-          'dailyGreenCounts': {DashboardNotifier._todayKey: FieldValue.increment(1)},
+          // Gated exactly as the local counters above are: one green
+          // square per habit-day, credited on the tap that fills it.
+          'totalGreenSquares': FieldValue.increment(finishesDay ? 1 : 0),
+          'dailyGreenCounts': {
+            DashboardNotifier._todayKey: FieldValue.increment(finishesDay ? 1 : 0),
+          },
           // One nested key deleted, so the receipts outstanding on other
           // habit-days survive the merge.
           if (redeemed != null)
@@ -563,13 +719,22 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       batch.set(
         habitHistoryRef(habitId),
         {
-          // 'complete', not 1: the mirror stores the six-state mark now (see
-          // habit_day_marks.dart). A day already painted bonus is flattened
-          // to complete by this write, which is accepted rather than paid
-          // for with a read: both are green, so no count or percentage
-          // moves, and only the flourish is lost in a rare double-entry.
+          // The mirror stores the six-state mark now (see habit_day_marks.dart).
+          // complete ONLY when this tap finishes the day — every other
+          // day-writer in this method is gated on finishesDay, and this one was
+          // not. For a counted habit that made tap 1 of 4 stamp the day
+          // 'complete' in the mirror, so a day stopped at 2 of 4 settled as
+          // fully done: withLiveToday's overlay hides it while it is still
+          // today, but once the day settles the mirror is authoritative and the
+          // yearly strip and period reports show a green, fully-credited day the
+          // reward system itself refused to count. partial is the honest mark
+          // for a part-done day. A day already painted bonus is flattened to
+          // this write's mark, accepted rather than paid for with a read: on the
+          // finishing tap green stays green so nothing moves; only the rare
+          // bonus flourish is lost.
           'days': {
-            DashboardNotifier._todayKey: markToStored(SquareState.complete),
+            DashboardNotifier._todayKey: markToStored(
+                finishesDay ? SquareState.complete : SquareState.partial),
           },
         },
         SetOptions(merge: true),

@@ -120,8 +120,17 @@ class _RoomBody extends ConsumerWidget {
         data: (participants) {
           final mine = mineOf(participants);
           onSyncIfNeeded(room, mine);
-          final sorted = [...participants]..sort(
-              (a, b) => b.progressRatio(room).compareTo(a.progressRatio(room)));
+          final sorted = [...participants]..sort((a, b) {
+            final byProgress =
+                b.progressRatio(room).compareTo(a.progressRatio(room));
+            // Deterministic tie-break. List.sort is unstable above 32 elements
+            // and ties are the common case (day one, and everyone at 100% in an
+            // active room), so without a secondary key the tied rows — and the
+            // rank numbers derived from their order — visibly reshuffle on every
+            // participants-stream rebuild, with nobody's score having changed.
+            // uid is stable and unique.
+            return byProgress != 0 ? byProgress : a.uid.compareTo(b.uid);
+          });
 
           return RefreshIndicator(
             onRefresh: () => onManualSync(room, mine),

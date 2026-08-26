@@ -135,6 +135,11 @@ class ProfileScreen extends ConsumerWidget {
               child: _StatsRow(state: state),
             ).animate(delay: 100.ms).fadeIn(duration: 400.ms),
           ),
+          // Directly under the numbers it explains. Renders nothing unless
+          // the load actually failed, which is the overwhelmingly common
+          // case; when it did fail, this is the only thing on the whole
+          // screen that says so.
+          const SliverToBoxAdapter(child: _LoadFailedBanner()),
           // Streak-at-risk, night-review prompt, and the Friday recap card —
           // relocated here from the Grid screen so Grid can lead with the
           // habit squares themselves. Renders nothing (zero height, no

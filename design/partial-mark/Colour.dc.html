@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+    a { color: #E8C55A; } a:hover { color: #F2D680; }
+    .sq { width: 30px; height: 30px; border-radius: 9px; border: 0.8px solid; position: relative; overflow: hidden; flex: none; }
+    .empty { background: #26292D; border-color: #2D4037; }
+    .done { background:#2B4864; border-color:rgba(91,155,213,0.55); }
+    .cap { font-size: 11px; color: #7E8A84; line-height: 1.55; }
+    .card { background: #12161B; border: 1px solid #1E2A24; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+    .row { display: flex; gap: 7px; align-items: center; }
+    .h { font-size: 14px; font-weight: 700; color: #F7F3E8; }
+    .tag { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #9C7436; }
+    .lbl { font-size: 11px; color: #B9C2BD; width: 108px; flex: none; }
+  </style>
+</helmet>
+<div style="background:#07100D; padding:28px; display:flex; flex-direction:column; gap:20px; width:760px; box-sizing:border-box;">
+
+  <div style="display:flex; flex-direction:column; gap:5px;">
+    <div style="font-size:19px; font-weight:700; color:#F7F3E8;">Yellow, or the done colour?</div>
+    <div class="cap" style="max-width:620px;">Same half fill either way. The only question is whether the filled half borrows the "done" colour or keeps the warning yellow that already means "not all the way" everywhere else in the app.</div>
+  </div>
+
+  <div class="card">
+    <div class="tag">Side by side, 30pt</div>
+    <div class="row"><div class="lbl">Yellow</div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#26292D;border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#6B5C2E;"></div></div>
+      <div class="sq done"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg></div></div>
+      <div class="cap" style="flex:1;">Three unmistakable things.</div>
+    </div>
+    <div class="row"><div class="lbl">Done colour</div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#26292D;border-color:rgba(91,155,213,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#2B4864;"></div></div>
+      <div class="sq done"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg></div></div>
+      <div class="cap" style="flex:1;">Two of these are the same colour. The difference is 15pt of height.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tag">The test that matters — a whole board, glanced at</div>
+    <div class="cap" style="margin-top:-4px;">You do not study one square. You sweep a wall of them. Squint at these two.</div>
+
+    <div class="row" style="align-items:flex-start; gap:26px;">
+      <div style="display:flex; flex-direction:column; gap:7px;">
+        <div class="cap" style="color:#E8C55A; font-weight:700;">Yellow</div>
+        <div class="row"><div class="sq done"></div><div class="sq empty"></div><div class="sq" style="background:#26292D;border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#6B5C2E;"></div></div><div class="sq done"></div><div class="sq empty"></div><div class="sq done"></div><div class="sq empty"></div></div>
+        <div class="row"><div class="sq empty"></div><div class="sq done"></div><div class="sq done"></div><div class="sq empty"></div><div class="sq" style="background:#26292D;border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#6B5C2E;"></div></div><div class="sq empty"></div><div class="sq done"></div></div>
+        <div class="row"><div class="sq done"></div><div class="sq done"></div><div class="sq empty"></div><div class="sq done"></div><div class="sq done"></div><div class="sq" style="background:#26292D;border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#6B5C2E;"></div></div><div class="sq empty"></div></div>
+        <div class="cap" style="max-width:250px;">The three half days find you. You can count them without trying.</div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:7px;">
+        <div class="cap" style="color:#5B9BD5; font-weight:700;">Done colour</div>
+        <div class="row"><div class="sq done"></div><div class="sq empty"></div><div class="sq" style="background:#26292D;border-color:rgba(91,155,213,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#2B4864;"></div></div><div class="sq done"></div><div class="sq empty"></div><div class="sq done"></div><div class="sq empty"></div></div>
+        <div class="row"><div class="sq empty"></div><div class="sq done"></div><div class="sq done"></div><div class="sq empty"></div><div class="sq" style="background:#26292D;border-color:rgba(91,155,213,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#2B4864;"></div></div><div class="sq empty"></div><div class="sq done"></div></div>
+        <div class="row"><div class="sq done"></div><div class="sq done"></div><div class="sq empty"></div><div class="sq done"></div><div class="sq done"></div><div class="sq" style="background:#26292D;border-color:rgba(91,155,213,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#2B4864;"></div></div><div class="sq empty"></div></div>
+        <div class="cap" style="max-width:250px;">Same three days. You have to hunt for them, and a "good week" looks better than it was.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tag">One more reason, and it is not aesthetic</div>
+    <div class="cap">A partial square pays 5 XP where a done square pays 10 (SquareState.xpValue). A mark that wears the done colour but pays half is telling the person something untrue about their own week. Yellow keeps the colour honest about the payout.</div>
+    <div class="cap">And colour is the only signal that survives a colour-blind viewer badly, so the half height is the redundant encoding for them. Keeping both means neither has to work alone.</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

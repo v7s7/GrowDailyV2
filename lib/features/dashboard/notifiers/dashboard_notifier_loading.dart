@@ -235,6 +235,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
     Map<String, int> completions, {
     bool? streakEarnedToday,
     Map<String, int>? completedAtMinutes,
+    Map<String, int>? habitTargets,
   }) async {
     // Inside updateDailyMap, so this read and write cannot interleave with
     // the grid's write to the same day. That interleaving is what let a
@@ -252,6 +253,19 @@ extension DashboardNotifierLoading on DashboardNotifier {
         ...?completedAtMinutes,
       };
       day['habitCompletions'] = completions;
+      // What the day ASKED of each counted habit, recorded on the day itself so
+      // history stays self-describing: see dayMark, which reads it back to tell
+      // a finished counted day from a part-done one. Merged rather than
+      // overwritten, because one call only ever knows about the habit it just
+      // completed.
+      if (habitTargets != null && habitTargets.isNotEmpty) {
+        day['habitTargets'] = <String, int>{
+          ...?(day['habitTargets'] as Map?)?.map(
+            (key, value) => MapEntry('$key', (value as num).toInt()),
+          ),
+          ...habitTargets,
+        };
+      }
       day['date'] = DateTime.now().effectiveDay.toIso8601String();
       if (streakEarnedToday != null) day['streakEarnedToday'] = streakEarnedToday;
       if (mergedMinutes.isNotEmpty) day['completedAtMinutes'] = mergedMinutes;

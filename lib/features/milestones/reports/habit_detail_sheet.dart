@@ -144,6 +144,8 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
           habitIds: [habit.id],
           squareToday: (id) => grid.squareFor(id, today),
           completionsToday: (id) => dash.completions[id] ?? 0,
+          // One habit here, so its own count is the only target in play.
+          dailyTargetOf: (_) => habit.effectiveDailyTarget,
           todayKey: today.toDateKey(),
           gridKnowsToday: !grid.isLoading && grid.isCurrentWeek,
         )[habit.id] ??

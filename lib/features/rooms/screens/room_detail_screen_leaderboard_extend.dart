@@ -1294,23 +1294,39 @@ class _LeaderboardRow extends ConsumerWidget {
 /// only current user of this.
 class _WarningRow extends StatelessWidget {
   final String text;
-  const _WarningRow({required this.text});
+
+  /// Explanations get the calm blue treatment, problems keep the red one.
+  ///
+  /// A paused habit is a normal state of a working room, not a fault: the
+  /// member chose it, it is reversible, and there is nothing here to fix.
+  /// Painting it in error red with a warning triangle is what sent someone
+  /// who had merely paused a habit looking for a repair, and the only
+  /// "repair" the copy could offer was leaving the room, which destroys
+  /// the progress they were trying to protect. See
+  /// S.roomLinkedHabitPausedHint.
+  final bool informational;
+  const _WarningRow({required this.text, this.informational = false});
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final tone = informational ? GameColors.iconXp : GameColors.error;
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: GameColors.error.withOpacity(0.08),
+        color: tone.withOpacity(0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: GameColors.error.withOpacity(0.22)),
+        border: Border.all(color: tone.withOpacity(0.22)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.warning_amber_rounded,
-              size: 15, color: GameColors.error),
+          Icon(
+              informational
+                  ? Icons.pause_circle_outline_rounded
+                  : Icons.warning_amber_rounded,
+              size: 15,
+              color: tone),
           const SizedBox(width: 7),
           Expanded(
             child: Text(

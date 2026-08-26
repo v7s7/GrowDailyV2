@@ -59,14 +59,28 @@ void main() {
   NotificationService.instance.celebrationsEnabled = false;
 
   group('SquareState', () {
-    test('tap cycle follows white → yellow → green → white', () {
-      expect(SquareState.none.next, SquareState.partial);
-      expect(SquareState.partial.next, SquareState.complete);
+    test('tap cycle follows white → green → white', () {
+      // One tap means done. Yellow used to sit in the middle of this cycle,
+      // which made the app's most common action cost two taps and put a
+      // claim nobody made ("partly done") in between. Yellow is still
+      // reachable, deliberately, from the long-press palette.
+      expect(SquareState.none.next, SquareState.complete);
       expect(SquareState.complete.next, SquareState.none);
-      // Advanced colors tap back to a clean slate.
+      // Every non-empty state taps back to a clean slate, yellow included:
+      // a tap can leave partial but can no longer arrive at it.
+      expect(SquareState.partial.next, SquareState.none);
       expect(SquareState.failed.next, SquareState.none);
       expect(SquareState.bonus.next, SquareState.none);
       expect(SquareState.skipped.next, SquareState.none);
+    });
+
+    test('a tap can never land on partial', () {
+      // The property, rather than the table above: whatever the cycle is
+      // rearranged into later, no single tap may produce a half-done claim.
+      for (final s in SquareState.values) {
+        expect(s.next, isNot(SquareState.partial),
+            reason: '$s taps into partial');
+      }
     });
 
     test('fixed XP values match the spec', () {
@@ -172,6 +186,81 @@ void main() {
       await LocalStoreService.settleDailyWrites();
       await Hive.deleteFromDisk();
       await tmp.delete(recursive: true);
+    });
+
+    test('a counted habit keeps every XP its taps paid, with nothing clawed back',
+        () async {
+      // The leak: tap 1 of a 4x habit paints its square جزئي through
+      // markResultFromHabit, which does NOT pay the flat rate (the reward is
+      // completeHabit's slice). The finishing tap then repainted it أخضر, and
+      // the refund path inferred "a yellow square was paid 5 XP" from the
+      // colour alone and took 5 back. Every counted day silently netted 5 XP
+      // short, and each tap-to-full-then-clear lap lost another 5.
+      final today = DateTime.now().effectiveDay;
+      const target = 4;
+      const xpReward = 10;
+      final dash = container.read(dashboardProvider.notifier);
+      final grid = container.read(weeklyGridProvider.notifier);
+
+      // Taps 1..N-1: each pays its slice and paints جزئي.
+      for (var i = 0; i < target - 1; i++) {
+        await dash.completeHabit(
+          habitId: 'counted',
+          xpReward: xpReward,
+          goldReward: 4,
+          frequencyTarget: target,
+          allHabitsDoneAfter: false,
+          category: 'custom',
+          habitName: 'counted',
+        );
+        grid.markResultFromHabit('counted', today, SquareState.partial);
+      }
+      // The finishing tap's reward, banked before the square is repainted.
+      await dash.completeHabit(
+        habitId: 'counted',
+        xpReward: xpReward,
+        goldReward: 4,
+        frequencyTarget: target,
+        allHabitsDoneAfter: false,
+        category: 'custom',
+        habitName: 'counted',
+      );
+      expect(container.read(dashboardProvider).completions['counted'], target);
+
+      // Measured across the mirror write ALONE, so unlocked achievements and
+      // streak milestones (which pay real XP on these same taps) cannot mask
+      // or fake the result. Mirroring a square is a picture, not a payment: it
+      // must move the XP total by exactly nothing.
+      final beforeMirror = container.read(dashboardProvider).cumulativeXp;
+      grid.markResultFromHabit('counted', today, SquareState.complete);
+      expect(
+        container.read(dashboardProvider).cumulativeXp,
+        beforeMirror,
+        reason: 'the finishing tap repaints جزئي to أخضر; refunding a flat rate '
+            'that markResultFromHabit never paid cost every counted day 5 XP',
+      );
+    });
+
+    test('a palette lap still nets exactly zero', () async {
+      // The other half of the same rule, and the reason the refund exists at
+      // all: setSquare DOES pay the flat rate, so a square it painted must
+      // still give that back when the canonical path takes it over. none →
+      // جزئي (+5 paid) → complete (canonical, refunds the 5) must leave the
+      // flat-rate economy exactly where it started.
+      final today = DateTime.now().effectiveDay;
+      final grid = container.read(weeklyGridProvider.notifier);
+      final before = container.read(dashboardProvider).cumulativeXp;
+
+      grid.setSquare('painted', today, SquareState.partial);
+      await LocalStoreService.settleDailyWrites();
+      expect(container.read(dashboardProvider).cumulativeXp, before + 5,
+          reason: 'the palette pays the flat rate for yellow');
+
+      grid.markResultFromHabit('painted', today, SquareState.complete);
+      await LocalStoreService.settleDailyWrites();
+      expect(container.read(dashboardProvider).cumulativeXp, before,
+          reason: 'and the canonical take-over gives back exactly that 5, so '
+              'the lap cannot be farmed');
     });
 
     test(
@@ -440,12 +529,18 @@ void main() {
       final today = DateTime.now().effectiveDay;
       final grid = container.read(weeklyGridProvider.notifier);
 
-      grid.cycleSquare('habit_a', today); // → partial
+      grid.cycleSquare('habit_a', today); // → complete, in ONE tap
       expect(
         container.read(weeklyGridProvider).squareFor('habit_a', today),
-        SquareState.partial,
+        SquareState.complete,
       );
-      grid.cycleSquare('habit_a', today); // → complete
+      grid.cycleSquare('habit_a', today); // → back to empty
+      expect(
+        container.read(weeklyGridProvider).squareFor('habit_a', today),
+        SquareState.none,
+      );
+      // And round again, so the cycle is a cycle and not a one-way door.
+      grid.cycleSquare('habit_a', today);
       expect(
         container.read(weeklyGridProvider).squareFor('habit_a', today),
         SquareState.complete,

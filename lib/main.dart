@@ -36,7 +36,8 @@ import 'core/theme/game_theme.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/notifiers/dashboard_notifier.dart';
-import 'features/habits/catalog/habit_plans.dart' show reminderTimeProvider;
+import 'features/habits/catalog/habit_plans.dart'
+    show reminderTimeProvider, activeCatalogProvider;
 import 'features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitCatalog, IslamicHabitTemplate;
 import 'features/habits/models/habit_cue.dart';
@@ -45,9 +46,13 @@ import 'features/habits/models/habit_model.dart' show GoalType, ReductionType;
 import 'features/habits/notifiers/custom_habits_notifier.dart'
     show
         allHabitsEverProvider,
+        canAddHabits,
         customHabitsProvider,
         habitListProvider,
-        habitsStillLoadingProvider;
+        habitsStillLoadingProvider,
+        pausedHabitsProvider;
+import 'features/habits/notifiers/habit_resume_notifier.dart'
+    show habitResumeScheduleProvider;
 import 'features/grid/models/square_state.dart' show SquareState;
 import 'features/grid/notifiers/weekly_grid_notifier.dart'
     show WeeklyGridState, isQuitAutoCleanEligible, weeklyGridProvider;
@@ -463,6 +468,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       habitListProvider,
       (previous, next) {
         _recomputeNotifications();
+        // Booked returns are checked from here for the same reason the
+        // quit-clean below is: this listener is the one that fires once the
+        // habit list has actually loaded, which auto-resume cannot run
+        // without.
+        _maybeAutoResumeDueHabits().ignore();
         // Also one of _maybeAutoCleanQuitYesterday's three triggers (with
         // the dashboard and grid listeners below) — it gates on BOTH the
         // habit list and dashboard state being loaded, and which of those
@@ -614,6 +624,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   // doc read and changes nothing that's already settled.
   String? _lastQuitAutoCleanKey;
 
+  // Once-per-app-day guard for the "board is full, could not auto-resume"
+  // snackbar. The blocked branch keeps the habit paused and its booking armed
+  // and returns, so without this it re-shows on every habit-list settle. Only
+  // the message is guarded — resume is still re-attempted each pass, so the
+  // moment a slot frees up the habit comes back.
+  String? _lastAutoResumeBlockedKey;
+
   /// Settles *yesterday's* record for quit habits that were never answered:
   /// an untouched square counts as clean — see
   /// WeeklyGridNotifier.autoCleanQuitDay for the write rules (visual green
@@ -626,6 +643,109 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// yesterday evening's check-in asked and got silence, which is a fair
   /// "clean"; assuming a whole untracked week was clean would be inventing
   /// history.
+  /// Brings back any paused habit whose booked return has arrived.
+  ///
+  /// Runs from the same listeners as the quit-day clean below, so it fires
+  /// on cold start and every time the habit list settles, which together
+  /// cover "opened the app" and "the day rolled over while it was open".
+  ///
+  /// Two preconditions matter and neither is optional:
+  ///
+  ///  * The habit list must have loaded. Resuming against an empty list
+  ///    would read every booking as a habit that no longer exists and prune
+  ///    it, quietly cancelling every return date on the device.
+  ///  * The free tier's habit cap still applies. A booking made three weeks
+  ///    ago cannot know how full the board is today, so this asks the same
+  ///    question GridScreen._resumeHabit asks and, when the answer is no,
+  ///    leaves the habit paused and its booking armed rather than either
+  ///    breaking the cap or failing silently.
+  Future<void> _maybeAutoResumeDueHabits() async {
+    if (ref.read(habitsStillLoadingProvider)) return;
+    final schedule = ref.read(habitResumeScheduleProvider.notifier);
+    // The bookings are read from storage asynchronously, so asking before
+    // that lands would see an empty schedule and resume nothing.
+    await schedule.ready;
+    if (!mounted) return;
+    final due = schedule.dueBy(DateTime.now());
+    if (due.isEmpty) return;
+
+    // Localizations come from localeProvider, not S.of(context): this State's
+    // own context sits ABOVE the MaterialApp it builds, so it has no
+    // Localizations ancestor and S.of(context) throws here (see
+    // _messengerContext). Reading the locale directly needs no context at all.
+    final isAr = ref.read(localeProvider).languageCode == 'ar';
+    final paused = {for (final h in ref.read(pausedHabitsProvider)) h.id: h};
+    final activeIds = {for (final h in ref.read(habitListProvider)) h.id};
+    for (final id in due) {
+      // Already back, by hand or on another device: the booking is spent.
+      if (activeIds.contains(id)) {
+        schedule.schedule(id, null).ignore();
+        continue;
+      }
+      final habit = paused[id];
+      if (habit == null) continue; // pruned below, not here
+      if (!canAddHabits(ref)) {
+        // Board is full: leave it paused and armed, but say so at most once a
+        // day rather than on every settle (the return below keeps re-entering
+        // this branch until a slot frees).
+        final blockedKey = DateTime.now().effectiveDay.toDateKey();
+        if (_lastAutoResumeBlockedKey != blockedKey) {
+          _lastAutoResumeBlockedKey = blockedKey;
+          _showAutoResumeBlocked(habit.localName(isAr));
+        }
+        return;
+      }
+      if (IslamicHabitCatalog.findById(id) != null) {
+        ref.read(activeCatalogProvider.notifier).toggle(id);
+      } else {
+        ref.read(customHabitsProvider.notifier).unarchive(id);
+      }
+      schedule.schedule(id, null).ignore();
+      _showAutoResumed(habit.localName(isAr));
+    }
+    // Bookings whose habit is neither active nor paused no longer refer to
+    // anything on this account.
+    schedule.pruneMissing({...activeIds, ...paused.keys}).ignore();
+  }
+
+  /// A context that actually sits UNDER the MaterialApp this State builds — the
+  /// only place a snackbar can be shown from these lifecycle callbacks. This
+  /// State's `context` is above the MaterialApp its build() returns, so it has
+  /// no ScaffoldMessenger (or Localizations) ancestor and ScaffoldMessenger.of
+  /// on it throws. The navigator key resolves to the Navigator's context, which
+  /// is below both. Null only before the first frame, when there is nothing to
+  /// show anyway.
+  BuildContext? get _messengerContext => _navKey.currentContext;
+
+  void _showAutoResumed(String name) {
+    final ctx = _messengerContext;
+    if (ctx == null) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content:
+            Text(S(ref.read(localeProvider)).autoResumedConfirmation(name)),
+        behavior: SnackBarBehavior.floating,
+        dismissDirection: DismissDirection.down,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      ),
+    );
+  }
+
+  void _showAutoResumeBlocked(String name) {
+    final ctx = _messengerContext;
+    if (ctx == null) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content:
+            Text(S(ref.read(localeProvider)).autoResumeBlockedByLimit(name)),
+        duration: const Duration(seconds: 6),
+        behavior: SnackBarBehavior.floating,
+        dismissDirection: DismissDirection.down,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      ),
+    );
+  }
+
   void _maybeAutoCleanQuitYesterday() {
     final todayKey = DateTime.now().effectiveDay.toDateKey();
     if (_lastQuitAutoCleanKey == todayKey) return;
@@ -802,6 +922,14 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       _processPendingWidgetTaskCompletions();
       ref.read(dashboardProvider.notifier).refresh();
       ref.read(premiumProvider.notifier).refresh();
+      // A booked return can fall due while the app sits warm in the switcher
+      // (iOS keeps apps resumable for days) or after the day rolls over with
+      // the app open. Neither re-fires the habit-list listener that is auto-
+      // resume's only other trigger — habitListProvider has no time-dependent
+      // input — so without this the habit silently stays paused past its date
+      // until the next cold start. Cheap and self-guarding: it no-ops unless a
+      // booking is actually due.
+      _maybeAutoResumeDueHabits().ignore();
       // The Grid's visible week is otherwise only computed once, at
       // construction — leaving the app open/backgrounded across the day
       // cutoff (see DateTimeGameExt.effectiveDay), and especially across a
@@ -1190,6 +1318,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             // Mirrors the completion's boost — see roomBoostedReward.
             xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
             goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+            // Same per-day count the completion was priced against, so
+            // the refund matches the debit — see uncompleteHabit.
+            frequencyTarget: habit.effectiveDailyTarget,
             category: habit.category.name,
           );
       final today = DateTime.now().effectiveDay;
@@ -1215,7 +1346,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
           .read(habitListProvider)
           .where((h) => h.isScheduledFor(DateTime.now().effectiveDay))
           .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
-      final justFinishedSingleTap =
+      final mirroredBySingleTap =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
                 // 2x while a linked room is live — see roomBoostedReward.
@@ -1232,12 +1363,32 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 category: habit.category.name,
                 habitName: habit.localName(isAr),
               );
-      if (justFinishedSingleTap) {
+      final perDay = habit.effectiveDailyTarget;
+      if (mirroredBySingleTap) {
         final today = DateTime.now().effectiveDay;
         ref
             .read(weeklyGridProvider.notifier)
             .markCompleteFromHabit(habit.id, today);
         syncRoomToday(ref, habit.id, today);
+      } else if (perDay > 1) {
+        // A habit counted several times a day also has to paint its square,
+        // and completeHabit's flag cannot say so: it returns isGridSyncable,
+        // `frequencyTarget == 1`, which is false for every counted habit on
+        // every tap. Left alone, marking one done from a notification moved
+        // the count but never touched the board, so the square stayed empty
+        // while the day filled up — and the Grid's own "إنجاز اليوم" figure
+        // reads the stored square, so the day's percentage was wrong too,
+        // not just the picture.
+        final today = DateTime.now().effectiveDay;
+        final done = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+        if (done > 0) {
+          ref.read(weeklyGridProvider.notifier).markResultFromHabit(
+                habit.id,
+                today,
+                done >= perDay ? SquareState.complete : SquareState.partial,
+              );
+          syncRoomToday(ref, habit.id, today);
+        }
       }
     }
   }

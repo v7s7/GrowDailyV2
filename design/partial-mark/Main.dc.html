@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+    a { color: #E8C55A; } a:hover { color: #F2D680; }
+    .sq { width: 30px; height: 30px; border-radius: 9px; border: 0.8px solid; position: relative; overflow: hidden; flex: none; }
+    .empty { background: #26292D; border-color: #2D4037; }
+    .todayring { border-color: #9C7436 !important; }
+    .cap { font-size: 11px; color: #7E8A84; line-height: 1.55; }
+    .card { background: #12161B; border: 1px solid #1E2A24; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 13px; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .hname { font-size: 12px; color: #E4E9E6; width: 96px; flex: none; text-align: right; }
+    .day { width: 30px; font-size: 9.5px; color: #7A796F; text-align: center; flex: none; }
+    .h { font-size: 13px; font-weight: 700; color: #F7F3E8; }
+    .tag { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: #9C7436; }
+  </style>
+</helmet>
+<div dir="rtl" style="background:#07100D; padding:28px; display:flex; flex-direction:column; gap:20px; width:560px; box-sizing:border-box;">
+
+  <div dir="rtl" style="display:flex; flex-direction:column; gap:5px;">
+    <div class="tag">الخيار المختار · Option A</div>
+    <div style="font-size:19px; font-weight:700; color:#F7F3E8;">نص مربّع، بدون علامة</div>
+    <div class="cap" style="max-width:480px;">المربّع ينملي نصّه من تحت، وما فيه أي رمز داخله. الارتفاع هو اللي يقول «جزء من اليوم»، واللون أصفر لأن الأصفر أصلاً معناه ناقص في كل مكان بالتطبيق.</div>
+  </div>
+
+  <div class="card" dir="rtl">
+    <div class="h">اللوحة، بالحجم الحقيقي ٣٠ نقطة</div>
+    <div class="row">
+      <div class="hname"></div>
+      <div class="day">السبت</div><div class="day">الأحد</div><div class="day">الاثنين</div><div class="day">الثلاثاء</div><div class="day">الأربعاء</div>
+    </div>
+    <div class="row">
+      <div class="hname">سورة الملك</div>
+      <div class="sq" style="background:#2B4864;border-color:rgba(91,155,213,0.55);"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg></div></div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#2B4864;border-color:rgba(91,155,213,0.55);"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg></div></div>
+      <div class="sq empty"></div>
+      <div class="sq empty todayring"></div>
+    </div>
+    <div class="row">
+      <div class="hname">صلاة الضحى</div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#26292D;border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#6B5C2E;"></div></div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#2B4864;border-color:rgba(91,155,213,0.55);"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg></div></div>
+      <div class="sq empty todayring"></div>
+    </div>
+    <div class="row">
+      <div class="hname">الدواء · ٤ مرات</div>
+      <div class="sq" style="background:#2B4864;border-color:rgba(91,155,213,0.55);"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 7"/></svg></div></div>
+      <div class="sq empty"></div>
+      <div class="sq" style="background:#26292D;border-color:rgba(232,197,90,0.55);"><div style="position:absolute;left:0;right:0;bottom:0;height:75%;background:#6B5C2E;"></div><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12.6px;font-weight:800;color:#F0D169;">3</div></div>
+      <div class="sq empty"></div>
+      <div class="sq empty todayring"><div style="position:absolute;left:0;right:0;bottom:0;height:50%;background:#6B5C2E;"></div><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12.6px;font-weight:800;color:#F0D169;">2</div></div>
+    </div>
+    <div class="cap" style="border-top:1px solid #1E2A24; padding-top:11px;">صلاة الضحى، الأحد: نص مربّع بدون رقم، أنت حاططه بيدك. الدواء: عادة معدودة، نفس الأصفر بس فيه رقم يقول كم صار بالضبط.</div>
+  </div>
+
+  <div class="card" dir="rtl" style="gap:10px;">
+    <div class="h">الرقم هو الفرق، وهذا مقصود</div>
+    <div class="cap">الاثنان يعنون نفس الشي: جزء من اليوم صار. الفرق الوحيد إن وحدة منهم تعرف الرقم بالضبط، فتقوله. غياب الرقم مو نقص، هو معلومة: يعني ما فيه عدد أصلاً.</div>
+    <div class="cap">وعشان كذا العادة المعدودة لازم دايماً تكتب رقمها لمن تكون ناقصة. لو مرة ما كتبته، صار الغياب ملخبط بدل ما يكون واضح.</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

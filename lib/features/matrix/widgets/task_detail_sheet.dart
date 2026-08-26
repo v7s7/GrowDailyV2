@@ -17,11 +17,11 @@ import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../../../shared/widgets/overlay_notice.dart';
-import 'add_task_sheet.dart' show MicRecordButton;
 import 'quadrant_card.dart' show ActionRow;
 import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor, offsetsFrom;
-import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
+import 'voice_note_player.dart'
+    show VoiceNoteRecordRow, VoiceNoteRow, showRenameVoiceNoteSheet;
 import '../../premium/notifiers/premium_notifier.dart';
 
 /// Opened from a task's pencil icon (see quadrant_card.dart's _TaskTile) —
@@ -360,6 +360,28 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     }
   }
 
+  /// Save-and-close. The write itself still happens in dispose(), the same
+  /// path a swipe-dismiss takes — this is deliberately not a second save
+  /// path, only an affordance for the one that already existed. Without it
+  /// the only way out was a swipe, which reads as "cancel": people who had
+  /// just retyped a title had no way to tell their edit had been kept.
+  Future<void> _done() async {
+    // .ignore() rather than a bare call: this body is async, so an
+    // unawaited Future here trips unawaited_futures. Same treatment
+    // cancelRecording gets in dispose().
+    HapticFeedback.selectionClick().ignore();
+    if (_recording) {
+      // Mid-recording, dispose() *cancels* the take (see above), so a plain
+      // pop here would silently bin a note the user is still speaking into.
+      // Stop it properly instead — that saves it and opens the name prompt,
+      // which needs this sheet still under it. The next tap closes.
+      await _toggleRecording();
+      return;
+    }
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
   void _delete() {
     HapticFeedback.mediumImpact();
     Navigator.pop(context);
@@ -561,62 +583,32 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       onToggleOffset: _toggleOffset,
                       onLocked: () => showReminderLimitGate(context, ref),
                     ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            s.voiceNotesTitle,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: gp.textTert,
-                              letterSpacing: isAr ? 0 : 1.0,
-                            ),
-                          ),
-                        ),
-                        MicRecordButton(
-                          recording: _recording,
-                          elapsed: _elapsed,
-                          color: _color,
-                          onTap: _toggleRecording,
-                          locked: !ref.watch(premiumProvider),
-                        ),
-                      ],
+                    const SizedBox(height: 10),
+                    // Section label, hint and control all live inside this
+                    // one card now (see VoiceNoteRecordRow) — they used to
+                    // be a bare 11px label with the mic pill floating at the
+                    // far edge and the "tap to record" line stranded under
+                    // the label, the only block in this sheet that wasn't a
+                    // card. Recordings stack straight below it, same 32px
+                    // circle, same row height, so the whole section reads as
+                    // one column.
+                    VoiceNoteRecordRow(
+                      recording: _recording,
+                      elapsed: _elapsed,
+                      color: _color,
+                      onTap: _toggleRecording,
+                      locked: !ref.watch(premiumProvider),
                     ),
-                    const SizedBox(height: 8),
-                    if (_recording)
-                      Text(
-                        s.voiceNoteRecording,
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: GameColors.error,
+                    for (var i = 0; i < _voiceNotes.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: VoiceNoteRow(
+                          note: _voiceNotes[i],
+                          displayName: _displayName(_voiceNotes[i]),
+                          color: _color,
+                          onRename: () => _renameNote(_voiceNotes[i]),
+                          onDelete: () => _removeNote(_voiceNotes[i]),
                         ),
-                      )
-                    else if (_voiceNotes.isEmpty)
-                      Text(
-                        s.voiceNoteTapToRecord,
-                        style: TextStyle(fontSize: 11.5, color: gp.textTert),
-                      )
-                    else
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (var i = 0; i < _voiceNotes.length; i++)
-                            Padding(
-                              padding: EdgeInsets.only(
-                                bottom: i == _voiceNotes.length - 1 ? 0 : 8,
-                              ),
-                              child: VoiceNoteRow(
-                                note: _voiceNotes[i],
-                                displayName: _displayName(_voiceNotes[i]),
-                                color: _color,
-                                onRename: () => _renameNote(_voiceNotes[i]),
-                                onDelete: () => _removeNote(_voiceNotes[i]),
-                              ),
-                            ),
-                        ],
                       ),
                     const SizedBox(height: 24),
                     ActionRow(
@@ -652,6 +644,33 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+            // Pinned below the scroll rather than inside it, so the way out
+            // is reachable without first scrolling past Delete and the
+            // move-to-quadrant list. Same footer shape as AddTaskSheet's, so
+            // both task sheets end with the same control in the same place.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 52),
+                  backgroundColor: _color,
+                  foregroundColor: Colors.black,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+                  ),
+                ),
+                onPressed: _done,
+                child: Text(
+                  s.matrixDone,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: isAr ? 0 : 1.4,
+                  ),
                 ),
               ),
             ),

@@ -10,6 +10,17 @@ class LocalStoreService {
   static const String guestCustomHabitsKey = 'guest_custom_habits';
   static const String guestArchivedCustomHabitsKey =
       'guest_archived_custom_habits';
+
+  /// Closed pause windows for CUSTOM habits: habitId -> [{start, end}].
+  ///
+  /// The catalog side has had this for a while (activeCatalogStintHistory);
+  /// custom habits had nothing, so resuming one erased the fact that it had
+  /// ever been paused. That is what let a room re-grade a paused stretch as
+  /// missed the moment the habit came back. Same shape and same reasoning as
+  /// ActiveCatalogNotifier.catalogStintHistory, kept beside the habits rather
+  /// than inside them so no copy-constructor can silently drop it.
+  static const String guestCustomStintHistoryKey =
+      'guest_custom_habit_stints';
   static const String guestMatrixTasksKey = 'guest_matrix_tasks';
   static const String guestMatrixQuadrantsKey = 'guest_matrix_quadrants';
   static const String guestCharacterKey = 'guest_character_state';
@@ -19,6 +30,35 @@ class LocalStoreService {
   // independent notifiers (CharacterNotifier and PrestigeNotifier) would
   // have one silently clobber the other's guest data on every save.
   static const String guestPrestigeKey = 'guest_prestige_state';
+
+  /// When paused habits should come back by themselves: `{habitId: ISO8601}`.
+  ///
+  /// Deliberately local, and deliberately NOT a field on the habit itself.
+  /// A catalog habit's paused state lives in ActiveCatalogNotifier's
+  /// catalogArchivedAt map while a custom habit carries archivedAt on the
+  /// template, so putting a return date on "the habit" would mean changing
+  /// two separate persistence schemas, both of which sync, for what is only
+  /// ever a convenience. The pause itself still syncs; only the reminder to
+  /// undo it stays on the device that set it, which is the right trade for
+  /// something a second device would simply find already resumed.
+  ///
+  /// Scoped per signed-in identity via [habitResumeDatesKeyFor]. The premise
+  /// that let this be device-global — "a habit id is unique per account" — is
+  /// true for custom habits (Uuid ids) but FALSE for catalog presets, whose
+  /// ids are const template strings ('tahajjud', ...) shared by every account.
+  /// On a shared device that let account A's booking for a preset resolve, or
+  /// be pruned, against account B's own paused copy of the same preset: A's
+  /// "back on Sep 1" would auto-resume B's deliberately-indefinite pause, and
+  /// pruneMissing could never sweep it because the id resolves to a real (wrong
+  /// account's) habit. Namespacing by uid keeps each account's bookings to
+  /// itself; a guest gets its own bucket too.
+  static const String habitResumeDatesKey = 'habit_resume_dates';
+
+  /// The per-identity key an account's return bookings live under. [uid] null
+  /// is a guest session, which gets its own bucket rather than sharing the
+  /// signed-out global one.
+  static String habitResumeDatesKeyFor(String? uid) =>
+      '${habitResumeDatesKey}_${uid ?? 'guest'}';
 
   static Future<Box<dynamic>> settingsBox() => _open(GameConstants.boxSettings);
   static Future<Box<dynamic>> dailyBox() => _open(GameConstants.boxDailyLogs);

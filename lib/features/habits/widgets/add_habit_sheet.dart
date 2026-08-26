@@ -92,6 +92,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   HabitCategory _category = HabitCategory.custom;
   HabitFrequencyType _freqType = HabitFrequencyType.daily;
   int _freqTarget = 1;
+
+  /// The per-day count, kept apart from [_freqTarget] on purpose.
+  ///
+  /// One stored field, `frequencyTarget`, means two unrelated things: times
+  /// per DAY while the habit is daily, times per WEEK while it is weekly (see
+  /// IslamicHabitTemplate.effectiveDailyTarget). Editing both through the one
+  /// variable is how "5 times a week" quietly becomes "5 times a day" on a
+  /// single chip tap. So the stepper owns this, the weekly dropdown owns
+  /// _freqTarget, and only _submit ever folds them together.
+  int _timesPerDay = 1;
   Set<int> _selectedWeekdays = {};
   _CueRelation _cueRelation = _CueRelation.after;
   ReductionType _reductionType = ReductionType.avoid;
@@ -177,6 +187,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   int get _weeklyTargetInRange =>
       _freqTarget < 1 ? 1 : (_freqTarget > 6 ? 6 : _freqTarget);
 
+  /// [_timesPerDay] clamped to what the stepper can express — the per-day
+  /// twin of [_weeklyTargetInRange]. Guards a value restored from an older
+  /// document written before the cap existed.
+  int get _dailyTargetInRange => _timesPerDay.clamp(1, kMaxTimesPerDay);
+
   /// A safe, always-reasonable starting timing mode for a fresh habit —
   /// never a guess at the exact prayer/time itself, just which picker to
   /// open first. Faith habits open on Prayer, quit/reduce goals open on
@@ -226,6 +241,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _category = _canonicalCategory(existing.category);
       _freqType = existing.frequencyType;
       _freqTarget = existing.frequencyTarget;
+      // Only a daily habit's target is a per-day count; a weekly one's is
+      // not, and seeding from it would show a made-up number in the stepper.
+      _timesPerDay = existing.frequencyType == HabitFrequencyType.daily
+          ? existing.frequencyTarget.clamp(1, kMaxTimesPerDay)
+          : 1;
       _selectedWeekdays = existing.scheduledWeekdays.toSet();
       _goalType = existing.goalType;
       _reductionType = existing.reductionType;
@@ -1704,7 +1724,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     HapticFeedback.selectionClick();
                     setState(() {
                       _freqType = HabitFrequencyType.daily;
-                      _freqTarget = 1;
+                      // Not a flat 1 any more: for a daily habit this field
+                      // IS the per-day count (effectiveDailyTarget), and the
+                      // stepper below owns it. Coming from Weekly, whose
+                      // target means times per WEEK, that number is
+                      // meaningless here — so only a count this mode itself
+                      // could have produced survives the switch.
+                      _freqTarget = _dailyTargetInRange;
                       _selectedWeekdays.clear();
                     });
                   },
@@ -1750,9 +1776,26 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ),
             ],
           ),
+          // Daily's own count — see _TimesPerDayRow. Always on screen while
+          // Daily is selected (Option A), including at its resting 1, which
+          // is how anyone finds out the setting exists at all.
+          if (_freqType == HabitFrequencyType.daily &&
+              _selectedWeekdays.isEmpty) ...[
+            const SizedBox(height: 12),
+            _TimesPerDayRow(
+              count: _dailyTargetInRange,
+              onChanged: (v) => setState(() {
+                _timesPerDay = v.clamp(1, kMaxTimesPerDay);
+                // Mirrored immediately because _submit persists _freqTarget;
+                // this mode is the one where the two genuinely are the
+                // same number.
+                _freqTarget = _timesPerDay;
+              }),
+            ),
+          ],
           // Weekly (flexible — any days) is the one mode where the target
-          // isn't already implied by something else on screen: Daily is
-          // always 1, and Specific Days' target *is* however many days
+          // isn't already implied by something else on screen: Daily's is
+          // the stepper above, and Specific Days' target *is* however many days
           // are picked below. So it's the only one that needs its own
           // control — how many times this week, days unspecified, e.g.
           // "gym 4x/week." Capped at 6, not 7: 7x/week is just Daily.
@@ -1807,7 +1850,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   String _summary(S s) {
     final freq = _selectedWeekdays.isNotEmpty || _freqType == HabitFrequencyType.weekly
         ? s.habitWeeklyTimes(_freqTarget)
-        : s.daily;
+        // A counted daily habit says how many, because "Daily" alone is the
+        // one thing this preview would then be getting wrong.
+        : (_dailyTargetInRange > 1
+            // The whole phrase, not a numeral glued to a unit: Arabic says
+            // "مرتين في اليوم" for two, where the number IS the noun's form.
+            ? '${s.daily} · ${s.timesPerDayPhrase(_dailyTargetInRange)}'
+            : s.daily);
     final cue = _currentCue();
     return cue.isEmpty ? freq : '$freq · ${cue.labelForLocale(s.isAr)}';
   }

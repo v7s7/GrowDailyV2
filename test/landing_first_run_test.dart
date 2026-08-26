@@ -83,27 +83,28 @@ void main() {
     // see DateTimeGameExt.effectiveDay. Raw now() broke this after midnight.
     final today = DateTime.now().effectiveDay;
 
+    // ONE tap is the whole reward moment now.
+    //
+    // The tap cycle used to be white → yellow → green, so this test tapped
+    // twice and read the intermediate yellow square to learn which habit it
+    // had hit. A tap means done today (see SquareState.next), so the first tap
+    // lands on green and there is no yellow step to observe.
+    //
+    // h.settle must NOT be used on this tap, for the reason the old second tap
+    // already documented: turning a square green fires the victory burst, and
+    // waiting for every scheduled frame never returns while a looping
+    // decorative animation is on screen. It timed out here rather than failing
+    // an assertion, which reads as a hang rather than as a stale test.
     await tester.tap(todayCells.first);
-    await h.settle(tester);
-    // One of the plan's habits now has a partial (yellow) square.
-    final grid = h.container.read(weeklyGridProvider);
-    final coloredId = ['morning_athkar', 'quran_daily_page', 'sleep_schedule']
-        .firstWhere((id) => grid.squareFor(id, today) == SquareState.partial);
-
-    // Yellow → green: the core reward moment (burst + First Victory).
-    final partialTodayCell = find.byWidgetPredicate((w) {
-      if (w.runtimeType.toString() != '_SquareCell') return false;
-      final dynamic cell = w;
-      // ignore: avoid_dynamic_calls
-      return (cell.isToday as bool) &&
-          // ignore: avoid_dynamic_calls
-          (cell.square as SquareState) == SquareState.partial;
-    });
-    expect(partialTodayCell, findsOneWidget);
-    await tester.tap(partialTodayCell);
-    // The celebration includes a looping decorative animation, so waiting
-    // for every scheduled frame would never settle in a widget test.
     await tester.pump(const Duration(milliseconds: 500));
+
+    // Which habit was tapped, read from the completion the tap registered
+    // rather than from the square's colour. The square is deliberately not
+    // consulted (see the note below): on the guest path it is painted only
+    // after two real Hive writes that never complete inside this test zone.
+    final completions = h.container.read(dashboardProvider).completions;
+    final coloredId = ['morning_athkar', 'quran_daily_page', 'sleep_schedule']
+        .firstWhere((id) => (completions[id] ?? 0) > 0);
 
     // ── What this can and cannot assert, and why ───────────────────────────
     // The reward itself is checked here: completeHabit records the

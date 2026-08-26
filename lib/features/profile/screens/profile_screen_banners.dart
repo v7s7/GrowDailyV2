@@ -1,5 +1,95 @@
 part of 'profile_screen.dart';
 
+/// The only thing in the app that tells someone their progression could not
+/// be loaded.
+///
+/// Until this existed, a failed load was completely silent. The reward
+/// writers correctly refused to run (see [DashboardState.loadFailed]), so
+/// tapping a habit did nothing at all, and Profile meanwhile showed a
+/// confident level 1 with 0 XP and no streak. From the outside those two
+/// facts read as one conclusion, that the account had been reset, when in
+/// truth nothing had been touched and a single successful retry restores
+/// everything.
+///
+/// Retry rather than an instruction to restart the app: [refresh] is the
+/// same call the app already makes on every resume, so backgrounding and
+/// reopening was always the accidental fix. This just puts it on a button.
+class _LoadFailedBanner extends ConsumerStatefulWidget {
+  const _LoadFailedBanner();
+
+  @override
+  ConsumerState<_LoadFailedBanner> createState() => _LoadFailedBannerState();
+}
+
+class _LoadFailedBannerState extends ConsumerState<_LoadFailedBanner> {
+  bool _retrying = false;
+
+  Future<void> _retry() async {
+    if (_retrying) return;
+    setState(() => _retrying = true);
+    HapticFeedback.selectionClick();
+    await ref.read(dashboardProvider.notifier).refresh();
+    // A successful retry unmounts this widget (loadFailed goes false), so
+    // the mounted check is the normal path here, not a corner case.
+    if (mounted) setState(() => _retrying = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!ref.watch(dashboardProvider).loadFailed) {
+      return const SizedBox.shrink();
+    }
+    final gp = context.gp;
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: GameColors.warning.withOpacity(gp.dark ? 0.10 : 0.08),
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: GameColors.warning.withOpacity(0.4)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.cloud_off_rounded,
+                color: GameColors.warning, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.statsUnavailableTitle,
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: gp.textPrimary)),
+                  const SizedBox(height: 3),
+                  Text(s.statsUnavailableBody,
+                      style: TextStyle(
+                          fontSize: 12, color: gp.textSec, height: 1.35)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _retrying
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : TextButton(
+                    onPressed: _retry,
+                    child: Text(s.statsUnavailableRetry),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 
 /// The retention loop's most important message: from 6pm, if the user has a
 /// live streak and hasn't finished today's habits yet (streak means a full

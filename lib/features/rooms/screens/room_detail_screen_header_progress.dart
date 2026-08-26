@@ -588,21 +588,31 @@ class _MyPlanCard extends ConsumerWidget {
     final partialToday = todayCount > 0 && !doneToday;
     final names =
         mine.linkedHabitNames.where((n) => n.trim().isNotEmpty).toList();
-    // A linked habit id that's no longer in this account's own Grid means
-    // it was deleted there after being linked here - dailyDoneCount can
-    // never advance again for that slot (syncTodayForHabit/
-    // syncLinkedHabitsProgress both drive off real Grid squares, and a
-    // deleted habit has none). There's deliberately no per-slot "pick a
-    // replacement" control for this - leaving and rejoining already gives a
-    // clean way to re-link from scratch (see RoomsController.leaveRoom/
-    // joinRoom), so this is purely an explanation, not a fix-it-here UI.
+    // A linked habit id that's no longer on this account's own board means
+    // dailyDoneCount can never advance again for that slot
+    // (syncTodayForHabit/syncLinkedHabitsProgress both drive off real Grid
+    // squares, and an absent habit has none). WHY it is absent decides
+    // everything the member is then told, and there are two answers, not
+    // one: paused, which they chose and can undo in a tap, and deleted,
+    // which they cannot. Both are purely explanations rather than
+    // fix-it-here UI, but only the deleted one has no remedy to point at.
     final myHabits = ref.watch(habitListProvider);
-    final myHabitIds = myHabits.map((h) => h.id).toSet();
-    // countedHabitIds, not linkedHabitIds: a slot this person skipped holds
-    // the literal kDeclinedSlot placeholder, which is never a real habit id
-    // and would otherwise trip this warning permanently.
-    final hasDeletedLink =
-        mine.countedHabitIds.any((id) => !myHabitIds.contains(id));
+    // Paused and deleted both leave habitListProvider, and only one of the
+    // two is permanent or worth a red warning. See roomUnresolvedLinks.
+    final unresolved = roomUnresolvedLinks(
+      mine,
+      myHabits,
+      ref.watch(pausedHabitsProvider),
+      isAr: s.isAr,
+    );
+    final pausedLinkNames = unresolved.pausedNames;
+    final hasDeletedLink = unresolved.hasDeleted;
+    // Whether any counted habit still grades — resolves to the active board.
+    // Paused and deleted links both fall out of habitListProvider, so this is
+    // false exactly when the member has nothing left counting here, which is
+    // what decides between the reassuring and the standing-down hint below.
+    final anyGradableLeft = roomHasGradableHabit(
+        mine.countedHabitIdsIn(room), {for (final h in myHabits) h.id});
     // Habits whose live settings no longer match what this room scores them
     // by - see roomRuleMismatches for why the room deliberately keeps the
     // original rule rather than following the edit.
@@ -779,6 +789,47 @@ class _MyPlanCard extends ConsumerWidget {
             Text(s.roomPlanPartialCreditHint(mine.countedHabitCount),
                 style:
                     TextStyle(fontSize: 10.5, color: gp.textTert, height: 1.3)),
+          ],
+          // A habit counted several times a day only earns its room day once
+          // the whole count is finished, which is not something the board says
+          // anywhere: the square fills gradually, so two of four LOOKS like
+          // progress toward the room and is worth nothing there until it is
+          // four. Stated per habit, and only for the ones it applies to.
+          for (final h in myHabits)
+            if (h.effectiveDailyTarget > 1 &&
+                mine.countedHabitIdsIn(room).contains(h.id)) ...[
+              const SizedBox(height: 6),
+              Text(
+                s.roomCountedHabitRule(
+                    h.localName(s.isAr), h.effectiveDailyTarget),
+                style: TextStyle(
+                    fontSize: 10.5, color: gp.textTert, height: 1.3),
+              ),
+            ],
+          // Before the red one: a paused habit is the far more common of
+          // the two, and it is the reassuring half of the message. Someone
+          // with both wants to read "this one is just paused" before "this
+          // one is really gone".
+          if (pausedLinkNames.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _WarningRow(
+              // The reassuring version is only true while SOMETHING is still
+              // gradable — a counted habit that still resolves to the board.
+              // Deciding on `pausedLinkNames.length == countedHabitCount`
+              // instead got two cases wrong: a plan of one paused + one deleted
+              // habit read as "not all paused" and got the calm hint though
+              // nothing was gradable, and an all-paused plan of several habits
+              // passed only the first name to the singular sole-hint. Asking
+              // roomHasGradableHabit — the exact check grading uses — fixes
+              // both, and the plural hint names every paused habit. Same split
+              // as the pause dialog, see mySoleRoomHabitsProvider.
+              text: anyGradableLeft
+                  ? s.roomLinkedHabitPausedHint(pausedLinkNames)
+                  : pausedLinkNames.length == 1
+                      ? s.roomSoleLinkedHabitPausedHint(pausedLinkNames.first)
+                      : s.roomLinkedHabitAllPausedHint(pausedLinkNames),
+              informational: anyGradableLeft,
+            ),
           ],
           if (hasDeletedLink) ...[
             const SizedBox(height: 10),

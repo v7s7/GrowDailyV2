@@ -29,12 +29,33 @@ class WeeklyGridState {
   /// dateKey → (habitId → note) for the visible week.
   final Map<String, Map<String, String>> notes;
 
+  /// dateKey → (habitId → the flat-rate XP [WeeklyGridNotifier.setSquare]
+  /// actually paid for that square).
+  ///
+  /// A receipt, not a derivation. [WeeklyGridNotifier.setSquareStateOnlyAsync]
+  /// has to give back whatever the flat-rate path banked on a square before the
+  /// canonical completion path takes it over, and it used to work that amount
+  /// out from the square's COLOUR — which is only right when the colour was set
+  /// by [WeeklyGridNotifier.setSquare], the one method that pays. A habit
+  /// counted several times a day paints its own square جزئي from the count
+  /// (see markResultFromHabit) and is paid in reward SLICES instead, so
+  /// inferring five XP from the yellow and refunding it took back money that
+  /// was never handed out: every counted habit quietly lost 5 XP on the tap
+  /// that finished its day. Recording what was paid makes the refund exact in
+  /// both directions, which is what keeps a none → جزئي → أخضر → none palette
+  /// lap summing to zero.
+  ///
+  /// Absent means nothing was paid, which is the safe default: no refund is
+  /// recoverable, a phantom refund is not.
+  final Map<String, Map<String, int>> flatPaid;
+
   final bool isLoading;
 
   const WeeklyGridState({
     required this.weekStart,
     required this.states,
     required this.notes,
+    this.flatPaid = const {},
     this.isLoading = false,
   });
 
@@ -74,6 +95,10 @@ class WeeklyGridState {
 
   SquareState squareFor(String habitId, DateTime day) =>
       states[day.toDateKey()]?[habitId] ?? SquareState.none;
+
+  /// The flat-rate XP banked on this square, or zero if none ever was.
+  int flatPaidFor(String habitId, DateTime day) =>
+      flatPaid[day.toDateKey()]?[habitId] ?? 0;
 
   String noteFor(String habitId, DateTime day) =>
       notes[day.toDateKey()]?[habitId] ?? '';
@@ -228,12 +253,14 @@ class WeeklyGridState {
     DateTime? weekStart,
     Map<String, Map<String, SquareState>>? states,
     Map<String, Map<String, String>>? notes,
+    Map<String, Map<String, int>>? flatPaid,
     bool? isLoading,
   }) =>
       WeeklyGridState(
         weekStart: weekStart ?? this.weekStart,
         states: states ?? this.states,
         notes: notes ?? this.notes,
+        flatPaid: flatPaid ?? this.flatPaid,
         isLoading: isLoading ?? this.isLoading,
       );
 }
@@ -259,6 +286,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     final week = state.weekStart;
     final states = <String, Map<String, SquareState>>{};
     final notes = <String, Map<String, String>>{};
+    final flatPaid = <String, Map<String, int>>{};
 
     try {
       if (_uid != null) {
@@ -282,7 +310,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
           try {
             final snap = await _dayRef(day).get();
             if (!snap.exists) continue;
-            _parseInto(snap.id, snap.data()!, states, notes);
+            _parseInto(snap.id, snap.data()!, states, notes, flatPaid);
           } catch (_) {
             // This one day is unreadable; the rest of the week still is.
             continue;
@@ -291,7 +319,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
       } else {
         for (final day in state.days) {
           final d = await LocalStoreService.getDailyMap(day.toDateKey());
-          _parseInto(day.toDateKey(), d, states, notes);
+          _parseInto(day.toDateKey(), d, states, notes, flatPaid);
         }
       }
     } catch (_) {
@@ -299,7 +327,8 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     }
 
     if (!mounted || !state.weekStart.isSameDayAs(week)) return;
-    state = state.copyWith(states: states, notes: notes, isLoading: false);
+    state = state.copyWith(
+        states: states, notes: notes, flatPaid: flatPaid, isLoading: false);
   }
 
   void _parseInto(
@@ -307,6 +336,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     Map<String, dynamic> data,
     Map<String, Map<String, SquareState>> states,
     Map<String, Map<String, String>> notes,
+    Map<String, Map<String, int>> flatPaid,
   ) {
     final rawStates = data['squareStates'];
     if (rawStates is Map) {
@@ -319,6 +349,17 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
       notes[dateKey] = rawNotes.map(
         (k, v) => MapEntry(k.toString(), v?.toString() ?? ''),
       );
+    }
+    // The flat-rate receipts (see WeeklyGridState.flatPaid). A day written
+    // before this field existed simply has none, which reads as "nothing was
+    // paid" and is the safe direction: the refund is skipped rather than
+    // invented.
+    final rawPaid = data['squareFlatXp'];
+    if (rawPaid is Map) {
+      flatPaid[dateKey] = {
+        for (final e in rawPaid.entries)
+          if (e.value is num) e.key.toString(): (e.value as num).toInt(),
+      };
     }
   }
 
@@ -432,6 +473,58 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
             dateKey: key,
           );
     }
+    // The receipt. This is the ONE method that pays the flat rate, so it is the
+    // one that records what is owed back if the canonical completion path later
+    // takes this square over — see WeeklyGridState.flatPaid and
+    // setSquareStateOnlyAsync, which used to infer the amount from the colour
+    // and so refunded five XP for a جزئي that a counted habit had painted from
+    // its own count and never been paid for.
+    _recordFlatPaid(habitId, day, _flatRateXp(value));
+  }
+
+  /// Records (or clears, at zero) the flat-rate XP banked on one square, in
+  /// state and in the stored day, so a restart cannot lose the receipt and turn
+  /// a later refund into a guess.
+  void _recordFlatPaid(String habitId, DateTime day, int paid) {
+    final key = day.toDateKey();
+    if (state.flatPaidFor(habitId, day) == paid) return;
+    final next = {
+      for (final e in state.flatPaid.entries) e.key: {...e.value},
+    };
+    final row = next[key] ??= <String, int>{};
+    if (paid == 0) {
+      row.remove(habitId);
+    } else {
+      row[habitId] = paid;
+    }
+    state = state.copyWith(flatPaid: next);
+    _persistFlatPaid(habitId, day, paid);
+  }
+
+  Future<void> _persistFlatPaid(String habitId, DateTime day, int paid) async {
+    if (_uid != null) {
+      _dayRef(day).set(
+        {
+          'squareFlatXp': {habitId: paid == 0 ? FieldValue.delete() : paid},
+        },
+        SetOptions(merge: true),
+      ).ignore();
+      return;
+    }
+    await LocalStoreService.updateDailyMap(day.toDateKey(), (stored) {
+      final paidMap = Map<String, dynamic>.from(
+          (stored['squareFlatXp'] as Map?)?.cast<String, dynamic>() ?? {});
+      if (paid == 0) {
+        paidMap.remove(habitId);
+      } else {
+        paidMap[habitId] = paid;
+      }
+      if (paidMap.isEmpty) {
+        stored.remove('squareFlatXp');
+      } else {
+        stored['squareFlatXp'] = paidMap;
+      }
+    });
   }
 
   /// The XP a square showing [s] was paid by [setSquare]'s flat-rate delta
@@ -489,8 +582,22 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     // returns before the reward call on any other day (anti-backdating), so
     // there is nothing banked on a past square to give back.
     if (!day.isToday || old == value) return written;
-    final stranded = _flatRateXp(old);
+    // What was ACTUALLY paid for this square, not what its colour is worth.
+    //
+    // Reading _flatRateXp(old) here assumed every yellow square had been paid
+    // the flat five XP, which is true only of a square [setSquare] coloured. A
+    // habit counted several times a day paints its own square جزئي from its
+    // count (markResultFromHabit) and is paid in reward slices instead, so the
+    // inference refunded five XP that had never been handed out — every counted
+    // habit lost exactly that on the tap that finished its day, and lost it
+    // again on every lap of tap-to-full-then-clear. The receipt says zero for
+    // those squares and five for a palette-painted one, so the anti-farm
+    // property this refund exists for (a none → جزئي → أخضر → none lap must sum
+    // to zero) still holds exactly.
+    final stranded = state.flatPaidFor(habitId, day);
     if (stranded == 0) return written;
+    // Spent, so a second take-over of the same square cannot refund it twice.
+    _recordFlatPaid(habitId, day, 0);
     // greenDelta stays 0 on purpose: the green-square counters belong to
     // whichever canonical call is taking this square over, and it is
     // already adjusting them for both the old and new state.

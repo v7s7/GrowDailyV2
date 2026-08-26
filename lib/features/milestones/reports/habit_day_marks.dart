@@ -55,6 +55,24 @@ String markToStored(SquareState state) => state.toJson();
 /// Rule 2 sitting above rule 3 is deliberate: a habit actually completed is
 /// complete even if some earlier tap left the square on skipped, because a
 /// completion is a fact and a square is a label.
+///
+/// ── Rule 2 is TARGET-AWARE ──────────────────────────────────────────────
+/// "A positive count means complete" was written when a habit could only be
+/// done once a day, so any count at all was the whole day. A habit counted
+/// four times a day breaks that: two taps is a part-done day, not a finished
+/// one. Left target-blind this did real damage rather than just reading oddly,
+/// because it is not only a display rule — the rolling mirror repair
+/// (_repairRecentWindow) re-derives fourteen settled days THROUGH this
+/// function, so every part-done counted day was promoted to a fully green,
+/// fully credited day within a day of being lived, overwriting the honest
+/// جزئي that completeHabit had written.
+///
+/// The target comes from the day document itself (`habitTargets`, stamped by
+/// completeHabit), never from the habit's current settings: a person who
+/// later changes a habit from once to four times a day must not have last
+/// month's finished days re-graded as part-done. A day with no stamp is a day
+/// written before this existed, and falls back to 1 — which is exactly the old
+/// behaviour, so no existing history moves.
 SquareState dayMark(Map<String, dynamic> dailyDoc, String habitId) {
   // 'habitCompletions' is the field daily docs actually store. The STATE
   // field is called completions, the DOC field is not, and reading the wrong
@@ -66,8 +84,22 @@ SquareState dayMark(Map<String, dynamic> dailyDoc, String habitId) {
   final painted = SquareState.fromJson(squares?[habitId]?.toString());
 
   if (painted.isGreen) return painted;
-  if (count is num && count > 0) return SquareState.complete;
+  if (count is num && count > 0) {
+    return count >= dayTargetOf(dailyDoc, habitId)
+        ? SquareState.complete
+        : SquareState.partial;
+  }
   return painted;
+}
+
+/// What [habitId]'s day asked of it, as recorded on the day itself.
+///
+/// Falls back to 1, which is both the only value any habit could have had
+/// before counting existed and the value an unstamped day should read as.
+int dayTargetOf(Map<String, dynamic> dailyDoc, String habitId) {
+  final targets = (dailyDoc['habitTargets'] as Map?)?.cast<String, dynamic>();
+  final raw = targets?[habitId];
+  return raw is num && raw >= 1 ? raw.toInt() : 1;
 }
 
 /// Whether [mark] counts toward what was actually achieved.
@@ -108,6 +140,13 @@ double markCredit(SquareState mark) => switch (mark) {
 /// built from, passed as callbacks so this stays free of any dependency on the
 /// Grid's state type and can be tested with plain maps.
 ///
+/// [dailyTargetOf] is the habit's per-day count, and it is what stops a
+/// counted habit being reported as finished the moment it is started. A raw
+/// `completionsToday > 0` reads 1 of 4 as a completed day, so the reports and
+/// the day sheet would call a habit done while the Grid, correctly, still
+/// showed a part-filled square. Defaults to 1, which is the only value any
+/// habit could have had before counting existed.
+///
 /// [gridKnowsToday] is the guard that makes this safe, and it is not optional.
 /// WeeklyGridState.squareFor returns none for any day outside the week it has
 /// loaded, and paging the Grid back a week clears its states entirely. Without
@@ -126,19 +165,27 @@ Map<String, Map<String, SquareState>> withLiveToday({
   required int Function(String habitId) completionsToday,
   required String todayKey,
   required bool gridKnowsToday,
+  int Function(String habitId)? dailyTargetOf,
 }) {
   final out = <String, Map<String, SquareState>>{
     for (final entry in mirrored.entries) entry.key: {...entry.value},
   };
   for (final id in habitIds) {
     // The same precedence [dayMark] documents, on live data: a green square
-    // wins, then a positive completion count, then whatever the square says.
+    // wins, then a completion count, then whatever the square says.
     final square = squareToday(id);
+    final done = completionsToday(id);
+    final target = dailyTargetOf?.call(id) ?? 1;
     final live = square.isGreen
         ? square
-        : completionsToday(id) > 0
-            ? SquareState.complete
-            : square;
+        : done <= 0
+            ? square
+            // A count that has not reached its target is a part-done day, not
+            // a finished one. At a target of 1 the first branch is the only
+            // reachable one, so an ordinary habit behaves exactly as before.
+            : done >= target
+                ? SquareState.complete
+                : SquareState.partial;
     if (live == SquareState.none) {
       if (gridKnowsToday) (out[id] ??= <String, SquareState>{}).remove(todayKey);
     } else {

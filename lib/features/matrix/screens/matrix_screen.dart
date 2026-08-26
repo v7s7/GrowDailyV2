@@ -505,58 +505,73 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
                   child: Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        _MatrixFilterToggle(
-                          filter: _filter,
-                          favCount: favCount,
-                          lensOverridden: _carriedOverOnly || _upcomingOnly,
-                          onChanged: (v) => setState(() {
-                            _filter = v;
-                            // Each segment, carried-over and upcoming are
-                            // separate lenses on the same board: switching one
-                            // backs out of the others instead of trying to
-                            // combine them.
-                            _carriedOverOnly = false;
-                            _upcomingOnly = false;
-                          }),
-                        ),
-                        // `|| _carriedOverOnly`: the chip is the only control
-                        // that clears its own lens, so it must outlive the
-                        // list it counts. Finish the last carried-over task
-                        // while filtered to them and the count hits zero; drop
-                        // the chip at that moment and the board sits empty,
-                        // still filtered, with Today painted as if it were
-                        // showing you everything. Mounting it at zero keeps
-                        // the way out on screen.
-                        if (_filter != _MatrixFilter.fav &&
-                            (carriedOver.isNotEmpty || _carriedOverOnly))
-                          _CarriedOverChip(
-                            count: carriedOver.length,
-                            active: _carriedOverOnly,
-                            onTap: () => setState(() {
-                              _carriedOverOnly = !_carriedOverOnly;
+                    // One strip, one line, on every screen. This was a Wrap,
+                    // which dropped Upcoming onto a second row the moment the
+                    // three controls outgrew the width - which is most phones
+                    // in Arabic, where the words run longer, and the narrow
+                    // ones in either language. They are three lenses on the
+                    // same board, so a stray second line reads like a
+                    // different kind of control rather than the third member
+                    // of a set. scaleDown shrinks the whole strip together
+                    // where it has to and leaves it at full size where it
+                    // fits, so no device gets a wrapped row and no device
+                    // pays for the ones that would have wrapped.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 8,
+                        children: [
+                          _MatrixFilterToggle(
+                            filter: _filter,
+                            favCount: favCount,
+                            lensOverridden: _carriedOverOnly || _upcomingOnly,
+                            onChanged: (v) => setState(() {
+                              _filter = v;
+                              // Each segment, carried-over and upcoming are
+                              // separate lenses on the same board:
+                              // switching one backs out of the others
+                              // instead of trying to combine them.
+                              _carriedOverOnly = false;
                               _upcomingOnly = false;
                             }),
                           ),
-                        // Sits after carried-over on purpose, so the row reads
-                        // left to right as past then future. Hidden when
-                        // nothing is waiting, same as its twin: a permanent
-                        // "0 upcoming" would be noise on most days.
-                        if (_filter != _MatrixFilter.fav &&
-                            (upcoming.isNotEmpty || _upcomingOnly))
-                          _UpcomingChip(
-                            count: upcoming.length,
-                            active: _upcomingOnly,
-                            onTap: () => setState(() {
-                              _upcomingOnly = !_upcomingOnly;
-                              _carriedOverOnly = false;
-                            }),
-                          ),
-                      ],
+                          // `|| _carriedOverOnly`: the chip is the only control
+                          // that clears its own lens, so it must outlive the
+                          // list it counts. Finish the last carried-over task
+                          // while filtered to them and the count hits zero;
+                          // drop the chip at that moment and the board sits
+                          // empty, still filtered, with Today painted as if
+                          // it were showing you everything. Mounting it at
+                          // zero keeps the way out on screen.
+                          if (_filter != _MatrixFilter.fav &&
+                              (carriedOver.isNotEmpty || _carriedOverOnly))
+                            _CarriedOverChip(
+                              count: carriedOver.length,
+                              active: _carriedOverOnly,
+                              onTap: () => setState(() {
+                                _carriedOverOnly = !_carriedOverOnly;
+                                _upcomingOnly = false;
+                              }),
+                            ),
+                          // Sits after carried-over on purpose, so the row
+                          // reads left to right as past then future. Hidden
+                          // when nothing is waiting, same as its twin: a
+                          // permanent "0 upcoming" would be noise on most
+                          // days.
+                          if (_filter != _MatrixFilter.fav &&
+                              (upcoming.isNotEmpty || _upcomingOnly))
+                            _UpcomingChip(
+                              count: upcoming.length,
+                              active: _upcomingOnly,
+                              onTap: () => setState(() {
+                                _upcomingOnly = !_upcomingOnly;
+                                _carriedOverOnly = false;
+                              }),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ).animate(delay: 50.ms).fadeIn(duration: 300.ms),

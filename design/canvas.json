@@ -1,0 +1,26 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 402, "h": 874, "title": "Option A · stepper always shown" },
+    { "file": "OptionB.dc.html", "x": 462, "y": 0, "w": 402, "h": 874, "title": "Option B · hidden until asked" },
+    { "file": "Grid.dc.html", "x": 924, "y": 0, "w": 402, "h": 874, "title": "The square" },
+    { "file": "Reminders.dc.html", "x": 1386, "y": 0, "w": 402, "h": 874, "title": "Reminder times" },
+    { "file": "Rooms.dc.html", "x": 1848, "y": 0, "w": 402, "h": 874, "title": "Rooms and frozen rules" }
+  ],
+  "annotations": [
+    {
+      "id": "decision",
+      "x": 0,
+      "y": -150,
+      "w": 500,
+      "text": "THE DECISION: A vs B.\n\nBoth keep the three existing chips untouched. The difference is whether the count is visible or hidden for someone who only ever wants once a day.\n\nA: one quiet row, always there, reading \"مرة في اليوم\". Discoverable, costs one line of height.\nB: nothing at all until you tap \"أكثر من مرة في اليوم\". Zero cost, but nobody finds it.\n\nMy pick: A. The row also teaches what the default is."
+    },
+    {
+      "id": "downstream",
+      "x": 924,
+      "y": -150,
+      "w": 800,
+      "text": "These three are shared by whichever of A or B wins.\n\nThe square fills proportionally instead of gaining a fourth colour, so a once-a-day habit is byte-for-byte what it is today: one tap, empty to full.\n\nRooms already freeze their rule, so changing a linked habit's count trips the existing \"settings differ\" notice rather than silently regrading finished days."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

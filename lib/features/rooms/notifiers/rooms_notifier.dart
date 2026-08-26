@@ -260,9 +260,14 @@ final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
           const [];
   if (participants.isEmpty) return null;
 
-  final ranked = [...participants]..sort(
-      (a, b) => b.progressRatio(bestRoom).compareTo(a.progressRatio(bestRoom)),
-    );
+  final ranked = [...participants]..sort((a, b) {
+    final byProgress =
+        b.progressRatio(bestRoom).compareTo(a.progressRatio(bestRoom));
+    // Same deterministic tie-break the lobby leaderboard uses, so the two
+    // ranked views never disagree on the order of tied members. List.sort is
+    // unstable above 32 elements; uid is stable and unique.
+    return byProgress != 0 ? byProgress : a.uid.compareTo(b.uid);
+  });
 
   // Same trailing window every row's heatmap is built from - computed once
   // here rather than per-row, since it only depends on the room, not the
@@ -330,6 +335,54 @@ final myLinkedRoomHabitsProvider =
     for (final habitId in mine.first.countedHabitIdsIn(room)) {
       (result[habitId] ??= []).add(room);
     }
+  }
+  return result;
+});
+
+/// The subset of [myLinkedRoomHabitsProvider] where the habit is the ONLY
+/// thing this member has counting in that room.
+///
+/// Pausing a habit is normally softened by [roomHasGradableHabit]: the habit
+/// leaves both sides of the sum and the member is graded on whatever else
+/// they linked. That softening has a floor, and this provider is it. When
+/// the paused habit was the only one, there is no "whatever else" to be
+/// graded on, so the anti-gaming fallback applies instead and every paused
+/// day scores zero.
+///
+/// It exists because the copy was quietly lying about exactly this case.
+/// Both the pause confirmation and Room Detail's paused notice promised that
+/// "your percentage comes from the habits you can still do", which is true
+/// of a three-habit plan and false, in the most consequential possible way,
+/// of a one-habit plan. Someone pausing their only linked habit needs to be
+/// told they are standing down from that room, not reassured.
+final mySoleRoomHabitsProvider = Provider<Map<String, List<RoomModel>>>((ref) {
+  final uid = ref.watch(authStateProvider).asData?.value?.uid;
+  if (uid == null) return const {};
+  final codes = ref.watch(myRoomCodesProvider).valueOrNull ?? const [];
+  // The active (non-paused) habit ids — the exact set roomHasGradableHabit
+  // resolves against. A counted link that is already paused or deleted is not
+  // in here and grades nothing, so it must not be counted toward "sole" either.
+  final activeIds = {for (final h in ref.watch(habitListProvider)) h.id};
+  final result = <String, List<RoomModel>>{};
+  for (final code in codes) {
+    final room = ref.watch(roomProvider(code)).valueOrNull;
+    if (room == null || room.isEnded) continue;
+    final participants = ref.watch(roomParticipantsProvider(code)).valueOrNull;
+    if (participants == null) continue;
+    final mine = participants.where((p) => p.uid == uid);
+    if (mine.isEmpty) continue;
+    // "Sole" is about what is still GRADABLE, not how many habits were ever
+    // linked. Counting every counted id (paused ones included) let a member
+    // with one active and one already-paused habit read as having two, so
+    // pausing the last active one slipped past this floor and got the
+    // reassuring "graded on the rest" copy while nothing gradable remained and
+    // every day scored zero. Filtering to the active list makes the floor fire
+    // whenever this pause is the one that empties the gradable set — including
+    // the pause-the-second-of-two and one-active-one-deleted cases.
+    final activeCounted =
+        mine.first.countedHabitIdsIn(room).where(activeIds.contains).toList();
+    if (activeCounted.length != 1) continue;
+    (result[activeCounted.first] ??= []).add(room);
   }
   return result;
 });
@@ -884,6 +937,92 @@ List<String> roomRuleMismatches(
   }
   return out;
 }
+
+/// The linked habits this device cannot find on the active board, split by
+/// the two very different reasons that happens.
+///
+/// Pausing a habit archives it, and archiving drops it out of
+/// habitListProvider immediately, exactly as deleting does. Room Detail
+/// resolves its linked ids against that one list, so for a long time it
+/// could only tell the deleted story: pausing a linked habit announced that
+/// the habit no longer existed and advised leaving the room to relink it.
+/// Every part of that is wrong for a pause, and the advice is the
+/// destructive kind, since [RoomsController.leaveRoom] deletes the
+/// participant doc and takes every day of room progress with it. Someone
+/// who paused تمرين for a broken leg was being told to wipe a 90-day room
+/// to fix something that un-fixes itself on Resume.
+///
+/// [pausedHabits] is pausedHabitsProvider, which is the only list that can
+/// tell the two apart. Anything unresolved and NOT in it is genuinely gone.
+///
+/// Note this deliberately says nothing about grading, which does not change
+/// either way: a paused habit stays in the room's denominator on purpose,
+/// because dropping it would pay a member full marks for pausing everything
+/// (see test/features/rooms/paused_habit_room_grading_test.dart). The split
+/// only decides which sentence the member reads.
+({List<String> pausedNames, bool hasDeleted}) roomUnresolvedLinks(
+  RoomParticipant mine,
+  List<IslamicHabitTemplate> myHabits,
+  List<IslamicHabitTemplate> pausedHabits, {
+  required bool isAr,
+}) {
+  final activeIds = {for (final h in myHabits) h.id};
+  // Keyed by id: a catalog habit switched on and off more than once emits
+  // one entry per stint here, all sharing an id (see pausedHabitsProvider).
+  final pausedById = {for (final h in pausedHabits) h.id: h};
+  final pausedNames = <String>[];
+  var hasDeleted = false;
+  // countedHabitIds, not linkedHabitIds: a slot this person skipped holds
+  // the literal kDeclinedSlot placeholder, which is never a real habit id
+  // and would otherwise trip this permanently.
+  for (final id in mine.countedHabitIds) {
+    if (activeIds.contains(id)) continue;
+    final paused = pausedById[id];
+    if (paused != null) {
+      pausedNames.add(paused.localName(isAr));
+    } else {
+      hasDeleted = true;
+    }
+  }
+  return (pausedNames: pausedNames, hasDeleted: hasDeleted);
+}
+
+/// Whether this device can grade at least one of [countedIds] right now.
+///
+/// The single switch behind how a room treats a linked habit it cannot
+/// resolve, which is either a habit the member PAUSED or a link that
+/// outlived its habit. Both leave habitListProvider, so neither appears in
+/// [resolvableIds].
+///
+/// ── Why this exists ─────────────────────────────────────────────────────
+/// The two sync paths used to answer this question separately and gave
+/// opposite answers. syncLinkedHabitsProgress credited an unresolvable link
+/// as DONE (numerator and denominator both up); syncTodayForHabit counted it
+/// as scheduled and never done (denominator only). Both comments called
+/// themselves "fails open". A member's percentage therefore depended on
+/// which path had written their doc last: tapping a Grid square scored a
+/// paused habit as a miss, and opening Room Detail regraded the same 45 days
+/// as a pass. The number visibly moved on its own.
+///
+/// ── The rule both paths now follow ──────────────────────────────────────
+/// A habit this device cannot grade is dropped from BOTH sides: it is not
+/// scheduled and not done, so a member with a paused habit is scored on
+/// what they can actually do. Somebody who paused one of three is graded
+/// out of two, and doing those two reads 100%, which is the honest number.
+///
+/// The exception is the degenerate case this returns false for. If NOTHING
+/// is resolvable, dropping everything would leave a day that asks nothing,
+/// and a day that asks nothing is full credit here by design (see
+/// RoomParticipant.creditFor and paused_habit_room_grading_test) — so
+/// pausing every linked habit would pay 100% a day forever. When that
+/// happens the caller counts every id as scheduled and never done instead,
+/// which scores the member zero. That is the truthful answer: they have
+/// paused their entire commitment and are not participating.
+bool roomHasGradableHabit(
+  List<String> countedIds,
+  Set<String> resolvableIds,
+) =>
+    countedIds.any(resolvableIds.contains);
 
 bool habitExistedOn(IslamicHabitTemplate habit, DateTime day) {
   final born = habit.createdAt;
@@ -2233,8 +2372,38 @@ class RoomsController {
 
     // Looked up once, up front, so each day's scheduling check below is a
     // plain map lookup rather than a re-scan of the whole habit list.
+    //
+    // Paused habits are resolved too, and that is load-bearing. This map
+    // used to hold only the active list, so a habit paused today became
+    // unresolvable for EVERY day in the 45-day window, including the days
+    // before the pause when it was live and being completed. Excluding it
+    // from those days would throw away real finished work: someone who did
+    // تمرين all week and paused it on Friday would have Monday through
+    // Thursday regraded as though the habit had never been part of their
+    // plan. Resolving it instead lets habitExistedOn draw the line in the
+    // right place, since it already returns false only for days strictly
+    // after archivedAt.
     final myHabits = _ref.read(habitListProvider);
-    final habitById = {for (final h in myHabits) h.id: h};
+    final habitById = {
+      for (final h in _ref.read(pausedHabitsProvider)) h.id: h,
+      // Active last so a habit that somehow appears in both wins as active.
+      for (final h in myHabits) h.id: h,
+    };
+    // Every window each habit was really active for. habitById can only ever
+    // describe the CURRENT one, which is the wrong question for a habit that
+    // has been paused and resumed: the resumed template claims a birth date of
+    // the resume day (catalog) or claims it never stopped (custom), so grading
+    // off it either pays full credit for the whole pre-pause stretch or turns
+    // an excused pause into a run of misses. See habitStintsProvider.
+    final stintsById = _ref.read(habitStintsProvider);
+    // A day this habit was genuinely being tracked on. Falls back to the old
+    // single-window rule when no stint history exists, so an account that has
+    // never paused anything grades byte-for-byte as it did before.
+    bool countedOn(IslamicHabitTemplate habit, DateTime day) => habitCountedOn(
+          stintsById[habit.id],
+          day,
+          fallback: () => habitExistedOn(habit, day),
+        );
 
     // Refuse to grade against a habit list that hasn't loaded.
     //
@@ -2450,18 +2619,29 @@ class RoomsController {
     // excused, not missed, exactly like a Mon/Wed habit's Tuesday. What does
     // NOT change either way is the numerator: a day the habit was done is a
     // whole done day, in full colour, never a fraction of one.
+    // Deliberately the ACTIVE list, not habitById, which now also resolves
+    // paused habits. The question here is "is anything still running", and
+    // a plan whose every habit is paused must answer no. See
+    // roomHasGradableHabit.
+    final anyGradable =
+        roomHasGradableHabit(habitIds, {for (final h in myHabits) h.id});
     for (final id in habitIds) {
       final habit = habitById[id];
       final rules = effectiveRules[id]!;
-      // A linked habit no longer found (deleted from Grid after being
-      // linked) fails open - counts as done - so a stale link can't quietly
-      // make every day harder; that's the same "explain, don't fix silently"
-      // edge case _MyPlanCard's hasDeletedLink warning covers.
+      // A linked habit this device cannot resolve: paused by the member, or
+      // a link that outlived its habit. It used to be credited as DONE here
+      // while syncTodayForHabit counted the identical situation as a miss,
+      // which is what made a paused habit's percentage move on its own.
+      // Now it leaves the numerator AND the denominator, so the member is
+      // graded on what they can actually do. See roomHasGradableHabit for
+      // the one case that cannot be excused.
       if (habit == null) {
+        if (anyGradable) continue;
+        // Everything is paused or gone. Scheduled, never done, so this
+        // scores zero rather than paying full credit for an empty day.
         for (final d in days) {
           final key = d.toDateKey();
           scheduledCount[key] = scheduledCount[key]! + 1;
-          doneCount[key] = doneCount[key]! + 1;
         }
         continue;
       }
@@ -2476,7 +2656,7 @@ class RoomsController {
 
         if (weekRule.frequencyType == HabitFrequencyType.weekly) {
           final present =
-              dayIndices.where((i) => habitExistedOn(habit, days[i])).toList();
+              dayIndices.where((i) => countedOn(habit, days[i])).toList();
           if (present.isEmpty) continue;
           final done = {
             for (final i in present)
@@ -2516,7 +2696,7 @@ class RoomsController {
           // all - it was never something to do, not something skipped. The
           // weekday list comes from the room's frozen rule, so editing a
           // habit's days can't re-grade finished history.
-          if (!habitExistedOn(habit, days[i])) continue;
+          if (!countedOn(habit, days[i])) continue;
           final rule = roomRuleAt(rules, key);
           if (rule.scheduledWeekdays.isNotEmpty &&
               !rule.scheduledWeekdays.contains(days[i].weekday)) {
@@ -2532,6 +2712,58 @@ class RoomsController {
           }
         }
       }
+    }
+
+    // ── Closing the pause-everything hole ────────────────────────────────
+    //
+    // Pass 1 counts a habit only on the days it was genuinely active, which
+    // correctly excuses a paused stretch whenever something else is running.
+    //
+    // It is wrong when NOTHING is. A plan whose every habit is paused has no
+    // habit scheduled on any of those days, and a day that asks nothing is
+    // full credit by design (see RoomParticipant.creditFor), so standing your
+    // whole commitment down would pay 100% a day for the rest of the room.
+    // This puts those days, and only those days, back in the denominator.
+    //
+    // Asked PER DAY, not per "right now". The condition used to be the
+    // notifier-level anyGradable, which describes the member's habits at the
+    // moment of the sync — so resuming a single habit flipped it to true and
+    // silently un-injected the whole paused stretch, handing back the exact
+    // 100% this rule exists to deny. Whether a day had anything running is a
+    // fact about that day, and resuming tomorrow cannot change it.
+    //
+    // Note this asks whether a habit was ACTIVE that day, not whether it was
+    // due. A member with one live habit that simply is not scheduled on a
+    // Tuesday has not stood anything down, so their Tuesday stays the rest day
+    // it always was.
+    bool hadStartedBy(String id, IslamicHabitTemplate habit, DateTime day) {
+      final stints = stintsById[id];
+      final d = DateTime(day.year, day.month, day.day);
+      if (stints == null || stints.isEmpty) {
+        final born = habit.createdAt;
+        return born == null ||
+            !d.isBefore(DateTime(born.year, born.month, born.day));
+      }
+      return stints.any((stint) {
+        final start = stint.$1;
+        return start == null ||
+            !d.isBefore(DateTime(start.year, start.month, start.day));
+      });
+    }
+
+    for (final d in days) {
+      final resolvable = [
+        for (final id in habitIds)
+          if (habitById[id] case final IslamicHabitTemplate h) (id, h),
+      ];
+      if (resolvable.isEmpty) continue;
+      // Anything actually running that day means this is not a stand-down.
+      if (resolvable.any((e) => countedOn(e.$2, d))) continue;
+      // Nothing had started yet: this is before the plan existed, not a
+      // stretch anybody walked away from.
+      if (!resolvable.any((e) => hadStartedBy(e.$1, e.$2, d))) continue;
+      final key = d.toDateKey();
+      scheduledCount[key] = scheduledCount[key]! + 1;
     }
 
     // ── Pass 2: the weekly quota, which ONLY affects streaks. ─────────────
@@ -2557,7 +2789,7 @@ class RoomsController {
             roomRuleAt(effectiveRules[id]!, days[dayIndices.first].toDateKey());
         if (rule.frequencyType != HabitFrequencyType.weekly) continue;
         final window =
-            dayIndices.where((i) => habitExistedOn(habit, days[i])).toList();
+            dayIndices.where((i) => countedOn(habit, days[i])).toList();
         if (window.isEmpty) continue;
         sawWeeklyHabit = true;
         final credit = weeklyHabitCreditFor(
@@ -2662,11 +2894,39 @@ class RoomsController {
       }
       var earned = doneCount[dateKey]!;
       final isPastDay = dateKey.compareTo(todayKey) < 0;
+      // ── ...but only while the day is asking the SAME thing it asked before ──
+      //
+      // The clamp compares today's recomputed numerator against the one already
+      // stored, which is only a fair comparison while the denominator has not
+      // moved. When the scheduled count RISES, this day is being graded under a
+      // rule it was not graded under before, and the stored numerator was
+      // recorded under the old one.
+      //
+      // That is exactly the shape of the pause/resume repair. An account that
+      // resumed a catalog habit before this fix had its pre-pause days written
+      // as scheduled = 0 with their done keys deleted, because the resumed
+      // habit claimed to have been born on the resume day. The stint rule above
+      // now correctly restores scheduled = 1 for those days — and clamping the
+      // numerator against the deleted 0 would have turned every genuinely
+      // completed pre-pause day into a permanent, unrecoverable miss, which is
+      // worse than the laundering it was meant to repair. Skipping the clamp on
+      // a rise lets the numerator be re-derived from the squares the person
+      // actually earned.
+      //
+      // Deliberately only on a RISE. Back-painting a past square for credit
+      // leaves the scheduled count untouched, so it still meets the clamp; and
+      // a FALLING count (a habit unlinked, a shared slot withdrawn) keeps it
+      // too, so nothing can be farmed by shrinking a day's obligations.
+      final storedScheduled = mineNow.scheduledCountFor(dateKey);
+      final asksMoreThanBefore = scheduled > storedScheduled;
       // Capping the credit is all that's needed to deny the streak too: the
       // streak reads isFullyDone, which reads these very counts, so a day held
       // down to 0 can't hold a streak either. That's the "no XP, no gold, no
       // streak" rule falling out of one clamp instead of two places.
-      if (hasPriorRecord && isPastDay && mineNow.wasObservedOn(dateKey)) {
+      if (hasPriorRecord &&
+          isPastDay &&
+          !asksMoreThanBefore &&
+          mineNow.wasObservedOn(dateKey)) {
         final alreadyEarned = mineNow.dailyDoneCount[dateKey] ?? 0;
         if (earned > alreadyEarned) earned = alreadyEarned;
       }
@@ -2900,7 +3160,17 @@ class RoomsController {
     if (_ref.read(habitsStillLoadingProvider)) return;
     final todayDate = DateTime.now().effectiveDay;
     final today = todayDate.toDateKey();
-    final habitById = {for (final h in _ref.read(habitListProvider)) h.id: h};
+    // Paused habits resolved alongside active ones, same as the full resync
+    // (see its own note): this path only ever writes TODAY, so the history
+    // argument does not bite here, but the two must agree about what a
+    // linked id means or the divergence this whole rule exists to remove
+    // comes straight back.
+    final activeHabits = _ref.read(habitListProvider);
+    final habitById = {
+      for (final h in _ref.read(pausedHabitsProvider)) h.id: h,
+      for (final h in activeHabits) h.id: h,
+    };
+    final activeIds = {for (final h in activeHabits) h.id};
 
     for (final room in rooms) {
       // Same guard as syncLinkedHabitsProgress: lobby/countdown days never
@@ -3030,10 +3300,22 @@ class RoomsController {
         );
         if (quotaRuleRecorded) return;
 
+        // The same single answer the full resync reads, so a tap and a
+        // resync can no longer grade the same paused habit differently.
+        // ACTIVE ids, not habitById, which also resolves paused habits.
+        final anyGradable = roomHasGradableHabit(linkedIds, activeIds);
         final scheduledIds = linkedIds.where((id) {
           final habit = habitById[id];
-          if (habit == null) return true; // stale link fails open
-          if (!habitExistedOn(habit, todayDate)) return false;
+          // A link with no habit at all behind it: gone, not paused. Off
+          // both sides while anything else is running, and in the
+          // denominator when nothing is, which is the one case that must
+          // not pay for an empty day. See roomHasGradableHabit.
+          if (habit == null) return !anyGradable;
+          // Paused habits resolve, so this is where today falls out for
+          // them: habitExistedOn is false for any day after archivedAt.
+          // When nothing is running they stay in the denominator instead,
+          // for the same reason as above.
+          if (!habitExistedOn(habit, todayDate)) return !anyGradable;
           final weekdays = mine.ruleFor(id, today)?.scheduledWeekdays ??
               habit.scheduledWeekdays;
           return weekdays.isEmpty || weekdays.contains(todayDate.weekday);

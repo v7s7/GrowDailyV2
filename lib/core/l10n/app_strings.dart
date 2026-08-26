@@ -204,6 +204,19 @@ class S {
   String get active => isAr ? 'نشطة' : 'active';
   String activeCount(int n) => isAr ? '$n نشطة' : '$n active';
 
+  /// Shown when the account's progression could not be loaded. Says
+  /// explicitly that nothing is lost, because the screen behind this banner
+  /// is showing placeholders where a level and an XP total normally sit,
+  /// and the fear that follows is that the account was wiped. It was not:
+  /// the numbers live on the server and this device simply has not read
+  /// them yet.
+  String get statsUnavailableTitle =>
+      isAr ? 'ما قدرنا نجيب تقدمك' : "Couldn't load your progress";
+  String get statsUnavailableBody => isAr
+      ? 'أرقامك محفوظة كلها، بس ما وصلت لهذا الجهاز. تأكد من الاتصال وجرب مرة ثانية.'
+      : 'All your numbers are safe, they just have not reached this device. Check your connection and try again.';
+  String get statsUnavailableRetry => isAr ? 'جرب مرة ثانية' : 'Retry';
+
   // Intention card
   String get todaysIntention => isAr ? 'نية اليوم' : "Today's intention";
   String get pickTinyWin => isAr ? 'اختر انتصاراً صغيراً' : 'Pick one tiny win';
@@ -215,16 +228,37 @@ class S {
   String streakFreezeProtected(int remaining) => isAr
       ? 'تجميد السلسلة حماك. متبقّي $remaining.'
       : 'Streak Freeze protected you. $remaining left.';
-  String get claimComeback =>
-      isAr ? 'استلم +50 XP عودة' : 'Claim +50 XP comeback';
+  /// The button no longer repeats the number. The card states the bonus
+  /// once, as its own line with the amount beside it (see
+  /// [comebackBonusLabel]), because the old card said "+50 XP" twice in
+  /// two different tenses: a pill promising it "when you continue" above a
+  /// button offering to hand it over right now. Two sentences about one
+  /// 50 XP, and only the button actually paid.
+  String get claimComeback => isAr ? 'استلم المكافأة' : 'Claim bonus';
   String welcomeBack(String name) =>
       isAr ? 'مرحبًا بعودتك، $name' : 'Welcome back, $name';
+
+  /// The name to greet a returning person by when there is none to use — a
+  /// guest, or a signed-in account with no email. The comeback card fell back
+  /// to the literal English "Warrior", which spliced an untranslated word into
+  /// the Arabic welcome line for every Arabic-locale guest.
+  String get comebackGuestName => isAr ? 'بطل' : 'Warrior';
   String get comebackNoErase => isAr
-      ? 'اليوم الفائت لا يمحو تقدمك.'
+      ? 'اليوم اللي فات ما يمحي تقدمك.'
       : "A missed day doesn't erase your progress.";
-  String get comebackBonusHint => isAr
-      ? '+50 XP مكافأة عودة عند المتابعة'
-      : '+50 XP comeback bonus when you continue';
+  String get comebackBonusLabel => isAr ? 'مكافأة العودة' : 'Comeback bonus';
+  String comebackBonusAmount(int xp) => '+$xp XP';
+
+  /// The line that makes the card safe to ignore, and it is only true
+  /// because of the fix that landed with it: finishing today's habits
+  /// while a comeback is pending used to clear the offer and pay nothing,
+  /// so the one person who did exactly what the app asked for was the one
+  /// person who lost the bonus. Both routes pay it now (see
+  /// DashboardNotifier.completeHabit's clearsPendingComeback), so the card
+  /// can finally say so.
+  String get comebackEitherWay => isAr
+      ? 'تنضاف لك سواء استلمتها الحين، أو كمّلت عاداتك اليوم.'
+      : "It's yours either way: claim it now, or finish today's habits.";
   String restoreStreakOffer(int days) => isAr
       ? 'استخدم تجميد السلسلة لاستعادة سلسلتك ذات $days يوم بدلاً من البدء من جديد.'
       : 'Use a streak freeze to restore your $days-day streak instead of starting over.';
@@ -1403,6 +1437,26 @@ class S {
   String gridClearMarkBody(String habitName, int xp, int gold) => isAr
       ? '«$habitName» معلّمة اليوم. لو شلتها بيرجع منك $xp خبرة و$gold ذهب، وسلسلة هالعادة بترجع يوم ورا. تقدر تعلّمها مرة ثانية وكل شي يرجع لك.'
       : '"$habitName" is marked done today. Clearing it takes back $xp XP and $gold gold, and this habit\'s streak steps back a day. Marking it again restores all of it.';
+  /// The same confirmation, for a day that has already passed.
+  ///
+  /// A past day is outside the reward system (see WeeklyGridNotifier
+  /// .setSquare's anti-backdating rule), so there is no XP or gold to name
+  /// and promising some would be a lie. What IS at stake is the record
+  /// itself, and the reassurance that matters is the one this app can
+  /// actually keep: marking the same habit on the same day again brings the
+  /// day back exactly as it was, original completion time included, because
+  /// the undo left a receipt for precisely that (see UndoneCompletion).
+  String get gridClearPastMarkTitle =>
+      isAr ? 'تشيل علامة هذا اليوم؟' : "Clear this day's mark?";
+  String gridClearPastMarkBody(String habitName, String dayLabel) => isAr
+      ? '«$habitName» معلّمة يوم $dayLabel. لو شلتها بيصير المربّع فاضي. وإذا شلتها بالغلط، علّمها مرة ثانية بنفس اليوم وترجع مثل ما كانت.'
+      : '"$habitName" is marked done on $dayLabel. Clearing it empties the square. If that was a mistake, mark the same day again and it comes back as it was.';
+  /// Today, for a mark that carries no completion behind it — a blue "bonus"
+  /// square, or a green one whose completion is not in memory. There is no
+  /// XP or gold to name, so this says what is actually at stake and no more.
+  String gridClearMarkBodyNoReward(String habitName) => isAr
+      ? '«$habitName» معلّمة اليوم. لو شلتها بتختفي العلامة. تقدر تعلّمها مرة ثانية بأي وقت.'
+      : '"$habitName" is marked today. Clearing it removes the mark. You can mark it again any time.';
   String get gridClearMarkConfirm => isAr ? 'شِلها' : 'Clear';
   String get gridMarkCleared => isAr ? 'شِلنا العلامة' : 'Mark cleared';
   // Distinct from gridPastDayHint on purpose: shown for the real calendar
@@ -2553,6 +2607,42 @@ class S {
       ? 'إحدى العادات المرتبطة لم تعد موجودة في شبكتك. يمكن لمغادرة الغرفة وإعادة الانضمام إعادة ربطها، لكن ذلك يصفّر تقدمك في هذه الغرفة أيضًا، فافعل ذلك فقط إذا كنت لا تمانع البدء من جديد.'
       : "A linked habit no longer exists in your Grid. Leaving and rejoining relinks it, but also resets your progress in this room. Only do that if you're fine starting over here.";
 
+  /// The paused twin of [roomLinkedHabitDeletedHint], and the reason that
+  /// one can no longer be shown on its own.
+  ///
+  /// Pausing a habit archives it, which drops it out of habitListProvider
+  /// the instant it happens. This card resolves its linked ids against
+  /// that list, so it met an id it could not find and reached for the only
+  /// explanation it had: that the habit was DELETED, followed by advice to
+  /// leave and rejoin. For a paused habit every part of that is wrong, and
+  /// the advice is the destructive kind: RoomsController.leaveRoom deletes
+  /// the participant doc, so someone who paused a habit for a week and
+  /// followed this would wipe every day of progress in the room to "fix"
+  /// something that un-fixes itself on Resume.
+  ///
+  /// Says the paused habit is not held against them, because since
+  /// [roomHasGradableHabit] landed that is literally true: an unresolvable
+  /// habit leaves the numerator AND the denominator, so the member is scored
+  /// on the habits they can still do. Somebody who paused one of three and
+  /// does the other two reads 100%, not 67%.
+  String roomLinkedHabitPausedHint(List<String> habitNames) {
+    final quoted = habitNames.map((n) => '"$n"').toList();
+    if (isAr) {
+      final list = quoted.join('، ');
+      return habitNames.length == 1
+          ? 'عادة $list موقوفة مؤقتًا، وما تنحسب عليك في هذي الغرفة. نسبتك تنحسب من باقي عاداتك، واستئنافها من اللوحة يرجّعها للحساب.'
+          : 'العادات $list موقوفة مؤقتًا، وما تنحسب عليك في هذي الغرفة. نسبتك تنحسب من باقي عاداتك، واستئنافها من اللوحة يرجّعها للحساب.';
+    }
+    final list = quoted.length == 1
+        ? quoted.first
+        : quoted.length == 2
+            ? '${quoted[0]} and ${quoted[1]}'
+            : '${quoted.sublist(0, quoted.length - 1).join(', ')}, and ${quoted.last}';
+    return habitNames.length == 1
+        ? 'Your linked habit $list is paused, so it is not counted against you here. Your percentage comes from the habits you can still do. Resume it from your board to bring it back.'
+        : 'Your linked habits $list are paused, so they are not counted against you here. Your percentage comes from the habits you can still do. Resume them from your board to bring them back.';
+  }
+
   /// Shown before a habit that's linked to one or more rooms actually gets
   /// deleted (see AddHabitSheet._deleteExisting/GridScreen._deleteSelected/
   /// DashboardScreen's Today swipe-delete) - the one moment this consequence
@@ -2595,16 +2685,23 @@ class S {
   /// The pause-side wording of [habitLinkedRoomWarningBody]. Pause does
   /// NOT unlink (see GridScreen._pauseHabit for why that was reverted), so
   /// this says the one thing that is actually true of a paused habit in a
-  /// live room: the days it is away are days that room does not credit,
-  /// and resuming puts it back. Nothing here is permanent, which is why
-  /// the confirm button is a plain Pause rather than an "anyway".
+  /// live room: it is not held against you while it is away, the room scores
+  /// you on the habits you can still do, and resuming puts it back. Nothing
+  /// here is permanent, which is why the confirm button is a plain Pause
+  /// rather than an "anyway".
+  ///
+  /// This used to promise the opposite ("the days it is away are days that
+  /// room does not credit"), which was the honest description of grading at
+  /// the time and is no longer true: see roomHasGradableHabit for the rule
+  /// that took a paused habit out of the denominator as well as the
+  /// numerator.
   String habitPauseLinkedRoomBody(List<String> roomNames) {
     final quoted = roomNames.map((n) => '"$n"').toList();
     if (isAr) {
       final list = quoted.join('، ');
       return roomNames.length == 1
-          ? 'هذه العادة محسوبة في غرفة $list. أيام إيقافها لن تُحتسب لك هناك، وترجع كما كانت عند الاستئناف. لن تخرج من الغرفة، وسجل العادة محفوظ بالكامل.'
-          : 'هذه العادة محسوبة في غرف $list. أيام إيقافها لن تُحتسب لك فيها، وترجع كما كانت عند الاستئناف. لن تخرج من أي غرفة، وسجل العادة محفوظ بالكامل.';
+          ? 'هذه العادة محسوبة في غرفة $list. وقت إيقافها ما تنحسب عليك، ونسبتك تنحسب من باقي عاداتك هناك. لن تخرج من الغرفة، وسجل العادة محفوظ بالكامل، وترجع كما كانت عند الاستئناف.'
+          : 'هذه العادة محسوبة في غرف $list. وقت إيقافها ما تنحسب عليك، ونسبتك تنحسب من باقي عاداتك فيها. لن تخرج من أي غرفة، وسجل العادة محفوظ بالكامل، وترجع كما كانت عند الاستئناف.';
     }
     final list = quoted.length == 1
         ? quoted.first
@@ -2612,8 +2709,57 @@ class S {
             ? '${quoted[0]} and ${quoted[1]}'
             : '${quoted.sublist(0, quoted.length - 1).join(', ')}, and ${quoted.last}';
     return roomNames.length == 1
-        ? "This habit counts toward $list. Days it is paused won't count for you there, and resuming puts it back the way it was. You stay in the room, and the habit's own record is kept in full."
-        : "This habit counts toward $list. Days it is paused won't count for you in them, and resuming puts it back the way it was. You stay in every room, and the habit's own record is kept in full.";
+        ? "This habit counts toward $list. While it is paused it is not counted against you, and your percentage there comes from the habits you can still do. You stay in the room, the habit's own record is kept in full, and resuming puts it back the way it was."
+        : "This habit counts toward $list. While it is paused it is not counted against you, and your percentage there comes from the habits you can still do. You stay in every room, the habit's own record is kept in full, and resuming puts it back the way it was.";
+  }
+
+  /// The one-habit version of [habitPauseLinkedRoomBody], and the reason
+  /// that one cannot be shown everywhere.
+  ///
+  /// A paused habit normally leaves both sides of the room's sum and the
+  /// member is graded on whatever else they linked. With a single linked
+  /// habit there is nothing else, so the anti-gaming fallback applies and
+  /// every paused day scores zero (see roomHasGradableHabit and
+  /// mySoleRoomHabitsProvider). Promising "your percentage comes from the
+  /// habits you can still do" here would be reassurance in place of the one
+  /// warning that actually matters.
+  ///
+  /// Still not a blocker, and still reversible: it says what happens and
+  /// lets the person decide, which is the same contract as every other
+  /// dialog in this flow.
+  String habitPauseSoleRoomHabitBody(List<String> roomNames) {
+    final quoted = roomNames.map((n) => '"$n"').toList();
+    if (isAr) {
+      final list = quoted.join('، ');
+      return roomNames.length == 1
+          ? 'هذي العادة الوحيدة المحسوبة لك في غرفة $list. إذا أوقفتها، أيام الإيقاف تنحسب صفر هناك، لأنه ما بقى شي ثاني ينحسب. تقدر ترجعها في أي وقت وترجع تنحسب.'
+          : 'هذي العادة الوحيدة المحسوبة لك في غرف $list. إذا أوقفتها، أيام الإيقاف تنحسب صفر فيها، لأنه ما بقى شي ثاني ينحسب. تقدر ترجعها في أي وقت وترجع تنحسب.';
+    }
+    final list = quoted.length == 1
+        ? quoted.first
+        : quoted.length == 2
+            ? '${quoted[0]} and ${quoted[1]}'
+            : '${quoted.sublist(0, quoted.length - 1).join(', ')}, and ${quoted.last}';
+    return roomNames.length == 1
+        ? 'This is the only habit counting for you in $list. Pause it and those days score zero there, because nothing else is left to count. You can bring it back at any time and it counts again.'
+        : 'This is the only habit counting for you in $list. Pause it and those days score zero in them, because nothing else is left to count. You can bring it back at any time and it counts again.';
+  }
+
+  /// Room Detail's version of the same warning, shown while it is paused.
+  String roomSoleLinkedHabitPausedHint(String habitName) => isAr
+      ? 'عادة "$habitName" موقوفة مؤقتًا، وهي الوحيدة المحسوبة لك هنا، فأيام إيقافها تنحسب صفر. استئنافها من اللوحة يرجّعها للحساب.'
+      : '"$habitName" is paused, and it is the only habit counting for you here, so those days score zero. Resume it from your board and it counts again.';
+
+  /// The plural of [roomSoleLinkedHabitPausedHint]: shown when the member has
+  /// two or more linked habits and every gradable one is now paused, so nothing
+  /// is left counting and the reassuring "graded on the rest" copy would be a
+  /// lie. Names them all rather than just one, unlike the old chooser that
+  /// passed only the first paused name to the singular hint.
+  String roomLinkedHabitAllPausedHint(List<String> habitNames) {
+    final list = habitNames.map((n) => '"$n"').join(isAr ? '، ' : ', ');
+    return isAr
+        ? 'عاداتك $list موقوفة كلها، وما بقى شي ثاني ينحسب لك في هذي الغرفة، فأيام الإيقاف تنحسب صفر. استئنافها من اللوحة يرجّعها للحساب.'
+        : 'Your linked habits $list are all paused, so nothing is left counting for you here and those days score zero. Resume them from your board and they count again.';
   }
 
   String get habitPauseAnywayAction => isAr ? 'أوقف مؤقتًا' : 'Pause';
@@ -2641,9 +2787,60 @@ class S {
   String get habitEdit => isAr ? 'تعديل' : 'Edit';
   String get habitActionsCancel => isAr ? 'إلغاء' : 'Cancel';
   String get habitPause => isAr ? 'إيقاف مؤقت' : 'Pause';
+
+  /// Says "from tomorrow", because that is what actually happens and the
+  /// old wording ("it leaves your board") described something the person
+  /// could see was untrue the second they tapped: a habit paused today
+  /// keeps its row for the rest of that day, pause tile and all, and its
+  /// square stays tappable. That is deliberate (pausing at 9pm must not
+  /// blank out squares already earned that day, and today still counts
+  /// toward today's streak check, see IslamicHabitTemplate.isScheduledFor
+  /// where the archive day itself still counts), but promising the
+  /// opposite made a correct behaviour read as a bug that ignored the tap.
   String get habitPauseHint => isAr
-      ? 'تختفي من لوحتك، وسجلها كامل محفوظ، وترجعها متى شئت.'
-      : 'It leaves your board, keeps every day of its history, and comes back whenever you want.';
+      ? 'تبقى على اللوحة إلى نهاية اليوم، وتنزاح من بكرة. سجلها كامل محفوظ، وترجع في أي وقت.'
+      : 'It stays on your board for the rest of today, then steps aside from tomorrow. Every day of its history is kept, and it comes back whenever you want.';
+  /// The pause chooser.
+  ///
+  /// "إلى متى؟" on the owner's ruling, after two passes: "لين متى؟" was
+  /// corrected to "لي متى؟", then settled as "إلى متى؟". That last one also
+  /// decides the verb case below, since إلى cannot precede a verb in Arabic
+  /// and has to become "إلى أن" there.
+  String get pauseUntilTitle => isAr ? 'إلى متى؟' : 'Until when?';
+  String pauseUntilSubtitle(String habitName) => isAr
+      ? 'اختر متى ترجع "$habitName" للوحة، أو خلها لك.'
+      : 'Choose when "$habitName" comes back, or leave it to you.';
+  String get pauseUntilManual => isAr ? 'أنا أقرر' : 'I decide';
+  String get pauseUntilManualHint => isAr
+      ? 'تبقى موقوفة إلى أن ترجعها بنفسك.'
+      : 'It stays paused until you bring it back yourself.';
+  String pauseUntilPreset(String preset) => switch (preset) {
+        'week' => isAr ? 'أسبوع' : 'One week',
+        'twoWeeks' => isAr ? 'أسبوعين' : 'Two weeks',
+        _ => isAr ? 'شهر' : 'One month',
+      };
+  String get pauseUntilCustom => isAr ? 'تاريخ ووقت' : 'Pick a date and time';
+  String get pauseUntilCustomHint =>
+      isAr ? 'اختر اليوم والساعة اللي ترجع فيها.' : 'Choose the exact day and hour.';
+  String pauseUntilOn(String when) => isAr ? 'ترجع $when' : 'Back on $when';
+
+  /// Shown on a paused habit that has booked its own return.
+  String resumesOnBadge(String when) => isAr ? 'ترجع $when' : 'Back $when';
+  String autoResumedConfirmation(String name) => isAr
+      ? 'رجعت "$name" للوحة، وقت إيقافها انتهى'
+      : '"$name" is back, its pause is over';
+
+  /// The habit cap turned an automatic return away.
+  ///
+  /// Auto-resume runs [GridScreen._resumeHabit]'s own precondition, the free
+  /// tier's habit limit, because a booking made three weeks ago cannot know
+  /// how many habits the board holds today. Silently exceeding the cap would
+  /// break the paywall; silently doing nothing would look like the feature
+  /// failed. It says so and leaves the habit paused, still bookable.
+  String autoResumeBlockedByLimit(String name) => isAr
+      ? 'ما قدرنا نرجع "$name"، لوحتك ممتلئة. أوقف عادة ثانية أو رقّي حسابك.'
+      : "Couldn't bring \"$name\" back, your board is full. Pause another habit or upgrade.";
+
   String get habitResume => isAr ? 'استئناف' : 'Resume';
   String get habitResumeHint => isAr
       ? 'ترجع إلى لوحتك من اليوم، بكل سجلها السابق.'
@@ -3215,4 +3412,83 @@ class S {
       isAr ? 'ما فيه إنجاز في هذا اليوم.' : 'Nothing done on this day.';
   String get reportsDayScheduled => isAr ? 'مطلوب' : 'Due';
   String get reportsDayNotDue => isAr ? 'غير مطلوب' : 'Not due';
+
+  // ── N times a day ────────────────────────────────────────────
+  //
+  // A daily habit's frequencyTarget doubles as its per-day count (see
+  // IslamicHabitTemplate.effectiveDailyTarget, which already reads it that
+  // way). Everything here is Bahraini, not MSA, to match the rest of the
+  // board's voice.
+
+  /// The stepper's own label — the unit, not the number beside it.
+  ///
+  /// Arabic counts its nouns in three shapes, not two: 3 to 10 take the plural
+  /// (مرات), and 11 upward goes back to the singular (مرة). A flat n > 1 rule
+  /// printed "12 مرات في اليوم" beside the stepper's numeral, which is wrong in
+  /// every register of Arabic.
+  String timesPerDayLabel(int n) {
+    if (!isAr) return n > 1 ? 'times a day' : 'once a day';
+    if (n <= 1 || n >= 11) return 'مرة في اليوم';
+    return 'مرات في اليوم';
+  }
+
+  /// The whole phrase, number included, for the places that print it as one
+  /// sentence rather than as a numeral beside a unit.
+  ///
+  /// This is where Arabic's DUAL has to appear: "مرتين في اليوم", never
+  /// "2 مرات في اليوم". The summary line under the Add Habit form was building
+  /// its own phrase by gluing the numeral onto [timesPerDayLabel], which cannot
+  /// express that — two is a form of the noun, not a number in front of it.
+  String timesPerDayPhrase(int n) {
+    if (!isAr) return n > 1 ? '$n times a day' : 'once a day';
+    if (n <= 1) return 'مرة في اليوم';
+    if (n == 2) return 'مرتين في اليوم';
+    if (n <= 10) return '$n مرات في اليوم';
+    return '$n مرة في اليوم';
+  }
+
+  /// One line under the stepper saying what the count actually changes.
+  String timesPerDayHint(int n) => isAr
+      ? (n > 1 ? 'المربّع يمتلي شوي شوي مع كل مرة' : 'الوضع الاعتيادي')
+      : (n > 1 ? 'The square fills a bit with each one' : 'The usual');
+
+  /// Shown only once the count is above one, spelling out the whole rule.
+  String timesPerDayNote(int n) => isAr
+      ? 'كل ضغطة على المربّع تزيد واحد. المربّع يصير جزئي لين تكمّل الـ $n، وبعدها يصير كامل.'
+      : 'Each tap on the square adds one. It stays partial until you finish all $n, then it fills.';
+
+  /// The Grid badge on a habit counted more than once a day.
+  /// Progress on today's square, e.g. "2 / 4".
+  String timesPerDayProgress(int done, int target) => '$done / $target';
+
+  /// Screen-reader labels for the two stepper buttons.
+  ///
+  /// They used to be handed [timesPerDayLabel] of a fixed 1 and 2, which are
+  /// UNIT strings ("once a day", "times a day") rather than actions, and which
+  /// never changed with the count. A VoiceOver user focusing the minus button
+  /// heard "once a day, button" and the plus button "times a day, button", with
+  /// nothing saying which direction either one moved or where the count stood.
+  /// Naming the action and the current value answers both without moving focus.
+  String timesPerDayDecrease(int current) => isAr
+      ? 'إنقاص، حاليًا ${timesPerDayPhrase(current)}'
+      : 'Decrease, currently ${timesPerDayPhrase(current)}';
+
+  String timesPerDayIncrease(int current) => isAr
+      ? 'زيادة، حاليًا ${timesPerDayPhrase(current)}'
+      : 'Increase, currently ${timesPerDayPhrase(current)}';
+
+  /// The room's frozen-rule explanation for a counted habit.
+  String roomCountedHabitRule(String habitName, int target) {
+    if (!isAr) {
+      return '"$habitName" only counts in the room once you finish all $target.';
+    }
+    // Same three-shape agreement timesPerDayPhrase documents: the dual for
+    // two, the plural for three to ten, the singular from eleven up.
+    final all = target == 2
+        ? 'المرتين'
+        : target <= 10
+            ? 'الـ $target مرات'
+            : 'الـ $target مرة';
+    return '"$habitName" تنحسب لك في الغرفة لمن تخلّص $all كلها.';
+  }
 }

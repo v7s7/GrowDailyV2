@@ -1,19 +1,29 @@
-// What a Room does about a habit it can no longer resolve, and why the
-// answer is deliberately conservative.
+// The credit formula itself: what a day is worth given a done count and a
+// scheduled count. Deliberately no opinion here about how those two numbers
+// were arrived at.
 //
+// ── Read this before changing anything below ────────────────────────────
 // A paused habit stays linked to its rooms (pausing is reversible; see
-// GridScreen._pauseHabit for why unlinking was tried and reverted). The
-// grading code therefore meets a linked id it cannot find in the active
-// habit list, and both sync paths treat that as "this device cannot grade
-// this room correctly right now" rather than guessing.
+// GridScreen._pauseHabit for why unlinking was tried and reverted), so
+// grading meets a linked id it cannot find in the active habit list. What
+// the app DOES about that has changed, and this file's original header
+// described the old answer.
 //
-// It is tempting to make grading resolve paused habits instead, so the
-// paused days drop out of the scheduled set. These tests record why that
-// is NOT what the app does: a day with nothing scheduled is a FINISHED
-// day here, worth full credit, because that is what a weekly quota's rest
-// day means. Dropping a paused habit out of the denominator would pay a
-// member 100% a day for pausing everything, keep their streak perfect,
-// and in a competitive room hand them the podium prize.
+// It used to be "leave it in the scheduled set", on the reasoning recorded
+// in the first test below: a day with nothing scheduled is a FINISHED day
+// worth full credit, so dropping paused habits out of the denominator would
+// pay a member 100% a day for pausing everything. That reasoning is still
+// correct and the first test still guards it. What was wrong was the
+// conclusion, because the two sync paths never actually agreed on the old
+// answer: one credited an unresolvable habit as done and the other counted
+// it as missed, so a paused habit's percentage moved depending on which
+// path ran last.
+//
+// A paused habit now leaves BOTH the numerator and the denominator, so a
+// member is graded on what they can still do, and the "pause everything"
+// exploit is closed by a narrower rule instead: when NOTHING is resolvable
+// there is nothing to excuse against, and every id counts as scheduled and
+// never done. See roomHasGradableHabit and paused_habit_grading_rule_test.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/features/rooms/models/room_model.dart';
 

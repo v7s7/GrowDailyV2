@@ -31,16 +31,31 @@ enum SquareState {
   static SquareState fromJson(String? v) =>
       values.firstWhere((e) => e.name == v, orElse: () => SquareState.none);
 
-  /// The three states reachable by a plain tap, in cycle order.
-  static const List<SquareState> tapCycle = [none, partial, complete];
+  /// The states reachable by a plain tap, in cycle order.
+  static const List<SquareState> tapCycle = [none, complete];
 
-  /// Next state when the user taps the square: white → yellow → green → white.
-  /// Any "advanced" state (failed/bonus/skipped) taps back to white so a
-  /// mis-set square is always one tap away from a clean slate.
+  /// Next state when the user taps the square: white → green → white.
+  ///
+  /// One tap means done. The cycle used to stop at yellow on the way
+  /// (white → yellow → green → white), which made the app's single most
+  /// common action cost two taps and put a state nobody asked for in between:
+  /// the first tap on an empty square produced "partly done", which is a
+  /// claim, and rarely the one the person meant. Marking a habit done is the
+  /// whole product, and it should take one tap.
+  ///
+  /// Yellow is not gone, it is just no longer something a tap can wander
+  /// into. It is still reachable deliberately from the long-press palette,
+  /// and it is still what a habit counted several times a day shows while its
+  /// count is part done — which is the one place a partial square means
+  /// something precise rather than a vague half.
+  ///
+  /// Every non-empty state taps back to white for the same reason it always
+  /// did: a mis-set square is one tap from a clean slate. What guards that
+  /// now is a confirmation rather than the length of the cycle — see
+  /// _handleSquareTap.
   SquareState get next => switch (this) {
-        none => partial,
-        partial => complete,
-        complete => none,
+        none => complete,
+        partial || complete => none,
         failed || bonus || skipped => none,
       };
 
