@@ -636,6 +636,48 @@ class RoomParticipant {
   /// long-running room.
   final List<String> quotaOkWeeks;
 
+  /// Date keys on which this member's whole commitment was STOOD DOWN — every
+  /// counted habit paused, so there was nothing left for the room to grade.
+  ///
+  /// The per-member counterpart to [RoomModel.pausedSpans], and it exists for
+  /// the same reason that field does: a day nobody was asked for anything is
+  /// neither earned nor missed, and forcing it to be one of the two is wrong
+  /// in whichever direction you pick.
+  ///
+  /// ── What this replaced ──────────────────────────────────────────────────
+  /// Pausing every linked habit used to put each one back in the denominator
+  /// as scheduled-and-never-done. The arithmetic was forward-only (days before
+  /// the pause kept their grade), but the effect was not proportionate:
+  /// measured on room A8GEL7, a member doing 4x a week faithfully and pausing
+  /// on 2 Aug went from 93% to 13% with a streak of 26 down to 0, and their
+  /// strip filled with red crosses for a month of days they had never been
+  /// asked about. Standing a habit down was strictly worse than quietly doing
+  /// nothing, which is the opposite of what pausing promises.
+  ///
+  /// ── Why it is not simply "no habits scheduled" ──────────────────────────
+  /// Because that already means something else here. [scheduledCountFor] == 0
+  /// is a REST day, and [creditFor] pays a rest day a full 1.0 while
+  /// [isFullyDone] calls it finished. Dropping paused days through that route
+  /// would score them as completed days — the exact "users will pause to fake
+  /// a done day" hole. So this is a fourth day state, not a reuse of the third:
+  /// [creditFor] returns 0 for it, [isFullyDone] and [isRestDay] are false, and
+  /// [daysCompleted]/[daysElapsedIn] both skip it, so the ratio cannot move in
+  /// either direction while the habit is away.
+  ///
+  /// Absent for every doc written before this existed, which reads as "nothing
+  /// was ever stood down" — so no running room's stored percentage moves on the
+  /// first launch after this ships. The next sync fills it in from real habit
+  /// history, same self-healing recompute as [quotaOkWeeks].
+  final List<String> standDownDays;
+
+  /// Whether [dateKey] is one of this member's [standDownDays].
+  ///
+  /// A plain list scan, matching [quotaOkWeeks]. The list is bounded by the
+  /// resync window ([kRoomSyncWindowDays]) plus whatever older stand-down days
+  /// were already recorded, so it stays small enough that a set would buy
+  /// nothing a const constructor can hold.
+  bool isStoodDownOn(String dateKey) => standDownDays.contains(dateKey);
+
   /// habitId -> the cadence periods this room grades that habit by, oldest
   /// first (see [RoomHabitRule]). This is the room's own frozen copy of each
   /// linked habit's rules, and the reason editing a habit can no longer
@@ -758,6 +800,7 @@ class RoomParticipant {
     this.dailyPartialCount = const {},
     this.restAllowanceFrom,
     this.quotaOkWeeks = const [],
+    this.standDownDays = const [],
     this.habitRules = const {},
     required this.lastUpdated,
     this.teamBonusClaimed = false,
@@ -979,6 +1022,9 @@ class RoomParticipant {
   /// anybody made.
   bool isDeclaredRest(String dateKey) {
     if (!hasCountedHabits) return false;
+    // Pausing a habit and marking تخطّي on it are different acts with
+    // different records; a stood-down day has no squares to have been rested.
+    if (isStoodDownOn(dateKey)) return false;
     // A structurally empty day already has its own treatment and its own
     // full credit. Nothing was owed, which is the calendar's doing, not a
     // choice anybody made.
@@ -1016,6 +1062,14 @@ class RoomParticipant {
   /// and that lives in [quotaOkWeeks]/[currentStreak], nowhere near this.
   double creditFor(String dateKey) {
     if (!hasCountedHabits) return 0;
+    // A stood-down day is worth NOTHING, and that is deliberate rather than
+    // incidental. It is skipped on both sides by [daysCompleted] and
+    // [daysElapsedIn], so the number it returns cannot reach the percentage —
+    // but it can reach every screen that asks a day "how did this go", and the
+    // one answer that must never come back is "finished". Falling through to
+    // the line below would give exactly that: a paused day writes no scheduled
+    // count, an absent count is a rest, and a rest pays 1.0. See standDownDays.
+    if (isStoodDownOn(dateKey)) return 0;
     final scheduled = scheduledCountFor(dateKey);
     if (scheduled == 0) return 1.0;
     final done = dailyDoneCount[dateKey] ?? 0;
@@ -1047,7 +1101,11 @@ class RoomParticipant {
   /// changing what an excused day scores would change the leaderboard, and
   /// the scoring was never the part that was wrong.
   bool isRestDay(String dateKey) =>
-      hasCountedHabits && scheduledCountFor(dateKey) == 0;
+      hasCountedHabits &&
+      // A day the whole plan was paused is not a rest day the schedule
+      // granted — see standDownDays for why the two must not collapse.
+      !isStoodDownOn(dateKey) &&
+      scheduledCountFor(dateKey) == 0;
 
   /// Whether *every actually-scheduled* linked habit was done on [dateKey]
   /// - the strict "full credit" case, used where a screen wants a plain
@@ -1060,6 +1118,10 @@ class RoomParticipant {
   /// [quotaOkWeeks].
   bool isFullyDone(String dateKey) {
     if (!hasCountedHabits) return false;
+    // Nothing was asked, so nothing was finished. This is the guard that stops
+    // a pause reading as a completed day anywhere a screen wants a plain
+    // done/not-done signal — including the room streak, which asks this.
+    if (isStoodDownOn(dateKey)) return false;
     final scheduled = scheduledCountFor(dateKey);
     if (scheduled == 0) return true;
     return (dailyDoneCount[dateKey] ?? 0) >= scheduled;
@@ -1112,11 +1174,13 @@ class RoomParticipant {
     if (last.isBefore(start)) return 1;
     final span = last.difference(start).inDays + 1;
     final conceded = concededDaysIn(room);
-    // The early return is conditional on BOTH exemptions being empty now.
+    // The early return is conditional on ALL THREE exemptions being empty now.
     // It used to check only pausedSpans, which would have skipped the rest
     // allowance entirely in the common case of a room that was never paused,
     // and the feature would have silently done nothing for almost everybody.
-    if (room.pausedSpans.isEmpty && conceded.isEmpty) return span;
+    if (room.pausedSpans.isEmpty && conceded.isEmpty && standDownDays.isEmpty) {
+      return span;
+    }
     // Paused days are not elapsed — the room wasn't running, so they were
     // never anyone's to keep. Counted by walking rather than by subtracting
     // span lengths, so a span that only partly overlaps this participant's
@@ -1125,10 +1189,18 @@ class RoomParticipant {
     // Conceded days leave the same way, and only ever days that scored zero
     // (see [concededDaysIn]), so this can lift a percentage but never invent
     // completion that did not happen.
+    //
+    // Stand-down days leave for the same reason as a room pause: the member
+    // had no counted habit running, so the room asked them for nothing. They
+    // are worth 0 in [daysCompleted] and 0 here, so a paused stretch holds a
+    // percentage exactly where it was rather than either paying it out or
+    // burning it down. See standDownDays.
     var excused = 0;
     for (var d = start; !d.isAfter(last); d = d.add(const Duration(days: 1))) {
       final key = d.toDateKey();
-      if (room.isPausedOn(key) || conceded.contains(key)) excused++;
+      if (room.isPausedOn(key) || conceded.contains(key) || isStoodDownOn(key)) {
+        excused++;
+      }
     }
     final live = span - excused;
     return live < 1 ? 1 : live;
@@ -1176,8 +1248,13 @@ class RoomParticipant {
       final key = day.toDateKey();
       // Before the stamp, nothing is excused. This is the whole of the
       // no-standing-moves guarantee.
+      // isDeclaredRest is already false on a stand-down day, so this is belt
+      // and braces — but it states the rule the allowance depends on: an
+      // allowance may only ever be spent on a day that would otherwise have
+      // scored zero, and a stood-down day scores nothing at all.
       if (key.compareTo(from) >= 0 &&
           !room.isPausedOn(key) &&
+          !isStoodDownOn(key) &&
           isDeclaredRest(key)) {
         final week = day.startOfDisplayWeek.toDateKey();
         final used = usedPerWeek[week] ?? 0;
@@ -1200,7 +1277,8 @@ class RoomParticipant {
       // Skipped on both sides, matching daysElapsedIn — a paused day adds
       // nothing to the numerator and nothing to the denominator, so an
       // extension leaves every existing percentage exactly where it was.
-      if (!room.isPausedOn(key)) total += creditFor(key);
+      // A member's own stand-down days leave by the same door.
+      if (!room.isPausedOn(key) && !isStoodDownOn(key)) total += creditFor(key);
       day = day.add(const Duration(days: 1));
     }
     return total;
@@ -1246,14 +1324,33 @@ class RoomParticipant {
   int currentStreak(RoomModel room) {
     if (!hasCountedHabits) return 0;
     var day = room.lastCountedDay;
-    if (!room.isEnded && !_keepsStreak(day.toDateKey(), day)) {
+    if (!room.isEnded &&
+        !isStoodDownOn(day.toDateKey()) &&
+        !_keepsStreak(day.toDateKey(), day)) {
       day = day.subtract(const Duration(days: 1));
     }
     var count = 0;
     // Floors at the day THEY joined, not the room's start — a streak can't
     // run back through days they weren't here for. See [countedStartIn].
     final floor = countedStartIn(room);
-    while (!day.isBefore(floor) && _keepsStreak(day.toDateKey(), day)) {
+    while (!day.isBefore(floor)) {
+      final key = day.toDateKey();
+      // A stood-down day is TRANSPARENT here: it does not extend the streak
+      // and it does not end it, so the walk passes straight through the gap.
+      //
+      // Held rather than reset, and held rather than grown, is the only
+      // reading consistent with the rest of [standDownDays]: the day is
+      // excluded from both sides of the percentage, and a streak is the same
+      // question asked consecutively. Resetting would put the whole penalty
+      // the stand-down rule exists to remove back on the one number people
+      // actually look at; counting it would pay a streak for days nobody
+      // trained. Note the gap is visible either way — the leaderboard row
+      // carries a pause badge for as long as it lasts.
+      if (isStoodDownOn(key)) {
+        day = day.subtract(const Duration(days: 1));
+        continue;
+      }
+      if (!_keepsStreak(key, day)) break;
       count++;
       day = day.subtract(const Duration(days: 1));
     }
@@ -1321,6 +1418,11 @@ class RoomParticipant {
       quotaOkWeeks:
           (d['quotaOkWeeks'] as List?)?.whereType<String>().toList() ??
               const [],
+      // Absent means "nothing was ever stood down", never "everything was" —
+      // the same fail-safe direction as quotaOkWeeks. See standDownDays.
+      standDownDays:
+          (d['standDownDays'] as List?)?.whereType<String>().toList() ??
+              const [],
       habitRules: (d['habitRules'] as Map?)?.map(
             (k, v) => MapEntry(
               k.toString(),
@@ -1373,6 +1475,7 @@ class RoomParticipant {
         if (restAllowanceFrom != null) 'restAllowanceFrom': restAllowanceFrom,
         'dailyScheduledCount': dailyScheduledCount,
         'quotaOkWeeks': quotaOkWeeks,
+        'standDownDays': standDownDays,
         'habitRules': habitRules.map(
           (k, v) => MapEntry(k, v.map((r) => r.toFirestore()).toList()),
         ),
@@ -1399,6 +1502,7 @@ class RoomParticipant {
     String? restAllowanceFrom,
     Map<String, int>? dailyScheduledCount,
     List<String>? quotaOkWeeks,
+    List<String>? standDownDays,
     Map<String, List<RoomHabitRule>>? habitRules,
     DateTime? lastUpdated,
     bool? teamBonusClaimed,
@@ -1424,6 +1528,7 @@ class RoomParticipant {
         dailyPartialCount: dailyPartialCount ?? this.dailyPartialCount,
         restAllowanceFrom: restAllowanceFrom ?? this.restAllowanceFrom,
         quotaOkWeeks: quotaOkWeeks ?? this.quotaOkWeeks,
+        standDownDays: standDownDays ?? this.standDownDays,
         habitRules: habitRules ?? this.habitRules,
         lastUpdated: lastUpdated ?? this.lastUpdated,
         teamBonusClaimed: teamBonusClaimed ?? this.teamBonusClaimed,

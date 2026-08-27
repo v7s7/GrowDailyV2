@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../constants/deep_links.dart';
+import '../extensions/datetime_ext.dart';
 import '../services/local_store_service.dart';
 import '../utils/bidi_fraction.dart';
 import '../utils/intention_phrase.dart';
@@ -294,9 +295,15 @@ class S {
         3 => '3-Day Starter',
         7 => '7-Day Warrior',
         14 => '2-Week Champion',
+        21 => '3-Week Steady',
         30 => 'Month Master',
         60 => '60-Day Devotee',
         100 => 'Century Legend',
+        150 => '150-Day Rock',
+        200 => '200-Day Titan',
+        250 => '250-Day Voyager',
+        300 => '300-Day Legend',
+        365 => 'Full Year Legend',
         _ => 'Streak Milestone',
       };
     }
@@ -304,9 +311,15 @@ class S {
       3 => 'بداية النشامى',
       7 => 'محارب الأسبوع',
       14 => 'بطل الأسبوعين',
+      21 => 'ثابت الأسابيع',
       30 => 'سيد الشهر',
       60 => 'صاحب الهمّة',
       100 => 'أسطورة المئة',
+      150 => 'صخرة الطريق',
+      200 => 'عملاق المئتين',
+      250 => 'فارس الطريق',
+      300 => 'أسطورة الثلاثمئة',
+      365 => 'أسطورة السنة',
       _ => 'إنجاز السلسلة',
     };
   }
@@ -510,9 +523,12 @@ class S {
       ? 'كل عادة أنجزتها على الإطلاق، مجمّعة عبر رحلتك بأكملها - رقم لا يُصفَّر أبدًا.'
       : "Every habit you've ever checked off, added up across your whole journey: a tally that never resets.";
   String get statInfoGoldTitle => isAr ? 'الذهب' : 'Gold';
+  // Mentions rewards as of 2026-08. Before that this named only the closet,
+  // which stopped being the whole truth the day My Rewards shipped: gold's
+  // main sink is now the list the user writes themselves.
   String get statInfoGoldDesc => isAr
-      ? 'تكسبه بإنجاز العادات والمهام. أنفقه في المتجر على أزياء وإكسسوارات لشخصيتك.'
-      : 'Earned by completing habits and tasks. Spend it in the Shop on outfits and accessories for your character.';
+      ? 'تكسبه بإنجاز العادات والمهام. أنفقه في المتجر على أزياء وإكسسوارات لشخصيتك، أو على مكافآتك اللي تحطّها بنفسك.'
+      : 'Earned by completing habits and tasks. Spend it in the Shop on outfits and accessories, or on the rewards you set for yourself.';
   String get statInfoXpTitle => isAr ? 'مجموع الخبرة' : 'Total XP';
   String get statInfoXpDesc => isAr
       ? 'الخبرة التي تكسبها من كل عادة ومهمة تنجزها. هي ما يرفع مستوى شخصيتك بمرور الوقت.'
@@ -557,9 +573,21 @@ class S {
 
   // Streak Freeze card
   String get streakFreeze => isAr ? 'تجميد السلسلة' : 'Streak Freeze';
+  // "refills to one", not "refills": the weekly grant tops the bank back up
+  // to a single freeze rather than to the cap. It filled to the cap until
+  // 2026-08, which made the only repeatable gold sink in the app unreachable
+  // for anyone who did not break streaks.
   String streakFreezeStatus(int current, int max) => isAr
-      ? '$current/$max جاهز · المستوى 5+ يُعيد الشحن أسبوعياً'
-      : '$current/$max ready · Level 5+ refills weekly';
+      ? '$current/$max جاهز · المستوى 5+ يرجّع لك وحدة كل أسبوع'
+      : '$current/$max ready · Level 5+ refills one a week';
+
+  // ── Freeze bank slots (purchasable capacity) ────────────────────────────
+  String get freezeSlotTitle => isAr ? 'خانة تجميد إضافية' : 'One more slot';
+  String freezeSlotBody(int capacity) => isAr
+      ? 'تقدر تحتفظ بـ $capacity تجميدات بدل ما هي الحين'
+      : 'Hold $capacity freezes instead of what you have now';
+  String freezeSlotLocked(int level) =>
+      isAr ? 'المستوى $level' : 'Level $level';
 
   // ── Add Habit Hub (Plan / Add Goal tabs) ────────────────────────────────────
   String get hubTitle => isAr ? 'إضافة عادة' : 'Add a Habit';
@@ -1037,6 +1065,30 @@ class S {
   // room, without the grid growing a third control.
   String get customReminderTitle => isAr ? 'تذكير مخصص' : 'Custom reminder';
   String get customReminderValueHint => isAr ? 'الرقم' : 'Number';
+
+  /// Names the occurrence a habit's custom shift is measured FROM.
+  ///
+  /// A habit counted several times a day opens this sheet per occurrence, so
+  /// without the time in the title there is nothing on screen saying which of
+  /// the day's reminders is being adjusted.
+  /// Shown on the LATER of two occurrences set to the same minute.
+  ///
+  /// The cue keeps one time per minute, so saving both would quietly drop
+  /// this one and its shift. Says what will happen rather than blocking the
+  /// save: the fix is one tap on the time above the message.
+  String get habitDuplicateTime => isAr
+      ? 'نفس وقت تذكير قبله. غيّره، وإلا بينحفظ تذكير واحد بس.'
+      : 'Same time as an earlier reminder. Change it, or only one will be kept.';
+
+  String habitOffsetFromTime(String time) =>
+      isAr ? 'بالنسبة لوقت $time' : 'Relative to $time';
+
+  /// Shown instead of the resolved time when the entered shift is past
+  /// kMaxHabitOffsetMinutes. Says the ceiling rather than just refusing:
+  /// a disabled button with no reason is a puzzle.
+  String get habitOffsetTooLarge => isAr
+      ? 'أكثر شي ١٢ ساعة تقديم أو تأخير. غيّر الوقت نفسه إذا تبي أبعد من كذا.'
+      : 'Twelve hours is the most. Change the time itself for anything further.';
   String get customReminderAdd => isAr ? 'إضافة' : 'Add';
   // Heading over the list of everything currently set, each row removable.
   String get customReminderAdded =>
@@ -1185,6 +1237,145 @@ class S {
   /// render every member's equipped accessory.
   String get closetSeenByRooms =>
       isAr ? 'هكذا يراك أعضاء غرفك' : 'This is how your rooms see you';
+
+  // ── My Rewards (the gold sink) ──────────────────────────────────────────
+  //
+  // Register note: the corpus already says مكافأة eleven times and جائزة
+  // zero, so this block says مكافأة throughout.
+  //
+  // The empty-state question uses أي rather than شنو. شنو is correct
+  // Bahraini and is what the dialect brief asks for, but it appears zero
+  // times in the 3,500 lines above this, whose interrogatives are كيف, متى
+  // and أي. Owner's call, 2026-08: match the shipped voice here and treat a
+  // broader dialect pass as its own decision. Every other Gulf marker
+  // stays: تبي، تقدر، حطّ، سوّ، عشان، الحين، هذي، جذي، محد، برّا.
+  String get rewardsTitle => isAr ? 'مكافآتي' : 'My Rewards';
+  String get rewardsCardTitle => isAr ? 'مكافآتي' : 'My Rewards';
+  String get rewardsCardEmpty => isAr
+      ? 'سوّ مكافأة من عندك وحطّ لها سعر'
+      : 'Name your own reward and set its price';
+  String rewardsCardReady(int n) => isAr
+      ? (n == 1
+          ? 'عندك وحدة تقدر تاخذها الحين'
+          : 'عندك $n تقدر تاخذها الحين')
+      : (n == 1
+          ? 'One you can take right now'
+          : '$n you can take right now');
+  String rewardsCardClosest(int n) =>
+      isAr ? 'أقرب وحدة ينقصها $n ذهبًا' : 'Closest one is $n gold away';
+  String rewardsCardCount(int n) => isAr
+      ? (n == 1 ? 'مكافأة وحدة' : '$n مكافآت')
+      : (n == 1 ? '1 reward' : '$n rewards');
+
+  String get rewardsEmptyTitle => isAr ? 'ما فيه مكافآت بعد' : 'No rewards yet';
+  String get rewardsEmptyBody => isAr
+      ? 'أي شي تبي تعطيه لنفسك لمن تكمّل عاداتك؟ سمّه، وحطّ له سعر، واشتره بذهبك.'
+      : 'What do you want to give yourself when you follow through? Name it, '
+          'price it, buy it with your gold.';
+  String get rewardsStarterTitle => isAr
+      ? 'اضغط وحدة من هذي وعدّلها زي ما تبي'
+      : 'Tap one of these and change it however you like';
+  String get rewardsWriteMyOwn =>
+      isAr ? 'اكتب وحدة من عندي' : 'Write my own';
+
+  String get rewardsAdd => isAr ? 'مكافأة جديدة' : 'New reward';
+  String get rewardsEditTitle => isAr ? 'عدّل المكافأة' : 'Edit reward';
+  String get rewardsSheetBody => isAr
+      ? 'اكتب شي تبيه فعلاً، وحطّ له سعر تشوفه عادل. تقدر تغيّره في أي وقت.'
+      : 'Write something you actually want, and give it a price that feels '
+          'fair. You can change it any time.';
+  String get rewardsNameHint =>
+      isAr ? 'مثال: قهوة من برّا' : 'e.g. a coffee out';
+  String get rewardsPriceLabel => isAr ? 'السعر بالذهب' : 'PRICE IN GOLD';
+  String rewardsPriceInvalid(int min, int max) =>
+      isAr ? 'بين $min و $max' : 'Between $min and $max';
+  String get rewardsSave => isAr ? 'احفظ' : 'Save';
+  String get rewardsCancel => isAr ? 'إلغاء' : 'Cancel';
+  String get rewardsDelete =>
+      isAr ? 'احذف هذي المكافأة' : 'Delete this reward';
+  String get rewardsLimitReached => isAr
+      ? 'أكثر شي 20 مكافأة. احذف وحدة عشان تضيف غيرها.'
+      : 'Twenty rewards is the most. Delete one to add another.';
+  String get rewardsListUnavailable => isAr
+      ? 'ما قدرنا نجيب مكافآتك الحين، عشان جذي الإضافة والتعديل مقفولة. مكافآتك محفوظة ومحد لمسها.'
+      : "We couldn't load your rewards right now, so adding and editing are "
+          'off. Nothing of yours has been touched.';
+  String get rewardsBalanceUnavailable => isAr
+      ? 'ما قدرنا نجيب رصيدك الحين. سكّر التطبيق وافتحه مرة ثانية.'
+      : "We couldn't load your balance right now. Close the app and open it "
+          'again.';
+
+  String get rewardsClaimTitle => isAr ? 'تاخذها الحين؟' : 'Take it now?';
+  String rewardsClaimBody(String name, int cost) => isAr
+      ? 'بتصرف $cost ذهبًا على "$name".'
+      : 'This spends $cost gold on "$name".';
+  String get rewardsClaimConfirm => isAr ? 'خذها' : 'Take it';
+  String get rewardsFailed =>
+      isAr ? 'ما ضبطت. جرّب مرة ثانية.' : "That didn't go through. Try again.";
+
+  String get rewardsClaimedEyebrow => isAr ? 'استلمت' : 'CLAIMED';
+  String rewardsPaid(int cost) =>
+      isAr ? 'دفعت $cost ذهبًا' : 'Paid $cost gold';
+  String rewardsBalanceNow(int gold) =>
+      isAr ? 'باقي لك $gold ذهبًا' : '$gold gold left';
+  String get rewardsEarnedIt => isAr ? 'أنت تستاهلها.' : 'You earned this.';
+  String get rewardsGoEnjoy => isAr ? 'روح استمتع فيها' : 'Go enjoy it';
+  String rewardsSemantic(String name) =>
+      isAr ? 'استلمت مكافأة "$name"' : 'Claimed reward "$name"';
+
+  String get rewardsDeleteTitle =>
+      isAr ? 'تحذف المكافأة؟' : 'Delete this reward?';
+  String rewardsDeleteBody(String name) => isAr
+      ? 'بتنحذف "$name" من قائمتك. ذهبك يبقى مثل ما هو.'
+      : 'This removes "$name" from your list. Your gold stays exactly as it '
+          'is.';
+  String get rewardsDeleteConfirm => isAr ? 'احذفها' : 'Delete';
+  String rewardsDeleted(String name) =>
+      isAr ? 'انحذفت "$name"' : '"$name" deleted';
+
+  /// The live label under the price field, the whole pricing intervention:
+  /// it turns "420" into a claim about time, which is the only unit anyone
+  /// has an opinion about.
+  ///
+  /// Branched rather than one interpolated number because Arabic has a dual:
+  /// "2 أيام" is wrong where "يومين" is right, and the same for أسبوعين and
+  /// شهرين.
+  String rewardsEffort(double days) {
+    if (days < 1) {
+      return isAr ? 'أقل من يوم من عاداتك' : 'Under a day of your habits';
+    }
+    if (days < 2) return isAr ? 'يوم من عاداتك' : 'About a day of your habits';
+    if (days < 3) {
+      return isAr ? 'يومين من عاداتك' : 'About two days of your habits';
+    }
+    if (days < 11) {
+      final n = days.round();
+      return isAr ? '$n أيام من عاداتك' : 'About $n days of your habits';
+    }
+    final weeks = days / 7;
+    if (weeks < 2) {
+      return isAr ? 'أسبوع من عاداتك' : 'About a week of your habits';
+    }
+    if (weeks < 3) {
+      return isAr ? 'أسبوعين من عاداتك' : 'About two weeks of your habits';
+    }
+    if (weeks < 9) {
+      final n = weeks.round();
+      return isAr ? '$n أسابيع من عاداتك' : 'About $n weeks of your habits';
+    }
+    final months = days / 30;
+    if (months < 2) {
+      return isAr ? 'شهر من عاداتك' : 'About a month of your habits';
+    }
+    if (months < 3) {
+      return isAr ? 'شهرين من عاداتك' : 'About two months of your habits';
+    }
+    if (months <= 12) {
+      final n = months.round();
+      return isAr ? '$n أشهر من عاداتك' : 'About $n months of your habits';
+    }
+    return isAr ? 'أكثر من سنة من عاداتك' : 'Over a year of your habits';
+  }
 
   // ── Edit display name (Profile) ─────────────────────────────────────────
   String get profileEditNameTitle => isAr ? 'اسمك' : 'Your name';
@@ -1435,7 +1626,7 @@ class S {
   String get gridClearMarkTitle =>
       isAr ? 'تشيل علامة اليوم؟' : "Clear today's mark?";
   String gridClearMarkBody(String habitName, int xp, int gold) => isAr
-      ? '«$habitName» معلّمة اليوم. لو شلتها بيرجع منك $xp خبرة و$gold ذهب، وسلسلة هالعادة بترجع يوم ورا. تقدر تعلّمها مرة ثانية وكل شي يرجع لك.'
+      ? '«$habitName» منجزة اليوم. لو شيلتها بيرجع منك $xp خبرة و$gold ذهب.'
       : '"$habitName" is marked done today. Clearing it takes back $xp XP and $gold gold, and this habit\'s streak steps back a day. Marking it again restores all of it.';
   /// The same confirmation, for a day that has already passed.
   ///
@@ -1449,23 +1640,45 @@ class S {
   String get gridClearPastMarkTitle =>
       isAr ? 'تشيل علامة هذا اليوم؟' : "Clear this day's mark?";
   String gridClearPastMarkBody(String habitName, String dayLabel) => isAr
-      ? '«$habitName» معلّمة يوم $dayLabel. لو شلتها بيصير المربّع فاضي. وإذا شلتها بالغلط، علّمها مرة ثانية بنفس اليوم وترجع مثل ما كانت.'
+      ? '«$habitName» منجزة يوم $dayLabel. لو شيلتها بيصير المربّع فاضي.'
       : '"$habitName" is marked done on $dayLabel. Clearing it empties the square. If that was a mistake, mark the same day again and it comes back as it was.';
   /// Today, for a mark that carries no completion behind it — a blue "bonus"
   /// square, or a green one whose completion is not in memory. There is no
   /// XP or gold to name, so this says what is actually at stake and no more.
   String gridClearMarkBodyNoReward(String habitName) => isAr
-      ? '«$habitName» معلّمة اليوم. لو شلتها بتختفي العلامة. تقدر تعلّمها مرة ثانية بأي وقت.'
+      ? '«$habitName» منجزة اليوم. لو شيلتها بتختفي العلامة.'
       : '"$habitName" is marked today. Clearing it removes the mark. You can mark it again any time.';
-  String get gridClearMarkConfirm => isAr ? 'شِلها' : 'Clear';
-  String get gridMarkCleared => isAr ? 'شِلنا العلامة' : 'Mark cleared';
+  String get gridClearMarkConfirm => isAr ? 'شيلها' : 'Clear';
+  String get gridMarkCleared => isAr ? 'شيلنا العلامة' : 'Mark cleared';
   // Distinct from gridPastDayHint on purpose: shown for the real calendar
-  // day during the 6-hour window right after midnight, which isn't a past
+  // day during the flex window right after midnight, which isn't a past
   // day at all (it just isn't the official rewarded day yet) — see
   // DateTimeGameExt.isRealToday/isToday's doc comments.
+  //
+  // The hour is read off kDayCutoffHour rather than written out, because
+  // this sentence is a promise about exactly when rewards start and the
+  // cutoff has moved once already (6 AM to 10 AM). A hardcoded hour here
+  // would quietly start lying the next time it moves.
   String get gridNotYetActiveHint => isAr
-      ? 'لم يصبح هذا اليوم رسميًا بعد: يمكنك تلوينه، لكن دون مكافآت حتى الساعة 6 صباحًا.'
-      : "This day isn't official yet. You can color it in, but no rewards until 6 AM.";
+      ? 'لم يصبح هذا اليوم رسميًا بعد: تقدر تلوّنه، بس بدون مكافآت لين $_cutoffClockAr.'
+      : "This day isn't official yet. You can color it in, but no rewards "
+          'until $_cutoffClockEn.';
+
+  // The day cutoff as a wall-clock label, in each language's own idiom.
+  // Noon and midnight both read badly as "12 AM/PM", so they get named.
+  String get _cutoffClockEn => switch (kDayCutoffHour) {
+        0 => 'midnight',
+        12 => 'noon',
+        final h when h < 12 => '$h AM',
+        final h => '${h - 12} PM',
+      };
+
+  String get _cutoffClockAr => switch (kDayCutoffHour) {
+        0 => 'منتصف الليل',
+        12 => 'الظهر',
+        final h when h < 12 => 'الساعة $h صباحًا',
+        final h => 'الساعة ${h - 12} مساءً',
+      };
   String get gridEmptyTitle =>
       isAr ? 'لا توجد عادات بعد' : 'No habits to track yet';
   // Points at the literal primary button just below it ("Add Habit" /
@@ -2426,6 +2639,17 @@ class S {
   /// A day the whole ROOM was paused. Nobody was being graded, which is not
   /// the same as nobody doing anything, and the strip already draws it blank.
   String get roomCalendarPaused => isAr ? 'الغرفة متوقفة' : 'Room paused';
+
+  /// A day THIS member had every counted habit paused, so the room asked them
+  /// for nothing (see RoomParticipant.standDownDays). Distinct from
+  /// [roomCalendarPaused] — the room was running, this person was not — and
+  /// from [roomCalendarStoodDown], which is a تخطّي marked on a habit that was
+  /// still live.
+  ///
+  /// Passive, like its neighbours, because this sheet is opened on other
+  /// people as often as on yourself.
+  String get roomCalendarHabitPaused =>
+      isAr ? 'العادة موقوفة' : 'Habit paused';
   // Shown when the selected day IS this participant's first counted day —
   // the one the strip rings. Worth its own note rather than just a status,
   // because it's the day that explains the shape of everything after it.
@@ -2718,11 +2942,13 @@ class S {
   ///
   /// A paused habit normally leaves both sides of the room's sum and the
   /// member is graded on whatever else they linked. With a single linked
-  /// habit there is nothing else, so the anti-gaming fallback applies and
-  /// every paused day scores zero (see roomHasGradableHabit and
+  /// habit there is nothing else, so those days become stand-down days: they
+  /// leave both sides of the sum and the percentage holds where it is (see
+  /// roomHasGradableHabit, RoomParticipant.standDownDays and
   /// mySoleRoomHabitsProvider). Promising "your percentage comes from the
-  /// habits you can still do" here would be reassurance in place of the one
-  /// warning that actually matters.
+  /// habits you can still do" here would be reassurance in place of the fact
+  /// that actually matters — the number stops moving, which is not the same
+  /// as it carrying on.
   ///
   /// Still not a blocker, and still reversible: it says what happens and
   /// lets the person decide, which is the same contract as every other
@@ -2732,8 +2958,8 @@ class S {
     if (isAr) {
       final list = quoted.join('، ');
       return roomNames.length == 1
-          ? 'هذي العادة الوحيدة المحسوبة لك في غرفة $list. إذا أوقفتها، أيام الإيقاف تنحسب صفر هناك، لأنه ما بقى شي ثاني ينحسب. تقدر ترجعها في أي وقت وترجع تنحسب.'
-          : 'هذي العادة الوحيدة المحسوبة لك في غرف $list. إذا أوقفتها، أيام الإيقاف تنحسب صفر فيها، لأنه ما بقى شي ثاني ينحسب. تقدر ترجعها في أي وقت وترجع تنحسب.';
+          ? 'هذي العادة الوحيدة المحسوبة لك في غرفة $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها لين ترجّعها. تقدر ترجعها في أي وقت.'
+          : 'هذي العادة الوحيدة المحسوبة لك في غرف $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها لين ترجّعها. تقدر ترجعها في أي وقت.';
     }
     final list = quoted.length == 1
         ? quoted.first
@@ -2741,14 +2967,14 @@ class S {
             ? '${quoted[0]} and ${quoted[1]}'
             : '${quoted.sublist(0, quoted.length - 1).join(', ')}, and ${quoted.last}';
     return roomNames.length == 1
-        ? 'This is the only habit counting for you in $list. Pause it and those days score zero there, because nothing else is left to count. You can bring it back at any time and it counts again.'
-        : 'This is the only habit counting for you in $list. Pause it and those days score zero in them, because nothing else is left to count. You can bring it back at any time and it counts again.';
+        ? 'This is the only habit counting for you in $list. Pause it and those days count neither for you nor against you, so your percentage holds where it is until you bring it back. You can do that at any time.'
+        : 'This is the only habit counting for you in $list. Pause it and those days count neither for you nor against you, so your percentage holds where it is until you bring them back. You can do that at any time.';
   }
 
   /// Room Detail's version of the same warning, shown while it is paused.
   String roomSoleLinkedHabitPausedHint(String habitName) => isAr
-      ? 'عادة "$habitName" موقوفة مؤقتًا، وهي الوحيدة المحسوبة لك هنا، فأيام إيقافها تنحسب صفر. استئنافها من اللوحة يرجّعها للحساب.'
-      : '"$habitName" is paused, and it is the only habit counting for you here, so those days score zero. Resume it from your board and it counts again.';
+      ? 'عادة "$habitName" موقوفة مؤقتًا، وهي الوحيدة المحسوبة لك هنا، فأيام الإيقاف ما تنحسب لك ولا عليك ونسبتك ثابتة مكانها. استئنافها من اللوحة يرجّعها للحساب.'
+      : '"$habitName" is paused, and it is the only habit counting for you here, so those days count neither for you nor against you and your percentage holds where it is. Resume it from your board and it counts again.';
 
   /// The plural of [roomSoleLinkedHabitPausedHint]: shown when the member has
   /// two or more linked habits and every gradable one is now paused, so nothing
@@ -2758,8 +2984,8 @@ class S {
   String roomLinkedHabitAllPausedHint(List<String> habitNames) {
     final list = habitNames.map((n) => '"$n"').join(isAr ? '، ' : ', ');
     return isAr
-        ? 'عاداتك $list موقوفة كلها، وما بقى شي ثاني ينحسب لك في هذي الغرفة، فأيام الإيقاف تنحسب صفر. استئنافها من اللوحة يرجّعها للحساب.'
-        : 'Your linked habits $list are all paused, so nothing is left counting for you here and those days score zero. Resume them from your board and they count again.';
+        ? 'عاداتك $list موقوفة كلها، وما بقى شي ثاني ينحسب لك في هذي الغرفة، فأيام الإيقاف ما تنحسب لك ولا عليك ونسبتك ثابتة مكانها. استئنافها من اللوحة يرجّعها للحساب.'
+        : 'Your linked habits $list are all paused, so nothing is left counting for you here. Those days count neither for you nor against you and your percentage holds where it is. Resume them from your board and they count again.';
   }
 
   String get habitPauseAnywayAction => isAr ? 'أوقف مؤقتًا' : 'Pause';
@@ -2853,6 +3079,25 @@ class S {
   /// goes when they want a habit back, so resuming lives at the exact
   /// moment of intent rather than in a settings screen nobody visits.
   String get habitPausedSection => isAr ? 'موقوفة مؤقتًا' : 'Paused';
+
+  /// The badge on a leaderboard row whose member currently has every counted
+  /// habit paused. Short enough to sit beside «أنت» and «القائد» on one line.
+  ///
+  /// It exists because the stand-down rule removed the visible cost of a
+  /// pause: those days no longer score zero, so without this the board would
+  /// show a frozen percentage with nothing saying it was frozen. See
+  /// RoomParticipant.standDownDays.
+  String get roomPausedTag => isAr ? 'موقوف' : 'Paused';
+
+  /// The Room Detail headline on a day this member had every counted habit
+  /// paused (RoomParticipant.standDownDays).
+  ///
+  /// Its own state rather than falling through to [roomNotDoneToday]: nothing
+  /// was asked, so "not done yet today" would be the card contradicting the
+  /// paused hint sitting directly underneath it, and nagging somebody about a
+  /// habit they have deliberately stood down.
+  String get roomStoodDownToday =>
+      isAr ? 'اليوم موقوف، ما عليك شي' : 'Paused today, nothing owed';
   String habitPausedDaysBadge(int n) =>
       isAr ? '$n يوم محفوظ' : '$n days saved';
   /// Collapsed-list control. Three paused habits fit before the section

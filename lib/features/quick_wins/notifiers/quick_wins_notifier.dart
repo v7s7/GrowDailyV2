@@ -279,7 +279,7 @@ final quickWinsProvider =
   return QuickWinsNotifier(ref);
 });
 
-/// Live progress `(completedDays, targetDays)` for the current Weekly Quick
+/// Live progress `(completions, targetDays)` for the current Weekly Quick
 /// Win, derived from the same Grid data driving the habit squares — or null
 /// if it can't be safely auto-tracked right now, in which case the UI
 /// should show a manual "mark done" action instead of a progress bar.

@@ -44,16 +44,26 @@ enum AccessoryCategory {
 /// What a top-tier accessory demands *besides* gold.
 ///
 /// The closet used to be gold-only, which made it a race rather than a
-/// reward: the whole catalog totals 3,230 gold against roughly 60 a day
-/// from six habits, so it emptied in under two months and gold became
-/// inert afterwards. Requiring real progress on the rarer half moves the
+/// reward: the whole catalog totals 3,710 gold against roughly 77 a day for
+/// a committed five-habit board, so it emptied in under two months and gold
+/// became inert afterwards. (That figure read 3,230 until 2026-08 and was
+/// stale by 480, having missed misbah_blue and misbah_red; there is now a
+/// test asserting the live sum so it cannot drift again.) Requiring real progress on the rarer half moves the
 /// wall out and, more importantly, changes what a locked tile *means* —
 /// a price tag says "come back when you've grinded", a requirement says
 /// "come back when you've done the thing this app exists for".
 ///
 /// Deliberately checked *after* ownership everywhere, so anyone who
 /// already bought an item keeps it. This is never applied retroactively.
-enum UnlockMetric { level, streak, completedDays }
+///
+/// [completions] counts habit-DAYS finished, not calendar days lived, and is
+/// fed from `dash.totalCompletions` at every call site. It was named
+/// `completedDays` and labelled "100 days" until 2026-08, which promised
+/// something five times harder than it asked: a five-habit board reaches 100
+/// completions on day 20. The threshold was left alone and the name and the
+/// copy were corrected to it, because moving the number would have taken a
+/// gate away from accounts already past it.
+enum UnlockMetric { level, streak, completions }
 
 class UnlockRequirement {
   final UnlockMetric metric;
@@ -65,23 +75,23 @@ class UnlockRequirement {
   int progressFrom({
     required int level,
     required int streak,
-    required int completedDays,
+    required int completions,
   }) =>
       switch (metric) {
         UnlockMetric.level => level,
         UnlockMetric.streak => streak,
-        UnlockMetric.completedDays => completedDays,
+        UnlockMetric.completions => completions,
       };
 
   bool isMetBy({
     required int level,
     required int streak,
-    required int completedDays,
+    required int completions,
   }) =>
       progressFrom(
         level: level,
         streak: streak,
-        completedDays: completedDays,
+        completions: completions,
       ) >=
       amount;
 
@@ -95,12 +105,12 @@ class UnlockRequirement {
       ? switch (metric) {
           UnlockMetric.level => 'المستوى $amount',
           UnlockMetric.streak => 'سلسلة $amount',
-          UnlockMetric.completedDays => '$amount يوم',
+          UnlockMetric.completions => '$amount مرة',
         }
       : switch (metric) {
           UnlockMetric.level => 'Level $amount',
           UnlockMetric.streak => 'Streak $amount',
-          UnlockMetric.completedDays => '$amount days',
+          UnlockMetric.completions => '$amount done',
         };
 
   /// The full sentence, for the detail sheet. Arabic avoids second-person
@@ -110,12 +120,12 @@ class UnlockRequirement {
       ? switch (metric) {
           UnlockMetric.level => 'المستوى $amount',
           UnlockMetric.streak => 'سلسلة $amount يومًا',
-          UnlockMetric.completedDays => '$amount يوم مكتمل',
+          UnlockMetric.completions => '$amount مرة مكتملة',
         }
       : switch (metric) {
           UnlockMetric.level => 'Level $amount',
           UnlockMetric.streak => '$amount day streak',
-          UnlockMetric.completedDays => '$amount days done',
+          UnlockMetric.completions => '$amount completions',
         };
 }
 
@@ -157,7 +167,7 @@ class Accessory {
   String description(bool isAr) => isAr ? descriptionAr : descriptionEn;
 }
 
-/// Static catalog — 10 accessories across the 6 categories, ported from the
+/// Static catalog — 12 accessories across the 6 categories, ported from the
 /// same art used elsewhere, re-priced in gold instead of the XP/streak gates
 /// the source used. [amberMisbah] is free and owned by every account from
 /// the start so the closet never opens completely empty.
@@ -254,7 +264,7 @@ abstract final class AccessoryCatalog {
     color: Color(0xFFD6AA4A),
     rarity: AchievementRarity.epic,
     goldCost: 550,
-    unlock: const UnlockRequirement(UnlockMetric.completedDays, 100),
+    unlock: const UnlockRequirement(UnlockMetric.completions, 100),
   );
 
   static const knowledgeBadge = Accessory(

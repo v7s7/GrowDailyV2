@@ -45,6 +45,41 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // ── Device-clock defence ────────────────────────────────────────────
+    //
+    // Every reward gate in the app reads DateTime.now() on the device, and
+    // every per-day record is keyed by a 'YYYY-MM-DD' the CLIENT computes
+    // (DashboardNotifier._todayKey, via DateTime.effectiveDay). Nothing
+    // consulted the server about what day it was, so winding the device
+    // clock forward minted days: a fresh daily document, a fresh daily earn
+    // allowance, a streak bump and any milestone or achievement riding on
+    // it, over and over, as fast as the clock could be changed.
+    //
+    // These two functions are the only place in the system that knows the
+    // real date, and they are cheap: request.time is provided by the server
+    // on every write, with no extra read and no cost.
+    //
+    // ONE FULL DAY of slack, deliberately. dateKeys are LOCAL days, so a
+    // user legitimately ahead of UTC (Bahrain is +3, and the zone range runs
+    // to +14) can honestly be writing tomorrow's UTC date. The app's day
+    // cutoff (kDayCutoffHour, 10 AM local) pushes the other way — it makes
+    // keys OLDER, never newer — so it costs nothing here and no amount of
+    // moving it can. Only the timezone spread needs the slack. Rejecting exactly
+    // "greater than today" would have locked out real users east of UTC for
+    // part of every day, which is a far worse failure than one extra day of
+    // farming. Being at most one day ahead is also useless to farm: it
+    // cannot be repeated without waiting for the real day to catch up.
+    function ymd(t) {
+      return string(t.year())
+        + '-' + (t.month() < 10 ? '0' : '') + string(t.month())
+        + '-' + (t.day() < 10 ? '0' : '') + string(t.day());
+    }
+
+    function notAhead(dateKey) {
+      return dateKey is string
+          && dateKey <= ymd(request.time + duration.value(1, 'd'));
+    }
+
     function premiumFieldOk() {
       let before = resource.data.premiumActive;
       let after = request.resource.data.premiumActive;
@@ -53,17 +88,79 @@ service cloud.firestore {
           || after == false;
     }
 
+    // The three day-stamps the client writes onto its own user document.
+    // These are what actually gate the daily earn ceiling
+    // (DashboardState.earnedDayKey / rewardedTasksDayKey) and the streak
+    // (lastActiveDay), so validating only the daily subcollection below
+    // would have left the more valuable half of the clock exploit open:
+    // stamping tomorrow onto earnedDayKey hands back a full fresh
+    // allowance without creating any daily document at all.
+    //
+    // Each is checked only when present, because almost every write to this
+    // document is a merge that touches none of them.
+    //
+    // Each stamp passes if it is ABSENT, or UNCHANGED, or not ahead. The
+    // unchanged clause is the load-bearing one and it is not an
+    // optimisation: on a set(merge: true) update, request.resource.data is
+    // the document as it will be AFTER the merge, so every field already on
+    // the document shows up on every write, whether or not the write touches
+    // it. Without that clause, one account holding a future stamp (left by
+    // an exploit, a bad clock, or a bug) would be refused EVERY write to its
+    // user document from then on: no rewards, no streak, loadFailed on the
+    // next read. That is the same shape as the FieldValue.delete() incident
+    // that bricked an account, and a security rule that can brick an account
+    // is worse than the farming it prevents.
+    //
+    // So this rejects one thing only: a stamp being MOVED FORWARD past
+    // tomorrow. Sitting on a bad value is always allowed, and the app heals
+    // it on the next honest day.
+    function stampOk(after, before, exists) {
+      return !exists || (before != null && after == before) || notAhead(after);
+    }
+
+    function userDayStampsOk() {
+      return stampOk(
+              request.resource.data.get('earnedDayKey', null),
+              resource != null ? resource.data.get('earnedDayKey', null) : null,
+              'earnedDayKey' in request.resource.data)
+          && stampOk(
+              request.resource.data.get('rewardedTasksDayKey', null),
+              resource != null
+                  ? resource.data.get('rewardedTasksDayKey', null)
+                  : null,
+              'rewardedTasksDayKey' in request.resource.data)
+          && stampOk(
+              request.resource.data.get('lastActiveDay', null),
+              resource != null ? resource.data.get('lastActiveDay', null) : null,
+              'lastActiveDay' in request.resource.data);
+    }
+
     match /users/{uid} {
       allow read: if isOwner(uid);
-      allow create: if isOwner(uid) && !('premiumActive' in request.resource.data);
-      allow update: if isOwner(uid) && premiumFieldOk();
+      allow create: if isOwner(uid)
+          && !('premiumActive' in request.resource.data)
+          && userDayStampsOk();
+      allow update: if isOwner(uid) && premiumFieldOk() && userDayStampsOk();
       // Account deletion (AuthNotifier.deleteAccount) deletes this doc
       // directly from the client after re-authenticating, so the owner
       // needs delete access here too.
       allow delete: if isOwner(uid);
 
+      // The daily document names its own day in its document ID, so the ID
+      // itself is the thing to check.
+      //
+      // Split out of the wildcard below rather than added alongside it:
+      // Firestore rules are a UNION, so a second, stricter match on the same
+      // path would have granted nothing and forbidden nothing. The wildcard
+      // therefore has to exclude 'daily' explicitly for this block to mean
+      // anything at all.
+      match /daily/{dateKey} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && notAhead(dateKey);
+      }
+
       match /{subcollection}/{docId} {
-        allow read, write: if isOwner(uid);
+        allow read, write: if isOwner(uid) && subcollection != 'daily';
       }
     }
 

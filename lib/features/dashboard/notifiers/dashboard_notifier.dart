@@ -77,6 +77,66 @@ Future<void> _recordWriteFailure(
 /// still doesn't (1 of 6 done is 17% — nowhere near qualifying).
 const double kStreakDayCompletionThreshold = 0.8;
 
+/// The most a single day can PAY OUT from sources a user can repeat at will:
+/// habit completions, grid squares, and every lump sum that comes through
+/// [DashboardNotifier.awardBonus].
+///
+/// This is an anti-farming ceiling, not a difficulty knob. It is set well
+/// clear of any honest day: a typical five-habit board pays about 170 XP and
+/// 67 gold, and the heaviest realistic day measured (fifteen room-boosted
+/// habits at the top reward tier, twenty tasks, every surprise bonus landing)
+/// is about 2,200 XP and 835 gold. The floor below sits above that, so a
+/// person who simply had a very good day never meets it.
+///
+/// It scales with the roster because habit count is the one honest way a day
+/// gets bigger, and a flat ceiling would tax exactly the users doing the most
+/// work. The floor protects the small board: nobody is capped below
+/// [kDailyXpCapFloor] however few habits they run.
+///
+/// What it deliberately does NOT cover: achievements, both streak milestone
+/// ladders, the comeback bonus, room claims and undo restores. Every one of
+/// those is structurally once-per-lifetime or once-per-episode, so capping
+/// them buys no safety, and swallowing one is unrecoverable in a way a capped
+/// habit reward is not: an achievement id is written with arrayUnion into a
+/// set that only grows, and the catalog filters out anything already in it,
+/// so a payout lost to a cap can never be reclaimed by a later sweep.
+const int kDailyXpCapFloor = 3000;
+const int kDailyGoldCapFloor = 1000;
+const int kDailyXpCapPerHabit = 150;
+const int kDailyGoldCapPerHabit = 50;
+
+/// How many Matrix tasks may PAY OUT in one day.
+///
+/// A tighter, separate bound because a task is the cheapest thing in the app
+/// to manufacture: a line of text, ticked the same second, paying the same 20
+/// XP and 8 gold as a habit somebody has kept for weeks. The paid-already
+/// flag lives on the task itself, so deleting the task discards the flag and
+/// the same reward can be collected again from a new one.
+///
+/// Fifteen is far past any real to-do list day and turns that lap from
+/// unbounded into a rounding error. It is deliberately NOT a limit on how
+/// many tasks may be created or completed: past the fifteenth, tasks still
+/// tick and still count, they just stop paying.
+const int kDailyRewardedTaskCap = 15;
+
+/// Today's XP ceiling for a board of [habitCount] scheduled habits.
+///
+/// [habitCount] is today's scheduled roster, the same list that feeds
+/// [willCompleteAllHabitsToday]. Callers that cannot cheaply produce it pass
+/// nothing and get the floor, which is the safe direction to be wrong in: a
+/// cap that is too generous costs a farmer some extra minutes, while a cap
+/// that is too tight silently withholds a reward someone earned.
+int dailyXpCapFor(int habitCount) {
+  final scaled = kDailyXpCapPerHabit * habitCount;
+  return scaled > kDailyXpCapFloor ? scaled : kDailyXpCapFloor;
+}
+
+/// Today's gold ceiling, on the same rule as [dailyXpCapFor].
+int dailyGoldCapFor(int habitCount) {
+  final scaled = kDailyGoldCapPerHabit * habitCount;
+  return scaled > kDailyGoldCapFloor ? scaled : kDailyGoldCapFloor;
+}
+
 /// Whether completing [habitId] (today, toward [frequencyTarget]) leaves
 /// today's scheduled habits at or above [kStreakDayCompletionThreshold] —
 /// the completion-ratio moment that earns the day's streak point (see
@@ -496,6 +556,54 @@ class DashboardState {
   /// loads instantly regardless of how many years of data exist.
   final Map<String, int> dailyGreenCounts;
 
+  /// What today has already PAID OUT from repeatable sources, against
+  /// [dailyXpCapFor]. Stamped with the day it belongs to rather than kept as
+  /// a dateKey map, because unlike [dailyGreenCounts] nothing ever reads a
+  /// past day's figure: the cap only asks about now. A map would grow for the
+  /// life of the account to answer a question no one asks.
+  ///
+  /// [earnedDayKey] is what makes the reset free. Read the pair through
+  /// [earnedXpOn] and a new day reports zero on its own, on exactly the same
+  /// cutoff boundary every other daily number already uses, with no scheduled reset
+  /// to run and nothing to go stale when the app is left open overnight.
+  final String earnedDayKey;
+  final int earnedXpToday;
+  final int earnedGoldToday;
+
+  /// Matrix task payouts already made today, against [kDailyRewardedTaskCap].
+  /// Stamped and read exactly like the earn counter above.
+  final String rewardedTasksDayKey;
+  final int rewardedTasksToday;
+
+  /// How many streak freezes this account may BANK at once.
+  ///
+  /// Was a flat constant. It is per-user now because capacity above the
+  /// starting three is purchasable, which is one of the few repeatable gold
+  /// sinks the app has.
+  ///
+  /// Never read this directly: read [freezeCapacityOrDefault], which floors
+  /// it at [DashboardNotifier.maxStreakFreezes]. A stored 0 is what every
+  /// account written before this field existed looks like, and an account
+  /// that silently lost two freeze slots on upgrade would be the exact
+  /// "nothing may be taken from an existing user" failure this economy work
+  /// has been avoiding all along.
+  final int freezeCapacity;
+
+  /// The highest level whose grant has already been paid.
+  ///
+  /// A monotone high-water mark, not a counter, which is what makes the
+  /// grant impossible to pay twice: every payment covers the span
+  /// (levelGrantPaidThrough, newLevel] and then moves the mark to newLevel.
+  /// A multi-level jump pays each crossed level once, and a reload pays
+  /// nothing because the mark is persisted in the same write map as `level`
+  /// and so cannot land apart from it.
+  ///
+  /// SEEDED TO THE ACCOUNT'S CURRENT LEVEL on a document that has no such
+  /// field, never to 1. Seeding to 1 would hand a level-60 account all
+  /// twelve grants retroactively, which is the one way this design could
+  /// take the economy somewhere nobody earned.
+  final int levelGrantPaidThrough;
+
   /// Lifetime completions per habit category (e.g. 'quran' → 42), used to
   /// evaluate [AchievementTrigger.habitMastery] achievements.
   final Map<String, int> categoryCompletions;
@@ -525,6 +633,35 @@ class DashboardState {
   /// The receipt still owed for [habitId] on [dateKey], if any.
   UndoneCompletion? undoneFor(String habitId, String dateKey) =>
       undoneCompletions[UndoneCompletion.keyFor(habitId, dateKey)];
+
+  /// What [dayKey] has already been paid from repeatable sources.
+  ///
+  /// Answers zero for any day that is not the stamped one, which is the whole
+  /// reset mechanism: yesterday's total is not cleared, it simply stops being
+  /// readable the moment [earnedDayKey] no longer matches. A stale stamp left
+  /// by an app open across the cutoff boundary therefore reads as a fresh
+  /// allowance rather than as yesterday's spent one.
+  int earnedXpOn(String dayKey) => earnedDayKey == dayKey ? earnedXpToday : 0;
+
+  int earnedGoldOn(String dayKey) => earnedDayKey == dayKey ? earnedGoldToday : 0;
+
+  int rewardedTasksOn(String dayKey) =>
+      rewardedTasksDayKey == dayKey ? rewardedTasksToday : 0;
+
+  /// The bank cap, floored so it can never be smaller than it has always
+  /// been. Covers every stored input a legacy or corrupt document can
+  /// produce: absent, null, zero and negative all read as the original three.
+  int get freezeCapacityOrDefault {
+    if (freezeCapacity < DashboardNotifier.maxStreakFreezes) {
+      return DashboardNotifier.maxStreakFreezes;
+    }
+    // Capped as well as floored: without this a hand-edited or corrupt
+    // document storing 99 would be honoured as ninety-nine slots.
+    if (freezeCapacity > DashboardNotifier.maxFreezeCapacity) {
+      return DashboardNotifier.maxFreezeCapacity;
+    }
+    return freezeCapacity;
+  }
 
   /// Set the instant a per-habit streak crosses a milestone (see
   /// [GameConstants.habitStreakBonuses]); cleared once the celebration
@@ -575,6 +712,13 @@ class DashboardState {
     this.totalGreenSquares = 0,
     this.streakEarnedToday = false,
     this.dailyGreenCounts = const {},
+    this.earnedDayKey = '',
+    this.earnedXpToday = 0,
+    this.earnedGoldToday = 0,
+    this.rewardedTasksDayKey = '',
+    this.rewardedTasksToday = 0,
+    this.freezeCapacity = 0,
+    this.levelGrantPaidThrough = 0,
     this.categoryCompletions = const {},
     this.habitStreakCounts = const {},
     this.habitLongestStreaks = const {},
@@ -665,6 +809,13 @@ class DashboardState {
     int? totalGreenSquares,
     bool? streakEarnedToday,
     Map<String, int>? dailyGreenCounts,
+    String? earnedDayKey,
+    int? earnedXpToday,
+    int? earnedGoldToday,
+    String? rewardedTasksDayKey,
+    int? rewardedTasksToday,
+    int? freezeCapacity,
+    int? levelGrantPaidThrough,
     Map<String, int>? categoryCompletions,
     Map<String, int>? habitStreakCounts,
     Map<String, int>? habitLongestStreaks,
@@ -707,6 +858,14 @@ class DashboardState {
         totalGreenSquares: totalGreenSquares ?? this.totalGreenSquares,
         streakEarnedToday: streakEarnedToday ?? this.streakEarnedToday,
         dailyGreenCounts: dailyGreenCounts ?? this.dailyGreenCounts,
+        earnedDayKey: earnedDayKey ?? this.earnedDayKey,
+        earnedXpToday: earnedXpToday ?? this.earnedXpToday,
+        earnedGoldToday: earnedGoldToday ?? this.earnedGoldToday,
+        rewardedTasksDayKey: rewardedTasksDayKey ?? this.rewardedTasksDayKey,
+        rewardedTasksToday: rewardedTasksToday ?? this.rewardedTasksToday,
+        freezeCapacity: freezeCapacity ?? this.freezeCapacity,
+        levelGrantPaidThrough:
+            levelGrantPaidThrough ?? this.levelGrantPaidThrough,
         categoryCompletions: categoryCompletions ?? this.categoryCompletions,
         habitStreakCounts: habitStreakCounts ?? this.habitStreakCounts,
         habitLongestStreaks: habitLongestStreaks ?? this.habitLongestStreaks,
@@ -729,6 +888,46 @@ class DashboardState {
 class DashboardNotifier extends StateNotifier<DashboardState> {
   static const int streakFreezeCost = 100;
   static const int maxStreakFreezes = 3;
+
+  /// The ceiling on purchased bank capacity. [maxStreakFreezes] is the FLOOR
+  /// every account starts at; this is where buying stops.
+  static const int maxFreezeCapacity = 5;
+
+  /// Gold paid on reaching a level that opens nothing else.
+  ///
+  /// These twelve are the exact complement, inside levels 2 to 25, of every
+  /// level that already awards something: characters at 8, 10, 12, 14, 16,
+  /// 18, 20, 21, 23, 24, 25; accessories at 5, 8, 10, 20; prestige ranks at
+  /// 1, 5, 10, 20; level medals at 10 and 25. What was left was twelve
+  /// level-ups that arrived with nothing attached, which is the drought this
+  /// fills.
+  ///
+  /// 390 gold over an account's life, and modest on purpose: gold is the
+  /// oversupplied currency, and the largest single grant sits below the 50
+  /// that the level_10 medal already pays so a grant never outshines a medal.
+  static const Map<int, int> levelUpGoldGrants = {
+    2: 20, 3: 20, 4: 20,
+    6: 30, 7: 30, 9: 30,
+    11: 40, 13: 40, 15: 40, 17: 40, 19: 40, 22: 40,
+  };
+
+  /// Price and level gate of each purchasable slot, in ONE map so the two can
+  /// never disagree. As two parallel maps an unmapped slot's level gate
+  /// returned 0, so `state.level < 0` was false for every account and the
+  /// gate failed OPEN, stopped only incidentally by the cost lookup.
+  ///
+  /// Escalating on purpose. A flat 100 a slot absorbs 200 gold total, which
+  /// is under one percent of a year's income and would not have justified a
+  /// persisted field. 400 plus 800 is about a third of the 3,710-gold
+  /// accessory catalogue, the app's other one-time sink.
+  ///
+  /// Levels 10 and 25 are rungs the ladder already marks rather than two new
+  /// numbers, and neither slot exists today, so no gate rises on anything
+  /// anyone can currently see unlocked.
+  static const Map<int, ({int cost, int level})> freezeSlots = {
+    4: (cost: 400, level: 10),
+    5: (cost: 800, level: 25),
+  };
   static const int comebackBonusXp = 50;
   /// Max length for a user-chosen display name — generous enough for most
   /// real names while keeping the Profile hero header from wrapping.
@@ -785,6 +984,49 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
   static String get _todayKey => DateTime.now().effectiveDay.toDateKey();
 
+  /// How much of a REPEATABLE award today can still pay.
+  ///
+  /// [xp] and [gold] are what the action wants to pay; the return is what it
+  /// is allowed to. Both are floored at zero and never exceed the room left
+  /// under [dailyXpCapFor] / [dailyGoldCapFor], so a caller can hand over a
+  /// full reward and pay out whatever comes back without checking anything.
+  ///
+  /// [habitCount] is today's scheduled roster. Callers that cannot cheaply
+  /// produce it pass 0 and get the floor, which is the safe direction: a cap
+  /// that is too generous costs a farmer time, a cap that is too tight
+  /// silently withholds a reward someone earned.
+  ///
+  /// One-time awards must NOT be routed through here. Achievements, both
+  /// streak milestone ladders, the comeback bonus and room claims are all
+  /// once-per-lifetime or once-per-episode, so capping them buys no safety,
+  /// and an achievement swallowed by a cap is gone for good: its id goes into
+  /// a set that only grows and the catalog never re-offers it.
+  /// Returns both what may be paid now and the running totals to store, so
+  /// the caller never has to touch `state` for either. That is not only
+  /// tidier: `state` is protected and visible-for-testing, and every read of
+  /// it from one of this class's `part` extensions raises a pair of analyzer
+  /// warnings, so keeping the arithmetic here keeps the call sites clean.
+  ({int xp, int gold, int newXpToday, int newGoldToday}) _allowedToday({
+    required int xp,
+    required int gold,
+    required int habitCount,
+  }) {
+    final dayKey = _todayKey;
+    final spentXp = state.earnedXpOn(dayKey);
+    final spentGold = state.earnedGoldOn(dayKey);
+    final xpRoom = dailyXpCapFor(habitCount) - spentXp;
+    final goldRoom = dailyGoldCapFor(habitCount) - spentGold;
+    final grantedXp = xp <= 0 || xpRoom <= 0 ? 0 : (xp < xpRoom ? xp : xpRoom);
+    final grantedGold =
+        gold <= 0 || goldRoom <= 0 ? 0 : (gold < goldRoom ? gold : goldRoom);
+    return (
+      xp: grantedXp,
+      gold: grantedGold,
+      newXpToday: spentXp + grantedXp,
+      newGoldToday: spentGold + grantedGold,
+    );
+  }
+
   static String get _weekKey {
     final today = DateTime.now().effectiveDay;
     final monday = today.subtract(Duration(days: today.weekday - DateTime.monday));
@@ -817,6 +1059,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     int currentLevelXp,
     int cumulativeXp,
     int bonusGold,
+    int levelGrantPaidThrough,
   }) _resolveUnlocks({
     required List<String> unlockedIds,
     required int level,
@@ -826,6 +1069,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     required int totalCompletions,
     required int greenSquares,
     required Map<String, int> categoryCompletions,
+    required int levelGrantPaidThrough,
   }) {
     final newly = <AchievementModel>[];
     final ids = [...unlockedIds];
@@ -862,6 +1106,22 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       cumXp = r.newCumulativeXp;
     }
 
+    // AFTER the fixed point, not inside it. A cascade where a medal's own XP
+    // raises the level a second time still pays each crossed level exactly
+    // once, because this runs once against the final `lvl`. Grants are gold
+    // only and never XP, so they cannot re-enter the loop above and its
+    // termination argument stands unchanged.
+    //
+    // `bonusGold` below is the TOTAL and already includes this. It must
+    // never be added to gold a second time by a caller.
+    var paidThrough = levelGrantPaidThrough;
+    if (lvl > paidThrough) {
+      for (var l = paidThrough + 1; l <= lvl; l++) {
+        gold += DashboardNotifier.levelUpGoldGrants[l] ?? 0;
+      }
+      paidThrough = lvl;
+    }
+
     return (
       newly: newly,
       unlockedIds: ids,
@@ -869,6 +1129,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       currentLevelXp: levelXp,
       cumulativeXp: cumXp,
       bonusGold: gold,
+      levelGrantPaidThrough: paidThrough,
     );
   }
 

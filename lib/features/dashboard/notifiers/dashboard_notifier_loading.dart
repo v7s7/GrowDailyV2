@@ -92,6 +92,17 @@ extension DashboardNotifierLoading on DashboardNotifier {
       }
 
       if (!mounted) return;
+      final earnedDayKey = (saved['earnedDayKey'] as String?) ?? '';
+      final earnedXpToday = (saved['earnedXpToday'] as int?) ?? 0;
+      final earnedGoldToday = (saved['earnedGoldToday'] as int?) ?? 0;
+      final rewardedTasksDayKey = (saved['rewardedTasksDayKey'] as String?) ?? '';
+      final rewardedTasksToday = (saved['rewardedTasksToday'] as int?) ?? 0;
+      final freezeCapacity = (saved['freezeCapacity'] as int?) ?? 0;
+      // Seeded to the account's CURRENT level when absent, never to 1: a
+      // level-60 account would otherwise collect all twelve grants
+      // retroactively on the first launch after this shipped.
+      final storedGrantMark = (saved['levelGrantPaidThrough'] as int?) ?? 0;
+
       state = DashboardState(
         displayName: (saved['displayName'] as String?) ?? '',
         level: (saved['level'] as int?) ?? 1,
@@ -113,6 +124,14 @@ extension DashboardNotifierLoading on DashboardNotifier {
         totalGreenSquares: (saved['totalGreenSquares'] as int?) ?? 0,
         streakEarnedToday: streakEarnedToday,
         dailyGreenCounts: dailyGreenCounts,
+        earnedDayKey: earnedDayKey,
+        earnedXpToday: earnedXpToday,
+        earnedGoldToday: earnedGoldToday,
+        rewardedTasksDayKey: rewardedTasksDayKey,
+        rewardedTasksToday: rewardedTasksToday,
+        freezeCapacity: freezeCapacity,
+        levelGrantPaidThrough:
+            storedGrantMark < 1 ? (saved['level'] as int?) ?? 1 : storedGrantMark,
         categoryCompletions: categoryCompletions,
         habitStreakCounts: habitStreakCounts,
         habitLongestStreaks: habitLongestStreaks,
@@ -151,6 +170,13 @@ extension DashboardNotifierLoading on DashboardNotifier {
         'unlockedAchievements': state.unlockedAchievements,
         'totalGreenSquares': state.totalGreenSquares,
         'dailyGreenCounts': state.dailyGreenCounts,
+        'earnedDayKey': state.earnedDayKey,
+        'earnedXpToday': state.earnedXpToday,
+        'earnedGoldToday': state.earnedGoldToday,
+        'rewardedTasksDayKey': state.rewardedTasksDayKey,
+        'rewardedTasksToday': state.rewardedTasksToday,
+        'freezeCapacity': state.freezeCapacity,
+        'levelGrantPaidThrough': state.levelGrantPaidThrough,
         'categoryCompletions': state.categoryCompletions,
         'habitStreakCounts': state.habitStreakCounts,
         'habitLongestStreaks': state.habitLongestStreaks,
@@ -348,6 +374,13 @@ extension DashboardNotifierLoading on DashboardNotifier {
       bool streakEarnedToday = false;
       int totalGreenSquares = 0;
       Map<String, int> dailyGreenCounts = {};
+      String earnedDayKey = '';
+      int earnedXpToday = 0;
+      int earnedGoldToday = 0;
+      String rewardedTasksDayKey = '';
+      int rewardedTasksToday = 0;
+      int freezeCapacity = 0;
+      int storedGrantMark = 0;
       Map<String, int> categoryCompletions = {};
       Map<String, int> habitStreakCounts = {};
       Map<String, int> habitLongestStreaks = {};
@@ -377,6 +410,23 @@ extension DashboardNotifierLoading on DashboardNotifier {
         unlockedAchievements =
             List<String>.from(d['unlockedAchievements'] as List? ?? []);
         totalGreenSquares = (d['totalGreenSquares'] as int?) ?? 0;
+        // The daily earn ceiling's running total. Read plainly, and a
+        // missing or malformed field simply reads as a fresh allowance,
+        // which is the safe direction to fail in: a load that THREW here
+        // would set loadFailed and refuse every reward write for the rest of
+        // the session, which is far worse than one uncapped day.
+        earnedDayKey = (d['earnedDayKey'] as String?) ?? '';
+        earnedXpToday = (d['earnedXpToday'] as num?)?.toInt() ?? 0;
+        earnedGoldToday = (d['earnedGoldToday'] as num?)?.toInt() ?? 0;
+        rewardedTasksDayKey = (d['rewardedTasksDayKey'] as String?) ?? '';
+        rewardedTasksToday = (d['rewardedTasksToday'] as num?)?.toInt() ?? 0;
+        // Floored on read by freezeCapacityOrDefault, so a legacy document
+        // with no such field simply keeps the original three slots.
+        freezeCapacity = (d['freezeCapacity'] as num?)?.toInt() ?? 0;
+        // num, not int: a stored double under `as int?` throws, and a throw
+        // here lands in the catch that flags loadFailed for the session.
+        storedGrantMark =
+            (d['levelGrantPaidThrough'] as num?)?.toInt() ?? 0;
         final rawGreenCounts =
             (d['dailyGreenCounts'] as Map?)?.cast<String, dynamic>() ?? {};
         dailyGreenCounts = rawGreenCounts.map(
@@ -494,8 +544,16 @@ extension DashboardNotifierLoading on DashboardNotifier {
           if (gapDays > 1) pendingStreakGapFrom = lastDay;
         }
 
+        // Grants back to ONE, not all the way to the bank cap. Topping to
+        // three for free made the only repeatable gold sink in the app
+        // unreachable: at 100 gold a freeze with a cap of 3, a player who
+        // breaks fewer than one streak a week never had a slot to buy, so
+        // total lifetime gold spending was the 3,710 accessory catalogue,
+        // once, and nothing after it. Refilling to one keeps the safety net
+        // exactly as it was (nobody is ever left with zero protection) while
+        // putting slots two and three back behind real gold.
         if (level >= 5 &&
-            streakFreezes < DashboardNotifier.maxStreakFreezes &&
+            streakFreezes < 1 &&
             lastFreezeGrantWeek != DashboardNotifier._weekKey) {
           streakFreezes += 1;
           _userRef.set({
@@ -537,6 +595,14 @@ extension DashboardNotifierLoading on DashboardNotifier {
           totalGreenSquares: totalGreenSquares,
           streakEarnedToday: streakEarnedToday,
           dailyGreenCounts: dailyGreenCounts,
+          earnedDayKey: earnedDayKey,
+          earnedXpToday: earnedXpToday,
+          earnedGoldToday: earnedGoldToday,
+          rewardedTasksDayKey: rewardedTasksDayKey,
+          rewardedTasksToday: rewardedTasksToday,
+          freezeCapacity: freezeCapacity,
+          levelGrantPaidThrough:
+              storedGrantMark < 1 ? level : storedGrantMark,
           categoryCompletions: categoryCompletions,
           habitStreakCounts: habitStreakCounts,
           habitLongestStreaks: habitLongestStreaks,
@@ -615,11 +681,19 @@ extension DashboardNotifierLoading on DashboardNotifier {
       totalCompletions: state.totalCompletions,
       greenSquares: state.totalGreenSquares,
       categoryCompletions: state.categoryCompletions,
+      levelGrantPaidThrough: state.levelGrantPaidThrough,
     );
-    if (unlocks.newly.isEmpty) return;
+    // The grant clause is what makes this a real backstop: a level raised by
+    // a path that resolves no medal still owes its gold, and without this it
+    // was dropped on the floor.
+    if (unlocks.newly.isEmpty &&
+        unlocks.levelGrantPaidThrough == state.levelGrantPaidThrough) {
+      return;
+    }
 
     state = state.copyWith(
       level: unlocks.level,
+      levelGrantPaidThrough: unlocks.levelGrantPaidThrough,
       currentLevelXp: unlocks.currentLevelXp,
       cumulativeXp: unlocks.cumulativeXp,
       gold: state.gold + unlocks.bonusGold,
@@ -645,14 +719,21 @@ extension DashboardNotifierLoading on DashboardNotifier {
     try {
       await _userRef.set({
         'level': state.level,
+        'levelGrantPaidThrough': state.levelGrantPaidThrough,
         'currentLevelXp': state.currentLevelXp,
         'cumulativeXp': state.cumulativeXp,
         'gold': state.gold,
         // arrayUnion of only what this sweep awarded — see completeHabit's
         // identical write. It matters most here: this runs on every load,
         // including one that raced a write from another device.
-        'unlockedAchievements':
-            FieldValue.arrayUnion(unlocks.newly.map((a) => a.id).toList()),
+        // Guarded now, and it has to be: this method used to return early
+        // whenever `newly` was empty, which proved it non-empty before this
+        // line could run. The grant clause above made an empty sweep
+        // reachable, and an unguarded empty arrayUnion is a pointless write
+        // on every cold start. Both sibling call sites already guard it.
+        if (unlocks.newly.isNotEmpty)
+          'unlockedAchievements':
+              FieldValue.arrayUnion(unlocks.newly.map((a) => a.id).toList()),
       }, SetOptions(merge: true));
     } catch (e, st) {
       await _recordWriteFailure('reconcileAchievements', e, st);

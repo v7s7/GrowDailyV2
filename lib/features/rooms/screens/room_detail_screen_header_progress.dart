@@ -584,8 +584,15 @@ class _MyPlanCard extends ConsumerWidget {
     // that isn't scheduled today shouldn't inflate "how many were due"
     // (see RoomParticipant.scheduledCountFor's doc comment).
     final totalCount = mine.scheduledCountFor(today);
+    // Every counted habit paused, so the room is not asking for anything
+    // today (see RoomParticipant.standDownDays). Taken before done/partial
+    // because both of those are computed from counts a stand-down day
+    // deliberately does not have: isFullyDone is false on such a day, which
+    // would otherwise land it on the "not done yet today" headline and put
+    // the card in direct contradiction with the paused hint underneath it.
+    final stoodDownToday = mine.isStoodDownOn(today);
     final doneToday = mine.isFullyDone(today);
-    final partialToday = todayCount > 0 && !doneToday;
+    final partialToday = todayCount > 0 && !doneToday && !stoodDownToday;
     final names =
         mine.linkedHabitNames.where((n) => n.trim().isNotEmpty).toList();
     // A linked habit id that's no longer on this account's own board means
@@ -619,11 +626,13 @@ class _MyPlanCard extends ConsumerWidget {
     final ruleMismatches = roomRuleMismatches(mine, myHabits, today);
     // One colour, decided once, so the icon and the words can never disagree
     // about what today looks like.
-    final statusColor = doneToday
-        ? GameColors.success
-        : partialToday
-            ? GameColors.gold
-            : gp.textSec;
+    final statusColor = stoodDownToday
+        ? gp.textTert
+        : doneToday
+            ? GameColors.success
+            : partialToday
+                ? GameColors.gold
+                : gp.textSec;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -651,23 +660,33 @@ class _MyPlanCard extends ConsumerWidget {
           // once and forget.
           Row(
             children: [
-              Icon(
-                doneToday
-                    ? Icons.check_circle_rounded
-                    : partialToday
-                        ? Icons.timelapse_rounded
-                        : Icons.radio_button_unchecked_rounded,
-                size: 18,
-                color: statusColor,
-              ),
+              // partialToday already excludes stoodDown and done (see where it
+              // is computed), so it can lead. It was the last clock face left
+              // in the app after the Grid's جزئي square became a half-filled
+              // one — and on a line that says "2 of 4 today" a clock was the
+              // wrong picture twice over.
+              if (partialToday)
+                HalfFullMark(size: 18, color: statusColor)
+              else
+                Icon(
+                  stoodDownToday
+                      ? Icons.pause_circle_outline_rounded
+                      : doneToday
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                  size: 18,
+                  color: statusColor,
+                ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  doneToday
-                      ? s.roomMarkedToday
-                      : partialToday
-                          ? s.roomPartialToday(todayCount, totalCount)
-                          : s.roomNotDoneToday,
+                  stoodDownToday
+                      ? s.roomStoodDownToday
+                      : doneToday
+                          ? s.roomMarkedToday
+                          : partialToday
+                              ? s.roomPartialToday(todayCount, totalCount)
+                              : s.roomNotDoneToday,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -857,7 +876,7 @@ class _MyPlanCard extends ConsumerWidget {
                   await ref
                       .read(roomsControllerProvider)
                       .relockHabitRules(room);
-                  messenger.showSnackBar(SnackBar(content: Text(confirmation)));
+                  messenger.showOne(SnackBar(content: Text(confirmation)));
                 },
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 8),

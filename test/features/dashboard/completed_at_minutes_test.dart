@@ -17,7 +17,7 @@ void main() {
       expect(minutesSinceMidnight(DateTime(2026, 8, 20, 23, 59)), 1439);
     });
 
-    test('counts from real local midnight, not the 6am day cutoff', () {
+    test('counts from real local midnight, not the 10am day cutoff', () {
       // The wrinkle the doc comment warns about, pinned so nobody
       // "corrects" it into effectiveDay minutes later: 02:00 is 120, even
       // though effectiveDay still calls that moment the previous day.

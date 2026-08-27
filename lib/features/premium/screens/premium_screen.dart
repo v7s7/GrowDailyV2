@@ -11,6 +11,7 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/services/purchase_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../notifiers/premium_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// Which plan card is selected — monthly (auto-renewing subscription) or
 /// lifetime (one-time, non-consumable purchase). Both map to the same
@@ -140,7 +141,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       // The realistic trigger is a dashboard mismatch on the entitlement id,
       // so the message points at Restore rather than blaming the buyer.
       if (!PurchaseService.instance.isEntitled(info)) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showOne(
           SnackBar(
             content: Text(S.of(context).premiumPurchaseNotEntitled),
             duration: const Duration(seconds: 8),
@@ -151,7 +152,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       }
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Text(S.of(context).premiumPurchaseError),
         behavior: SnackBarBehavior.floating,
@@ -181,7 +182,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
         : (info != null && PurchaseService.instance.isEntitled(info))
             ? s.premiumRestoreSuccess
             : s.premiumRestoreNothingFound;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
@@ -204,7 +205,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     if (!mounted) return;
     setState(() => _isOpeningCustomerCenter = false);
     if (opened) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Text(S.of(context).premiumPurchaseError),
         behavior: SnackBarBehavior.floating,
@@ -226,7 +227,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       ok = false;
     }
     if (ok || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Text(S.of(context).premiumLinkOpenError),
         behavior: SnackBarBehavior.floating,

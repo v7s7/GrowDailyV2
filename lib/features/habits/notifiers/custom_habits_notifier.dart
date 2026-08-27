@@ -134,21 +134,33 @@ class CustomHabitsNotifier
   /// IslamicHabitTemplate has three hand-written copy helpers that each
   /// enumerate every field, and a new one dropped by any of them would fail
   /// silently and only show up as wrong history months later.
-  Map<String, List<(DateTime, DateTime)>> customStintHistory = {};
+  /// A start of NULL means "running since before this device recorded start
+  /// dates", which is a real state: IslamicHabitTemplate.createdAt is nullable
+  /// and parses to null for every custom habit written before that field was
+  /// persisted, where it means "no birth date known, so it always existed".
+  /// The pair used to be non-nullable on both ends, so a window with an unknown
+  /// start could not be expressed at all — [_closeStint] simply dropped it while
+  /// [unarchive] moved the birth date to the resume day anyway, and the habit
+  /// came out of the resume claiming it was born that day with nothing carrying
+  /// its past. Rooms then graded every earlier day as "this habit did not
+  /// exist" and wrote a scheduled count of zero across the whole history.
+  Map<String, List<(DateTime?, DateTime)>> customStintHistory = {};
 
-  static Map<String, List<(DateTime, DateTime)>> _parseStintHistory(
+  static Map<String, List<(DateTime?, DateTime)>> _parseStintHistory(
       dynamic raw) {
-    final result = <String, List<(DateTime, DateTime)>>{};
+    final result = <String, List<(DateTime?, DateTime)>>{};
     if (raw is! Map) return result;
     for (final entry in raw.entries) {
       final rawStints = entry.value;
       if (rawStints is! List) continue;
-      final stints = <(DateTime, DateTime)>[];
+      final stints = <(DateTime?, DateTime)>[];
       for (final item in rawStints) {
         if (item is! Map) continue;
+        // A missing start is meaningful (see customStintHistory), so only a
+        // missing END makes the entry unusable.
         final start = DateTime.tryParse('${item['start']}');
         final end = DateTime.tryParse('${item['end']}');
-        if (start != null && end != null) stints.add((start, end));
+        if (end != null) stints.add((start, end));
       }
       if (stints.isNotEmpty) result[entry.key.toString()] = stints;
     }
@@ -156,13 +168,13 @@ class CustomHabitsNotifier
   }
 
   static Map<String, List<Map<String, String>>> _stintHistoryToRaw(
-          Map<String, List<(DateTime, DateTime)>> history) =>
+          Map<String, List<(DateTime?, DateTime)>> history) =>
       {
         for (final e in history.entries)
           e.key: [
             for (final stint in e.value)
               {
-                'start': stint.$1.toIso8601String(),
+                if (stint.$1 != null) 'start': stint.$1!.toIso8601String(),
                 'end': stint.$2.toIso8601String(),
               },
           ],
@@ -175,7 +187,10 @@ class CustomHabitsNotifier
   void _closeStint(IslamicHabitTemplate habit, DateTime resumedOn) {
     final start = habit.createdAt;
     final end = habit.archivedAt;
-    if (start == null || end == null) return;
+    // Only the END is required. A null start records an unbounded window,
+    // which is exactly what a habit with no known birth date has been running
+    // for, and dropping it here is what erased that history on resume.
+    if (end == null) return;
     if (end.isSameDayAs(resumedOn)) return;
     customStintHistory = {
       ...customStintHistory,

@@ -13,6 +13,7 @@ import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/rank_up_celebration.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../notifiers/dashboard_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// The RPG feedback moments (level up, achievement unlock, streak milestone,
 /// streak-freeze protection) are all reactions to [dashboardProvider] state
@@ -133,7 +134,7 @@ void registerDashboardReactions(
 void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
   final gp = context.gp;
   final s = S.of(context);
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.of(context).showOne(
     SnackBar(
       content: Row(children: [
         Icon(Icons.ac_unit_rounded, color: GameColors.iconXp, size: 18),
@@ -164,7 +165,7 @@ void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
 void showPerfectDaySnackBar(BuildContext context) {
   final gp = context.gp;
   final s = S.of(context);
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.of(context).showOne(
     SnackBar(
       content: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -199,7 +200,7 @@ void showPerfectDaySnackBar(BuildContext context) {
 void showLevelUpSnackBar(BuildContext context, int level) {
   final gp = context.gp;
   final s = S.of(context);
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.of(context).showOne(
     SnackBar(
       content: Row(
         mainAxisAlignment: MainAxisAlignment.center,

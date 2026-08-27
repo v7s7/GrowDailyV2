@@ -236,17 +236,40 @@ class _TimesPerDayRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Label above, control centred beneath it.
+        //
+        // The two used to share one row, which pinned the stepper hard against
+        // the edge with the label filling everything left over — so the one
+        // control on the row read as the leftover and the words read as the
+        // subject. Giving the count its own centred line makes it the focal
+        // thing it actually is, and it stops the minus, the number and the
+        // plus drifting apart as the label's length changes between languages.
+        Text(
+          s.timesPerDayLabel(count),
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: gp.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          s.timesPerDayHint(count),
+          style: TextStyle(fontSize: 11, color: gp.textTert),
+        ),
+        const SizedBox(height: 10),
         Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             step(Icons.remove_rounded, canDec, -1, s.timesPerDayDecrease(count)),
-            const SizedBox(width: 8),
+            const SizedBox(width: 14),
             SizedBox(
-              width: 34,
+              width: 44,
               child: Text(
                 '$count',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: FontWeight.w800,
                   // Gold only once it is actually saying something — at 1
                   // this row is describing the default, not a choice.
@@ -254,30 +277,8 @@ class _TimesPerDayRow extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 14),
             step(Icons.add_rounded, canInc, 1, s.timesPerDayIncrease(count)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    s.timesPerDayLabel(count),
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: gp.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    s.timesPerDayHint(count),
-                    style: TextStyle(fontSize: 11, color: gp.textTert),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
         // Only once the count is a choice. At 1 there is nothing to explain,

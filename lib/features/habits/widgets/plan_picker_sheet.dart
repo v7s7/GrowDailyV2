@@ -12,6 +12,7 @@ import '../../rooms/notifiers/rooms_notifier.dart'
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/custom_habits_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 class PlanPickerSheet extends ConsumerStatefulWidget {
   /// When true, skips the outer card/handle — used inside [AddHabitHub]'s
@@ -201,7 +202,7 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
                 final granted =
                     await ref.read(reminderTimeProvider.notifier).set(time);
                 if (!granted && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(context).showOne(
                     SnackBar(
                       content: Text(s.reminderPermissionDenied),
                       duration: const Duration(seconds: 4),

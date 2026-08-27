@@ -12,6 +12,7 @@ import '../../habits/widgets/add_habit_sheet.dart';
 import '../../../shared/widgets/segmented_tabs.dart';
 import '../models/room_model.dart';
 import '../notifiers/rooms_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// The quick-pick room lengths, in days - the common cases every leader
 /// reaches for at a glance, matching every other quick-pick control in the
@@ -139,7 +140,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
     if (_stepOneBlocker(S.of(context)) != null) return;
     if (isObjectionable(_nameCtrl.text)) {
       HapticFeedback.heavyImpact();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showOne(
         SnackBar(content: Text(S.of(context).roomNameNotAllowed)),
       );
       return;
@@ -163,7 +164,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
     // would be more confusing than telling them it can't be used.
     if (isObjectionable(_nameCtrl.text)) {
       HapticFeedback.heavyImpact();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showOne(
         SnackBar(content: Text(S.of(context).roomNameNotAllowed)),
       );
       return;
@@ -622,7 +623,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                     onPressed: () {
                       HapticFeedback.selectionClick();
                       Clipboard.setData(ClipboardData(text: code));
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.of(context).showOne(
                         SnackBar(content: Text(s.roomCodeCopied)),
                       );
                     },
@@ -821,7 +822,7 @@ class _PlanHabitPickerState extends ConsumerState<_PlanHabitPicker> {
     final match = suggestExistingMatch(created.name, others);
     if (match != null && mounted) {
       final s = S.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showOne(
         SnackBar(
           content:
               Text(s.roomPossibleDuplicateWarning(match.localName(s.isAr))),

@@ -36,10 +36,15 @@ class UndoneCompletion {
   /// up. Null for a habit that had none.
   final String? category;
 
-  /// Exactly what the undo refunded: base reward plus whatever bonus it was
-  /// able to reverse. Restoring pays back this, not a freshly computed
-  /// reward, so a room boost or a surprise bonus that applied then still
-  /// applies now.
+  /// Exactly what the undo REMOVED, which is not always what the completion
+  /// was worth. Both currencies floor at zero, so an account that had
+  /// already spent the gold hands back less than it was paid, and sizing
+  /// this from the reward instead let the difference be minted: spend to
+  /// zero, undo (taking nothing), re-tick to redeem, and the shop was free.
+  /// Read off the reversal's own result for that reason, see
+  /// uncompleteHabit. Restoring pays back this rather than a freshly
+  /// computed reward, so a room boost or a surprise bonus that applied then
+  /// still applies now, and a redemption can never exceed what the undo took.
   final int xp;
   final int gold;
 

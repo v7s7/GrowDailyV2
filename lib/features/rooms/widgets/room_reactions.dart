@@ -9,6 +9,7 @@ import '../../../shared/widgets/victory_burst.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/room_model.dart';
 import '../notifiers/rooms_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// Rooms Alive, Phase 1 (client-side only, in-app - see the bottom of this
 /// doc comment for Phase 2, real push, which now also exists). Turns
@@ -127,7 +128,7 @@ void _showRoomReactionSnackBar(
   required String text,
 }) {
   final gp = context.gp;
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.of(context).showOne(
     SnackBar(
       content: Row(
         children: [

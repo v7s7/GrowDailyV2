@@ -1,16 +1,24 @@
 // The hour of day (0-23) before which a new calendar day hasn't "really"
 // started yet for the app's purposes — see [DateTimeGameExt.effectiveDay].
-// A fixed 6:00 AM cutoff (not user-configurable) was chosen as a middle
-// ground: generous enough to cover someone who doesn't go to sleep until
-// 3 or 4 AM and still wants last night's habits to count, without being so
-// late that it eats into a normal next-morning routine. Every place in the
-// app that decides "what day is this for streaks/grid squares/logs" should
-// go through effectiveDay (or isToday/isYesterday below, which already do)
-// instead of a raw calendar date — that's what keeps a task finished at
-// 4:40 AM counted as belonging to the day that hadn't ended yet, rather
-// than silently skipped because the calendar quietly rolled over at
-// midnight.
-const int kDayCutoffHour = 6;
+// A fixed 10:00 AM cutoff (not user-configurable), widened from the 6 AM it
+// started as. 6 AM already covered someone who went to bed at 3 or 4, but
+// not the person the window is really for: someone who is simply asleep at
+// 6 AM and opens the app for the first time at 9. Ten hours means the 28th
+// at 9:59 AM is still the 27th — the board, the streak, and the gold are
+// all yesterday's, exactly as if the day had never rolled.
+//
+// Ten rather than twelve on purpose: Dhuhr in Bahrain falls between 11:22
+// and 11:53 all year (assets/prayer/bahrain_official.json, 521 days), so a
+// noon cutoff would have banked every on-time Dhuhr against the previous
+// day. Ten clears the earliest Dhuhr by well over an hour.
+//
+// Every place in the app that decides "what day is this for streaks/grid
+// squares/logs" should go through effectiveDay (or isToday/isYesterday
+// below, which already do) instead of a raw calendar date — that's what
+// keeps a task finished at 9:40 AM counted as belonging to the day that
+// hadn't ended yet, rather than silently skipped because the calendar
+// quietly rolled over at midnight.
+const int kDayCutoffHour = 10;
 
 extension DateTimeGameExt on DateTime {
   /// Returns 'YYYY-MM-DD' key used as Firestore document IDs for daily logs.
@@ -49,10 +57,10 @@ extension DateTimeGameExt on DateTime {
   /// recorded under) should ever key off this getter, only [isToday]/
   /// [effectiveDay] should.
   ///
-  /// The two only disagree for the few hours between midnight and
-  /// [kDayCutoffHour] — outside that window `isRealToday == isToday`
-  /// exactly, so this is a no-op change the other 21 hours of the day. In
-  /// that narrow window, this lets the UI stop looking like it's stuck on
+  /// The two only disagree between midnight and [kDayCutoffHour] —
+  /// outside that window `isRealToday == isToday` exactly, so this is a
+  /// no-op change for the rest of the day. Inside it, this lets the UI
+  /// stop looking like it's stuck on
   /// yesterday (the calendar clearly shows a new day) while [isToday]
   /// keeps pointing at the still-open previous day for anything that
   /// actually earns a reward — see effectiveDay's doc comment for why that
@@ -92,8 +100,8 @@ extension DateTimeGameExt on DateTime {
   ///
   /// Concretely: subtracting the cutoff and then taking that moment's
   /// startOfDay rolls anything before the cutoff back onto the previous
-  /// calendar date automatically (00:00–05:59 becomes "yesterday" at the
-  /// default 6-hour cutoff), while anything at or after the cutoff is
+  /// calendar date automatically (00:00–09:59 becomes "yesterday" at the
+  /// 10 AM cutoff), while anything at or after the cutoff is
   /// unaffected. Call this instead of raw `DateTime.now()` (or `.startOfDay`
   /// on it) anywhere the app is deciding which day "today" currently is —
   /// streak keys, grid/log date keys, the current week/month, habit
@@ -110,10 +118,15 @@ extension DateTimeGameExt on DateTime {
   ///
   /// The obvious spelling, `hour >= 18`, silently stops being true at
   /// midnight — and midnight is not when the day ends here. Someone up at
-  /// 1am still has five hours to save their streak, which is the entire
+  /// 1am still has until 10 AM to save their streak, which is the entire
   /// reason [kDayCutoffHour] exists, and the warning used to disappear on
   /// them at exactly the moment it mattered most. It ran 18:00 to 23:59
-  /// and then went quiet for the six hours the cutoff had just granted.
+  /// and then went quiet for the hours the cutoff had just granted.
+  ///
+  /// Note this is a WIDE window at a 10 AM cutoff — 18:00 through 09:59,
+  /// so sixteen hours of the twenty-four. That is the definition working as
+  /// intended, not drift: the streak really is still savable at 9am, and
+  /// the whole point of widening the cutoff was to say so.
   ///
   /// Deliberately a wrapped window (>= 18 OR < cutoff) rather than a
   /// comparison against [effectiveDay]: those small hours belong to

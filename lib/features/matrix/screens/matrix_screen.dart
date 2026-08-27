@@ -18,6 +18,7 @@ import '../widgets/edit_quadrant_sheet.dart';
 import '../widgets/quadrant_card.dart';
 import '../widgets/task_detail_sheet.dart';
 import 'matrix_history_screen.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 bool _isSameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
@@ -41,7 +42,7 @@ bool _isSameDay(DateTime a, DateTime b) =>
 /// See _isVisibleUnderFilter and build()'s carriedOver/todayTasks below —
 /// the only three places this is used.
 // startOfDay, NOT effectiveDay: tasks roll over at real midnight, on
-// purpose. The 6 AM flex window exists for HABITS — a late sleeper's
+// purpose. The 10 AM flex window exists for HABITS — a late sleeper's
 // 1 AM workout still counting toward the day they haven't slept on yet
 // (streaks, grid squares, room credit all stay on effectiveDay). A todo
 // board is a different thing: at 12 AM the phone says a new day, and the
@@ -298,7 +299,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   }) {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
+    messenger.showOne(
       SnackBar(
         content: Text(message),
         action: SnackBarAction(

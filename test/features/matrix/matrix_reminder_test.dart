@@ -81,11 +81,11 @@ void main() {
       );
     });
 
-    test('follows the real calendar day, not the app\'s 6am cutoff', () {
+    test('follows the real calendar day, not the app\'s 10am cutoff', () {
       // A reminder 20 minutes after an 11:50pm "now" is technically still
       // "tonight," but it's a different calendar date — this documents
       // that formatReminderMoment deliberately ignores
-      // DateTimeGameExt.effectiveDay's 6am cutoff (see the function's own
+      // DateTimeGameExt.effectiveDay's 10am cutoff (see the function's own
       // doc comment): a reminder fires at a real wall-clock moment, so
       // "Today" here means the device's actual calendar today.
       final lateNow = DateTime(2026, 7, 16, 23, 50);

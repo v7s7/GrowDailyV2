@@ -16,7 +16,7 @@ String formatResumeDate(DateTime at, bool isAr, {bool withTime = false}) {
   final day = DateFormat('EEEE d MMMM', locale).format(at);
   if (!withTime) return day;
   // The separator follows the language, not the date: an Arabic comma spliced
-  // into an English date ("Tuesday 6 October، 6:00 AM") reads as a typo.
+  // into an English date ("Tuesday 6 October، 10:00 AM") reads as a typo.
   final comma = isAr ? '،' : ',';
   return '$day$comma ${DateFormat.jm(locale).format(at)}';
 }
@@ -37,7 +37,7 @@ String formatResumeDate(DateTime at, bool isAr, {bool withTime = false}) {
 /// answer.
 ///
 /// The time of day is kept as given and compared whole, so "back on Tuesday
-/// at 6am" does not arrive on Monday evening.
+/// at 10am" does not arrive on Monday evening.
 class HabitResumeSchedule extends StateNotifier<Map<String, DateTime>> {
   /// [storeKey] defaults to the unscoped key for tests that exercise the
   /// mechanism in isolation; the provider passes a per-identity key so one
@@ -147,8 +147,8 @@ extension ResumePresetDate on ResumePreset {
   /// Resolved against [from]'s effective day and kept at that day's start,
   /// so a preset picked at 11pm does not bring the habit back at 11pm.
   ///
-  /// "That day's start" is [kDayCutoffHour] (6am), NOT calendar midnight: the
-  /// hours 00:00–05:59 belong to the PREVIOUS effective day everywhere else in
+  /// "That day's start" is [kDayCutoffHour] (10am), NOT calendar midnight:
+  /// the hours 00:00–09:59 belong to the PREVIOUS effective day everywhere else in
   /// the app, so a booking at 00:00 would let the habit resume into the day
   /// before the one the user picked — a night owl opening the app at 12:30am on
   /// the return date would find it already back, inside yesterday's still-open

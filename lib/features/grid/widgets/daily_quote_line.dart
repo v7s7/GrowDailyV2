@@ -23,7 +23,7 @@ class DailyQuoteLine extends StatelessWidget {
     final gp = context.gp;
     final s = S.of(context);
     // effectiveDay, not the raw clock: the line turns over with the app's own
-    // day (6am) like the board underneath it, so someone up at 2am is not
+    // day (10am) like the board underneath it, so someone up at 2am is not
     // handed tomorrow's quote above today's still-open squares.
     final quote = quoteForDay(DateTime.now().effectiveDay);
     final source = quote.source(s.isAr);

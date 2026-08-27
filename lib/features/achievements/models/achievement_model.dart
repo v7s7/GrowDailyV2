@@ -184,6 +184,24 @@ abstract final class AchievementCatalog {
       titleAr: 'ورد القرآن',
       icon: Icons.menu_book_rounded,
     ),
+    // Appended, never inserted beside their sibling ladders:
+    // achievements_screen.dart renders `families` in list order, so slotting
+    // 'ascent' next to 'level' would silently reorder a shipped screen.
+    //
+    // النَفَس carries the fatha on purpose: undiacritised نفس reads as نَفْس
+    // (self) rather than نَفَس (breath).
+    AchievementFamily(
+      id: 'ascent',
+      title: 'Thin Air',
+      titleAr: 'المرتفعات',
+      icon: Icons.terrain_rounded,
+    ),
+    AchievementFamily(
+      id: 'endurance',
+      title: 'The Long Haul',
+      titleAr: 'النَفَس الطويل',
+      icon: Icons.hourglass_bottom_rounded,
+    ),
   ];
 
   static const List<AchievementModel> all = [
@@ -455,6 +473,137 @@ abstract final class AchievementCatalog {
       threshold: 2000,
       xpReward: 2500,
       goldReward: 600,
+    ),
+    // ── Ascent: the level rungs above 35 ────────────────────────
+    //
+    // A SEPARATE family rather than extra rungs on 'level'. The catalog test
+    // indexes tiersFor('level') by position and requires exactly four, so
+    // extending it would break two assertions at once.
+    //
+    // xpReward is 0 on all four for the same reason it is 0 on the shipped
+    // level medals: _resolveUnlocks feeds achievement XP back through
+    // applyXpGain inside its own fixed-point loop, so a level medal paying
+    // XP would advance the very ladder that granted it.
+    AchievementModel(
+      id: 'ascent_40',
+      familyId: 'ascent',
+      tier: AchievementTier.bronze,
+      name: 'Above the Foothills',
+      nameAr: 'السفح صار تحت',
+      description: 'Reach level 40',
+      descriptionAr: 'الوصول للمستوى 40',
+      trigger: AchievementTrigger.level,
+      threshold: 40,
+      xpReward: 0,
+      goldReward: 75,
+    ),
+    AchievementModel(
+      id: 'ascent_60',
+      familyId: 'ascent',
+      tier: AchievementTier.silver,
+      name: 'Past the Clouds',
+      nameAr: 'فوق الغيم',
+      description: 'Reach level 60',
+      descriptionAr: 'الوصول للمستوى 60',
+      trigger: AchievementTrigger.level,
+      threshold: 60,
+      xpReward: 0,
+      goldReward: 125,
+    ),
+    AchievementModel(
+      id: 'ascent_75',
+      familyId: 'ascent',
+      tier: AchievementTier.gold,
+      name: 'Three Quarters Up',
+      nameAr: 'باقي الربع',
+      description: 'Reach level 75',
+      descriptionAr: 'الوصول للمستوى 75',
+      trigger: AchievementTrigger.level,
+      threshold: 75,
+      xpReward: 0,
+      goldReward: 175,
+    ),
+    AchievementModel(
+      id: 'ascent_90',
+      familyId: 'ascent',
+      tier: AchievementTier.platinum,
+      name: 'The Summit in Sight',
+      nameAr: 'القمة بانت',
+      description: 'Reach level 90',
+      descriptionAr: 'الوصول للمستوى 90',
+      trigger: AchievementTrigger.level,
+      threshold: 90,
+      xpReward: 0,
+      goldReward: 250,
+    ),
+    // ── Endurance: the streak rungs past 100 ────────────────────
+    //
+    // Thresholds match the four long rungs of GameConstants.streakBonuses,
+    // so the medal and the milestone XP land on the same day: one
+    // celebration rather than two drifting out of sync.
+    //
+    // goldReward is 0 on all four, and that is a design call. A 300-day
+    // unbroken streak means this player has never needed a streak freeze and
+    // will never buy freeze capacity, so paying them gold aims the largest
+    // payout in the cycle at the one segment its only sink cannot reach. It
+    // would also read as a demotion: each rung would pay less than the 500
+    // gold already collected at streak_100, for fifty more days of work. A
+    // family that pays no gold reads as its own kind of medal, exactly as
+    // the level family already reads paying no XP.
+    //
+    // The ids deliberately do NOT begin with 'streak_':
+    // achievement_reconciliation_test.dart filters on that literal prefix.
+    AchievementModel(
+      id: 'endurance_150',
+      familyId: 'endurance',
+      tier: AchievementTier.bronze,
+      name: 'Past the Hundred',
+      nameAr: 'عدّت المية',
+      description: 'A 150-day streak',
+      descriptionAr: 'سلسلة 150 يوم متواصلة',
+      trigger: AchievementTrigger.streak,
+      threshold: 150,
+      xpReward: 1500,
+      goldReward: 0,
+    ),
+    AchievementModel(
+      id: 'endurance_200',
+      familyId: 'endurance',
+      tier: AchievementTier.silver,
+      name: 'Two Hundred Down',
+      nameAr: 'ميتين يوم',
+      description: 'A 200-day streak',
+      descriptionAr: 'سلسلة 200 يوم متواصلة',
+      trigger: AchievementTrigger.streak,
+      threshold: 200,
+      xpReward: 2000,
+      goldReward: 0,
+    ),
+    AchievementModel(
+      id: 'endurance_250',
+      familyId: 'endurance',
+      tier: AchievementTier.gold,
+      name: 'Still Not Stopping',
+      nameAr: 'ما وقفت لي الحين',
+      description: 'A 250-day streak',
+      descriptionAr: 'سلسلة 250 يوم متواصلة',
+      trigger: AchievementTrigger.streak,
+      threshold: 250,
+      xpReward: 2500,
+      goldReward: 0,
+    ),
+    AchievementModel(
+      id: 'endurance_300',
+      familyId: 'endurance',
+      tier: AchievementTier.platinum,
+      name: 'Three Hundred Straight',
+      nameAr: 'ثلاثمية يوم',
+      description: 'A 300-day streak',
+      descriptionAr: 'سلسلة 300 يوم متواصلة',
+      trigger: AchievementTrigger.streak,
+      threshold: 300,
+      xpReward: 3000,
+      goldReward: 0,
     ),
   ];
 

@@ -21,8 +21,8 @@ void main() {
   // every case here is built around the real current day.
   final today = DateTime.now().effectiveDay;
   // startOfGridWeek(today), NOT startOfGridWeek(DateTime.now()). Those
-  // two disagree for exactly six hours a week: between 00:00 and 05:59
-  // on a Saturday effectiveDay is still Friday (kDayCutoffHour = 6), so
+  // two disagree for the flex window once a week: between 00:00 and 09:59
+  // on a Saturday effectiveDay is still Friday (kDayCutoffHour = 10), so
   // the raw clock says THIS Saturday's grid week while effectiveDay
   // says last one. WeeklyGridState.isCurrentWeek compares against
   // startOfGridWeek(DateTime.now().effectiveDay), so inside that

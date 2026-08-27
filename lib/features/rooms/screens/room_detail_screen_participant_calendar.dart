@@ -73,6 +73,14 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     // for. The strip paints it blank; this sheet used to paint it as a miss
     // and then label it لم يُنجز beside it.
     if (widget.room.isPausedOn(key)) return null;
+    // Their whole plan was paused on this day, so nothing was asked and
+    // nothing was earned. Neutral, matching roomStripCellFill's isStoodDown
+    // arm — not the emerald of a structural rest (which is credited) and not
+    // the heat ramp's level-0, which is byte-identical to a miss. See
+    // RoomParticipant.standDownDays.
+    if (widget.participant.isStoodDownOn(key)) {
+      return (dark ? Colors.white : Colors.black).withOpacity(0.07);
+    }
     // A deliberate تخطّي gets the same gold the strip and the personal
     // reports give it, so one act has one colour everywhere. It does NOT
     // change what the day scored, which is still nothing.
@@ -116,6 +124,9 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     // Same precedence as _fillFor above, so the word and the colour can
     // never describe two different things about one square.
     if (widget.room.isPausedOn(key)) return s.roomCalendarPaused;
+    if (widget.participant.isStoodDownOn(key)) {
+      return s.roomCalendarHabitPaused;
+    }
     if (widget.participant.isRestDay(key)) return s.roomCalendarRestDay;
     if (widget.participant.isDeclaredRest(key)) {
       return s.roomCalendarStoodDown;

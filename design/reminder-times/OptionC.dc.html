@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', system-ui, sans-serif; }
+    a { color: #E4B45F; } a:hover { color: #EFC983; }
+    .tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .marker { transition: transform 180ms cubic-bezier(.33,1,.68,1); }
+    .marker:hover { transform: translateY(-2px); }
+  </style>
+</helmet>
+
+<div dir="rtl" style="width: 402px; height: 874px; background: #07100D; color: #F7F3E8; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden">
+  <div style="background: #101B17; border-radius: 22px 22px 0 0; display: flex; flex-direction: column; padding: 10px 20px 22px 20px">
+
+    <div style="width: 36px; height: 4px; border-radius: 100px; background: #2D4037; align-self: center; margin-bottom: 14px"></div>
+
+    <div style="font-size: 15px; font-weight: 800; margin-bottom: 4px">متى وكيف ستتابع؟</div>
+    <div style="font-size: 11px; color: #6F7A70; margin-bottom: 18px">اتجاه ج — شريط اليوم، تحط علامة بإصبعك</div>
+
+    <div style="font-size: 11px; font-weight: 600; color: #6F7A70; letter-spacing: 0.5px; margin-bottom: 12px">التذكير</div>
+
+    <!-- The day bar. RTL: midnight on the right, midnight on the left. -->
+    <div style="position: relative; height: 116px; margin-bottom: 6px">
+
+      <div style="position: absolute; inset: 34px 0 40px 0; border-radius: 10px; background: linear-gradient(270deg, #10171F 0%, #17251F 22%, #1D2E26 50%, #17251F 78%, #10171F 100%); border: 1px solid #2D4037"></div>
+
+      <!-- Quiet-hours shading, both ends of the day -->
+      <div style="position: absolute; top: 34px; bottom: 40px; right: 1px; width: 40px; border-radius: 0 0 0 0; background: rgba(91,107,168,0.18)"></div>
+      <div style="position: absolute; top: 34px; bottom: 40px; left: 1px; width: 25px; background: rgba(91,107,168,0.18)"></div>
+
+      <sc-for list="{{markers}}" as="m" hint-placeholder-count="2">
+        <div class="marker tap" style="position: absolute; top: 0; right: {{m.right}}; width: 54px; margin-right: -27px; display: flex; flex-direction: column; align-items: center; gap: 3px">
+          <div style="padding: 3px 7px; border-radius: 100px; background: {{m.tint}}; font-size: 10px; font-weight: 800; color: #07100D; white-space: nowrap">{{m.clock}}</div>
+          <div style="width: 2px; height: 12px; background: {{m.tint}}"></div>
+          <div style="width: 14px; height: 14px; border-radius: 100px; background: {{m.tint}}; border: 3px solid #101B17; box-shadow: 0 0 0 1px {{m.tint}}"></div>
+        </div>
+      </sc-for>
+
+      <div style="position: absolute; bottom: 14px; right: 0; font-size: 9.5px; color: #6F7A70">١٢ ص</div>
+      <div style="position: absolute; bottom: 14px; right: 50%; margin-right: -12px; font-size: 9.5px; color: #6F7A70">١٢ م</div>
+      <div style="position: absolute; bottom: 14px; left: 0; font-size: 9.5px; color: #6F7A70">١٢ ص</div>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: center; gap: 7px; height: 44px; border-radius: 10px; border: 1px dashed #2D4037; font-size: 11.5px; font-weight: 600; color: #B5BCA8; margin-bottom: 14px" class="tap">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B5BCA8" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      المس الشريط لتضيف وقت
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <sc-for list="{{list}}" as="t" hint-placeholder-count="2">
+        <div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-radius: 10px; background: #0C1512; border: 1px solid #2D4037">
+          <div style="width: 3px; height: 20px; border-radius: 100px; background: {{t.tint}}"></div>
+          <div style="flex-grow: 1; font-size: 13.5px; font-weight: 700">{{t.clock}}</div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6F7A70" stroke-width="2" stroke-linecap="round" class="tap"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="flex-grow: 1"></div>
+
+    <div style="padding: 12px 14px; border-radius: 12px; background: rgba(93,173,236,0.08); border: 1px solid rgba(93,173,236,0.28); font-size: 11px; color: #B5BCA8; line-height: 1.5">
+      <span style="color: #5DADEC; font-weight: 700">الميزة:</span> تشوف يومك كامل مرة وحدة، وتلاحظ على طول إذا التذكيرات كلها مكدّسة في زاوية وحدة.<br>
+      <span style="color: #F7C948; font-weight: 700">المقابل:</span> ٢٤ ساعة على ٣٤٠ بكسل يعني البكسل = ٤ دقايق. ما تقدر تضبط ١٢:٠٠ بإصبعك، فتحتاج نفس صفوف الاتجاه أ تحته على أي حال. حلو للعرض، مو كافي للإدخال.
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  ar(s) {
+    const d = '٠١٢٣٤٥٦٧٨٩';
+    return String(s).replace(/[0-9]/g, (c) => d[+c]);
+  }
+
+  clock(mins) {
+    const h24 = Math.floor(mins / 60) % 24;
+    const m = mins % 60;
+    const mer = h24 < 12 ? 'ص' : 'م';
+    let h = h24 % 12; if (h === 0) h = 12;
+    return this.ar(h) + ':' + this.ar(String(m).padStart(2, '0')) + ' ' + mer;
+  }
+
+  period(mins) {
+    const h = Math.floor(mins / 60) % 24;
+    if (h < 5) return '#5B6BA8';
+    if (h < 11) return '#E4B45F';
+    if (h < 16) return '#2ECF8F';
+    if (h < 19) return '#E4915F';
+    return '#5B6BA8';
+  }
+
+  renderVals() {
+    // Aziz's own case: midnight and noon.
+    const times = [0, 12 * 60];
+    const markers = times.map((t) => ({
+      clock: this.clock(t),
+      tint: this.period(t),
+      // RTL: 00:00 sits at the right edge and the day runs leftwards.
+      right: Math.round((t / (24 * 60)) * 340) + 'px',
+    }));
+    const list = times.map((t) => ({ clock: this.clock(t), tint: this.period(t) }));
+    return { markers, list };
+  }
+}
+</script>
+</body>
+</html>

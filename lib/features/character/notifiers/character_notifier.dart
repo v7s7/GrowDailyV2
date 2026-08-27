@@ -41,12 +41,12 @@ class CharacterState {
 
   /// Whether [option] can be selected: free, already earned, or worn before.
   bool canWear(CharacterOption option, {required int level,
-      required int streak, required int completedDays}) {
+      required int streak, required int completions}) {
     if (option.unlock == null) return true;
     if (wornCharacterIds.contains(option.id)) return true;
     if (option.id == characterId) return true;
     return option.unlock!.isMetBy(
-      level: level, streak: streak, completedDays: completedDays);
+      level: level, streak: streak, completions: completions);
   }
 
   CharacterOption get character => CharacterCatalog.findByIdOrDefault(characterId);

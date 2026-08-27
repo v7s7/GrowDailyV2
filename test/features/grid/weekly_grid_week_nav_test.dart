@@ -1,7 +1,7 @@
 // Tests for the Grid's week-navigation ceiling — see
 // WeeklyGridState.canGoForward's doc comment for the bug this guards
 // against: right after a week boundary (e.g. 1am Saturday), effectiveDay's
-// 6-hour grace period still points at last week, but the real calendar has
+// grace period still points at last week, but the real calendar has
 // already moved into the new one. Gating the forward arrow on the
 // reward-eligible week (as it used to) stranded the user on last week's
 // board with the arrow disabled and no way back to the day they actually

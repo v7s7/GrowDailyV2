@@ -1226,10 +1226,15 @@ class _OutcomeRow extends StatelessWidget {
                 color: accent.withOpacity(0.14),
                 borderRadius: BorderRadius.circular(9),
               ),
-              child: Icon(
-                state.icon ?? Icons.circle_outlined,
-                size: 15,
-                color: accent,
+              // Center, not a bare child: the tile hands down tight 30x30
+              // constraints, and a painted mark would take all of them (an
+              // Icon centres itself internally and hid this).
+              child: Center(
+                child: state.glyph(
+                  size: 15,
+                  color: accent,
+                  fallback: Icons.circle_outlined,
+                ),
               ),
             ),
             const SizedBox(width: 10),

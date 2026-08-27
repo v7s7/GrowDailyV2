@@ -30,12 +30,14 @@ void main() {
     double credit, {
     bool isRest = false,
     bool isMissed = false,
+    bool isStoodDown = false,
     Color backdrop = card,
   }) =>
       roomStripCellFill(
         credit: credit,
         isRest: isRest,
         isMissed: isMissed,
+        isStoodDown: isStoodDown,
         dark: true,
         backdrop: backdrop,
       );
@@ -49,6 +51,40 @@ void main() {
     }
     expect(fill(0, isRest: true).alpha, 255);
     expect(fill(0, isMissed: true).alpha, 255);
+    expect(fill(0, isStoodDown: true).alpha, 255);
+  });
+
+  group('a stood-down day', () {
+    // The day a member had every counted habit paused (see
+    // RoomParticipant.standDownDays). It is a fourth state, and the whole
+    // point of it is that it looks like none of the other three: emerald
+    // would say credited, gold would say "they chose to rest this", red would
+    // say they missed it.
+    test('does not borrow the rest, miss or done colour', () {
+      final stood = fill(0, isStoodDown: true);
+      expect(stood, isNot(fill(0, isRest: true)));
+      expect(stood, isNot(fill(0, isMissed: true)));
+      expect(stood, isNot(fill(1.0)));
+      expect(stood, isNot(fill(0.5)));
+    });
+
+    test('wins over every other flag, whatever else is passed', () {
+      // Order matters here, and it is the one thing a future edit is likely
+      // to get wrong: the caller computes the other flags from counts a
+      // stand-down day deliberately does not have, so if any of them could
+      // win, an absence would be drawn as an outcome.
+      final plain = fill(0, isStoodDown: true);
+      expect(fill(1.0, isStoodDown: true), plain);
+      expect(fill(0, isRest: true, isStoodDown: true), plain);
+      expect(fill(0, isMissed: true, isStoodDown: true), plain);
+    });
+
+    test('is not the bare card either, so the cell is still visible', () {
+      // A ROOM-level pause draws nothing at all, because that hole is in
+      // every row of the card at once. One member standing down is one row,
+      // and a blank there reads as a rendering fault rather than as a fact.
+      expect(fill(0, isStoodDown: true), isNot(card));
+    });
   });
 
   test('identical credit gives an identical colour', () {

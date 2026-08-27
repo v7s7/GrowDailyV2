@@ -159,17 +159,26 @@ void main() {
       }
     });
 
-    test('the sole-habit case warns instead of reassuring', () {
+    test('the sole-habit case states the freeze instead of reassuring', () {
       // The lie this split exists to stop: with one linked habit there is
       // no "rest of your habits" to be graded on, so the reassuring copy
       // would promise a softening that does not happen.
+      //
+      // What it says has changed once. It used to promise the days score
+      // ZERO, which was true of the old rule and is now false: those days
+      // are stand-down days (RoomParticipant.standDownDays) and leave both
+      // sides of the sum, so the percentage HOLDS rather than collapsing.
+      // Copy that still said "zero" would be the same class of lie in the
+      // other direction — and 'صفر' is asserted absent below precisely so
+      // this cannot quietly drift back.
       for (final locale in [const Locale('ar'), const Locale('en')]) {
         final s = S(locale);
         final sole = s.roomSoleLinkedHabitPausedHint('تمرين');
         expect(sole, contains('تمرين'));
-        // It must say the days score zero, and must NOT claim the score
-        // comes from other habits.
-        expect(sole, contains(s.isAr ? 'صفر' : 'zero'));
+        expect(sole, contains(s.isAr ? 'ثابتة' : 'holds where it is'),
+            reason: 'the number stops moving, which is the fact that matters');
+        expect(sole, isNot(contains(s.isAr ? 'صفر' : 'score zero')),
+            reason: 'a stand-down day is excluded, not failed');
         expect(sole, isNot(contains(s.isAr ? 'باقي عاداتك' : 'you can still do')));
         // And it must still name the remedy.
         expect(sole, contains(s.isAr ? 'استئنافها' : 'Resume it'));
@@ -190,14 +199,16 @@ void main() {
           .roomLinkedHabitAllPausedHint(['تمرين', 'صلاة الضحى']);
       expect(ar, contains('تمرين'));
       expect(ar, contains('صلاة الضحى'));
-      expect(ar, contains('صفر'));
+      expect(ar, contains('ثابتة'));
+      expect(ar, isNot(contains('صفر')));
       expect(ar, isNot(contains('باقي عاداتك')),
           reason: 'nothing is left to be graded on');
       final en = S(const Locale('en'))
           .roomLinkedHabitAllPausedHint(['Exercise', 'Duha']);
       expect(en, contains('Exercise'));
       expect(en, contains('Duha'));
-      expect(en, contains('zero'));
+      expect(en, contains('holds where it is'));
+      expect(en, isNot(contains('score zero')));
       expect(en, isNot(contains('you can still do')));
     });
 
@@ -206,7 +217,10 @@ void main() {
         final s = S(locale);
         final sole = s.habitPauseSoleRoomHabitBody(['دو الإلتزام']);
         expect(sole, contains('دو الإلتزام'));
-        expect(sole, contains(s.isAr ? 'صفر' : 'zero'));
+        // Same change as the hint above: the dialog has to describe the rule
+        // the app actually applies, which is a freeze, not a zero.
+        expect(sole, contains(s.isAr ? 'تثبت' : 'holds where it is'));
+        expect(sole, isNot(contains(s.isAr ? 'صفر' : 'score zero')));
         expect(sole, isNot(equals(s.habitPauseLinkedRoomBody(['دو الإلتزام']))));
       }
     });

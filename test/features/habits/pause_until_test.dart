@@ -38,7 +38,7 @@ void main() {
       expect(at.day, 1);
       expect(at.month, 9);
       // Picked at 23:40, but "أسبوع" does not mean "in a week at 23:40" — the
-      // time is dropped. "Start of that day" is the day CUTOFF (6am), not
+      // time is dropped. "Start of that day" is the day CUTOFF (10am), not
       // calendar midnight: a 00:00 booking belongs to the previous effective
       // day (see ResumePreset.dateFrom), which would let the habit come back a
       // day early for anyone opening the app in the small hours.
@@ -52,8 +52,8 @@ void main() {
     });
 
     test('a month is a calendar month, not thirty days', () {
-      // Noon, not midnight: presets resolve against effectiveDay, and this
-      // app's day starts at kDayCutoffHour (6am), so 31 January at 00:00 is
+      // The cutoff, not midnight: presets resolve against effectiveDay, and
+      // this app's day starts at kDayCutoffHour (10am), so 31 January at 00:00 is
       // still the 30th here. Using midnight would quietly test the cutoff
       // instead of the month arithmetic this test is about.
       final at = ResumePreset.month.dateFrom(DateTime(2026, 1, 31, 12));
@@ -101,7 +101,7 @@ void main() {
     });
 
     test('a time of day is respected, not rounded to the day', () async {
-      // "back on Tuesday at 6am" must not arrive on Monday evening.
+      // "back on Tuesday at 10am" must not arrive on Monday evening.
       final schedule = HabitResumeSchedule();
       await schedule.schedule('h-train', DateTime(2026, 9, 1, 6, 0));
       expect(schedule.dueBy(DateTime(2026, 9, 1, 5, 59)), isEmpty);

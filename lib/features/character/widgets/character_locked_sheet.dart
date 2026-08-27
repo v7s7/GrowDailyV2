@@ -114,7 +114,7 @@ class _CharacterLockedSheet extends ConsumerWidget {
               requirement: req,
               level: dash.level,
               streak: dash.streak,
-              completedDays: dash.totalCompletions,
+              completions: dash.totalCompletions,
             ),
             const SizedBox(height: 16),
             Container(

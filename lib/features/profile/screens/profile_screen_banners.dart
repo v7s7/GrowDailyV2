@@ -104,10 +104,12 @@ class _StreakAtRiskBanner extends ConsumerWidget {
     final grid = ref.watch(weeklyGridProvider);
     final habits = ref.watch(habitListProvider);
 
-    // Runs through to the 6am cutoff, not to midnight - see isDayClosing.
+    // Runs through to the 10 AM cutoff, not to midnight - see isDayClosing.
     // The streak this warns about does not expire at 00:00, so neither
-    // does the warning: someone still up at 1am has five hours left to
-    // save it, and that is exactly who the cutoff exists for.
+    // does the warning: someone still up at 1am, or only awake at 9am,
+    // still has time to save it, and that is exactly who the cutoff
+    // exists for. Note this makes the banner's window a wide one now -
+    // 6pm through 09:59 - which isDayClosing's own doc covers.
     final isEvening = DateTime.now().isDayClosing;
     if (!isEvening ||
         dash.streak <= 0 ||

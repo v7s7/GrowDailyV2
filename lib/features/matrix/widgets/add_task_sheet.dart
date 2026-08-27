@@ -21,6 +21,7 @@ import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor;
 import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
 import '../../premium/notifiers/premium_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// Stays open after each add so a quick brain-dump ("buy milk" ⏎ "wash car"
 /// ⏎ "call mom" ⏎ …) doesn't mean reopening this sheet for every single
@@ -380,7 +381,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     final next = Set<int>.from(_offsets);
     if (!next.remove(signedMinutes)) {
       if (_reminderAts.length >= NotificationService.kMaxTaskReminderSlots) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showOne(
           SnackBar(content: Text(S.of(context).matrixReminderMaxReached)),
         );
         return;

@@ -303,7 +303,7 @@ class _MonthGrid extends StatelessWidget {
       day: day,
       entry: entry,
       // Same exemption as the Grid's own _SquareCell.isFuture: the real
-      // calendar day during the 6-hour window right after midnight isn't
+      // calendar day during the flex window right after midnight isn't
       // "future" just because effectiveDay (`today` here) hasn't caught up
       // to it yet — see DateTimeGameExt.isRealToday.
       isFuture: day.isAfter(today) && !day.isRealToday,

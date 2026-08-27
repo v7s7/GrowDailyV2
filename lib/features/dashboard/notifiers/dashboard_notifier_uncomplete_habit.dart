@@ -208,6 +208,36 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     final totalXpReward = xpSlice + (snapshot?.bonusXp ?? 0);
     final totalGoldReward = goldSlice + (snapshot?.bonusGold ?? 0);
 
+    // ── What the reversal can actually take back ─────────────────
+    //
+    // Computed HERE, above the receipt, because the receipt has to be sized
+    // from what the undo REMOVED rather than from what the completion was
+    // owed, and those two numbers are not always the same.
+    //
+    // Both currencies floor at zero: XpCalculator.applyXpDelta clamps
+    // newCumulativeXp, and the gold subtraction clamps just below. So an
+    // account that has already SPENT what this completion paid gives back
+    // less than the completion was nominally worth, and the shortfall is
+    // real rather than an accounting artifact: it is gold sitting in a
+    // purchased accessory, not gold the user still holds.
+    //
+    // Sizing the receipt from `totalGoldReward` instead made the shop free.
+    // Earn gold, spend every coin, undo the completion (which took nothing,
+    // because there was nothing left to take), then re-tick the habit to
+    // redeem the receipt: the full amount was paid out a second time and the
+    // purchase was kept. Same shape for XP on a young account whose
+    // cumulative total is smaller than the reward being reversed.
+    final xpResult = XpCalculator.applyXpDelta(
+      currentLevel: state.level,
+      currentLevelXp: state.currentLevelXp,
+      cumulativeXp: state.cumulativeXp,
+      xpDelta: -totalXpReward,
+    );
+    final rawGold = state.gold - totalGoldReward;
+    final newGold = rawGold < 0 ? 0 : rawGold;
+    final removedXp = state.cumulativeXp - xpResult.newCumulativeXp;
+    final removedGold = state.gold - newGold;
+
     // ── The receipt ──────────────────────────────────────────────
     //
     // Only when this undo empties the day for this habit. A multi-tap habit
@@ -233,8 +263,8 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
             habitId: habitId,
             dateKey: dayKey,
             category: category,
-            xp: totalXpReward,
-            gold: totalGoldReward,
+            xp: removedXp,
+            gold: removedGold,
             streakAtCompletion: state.habitStreakCounts[habitId] ?? 0,
             longestAtCompletion: state.habitLongestStreaks[habitId] ?? 0,
             undoneOnKey: dayKey,
@@ -242,15 +272,6 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     final newUndoneCompletions = receipt == null
         ? null
         : {...state.undoneCompletions, receipt.key: receipt};
-
-    final xpResult = XpCalculator.applyXpDelta(
-      currentLevel: state.level,
-      currentLevelXp: state.currentLevelXp,
-      cumulativeXp: state.cumulativeXp,
-      xpDelta: -totalXpReward,
-    );
-    final rawGold = state.gold - totalGoldReward;
-    final newGold = rawGold < 0 ? 0 : rawGold;
 
     // ── The day-counters ────────────────────────────────────────
     //

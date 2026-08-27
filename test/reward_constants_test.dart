@@ -15,18 +15,70 @@ import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.d
 /// drifting copy of any of these numbers.
 void main() {
   group('streak milestone bonus — single source of truth', () {
-    test('GameConstants.streakBonuses holds the reconciled live values', () {
+    test('the six reconciled live values are never silently changed', () {
       // These are the values that were actually being paid out by
       // DashboardNotifier before reconciliation (the old GameConstants
       // duplicate under-paid 7/14/30/60/100-day milestones).
-      expect(GameConstants.streakBonuses, {
-        3: 25,
-        7: 75,
-        14: 150,
-        30: 300,
-        60: 600,
-        100: 1500,
-      });
+      //
+      // Asserted rung by rung rather than as a whole-map equality, because
+      // the map GREW in 2026-08 (21, then 150 through 365, to close the
+      // 264-day hole between day 101 and the streak_365 medal). Equality
+      // pinned two different things at once: that the live values never
+      // move, which is a real rule, and that the ladder never gains a rung,
+      // which was never a rule and only made the test fail the first time
+      // someone lengthened it. These six may never change.
+      expect(GameConstants.streakBonuses[3], 25);
+      expect(GameConstants.streakBonuses[7], 75);
+      expect(GameConstants.streakBonuses[14], 150);
+      expect(GameConstants.streakBonuses[30], 300);
+      expect(GameConstants.streakBonuses[60], 600);
+      expect(GameConstants.streakBonuses[100], 1500);
+    });
+
+    test('the ladder only ever climbs, in both threshold and payout', () {
+      // Replaces what the equality above used to catch, and is stronger:
+      // a longer streak must never be worth less than a shorter one, on
+      // either map. A rung inserted out of order, or one that pays less
+      // than the rung below it, is a bug no matter what the numbers are.
+      for (final map in [
+        GameConstants.streakBonuses,
+        GameConstants.habitStreakBonuses,
+      ]) {
+        final keys = map.keys.toList();
+        for (var i = 1; i < keys.length; i++) {
+          expect(
+            keys[i],
+            greaterThan(keys[i - 1]),
+            reason: 'thresholds must be declared in ascending order',
+          );
+          expect(
+            map[keys[i]]!,
+            greaterThan(map[keys[i - 1]]!),
+            reason: 'a longer streak must never pay less',
+          );
+        }
+      }
+    });
+
+    test('the per-habit ladder stays below the app-wide one at every rung',
+        () {
+      // habitStreakBonuses is paid PER HABIT and the app-wide map once, so
+      // an account with many habits crossing a threshold together already
+      // multiplies its side. If a per-habit rung ever met or passed the
+      // app-wide rung, that multiplication would dominate the economy.
+      for (final entry in GameConstants.habitStreakBonuses.entries) {
+        final appWide = GameConstants.streakBonuses[entry.key];
+        expect(
+          appWide,
+          isNotNull,
+          reason: 'every per-habit rung needs an app-wide twin',
+        );
+        expect(
+          entry.value,
+          lessThan(appWide!),
+          reason: 'per-habit rung ${entry.key} must stay the smaller half',
+        );
+      }
     });
 
     test('XpCalculator.streakMilestoneBonus reads GameConstants directly',

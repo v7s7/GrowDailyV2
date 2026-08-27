@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/l10n/reminder_copy.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
@@ -13,6 +14,15 @@ import '../../../shared/widgets/choice_chip_grid.dart';
 import '../models/matrix_task.dart';
 import '../../../shared/widgets/overlay_notice.dart';
 import 'custom_offset_sheet.dart';
+
+// arabicDigits moved to core/l10n/reminder_copy.dart, so notification copy
+// can reach it without importing a widget file. Re-exported because this is
+// where profile_screen.dart and the offset sheet have always imported it
+// from, and it still belongs beside [ReminderRow], which is what it exists
+// for: a time rendered inside an Arabic run picks up Arabic-Indic digits
+// from the font, so a bare chip number next to it has to be converted by
+// hand or the two disagree on screen.
+export '../../../core/l10n/reminder_copy.dart' show arabicDigits;
 
 /// Formats [dt] for display on [ReminderRow] / anywhere else a task's
 /// reminder needs a human label — "Today · 5:00 PM" / "Tomorrow · 9:00 AM"
@@ -104,24 +114,6 @@ Set<int> offsetsFrom({
 /// `_normalizeDigits` and HabitCue's equivalent — a user who types ٤٥ into
 /// the minutes field must get 45, not a silent no-op.
 String normalizeArabicDigits(String input) => toWesternDigits(input);
-
-/// Western digits → Arabic-Indic codepoints, for labels that have to do this
-/// by hand.
-///
-/// The reason is font shaping, not number formatting. intl produces ASCII
-/// either way: `DateFormat('h:mm a', 'ar')` returns the string "9:20 م". But
-/// [ReminderRow] renders its time *inside* an Arabic run ("اليوم · 9:20 ص"),
-/// where the font applies Arabic contextual digit substitution and the user
-/// sees ٩:٢٠. A chip label like a bare "15" has no Arabic context, so the
-/// same font leaves it Western — two identical ASCII strings, two different
-/// glyph sets on screen, side by side. So matching the row means matching
-/// what's *rendered*, hence the explicit conversion. Used by
-/// [formatOffsetCompact] and formatOffsetVerbose.
-String arabicDigits(int n) => n
-    .toString()
-    .split('')
-    .map((d) => String.fromCharCode(d.codeUnitAt(0) + 0x0660 - 0x30))
-    .join();
 
 /// Chip label for an offset: the number for minutes, a word for the hours,
 /// since "120" reads worse than "ساعتان" at a glance. Direction comes from

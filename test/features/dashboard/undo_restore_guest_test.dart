@@ -24,6 +24,7 @@ import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/dashboard/models/undone_completion.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 
+import '../../helpers/never_bonus_random.dart';
 import '../../helpers/wait_until.dart';
 
 void main() {
@@ -36,6 +37,17 @@ void main() {
   Future<ProviderContainer> launch() async {
     final container = ProviderContainer(overrides: [
       authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
+      // The receipt test below pins the refund at exactly 10 XP and 5 gold,
+      // and completeHabit rolls a surprise bonus on every completion that
+      // lands on that very receipt. Left to a real Random that assertion is a
+      // coin toss which comes up 15 XP about one run in seven, see
+      // NeverBonusRandom for the whole story. `null` is what the unoverridden
+      // provider resolves to here anyway, because authStateProvider is
+      // overridden to a null user just above, so this is the same guest
+      // notifier with its one source of nondeterminism removed.
+      dashboardProvider.overrideWith(
+        (ref) => DashboardNotifier(null, random: NeverBonusRandom()),
+      ),
     ]);
     containers.add(container);
     await container.read(authStateProvider.future);
@@ -351,5 +363,68 @@ void main() {
 
     final container = await launch();
     expect(container.read(dashboardProvider).undoneCompletions, isEmpty);
+  });
+
+  test('a receipt never refunds gold the undo could not take back', () async {
+    // The shop-for-free lap. Gold floors at zero on the way out, so an
+    // account that has already SPENT what a completion paid gives back less
+    // than the completion was worth. The receipt used to be sized from the
+    // reward rather than from that reversal, so the difference came back as
+    // new money: earn, spend every coin, undo (which took nothing, because
+    // there was nothing left to take), re-tick to redeem, and the purchase
+    // was kept for free. Repeatable for as long as the user has patience.
+    //
+    // Deliberately free of literal reward numbers, because the surprise
+    // bonus rolls on every completion. The invariant under test is a
+    // balance, not an amount.
+    final container = await launch();
+    final notifier = container.read(dashboardProvider.notifier);
+    final today = DateTime.now().effectiveDay;
+
+    await notifier.completeHabit(
+      habitId: 'h1',
+      xpReward: 10,
+      goldReward: 5,
+      frequencyTarget: 1,
+      allHabitsDoneAfter: false,
+      category: 'quran',
+    );
+
+    // Spend the lot. This is what buying an accessory does: the gold is now
+    // an owned item, and no undo can reach back into it.
+    final held = container.read(dashboardProvider).gold;
+    expect(held, greaterThan(0), reason: 'the completion has to have paid');
+    expect(await notifier.spendGold(held), isTrue);
+    expect(container.read(dashboardProvider).gold, 0);
+
+    await notifier.uncompleteHabit(
+      habitId: 'h1',
+      xpReward: 10,
+      goldReward: 5,
+      category: 'quran',
+    );
+    expect(
+      container.read(dashboardProvider).gold,
+      0,
+      reason: 'there was nothing left for the undo to take',
+    );
+
+    final receipt =
+        container.read(dashboardProvider).undoneFor('h1', keyFor(today));
+    expect(receipt, isNotNull);
+    expect(
+      receipt!.gold,
+      0,
+      reason: 'the receipt records what was removed, never what was owed',
+    );
+
+    final restored =
+        await notifier.restoreUndoneCompletion(habitId: 'h1', day: today);
+    expect(restored, isTrue);
+    expect(
+      container.read(dashboardProvider).gold,
+      0,
+      reason: 'redeeming must not mint the gold that was already spent',
+    );
   });
 }

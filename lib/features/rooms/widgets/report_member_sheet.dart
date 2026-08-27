@@ -7,6 +7,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../notifiers/room_moderation.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// The member-options sheet: report, and block.
 ///
@@ -246,7 +247,7 @@ class _ReportSheetState extends State<_ReportSheet> {
                 reason: _reason,
                 note: _note.text,
               );
-              messenger.showSnackBar(SnackBar(content: Text(text)));
+              messenger.showOne(SnackBar(content: Text(text)));
             },
             child: Text(s.roomReportSubmit),
           ),
@@ -257,7 +258,7 @@ class _ReportSheetState extends State<_ReportSheet> {
 }
 
 void _toast(BuildContext context, String message) =>
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(content: Text(message)),
     );
 

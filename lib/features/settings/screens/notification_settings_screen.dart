@@ -14,6 +14,7 @@ import '../../habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../models/notification_settings.dart';
 import '../notifiers/notification_settings_notifier.dart';
 import '../widgets/city_search_sheet.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// Everything the app can notify someone about, and every knob to tune or
 /// turn off each category — the "all in settings, and the user can turn it
@@ -340,7 +341,7 @@ Future<void> _sendTestNotification(BuildContext context) async {
   final s = S.of(context);
   await NotificationService.instance.showTest(isAr: s.isAr);
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.of(context).showOne(
     SnackBar(
         content: Text(s.notifTestSent), duration: const Duration(seconds: 3)),
   );
@@ -372,7 +373,7 @@ class _DailyReminderRow extends ConsumerWidget {
           final granted =
               await ref.read(reminderTimeProvider.notifier).set(picked);
           if (!granted && context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
+            ScaffoldMessenger.of(context).showOne(
               SnackBar(
                 content: Text(s.reminderPermissionDenied),
                 duration: const Duration(seconds: 4),
@@ -481,7 +482,7 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
     }
 
     final s = S.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Text(s.notifLocationDetectFailed),
         duration: const Duration(seconds: 3),

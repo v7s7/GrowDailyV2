@@ -21,6 +21,33 @@ class HabitCue {
   final String? _presetKey;
   final int? _hour24;
   final int? _minute;
+
+  /// Times 2..N of a habit counted several times a day, in the order the
+  /// person arranged them. EMPTY for every cue ever written before this
+  /// existed, which is what keeps the whole change backward compatible:
+  /// [_hour24]/[_minute] still hold the FIRST time, so every existing reader
+  /// of [clockTime] keeps seeing exactly what it saw before.
+  ///
+  /// Order is meaningful and must be preserved on the round trip. The
+  /// notification slot a reminder occupies is its INDEX here (see
+  /// NotificationService.scheduleSmartReminders), and a slot's notification id
+  /// is a hash of `habitId#slot` — so re-ordering this list silently re-points
+  /// every already-scheduled reminder at a different slot, stranding the old
+  /// ones in the OS scheduler with nothing able to cancel them.
+  final List<TimeOfDay> _extraTimes;
+
+  /// The signed minute shift each time's reminder fires at, index-aligned with
+  /// [clockTimes]: negative is before, positive after, 0 is on the dot.
+  ///
+  /// Carried INSIDE the cue rather than in a parallel field on the habit,
+  /// because a list of times and a list of offsets stored apart is a pair that
+  /// can desync — reorder one, clamp one, drop one, and every reminder after
+  /// the mistake is silently shifted by somebody else's number. Here they are
+  /// one string and sort together by construction.
+  ///
+  /// Empty for a single-time cue, which keeps using the habit's own
+  /// reminderOffsetMinutes exactly as it always has. See [offsetsAreOwn].
+  final List<int> _offsets;
   final String _raw;
 
   const HabitCue._preset(String key)
@@ -28,13 +55,18 @@ class HabitCue {
         _presetKey = key,
         _hour24 = null,
         _minute = null,
+        _extraTimes = const [],
+        _offsets = const [],
         _raw = '';
 
-  const HabitCue._time(int hour24, int minute)
+  const HabitCue._time(int hour24, int minute,
+      [List<TimeOfDay> extras = const [], List<int> offsets = const []])
       : _kind = _HabitCueKind.time,
         _presetKey = null,
         _hour24 = hour24,
         _minute = minute,
+        _extraTimes = extras,
+        _offsets = offsets,
         _raw = '';
 
   const HabitCue._freeform(String raw)
@@ -42,6 +74,8 @@ class HabitCue {
         _presetKey = null,
         _hour24 = null,
         _minute = null,
+        _extraTimes = const [],
+        _offsets = const [],
         _raw = raw;
 
   static const empty = HabitCue._freeform('');
@@ -74,7 +108,16 @@ class HabitCue {
     'work_block': ['work_block', 'Work block', 'وقت العمل'],
   };
 
-  static final RegExp _timeCanonical = RegExp(r'^custom_time:(\d{2}):(\d{2})$');
+  /// One entry of a `custom_time:` run: `HH:MM`, optionally followed by a
+  /// SIGNED minute shift (`08:00-15` is "quarter of an hour before eight").
+  ///
+  /// Matched per part rather than as one big pattern over the whole run,
+  /// because a repeated capture group only ever keeps its LAST match — a
+  /// single anchored pattern would silently discard every time but the final
+  /// one. A legacy single value (`custom_time:07:30`) matches this with no
+  /// suffix and round-trips byte-identically, which is the whole
+  /// backward-compatibility guarantee: nothing already on disk moves.
+  static final RegExp _timePart = RegExp(r'^(\d{2}):(\d{2})([+-]\d{1,3})?$');
   static final RegExp _timeEn =
       RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', caseSensitive: false);
   static final RegExp _timeAr = RegExp(r'^(\d{1,2}):(\d{2})\s*(ص|م)$');
@@ -100,6 +143,49 @@ class HabitCue {
   factory HabitCue.time(int hour24, int minute) =>
       HabitCue._time(hour24, minute);
 
+  /// Several picked clock times, for a habit counted more than once a day.
+  ///
+  /// Order is kept exactly as given — see [_extraTimes] for why re-ordering is
+  /// not a cosmetic choice. Duplicates are dropped (two reminders at the same
+  /// minute is one reminder and a wasted slot), and an empty list is an empty
+  /// cue rather than a malformed one.
+  /// Several times, each carrying its own signed offset in minutes.
+  ///
+  /// The multi-time form of [HabitCue.time]. Offsets ride along through the
+  /// sort, so re-ordering the input can never shuffle a shift onto somebody
+  /// else's time.
+  factory HabitCue.timesWithOffsets(List<(TimeOfDay, int)> entries) {
+    final byMinute = <int, int>{};
+    for (final (t, off) in entries) {
+      // First write wins on a duplicate minute, matching the dedupe rule in
+      // HabitCue.times: a repeat is a mistake, not a second reminder.
+      byMinute.putIfAbsent(t.hour * 60 + t.minute, () => off);
+    }
+    final mins = byMinute.keys.toList()..sort();
+    if (mins.isEmpty) return HabitCue.empty;
+    final kept = mins.take(_maxTimes).toList();
+    return HabitCue._time(
+      kept.first ~/ 60,
+      kept.first % 60,
+      kept.length > 1
+          ? List.unmodifiable([
+              for (final m in kept.skip(1))
+                TimeOfDay(hour: m ~/ 60, minute: m % 60),
+            ])
+          : const [],
+      List.unmodifiable([for (final m in kept) byMinute[m]!]),
+    );
+  }
+
+  factory HabitCue.times(List<TimeOfDay> times) =>
+      HabitCue.timesWithOffsets([for (final t in times) (t, 0)]);
+
+  /// The most times one habit can carry. Kept equal to
+  /// NotificationService._maxHabitReminderSlots and kMaxTimesPerDay — the
+  /// three are asserted equal in test (they cannot import each other: one
+  /// lives inside a `part of` a widget file).
+  static const int _maxTimes = 12;
+
   /// Parses whatever is currently on disk (or being typed/edited): a
   /// canonical key, a legacy English or Arabic preset name, a canonical or
   /// legacy time string, or arbitrary custom text. This is the single
@@ -119,10 +205,42 @@ class HabitCue {
     }
 
     final timeCandidate = _asciiDigits(raw);
-    final canon = _timeCanonical.firstMatch(timeCandidate);
-    if (canon != null) {
-      return HabitCue._time(
-          int.parse(canon.group(1)!), int.parse(canon.group(2)!));
+    // ── A `custom_time:` value is OURS, valid or not ─────────────────────
+    //
+    // Anything carrying this prefix was written by this app, so a malformed
+    // one is damage, not user text. Letting it fall through to the freeform
+    // branch below is what makes that damage invisible: isEmpty is false for
+    // freeform, so every screen renders the raw token «custom_time:9x:99» as
+    // if the person had typed it, and reopening Add Habit drops them into
+    // Custom Text mode with the token sitting in an editable field. Resolving
+    // to empty instead costs the reminder and says so.
+    if (timeCandidate.startsWith('custom_time:')) {
+      final body = timeCandidate.substring('custom_time:'.length);
+      if (body.isEmpty) return HabitCue.empty;
+      final entries = <(TimeOfDay, int)>[];
+      for (final part in body.split(',')) {
+        final m = _timePart.firstMatch(part);
+        if (m == null) return HabitCue.empty;
+        final h = int.parse(m.group(1)!);
+        final min = int.parse(m.group(2)!);
+        // The pattern proves the SHAPE and says nothing about the range, so
+        // `custom_time:99:99` matches it. TimeOfDay does not validate either —
+        // it would hold hour 99 and produce a fire time 99 hours out. Out of
+        // range is damage, and damage takes the same exit as a malformed
+        // value: empty, never freeform.
+        if (h > 23 || min > 59) return HabitCue.empty;
+        final off = m.group(3);
+        if (off != null && (off.length > 4)) return HabitCue.empty;
+        entries.add((
+          TimeOfDay(hour: h, minute: min),
+          off == null ? 0 : int.parse(off),
+        ));
+      }
+      // Through the same factory as a fresh pick, so a hand-edited document
+      // holding a duplicate, an out-of-order pair or a 13th time is
+      // canonicalized on READ rather than costing a slot or a phantom
+      // override later.
+      return HabitCue.timesWithOffsets(entries);
     }
     final en = _timeEn.firstMatch(timeCandidate);
     if (en != null) {
@@ -173,12 +291,59 @@ class HabitCue {
   TimeOfDay? get clockTime =>
       _kind == _HabitCueKind.time ? TimeOfDay(hour: _hour24!, minute: _minute!) : null;
 
+  /// Every clock time this cue carries, first one first — the input the
+  /// scheduler walks to fill one reminder slot per time.
+  ///
+  /// Exactly `[clockTime]` for a single-time cue, so a caller can move to this
+  /// getter without changing behaviour for any habit that already exists.
+  /// Empty for a prayer, a preset routine or freeform text, none of which have
+  /// a fixed time this app can derive on its own (see [clockTime]).
+  /// Whether this cue carries its OWN per-time shifts, in which case the
+  /// habit-level reminderOffsetMinutes must not also be applied.
+  ///
+  /// True exactly when there is more than one time. A single-time habit keeps
+  /// the habit-level field it has always used, so nothing about an existing
+  /// habit changes; a multi-time one answers entirely from here, so there is
+  /// never a question of which of two numbers wins or whether they stack.
+  bool get offsetsAreOwn => clockTimes.length > 1;
+
+  /// The signed shift for the time in [slot], or 0 when this cue does not
+  /// carry its own (see [offsetsAreOwn]).
+  int offsetForSlot(int slot) =>
+      slot >= 0 && slot < _offsets.length ? _offsets[slot] : 0;
+
+  /// Every shift, index-aligned with [clockTimes].
+  List<int> get clockOffsets => List.unmodifiable([
+        for (var i = 0; i < clockTimes.length; i++) offsetForSlot(i),
+      ]);
+
+  String _timesToStorage() {
+    final all = clockTimes;
+    final parts = <String>[];
+    for (var i = 0; i < all.length; i++) {
+      final off = offsetForSlot(i);
+      final suffix = off == 0 ? '' : (off > 0 ? '+$off' : '$off');
+      parts.add('${_pad2(all[i].hour)}:${_pad2(all[i].minute)}$suffix');
+    }
+    return parts.join(',');
+  }
+
+  List<TimeOfDay> get clockTimes {
+    final first = clockTime;
+    if (first == null) return const [];
+    return List.unmodifiable([first, ..._extraTimes]);
+  }
+
   /// Value to persist to Firestore/Hive — always locale-independent, so it
   /// never needs to change again after a language switch.
   String toStorageValue() => switch (_kind) {
         _HabitCueKind.preset => _presetKey!,
-        _HabitCueKind.time =>
-          'custom_time:${_hour24!.toString().padLeft(2, '0')}:${_minute!.toString().padLeft(2, '0')}',
+        // Emits the legacy single-value form byte-for-byte when there is only
+        // one time, so re-saving an untouched habit rewrites the same string.
+        // Emits the legacy single-value form byte-for-byte when there is one
+        // time and no shift, so re-saving an untouched habit rewrites the same
+        // string and nothing on disk migrates.
+        _HabitCueKind.time => 'custom_time:${_timesToStorage()}',
         _HabitCueKind.freeform => _raw,
       };
 
@@ -208,13 +373,30 @@ class HabitCue {
         _ => key,
       };
 
-  String _timeLabel(bool isAr) {
-    final raw12 = _hour24! % 12;
+  static String _pad2(int n) => n.toString().padLeft(2, '0');
+
+  static String _oneTimeLabel(int hour24, int minute, bool isAr) {
+    final raw12 = hour24 % 12;
     final hour12 = raw12 == 0 ? 12 : raw12;
-    final minute = _minute!.toString().padLeft(2, '0');
-    final isPm = _hour24 >= 12;
+    final isPm = hour24 >= 12;
     final period = isAr ? (isPm ? 'م' : 'ص') : (isPm ? 'PM' : 'AM');
-    return '$hour12:$minute $period';
+    return '$hour12:${_pad2(minute)} $period';
+  }
+
+  /// Joined with "و" / "and" rather than commas, because this label is
+  /// dropped into a SENTENCE ([previewTextForLocale] → S.planPreview: «بعد
+  /// {cue}، سأقوم بـ {name}»). A comma-separated run reads as a broken list
+  /// inside that frame, and the last item needs the conjunction in both
+  /// languages anyway.
+  String _timeLabel(bool isAr) {
+    final labels = [
+      _oneTimeLabel(_hour24!, _minute!, isAr),
+      for (final t in _extraTimes) _oneTimeLabel(t.hour, t.minute, isAr),
+    ];
+    if (labels.length == 1) return labels.first;
+    final join = isAr ? ' و' : ' and ';
+    return '${labels.sublist(0, labels.length - 1).join(isAr ? '، ' : ', ')}'
+        '$join${labels.last}';
   }
 
   /// "After Maghrib, I will X." / "بعد المغرب، سأقوم بـ X." — pure form,

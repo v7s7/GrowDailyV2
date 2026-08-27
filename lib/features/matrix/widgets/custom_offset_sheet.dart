@@ -2,10 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/l10n/reminder_copy.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
-import 'reminder_picker.dart'
-    show normalizeArabicDigits, arabicDigits, formatReminderMoment;
+import 'reminder_picker.dart' show normalizeArabicDigits, formatReminderMoment;
+
+// ReminderUnit and splitOffsetUnit moved to core/l10n/reminder_copy.dart,
+// where the notification copy can reach them without importing a widget
+// file. Re-exported so this file's existing importers (and the tests that
+// reach them through it) don't have to care that they moved.
+export '../../../core/l10n/reminder_copy.dart'
+    show ReminderUnit, splitOffsetUnit;
 
 /// Black or white on [background], whichever the eye can actually read.
 ///
@@ -17,34 +24,6 @@ import 'reminder_picker.dart'
 /// same reasoning as GameColors.onEmerald / onGold.
 Color _onFill(Color background) =>
     background.computeLuminance() > 0.1791 ? Colors.black : Colors.white;
-
-/// The units a custom offset can be entered in. Stored as minutes on the
-/// way out — the offset set is signed minutes throughout, so a unit is
-/// purely an input convenience and never reaches the model.
-enum ReminderUnit {
-  minutes(1),
-  hours(60),
-  days(1440);
-
-  const ReminderUnit(this.inMinutes);
-  final int inMinutes;
-}
-
-/// Largest unit that divides [magnitude] evenly, and how many of it. 120 →
-/// (2, hours), 1440 → (1, days), 90 → (90, minutes) — a value that doesn't
-/// divide stays in minutes rather than becoming "1.5 hours", which would be
-/// both harder to scan and impossible to type back in.
-///
-/// Shared by [formatOffsetVerbose] and [formatOffsetCompact] so the two can
-/// never disagree about which unit a given offset is expressed in — a chip
-/// reading "1h before" above a list row reading "60 minutes before" would
-/// look like two different reminders.
-(int, ReminderUnit) splitOffsetUnit(int magnitude) =>
-    magnitude % ReminderUnit.days.inMinutes == 0
-        ? (magnitude ~/ ReminderUnit.days.inMinutes, ReminderUnit.days)
-        : magnitude % ReminderUnit.hours.inMinutes == 0
-            ? (magnitude ~/ ReminderUnit.hours.inMinutes, ReminderUnit.hours)
-            : (magnitude, ReminderUnit.minutes);
 
 /// "15 minutes before" / "قبل ١٥ دقيقة" — the counted, human form of a
 /// signed offset. [formatOffsetCompact] is the same fact abbreviated to fit
@@ -72,39 +51,20 @@ String formatOffsetVerbose(
   S s, {
   bool withDirection = true,
 }) {
-  final magnitude = signedMinutes.abs();
-  final (value, unit) = splitOffsetUnit(magnitude);
+  // The counting itself lives in core/l10n/reminder_copy.dart, because the
+  // notification that fires for an offset has to count it the same way the
+  // chip that set it did.
+  final counted = countedOffsetPhrase(signedMinutes.abs(), isAr);
 
   final direction =
       signedMinutes.isNegative ? s.offsetBeforeLabel : s.offsetAfterLabel;
 
   if (!isAr) {
-    const names = {
-      ReminderUnit.minutes: 'minute',
-      ReminderUnit.hours: 'hour',
-      ReminderUnit.days: 'day',
-    };
-    final counted = '$value ${value == 1 ? names[unit]! : '${names[unit]!}s'}';
     // Lowercased: the shared string is capitalised because it labels a chip
     // on its own, but here it's the tail of a phrase — "1 day Before" reads
     // like a bug.
     return withDirection ? '$counted ${direction.toLowerCase()}' : counted;
   }
-
-  const arabicForms = {
-    // singular, genitive dual, plural (3–10)
-    ReminderUnit.minutes: ('دقيقة', 'دقيقتين', 'دقائق'),
-    ReminderUnit.hours: ('ساعة', 'ساعتين', 'ساعات'),
-    ReminderUnit.days: ('يوم', 'يومين', 'أيام'),
-  };
-  final (one, two, few) = arabicForms[unit]!;
-  final counted = switch (value) {
-    1 => one,
-    2 => two,
-    // 3–10 take the plural; 11 and up revert to the singular noun.
-    <= 10 => '${arabicDigits(value)} $few',
-    _ => '${arabicDigits(value)} $one',
-  };
   return withDirection ? '$direction $counted' : counted;
 }
 

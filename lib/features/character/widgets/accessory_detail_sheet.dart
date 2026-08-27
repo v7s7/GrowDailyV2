@@ -9,6 +9,7 @@ import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../models/accessory.dart';
 import '../notifiers/character_notifier.dart';
 import 'gold_coin.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// The screen this feature never had.
 ///
@@ -59,7 +60,7 @@ class _AccessoryDetailSheet extends ConsumerWidget {
         accessory.unlock!.isMetBy(
           level: dash.level,
           streak: dash.streak,
-          completedDays: dash.totalCompletions,
+          completions: dash.totalCompletions,
         );
     final affordable = dash.gold >= accessory.goldCost;
 
@@ -137,7 +138,7 @@ class _AccessoryDetailSheet extends ConsumerWidget {
               requirement: accessory.unlock!,
               level: dash.level,
               streak: dash.streak,
-              completedDays: dash.totalCompletions,
+              completions: dash.totalCompletions,
             ),
           ],
           const SizedBox(height: 16),
@@ -247,7 +248,7 @@ class _AccessoryDetailSheet extends ConsumerWidget {
             await ref.read(characterProvider.notifier).buyAccessory(accessory.id);
         if (!context.mounted) return;
         if (!ok) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showOne(
             SnackBar(
               content: Text(S.of(context).closetPurchaseFailed),
               behavior: SnackBarBehavior.floating,
@@ -320,13 +321,13 @@ class RequirementBar extends StatelessWidget {
   final UnlockRequirement requirement;
   final int level;
   final int streak;
-  final int completedDays;
+  final int completions;
 
   const RequirementBar({
     required this.requirement,
     required this.level,
     required this.streak,
-    required this.completedDays,
+    required this.completions,
   });
 
   @override
@@ -335,7 +336,7 @@ class RequirementBar extends StatelessWidget {
     final have = requirement.progressFrom(
       level: level,
       streak: streak,
-      completedDays: completedDays,
+      completions: completions,
     );
     final ratio = (have / requirement.amount).clamp(0.0, 1.0);
 

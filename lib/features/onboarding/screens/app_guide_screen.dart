@@ -10,6 +10,7 @@ import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart' show habitListProvider;
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// One lesson row's content — icon/color plus the enticing "why" copy shown
 /// here, kept separate from [appGuideLessonCoachTitle]/[appGuideLessonCoachBody]
@@ -233,7 +234,7 @@ void startGuideLesson(
     // an empty Grid with nothing to circle.
     if (lesson == AppGuideLesson.colorSquare && habitsEmpty) {
       target = AppGuideLesson.addHabit;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showOne(
         SnackBar(
           duration: const Duration(seconds: 2),
           content: Text(S.of(context).guideNeedsHabitFirst),

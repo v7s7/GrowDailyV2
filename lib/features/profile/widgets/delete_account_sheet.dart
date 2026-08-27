@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// Confirmation sheet for permanently deleting the signed-in account.
 /// Requires the user to re-enter their password (Firebase needs a recent
@@ -83,7 +84,7 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
     navigator.pop();
     await setGuestMode(ref, false);
     navigator.pushNamedAndRemoveUntil('/', (_) => false);
-    messenger.showSnackBar(
+    messenger.showOne(
       SnackBar(
         content: Text(s.deleteAccountSuccess),
         behavior: SnackBarBehavior.floating,

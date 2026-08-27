@@ -3,10 +3,16 @@
 //
 // The bug this pins: both used `hour >= 18`, which stops being true at
 // midnight. The app's day does not end at midnight, it ends at
-// kDayCutoffHour, so between 00:00 and 06:00 the warning disappeared
-// during the exact hours the cutoff was invented to protect. Someone up at
-// 1am still had five hours to save the streak and the app had gone quiet
-// about it.
+// kDayCutoffHour, so the small hours lost the warning during the exact
+// hours the cutoff was invented to protect. Someone up at 1am still had
+// hours to save the streak and the app had gone quiet about it.
+//
+// Written against kDayCutoffHour rather than a written-out hour on
+// purpose: the cutoff has already moved once (6 AM to 10 AM) and these
+// assertions are about the SHAPE of the window, not the number. A test
+// that hardcodes the hour fails on the next move for no reason, and
+// worse, a test that hardcodes it and passes proves nothing about the
+// wrapping.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 
@@ -24,13 +30,13 @@ void main() {
     // to still be on screen.
     expect(at(0).isDayClosing, isTrue);
     expect(at(1).isDayClosing, isTrue);
-    expect(at(5).isDayClosing, isTrue);
+    expect(at(kDayCutoffHour - 1).isDayClosing, isTrue);
   });
 
   test('it closes at the cutoff, when the day genuinely rolls over', () {
-    expect(at(6).isDayClosing, isFalse);
-    expect(at(9).isDayClosing, isFalse);
-    expect(at(12).isDayClosing, isFalse);
+    expect(at(kDayCutoffHour).isDayClosing, isFalse);
+    expect(at(kDayCutoffHour + 1).isDayClosing, isFalse);
+    expect(at(17).isDayClosing, isFalse);
   });
 
   test('the window agrees with effectiveDay about which day it is', () {
@@ -44,9 +50,20 @@ void main() {
     expect(lateWed.isDayClosing, isTrue);
     expect(earlyThu.isDayClosing, isTrue);
 
-    // And 7am Thursday has rolled over: new day, window shut.
-    final morningThu = DateTime(2026, 8, 20, 7, 0);
-    expect(morningThu.effectiveDay, isNot(lateWed.effectiveDay));
-    expect(morningThu.isDayClosing, isFalse);
+    // And the first hour past the cutoff has rolled over: new day, window
+    // shut.
+    final afterCutoffThu = DateTime(2026, 8, 20, kDayCutoffHour, 0);
+    expect(afterCutoffThu.effectiveDay, isNot(lateWed.effectiveDay));
+    expect(afterCutoffThu.isDayClosing, isFalse);
+  });
+
+  test('the last minute before the cutoff still belongs to yesterday', () {
+    // The reason the cutoff was widened: someone who slept until 9:30am
+    // opens the app and the board is still yesterday's, still markable,
+    // still warning them.
+    final lateNight = DateTime(2026, 8, 19, 23, 0);
+    final lateMorning = DateTime(2026, 8, 20, kDayCutoffHour - 1, 59);
+    expect(lateMorning.effectiveDay, lateNight.effectiveDay);
+    expect(lateMorning.isDayClosing, isTrue);
   });
 }

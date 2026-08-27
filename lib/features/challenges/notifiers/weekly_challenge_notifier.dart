@@ -180,6 +180,10 @@ class WeeklyChallengeNotifier extends StateNotifier<WeeklyChallengeState> {
     await _ref.read(dashboardProvider.notifier).awardBonus(
           xp: state.challenge.xpReward,
           gold: state.challenge.goldReward,
+          // Gated by rewardClaimed just above, which is flipped before the
+          // pay and never flipped back, so this can happen once per
+          // challenge and is not something a daily ceiling should bound.
+          countsTowardDailyCap: false,
         );
     if (_uid == null) return;
     _doc.set({'rewardClaimed': true}, SetOptions(merge: true)).ignore();

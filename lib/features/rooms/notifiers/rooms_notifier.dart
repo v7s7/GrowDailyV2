@@ -1014,10 +1014,24 @@ List<String> roomRuleMismatches(
 /// is resolvable, dropping everything would leave a day that asks nothing,
 /// and a day that asks nothing is full credit here by design (see
 /// RoomParticipant.creditFor and paused_habit_room_grading_test) — so
-/// pausing every linked habit would pay 100% a day forever. When that
-/// happens the caller counts every id as scheduled and never done instead,
-/// which scores the member zero. That is the truthful answer: they have
-/// paused their entire commitment and are not participating.
+/// pausing every linked habit would pay 100% a day forever.
+///
+/// What the caller does about that has changed once. It used to count every
+/// id as scheduled and never done, scoring the member ZERO for each of those
+/// days, on the reasoning that they had paused their entire commitment and
+/// were not participating. True as far as it went, and far too blunt in
+/// practice: measured on room A8GEL7, pausing a 4x-a-week habit on 2 Aug read
+/// 13% against 93%, took a 26-day streak to 0, and filled a month of the
+/// member's strip with red crosses for days nobody had asked them about.
+/// Standing a habit down was worse than never opening the app.
+///
+/// The caller now records those days in RoomParticipant.standDownDays
+/// instead, which excludes them from BOTH sides — so the percentage holds
+/// still rather than collapsing, and the free-100% hole stays shut because a
+/// stand-down day is not a rest day: creditFor returns 0 for it and
+/// isFullyDone is false. A link with no habit behind it at all is NOT a
+/// stand-down (nobody chose to step back from a habit that was deleted) and
+/// still falls to the old scheduled-and-never-done treatment.
 bool roomHasGradableHabit(
   List<String> countedIds,
   Set<String> resolvableIds,
@@ -2115,7 +2129,11 @@ class RoomsController {
       return true;
     });
     if (!didClaim) return;
-    await _ref.read(dashboardProvider.notifier).awardBonus(xp: xp, gold: gold);
+    // Guarded by the didClaim transaction above, so it is once per room
+    // episode and exempt from the daily earn ceiling.
+    await _ref
+        .read(dashboardProvider.notifier)
+        .awardBonus(xp: xp, gold: gold, countsTowardDailyCap: false);
   }
 
   /// The end-of-room prize for finishing in [rank] (1-based), or null for
@@ -2180,7 +2198,12 @@ class RoomsController {
     if (!didClaim) return;
     await _ref
         .read(dashboardProvider.notifier)
-        .awardBonus(xp: prize.xp, gold: prize.gold);
+        .awardBonus(
+          xp: prize.xp,
+          gold: prize.gold,
+          // A podium prize is settled once when the room ends.
+          countsTowardDailyCap: false,
+        );
   }
 
   /// Stars/unstars [code] for this account only, on `users/{uid}` - the
@@ -2399,11 +2422,59 @@ class RoomsController {
     // A day this habit was genuinely being tracked on. Falls back to the old
     // single-window rule when no stint history exists, so an account that has
     // never paused anything grades byte-for-byte as it did before.
-    bool countedOn(IslamicHabitTemplate habit, DateTime day) => habitCountedOn(
-          stintsById[habit.id],
-          day,
-          fallback: () => habitExistedOn(habit, day),
-        );
+    // ── Repairing a habit whose birth date was overwritten ──────────────
+    //
+    // Resuming a habit used to move its birth date to the resume day even when
+    // the window it closed could not be recorded (a habit with no known start;
+    // see CustomHabitsNotifier.unarchive and ActiveCatalogNotifier.toggle, both
+    // fixed now). The habit came back claiming it was born that day, so every
+    // earlier day graded as "this did not exist", a scheduled count of ZERO was
+    // written across the member's whole history, and a zero denominator reads
+    // as a rest day worth full credit (see RoomParticipant.creditFor). The
+    // visible result was a high percentage sitting above a completely blank
+    // strip.
+    //
+    // The damage is not self-healing: those days are stored as 0 and the
+    // anti-backdating hatch only steps aside when the scheduled count RISES,
+    // which 0 > 0 never does. But the ROOM kept its own record. effectiveRules
+    // is stamped `from: room.startDate` the first time this room ever graded
+    // the habit and is never re-stamped, so it is an attestation of when the
+    // habit joined the plan that is completely independent of every date the
+    // habit itself carries. Where the two disagree in the one direction that
+    // only damage produces — the habit claims to be YOUNGER than the room's own
+    // record of it — the room's record is the floor.
+    //
+    // Bounded on purpose, and only ever widens BACKWARDS: from that floor up to
+    // (not past) the habit's own damaged start. So it cannot excuse a miss, it
+    // cannot reach past a pause (the closed window still ends at archivedAt, so
+    // the stand-down days still fall through to hadStartedBy and still score
+    // zero), and an account whose dates are intact never enters this branch at
+    // all, which is what keeps every stored percentage identical on the first
+    // launch after this ships.
+    final stintFloorById = <String, DateTime>{};
+    final damagedStartById = <String, DateTime>{};
+
+    bool countedOn(IslamicHabitTemplate habit, DateTime day) {
+      if (habitCountedOn(
+        stintsById[habit.id],
+        day,
+        fallback: () => habitExistedOn(habit, day),
+      )) {
+        return true;
+      }
+      final floor = stintFloorById[habit.id];
+      final damaged = damagedStartById[habit.id];
+      if (floor == null || damaged == null) return false;
+      final d = DateTime(day.year, day.month, day.day);
+      if (d.isBefore(floor) || !d.isBefore(damaged)) return false;
+      // Never past the pause: a stood-down day is not a tracked day.
+      final died = habit.archivedAt;
+      if (died != null &&
+          d.isAfter(DateTime(died.year, died.month, died.day))) {
+        return false;
+      }
+      return true;
+    }
 
     // Refuse to grade against a habit list that hasn't loaded.
     //
@@ -2565,6 +2636,32 @@ class RoomsController {
       ];
     }
 
+    // See stintFloorById. The MINIMUM `from`, not the first: recordHabitRuleChange
+    // appends later rule periods, so the list is not sorted.
+    for (final id in habitIds) {
+      final rules = effectiveRules[id];
+      if (rules == null || rules.isEmpty) continue;
+      var from = rules.first.from;
+      for (final r in rules) {
+        if (r.from.compareTo(from) < 0) from = r.from;
+      }
+      final roomSaw = DateTime.tryParse(from);
+      if (roomSaw == null) continue;
+      DateTime? earliest;
+      for (final stint in stintsById[id] ?? const <(DateTime?, DateTime)>[]) {
+        final start = stint.$1;
+        // A null start is already unbounded, so nothing is damaged here.
+        if (start == null) { earliest = null; break; }
+        if (earliest == null || start.isBefore(earliest)) earliest = start;
+      }
+      if (earliest == null) continue;
+      if (earliest.isAfter(roomSaw)) {
+        stintFloorById[id] = DateTime(roomSaw.year, roomSaw.month, roomSaw.day);
+        damagedStartById[id] =
+            DateTime(earliest.year, earliest.month, earliest.day);
+      }
+    }
+
     // Running per-day totals across every linked habit, regular and weekly
     // alike - written to Firestore sparsely at the end, matching
     // RoomParticipant.dailyScheduledCount/dailyDoneCount's own "absent means
@@ -2723,7 +2820,22 @@ class RoomsController {
     // habit scheduled on any of those days, and a day that asks nothing is
     // full credit by design (see RoomParticipant.creditFor), so standing your
     // whole commitment down would pay 100% a day for the rest of the room.
-    // This puts those days, and only those days, back in the denominator.
+    // This marks those days, and only those days, as STOOD DOWN.
+    //
+    // ── Stood down, not missed ──────────────────────────────────────────
+    // This used to put each paused habit back in the DENOMINATOR instead —
+    // scheduled and never done — which closed the hole by scoring the days
+    // zero. It closed it far too hard. Measured on room A8GEL7: a member
+    // doing 4x a week faithfully and pausing on 2 Aug read 13% against 93%,
+    // with a 26-day streak gone and a month of red crosses on a strip for
+    // days the room had never asked them about. Pausing was strictly worse
+    // than quietly doing nothing, which is the opposite of the promise.
+    //
+    // RoomParticipant.standDownDays is the third answer: the day leaves BOTH
+    // sides, exactly as a room-level pause does, so the percentage holds
+    // still instead of collapsing — and it is not a rest day, so it can never
+    // be farmed as a free finished day either (creditFor returns 0 for it and
+    // isFullyDone is false). The exploit stays closed; the punishment goes.
     //
     // Asked PER DAY, not per "right now". The condition used to be the
     // notifier-level anyGradable, which describes the member's habits at the
@@ -2751,19 +2863,58 @@ class RoomsController {
       });
     }
 
-    for (final d in days) {
-      final resolvable = [
-        for (final id in habitIds)
-          if (habitById[id] case final IslamicHabitTemplate h) (id, h),
-      ];
-      if (resolvable.isEmpty) continue;
+    // Loop-invariant: which links resolve to a habit at all does not vary by
+    // day, only whether each one was ACTIVE on a given day does.
+    final resolvable = [
+      for (final id in habitIds)
+        if (habitById[id] case final IslamicHabitTemplate h) (id, h),
+    ];
+    // Every counted link has to resolve before any day can be a stand-down.
+    //
+    // A link with no habit behind it is a habit deleted out from under the
+    // room, not one the member stepped back from — it keeps the old
+    // scheduled-and-never-done treatment and its own warning
+    // (roomLinkedHabitDeletedHint). Without this gate a MIXED plan (one habit
+    // paused, one deleted) would have marked the day a stand-down and the
+    // write loop below would then have dropped the deleted link's miss with
+    // it, quietly excusing a day that had a real unanswered obligation on it.
+    //
+    // Identical to the tap path's `resolvedToday.length == linkedIds.length`
+    // on purpose: the two must decide the same day the same way, which is the
+    // whole invariant roomHasGradableHabit exists to hold.
+    final everyLinkResolves =
+        resolvable.length == habitIds.length && resolvable.isNotEmpty;
+    final standDown = <String>{};
+    for (var i = 0; i < days.length; i++) {
+      if (!everyLinkResolves) break;
+      final d = days[i];
       // Anything actually running that day means this is not a stand-down.
       if (resolvable.any((e) => countedOn(e.$2, d))) continue;
+      // ── A day somebody actually TRAINED is never a stand-down ──────────
+      //
+      // countedOn answers "was the habit active", which is false for every
+      // day after archivedAt — but a real square can still exist on such a
+      // day. Back-painting one in the Grid puts it there, and so does a pause
+      // whose recorded window ends earlier than the work did. Blanking those
+      // days would drop credit the member had genuinely earned, which is the
+      // opposite failure to the one this whole rule exists to fix: the point
+      // is that a pause costs you nothing, not that it quietly erases the
+      // last thing you did before it.
+      //
+      // Caught by Aziz on the trace screenshot: "I already did it yesterday",
+      // about a day the strip had drawn as a stand-down bar.
+      //
+      // Green AND partial, because both score (see creditFor, where a جزئي is
+      // worth half a habit). Deliberately NOT isSkipped: a تخطّي is a day you
+      // said you were resting, it earns nothing, and it has no credit to
+      // protect.
+      if (resolvable.any((e) => isGreen(i, e.$1) || isPartial(i, e.$1))) {
+        continue;
+      }
       // Nothing had started yet: this is before the plan existed, not a
       // stretch anybody walked away from.
       if (!resolvable.any((e) => hadStartedBy(e.$1, e.$2, d))) continue;
-      final key = d.toDateKey();
-      scheduledCount[key] = scheduledCount[key]! + 1;
+      standDown.add(d.toDateKey());
     }
 
     // ── Pass 2: the weekly quota, which ONLY affects streaks. ─────────────
@@ -2842,6 +2993,19 @@ class RoomsController {
         okWeekSet.remove(wkKey);
       }
     }
+    // And again for the stand-down days (RoomParticipant.standDownDays):
+    // recomputed for every day in this window, untouched outside it. Resuming
+    // a habit therefore un-marks the days it covers on the next resync, which
+    // is what makes a pause reversible rather than merely survivable.
+    final standDownSet = <String>{...mineNow.standDownDays};
+    for (final d in days) {
+      final key = d.toDateKey();
+      if (standDown.contains(key)) {
+        standDownSet.add(key);
+      } else {
+        standDownSet.remove(key);
+      }
+    }
     // Whether this participant has any recorded day at all. False only for a
     // genuinely fresh link (or a brand-new room), where there's no earned
     // history to preserve and capping against nothing would zero out a real
@@ -2885,7 +3049,12 @@ class RoomsController {
       // no miss, matching RoomParticipant.daysCompleted/daysElapsedIn which
       // both skip it. Writing a 0 here instead would make the day look
       // missed to anything that reads the raw map.
-      if (room.isPausedOn(dateKey)) {
+      //
+      // A member's own stand-down day leaves by the same door, and for the
+      // same reason: it is excluded from both sides of their ratio, so any
+      // number written here could only ever be read as a claim about a day
+      // nobody was asked about. See RoomParticipant.standDownDays.
+      if (room.isPausedOn(dateKey) || standDown.contains(dateKey)) {
         dailyCounts.remove(dateKey);
         dailyScheduled.remove(dateKey);
         dailyRested.remove(dateKey);
@@ -2988,6 +3157,7 @@ class RoomsController {
     // would rewrite the field with a reshuffled list every time, making real
     // changes impossible to spot when reading the doc.
     final storedOkWeeks = okWeekSet.toList()..sort();
+    final storedStandDown = standDownSet.toList()..sort();
 
     // Built from rawIds, not habitIds - linkedHabitNames has to stay
     // index-for-index parallel with linkedHabitIds, so a skipped slot keeps
@@ -3081,6 +3251,7 @@ class RoomsController {
       // percentage comes out identical, and the allowance earns from today.
       if (mineNow.restAllowanceFrom == null) 'restAllowanceFrom': todayKey,
       'quotaOkWeeks': storedOkWeeks,
+      'standDownDays': storedStandDown,
       // Persists whatever this pass had to seed (see effectiveRules above),
       // so the room's frozen grading rules survive to the next sync instead
       // of being re-derived from the habit's current settings every time -
@@ -3304,6 +3475,33 @@ class RoomsController {
         // resync can no longer grade the same paused habit differently.
         // ACTIVE ids, not habitById, which also resolves paused habits.
         final anyGradable = roomHasGradableHabit(linkedIds, activeIds);
+        // Today with every counted habit paused. The same day the full
+        // resync's closing pass records in RoomParticipant.standDownDays, and
+        // it has to be decided identically here or a tap and a room-open would
+        // grade the same day two different ways — the exact class of bug
+        // roomHasGradableHabit was written to end.
+        //
+        // A link with NO habit behind it is not a stand-down: that is a habit
+        // deleted out from under the room, it has its own warning
+        // (roomLinkedHabitDeletedHint), and nobody chose to step back from it.
+        // So this asks specifically whether every resolvable link is one the
+        // member paused.
+        final resolvedToday = [
+          for (final id in linkedIds)
+            if (habitById[id] case final IslamicHabitTemplate h) h,
+        ];
+        final isStandDownToday = !anyGradable &&
+            resolvedToday.isNotEmpty &&
+            resolvedToday.length == linkedIds.length &&
+            !resolvedToday.any((h) => habitExistedOn(h, todayDate)) &&
+            // Same guard as the full resync's closing pass: a day with real
+            // work on it is never a stand-down, or this path would blank a
+            // square the member had just earned. Green and partial both
+            // score; a تخطّي does not, so it does not protect the day.
+            !resolvedToday.any((h) {
+              final square = todaySquares[h.id] ?? SquareState.none;
+              return square.isGreen || square == SquareState.partial;
+            });
         final scheduledIds = linkedIds.where((id) {
           final habit = habitById[id];
           // A link with no habit at all behind it: gone, not paused. Off
@@ -3313,9 +3511,13 @@ class RoomsController {
           if (habit == null) return !anyGradable;
           // Paused habits resolve, so this is where today falls out for
           // them: habitExistedOn is false for any day after archivedAt.
-          // When nothing is running they stay in the denominator instead,
-          // for the same reason as above.
-          if (!habitExistedOn(habit, todayDate)) return !anyGradable;
+          // A stand-down day drops them here too — the day is excluded from
+          // both sides of the ratio rather than scored, so putting anything
+          // in the denominator for it would be a claim about a day the room
+          // never asked about. See RoomParticipant.standDownDays.
+          if (!habitExistedOn(habit, todayDate)) {
+            return !anyGradable && !isStandDownToday;
+          }
           final weekdays = mine.ruleFor(id, today)?.scheduledWeekdays ??
               habit.scheduledWeekdays;
           return weekdays.isEmpty || weekdays.contains(todayDate.weekday);
@@ -3353,6 +3555,10 @@ class RoomsController {
                   (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
                 ) ??
                 const <String, int>{};
+        final existingStandDown =
+            (snap.data()?['standDownDays'] as List?)?.whereType<String>() ??
+                const <String>[];
+        final wasStandDown = existingStandDown.contains(today);
         // null means "fully scheduled, nothing excused" - the same sparse
         // convention syncLinkedHabitsProgress writes, so an absent key and
         // an explicit null both mean the same thing here.
@@ -3368,7 +3574,8 @@ class RoomsController {
         if ((existingCounts[today] ?? 0) == doneCount &&
             existingScheduled[today] == newScheduled &&
             (existingRested[today] ?? 0) == restedToday &&
-            (existingPartial[today] ?? 0) == partialToday) {
+            (existingPartial[today] ?? 0) == partialToday &&
+            wasStandDown == isStandDownToday) {
           return; // Already correct - skip the write.
         }
         final updatedCounts = {...existingCounts};
@@ -3395,6 +3602,18 @@ class RoomsController {
         } else {
           updatedScheduled.remove(today);
         }
+        // Add-or-remove, never add-only: resuming a habit part-way through the
+        // day has to take today's mark back off, or the day would stay excused
+        // for a member who is running again. Sorted for the same reason
+        // quotaOkWeeks is — a stable array makes a real change readable in the
+        // doc.
+        final updatedStandDown = {...existingStandDown};
+        if (isStandDownToday) {
+          updatedStandDown.add(today);
+        } else {
+          updatedStandDown.remove(today);
+        }
+        final storedStandDown = updatedStandDown.toList()..sort();
         // Deliberately does NOT touch quotaOkWeeks. This path only runs for
         // rooms with no weekly-quota habit, so today's break status is just
         // "was anything due today left undone" - but today is exempt anyway
@@ -3409,8 +3628,8 @@ class RoomsController {
         // whatever it decides "today" means is exactly what should trigger
         // the room-finish push, and the next full syncLinkedHabitsProgress
         // (room-open) reconciles it properly either way.
-        final newAllDoneToday =
-            scheduledIds.isEmpty || doneCount >= scheduledIds.length;
+        final newAllDoneToday = !isStandDownToday &&
+            (scheduledIds.isEmpty || doneCount >= scheduledIds.length);
         // Same date-aware edge check as syncLinkedHabitsProgress - see that
         // method's doc comment for why allDoneDate has to be checked
         // alongside the bool, not just the bool alone.
@@ -3432,6 +3651,7 @@ class RoomsController {
           'dailyScheduledCount': updatedScheduled,
           'dailyRestedCount': updatedRested,
           'dailyPartialCount': updatedPartial,
+          'standDownDays': storedStandDown,
           'lastUpdated': Timestamp.now(),
           // This path graded today too, so it moves the watching-watermark
           // exactly like the full resync does - otherwise a person whose only

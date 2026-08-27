@@ -39,12 +39,22 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     var newCurrentLevelXp = state.currentLevelXp;
     var newCumulativeXp = state.cumulativeXp;
 
-    if (xpDelta != 0) {
+    // Only a POSITIVE delta meets the daily ceiling. A negative one is a
+    // square being cleared, i.e. a reversal, and clamping a reversal would
+    // let a user keep XP by taking a colour back off once the day was full.
+    // Gold is untouched here: this path pays gold only through achievement
+    // unlocks, which are exempt by design.
+    final gridCap = xpDelta > 0
+        ? _allowedToday(xp: xpDelta, gold: 0, habitCount: 0)
+        : (xp: xpDelta, gold: 0, newXpToday: -1, newGoldToday: -1);
+    final cappedXpDelta = gridCap.xp;
+
+    if (cappedXpDelta != 0) {
       final result = XpCalculator.applyXpDelta(
         currentLevel: state.level,
         currentLevelXp: state.currentLevelXp,
         cumulativeXp: state.cumulativeXp,
-        xpDelta: xpDelta,
+        xpDelta: cappedXpDelta,
       );
       newLevel = result.newLevel;
       newCurrentLevelXp = result.newCurrentLevelXp;
@@ -77,10 +87,12 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       totalCompletions: state.totalCompletions,
       greenSquares: newTotalGreen,
       categoryCompletions: state.categoryCompletions,
+      levelGrantPaidThrough: state.levelGrantPaidThrough,
     );
     final newly = unlocks.newly;
     final newUnlockedIds = unlocks.unlockedIds;
     newLevel = unlocks.level;
+    final newGrantMark = unlocks.levelGrantPaidThrough;
     newCurrentLevelXp = unlocks.currentLevelXp;
     newCumulativeXp = unlocks.cumulativeXp;
     final newGold = state.gold + unlocks.bonusGold;
@@ -91,6 +103,8 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       currentLevelXp: newCurrentLevelXp,
       cumulativeXp: newCumulativeXp,
       gold: newGold,
+      earnedDayKey: xpDelta > 0 ? DashboardNotifier._todayKey : null,
+      earnedXpToday: xpDelta > 0 ? gridCap.newXpToday : null,
       totalGreenSquares: newTotalGreen,
       dailyGreenCounts: newDailyGreenCounts,
       unlockedAchievements: newUnlockedIds,
@@ -125,9 +139,14 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       // signed-in path in line with it.
       final userUpdate = <String, dynamic>{
         'level': newLevel,
+        'levelGrantPaidThrough': newGrantMark,
         'currentLevelXp': newCurrentLevelXp,
         'cumulativeXp': newCumulativeXp,
         'gold': newGold,
+        if (xpDelta > 0) ...{
+          'earnedDayKey': DashboardNotifier._todayKey,
+          'earnedXpToday': gridCap.newXpToday,
+        },
         // arrayUnion of only what was just earned — see completeHabit's
         // identical write for why this must never be a wholesale overwrite.
         if (newly.isNotEmpty)
@@ -193,6 +212,51 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     ).ignore();
   }
 
+  /// Buys one more BANK SLOT, permanently raising how many freezes this
+  /// account may hold. Returns whether it persisted.
+  ///
+  /// Same rollback rule as [buyStreakFreeze] below and for the same reason:
+  /// a failed write that still showed success cost the player gold and gave
+  /// nothing back. Capacity is written as an ABSOLUTE value rather than an
+  /// increment, so a retry after a write whose result was never seen lands
+  /// on the same number instead of buying the slot twice.
+  ///
+  /// Both the price and the level gate come from one map, so they cannot
+  /// disagree. A slot that is not in it simply cannot be bought.
+  Future<bool> buyFreezeSlot(int slot) async {
+    if (_uid != null && (state.loadFailed || state.isLoading)) return false;
+    final offer = DashboardNotifier.freezeSlots[slot];
+    if (offer == null) return false;
+    // Slots are bought in order: this is the NEXT one or nothing. Without
+    // it, someone at capacity 3 could buy slot 5 and skip slot 4's price.
+    if (slot != state.freezeCapacityOrDefault + 1) return false;
+    if (state.level < offer.level) return false;
+    if (state.gold < offer.cost) return false;
+
+    final previousGold = state.gold;
+    final previousCapacity = state.freezeCapacity;
+    final newGold = previousGold - offer.cost;
+    state = state.copyWith(gold: newGold, freezeCapacity: slot);
+    try {
+      if (_uid == null) {
+        await _saveGuestState();
+      } else {
+        await _userRef.set({
+          'gold': newGold,
+          'freezeCapacity': slot,
+        }, SetOptions(merge: true));
+      }
+    } catch (_) {
+      state = state.copyWith(
+        gold: previousGold,
+        freezeCapacity: previousCapacity,
+      );
+      return false;
+    }
+    AnalyticsService.instance.track('freeze_slot_bought', props: {'slot': slot});
+    return true;
+  }
+
   /// Spends gold for an extra streak freeze. Returns whether the purchase
   /// actually persisted — previously this always returned `true` once the
   /// affordability check passed, even if the Firestore write below failed,
@@ -204,7 +268,7 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   /// happen.
   Future<bool> buyStreakFreeze() async {
     if (state.gold < DashboardNotifier.streakFreezeCost ||
-        state.streakFreezes >= DashboardNotifier.maxStreakFreezes) {
+        state.streakFreezes >= state.freezeCapacityOrDefault) {
       return false;
     }
     final previousGold = state.gold;
@@ -383,9 +447,22 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       return;
     }
 
-    if (owedDays == 1 && state.streak > 0 && state.streakFreezes > 0) {
+    // Spends as many freezes as the gap actually owes, all or nothing.
+    //
+    // This is what makes capacity above three worth paying for. Before it, a
+    // bank of five protected exactly as much as a bank of one: gaps resolve
+    // only at app open, and this branch fired only on owedDays == 1 and spent
+    // a single freeze, so a two-day gap ended the streak however full the
+    // bank was. Selling slots 4 and 5 against that would have been selling
+    // nothing.
+    //
+    // Strictly more protection than before, never less. A bank that cannot
+    // cover the whole gap spends NOTHING and falls through to the unchanged
+    // streak-loss branch below, so no freeze is ever burned on a gap it
+    // cannot actually close.
+    if (state.streak > 0 && state.streakFreezes >= owedDays) {
       final yesterday = today.subtract(const Duration(days: 1));
-      final newFreezes = state.streakFreezes - 1;
+      final newFreezes = state.streakFreezes - owedDays;
       state = state.copyWith(
         streakFreezes: newFreezes,
         didUseStreakFreeze: true,
@@ -568,7 +645,49 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   /// RoomsController's two bonuses on a Firestore transaction that flips the
   /// claim flag before paying. This method itself is deliberately dumb about
   /// that; it cannot tell a legitimate second award from a duplicate.
-  Future<void> awardBonus({required int xp, required int gold}) async {
+  /// Reserves one of today's Matrix task payouts, see
+  /// [kDailyRewardedTaskCap]. Returns false once the day's allowance is gone.
+  ///
+  /// Synchronous on purpose. The caller decides in the same event-loop turn
+  /// whether to set the task's one-way `rewarded` flag, and an await between
+  /// the check and the increment would let two quick taps both pass.
+  ///
+  /// A false answer means the caller must NOT mark the task rewarded. That
+  /// flag is one-way and lives on the task, so burning it on a payout that
+  /// never happened loses the reward for good; declining instead leaves the
+  /// task free to pay on a later day.
+  bool claimTaskReward() {
+    if (_uid != null && (state.loadFailed || state.isLoading)) return false;
+    final dayKey = DashboardNotifier._todayKey;
+    final used = state.rewardedTasksOn(dayKey);
+    if (used >= kDailyRewardedTaskCap) return false;
+    state = state.copyWith(
+      rewardedTasksDayKey: dayKey,
+      rewardedTasksToday: used + 1,
+    );
+    if (_uid == null) {
+      _saveGuestState().ignore();
+    } else {
+      _userRef.set({
+        'rewardedTasksDayKey': dayKey,
+        'rewardedTasksToday': used + 1,
+      }, SetOptions(merge: true)).ignore();
+    }
+    return true;
+  }
+
+  /// [countsTowardDailyCap] is true for anything a user can repeat at will,
+  /// which is the default because a new caller is far more likely to be
+  /// farmable than not, and the safe failure is to cap something that did not
+  /// need it. Pass false only for a genuinely once-per-episode claim whose
+  /// caller flips a one-way claim flag before paying: a room podium prize or
+  /// a weekly challenge cannot be ground out, and silently withholding one
+  /// would strand a reward that no later sweep can re-offer.
+  Future<void> awardBonus({
+    required int xp,
+    required int gold,
+    bool countsTowardDailyCap = true,
+  }) async {
     // Same refusal as completeHabit's and applyGridSquareChange's, and it
     // was missing here. This method writes level, currentLevelXp,
     // cumulativeXp and gold as ABSOLUTE values computed from `state`, and
@@ -582,11 +701,15 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // reward` straight over the real balance.
     if (_uid != null && state.loadFailed) return;
 
+    final capped = countsTowardDailyCap
+        ? _allowedToday(xp: xp, gold: gold, habitCount: 0)
+        : (xp: xp, gold: gold, newXpToday: -1, newGoldToday: -1);
+
     final result = XpCalculator.applyXpGain(
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
       cumulativeXp: state.cumulativeXp,
-      xpGained: xp,
+      xpGained: capped.xp,
     );
 
     // Lump-sum XP raises the level like any other XP, so it can cross a
@@ -605,17 +728,22 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       totalCompletions: state.totalCompletions,
       greenSquares: state.totalGreenSquares,
       categoryCompletions: state.categoryCompletions,
+      levelGrantPaidThrough: state.levelGrantPaidThrough,
     );
-    final newGold = state.gold + gold + unlocks.bonusGold;
+    final newGold = state.gold + capped.gold + unlocks.bonusGold;
 
     state = state.copyWith(
       level: unlocks.level,
+      levelGrantPaidThrough: unlocks.levelGrantPaidThrough,
       currentLevelXp: unlocks.currentLevelXp,
       cumulativeXp: unlocks.cumulativeXp,
       gold: newGold,
       unlockedAchievements: unlocks.unlockedIds,
       newlyUnlocked: unlocks.newly,
       didJustLevelUp: unlocks.level > state.level,
+      earnedDayKey: countsTowardDailyCap ? DashboardNotifier._todayKey : null,
+      earnedXpToday: countsTowardDailyCap ? capped.newXpToday : null,
+      earnedGoldToday: countsTowardDailyCap ? capped.newGoldToday : null,
     );
 
     NotificationService.instance.showAchievementsUnlocked([
@@ -634,9 +762,15 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     try {
       await _userRef.set({
         'level': unlocks.level,
+        'levelGrantPaidThrough': unlocks.levelGrantPaidThrough,
         'currentLevelXp': unlocks.currentLevelXp,
         'cumulativeXp': unlocks.cumulativeXp,
         'gold': newGold,
+        if (countsTowardDailyCap) ...{
+          'earnedDayKey': DashboardNotifier._todayKey,
+          'earnedXpToday': capped.newXpToday,
+          'earnedGoldToday': capped.newGoldToday,
+        },
         // arrayUnion, not the whole computed list — see the same call in
         // completeHabit for why a set that only ever grows must never be
         // written wholesale.

@@ -223,7 +223,7 @@ Future<void> _addHabitToPlan(
   if (picked == null || !context.mounted) return;
   await ref.read(roomsControllerProvider).addSharedHabit(room, picked.id);
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.of(context).showOne(
     SnackBar(content: Text(s.roomHabitAddedConfirmation(picked.name))),
   );
 }
@@ -243,7 +243,7 @@ Future<void> _toggleMute(
   final next = !mine.notificationsMuted;
   await ref.read(roomsControllerProvider).setRoomMuted(room.code, next);
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.of(context).showOne(
     SnackBar(
       content: Text(next ? s.roomMutedConfirmation : s.roomUnmutedConfirmation),
     ),

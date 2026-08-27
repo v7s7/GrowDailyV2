@@ -165,12 +165,141 @@ enum SquareState {
       };
 
   /// Small glyph drawn inside a marked square (null for the empty state).
+  ///
+  /// [partial] deliberately keeps a non-null IconData even though every site
+  /// in the app now draws it through [glyph] instead. This is the safety net:
+  /// four call sites write `state.icon ?? Icons.circle_outlined`, so returning
+  /// null here would make a partial square render the EXACT same hollow circle
+  /// as an empty one — a state marker becoming indistinguishable from "nothing
+  /// happened". `contrast_rounded` is a hard 50/50 split disc, so a site that
+  /// is added later and forgets [glyph] still says "half", not "a clock".
+  ///
+  /// It used to be `Icons.timelapse_rounded`, which is a clock face. The
+  /// yellow square has always meant "counts as half a day" — the app says so
+  /// in its own words in [S.squareStateEffect] — and a clock says the one
+  /// thing it does not mean, that time is passing. See [levelFactor].
   IconData? get icon => switch (this) {
         none => null,
-        partial => Icons.timelapse_rounded,
+        partial => Icons.contrast_rounded,
         complete => Icons.check_rounded,
         failed => Icons.close_rounded,
         bonus => Icons.auto_awesome_rounded,
         skipped => Icons.remove_rounded,
       };
+
+  /// How full to draw the square, 0..1 — null means paint it flat.
+  ///
+  /// Only [partial] has a level, and it is exactly a half. This is not a new
+  /// metaphor: the Grid already fills a counted habit's square upward from
+  /// the bottom as its count climbs (see the `_isCounting` block in
+  /// _SquareCell), and a hand-marked جزئي is the same statement frozen at
+  /// 50%. Geometry also survives the size range in a way a glyph does not —
+  /// the cell clamps to 30..60pt, and at the low end a 15pt wedge collapses
+  /// into a smudge while half of a square is still half of a square.
+  double? get levelFactor => this == partial ? 0.5 : null;
+
+  /// The risen part of a levelled square, painted OVER [fill].
+  ///
+  /// Dark is a second wash of the same token: 0.30 over 0.30 composites to
+  /// 0.51, which measures 1.75:1 against the unrisen half — a clear step with
+  /// no new colour to keep in sync across the 11 presets.
+  ///
+  /// Light cannot do that. #F7C948 has no headroom above a light card: a
+  /// second wash moves almost only the blue channel, so the two halves come
+  /// out 1.07:1 apart — a chroma step the eye reads as one flat square. Light
+  /// mode therefore tints DOWNWARD toward [_partialInk] instead, which is a
+  /// value step rather than a saturation one.
+  ///
+  /// The 0.45 is measured, not picked: it lands the light step at ~1.6:1,
+  /// which is where dark already sits. Checked on a real board rather than
+  /// on paper — at 0.30 the line was crisp up close but the two halves still
+  /// read as one square at arm's length, which is the only distance that
+  /// matters for a mark whose whole job is being scannable across a week.
+  Color levelFill(bool dark) => dark
+      ? GameColors.warning.withOpacity(0.30)
+      : _partialInk.withOpacity(0.45);
+
+  /// The 1pt line where the fill stops — the single element that carries this
+  /// mark at 30pt, in light mode, and in greyscale. Not decoration.
+  Color levelLine(bool dark) => dark ? GameColors.warning : _partialInk;
+
+  /// #F7C948 taken down in VALUE at the same hue (H 44.2°, S 0.78, V 0.63)
+  /// rather than to a different colour. Measures 2.97:1 against the light
+  /// partial fill, which is what a structural hairline needs.
+  static const Color _partialInk = Color(0xFFA18023);
+
+  /// A drop-in for `Icon(state.icon, size: …, color: …)`.
+  ///
+  /// Same size×size box as an [Icon], so no call site changes shape. The only
+  /// state that differs is [partial], which gets [HalfFullMark] — the board
+  /// square in miniature — instead of an icon. A circle was the problem: a
+  /// half-filled circle is a clock face, and every attempt to say "half" with
+  /// one lands back where this started.
+  Widget glyph({required double size, Color? color, IconData? fallback}) {
+    final ink = color ?? accent;
+    if (this == partial) return HalfFullMark(size: size, color: ink);
+    final data = icon ?? fallback;
+    return data == null
+        ? SizedBox(width: size, height: size)
+        : Icon(data, size: size, color: ink);
+  }
+}
+
+/// A rounded square filled to its own halfway line — the Grid's partial
+/// square, shrunk to glyph size.
+///
+/// Used wherever the state has to appear as a small mark beside a label
+/// (the heatmap day sheet, Grid Journal, Progress Hub, a room's own plan
+/// card) rather than as a full square on the board. Those tiles are 30-36pt
+/// containers over an `accent.withOpacity(0.14)` ground, where a two-tone
+/// fill would be invisible, so the mark is drawn as ink instead: an outline
+/// for the whole day, solid for the half that happened.
+class HalfFullMark extends StatelessWidget {
+  final double size;
+  final Color color;
+  const HalfFullMark({super.key, required this.size, required this.color});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(painter: _HalfFullMarkPainter(color)),
+      );
+}
+
+class _HalfFullMarkPainter extends CustomPainter {
+  final Color color;
+  const _HalfFullMarkPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Clamped, not proportional all the way down: below ~11pt a proportional
+    // stroke thins to nothing and the outline stops reading as a container.
+    final stroke = (size.width * 0.115).clamp(1.2, 2.4);
+    final rect = Rect.fromLTWH(
+      stroke / 2,
+      stroke / 2,
+      size.width - stroke,
+      size.height - stroke,
+    );
+    final rrect =
+        RRect.fromRectAndRadius(rect, Radius.circular(size.width * 0.24));
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke,
+    );
+    canvas.save();
+    canvas.clipRRect(rrect);
+    canvas.drawRect(
+      Rect.fromLTRB(0, size.height / 2, size.width, size.height),
+      Paint()..color = color,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_HalfFullMarkPainter old) => old.color != color;
 }

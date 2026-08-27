@@ -17,7 +17,7 @@ import 'package:grow_daily_v2/core/services/home_widget_service.dart';
 
 void main() {
   group('HomeWidgetService.recentHeatmap', () {
-    // A fixed, unambiguous instant - clear of both the 6am day-cutoff and
+    // A fixed, unambiguous instant - clear of both the 10am day-cutoff and
     // any month/year rollover - so every test below is about the windowing
     // math itself, never today's real date.
     final fixedNow = DateTime(2026, 3, 15, 12, 0);
@@ -70,7 +70,7 @@ void main() {
     test(
         'respects the day-cutoff: just after midnight still counts as the '
         'previous calendar day (see DateTimeGameExt.effectiveDay)', () {
-      // 1am is before kDayCutoffHour (6am) - effectiveDay should roll this
+      // 1am is before kDayCutoffHour (10am) - effectiveDay should roll this
       // back onto March 14th, not March 15th.
       final justAfterMidnight = DateTime(2026, 3, 15, 1, 0);
       final result = HomeWidgetService.recentHeatmap(

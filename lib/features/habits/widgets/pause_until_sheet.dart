@@ -19,7 +19,7 @@ import '../notifiers/habit_resume_notifier.dart';
 /// and were previously impossible to tell apart.
 /// [withTime] says whether the hour is meaningful — true only for a custom
 /// pick. A preset resolves to the start of a day and carries no chosen time,
-/// so a confirmation that printed "· back Tuesday, 6:00 AM" would show a moment
+/// so a confirmation that printed "· back Tuesday, 10:00 AM" would show a moment
 /// nobody selected. The snackbar reads this to decide whether to say the time.
 typedef PauseUntilChoice = ({bool confirmed, DateTime? at, bool withTime});
 
@@ -82,15 +82,20 @@ class _PauseUntilSheetState extends State<_PauseUntilSheet> {
     if (date == null || !mounted) return;
     final time = await showTimePicker(
       context: context,
-      initialTime: const TimeOfDay(hour: 6, minute: 0),
+      // Matches the fallback below, and both follow kDayCutoffHour rather
+      // than a written-out hour: the picker opening on one hour while a
+      // cancelled pick landed on a different one was one edit away, and the
+      // cutoff has moved once already.
+      initialTime: const TimeOfDay(hour: kDayCutoffHour, minute: 0),
     );
     if (!mounted) return;
     setState(() {
       _preset = null;
       // A cancelled time picker keeps the date and defaults to the start of
-      // it — kDayCutoffHour (6am), NOT midnight. 00:00 belongs to the previous
-      // effective day (see ResumePreset.dateFrom), so between midnight and 6am
-      // firstDate resolves to the real current date and a 00:00 default would
+      // it — kDayCutoffHour (10am), NOT midnight. 00:00 belongs to the
+      // previous effective day (see ResumePreset.dateFrom), so before the
+      // cutoff firstDate resolves to the real current date and a 00:00
+      // default would
       // book a moment already in the past, auto-resuming the habit at once as
       // though it had never been paused. The cutoff hour is the first instant
       // of the chosen day and always sits in the future here.

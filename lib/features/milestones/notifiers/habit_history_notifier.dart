@@ -152,11 +152,11 @@ final habitYearHistoryProvider =
       // un-did while it was running. Yesterday and older are settled.
       //
       // effectiveDay, NOT DateTime.now(). Every writer that owns "today"
-      // keys it by the app's 6am-cutoff day: DashboardNotifier._todayKey is
+      // keys it by the app's 10am-cutoff day: DashboardNotifier._todayKey is
       // `DateTime.now().effectiveDay.toDateKey()`, and setSquare's
       // anti-backdating guard is `day.isToday`, which is cutoff-aware too.
       // This guard alone used the real calendar day, so between midnight and
-      // 06:00 the two disagreed by one: the backfill excluded the calendar
+      // the cutoff the two disagreed by one: the backfill excluded the calendar
       // day nobody was writing to and happily rebuilt the EFFECTIVE day the
       // live writers owned, which is precisely the resurrection this comment
       // says it exists to prevent.

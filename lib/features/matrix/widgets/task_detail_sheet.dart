@@ -23,6 +23,7 @@ import 'reminder_picker.dart'
 import 'voice_note_player.dart'
     show VoiceNoteRecordRow, VoiceNoteRow, showRenameVoiceNoteSheet;
 import '../../premium/notifiers/premium_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// Opened from a task's pencil icon (see quadrant_card.dart's _TaskTile) —
 /// the richer counterpart to AddTaskSheet's title-only quick add: this is
@@ -315,7 +316,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     final next = Set<int>.from(_offsets);
     if (!next.remove(signedMinutes)) {
       if (_reminderAts.length >= NotificationService.kMaxTaskReminderSlots) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showOne(
           SnackBar(content: Text(S.of(context).matrixReminderMaxReached)),
         );
         return;

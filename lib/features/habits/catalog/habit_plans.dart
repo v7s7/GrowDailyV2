@@ -251,7 +251,7 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   /// credit every window a habit was ever really active for. A custom
   /// habit never needs this: it's a real, distinct Firestore document per
   /// archive, not a map slot that gets reused.
-  Map<String, List<(DateTime, DateTime)>> catalogStintHistory = {};
+  Map<String, List<(DateTime?, DateTime)>> catalogStintHistory = {};
 
   ActiveCatalogNotifier(this._uid) : super(const {}) {
     if (_uid != null) {
@@ -277,19 +277,22 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   /// than crashing the whole read — the same defensiveness every other
   /// parse helper in this class already has toward hand-edited/corrupt
   /// data.
-  static Map<String, List<(DateTime, DateTime)>> _parseStintHistory(
+  static Map<String, List<(DateTime?, DateTime)>> _parseStintHistory(
       dynamic raw) {
-    final result = <String, List<(DateTime, DateTime)>>{};
+    final result = <String, List<(DateTime?, DateTime)>>{};
     if (raw is! Map) return result;
     for (final entry in raw.entries) {
       final rawStints = entry.value;
       if (rawStints is! List) continue;
-      final stints = <(DateTime, DateTime)>[];
+      final stints = <(DateTime?, DateTime)>[];
       for (final item in rawStints) {
         if (item is! Map) continue;
+        // A missing start is meaningful: a preset switched on before
+        // activatedAt existed has no recorded birth date, and dropping its
+        // window here is what erased its history on reactivation.
         final start = DateTime.tryParse('${item['start']}');
         final end = DateTime.tryParse('${item['end']}');
-        if (start != null && end != null) stints.add((start, end));
+        if (end != null) stints.add((start, end));
       }
       if (stints.isNotEmpty) result[entry.key.toString()] = stints;
     }
@@ -297,13 +300,13 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   }
 
   static Map<String, List<Map<String, String>>> _stintHistoryToRaw(
-          Map<String, List<(DateTime, DateTime)>> history) =>
+          Map<String, List<(DateTime?, DateTime)>> history) =>
       {
         for (final e in history.entries)
           e.key: [
             for (final stint in e.value)
               {
-                'start': stint.$1.toIso8601String(),
+                if (stint.$1 != null) 'start': stint.$1!.toIso8601String(),
                 'end': stint.$2.toIso8601String(),
               },
           ],
@@ -511,7 +514,11 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
         _kickSave();
         return;
       }
-      if (priorStart != null && priorEnd != null) {
+      // Only the END is required — see catalogStintHistory. A preset switched
+      // on before activatedAt existed has a null priorStart, and skipping the
+      // record while stamping today as its birth date below is what left
+      // nothing carrying the habit's past.
+      if (priorEnd != null) {
         catalogStintHistory = {
           ...catalogStintHistory,
           catalogId: [
@@ -588,12 +595,10 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     catalogStintHistory = {
       ...catalogStintHistory,
       for (final id in reactivating)
-        if (!reopeningSameDay.contains(id) &&
-            activatedAt[id] != null &&
-            catalogArchivedAt[id] != null)
+        if (!reopeningSameDay.contains(id) && catalogArchivedAt[id] != null)
           id: [
             ...(catalogStintHistory[id] ?? const []),
-            (activatedAt[id]!, catalogArchivedAt[id]!),
+            (activatedAt[id], catalogArchivedAt[id]!),
           ],
     };
     activatedAt = {

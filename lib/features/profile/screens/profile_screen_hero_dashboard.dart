@@ -493,10 +493,10 @@ class _DashboardSection extends ConsumerWidget {
     final habits = ref.watch(habitListProvider);
     final review = ref.watch(nightReviewProvider);
     final today = DateTime.now().effectiveDay;
-    // Through to the 6am cutoff rather than stopping at midnight - see
+    // Through to the 10 AM cutoff rather than stopping at midnight - see
     // isDayClosing. Gates both the streak-risk card and the night
     // review prompt below, and both belong to the day that is still
-    // running at 1am.
+    // running at 1am, and still running at 9am.
     final isEvening = DateTime.now().isDayClosing;
 
     final showStreak = isEvening &&

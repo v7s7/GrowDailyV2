@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', system-ui, sans-serif; }
+    a { color: #E4B45F; } a:hover { color: #EFC983; }
+  </style>
+</helmet>
+
+<div dir="rtl" style="width: 402px; height: 790px; background: #07100D; color: #F7F3E8; padding: 22px 20px; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; overflow: hidden">
+
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <div style="font-size: 16px; font-weight: 800">صف الوقت — كل الحالات</div>
+    <div style="font-size: 11px; color: #6F7A70; line-height: 1.5">مرجع البناء. كل حالة هنا لها سبب في الكود، مو زينة.</div>
+  </div>
+
+  <sc-for list="{{states}}" as="st" hint-placeholder-count="6">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: baseline; gap: 8px">
+        <div style="font-size: 11px; font-weight: 700; color: {{st.labelTint}}">{{st.label}}</div>
+        <div style="flex-grow: 1; height: 1px; background: #22352D"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px; border-radius: 12px; background: {{st.bg}}; border: 1px solid {{st.ring}}">
+        <div style="width: 3px; height: 26px; border-radius: 100px; background: {{st.tint}}; flex-shrink: 0"></div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px">
+          <div style="display: flex; align-items: baseline; gap: 7px">
+            <div style="font-size: 15px; font-weight: 800; color: {{st.clockTint}}">{{st.clock}}</div>
+            <div style="font-size: 10.5px; color: #6F7A70">{{st.period}}</div>
+          </div>
+          <div style="font-size: 10px; color: {{st.subTint}}">{{st.sub}}</div>
+        </div>
+        <sc-if value="{{st.badge}}" hint-placeholder-val="{{ true }}">
+          <div style="padding: 4px 9px; border-radius: 100px; background: {{st.badgeBg}}; font-size: 9.5px; font-weight: 700; color: {{st.badgeTint}}; white-space: nowrap">{{st.badge}}</div>
+        </sc-if>
+      </div>
+
+      <div style="font-size: 10px; color: #6F7A70; line-height: 1.5; padding-right: 2px">{{st.why}}</div>
+    </div>
+  </sc-for>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":402,"height":790}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const base = {
+      bg: '#0C1512',
+      ring: '#2D4037',
+      clockTint: '#F7F3E8',
+      subTint: '#6F7A70',
+      labelTint: '#B5BCA8',
+      badge: '',
+      badgeBg: 'transparent',
+      badgeTint: '#6F7A70',
+    };
+    return {
+      states: [
+        {
+          ...base,
+          label: 'مضبوط',
+          clock: '٨:٠٠ ص',
+          period: 'صباحاً',
+          tint: '#E4B45F',
+          sub: 'التذكير الأول',
+          why: 'الحالة الاعتيادية. الرقم الترتيبي مهم: لما يكون عندك ٤ أوقات، لازم تعرف أي وحدة تعدّل.',
+        },
+        {
+          ...base,
+          label: 'مفتوح للتعديل',
+          clock: '٨:٠٠ ص',
+          period: 'صباحاً',
+          tint: '#E4B45F',
+          ring: '#E4B45F',
+          sub: 'التذكير الأول',
+          badge: 'يفتح تحته',
+          badgeBg: 'rgba(228,180,95,0.14)',
+          badgeTint: '#E4B45F',
+          why: 'يتوسّع في مكانه، ما يفتح شاشة ثانية. تعديل ٤ أوقات بأربع شاشات منفصلة هو بالضبط اللي يخلي الإعداد يحس ثقيل.',
+        },
+        {
+          ...base,
+          label: 'داخل ساعات الهدوء',
+          clock: '١٢:٠٠ ص',
+          period: 'ليلاً',
+          tint: '#5B6BA8',
+          ring: 'rgba(247,201,72,0.38)',
+          sub: 'ما راح يوصلك',
+          subTint: '#F7C948',
+          badge: 'اسمح به',
+          badgeBg: 'rgba(247,201,72,0.16)',
+          badgeTint: '#F7C948',
+          why: 'حالة عزيز نفسها: البروتين ١٢ ص. بدون هالتحذير التذكير ينحذف بصمت وما يوصل أبداً. المخرج موجود أصلاً في الكود (ignoreQuietHours).',
+        },
+        {
+          ...base,
+          label: 'مسموح رغم الهدوء',
+          clock: '١٢:٠٠ ص',
+          period: 'ليلاً',
+          tint: '#5B6BA8',
+          sub: 'راح يوصلك',
+          subTint: '#2ECF8F',
+          badge: 'مسموح',
+          badgeBg: 'rgba(46,207,143,0.16)',
+          badgeTint: '#2ECF8F',
+          why: 'بعد ما يضغط «اسمح به». التحذير يختفي بالكامل — تحذير باقٍ بعد ما تحل سببه يعلّم الناس يتجاهلون التحذيرات.',
+        },
+        {
+          ...base,
+          label: 'وقتان متطابقان',
+          clock: '٨:٠٠ ص',
+          period: 'صباحاً',
+          tint: '#E4B45F',
+          ring: 'rgba(255,90,82,0.38)',
+          sub: 'نفس وقت التذكير الأول',
+          subTint: '#FF5A52',
+          badge: 'كرّرته',
+          badgeBg: 'rgba(255,90,82,0.14)',
+          badgeTint: '#FF5A52',
+          why: 'مرتين في اليوم بنفس الوقت = تذكير واحد فعلياً، والمربّع يطلب نقرتين ما راح تجيان. نمنعه بالعرض مو بالحفظ.',
+        },
+        {
+          ...base,
+          label: 'مربوط بصلاة',
+          clock: 'الظهر',
+          period: '١١:٤٥ ص اليوم',
+          tint: '#2ECF8F',
+          sub: 'يتحرك مع وقت الصلاة كل يوم',
+          badge: 'صلاة',
+          badgeBg: 'rgba(46,207,143,0.14)',
+          badgeTint: '#2ECF8F',
+          why: 'الصف نفسه يشتغل للصلوات. الوقت المعروض هو وقت اليوم، مو رقم ثابت — عشان أحد ما يظن إنه يقدر يعدّله كساعة.',
+        },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

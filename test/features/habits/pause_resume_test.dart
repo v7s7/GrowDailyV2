@@ -47,6 +47,52 @@ void main() {
         goldReward: 5,
       );
 
+  test('resuming a habit with no recorded birth date keeps its whole past', () {
+    // The bug this pins cost a real member their entire room history.
+    //
+    // createdAt is NULL for every custom habit written before that field was
+    // persisted, and null means "no birth date known, so it always existed".
+    // customStintHistory could once only hold date PAIRS, so _closeStint
+    // dropped that window on the floor while unarchive moved the birth date to
+    // the resume day regardless. The habit came back claiming it was born that
+    // day with nothing carrying its past, so Rooms graded every earlier day as
+    // "this habit did not exist", wrote a scheduled count of zero across the
+    // whole history, and the read side turned a zero denominator into a rest
+    // day worth FULL credit: a 97% score above a completely blank strip.
+    // Seeded as ALREADY paused, five days ago: a pause and resume inside one
+    // day is deliberately one uninterrupted window and records nothing, so the
+    // bug only shows when the two fall on different days.
+    final pausedOn = DateTime.now().effectiveDay.subtract(const Duration(days: 5));
+    final n = CustomHabitsNotifier(null)
+      ..state = []
+      // createdAt deliberately left null — that is the precondition.
+      ..archived = [custom('h1', 'تمرين').withDates(archivedAt: pausedOn)];
+
+    expect(n.archived.first.createdAt, isNull, reason: 'the precondition');
+
+    n.unarchive('h1');
+
+    final stints = n.customStintHistory['h1'];
+    expect(stints, isNotNull,
+        reason: 'the window it just closed has to be recorded somewhere');
+    expect(stints!.single.$1, isNull,
+        reason: 'an unknown start stays unknown, which reads as unbounded');
+    expect(stints.single.$2, isNotNull, reason: 'the pause day closes it');
+
+    // And the habit still answers "yes" for days long before the resume,
+    // which is the question Rooms actually asks.
+    final longAgo = DateTime.now().subtract(const Duration(days: 60));
+    expect(
+      habitCountedOn(
+        [for (final st in stints) (st.$1, st.$2)],
+        longAgo,
+        fallback: () => false,
+      ),
+      isTrue,
+      reason: 'a day two months back is inside the unbounded closed window',
+    );
+  });
+
   test('pausing a completed habit keeps it, resuming restores the same id',
       () {
     final n = CustomHabitsNotifier(null)
@@ -208,7 +254,7 @@ void main() {
 
     n.toggle(id);
     expect(n.catalogStintHistory[id], hasLength(1));
-    expect(n.catalogStintHistory[id]!.first.$1.isSameDayAs(start), isTrue);
+    expect(n.catalogStintHistory[id]!.first.$1!.isSameDayAs(start), isTrue);
     expect(n.catalogStintHistory[id]!.first.$2.isSameDayAs(endedYesterday),
         isTrue);
     await n.settled;

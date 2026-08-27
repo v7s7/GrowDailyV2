@@ -1508,8 +1508,12 @@ class _MiniJournalRow extends StatelessWidget {
                   color: accent.withOpacity(0.14),
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: Icon(entry.state.icon ?? Icons.circle_outlined,
-                    size: 15, color: accent),
+                child: Center(
+                  child: entry.state.glyph(
+                      size: 15,
+                      color: accent,
+                      fallback: Icons.circle_outlined),
+                ),
               ),
               const SizedBox(width: 10),
               // Title, date, and note/state now stack instead of sharing

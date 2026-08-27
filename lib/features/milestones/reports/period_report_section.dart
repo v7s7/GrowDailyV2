@@ -91,8 +91,8 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
   @override
   void initState() {
     super.initState();
-    // effectiveDay, not DateTime.now(): the app's day rolls over at 6am, so
-    // between midnight and 06:00 the raw calendar would open a brand new,
+    // effectiveDay, not DateTime.now(): the app's day rolls over at 10am, so
+    // between midnight and 10:00 the raw calendar would open a brand new,
     // guaranteed-empty week while the habits just finished sat one step
     // back. Same reasoning MonthlyStoryScreen documents for its own open.
     _anchor = DateTime.now().effectiveDay;

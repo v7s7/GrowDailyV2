@@ -115,7 +115,7 @@ class _ScheduleStartSheet extends StatelessWidget {
     final picked =
         DateTime(date.year, date.month, date.day, time.hour, time.minute);
     if (!picked.isAfter(DateTime.now())) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showOne(
         SnackBar(content: Text(S.of(context).roomScheduleNotFuture)),
       );
       return;

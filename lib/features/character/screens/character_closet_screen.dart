@@ -16,6 +16,8 @@ import '../widgets/character_avatar.dart';
 import '../widgets/character_locked_sheet.dart';
 import '../../../shared/widgets/segmented_tabs.dart';
 import '../widgets/gold_coin.dart';
+import '../../../shared/widgets/app_snackbar.dart';
+import '../../rewards/widgets/custom_rewards_entry_card.dart';
 
 /// The closet, rebuilt around five things instead of twelve.
 ///
@@ -52,7 +54,7 @@ class CharacterClosetScreen extends ConsumerWidget {
         a.unlock!.isMetBy(
           level: dash.level,
           streak: dash.streak,
-          completedDays: dash.totalCompletions,
+          completions: dash.totalCompletions,
         );
 
     // GROUPED BY ITEM TYPE, not by state.
@@ -129,6 +131,18 @@ class CharacterClosetScreen extends ConsumerWidget {
                       child: _StreakFreezeShopCard(state: dash),
                     ),
                   ),
+                // The gold sink, and the only thing My Rewards adds to this
+                // screen. Same padding as the freeze card above it, and
+                // nothing above it moves. Ungated on purpose: the freeze
+                // card's streak check exists because every account starts
+                // with a freeze banked, and gating the only sink behind
+                // progress would be backwards.
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(20, 26, 20, 0),
+                    child: CustomRewardsEntryCard(),
+                  ),
+                ),
                 const SliverToBoxAdapter(child: SizedBox(height: 34)),
               ],
             ),
@@ -524,7 +538,7 @@ class _CharacterRowState extends ConsumerState<_CharacterRow> {
                 option,
                 level: dash.level,
                 streak: dash.streak,
-                completedDays: dash.totalCompletions,
+                completions: dash.totalCompletions,
               );
               return Semantics(
                 label: option.name(S.of(context).isAr),
@@ -736,9 +750,9 @@ class _StreakFreezeShopCard extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final canBuy = state.gold >= DashboardNotifier.streakFreezeCost &&
-        state.streakFreezes < DashboardNotifier.maxStreakFreezes;
+        state.streakFreezes < state.freezeCapacityOrDefault;
 
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: gp.surface,
@@ -772,7 +786,7 @@ class _StreakFreezeShopCard extends ConsumerWidget {
                 const SizedBox(height: 2),
                 Text(
                   s.streakFreezeStatus(
-                      state.streakFreezes, DashboardNotifier.maxStreakFreezes),
+                      state.streakFreezes, state.freezeCapacityOrDefault),
                   style: TextStyle(fontSize: 11.5, color: gp.textSec),
                 ),
               ],
@@ -791,7 +805,7 @@ class _StreakFreezeShopCard extends ConsumerWidget {
                       // `canBuy` already gated this on having enough gold
                       // and a free slot, so a `false` here means the
                       // purchase failed to save, not that funds were short.
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.of(context).showOne(
                         SnackBar(
                           content: Text(ok ? s2.streakFreeze : s2.errGeneric),
                           duration: const Duration(seconds: 2),
@@ -807,6 +821,92 @@ class _StreakFreezeShopCard extends ConsumerWidget {
           ),
         ],
       ),
+    );
+
+    final nextSlot = state.freezeCapacityOrDefault + 1;
+    final offer = DashboardNotifier.freezeSlots[nextSlot];
+    if (offer == null) return card;
+
+    // Appended under the existing row, never woven into it. Everything above
+    // is byte-identical to what shipped; this is one more child in a Column.
+    final gated = state.level < offer.level;
+    final canBuySlot = !gated && state.gold >= offer.cost;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        card,
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: gp.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: gp.border, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: GameColors.iconXp.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(Icons.add_rounded,
+                    color: GameColors.iconXp, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      s.freezeSlotTitle,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: gp.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      gated
+                          ? s.freezeSlotLocked(offer.level)
+                          : s.freezeSlotBody(nextSlot),
+                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: canBuySlot
+                    ? () async {
+                        HapticFeedback.mediumImpact();
+                        final ok = await ref
+                            .read(dashboardProvider.notifier)
+                            .buyFreezeSlot(nextSlot);
+                        if (context.mounted) {
+                          final s2 = S.of(context);
+                          // Gated on affordability and the level above, so a
+                          // false here is a failed write, not short funds.
+                          ScaffoldMessenger.of(context).showOne(
+                            SnackBar(
+                              content: Text(
+                                  ok ? s2.freezeSlotTitle : s2.errGeneric),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      }
+                    : null,
+                child: GoldPrice(amount: offer.cost, affordable: canBuySlot),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

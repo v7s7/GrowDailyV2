@@ -62,7 +62,7 @@ class WeeklyGridState {
   factory WeeklyGridState.initial() => WeeklyGridState(
         // The real calendar week, not the reward-day's (effectiveDay) week
         // — see [canGoForward]'s doc comment for why those two can briefly
-        // disagree. Opening the app during the 6-hour grace window right
+        // disagree. Opening the app during the grace window right
         // after a week boundary (say, 1am Saturday — one hour into a brand
         // new Sat→Fri week) should land on the week Saturday actually
         // belongs to, not the previous one just because Friday's reward
@@ -85,7 +85,7 @@ class WeeklyGridState {
   /// the *real* calendar week (see DateTimeGameExt.isRealToday), not
   /// [isCurrentWeek]'s reward-eligible one. Those two agree all but a few
   /// hours a week: right after a week boundary, effectiveDay can still be
-  /// pointing at last week (its 6-hour grace period hasn't run out) while
+  /// pointing at last week (its grace period hasn't run out) while
   /// the real calendar has already moved into the new one. Gating forward
   /// navigation on [isCurrentWeek] there would trap the user on last
   /// week's board with no way to arrow into the new one — the exact bug

@@ -27,6 +27,7 @@ import '../../character/models/character_option.dart';
 import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/character_avatar.dart';
 import '../../character/widgets/prestige_mark.dart';
+import '../../grid/models/square_state.dart' show HalfFullMark;
 import '../../grid/notifiers/weekly_grid_notifier.dart' show weeklyGridProvider;
 import '../../grid/screens/monthly_heatmap_screen.dart' show heatColor;
 import '../../habits/catalog/islamic_habit_catalog.dart'
@@ -42,6 +43,7 @@ import '../widgets/pick_own_habit_sheet.dart';
 import '../widgets/report_member_sheet.dart';
 import '../widgets/resolve_new_shared_habits_sheet.dart';
 import '../widgets/room_reactions.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 part 'room_detail_screen_countdown_finale.dart';
 part 'room_detail_screen_header_progress.dart';
@@ -223,7 +225,7 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     // isn't in the set and this is a no-op.
     await clearRoomFinaleSeen(ref, room.code);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(content: Text(S.of(context).roomExtended)),
     );
   }

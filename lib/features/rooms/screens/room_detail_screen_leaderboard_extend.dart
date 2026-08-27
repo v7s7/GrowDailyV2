@@ -55,7 +55,26 @@ Color roomStripCellFill({
   required bool dark,
   required Color backdrop,
   bool isDeclaredRest = false,
+  bool isStoodDown = false,
 }) {
+  // Checked before everything else, because a day the member's whole plan was
+  // paused is not any of the other four states and must not borrow their
+  // colour. Emerald would say "credited", gold would say "you chose to rest
+  // this", red would say "you missed it" — and it is none of those. See
+  // RoomParticipant.standDownDays: the day is excluded from both sides of the
+  // ratio, so the honest drawing is a neutral one.
+  //
+  // A tone rather than a blank, unlike a ROOM-level pause (which draws nothing
+  // at all, see _cellFor). The room not running is a fact about the room, and
+  // every strip on the card has the same hole in the same place. A member
+  // standing their own habit down is a fact about THEM, one row out of
+  // several, and a blank there would read as a rendering gap.
+  if (isStoodDown) {
+    return Color.alphaBlend(
+      (dark ? Colors.white : Colors.black).withOpacity(0.07),
+      backdrop,
+    );
+  }
   // Order matters. A day the member deliberately stood down is checked
   // before the miss arm, because تخطّي is a choice somebody made and a miss
   // is the absence of one, and drawing them the same is precisely the thing
@@ -188,7 +207,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
     // the REAL calendar day is already ahead of lastCountedDay — the phone
     // says Saturday while the room still counts (and credits) Friday for the
     // late sleepers. Without this, the strip had no Saturday cell at all
-    // until 6 AM, so the calendar looked stuck on yesterday. Appending the
+    // until the cutoff, so the calendar looked stuck on yesterday. Appending the
     // real day as a DISPLAY-ONLY cell gives the new square at midnight; it
     // carries the isRealToday ring, renders empty (no credit read for it),
     // and contributes nothing to any score — daysElapsedIn/creditFor still
@@ -744,14 +763,23 @@ class _MiniHeatmapStrip extends StatelessWidget {
     // day answerable), so crossing them out live would condemn days the
     // person can still rescue by finishing the week. Until the week ends
     // they stay neutral.
+    // Their whole plan was paused on this day, so the room asked them for
+    // nothing and they earned nothing — a fourth state alongside done, rest
+    // and miss. Taken first: every flag below is computed from counts this
+    // day deliberately does not have (see RoomParticipant.standDownDays), so
+    // reading them here would describe an absence as an outcome.
+    final isStoodDown = participant.isStoodDownOn(key);
     final isRest = participant.isRestDay(key);
     final credit = participant.creditFor(key);
     // A declared rest is settled the instant it is marked, so it bypasses the
     // _missIsFinal week gate entirely: there is nothing left to rescue on a
     // day somebody has already said they are resting.
     final isDeclaredRest = participant.isDeclaredRest(key);
-    final isMissed =
-        !isRest && !isDeclaredRest && credit <= 0 && _missIsFinal(day);
+    final isMissed = !isStoodDown &&
+        !isRest &&
+        !isDeclaredRest &&
+        credit <= 0 &&
+        _missIsFinal(day);
     final isStart = index == 0;
     // isRealToday, not isToday: purely the "today" marker — see
     // DateTimeGameExt.isRealToday's doc comment.
@@ -778,6 +806,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
           isRest: isRest,
           isMissed: isMissed,
           isDeclaredRest: isDeclaredRest,
+          isStoodDown: isStoodDown,
           dark: dark,
           backdrop: backdrop,
         ),
@@ -805,26 +834,39 @@ class _MiniHeatmapStrip extends StatelessWidget {
             ? Border.all(color: GameColors.gold)
             : isStart
                 ? Border.all(color: inner)
-                : isRest
+                : isStoodDown
                     ? Border.all(
-                        color: GameColors.emerald.withOpacity(0.42),
+                        color: (dark ? Colors.white : Colors.black)
+                            .withOpacity(0.16),
                       )
-                    : isMissed
+                    : isRest
                         ? Border.all(
-                            color: GameColors.error.withOpacity(0.34),
+                            color: GameColors.emerald.withOpacity(0.42),
                           )
-                        : null,
+                        : isMissed
+                            ? Border.all(
+                                color: GameColors.error.withOpacity(0.34),
+                              )
+                            : null,
       ),
       // A cross, not just a red box: at 12pt the tint alone is easy to read
       // as "some other shade of done", and the mark is what makes a miss
       // unmistakable at a glance. CustomPaint rather than a glyph so it
       // scales with the cell and needs no font metrics.
-      child: isMissed
+      child: isStoodDown
           ? CustomPaint(
-              size: const Size(_cell * 0.46, _cell * 0.46),
-              painter: _MissCrossPainter(GameColors.error.withOpacity(0.62)),
+              size: const Size(_cell * 0.42, _cell * 0.42),
+              painter: _StandDownBarPainter(
+                (dark ? Colors.white : Colors.black).withOpacity(0.34),
+              ),
             )
-          : null,
+          : isMissed
+              ? CustomPaint(
+                  size: const Size(_cell * 0.46, _cell * 0.46),
+                  painter:
+                      _MissCrossPainter(GameColors.error.withOpacity(0.62)),
+                )
+              : null,
     );
 
     if (!isStart && !isToday) return cell;
@@ -907,6 +949,33 @@ class _MissCrossPainter extends CustomPainter {
   bool shouldRepaint(_MissCrossPainter old) => old.color != color;
 }
 
+/// The mark on a stood-down cell: a single horizontal bar, the plainest
+/// "nothing here" a 15pt square can carry.
+///
+/// Deliberately not a pause glyph (two vertical bars). At this size the two
+/// bars merge into a smudge that reads as a partially-filled cell, which is
+/// the one thing this must never look like — see [_MissCrossPainter] for the
+/// same reasoning about why a tint alone was not enough for a miss.
+class _StandDownBarPainter extends CustomPainter {
+  final Color color;
+
+  const _StandDownBarPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final y = size.height / 2;
+    canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+  }
+
+  @override
+  bool shouldRepaint(_StandDownBarPainter old) => old.color != color;
+}
+
 class _LeaderboardRow extends ConsumerWidget {
   final int rank;
   final RoomParticipant participant;
@@ -983,6 +1052,12 @@ class _LeaderboardRow extends ConsumerWidget {
     final prestigeTier = PrestigeCatalog.findById(participant.prestigeTierId);
     final medalColor = _medalColor;
     final streak = participant.currentStreak(room);
+    // lastCountedDay, not today: on an ended room those differ, and the
+    // question this answers is "is this member stood down on the last day the
+    // board actually grades", which is the day every other number on the row
+    // is computed through.
+    final isStoodDownNow =
+        participant.isStoodDownOn(room.lastCountedDay.toDateKey());
     // Habit names are worth showing on someone else's row only in an 'own'
     // room, where each member links a habit of their own choosing and the
     // names genuinely differ. A 'shared' room clones one leader-curated plan
@@ -1085,6 +1160,22 @@ class _LeaderboardRow extends ConsumerWidget {
                     if (isLeader) ...[
                       const SizedBox(width: 6),
                       _Tag(label: s.roomLeaderLabel, color: gp.textSec),
+                    ],
+                    // Stood down right now: every counted habit paused, so
+                    // this member's percentage is holding still rather than
+                    // moving (see RoomParticipant.standDownDays).
+                    //
+                    // The badge is the price of the rule. A paused stretch no
+                    // longer costs anything, which means without a mark on the
+                    // row it would also not SHOW anything: a member could sit
+                    // near the top of a live board on a number they stopped
+                    // earning weeks ago, and nobody looking at the board could
+                    // tell. Neutral-toned rather than red — pausing is a normal
+                    // state of a working room, not a fault (same reasoning as
+                    // _WarningRow.informational).
+                    if (isStoodDownNow) ...[
+                      const SizedBox(width: 6),
+                      _Tag(label: s.roomPausedTag, color: gp.textTert),
                     ],
                     // Inline null-check (not a separate bool) so Dart
                     // actually promotes prestigeTier to non-null for the

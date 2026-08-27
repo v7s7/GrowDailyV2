@@ -23,7 +23,7 @@ void main() {
 
   testWidgets('first session: empty grid → plan → first green square → reward',
       (tester) async {
-    // Between midnight and the 6 AM flex cutoff the visible "today" square
+    // Between midnight and the 10 AM flex cutoff the visible "today" square
     // (real calendar day, gold ring) is deliberately NOT the reward day
     // (DateTimeGameExt.effectiveDay, still yesterday) — by design, tapping
     // it then pays no First Victory, so the exact journey this test drives
@@ -79,7 +79,7 @@ void main() {
     });
     expect(todayCells, findsWidgets);
     // The tapped cell is the app's *effective* today (isToday), which sits a
-    // day behind the raw calendar between midnight and the 6 AM cutoff —
+    // day behind the raw calendar between midnight and the 10 AM cutoff —
     // see DateTimeGameExt.effectiveDay. Raw now() broke this after midnight.
     final today = DateTime.now().effectiveDay;
 

@@ -106,7 +106,7 @@ void main() {
     expect(at, isNotNull);
     expect(at!.difference(DateTime.now().effectiveDay).inDays, 14);
     // Presets carry no meaningful hour, so they land at the day's start — the
-    // cutoff hour (6am), not calendar midnight, since 00:00 belongs to the
+    // cutoff hour (10am), not calendar midnight, since 00:00 belongs to the
     // previous effective day (see ResumePreset.dateFrom).
     expect(at.hour, kDayCutoffHour);
   });

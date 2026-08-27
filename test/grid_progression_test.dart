@@ -266,11 +266,11 @@ void main() {
     test(
         'the first green square awards +10 XP and the First Victory achievement',
         () async {
-      // effectiveDay, not raw now: between midnight and the 6 AM flex cutoff
+      // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
       // app's reward day, and a raw now() square would be graded as
       // tomorrow's (zero XP). Raw now() made this whole file fail when
-      // the suite ran between 12 AM and 6 AM.
+      // the suite ran inside the flex window.
       final today = DateTime.now().effectiveDay;
       container
           .read(weeklyGridProvider.notifier)
@@ -299,11 +299,11 @@ void main() {
     test(
         'cycling a square back and forth cannot farm XP, and never touches streak',
         () async {
-      // effectiveDay, not raw now: between midnight and the 6 AM flex cutoff
+      // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
       // app's reward day, and a raw now() square would be graded as
       // tomorrow's (zero XP). Raw now() made this whole file fail when
-      // the suite ran between 12 AM and 6 AM.
+      // the suite ran inside the flex window.
       final today = DateTime.now().effectiveDay;
       final grid = container.read(weeklyGridProvider.notifier);
 
@@ -339,11 +339,11 @@ void main() {
       // none → partial → complete → none lap netted +5 every time and could
       // be repeated forever. Reproduced by hand on a simulator before this
       // was fixed: 90 XP in, 95 XP out, square empty and gold unchanged.
-      // effectiveDay, not raw now: between midnight and the 6 AM flex cutoff
+      // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
       // app's reward day, and a raw now() square would be graded as
       // tomorrow's (zero XP). Raw now() made this whole file fail when
-      // the suite ran between 12 AM and 6 AM.
+      // the suite ran inside the flex window.
       final today = DateTime.now().effectiveDay;
       final grid = container.read(weeklyGridProvider.notifier);
 
@@ -366,11 +366,11 @@ void main() {
     });
 
     test('a red square costs 3 XP but the floor is zero', () async {
-      // effectiveDay, not raw now: between midnight and the 6 AM flex cutoff
+      // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
       // app's reward day, and a raw now() square would be graded as
       // tomorrow's (zero XP). Raw now() made this whole file fail when
-      // the suite ran between 12 AM and 6 AM.
+      // the suite ran inside the flex window.
       final today = DateTime.now().effectiveDay;
       container
           .read(weeklyGridProvider.notifier)
@@ -416,11 +416,11 @@ void main() {
     });
 
     test('today completion ratio counts daily tasks, not old squares', () {
-      // effectiveDay, not raw now: between midnight and the 6 AM flex cutoff
+      // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
       // app's reward day, and a raw now() square would be graded as
       // tomorrow's (zero XP). Raw now() made this whole file fail when
-      // the suite ran between 12 AM and 6 AM.
+      // the suite ran inside the flex window.
       final today = DateTime.now().effectiveDay;
       final state = WeeklyGridState(
         weekStart: startOfGridWeek(today),
@@ -451,11 +451,11 @@ void main() {
     });
 
     test('today completion ratio counts yellow partials as half work', () {
-      // effectiveDay, not raw now: between midnight and the 6 AM flex cutoff
+      // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
       // app's reward day, and a raw now() square would be graded as
       // tomorrow's (zero XP). Raw now() made this whole file fail when
-      // the suite ran between 12 AM and 6 AM.
+      // the suite ran inside the flex window.
       final today = DateTime.now().effectiveDay;
       final state = WeeklyGridState(
         weekStart: startOfGridWeek(today),
@@ -482,11 +482,11 @@ void main() {
     });
 
     test('reward-eligible Grid summary points only count today', () async {
-      // effectiveDay, not raw now: between midnight and the 6 AM flex cutoff
+      // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
       // app's reward day, and a raw now() square would be graded as
       // tomorrow's (zero XP). Raw now() made this whole file fail when
-      // the suite ran between 12 AM and 6 AM.
+      // the suite ran inside the flex window.
       final today = DateTime.now().effectiveDay;
       final grid = container.read(weeklyGridProvider.notifier);
       final state = container.read(weeklyGridProvider);
@@ -504,7 +504,7 @@ void main() {
 
       grid.setSquare('habit_a', today, SquareState.partial);
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      // Between midnight and the 6 AM cutoff on a week-boundary night the
+      // Between midnight and the 10 AM cutoff on a week-boundary night the
       // visible week has already rolled while the reward day (effective
       // today) still belongs to the PREVIOUS week — the summary getters
       // deliberately return 0 then (their `days.any(isSameDayAs(today))`
@@ -521,11 +521,11 @@ void main() {
 
     test('grid state cycles and persists square + note per habit per day',
         () async {
-      // effectiveDay, not raw now: between midnight and the 6 AM flex cutoff
+      // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
       // app's reward day, and a raw now() square would be graded as
       // tomorrow's (zero XP). Raw now() made this whole file fail when
-      // the suite ran between 12 AM and 6 AM.
+      // the suite ran inside the flex window.
       final today = DateTime.now().effectiveDay;
       final grid = container.read(weeklyGridProvider.notifier);
 

@@ -22,6 +22,7 @@ class LocalStoreService {
   static const String guestCustomStintHistoryKey =
       'guest_custom_habit_stints';
   static const String guestMatrixTasksKey = 'guest_matrix_tasks';
+  static const String guestCustomRewardsKey = 'guest_custom_rewards';
   static const String guestMatrixQuadrantsKey = 'guest_matrix_quadrants';
   static const String guestCharacterKey = 'guest_character_state';
   // Deliberately its own key, not folded into guestCharacterKey above:

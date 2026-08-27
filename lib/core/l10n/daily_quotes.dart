@@ -173,7 +173,7 @@ final DateTime _rotationEpoch = DateTime.utc(2026, 1, 1);
 ///
 /// [day] is an app day, not a raw clock reading, so callers pass
 /// `DateTime.now().effectiveDay` (see DateTimeGameExt.effectiveDay). That is
-/// what makes the line change at the app's 6am cutoff along with everything
+/// what makes the line change at the app's 10 AM cutoff along with everything
 /// else, rather than at midnight, so somebody up at 2am still sees the line
 /// that belongs to the day they are still living.
 DailyQuote quoteForDay(DateTime day) => kDailyQuotes[_indexForDay(day)];

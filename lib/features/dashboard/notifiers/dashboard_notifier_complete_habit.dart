@@ -22,7 +22,7 @@ part of 'dashboard_notifier.dart';
 ///    does anyway. Never read this map on its own.
 /// 2. It is WALL CLOCK, measured from real local midnight, while the
 ///    document it lives on is keyed by effectiveDay, which rolls at
-///    kDayCutoffHour (6am). A value below 6 * 60 therefore belongs to the
+///    kDayCutoffHour (10am). A value below 10 * 60 therefore belongs to the
 ///    calendar day AFTER the document's own date: qiyam prayed at 02:00 is
 ///    stamped 120 on the previous day's doc, which is the night it belongs
 ///    to.
@@ -69,6 +69,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     required bool allHabitsDoneAfter,
     String? category,
     String? habitName,
+    int scheduledHabitCount = 0,
   }) async {
     // Refuse to record anything while the signed-in load failed. Everything
     // this method persists — level, currentLevelXp, cumulativeXp, gold,
@@ -327,17 +328,37 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     final newMilestone = bump.milestone;
     final milestoneBonusXp = bump.milestoneBonusXp;
 
+    // ── The daily ceiling ───────────────────────────────────────
+    //
+    // Only the REPEATABLE half of this payout meets it. The slice and the
+    // surprise bonus are both produced again every time a habit is created
+    // and completed, which is the farm the cap exists to bound. The three
+    // milestone bonuses are added after the clamp and are never withheld:
+    // each is once-per-lifetime or once-per-episode, so capping them buys no
+    // safety, and a withheld milestone is unrecoverable because the crossing
+    // test that pays it (`newStreak == m && state.streak < m`) can never be
+    // true for that threshold again.
+    //
+    // Read once into a local, like the receipt below does, because a method
+    // that straddles the day cutoff must not bank against one day and
+    // charge against the next.
+    final earnDayKey = DashboardNotifier._todayKey;
+    final capped = _allowedToday(
+      xp: xpSlice + surpriseBonusXp,
+      gold: goldSlice + surpriseBonusGold,
+      habitCount: scheduledHabitCount,
+    );
+
     final result = XpCalculator.applyXpGain(
       currentLevel: state.level,
       currentLevelXp: state.currentLevelXp,
       cumulativeXp: state.cumulativeXp,
-      xpGained: xpSlice +
+      xpGained: capped.xp +
           milestoneBonusXp +
           habitMilestoneBonusXp +
-          surpriseBonusXp +
           comebackBonusXp,
     );
-    final newGold = state.gold + goldSlice + surpriseBonusGold;
+    final newGold = state.gold + capped.gold;
     // ── The day-counters ────────────────────────────────────────
     //
     // A completion is a habit-DAY, not a tap. These four feed the lifetime
@@ -399,6 +420,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       totalCompletions: newTotal,
       greenSquares: newTotalGreenSquares,
       categoryCompletions: newCategoryCompletions,
+      levelGrantPaidThrough: state.levelGrantPaidThrough,
     );
     final newly = unlocks.newly;
     final newUnlockedIds = unlocks.unlockedIds;
@@ -500,9 +522,13 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
 
     state = state.copyWith(
       level: bonusResult.newLevel,
+      levelGrantPaidThrough: unlocks.levelGrantPaidThrough,
       currentLevelXp: bonusResult.newCurrentLevelXp,
       cumulativeXp: bonusResult.newCumulativeXp,
       gold: newGold + bonusGold,
+      earnedDayKey: earnDayKey,
+      earnedXpToday: capped.newXpToday,
+      earnedGoldToday: capped.newGoldToday,
       streak: newStreak,
       longestStreak: newLongest,
       streakEarnedToday: newStreakEarnedToday,
@@ -560,11 +586,11 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         // The slice, not the day's price: this is the number the person is
         // shown, and showing them "+10 XP" on each of four taps that together
         // paid 10 would be telling them they earned 40.
-        xpEarned: xpSlice +
-            milestoneBonusXp +
-            habitMilestoneBonusXp +
-            surpriseBonusXp,
-        goldEarned: goldSlice + surpriseBonusGold,
+        // The CAPPED figures, not the nominal ones. This is the number the
+        // person is shown, and a banner that celebrates XP the ceiling just
+        // withheld is the app lying about their balance.
+        xpEarned: capped.xp + milestoneBonusXp + habitMilestoneBonusXp,
+        goldEarned: capped.gold,
         didLevelUp: didLevelUp,
         newLevel: bonusResult.newLevel,
         newlyUnlocked: newly,
@@ -646,9 +672,19 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         _userRef,
         {
           'level': bonusResult.newLevel,
+          // Rides the SAME write map as 'level', so the mark and the level
+          // it marks can never land apart.
+          'levelGrantPaidThrough': unlocks.levelGrantPaidThrough,
           'currentLevelXp': bonusResult.newCurrentLevelXp,
           'cumulativeXp': bonusResult.newCumulativeXp,
           'gold': newGold + bonusGold,
+          // Absolute, like every figure around it. A counter that only ever
+          // grows within one day and resets by stamp does not need
+          // increment's merge semantics, and an absolute write is what makes
+          // a stale device converge instead of double-counting.
+          'earnedDayKey': earnDayKey,
+          'earnedXpToday': capped.newXpToday,
+          'earnedGoldToday': capped.newGoldToday,
           'currentStreak': newStreak,
           'longestStreak': newLongest,
           if (clearsPendingComeback) 'previousStreak': 0,

@@ -14,6 +14,7 @@ import '../notifiers/matrix_notifier.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/month_picker_sheet.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// Saturday-start, matching the Victory Grid's own week convention
 /// (`startOfGridWeek` in weekly_grid_notifier.dart) so the app doesn't mix
@@ -41,7 +42,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
     super.initState();
     // Real midnight, matching the board's own day-roll — see
     // _anchorDay's comment in matrix_screen.dart for the tasks-vs-habits
-    // split (habits keep the 6 AM flex cutoff; the todo board does not).
+    // split (habits keep the 10 AM flex cutoff; the todo board does not).
     final today = DateTime.now().startOfDay;
     _visibleMonth = DateTime(today.year, today.month);
     _selectedDate = today;
@@ -132,7 +133,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
 
     // Real calendar date, matching the board's midnight day-roll — a task
     // finished at 12:40 AM groups under the new day, exactly the day the
-    // board itself showed it as "done today" on. (Habits keep the 6 AM
+    // board itself showed it as "done today" on. (Habits keep the 10 AM
     // flex cutoff; the todo board deliberately does not — see
     // _anchorDay's comment in matrix_screen.dart.)
     final Map<DateTime, List<MatrixTask>> byDate = {};
@@ -345,7 +346,7 @@ class _MonthGrid extends StatelessWidget {
               }
               final date = DateTime(month.year, month.month, dayNum);
               // Same exemption as the Grid's own _SquareCell.isFuture: the
-              // real calendar day during the 6-hour window right after
+              // real calendar day during the flex window right after
               // midnight isn't "future" just because effectiveDay (`today`
               // here) hasn't caught up to it yet — see DateTimeGameExt.
               // isRealToday. This view is read-only (selecting a day just
@@ -576,7 +577,7 @@ class _HistoryRow extends ConsumerWidget {
       onDismissed: (_) {
         ref.read(matrixProvider.notifier).delete(task.id);
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showOne(
           SnackBar(
             content: Text(s.matrixTaskDeleted(task.title)),
             action: SnackBarAction(

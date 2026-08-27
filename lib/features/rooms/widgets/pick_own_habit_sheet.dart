@@ -8,6 +8,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
 import '../notifiers/rooms_notifier.dart' show suggestExistingMatch;
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// Bottom sheet: pick exactly one of this account's own habits, excluding
 /// [excludeIds] (already linked elsewhere relevant to the caller) - the
@@ -92,7 +93,7 @@ class _PickOwnHabitSheet extends ConsumerWidget {
         ref.read(habitListProvider).where((h) => h.id != created.id).toList();
     final match = suggestExistingMatch(created.name, others);
     if (match != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showOne(
         SnackBar(
           content: Text(S.of(context).roomPossibleDuplicateWarning(match.name)),
           behavior: SnackBarBehavior.floating,

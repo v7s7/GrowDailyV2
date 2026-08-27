@@ -203,10 +203,19 @@ class MatrixTask {
   // MatrixNotifier._syncReminderSchedule for exactly when each happens.
   final List<DateTime> reminderAts;
   // Which entry of [reminderAts] the user actually picked, as opposed to the
-  // ones this app derived from it. Purely presentational: nothing schedules
-  // off it (MatrixNotifier.futureTaskReminders iterates reminderAts and only
+  // ones this app derived from it. Nothing SCHEDULES off it
+  // (MatrixNotifier.futureTaskReminders iterates reminderAts and only
   // reminderAts), and null just means "we don't know, guess" — see
   // [resolveAnchor].
+  //
+  // It is no longer purely presentational, though. Each reminder's
+  // notification text is phrased from its distance to this moment — "باقي
+  // ساعة على مهمتك" for the one an hour early, "حان الوقت" only for the one
+  // that lands here (see NotificationService.scheduleTaskReminders and
+  // core/l10n/reminder_copy.dart) — so a wrong anchor now misnames every
+  // reminder in the stack, not just the bold row in the sheet. Which is the
+  // same failure the field was added to fix, so the invariant below is what
+  // keeps both honest.
   //
   // It exists because the flat list is lossy in a way the user can see. A
   // 12:00 anchor with a +15 offset stores [12:00, 12:15]; reopening used to

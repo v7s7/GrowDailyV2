@@ -526,8 +526,12 @@ class _JournalEntryCard extends StatelessWidget {
                   color: accent.withOpacity(0.14),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(entry.state.icon ?? Icons.circle_outlined,
-                    size: 18, color: accent),
+                child: Center(
+                  child: entry.state.glyph(
+                      size: 18,
+                      color: accent,
+                      fallback: Icons.circle_outlined),
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(

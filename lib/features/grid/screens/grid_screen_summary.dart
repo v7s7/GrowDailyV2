@@ -103,11 +103,11 @@ class _GridHeader extends ConsumerWidget {
     final locale = Localizations.localeOf(context).languageCode;
     final notifier = ref.read(weeklyGridProvider.notifier);
     final start = state.weekStart;
-    // !canGoForward, not isCurrentWeek. Those two disagree for six hours
+    // !canGoForward, not isCurrentWeek. Those two disagree for the flex window
     // once a week: isCurrentWeek asks whether the visible week holds the
     // REWARD day (effectiveDay), while the board deliberately seeds itself
     // from the real calendar so that 1am Saturday opens on the new week
-    // (see WeeklyGridState's own seed comment). During Saturday 00:00-05:59
+    // (see WeeklyGridState's own seed comment). During Saturday's flex window
     // the app therefore puts you on the newest week and isCurrentWeek then
     // called it a past week: the header showed a date range plus a gold
     // "this week" prompt, and tapping that prompt ran goToCurrentWeek() ->

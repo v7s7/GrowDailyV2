@@ -81,7 +81,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
   @override
   void initState() {
     super.initState();
-    // effectiveDay, not the raw calendar: the app's day rolls at 6am, so
+    // effectiveDay, not the raw calendar: the app's day rolls at 10am, so
     // between midnight and then the current month is still the previous
     // one as far as anything the user just recorded is concerned.
     final today = DateTime.now().effectiveDay;
@@ -378,7 +378,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                       color: color,
                       // The REAL calendar day for the ring, matching every
                       // other strip in the app: this is a calendar, and
-                      // before 6am the ring belongs on the date the phone's
+                      // before 10am the ring belongs on the date the phone's
                       // own calendar shows.
                       today: DateTime.now(),
                       isRtl: isRtl,

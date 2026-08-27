@@ -20,6 +20,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
 
 void main() {
+  _repairTests();
+
   DateTime d(int day) => DateTime(2026, 8, day);
 
   // Never consulted unless the stint list is empty; a loud default makes an
@@ -116,6 +118,92 @@ void main() {
         expect(habitCountedOn(many, d(day), fallback: noFallback), isFalse,
             reason: 'August $day is a gap between stints');
       }
+    });
+  });
+}
+
+// ── The repair for accounts already damaged ────────────────────────────────
+//
+// A habit whose birth date was overwritten by a resume (see
+// CustomHabitsNotifier.unarchive) claims to be YOUNGER than the room's own
+// frozen record of it. syncLinkedHabitsProgress treats the room's stamp as a
+// floor and widens the habit's window backwards to it — but only backwards,
+// only up to the damaged start, and never past a pause. These pin the shape of
+// that rule, so a future change cannot quietly turn a repair into an amnesty.
+//
+// The rule itself lives inside syncLinkedHabitsProgress (it needs Firestore),
+// so this mirrors its arithmetic exactly rather than calling it.
+bool repairedCountedOn({
+  required DateTime day,
+  required DateTime? floor,
+  required DateTime? damagedStart,
+  required DateTime? archivedAt,
+}) {
+  if (floor == null || damagedStart == null) return false;
+  final d = DateTime(day.year, day.month, day.day);
+  if (d.isBefore(floor) || !d.isBefore(damagedStart)) return false;
+  if (archivedAt != null &&
+      d.isAfter(DateTime(archivedAt.year, archivedAt.month, archivedAt.day))) {
+    return false;
+  }
+  return true;
+}
+
+void _repairTests() {
+  final roomStart = DateTime(2026, 7, 28);
+  final damaged = DateTime(2026, 8, 20); // the day the resume stamped
+  final paused = DateTime(2026, 8, 24);
+
+  group('the damaged-birth-date repair', () {
+    test('days between the room start and the damaged start come back', () {
+      for (final day in [DateTime(2026, 7, 28), DateTime(2026, 8, 5), DateTime(2026, 8, 19)]) {
+        expect(
+          repairedCountedOn(
+              day: day, floor: roomStart, damagedStart: damaged, archivedAt: paused),
+          isTrue,
+          reason: '$day is history the room itself attests to',
+        );
+      }
+    });
+
+    test('it never reaches before the room existed', () {
+      expect(
+        repairedCountedOn(
+            day: DateTime(2026, 7, 27), floor: roomStart, damagedStart: damaged, archivedAt: paused),
+        isFalse,
+        reason: 'the room has no record of this member before its own start',
+      );
+    });
+
+    test('it stops at the damaged start, which the real window already covers',
+        () {
+      expect(
+        repairedCountedOn(
+            day: damaged, floor: roomStart, damagedStart: damaged, archivedAt: paused),
+        isFalse,
+        reason: 'from here on the habit\'s own stint answers, so this must not '
+            'double up',
+      );
+    });
+
+    test('it never reaches past a pause', () {
+      expect(
+        repairedCountedOn(
+            day: DateTime(2026, 8, 25), floor: roomStart, damagedStart: damaged, archivedAt: paused),
+        isFalse,
+        reason: 'a stood-down day is not a tracked day, and letting the repair '
+            'cover it would hand back the pause-everything amnesty',
+      );
+    });
+
+    test('an undamaged account never enters the branch at all', () {
+      expect(
+        repairedCountedOn(
+            day: DateTime(2026, 8, 5), floor: null, damagedStart: null, archivedAt: null),
+        isFalse,
+        reason: 'no floor is set unless the habit claims to be younger than the '
+            'room, so nothing re-grades on first launch',
+      );
     });
   });
 }

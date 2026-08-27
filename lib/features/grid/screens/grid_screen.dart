@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/utils/bidi_fraction.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../../onboarding/notifiers/guide_chain.dart';
@@ -36,6 +37,7 @@ import '../../../shared/widgets/history_demo_gate.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 import '../widgets/daily_quote_line.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 // This screen used to be one ~2,160-line file. It's now split by UI concern
 // across this file plus four `part` files below — `part`/`part of` (not
@@ -51,6 +53,48 @@ part 'grid_screen_summary.dart'; // _SelectionBar, _GridHeader, _NavArrow, _Summ
 part 'grid_screen_table.dart'; // _GridTable/_GridTableState (the interactive board + tap/reward handlers), _BoostBadge, _SquareCell
 part 'grid_screen_cell_editor.dart'; // _CellEditorSheet/_CellEditorSheetState (long-press palette + note editor), _PaletteSwatch
 part 'grid_screen_misc.dart'; // _GridSkeleton, _GridSectionHeader, _GridEmptyState
+
+/// The Grid's three boards, in the order the day actually asks about them:
+/// what you are DOING, what you are STAYING AWAY from, and what you have PUT
+/// DOWN.
+///
+/// Build and quit were already two boards — colouring a square means opposite
+/// things across them ("I did it" vs "I stayed away from it"), so mixing them
+/// in one table made the eye translate row by row.
+///
+/// Paused is the third, and it goes LAST for the same class of reason. A
+/// paused row is the only kind whose squares are not a question being put to
+/// you today: it is on the board so a habit paused at 9pm does not blank out
+/// squares already earned that morning (see habitsArchivedTodayProvider), and
+/// so the pause can be taken back from the row itself. Sitting inline among
+/// live habits it read as one more thing outstanding, with a small pause tile
+/// as the only thing saying otherwise. Below everything, under its own
+/// heading, it reads as what it is: set down, still here, not owed.
+///
+/// A paused habit leaves BOTH other lists rather than being filtered out of
+/// one: a quit habit can be paused too, and when it is, it belongs with the
+/// paused ones. Order within each list is the caller's, untouched.
+///
+/// Pure and top-level so the rule is testable without building a screen —
+/// same reasoning as roomHasGradableHabit and weeklyQuotaScheduledDays.
+({
+  List<IslamicHabitTemplate> build,
+  List<IslamicHabitTemplate> quit,
+  List<IslamicHabitTemplate> paused,
+}) partitionGridHabits(List<IslamicHabitTemplate> habits) => (
+      build: [
+        for (final h in habits)
+          if (h.archivedAt == null && h.goalType != GoalType.quit) h,
+      ],
+      quit: [
+        for (final h in habits)
+          if (h.archivedAt == null && h.goalType == GoalType.quit) h,
+      ],
+      paused: [
+        for (final h in habits)
+          if (h.archivedAt != null) h,
+      ],
+    );
 
 /// Themed tint color for a habit row's category chip. The IconData half of
 /// this tuple is legacy — actual rendering goes through [CategoryIcon],
@@ -254,7 +298,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // Same reason as _pauseHabit's: an Undo that is still on screen for a
     // batch the user has already moved past is worse than no Undo.
     messenger.clearSnackBars();
-    messenger.showSnackBar(
+    messenger.showOne(
       SnackBar(
         content: Text(
           count == 1
@@ -488,12 +532,14 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // silently, with no dialog at all.
     //
     // Leaving the link alone does NOT cost the member points while the habit
-    // is away: a paused habit now leaves both sides of the sum (see
+    // is away: a paused habit leaves both sides of the sum (see
     // roomHasGradableHabit), so the member is graded on whatever else they
-    // linked, and only a plan whose every habit is paused scores zero. Nothing
-    // is permanent either: resuming brings the habit back and the next full
-    // resync regrades the last kRoomSyncWindowDays. The dialog says exactly
-    // that (habitPauseLinkedRoomBody / habitPauseSoleRoomHabitBody).
+    // linked — and a plan whose every habit is paused now leaves both sides
+    // too, as a stand-down day (RoomParticipant.standDownDays), so the
+    // percentage holds still instead of collapsing. Nothing is permanent
+    // either: resuming brings the habit back and the next full resync
+    // regrades the last kRoomSyncWindowDays. The dialog says exactly that
+    // (habitPauseLinkedRoomBody / habitPauseSoleRoomHabitBody).
     if (!await _confirmRoomImpact(habit.id, pausing: true)) return;
     if (!mounted) return;
     // "لي متى؟" — asked before anything is archived, so backing out here
@@ -538,7 +584,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     ref.read(habitResumeScheduleProvider.notifier).schedule(habit.id, until.at)
         .ignore();
     messenger.clearSnackBars();
-    messenger.showSnackBar(
+    messenger.showOne(
       SnackBar(
         content: Text(until.at == null
             ? s.habitPausedConfirmation(name)
@@ -654,22 +700,19 @@ class _GridScreenState extends ConsumerState<GridScreen> {
       }
     });
 
-    // Build habits and quit habits render as two separate boards — coloring
-    // a square means opposite things across the two ("I did it" vs "I
-    // stayed away from it"), so mixing them in one table made the eye do
-    // that translation row by row. Split lists, same row widgets. When one
-    // list is empty the split (and its headers) disappears entirely, so
-    // anyone not using quit habits sees exactly the single board they
+    final (
+      build: buildHabits,
+      quit: quitHabits,
+      paused: pausedHabits
+    ) = partitionGridHabits(habits);
+    // Any two of the three present is enough to need headings. With one
+    // alone the split and its headers disappear entirely, so someone using
+    // neither quit nor paused habits sees exactly the single board they
     // always had.
-    final buildHabits = [
-      for (final h in habits)
-        if (h.goalType != GoalType.quit) h,
-    ];
-    final quitHabits = [
-      for (final h in habits)
-        if (h.goalType == GoalType.quit) h,
-    ];
-    final showSplit = buildHabits.isNotEmpty && quitHabits.isNotEmpty;
+    final showSplit = [buildHabits, quitHabits, pausedHabits]
+            .where((l) => l.isNotEmpty)
+            .length >
+        1;
 
     // Presets are editable too now. This used to require the id to be in
     // customHabitsProvider, which meant a catalog habit had no edit button
@@ -822,40 +865,79 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
                                     children: [
-                                      _GridSectionHeader(
-                                        icon: Icons.bolt_rounded,
-                                        color: GameColors.gold,
-                                        label: s.gridSectionBuild,
-                                        count: buildHabits.length,
-                                      ),
-                                      _GridTable(
-                                        habits: buildHabits,
-                                        state: grid,
-                                        selectionMode: _selectionMode,
-                                        selectedIds: _selectedIds,
-                                        onSelectionToggle: _toggleSelection,
-                                        onHabitLongPress: _onHabitLongPress,
-                                        todayCellKey: _todayCellKey,
-                                      ),
-                                      const SizedBox(height: 18),
+                                      // todayCellKey rides on the FIRST
+                                      // board that actually has rows, never
+                                      // unconditionally on Build — it is what
+                                      // the App Guide's coach-mark points at,
+                                      // and an empty Build section would aim
+                                      // it at nothing.
+                                      if (buildHabits.isNotEmpty) ...[
+                                        _GridSectionHeader(
+                                          icon: Icons.bolt_rounded,
+                                          color: GameColors.gold,
+                                          label: s.gridSectionBuild,
+                                          count: buildHabits.length,
+                                        ),
+                                        _GridTable(
+                                          habits: buildHabits,
+                                          state: grid,
+                                          selectionMode: _selectionMode,
+                                          selectedIds: _selectedIds,
+                                          onSelectionToggle: _toggleSelection,
+                                          onHabitLongPress: _onHabitLongPress,
+                                          todayCellKey: _todayCellKey,
+                                        ),
+                                      ],
                                       // Shield + emerald, matching the quit
                                       // pill's own visual language on
                                       // HabitCard — the same "staying clean"
                                       // identity everywhere it appears.
-                                      _GridSectionHeader(
-                                        icon: Icons.shield_rounded,
-                                        color: GameColors.emerald,
-                                        label: s.gridSectionQuit,
-                                        count: quitHabits.length,
-                                      ),
-                                      _GridTable(
-                                        habits: quitHabits,
-                                        state: grid,
-                                        selectionMode: _selectionMode,
-                                        selectedIds: _selectedIds,
-                                        onSelectionToggle: _toggleSelection,
-                                        onHabitLongPress: _onHabitLongPress,
-                                      ),
+                                      if (quitHabits.isNotEmpty) ...[
+                                        if (buildHabits.isNotEmpty)
+                                          const SizedBox(height: 18),
+                                        _GridSectionHeader(
+                                          icon: Icons.shield_rounded,
+                                          color: GameColors.emerald,
+                                          label: s.gridSectionQuit,
+                                          count: quitHabits.length,
+                                        ),
+                                        _GridTable(
+                                          habits: quitHabits,
+                                          state: grid,
+                                          selectionMode: _selectionMode,
+                                          selectedIds: _selectedIds,
+                                          onSelectionToggle: _toggleSelection,
+                                          onHabitLongPress: _onHabitLongPress,
+                                          todayCellKey: buildHabits.isEmpty
+                                              ? _todayCellKey
+                                              : null,
+                                        ),
+                                      ],
+                                      // Last, and in the palette's own quiet
+                                      // tertiary rather than an accent: this
+                                      // section is a record, not a demand, and
+                                      // giving it a colour of its own would
+                                      // put it back in competition with the
+                                      // two above it.
+                                      if (pausedHabits.isNotEmpty) ...[
+                                        if (buildHabits.isNotEmpty ||
+                                            quitHabits.isNotEmpty)
+                                          const SizedBox(height: 18),
+                                        _GridSectionHeader(
+                                          icon: Icons.pause_rounded,
+                                          color: gp.textTert,
+                                          label: s.habitPausedSection,
+                                          count: pausedHabits.length,
+                                        ),
+                                        _GridTable(
+                                          habits: pausedHabits,
+                                          state: grid,
+                                          selectionMode: _selectionMode,
+                                          selectedIds: _selectedIds,
+                                          onSelectionToggle: _toggleSelection,
+                                          onHabitLongPress: _onHabitLongPress,
+                                        ),
+                                      ],
                                     ],
                                   ),
                           ),

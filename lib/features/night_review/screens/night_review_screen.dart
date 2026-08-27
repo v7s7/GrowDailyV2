@@ -17,6 +17,7 @@ import '../notifiers/night_review_notifier.dart';
 import '../../../core/utils/bidi_fraction.dart';
 import 'night_review_history_screen.dart';
 import '../../../core/utils/xp_calculator.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 /// The evening counterpart to the morning IntentionScreen: pick a mood,
 /// write a short reflection, and see the day distilled into the numbers
@@ -48,7 +49,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
     // the await above.
     if (!mounted) return;
     final s = S.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Text(ok ? s.nightReviewSaved : s.errGeneric),
         duration: const Duration(seconds: 2),

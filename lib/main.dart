@@ -98,6 +98,7 @@ import 'features/settings/notifiers/notification_settings_notifier.dart'
     show notificationSettingsProvider;
 import 'features/settings/screens/notification_settings_screen.dart';
 import 'firebase_options.dart';
+import 'shared/widgets/app_snackbar.dart';
 
 /// Today's scheduled habits vs. how many are already complete, plus the
 /// per-habit rows the large widget and the app icon badge are both built
@@ -720,7 +721,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _showAutoResumed(String name) {
     final ctx = _messengerContext;
     if (ctx == null) return;
-    ScaffoldMessenger.of(ctx).showSnackBar(
+    ScaffoldMessenger.of(ctx).showOne(
       SnackBar(
         content:
             Text(S(ref.read(localeProvider)).autoResumedConfirmation(name)),
@@ -734,7 +735,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _showAutoResumeBlocked(String name) {
     final ctx = _messengerContext;
     if (ctx == null) return;
-    ScaffoldMessenger.of(ctx).showSnackBar(
+    ScaffoldMessenger.of(ctx).showOne(
       SnackBar(
         content:
             Text(S(ref.read(localeProvider)).autoResumeBlockedByLimit(name)),
@@ -810,12 +811,27 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       reminders.add((
         id: habit.id,
         name: habit.localName(isAr),
-        clockTime: cue.clockTime,
+        clockTimes: cue.clockTimes,
+        // The cue's own shifts when it has them (multi-time), the habit's
+        // single field when it does not. Never both: see HabitCue.offsetsAreOwn.
+        clockOffsets: cue.offsetsAreOwn
+            ? cue.clockOffsets
+            : [habit.reminderOffsetMinutes],
         prayerKey: cue.prayerKey,
         streak: dash.habitStreak(habit.id),
-        isDoneToday: done,
+        // The raw count, not the done bool: a habit counted twice a day with
+        // one logged is neither "done" nor "untouched", and the scheduler
+        // needs the number to know how many of today's reminders to stand
+        // down. `done` above still feeds pendingCount, which is a whole-habit
+        // question and unaffected.
+        completedCount: dash.completions[habit.id] ?? 0,
+        dailyTarget: habit.effectiveDailyTarget,
         reminderOffsetMinutes: habit.reminderOffsetMinutes,
         ignoreQuietHours: habit.ignoreQuietHours,
+        // Only a prayer gets named in the reminder's own text ("باقي ٤٥
+        // دقيقة على المغرب"). A clock cue's anchor is a clock, and the
+        // notification is already stamped with one.
+        anchorLabel: cue.prayerKey != null ? cue.labelForLocale(isAr) : null,
       ));
     }
     NotificationService.instance
@@ -1360,6 +1376,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                   habitId: habit.id,
                   frequencyTarget: habit.effectiveDailyTarget,
                 ),
+                // Scales the daily earn ceiling with the roster, see
+                // dailyXpCapFor. Same list the predicate above uses.
+                scheduledHabitCount: todayHabits.length,
                 category: habit.category.name,
                 habitName: habit.localName(isAr),
               );

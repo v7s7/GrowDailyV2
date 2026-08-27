@@ -74,8 +74,18 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
   /// just typed.
   int _addGoalStep = 0;
 
-  /// True while the switcher should be on screen.
-  bool get _showTabs => !(_tab == HubTab.addGoal && _addGoalStep > 0);
+  /// True while the sheet is still on its CHOOSING surface: the first screen,
+  /// where somebody is deciding what habit to end up with.
+  ///
+  /// Governs the two things that belong to that decision and to nothing after
+  /// it — the Plans / Add Goal switcher, and the resume list of paused habits.
+  /// Both are offers to go somewhere else, and both are wrong once the person
+  /// has started filling the form in: they add noise above what the user is
+  /// actually typing into, they take space the form needs (the resume list is
+  /// capped at a quarter of the sheet), and a tap on either would throw away
+  /// what was just entered. Reported from the second step of Add Goal, where
+  /// «تمرين · استئناف» sat above «متى وكيف ستتابع؟» offering to abandon it.
+  bool get _onChooserStep => !(_tab == HubTab.addGoal && _addGoalStep > 0);
 
   // A one-time nudge explaining Plans vs. Add Goal — only for App Guide's
   // addHabit lesson, since that's the one moment someone genuinely hasn't
@@ -94,34 +104,41 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
     final s = S.of(context);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     final screenHeight = MediaQuery.of(context).size.height;
-    // Chrome above the tab body: drag handle + title row + tab row + spacing.
-    // +130 while the tab hint is showing, for the hint card's own height
-    // (icon+title row, up to 2 lines of body text, Okay button, padding on
-    // both the card and its own outer gap). Measured overflow at +70 was
-    // 5.2px on one real device/locale — +130 leaves real margin rather than
-    // just clearing that one data point, since text wrapping varies by
-    // device font scale and Arabic vs. English string length.
-    // Tab row is ~54pt including its vertical padding; when it is hidden the
-    // body gets that space back.
-    final tabRowHeight = _showTabs ? 0.0 : -54.0;
-    final chromeHeight =
-        (_showTabHint ? 150.0 + 130.0 : 150.0) + tabRowHeight;
+    // The chrome is no longer measured by hand. It used to be estimated here
+    // (drag handle + title + tab row, plus 130 while the hint showed) and
+    // subtracted from the screen to size the body — an estimate that had
+    // already been tuned twice against real-device overflow, and that still
+    // never counted the paused-habits section sitting in the same Column. The
+    // layout below divides the space for real instead, so there is nothing
+    // left to guess.
     const minBodyHeight = 220.0;
     // Resting size (no keyboard) stays ~86% of the screen, same as before.
     // Once the keyboard opens, shrink to whatever room is left above it
     // instead, so the sheet — and the focused field inside it — never end
     // up pushed off the top of the screen or hidden behind the keyboard.
-    final availableHeight = bottom > 0
-        ? screenHeight - bottom - chromeHeight - 16
-        : screenHeight * 0.86 - chromeHeight;
-    final bodyHeight = availableHeight < minBodyHeight ? minBodyHeight : availableHeight;
+    // One bound for the SHEET, not a guess at the body. Everything inside
+    // divides this up on its own now (see the Flexible below), so a row added
+    // above the body can only ever make the body shorter, never push it out.
+    final rawSheetMax = bottom > 0
+        ? screenHeight - bottom - 16
+        : screenHeight * 0.92;
+    final sheetMaxHeight =
+        rawSheetMax < minBodyHeight ? minBodyHeight : rawSheetMax;
     const keyboardAnim = Duration(milliseconds: 220);
     const keyboardCurve = Curves.easeOutCubic;
 
-    final body = AnimatedContainer(
+    // No fixed height. It used to be sized from the chromeHeight ESTIMATE
+    // above, and the estimate only ever counted the drag handle, the title
+    // row, the tab row and the hint — never the paused-habits section, which
+    // sits in the same Column and is as tall as the number of paused habits.
+    // So a member with anything paused got a body taller than the room left
+    // for it, and the form's own primary button ("أنشئ الهدف") was pushed off
+    // the bottom of the sheet: present, laid out, and unreachable. Letting the
+    // body take what is actually LEFT (see the Flexible below) removes the
+    // guess entirely, so no future row added above it can hide the button.
+    final body = AnimatedSize(
       duration: keyboardAnim,
       curve: keyboardCurve,
-      height: bodyHeight,
       child: IndexedStack(
         index: _tab.index,
         children: [
@@ -181,8 +198,13 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
         // no-op when the estimate is right, since there's nothing to
         // scroll — the body's own embedded content keeps scrolling
         // internally exactly as before either way.
-        child: SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
+        // Bounded, then split: the chrome takes what it needs and the body gets
+        // the rest. The old shape was the opposite — a scroll view wrapped
+        // around a Column holding a FIXED-height body — which could not fail
+        // loudly, so instead of overflowing it quietly let the sheet grow past
+        // the screen and took the footer with it.
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: sheetMaxHeight),
           child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -232,7 +254,29 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
             // one they already built and paused before they meet the
             // catalog. Renders nothing when nothing is paused, so the
             // common case is untouched.
-            const _PausedHabitsSection(),
+            //
+            // First screen only, same gate as the switcher below — see
+            // [_onChooserStep]. The argument that puts it here is entirely
+            // about the moment BEFORE somebody starts building: meet the
+            // habit you already have before you build it again. Once they are
+            // inside the form that moment has passed, and the section stops
+            // being an offer and becomes a distraction sitting on top of their
+            // work, holding a quarter of the sheet and a Resume button that
+            // would discard it.
+            //
+            // Capped and scrollable. It shares a bounded Column with the form
+            // now, so an unbounded list of paused habits would eat the space
+            // the form needs and starve its primary button — the same failure
+            // in a new place. A quarter of the sheet is enough for the two or
+            // three rows this normally shows, and past that it scrolls.
+            if (_onChooserStep)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: sheetMaxHeight * 0.25),
+                child: const SingleChildScrollView(
+                  physics: ClampingScrollPhysics(),
+                  child: _PausedHabitsSection(),
+                ),
+              ),
             // Plain tab row normally; during App Guide's addHabit lesson it
             // gets the exact same pulsing gold ring CoachMarkOverlay uses on
             // every other spotlighted target, so "these two buttons are the
@@ -241,8 +285,9 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
             // widget) since that one paints a full-screen scrim positioned
             // in global coordinates — wrong here, inside a bottom sheet
             // whose own bounds move with the keyboard.
-            // Hidden entirely once Add Goal has moved on — see [_showTabs].
-            if (!_showTabs)
+            // Hidden entirely once Add Goal has moved on — see
+            // [_onChooserStep].
+            if (!_onChooserStep)
               const SizedBox.shrink()
             else _showTabHint
                 ? Padding(
@@ -388,10 +433,11 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
             // CoachMarkOverlay's scrim elsewhere, scoped to this sheet's own
             // body instead of the full screen. Picking a tab clears
             // _showTabHint and this reverts to the plain, interactive body.
-            _showTabHint
+            Flexible(
+              child: _showTabHint
                 ? Stack(
                     children: [
-                      body,
+                      Positioned.fill(child: body),
                       Positioned.fill(
                         child: ClipRect(
                           child: BackdropFilter(
@@ -403,6 +449,7 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
                     ],
                   )
                 : body,
+            ),
           ],
           ),
         ),

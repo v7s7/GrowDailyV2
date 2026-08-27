@@ -28,6 +28,8 @@ import '../../rooms/notifiers/rooms_notifier.dart';
 import '../notifiers/custom_habits_notifier.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import 'habit_color_picker.dart';
+import 'habit_offset_sheet.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 part 'add_habit_sheet_small_widgets.dart';
 
@@ -138,7 +140,50 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   // silently overriding it — same pattern as [_didPickCategory] below.
   bool _timingModeTouched = false;
   String? _selectedPrayer;
-  TimeOfDay? _pickedTime;
+  /// One picked time per occurrence of a habit counted several times a day,
+  /// index-aligned with the reminder slot each will own.
+  ///
+  /// Grows but never SHRINKS. Stepping the count from 4 down to 2 and back up
+  /// must return the two times that were already set rather than two empty
+  /// rows, which is the same expectation times_per_day_test already pins for
+  /// the count itself. Reads always take `_effectiveTimeCount` from the front.
+  List<TimeOfDay?> _pickedTimes = [null];
+
+  /// The signed shift each occurrence's reminder fires at, index-aligned with
+  /// [_pickedTimes]. Only ever read while the habit is multi-time: a
+  /// single-time habit keeps using the one _reminderOffset it always has.
+  List<int> _pickedOffsets = [0];
+
+  /// Which row currently has its before/after chips open, or -1.
+  ///
+  /// One at a time. Six chips per row times four rows is a wall, and the
+  /// person is only ever adjusting one occurrence at a moment.
+  int _openOffsetRow = -1;
+
+  /// The first picked time — what every single-time reader meant by
+  /// `_pickedTime` before this became a list.
+  TimeOfDay? get _pickedTime => _pickedTimes.isEmpty ? null : _pickedTimes.first;
+
+  /// How many times this form is actually collecting.
+  ///
+  /// The stepper only governs Daily-with-no-specific-days (see
+  /// _frequencySection); every other cadence hides it but does NOT change
+  /// _timingMode, so without this clamp switching to Weekly would keep writing
+  /// N times a habit has no way to express.
+  /// Whether this habit is collecting more than one time a day — the state in
+  /// which only the clock-time cue can express what is being asked for.
+  bool get _isMultiTime => _effectiveTimeCount > 1;
+
+  int get _effectiveTimeCount =>
+      _freqType == HabitFrequencyType.daily && _selectedWeekdays.isEmpty
+          ? _dailyTargetInRange
+          : 1;
+
+  /// The times actually filled in, in slot order — what gets saved.
+  List<TimeOfDay> get _filledTimes => [
+        for (var i = 0; i < _effectiveTimeCount && i < _pickedTimes.length; i++)
+          if (_pickedTimes[i] case final TimeOfDay t) t,
+      ];
   // Set while _ensureLocationForPrayerCue's GPS request is in flight — lets
   // _reminderTimePreview show "Finding your location…" instead of the
   // static "no location" line for that brief window, and guards against
@@ -160,12 +205,19 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   // Ordered earliest → latest so the row reads like a timeline, with "On
   // time" (0) sitting naturally in the middle as the default.
   static const _offsetPresets = [-30, -15, 0, 15, 30];
+  /// The habit-level shift, as SIGNED minutes. One number, one home.
+  ///
+  /// Custom entry used to live as a magnitude in a text controller plus a
+  /// direction in a bool, recombined on every read — two pieces of state for
+  /// one fact, able to disagree, with a typed "-" fighting the toggle for the
+  /// sign. The custom sheet returns signed minutes, so this is now simply the
+  /// value. Only ever read for a single-time habit: with several times the
+  /// shifts live per occurrence inside the cue (see HabitCue.offsetsAreOwn).
   int _reminderOffset = 0;
+
+  /// Whether the current shift came from the custom sheet rather than a
+  /// preset — display only, so the «مخصص» chip can show as selected.
   bool _customOffsetSelected = false;
-  // Custom entry is split into a magnitude field + a before/after choice,
-  // rather than asking anyone to type a minus sign.
-  final _reminderOffsetCtrl = TextEditingController();
-  bool _customOffsetIsAfter = false;
 
   // Where the confetti burst on submit fires from — see _submit().
   final GlobalKey _createButtonKey = GlobalKey();
@@ -218,9 +270,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ? _CueRelation.before
           : _CueRelation.after;
       final parsed = HabitCue.fromStoredValue(storedCue);
-      if (parsed.clockTime != null) {
+      final storedTimes = parsed.clockTimes;
+      if (storedTimes.isNotEmpty) {
         _timingMode = _TimingMode.time;
-        _pickedTime = parsed.clockTime;
+        _pickedTimes = [...storedTimes];
+        _pickedOffsets = [...parsed.clockOffsets];
       } else if (parsed.isPrayer) {
         _timingMode = _TimingMode.prayer;
         _selectedPrayer = parsed.prayerKey;
@@ -231,20 +285,24 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _timingModeTouched = true;
       final storedOffset = existing.reminderOffsetMinutes;
       _reminderOffset = storedOffset;
-      if (!_offsetPresets.contains(storedOffset)) {
-        _customOffsetSelected = true;
-        _customOffsetIsAfter = storedOffset > 0;
-        // Magnitude only — direction is carried by the toggle beside it.
-        _reminderOffsetCtrl.text = storedOffset.abs().toString();
-      }
+      _customOffsetSelected = !_offsetPresets.contains(storedOffset);
       _ignoreQuietHours = existing.ignoreQuietHours;
       _category = _canonicalCategory(existing.category);
       _freqType = existing.frequencyType;
       _freqTarget = existing.frequencyTarget;
       // Only a daily habit's target is a per-day count; a weekly one's is
       // not, and seeding from it would show a made-up number in the stepper.
+      // Two sources of N have to agree on an existing habit: the stored
+      // frequencyTarget and however many times the cue actually carries. They
+      // can legitimately differ — a habit edited from 3x to 2x keeps three
+      // stored times until it is saved — and the larger one wins, so a
+      // document holding three times never renders only two pickers and
+      // silently drops the third on save.
       _timesPerDay = existing.frequencyType == HabitFrequencyType.daily
-          ? existing.frequencyTarget.clamp(1, kMaxTimesPerDay)
+          ? (existing.frequencyTarget > storedTimes.length
+                  ? existing.frequencyTarget
+                  : storedTimes.length)
+              .clamp(1, kMaxTimesPerDay)
           : 1;
       _selectedWeekdays = existing.scheduledWeekdays.toSet();
       _goalType = existing.goalType;
@@ -281,9 +339,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // pills (_selectLeadPreset, which already calls setState) would ever
     // trigger a rebuild, and the preview would silently go stale the moment
     // "Custom" is picked.
-    _reminderOffsetCtrl.addListener(() {
-      if (_customOffsetSelected) setState(() {});
-    });
+
     // Only the standalone "edit existing habit" sheet autofocuses the name
     // field on open. The embedded Add Goal tab (opened via the + button /
     // Add Habit Hub) is the very first screen of the creation flow — popping
@@ -331,7 +387,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     _cueCtrl.dispose();
     _limitCtrl.dispose();
     _customUnitCtrl.dispose();
-    _reminderOffsetCtrl.dispose();
     _focus.dispose();
     _cueFocus.dispose();
     super.dispose();
@@ -342,9 +397,23 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// "Time / Prayer / Custom text + before-after" into the actual value,
   /// so submit and the live preview can never disagree with each other.
   HabitCue _currentCue() => switch (_timingMode) {
-        _TimingMode.time => _pickedTime == null
-            ? HabitCue.empty
-            : HabitCue.time(_pickedTime!.hour, _pickedTime!.minute),
+        // An unfilled row is skipped rather than blocking: _submit has always
+        // required only a name, and _timingOptionalNote advertises timing as
+        // optional. All rows empty gives HabitCue.empty, exactly as before.
+        // HabitCue.times sorts, dedupes and clamps, so this is the only place
+        // the form has to think about order.
+        // Multi-time carries its shifts inside the cue, beside the times they
+        // belong to; single-time keeps the habit-level field untouched.
+        _TimingMode.time => _isMultiTime
+            ? HabitCue.timesWithOffsets([
+                for (var i = 0; i < _effectiveTimeCount; i++)
+                  if (i < _pickedTimes.length && _pickedTimes[i] != null)
+                    (
+                      _pickedTimes[i]!,
+                      i < _pickedOffsets.length ? _pickedOffsets[i] : 0,
+                    ),
+              ])
+            : HabitCue.times(_filledTimes),
         // The preset KEY, kept intact — never a localized label round-tripped
         // through text.
         //
@@ -376,14 +445,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// push a reminder days away from the habit it's for.
   int get _effectiveReminderOffset {
     if (_timingMode == _TimingMode.text) return 0;
-    if (!_customOffsetSelected) return _reminderOffset;
-    // The field holds a magnitude; the before/after toggle supplies the
-    // sign, so a stray "-" typed into a number field can't flip the
-    // meaning out from under the toggle.
-    final parsed = (int.tryParse(_reminderOffsetCtrl.text.trim()) ?? 0)
-        .abs()
-        .clamp(0, 360);
-    return _customOffsetIsAfter ? parsed : -parsed;
+    // A multi-time habit answers per occurrence, from inside its cue. Writing
+    // the habit-level field as well would leave two numbers describing the
+    // same shift, and the next reader would have to guess whether they stack.
+    if (_timingMode == _TimingMode.time && _isMultiTime) return 0;
+    // One number, one home. The custom value used to live as a magnitude in a
+    // text controller plus a direction in a bool, re-derived here on every
+    // read — so the field and the toggle could disagree, and a stray "-"
+    // typed into the field fought the toggle for the sign. The sheet returns
+    // signed minutes and they are stored as signed minutes.
+    return _reminderOffset;
   }
 
   /// Weekday lists compare as sets — order is meaningless here and a
@@ -618,7 +689,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           .toggle(existing.id, everCompleted: everCompleted);
     }
     if (mounted) Navigator.pop(context);
-    messenger.showSnackBar(
+    messenger.showOne(
       SnackBar(
         content: Text(confirmationText),
         duration: const Duration(seconds: 3),
@@ -1115,19 +1186,31 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             ),
           ).animate().fadeIn(duration: 240.ms).slideY(begin: 0.06, curve: Curves.easeOutCubic),
           const SizedBox(height: 10),
-          _timingModeSection(s)
+          // ── Cadence FIRST, then the times ────────────────────────────────
+          //
+          // These two were the other way round, and that ordering is the whole
+          // reason a habit counted twice a day could only ever be given one
+          // time: the form asked WHEN before it asked HOW MANY TIMES, so there
+          // was nowhere to put the second time — the screen did not yet know
+          // there was one. The count is what decides the shape of everything
+          // under it, so it has to be answered first.
+          //
+          // It also keeps the stepper reachable. With the pickers above it,
+          // every extra occurrence pushed the plus button it came from further
+          // down the sheet, and past a few taps out of the viewport entirely.
+          _frequencySection(s)
               .animate(delay: 40.ms)
+              .fadeIn(duration: 240.ms)
+              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+          const SizedBox(height: 18),
+          _timingModeSection(s)
+              .animate(delay: 70.ms)
               .fadeIn(duration: 240.ms)
               .slideY(begin: 0.06, curve: Curves.easeOutCubic),
           const SizedBox(height: 8),
           _timingOptionalNote(s)
-              .animate(delay: 70.ms)
-              .fadeIn(duration: 240.ms),
-          const SizedBox(height: 18),
-          _frequencySection(s)
               .animate(delay: 90.ms)
-              .fadeIn(duration: 240.ms)
-              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+              .fadeIn(duration: 240.ms),
           const SizedBox(height: 16),
           _goalPreviewCard(s)
               .animate(delay: 130.ms)
@@ -1148,22 +1231,40 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   onTap: () => _selectTimingMode(_TimingMode.time),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _SmallPick(
-                  label: s.cuePrayerOption,
-                  selected: _timingMode == _TimingMode.prayer,
-                  onTap: () => _selectTimingMode(_TimingMode.prayer),
+              // ── Prayer and free text are single-moment cues ──────────────
+              //
+              // Hidden, not disabled, once the habit is counted more than once
+              // a day. A prayer is ONE moment — "five times a day" anchored to
+              // prayers means five DIFFERENT prayers, which is a different
+              // feature and not what this chip does — and free text has no
+              // resolvable moment at all, so neither can express a second
+              // occurrence. Offering a chip that silently collapses the count
+              // back to one time is worse than not offering it: the person
+              // sets two times, taps «وقت الصلاة», and one of them is gone
+              // with nothing said.
+              //
+              // Disabled-but-visible was the other option and reads as a
+              // paywall. There is nothing to unlock here — the choice simply
+              // does not apply while the count is above one, and it comes
+              // straight back when the count returns to one.
+              if (!_isMultiTime) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SmallPick(
+                    label: s.cuePrayerOption,
+                    selected: _timingMode == _TimingMode.prayer,
+                    onTap: () => _selectTimingMode(_TimingMode.prayer),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _SmallPick(
-                  label: s.customText,
-                  selected: _timingMode == _TimingMode.text,
-                  onTap: () => _selectTimingMode(_TimingMode.text),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SmallPick(
+                    label: s.customText,
+                    selected: _timingMode == _TimingMode.text,
+                    onTap: () => _selectTimingMode(_TimingMode.text),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
@@ -1216,47 +1317,275 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   }
 
   Widget _timeModeContent(S s) {
-    final gp = context.gp;
-    final picked = _pickedTime;
+    final count = _effectiveTimeCount;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: _pickTime,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              color: gp.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: gp.border, width: 0.5),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.schedule_rounded,
-                  size: 18,
-                  color: picked == null ? gp.textTert : GameColors.gold,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  picked == null ? s.pickATime : HabitCue.time(picked.hour, picked.minute).labelForLocale(s.isAr),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: picked == null ? FontWeight.w600 : FontWeight.w800,
-                    color: picked == null ? gp.textTert : gp.textPrimary,
-                  ),
-                ),
-                const Spacer(),
-                Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
-              ],
-            ),
-          ),
-        ),
-        if (picked != null) _reminderOffsetSection(s),
+        for (var i = 0; i < count; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          _timeRow(s, i, count),
+        ],
+        // The offset section below is for the SINGLE-time case only. With
+        // several times it moves inside each row instead: a floating
+        // «ذكّرني» block under a list of times says nothing about which time
+        // it governs, and the honest answer (all of them) is not what someone
+        // reading it assumes. Reported from a two-time habit where the block
+        // sat under the second row and read as belonging to it.
+        if (!_isMultiTime && _filledTimes.isNotEmpty) _reminderOffsetSection(s),
       ],
     );
+  }
+
+  /// One occurrence's time picker. Carries its 1-based position only when
+  /// there is more than one, so the single-time case is visually unchanged.
+  ///
+  /// The position is a bare numeral rather than a phrase: it needs no
+  /// translation, costs no new string, and reads identically in both scripts.
+  Widget _timeRow(S s, int slot, int count) {
+    final gp = context.gp;
+    final picked = slot < _pickedTimes.length ? _pickedTimes[slot] : null;
+    final offset = slot < _pickedOffsets.length ? _pickedOffsets[slot] : 0;
+    final open = _openOffsetRow == slot;
+    // ── Two rows on the same minute ─────────────────────────────────────
+    //
+    // The cue dedupes by minute (HabitCue.timesWithOffsets), so saving two
+    // rows set to the same time keeps ONE of them and drops the other's shift
+    // with it. Silently. And it is easy to reach by accident: every picker
+    // opens on the current clock, so confirming twice without changing
+    // anything produces exactly this.
+    //
+    // Flagged on the LATER row, never the earlier one — the first is the one
+    // being kept, and colouring both would say "these are equally wrong" when
+    // only one of them is about to disappear.
+    final duplicate = picked != null &&
+        [
+          for (var i = 0; i < slot && i < _pickedTimes.length; i++)
+            _pickedTimes[i],
+        ].any((t) => t != null && t.hour == picked.hour && t.minute == picked.minute);
+    // Two targets, two jobs, and each looks like what it does. The time text
+    // opens the picker (the common action, one tap, exactly as it always was);
+    // the shift chip beside it opens this occurrence's before/after choices.
+    // Making the whole row one target and hiding "change the time" a level
+    // down would tax the frequent action to make room for the rare one.
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: duplicate
+              ? GameColors.error.withOpacity(0.55)
+              : open
+                  ? GameColors.gold.withOpacity(0.55)
+                  : gp.border,
+          width: (open || duplicate) ? 1 : 0.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => _pickTime(slot),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.schedule_rounded,
+                          size: 18,
+                          color: picked == null ? gp.textTert : GameColors.gold,
+                        ),
+                        const SizedBox(width: 10),
+                        if (count > 1) ...[
+                          Text(
+                            '${slot + 1}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: gp.textTert,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Flexible(
+                          child: Text(
+                            picked == null
+                                ? s.pickATime
+                                : HabitCue.time(picked.hour, picked.minute)
+                                    .labelForLocale(s.isAr),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: picked == null
+                                  ? FontWeight.w600
+                                  : FontWeight.w800,
+                              color: picked == null
+                                  ? gp.textTert
+                                  : gp.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Only once there is a time to shift, and only while the habit
+              // is multi-time — with one time the section below the list is
+              // still the right home for this.
+              if (count > 1 && picked != null)
+                InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _openOffsetRow = open ? -1 : slot);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 14, 12, 14),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _offsetPresetLabel(s, offset),
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: offset == 0
+                                ? gp.textTert
+                                : GameColors.gold,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          open
+                              ? Icons.expand_less_rounded
+                              : Icons.expand_more_rounded,
+                          size: 18,
+                          color: gp.textTert,
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(left: 14, right: 14),
+                  child: Icon(Icons.chevron_right_rounded,
+                      size: 18, color: gp.textTert),
+                ),
+            ],
+          ),
+          if (duplicate)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded,
+                      size: 13, color: GameColors.error),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      s.habitDuplicateTime,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        height: 1.4,
+                        color: GameColors.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (open) ...[
+            Divider(height: 1, thickness: 0.5, color: gp.divider),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _ChipGrid(
+                    columns: 3,
+                    items: [
+                      for (final preset in _offsetPresets)
+                        _PlainChoiceChip(
+                          selected: offset == preset,
+                          label: _offsetPresetLabel(s, preset),
+                          onTap: () => _setRowOffset(slot, preset),
+                        ),
+                      // Sixth cell, so the grid is two complete rows of three
+                      // rather than five with a hole. Selected whenever the
+                      // row's shift is not one of the presets, which is the
+                      // only way a person can tell at a glance that the value
+                      // above came from here.
+                      _PlainChoiceChip(
+                        selected: !_offsetPresets.contains(offset),
+                        label: s.leadCustomOption,
+                        onTap: () => _pickRowOffset(s, slot, picked, offset),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // Says the resolved moment, not just the shift. "15 minutes
+                  // before" is an instruction; "7:45" is the answer, and the
+                  // answer is what someone checks.
+                  Text(
+                    s.remindAtTimePreview(_shiftedLabel(s, picked, offset)),
+                    style: TextStyle(fontSize: 11, color: gp.textTert),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _setRowOffset(int slot, int minutes) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      while (_pickedOffsets.length <= slot) {
+        _pickedOffsets.add(0);
+      }
+      _pickedOffsets[slot] = minutes;
+    });
+  }
+
+  /// Opens the custom-shift sheet for ONE occurrence.
+  ///
+  /// The anchor goes in so the sheet can show where the reminder actually
+  /// lands and name which occurrence is being adjusted — with four rows on
+  /// screen, a sheet that said only «تذكير مخصص» would leave the person
+  /// guessing which one they opened.
+  Future<void> _pickRowOffset(
+    S s,
+    int slot,
+    TimeOfDay? anchor,
+    int current,
+  ) async {
+    final chosen = await showHabitOffsetSheet(
+      context,
+      current: current,
+      anchor: anchor,
+    );
+    // Null is a dismissal, 0 is a deliberate "on the dot" — a bare int could
+    // not tell those apart, and backing out would silently clear the shift.
+    if (chosen == null || !mounted) return;
+    _setRowOffset(slot, chosen);
+  }
+
+  /// [picked] shifted by [offset], as a clock label. Wraps around midnight,
+  /// which a 30-minute lead on a 00:15 reminder genuinely does.
+  String _shiftedLabel(S s, TimeOfDay? picked, int offset) {
+    if (picked == null) return '';
+    final total = (picked.hour * 60 + picked.minute + offset) % (24 * 60);
+    final m = total < 0 ? total + 24 * 60 : total;
+    return HabitCue.time(m ~/ 60, m % 60).labelForLocale(s.isAr);
   }
 
   Widget _prayerModeContent(S s) => Column(
@@ -1323,46 +1652,24 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   label: _offsetPresetLabel(s, preset),
                   onTap: () => _selectOffsetPreset(preset),
                 ),
+              // Same sheet the per-occurrence rows open, so "custom" means one
+              // thing in this form regardless of how many times a day the
+              // habit is counted.
+              //
+              // This used to expand three controls inline — a number field, a
+              // before/after pair, and the grid above them — which is the
+              // shape the task sheet was built to replace: entering a shift
+              // needs a number AND a unit AND a direction, and three controls
+              // competing for one column is exactly what a bottom sheet is
+              // for. It also had no unit at all, so "2 hours before" had to be
+              // typed as 120.
               _PlainChoiceChip(
                 selected: _customOffsetSelected,
                 label: s.leadCustomOption,
-                onTap: _selectCustomOffset,
+                onTap: () => _pickSingleOffset(s),
               ),
             ],
           ),
-          if (_customOffsetSelected) ...[
-            const SizedBox(height: 10),
-            TextField(
-              controller: _reminderOffsetCtrl,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: s.leadCustomMinutesHint),
-            ),
-            const SizedBox(height: 8),
-            // Direction as its own two-chip row rather than a typed minus
-            // sign — and on its own line rather than beside the field,
-            // which used to overflow once the label text got long.
-            _ChipGrid(
-              columns: 2,
-              items: [
-                _PlainChoiceChip(
-                  selected: !_customOffsetIsAfter,
-                  label: s.offsetBeforeLabel,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _customOffsetIsAfter = false);
-                  },
-                ),
-                _PlainChoiceChip(
-                  selected: _customOffsetIsAfter,
-                  label: s.offsetAfterLabel,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _customOffsetIsAfter = true);
-                  },
-                ),
-              ],
-            ),
-          ],
           _reminderTimePreview(s),
           _quietHoursWarning(s),
         ],
@@ -1383,7 +1690,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     final deniedMessage = S.of(context).reminderPermissionDenied;
     final granted = await NotificationService.instance.requestPermissions();
     if (granted) return;
-    messenger.showSnackBar(
+    messenger.showOne(
       SnackBar(
         content: Text(deniedMessage),
         duration: const Duration(seconds: 4),
@@ -1421,7 +1728,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // why, then offer the manual city search immediately rather than
     // making them find their own way to Settings afterward.
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Text(s.notifLocationDetectFailed),
         duration: const Duration(seconds: 3),
@@ -1445,6 +1752,20 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// never knew about). Returns null when there's nothing to compute yet:
   /// no time/prayer picked, or (prayer mode only) no location saved to
   /// calculate against.
+  /// Every moment a reminder would be offset FROM — one per filled time in
+  /// Time mode, one for a prayer, none for freeform text.
+  List<DateTime> _reminderAnchorTimes(NotificationSettings settings) {
+    if (_timingMode == _TimingMode.time) {
+      final today = DateTime.now();
+      return [
+        for (final t in _filledTimes)
+          DateTime(today.year, today.month, today.day, t.hour, t.minute),
+      ];
+    }
+    final single = _reminderAnchorTime(settings);
+    return single == null ? const [] : [single];
+  }
+
   DateTime? _reminderAnchorTime(NotificationSettings settings) {
     if (_timingMode == _TimingMode.time) {
       final picked = _pickedTime;
@@ -1580,9 +1901,26 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     });
   }
 
-  void _selectCustomOffset() {
-    HapticFeedback.selectionClick();
-    setState(() => _customOffsetSelected = true);
+  /// Opens the custom-shift sheet for a single-time habit.
+  ///
+  /// Writes straight back into [_reminderOffset] and clears the
+  /// custom-selected flag's dependence on the old inline field: the sheet
+  /// returns real minutes, so there is no longer a magnitude and a direction
+  /// living in two places waiting to disagree.
+  Future<void> _pickSingleOffset(S s) async {
+    final chosen = await showHabitOffsetSheet(
+      context,
+      current: _effectiveReminderOffset,
+      anchor: _timingMode == _TimingMode.time ? _pickedTime : null,
+    );
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _reminderOffset = chosen;
+      // Still "custom" only when it is genuinely off-preset, so the chip's
+      // selected state keeps telling the truth about where the value came
+      // from — picking 15-before from the sheet lights the 15-before chip.
+      _customOffsetSelected = !_offsetPresets.contains(chosen);
+    });
   }
 
   /// Shown only when the reminder this form would actually schedule lands
@@ -1607,16 +1945,20 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         !settings.quietHoursAppliesToPrayer) {
       return const SizedBox.shrink();
     }
-    final anchor = _reminderAnchorTime(settings);
-    if (anchor == null) return const SizedBox.shrink();
-    final moment = anchor.add(Duration(minutes: _effectiveReminderOffset));
-    if (!NotificationService.isMinuteWithinQuietHours(
-      moment.hour * 60 + moment.minute,
-      settings.quietHoursStart,
-      settings.quietHoursEnd,
-    )) {
-      return const SizedBox.shrink();
-    }
+    // Every time this habit carries, not just the first. The scheduler now
+    // judges quiet hours per occurrence (a habit set for 00:00 and 12:00 keeps
+    // its noon ping and loses only midnight), so a warning that looked at one
+    // time would go quiet on exactly the schedule that needs it: the midnight
+    // half of Aziz's protein case sits second in the list.
+    final moments = _reminderAnchorTimes(settings)
+        .map((a) => a.add(Duration(minutes: _effectiveReminderOffset)))
+        .where((m) => NotificationService.isMinuteWithinQuietHours(
+              m.hour * 60 + m.minute,
+              settings.quietHoursStart,
+              settings.quietHoursEnd,
+            ))
+        .toList();
+    if (moments.isEmpty) return const SizedBox.shrink();
 
     final gp = context.gp;
     return Padding(
@@ -1790,6 +2132,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 // this mode is the one where the two genuinely are the
                 // same number.
                 _freqTarget = _timesPerDay;
+                // Stepping up while a single-moment cue is selected has to
+                // carry the mode with it, or the chips vanish and leave the
+                // form sitting in a mode nothing on screen can reach or
+                // change. Only ever onto the clock-time mode, and only ever
+                // upward: stepping back down to 1 restores the chips and lets
+                // the person pick a prayer again if that is what they wanted.
+                if (_timesPerDay > 1 && _timingMode != _TimingMode.time) {
+                  _timingMode = _TimingMode.time;
+                  _timingModeTouched = true;
+                }
               }),
             ),
           ],
@@ -2017,11 +2369,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     });
   }
 
-  Future<void> _pickTime() async {
+  Future<void> _pickTime([int slot = 0]) async {
     HapticFeedback.selectionClick();
+    final current = slot < _pickedTimes.length ? _pickedTimes[slot] : null;
     final picked = await showTimePicker(
       context: context,
-      initialTime: _pickedTime ?? TimeOfDay.now(),
+      initialTime: current ?? TimeOfDay.now(),
       helpText: S.of(context).pickATime,
       // Force 12-hour AM/PM regardless of the device's 24-hour system
       // setting, so the picker looks the same on every phone.
@@ -2031,7 +2384,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       ),
     );
     if (picked == null) return;
-    setState(() => _pickedTime = picked);
+    setState(() {
+      while (_pickedTimes.length <= slot) {
+        _pickedTimes.add(null);
+      }
+      while (_pickedOffsets.length <= slot) {
+        _pickedOffsets.add(0);
+      }
+      _pickedTimes[slot] = picked;
+    });
   }
 
   void _applySuggestion(GoalSuggestion suggestion) {

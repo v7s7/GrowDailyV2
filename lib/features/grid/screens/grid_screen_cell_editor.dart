@@ -219,7 +219,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      // The real calendar day during the 6-hour window
+                      // The real calendar day during the flex window
                       // right after midnight isn't a "past" day (it just
                       // hasn't become the official reward day yet) —
                       // saying so here would be actively wrong, not just
@@ -498,6 +498,9 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                 halfDoneHabitIds:
                     ref.read(weeklyGridProvider).halfDoneTodayIds(),
               ),
+              // Scales the daily earn ceiling with the roster, see
+              // dailyXpCapFor. Same list the predicate above uses.
+              scheduledHabitCount: todayHabits.length,
               category: habit.category.name,
               habitName: habit.localName(S.of(context).isAr),
             );
@@ -632,12 +635,67 @@ class _PaletteSwatch extends StatelessWidget {
                     width: selected ? 2 : 0.8,
                   ),
                 ),
-                child: Icon(
-                  state.icon ?? Icons.circle_outlined,
-                  size: 20,
-                  color:
-                      state == SquareState.none ? gp.textTert : state.accent,
-                ),
+                // جزئي is the one swatch that is not a glyph on a colour: it
+                // is the board square in miniature, filled to its own halfway
+                // line, plus the one thing the board itself cannot afford to
+                // say. This sheet is where the mark, the caption جزئي and the
+                // sentence "counts as half a day" appear together, so the
+                // fraction teaches the geometry once, here, and the board
+                // never has to repeat it. On the board it would also collide
+                // head-on with a counted square's own centred yellow digit —
+                // "1/2" beside "2" is two numeric vocabularies in one row.
+                child: state == SquareState.partial
+                    ? Stack(
+                        children: [
+                          _levelFill(
+                            factor: state.levelFactor!,
+                            fill: state.levelFill(dark),
+                            line: state.levelLine(dark),
+                            // The radius INSIDE this swatch's border, which
+                            // thickens from 0.8 to 2 while it is selected.
+                            radius: GameSpacing.buttonRadius -
+                                (selected ? 2 : 0.8),
+                          ),
+                          // Sits in the empty half, not dead centre: centred,
+                          // the waterline runs straight through the digits and
+                          // reads as a strikethrough. Above the line it reads
+                          // as what it is — the label for how full this is.
+                          Align(
+                            alignment: const Alignment(0, -0.5),
+                            child: Text(
+                              // ASCII digits, never '½'. U+00BD is Latin-1
+                              // Supplement and not guaranteed in every face
+                              // this app ships, so it can silently swap
+                              // typeface mid-swatch or draw tofu.
+                              //
+                              // Isolated because this sheet is RTL in Arabic
+                              // and neither a digit nor a solidus carries a
+                              // direction of its own — the same reason every
+                              // other fraction in the app goes through here.
+                              // See bidi_fraction.dart.
+                              bidiIsolate('1/2'),
+                              // An Icon ignores the accessibility text scale;
+                              // a Text does not, and this sheet is the one
+                              // place that already reads textScalerOf (see
+                              // _PaletteGrid). At 200% it would leave the box.
+                              textScaler: TextScaler.noScaling,
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1,
+                                fontWeight: FontWeight.w800,
+                                color: state.levelLine(dark),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Icon(
+                        state.icon ?? Icons.circle_outlined,
+                        size: 20,
+                        color: state == SquareState.none
+                            ? gp.textTert
+                            : state.accent,
+                      ),
               ),
             ),
           ),

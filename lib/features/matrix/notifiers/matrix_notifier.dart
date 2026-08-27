@@ -392,7 +392,13 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     // true forever after, so un-completing and re-completing the same task
     // (or just un-completing it) never pays out again or claws it back —
     // see the field doc on MatrixTask.rewarded for why.
-    final firstTimeDone = nowDone && !current.rewarded;
+    // The cap is consulted BEFORE `rewarded` is set, because that flag is
+    // one-way: marking a task rewarded for a payout the ceiling refused would
+    // strand the reward permanently. Short-circuits, so an ordinary re-tick
+    // never touches the day's task allowance at all.
+    final firstTimeDone = nowDone &&
+        !current.rewarded &&
+        _ref.read(dashboardProvider.notifier).claimTaskReward();
     final updated = current.copyWith(
       isDone: nowDone,
       completedAt: nowDone ? DateTime.now() : null,
@@ -908,6 +914,12 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
             id: task.id,
             taskTitle: task.title,
             fireTimes: future,
+            // What every fire time is measured against, so each slot's
+            // notification can say whether it is early, on time, or a
+            // follow-up. Not recoverable from `future` alone: already-passed
+            // entries are filtered out of it, so the anchor is frequently
+            // missing from the list entirely.
+            anchorAt: task.reminderAnchorAt,
             isAr: isAr,
           )
           .then(
@@ -991,6 +1003,11 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     await NotificationService.instance.fireOverdueTaskReminder(
       id: task.id,
       taskTitle: task.title,
+      // The task's own moment, not [missedAt]. They differ whenever the
+      // reminder that went missing was itself an offset one, and "how late
+      // is this task" is the question the catch-up answers. Falls back to
+      // the missed moment for a task saved before the anchor was stored.
+      dueAt: task.reminderAnchorAt ?? missedAt,
       isAr: isAr,
     );
   }

@@ -6,11 +6,12 @@ import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../features/settings/models/notification_settings.dart';
+import '../l10n/reminder_copy.dart';
 import 'local_store_service.dart';
 import 'prayer_times_service.dart';
 
 /// One habit's reminder inputs, as read straight off its [HabitCue] by
-/// main.dart — a *raw*, unresolved cue (at most one of [clockTime]/
+/// main.dart — a *raw*, unresolved cue (at most one of [clockTimes]/
 /// [prayerKey] is set, never both) plus the dashboard context needed to
 /// decide whether to fire at all. Turning this into an actual fire time —
 /// including the prayer-time calculation itself — happens inside
@@ -21,13 +22,36 @@ import 'prayer_times_service.dart';
 typedef HabitReminderInput = ({
   String id,
   String name,
-  TimeOfDay? clockTime,
+  /// Every clock time this habit is due at, ascending and deduped — the
+  /// canonical list [HabitCue.clockTimes] hands back. Empty for a
+  /// prayer-linked or freeform cue.
+  ///
+  /// One reminder is scheduled per entry, and an entry's INDEX here is the
+  /// notification slot it owns for the life of that habit. Still mutually
+  /// exclusive with [prayerKey]: a habit is anchored to clock times or to a
+  /// prayer, never both.
+  List<TimeOfDay> clockTimes,
+  /// The signed shift for each entry of [clockTimes], index-aligned.
+  ///
+  /// A multi-time habit carries its own per-time shifts (they live in the cue
+  /// beside the times, so the two cannot desync); a single-time one gets a
+  /// one-entry list holding the habit's reminderOffsetMinutes, which is
+  /// exactly what it has always used. Either way this is the only number the
+  /// scheduler reads, so there is never a question of the two stacking.
+  List<int> clockOffsets,
   String? prayerKey,
   int streak,
-  bool isDoneToday,
+  /// How many of today's [dailyTarget] have already been logged.
+  ///
+  /// Replaces a plain `isDoneToday` bool, which could not express the state a
+  /// habit counted several times a day spends most of its day in. One of two
+  /// done at 2pm used to read as "not done" and re-arm BOTH reminders, or —
+  /// had it read as done — cancel the evening one the person still needed.
+  int completedCount,
+  int dailyTarget,
   // Signed minutes from the resolved clock/prayer moment to the fire time:
   // negative = before, 0 = exactly on time, positive = after. Ignored when
-  // both clockTime and prayerKey are null, since there's no moment to
+  // both clockTimes and prayerKey are empty/null, since there's no moment to
   // offset from. Mirrors IslamicHabitTemplate.reminderOffsetMinutes — see
   // that field's doc comment for the migration off the old always-before
   // `reminderLeadMinutes`.
@@ -35,6 +59,18 @@ typedef HabitReminderInput = ({
   // Lets this habit's reminder through quiet hours (the per-habit "Allow
   // anyway" escape hatch). Mirrors IslamicHabitTemplate.ignoreQuietHours.
   bool ignoreQuietHours,
+  /// What the offset is measured FROM, already localized, when that has a
+  /// name worth saying out loud: "المغرب" / "Maghrib" for a prayer-linked
+  /// habit, null for a clock time.
+  ///
+  /// Only ever a prayer. A clock cue's anchor is a clock time, and the
+  /// notification's own timestamp already shows the reader a clock, so
+  /// naming it back at them ("باقي ١٥ دقيقة على ٩:٠٠") adds nothing — see
+  /// habitReminderBody in core/l10n/reminder_copy.dart. Passed in by
+  /// main.dart rather than derived from [prayerKey] here, because the cue
+  /// that knows the label is already open on that side and this file has no
+  /// business owning a second copy of the prayer names.
+  String? anchorLabel,
 });
 
 typedef _ResolvedReminder = ({
@@ -42,6 +78,20 @@ typedef _ResolvedReminder = ({
   String name,
   tz.TZDateTime fireTime,
   int streak,
+  /// Which of this habit's reminder slots this is — the index of its time in
+  /// [HabitReminderInput.clockTimes]. See [NotificationService._habitReminderId].
+  int slot,
+  /// Signed minutes from the moment this reminder is ABOUT to the moment it
+  /// actually fires: negative = early, 0 = on the dot, positive = late.
+  ///
+  /// [fireTime] alone cannot answer this — it is already post-offset, so
+  /// there is nothing left to difference it against. Carried through here
+  /// so the body can say which of the three it is; without it every
+  /// reminder claimed to be the third.
+  int offsetMinutes,
+  /// The prayer this habit's offset is measured from, localized, or null
+  /// for a clock time. Mirrors [HabitReminderInput.anchorLabel].
+  String? anchorLabel,
 });
 
 /// One quit habit's evening check-in inputs, read off the providers by
@@ -542,6 +592,56 @@ class NotificationService {
   static int reminderSlotOffset(String habitId, int slot) =>
       (slot == 0 ? habitId.hashCode : '$habitId#$slot'.hashCode).abs() % 1000;
 
+  /// Which moment each of [times] next falls at, one entry per time, with the
+  /// slot index it owns.
+  ///
+  /// Pure and static so the whole of this feature's 24-hour arithmetic is
+  /// testable with no device, no plugin and no network — [times] and a
+  /// simulated [now] in, slots and fire times out. That matters more here than
+  /// anywhere else in this file: the cases that break a multi-time habit are
+  /// all clock arithmetic (a list spanning midnight, an offset pushing a time
+  /// across it, a time landing exactly on now), and none of them are reachable
+  /// from a widget test.
+  ///
+  /// The slot is the index in [times], NEVER the position in fire-time order.
+  /// Fire order swaps during a single day — at 11:00 a habit set for 00:00 and
+  /// 12:00 resolves to [tomorrow 00:00, today 12:00], and at 13:00 to
+  /// [tomorrow 00:00, tomorrow 12:00], so 00:00 and 12:00 would trade slots as
+  /// the day passed. Ids are `hash('habitId#slot')` and the OS has no other
+  /// handle on a scheduled notification, so a trade means the next cancel aims
+  /// at the wrong id and strands a live reminder that nothing can call back.
+  /// [times] is canonical (ascending, deduped — see HabitCue.times), so its
+  /// index is stable across recomputes, across the day and across restarts.
+  /// [offsets] is index-aligned with [times]: entry i is the signed minute
+  /// shift for time i (negative before, positive after). A short list is read
+  /// as 0 past its end, so a caller with one shared offset passes a one-entry
+  /// list only when there is one time.
+  @visibleForTesting
+  static List<({int slot, tz.TZDateTime fireTime})> resolveClockSlots(
+    List<TimeOfDay> times,
+    List<int> offsets,
+    tz.TZDateTime now,
+  ) {
+    final out = <({int slot, tz.TZDateTime fireTime})>[];
+    for (var slot = 0; slot < times.length && slot < _maxHabitReminderSlots; slot++) {
+      final offset =
+          Duration(minutes: slot < offsets.length ? offsets[slot] : 0);
+      final t = times[slot];
+      var fire =
+          tz.TZDateTime(tz.local, now.year, now.month, now.day, t.hour, t.minute);
+      // Same two rolls the single-time path has always done, applied per time.
+      // The first puts the bare clock time in the future; the second catches an
+      // offset dragging it back into the past (it is 8:58, the habit is set for
+      // 9:00, the offset is -15). A wall-clock time repeats daily, so the fix
+      // for both is the same moment tomorrow.
+      if (fire.isBefore(now)) fire = fire.add(const Duration(days: 1));
+      fire = fire.add(offset);
+      if (!fire.isAfter(now)) fire = fire.add(const Duration(days: 1));
+      out.add((slot: slot, fireTime: fire));
+    }
+    return out;
+  }
+
   int _habitReminderId(String habitId, [int slot = 0]) =>
       5000 + reminderSlotOffset(habitId, slot);
 
@@ -620,10 +720,11 @@ class NotificationService {
     PrayerDayTimes? tomorrowPrayers;
 
     for (final habit in habits) {
-      if (habit.isDoneToday) {
-        await _cancelAllHabitReminderSlots(habit.id);
-        continue;
-      }
+      // Slots this habit will hold after this pass. Everything NOT in here is
+      // swept below, which is what makes shrinking a habit from four times a
+      // day to two actually disarm slots 2 and 3 instead of leaving them
+      // armed with nothing in the app pointing at them any more.
+      final keptSlots = <int>{};
 
       tz.TZDateTime? fireTime;
       var isPrayerLinked = false;
@@ -633,17 +734,81 @@ class NotificationService {
       // no second global offset stacked on top of it anymore.
       final offset = Duration(minutes: habit.reminderOffsetMinutes);
 
-      if (habit.clockTime != null) {
-        fireTime =
-            _nextInstanceOf(habit.clockTime!.hour, habit.clockTime!.minute)
-                .add(offset);
-        // An offset can pull an already-imminent clock time into the past
-        // (e.g. it's 8:58, the habit is set for 9:00, and the offset is
-        // -15 min) — the wall-clock time repeats daily, so the fix is just
-        // the same moment tomorrow, not a full recalculation.
-        if (!fireTime.isAfter(now)) {
-          fireTime = fireTime.add(const Duration(days: 1));
+      if (habit.clockTimes.isNotEmpty) {
+        // ── The multi-time path ──────────────────────────────────────────
+        final candidates = resolveClockSlots(
+          habit.clockTimes,
+          habit.clockOffsets,
+          now,
+        );
+        final exempt = habit.ignoreQuietHours;
+        // Quiet hours are judged PER TIME, not per habit. The old rule
+        // cancelled the whole habit the moment its one time landed inside the
+        // window, and carried straight over would have been the protein bug:
+        // midnight sits inside the default quiet window, so a habit set for
+        // 00:00 and 12:00 would lose the perfectly deliverable noon ping
+        // along with the midnight one.
+        final awake = [
+          for (final c in candidates)
+            if (exempt ||
+                !settings.quietHoursEnabled ||
+                !isMinuteWithinQuietHours(
+                  c.fireTime.hour * 60 + c.fireTime.minute,
+                  settings.quietHoursStart,
+                  settings.quietHoursEnd,
+                ))
+              c,
+        ];
+        // ── Already done, this many times ────────────────────────────────
+        //
+        // Suppress the earliest still-TODAY reminders, one per completion, and
+        // never one that has already rolled to tomorrow. A 00:00 slot resolved
+        // at 2pm is tomorrow's midnight; cancelling it because today's count
+        // is met would silently disarm tomorrow morning, and nothing would
+        // re-arm it until the app was next opened.
+        final today = <({int slot, tz.TZDateTime fireTime})>[];
+        final later = <({int slot, tz.TZDateTime fireTime})>[];
+        for (final c in awake) {
+          (c.fireTime.day == now.day &&
+                      c.fireTime.month == now.month &&
+                      c.fireTime.year == now.year
+                  ? today
+                  : later)
+              .add(c);
         }
+        today.sort((a, b) => a.fireTime.compareTo(b.fireTime));
+        final suppress = habit.completedCount.clamp(0, today.length);
+        for (final c in [...today.skip(suppress), ...later]) {
+          keptSlots.add(c.slot);
+          resolved.add((
+            id: habit.id,
+            name: habit.name,
+            fireTime: c.fireTime,
+            streak: habit.streak,
+            slot: c.slot,
+            // Read back off the same index-aligned list resolveClockSlots
+            // consumed, rather than widening that function's return type:
+            // it is a @visibleForTesting static with its own pinned
+            // expectations (test/multi_time_reminder_slots_test.dart), and
+            // clockOffsets is index-aligned with clockTimes by construction,
+            // so slot IS the offset's index. Same defensive bound
+            // resolveClockSlots itself uses for a short list.
+            offsetMinutes: c.slot < habit.clockOffsets.length
+                ? habit.clockOffsets[c.slot]
+                : 0,
+            // A clock time is its own anchor, and the notification already
+            // arrives stamped with one.
+            anchorLabel: null,
+          ));
+        }
+        // Every slot this habit did not keep — dropped for quiet hours,
+        // suppressed as done, or beyond a count that just shrank.
+        for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
+          if (keptSlots.contains(slot)) continue;
+          await _plugin.cancel(_habitReminderId(habit.id, slot));
+          await _plugin.cancel(_snoozeId(habit.id, slot));
+        }
+        continue;
       } else if (habit.prayerKey != null && settings.location != null) {
         isPrayerLinked = true;
         final loc = settings.location!;
@@ -708,11 +873,24 @@ class NotificationService {
         continue;
       }
 
+      // Prayer-linked habits stay single-slot by design: a prayer is one
+      // moment, and "five times a day" for them means five different prayers,
+      // which is a different feature. Slot 0 keeps the pre-slots id.
+      if (habit.completedCount >= habit.dailyTarget) {
+        await _cancelAllHabitReminderSlots(habit.id);
+        continue;
+      }
       resolved.add((
         id: habit.id,
         name: habit.name,
         fireTime: fireTime,
         streak: habit.streak,
+        slot: 0,
+        // The habit-level field, which is the only offset this branch ever
+        // applied (see `offset` above) — a prayer-linked habit never carries
+        // per-slot shifts, because it only ever has the one slot.
+        offsetMinutes: habit.reminderOffsetMinutes,
+        anchorLabel: habit.anchorLabel,
       ));
     }
 
@@ -736,9 +914,13 @@ class NotificationService {
     _habitReminderHabitIds
       ..clear()
       ..addAll(nextHabitIds);
-    debugPrint(
-        '[NotificationService] ${resolved.length} habit reminder(s) resolved, '
-        '${habits.length - resolved.length} skipped (done/unresolvable/quiet-hours)');
+    // Counts SLOTS, not habits — the two stopped being the same number once a
+    // habit could hold several times, and the old subtraction went negative.
+    // The total is also the observable ceiling check: iOS keeps only 64
+    // pending notifications, and 8 habits at 4 times a day is 32 before
+    // streak nudges, quit check-ins, the daily reminder and task slots.
+    debugPrint('[NotificationService] ${resolved.length} reminder slot(s) '
+        'across ${habits.length} habit(s)');
   }
 
   /// Groups [resolved] by fire time (within [_bundleWindow]) and schedules
@@ -748,40 +930,80 @@ class NotificationService {
   /// step so the grouping logic itself — sort, walk, cut a new group past
   /// the window — reads as one clear pass instead of being interleaved with
   /// the resolution loop above it.
+  /// One habit's own reminder, in its own slot, with its Mark Done action.
+  ///
+  /// [payload] is the BARE habit id, never `id#slot`: main.dart's
+  /// _resolveHabit does an exact-id lookup, so a slot-qualified payload would
+  /// resolve to null, fall through to the task branch, poll for two seconds
+  /// and do nothing at all when the person tapped the notification.
+  Future<void> _scheduleOne(_ResolvedReminder r, bool isAr) async {
+    // What this reminder said before it knew its own timing, and still says
+    // whenever the timing is "on the dot" — habitReminderBody only replaces
+    // the lead sentence for an early or late reminder, and keeps the streak
+    // clause either way.
+    final onTimeLine = r.streak > 0
+        ? habitStreakLine(r.streak, isAr)
+        : (isAr
+            ? _habitLinesAr[_dayIndex(_habitLinesAr.length)]
+            : _habitLines[_dayIndex(_habitLines.length)]);
+    await _plugin.zonedSchedule(
+      _habitReminderId(r.id, r.slot),
+      r.name,
+      habitReminderBody(
+        offsetMinutes: r.offsetMinutes,
+        streak: r.streak,
+        anchorLabel: r.anchorLabel,
+        isAr: isAr,
+        onTimeLine: onTimeLine,
+      ),
+      r.fireTime,
+      _habitReminderDetails,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: r.id,
+    );
+  }
+
   Future<void> _scheduleResolved(
     List<_ResolvedReminder> resolved,
     bool bundleEnabled,
     bool isAr,
   ) async {
-    final groups = groupByFireTimeWindow<_ResolvedReminder>(
+    final rawGroups = groupByFireTimeWindow<_ResolvedReminder>(
       resolved,
       enabled: bundleEnabled,
       window: _bundleWindow,
       fireTimeOf: (r) => r.fireTime,
     );
 
+    // Bundling asks "which reminders land close together", which is a question
+    // about the CLOCK and knows nothing about habits. Two times of one habit
+    // that sit inside the window — 12:00 and 12:10, both legal on the stepper
+    // — therefore merged into a single «عادتان جاهزتان · بروتين، بروتين»
+    // ping, naming the habit twice and losing the Mark Done action a single
+    // habit's reminder carries. A group keeps at most one entry per habit; the
+    // rest become their own singletons and keep their own actionable ping.
+    final groups = <List<_ResolvedReminder>>[];
+    for (final group in rawGroups) {
+      final seen = <String>{};
+      final head = <_ResolvedReminder>[];
+      for (final r in group) {
+        if (seen.add(r.id)) {
+          head.add(r);
+        } else {
+          groups.add([r]);
+        }
+      }
+      if (head.isNotEmpty) groups.add(head);
+    }
+    groups.sort((a, b) => a.first.fireTime.compareTo(b.first.fireTime));
+
     final usedBundleIds = <int>{};
     var slot = 0;
     for (final group in groups) {
       if (group.length == 1) {
-        final r = group.first;
-        await _plugin.zonedSchedule(
-          _habitReminderId(r.id),
-          r.name,
-          r.streak > 0
-              ? (isAr
-                  ? 'لا تفقد سلسلتك المكوّنة من ${r.streak} يوم.'
-                  : "Don't lose your ${r.streak}-day streak.")
-              : (isAr
-                  ? _habitLinesAr[_dayIndex(_habitLinesAr.length)]
-                  : _habitLines[_dayIndex(_habitLines.length)]),
-          r.fireTime,
-          _habitReminderDetails,
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation:
-              UILocalNotificationDateInterpretation.absoluteTime,
-          payload: r.id,
-        );
+        await _scheduleOne(group.first, isAr);
         continue;
       }
       // 2+ habits due within the same short window: one combined ping
@@ -792,11 +1014,14 @@ class NotificationService {
       // _handleNotificationAction, which already no-ops safely on an empty
       // actionId).
       if (slot >= _maxBundleSlots) {
-        // Extremely unlikely in practice — would need 7+ distinct bundles
-        // in a single day. The remaining group(s) just don't get a
-        // combined notification rather than risk an unbounded id range.
+        // Extremely unlikely in practice — would need 7+ distinct bundles in a
+        // single day. Past the last bundle id, every member falls back to its
+        // own individual reminder rather than being CANCELLED, which is what
+        // used to happen: overflow silently cost those habits their reminder
+        // entirely, and the id range stays bounded either way because an
+        // individual reminder uses the habit's own slot id.
         for (final r in group) {
-          await _cancelAllHabitReminderSlots(r.id);
+          await _scheduleOne(r, isAr);
         }
         continue;
       }
@@ -806,7 +1031,12 @@ class NotificationService {
       final names = group.map((e) => e.name).join(isAr ? '، ' : ', ');
       await _plugin.zonedSchedule(
         bundleId,
-        isAr ? '${group.length} عادات جاهزة' : '${group.length} habits ready',
+        // One title for N habits that need not share an offset — see
+        // habitBundleTitle for which of the three wordings a given mix gets.
+        habitBundleTitle(
+          offsetMinutes: [for (final r in group) r.offsetMinutes],
+          isAr: isAr,
+        ),
         names,
         group.first.fireTime,
         _details,
@@ -814,9 +1044,15 @@ class NotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-      for (final r in group) {
-        await _cancelAllHabitReminderSlots(r.id);
-      }
+      // NOTHING is cancelled here any more, and that is the fix for the
+      // nastiest defect this change could have shipped. Groups are walked in
+      // fire-time order, so a habit's 08:00 scheduled alone in group 1 was
+      // destroyed the moment its own 20:00 bundled with another habit in
+      // group 2 — order-dependent, silent, and only reachable once a habit
+      // can hold two times. Slot cleanup now happens in ONE pass before
+      // anything is scheduled (see scheduleSmartReminders), which is also the
+      // ordering this file's own comment above the stale sweep argues for:
+      // cancel first, schedule second, so an id collision is harmless.
     }
     // A bundle slot not used this round might still hold a stale
     // notification from a previous recompute (fewer bundles today than
@@ -1150,7 +1386,7 @@ class NotificationService {
     await _plugin.zonedSchedule(
       _snoozeId(habitId),
       habitName,
-      isAr ? 'تأجيل: حان الوقت.' : "Snoozed: it's time.",
+      snoozedReminderBody(isAr),
       tz.TZDateTime.now(tz.local).add(const Duration(hours: 1)),
       _habitReminderDetails,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -1217,11 +1453,21 @@ class NotificationService {
   /// at, ever, and nothing here re-derives or repeats the way
   /// [scheduleSmartReminders] does.
   ///
-  /// Title is a fixed, generic nudge ("It's time") rather than the task's
-  /// own name — [taskTitle] carries the specifics in the body instead, the
-  /// same title/body split every notification-list screenshot of this kind
-  /// of app uses ("It's time" / "Buy groceries"), so what's glanceable from
-  /// a lock screen is "something needs you" first, "here's what" second.
+  /// Title states this reminder's TIMING rather than the task's own name —
+  /// [taskTitle] carries the specifics in the body instead, the same
+  /// title/body split every notification-list screenshot of this kind of app
+  /// uses ("It's time" / "Buy groceries"), so what's glanceable from a lock
+  /// screen is "something needs you" first, "here's what" second.
+  ///
+  /// It used to be the fixed string "It's time" for every slot, which is
+  /// only ever true of the slot that lands on [anchorAt]. A reminder the
+  /// user deliberately set for an hour BEFORE a 8:25 appointment arrived at
+  /// 7:25 announcing that the time had come — see reminder_copy.dart's own
+  /// doc comment. [anchorAt] is the moment the user actually picked
+  /// (MatrixTask.reminderAnchorAt); each fire time is differenced against it
+  /// for the signed offset the title is phrased from. Null (a task saved
+  /// before that field existed, whose anchor is a guess we'd rather not
+  /// phrase copy off) falls back to the original on-time wording.
   ///
   /// Deliberately does NOT check quiet hours the way habit/streak
   /// reminders do (see [scheduleSmartReminders]) — those are the app's own
@@ -1254,6 +1500,7 @@ class NotificationService {
     required String id,
     required String taskTitle,
     required List<DateTime> fireTimes,
+    required DateTime? anchorAt,
     required bool isAr,
   }) async {
     if (kIsWeb) return;
@@ -1262,7 +1509,12 @@ class NotificationService {
     for (var i = 0; i < wanted.length; i++) {
       await _plugin.zonedSchedule(
         _taskReminderId(id, i),
-        isAr ? 'حان الوقت' : "It's time",
+        taskReminderTitle(
+          offsetMinutes: anchorAt == null
+              ? 0
+              : signedOffsetMinutes(wanted[i], anchorAt),
+          isAr: isAr,
+        ),
         taskTitle,
         tz.TZDateTime.from(wanted[i], tz.local),
         _details,
@@ -1294,16 +1546,29 @@ class NotificationService {
   /// this task. One notification regardless of how many of the task's
   /// reminders were missed — see MatrixNotifier's overdue handling for why
   /// firing one per missed moment would be the wrong behaviour.
+  ///
+  /// Says how late it is, which is the one thing this path can state that
+  /// [scheduleTaskReminders] can't: lateness is only knowable at the moment
+  /// of firing, and here "now" already *is* that moment. Measured from
+  /// [dueAt] — the task's own anchor, not whichever reminder in the stack
+  /// went missing last — so a +20 follow-up that never arrived still reports
+  /// how long ago the TASK was due rather than how long ago its follow-up
+  /// was. Never "It's time": by definition it isn't, and hasn't been for a
+  /// while.
   Future<void> fireOverdueTaskReminder({
     required String id,
     required String taskTitle,
+    required DateTime dueAt,
     required bool isAr,
   }) async {
     if (kIsWeb) return;
     await init();
     await _plugin.show(
       _taskReminderId(id),
-      isAr ? 'حان الوقت' : "It's time",
+      overdueTaskReminderTitle(
+        minutesLate: signedOffsetMinutes(DateTime.now(), dueAt),
+        isAr: isAr,
+      ),
       taskTitle,
       _details,
     );

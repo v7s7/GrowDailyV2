@@ -204,7 +204,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
             child: SizedBox(
               // isRealToday, not isToday: this circle is purely the "which
               // date is today on the calendar" marker, so it follows the
-              // real clock and moves at midnight even during the 6-hour
+              // real clock and moves at midnight even during the flex
               // window where the *editable* square (below) is still
               // yesterday's — see DateTimeGameExt.isRealToday.
               key: day.isRealToday ? _todayKey : null,
@@ -573,7 +573,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   isToday: day.isRealToday,
                   // A day after the reward day (`today` = effectiveDay) is
                   // future and stays locked — *except* the real calendar day
-                  // itself during the 6-hour window right after midnight
+                  // itself during the flex window right after midnight
                   // (day.isRealToday true, today/effectiveDay still
                   // yesterday): that one is allowed to open and be colored in
                   // like any other non-reward day (flat XP only, same as
@@ -932,6 +932,9 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   halfDoneHabitIds:
                       ref.read(weeklyGridProvider).halfDoneTodayIds(),
                 ),
+                // Scales the daily earn ceiling with the roster, see
+                // dailyXpCapFor. Same list the predicate above uses.
+                scheduledHabitCount: todayHabits.length,
                 category: habit.category.name,
                 habitName: habit.localName(S.of(context).isAr),
               );
@@ -1001,6 +1004,9 @@ class _GridTableState extends ConsumerState<_GridTable> {
               frequencyTarget: target,
               halfDoneHabitIds: ref.read(weeklyGridProvider).halfDoneTodayIds(),
             ),
+            // Scales the daily earn ceiling with the roster, see
+            // dailyXpCapFor. Same list the predicate above uses.
+            scheduledHabitCount: todayHabits.length,
             category: habit.category.name,
             habitName: habit.localName(S.of(context).isAr),
           );
@@ -1080,6 +1086,9 @@ class _GridTableState extends ConsumerState<_GridTable> {
             frequencyTarget: target,
             halfDoneHabitIds: ref.read(weeklyGridProvider).halfDoneTodayIds(),
           ),
+          // Scales the daily earn ceiling with the roster, see
+          // dailyXpCapFor. Same list the predicate above uses.
+          scheduledHabitCount: todayHabits.length,
           category: habit.category.name,
           habitName: habit.localName(S.of(context).isAr),
         );
@@ -1199,7 +1208,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
     }
     HapticFeedback.heavyImpact();
     final s = S.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1306,6 +1315,55 @@ class _BoostBadge extends StatelessWidget {
   }
 }
 
+/// The square's own corner radius minus its border width — the radius of the
+/// space INSIDE the border, which is what a fill has to be clipped to if its
+/// top edge is to look flat rather than nibbled at both ends. Clipping at the
+/// full 9 let the risen block's corners ride 0.8pt into the border.
+const double _squareInnerRadius = 9 - 0.8;
+
+/// The risen portion of a square that is only part done: a block anchored to
+/// the bottom, clipped to [radius] so its top edge is a genuinely flat line,
+/// with an optional 1pt rule drawn along that edge.
+///
+/// One helper for both cases on purpose. A counted habit at 2 of 4 and a
+/// square somebody marked جزئي by hand are the same statement at two
+/// precisions, and they should be the same picture — before this, one was a
+/// self-rounded lozenge and the other was a centred clock face.
+///
+/// The rule is a `Border(top:)` on a decoration with NO borderRadius of its
+/// own (the ClipRRect owns the rounding). That is deliberate: a non-uniform
+/// border under a borderRadius asserts inside Border.paint.
+Widget _levelFill({
+  required double factor,
+  required Color fill,
+  required double radius,
+  Color? line,
+}) =>
+    Positioned.fill(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: Align(
+          // bottomCenter, never AlignmentDirectional — gravity has no locale,
+          // and this has to sit at the bottom in Arabic too.
+          alignment: Alignment.bottomCenter,
+          child: FractionallySizedBox(
+            heightFactor: factor.clamp(0.0, 1.0),
+            widthFactor: 1,
+            child: AnimatedContainer(
+              duration: GameMotion.standard,
+              curve: Curves.easeOut,
+              decoration: BoxDecoration(
+                color: fill,
+                border: line == null
+                    ? null
+                    : Border(top: BorderSide(color: line, width: 1)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
 class _SquareCell extends StatelessWidget {
   final double size;
   final DateTime day;
@@ -1404,6 +1462,15 @@ class _SquareCell extends StatelessWidget {
       dayCount!.done > 0 &&
       dayCount!.done < dayCount!.target;
 
+  /// True while this square is a hand-marked جزئي — drawn as a square filled
+  /// to its own halfway line rather than as a centred glyph.
+  ///
+  /// Excludes the counting case for the same reason the glyph did: a counted
+  /// square already draws its real proportion and its real number, and "half"
+  /// would be a worse answer than "2 of 4" on top of being a wrong one.
+  bool get _isHalfFill =>
+      square == SquareState.partial && !_isCounting && !isMissedQuotaDay;
+
   @override
   Widget build(BuildContext context) {
     final dark = context.gp.dark;
@@ -1460,22 +1527,24 @@ class _SquareCell extends StatelessWidget {
           // because a square filling upward is the one metaphor nobody has
           // to be taught.
           if (_isCounting)
-            Positioned.fill(
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: FractionallySizedBox(
-                  heightFactor:
-                      (dayCount!.done / dayCount!.target).clamp(0.0, 1.0),
-                  child: AnimatedContainer(
-                    duration: GameMotion.standard,
-                    curve: Curves.easeOut,
-                    decoration: BoxDecoration(
-                      color: SquareState.partial.fill(dark),
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                  ),
-                ),
-              ),
+            _levelFill(
+              factor: dayCount!.done / dayCount!.target,
+              fill: SquareState.partial.fill(dark),
+              radius: _squareInnerRadius,
+            ),
+          // The same picture, frozen at a half, for a square somebody marked
+          // جزئي from the long-press palette. No glyph: the mark IS the
+          // square being half full, which is what the state has always meant
+          // (see squareStateEffect — "counts as half a day") and what the
+          // clock face it replaces never said. The flat top edge lands at the
+          // identical height in every partial square down a column, and
+          // aligned edges across a wall read far faster than aligned glyphs.
+          if (_isHalfFill)
+            _levelFill(
+              factor: SquareState.partial.levelFactor!,
+              fill: SquareState.partial.levelFill(dark),
+              line: SquareState.partial.levelLine(dark),
+              radius: _squareInnerRadius,
             ),
           // The count itself, standing in for the partial state's own glyph.
           // Both cannot be shown — the glyph is centred and would sit on top
@@ -1492,7 +1561,7 @@ class _SquareCell extends StatelessWidget {
                 ),
               ),
             ),
-          if (square.icon != null && !_isCounting)
+          if (square.icon != null && !_isCounting && !_isHalfFill)
             Center(
               child: Icon(
                 square.icon,
@@ -1512,9 +1581,15 @@ class _SquareCell extends StatelessWidget {
               child: Icon(
                 Icons.sticky_note_2_rounded,
                 size: 9,
-                color: square.isMarked
-                    ? square.accent
-                    : context.gp.textTert,
+                // On a half-filled square this 9pt glyph sits ON the risen
+                // half, which is the same hue it used to be drawn in — in
+                // light mode `accent` on that band measures 1.13:1, i.e. gone.
+                // The waterline's own ink is the one yellow that reads there.
+                color: _isHalfFill
+                    ? SquareState.partial.levelLine(context.gp.dark)
+                    : square.isMarked
+                        ? square.accent
+                        : context.gp.textTert,
               ),
             ),
         ],

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 
 // ─── Support contact channels ──────────────────────────────────────────────
 //
@@ -65,7 +66,7 @@ class FaqEntry {
 
 /// Answers verified against this app's actual mechanics at the time they
 /// were written (streak-freeze auto-consume logic in
-/// dashboard_notifier_loading.dart, the 6-hour day cutoff in
+/// dashboard_notifier_loading.dart, the 10 AM day cutoff in
 /// datetime_ext.dart, Room habit-editing in rooms_notifier.dart, guest/free
 /// habit caps in custom_habits_notifier.dart, Premium's real benefit list in
 /// premium_screen.dart, Quick Wins' own doc comments, Night Review's screen,
@@ -88,9 +89,9 @@ const List<FaqEntry> kFaqEntries = [
     questionEn: 'How does my streak work?',
     questionAr: 'كيف تعمل سلستي؟',
     answerEn:
-        'It counts the days in a row where you finished everything on your board, not just one habit. And your day doesn\'t end at midnight. Anything you finish before 6 AM still counts for the night before.',
+        'It counts the days in a row where you finished everything on your board, not just one habit. And your day doesn\'t end at midnight. Anything you finish before 10 AM the next day still counts for the day before.',
     answerAr:
-        'تحسب الأيام المتتالية التي أنجزت فيها كل ما في جدولك، وليس عادة واحدة فقط. ويومك لا ينتهي عند منتصف الليل. أي شيء تنجزه قبل الساعة 6 صباحًا يُحتسب لليلة السابقة.',
+        'تحسب الأيام المتتالية التي أنجزت فيها كل ما في جدولك، وليس عادة واحدة فقط. ويومك لا ينتهي عند منتصف الليل. أي شيء تنجزه قبل الساعة 10 من صباح اليوم التالي يُحتسب لليوم السابق.',
   ),
   FaqEntry(
     questionEn: 'What happens if I miss a day?',
@@ -101,12 +102,12 @@ const List<FaqEntry> kFaqEntries = [
         'تنكسر سلستك، إلا إذا كان لديك تجميد سلسلة محفوظ. تبدأ بواحد وتكسب آخر كل أسبوع تلقائيًا. يعمل من تلقاء نفسه لحظة تفويتك يومًا.',
   ),
   FaqEntry(
-    questionEn: 'Why does my day end at 6 AM, not midnight?',
-    questionAr: 'لماذا ينتهي يومي عند الساعة 6 صباحًا وليس منتصف الليل؟',
+    questionEn: 'Why doesn\'t my day end at midnight?',
+    questionAr: 'ليش يومي ما ينتهي عند منتصف الليل؟',
     answerEn:
-        'So a late night doesn\'t cost you anything. If you finish a habit at 2 AM, it still counts for the day before instead of getting marked as missed.',
+        'So a late night, or a late morning, doesn\'t cost you anything. Your day stays open until 10 AM the next day. Finish a habit at 2 AM or at 9 AM and it still counts for the day before instead of getting marked as missed.',
     answerAr:
-        'حتى لا يكلّفك السهر شيئًا. لو أنجزت عادة الساعة 2 فجرًا، تُحتسب لليوم السابق بدلاً من أن تُعتبر فائتة.',
+        'عشان السهر، أو النوم لين متأخر، ما يكلّفك شي. يومك يظل مفتوح لين الساعة 10 من صبح اليوم التالي. لو أنجزت عادة الساعة 2 الفجر أو الساعة 9 الصبح، تنحسب لليوم السابق بدل ما تنعدّ فايتة.',
   ),
   FaqEntry(
     questionEn: 'What\'s the difference between XP and Gold?',
@@ -115,6 +116,14 @@ const List<FaqEntry> kFaqEntries = [
         'Both come from finishing habits and tasks. XP levels up your character. Gold is money you spend in the Shop.',
     answerAr:
         'كلاهما تكسبهما بإنجاز عاداتك ومهامك. الخبرة ترفع مستوى شخصيتك. والذهب مال تنفقه في المتجر.',
+  ),
+  FaqEntry(
+    questionEn: 'Is there a limit to how much I can earn in a day?',
+    questionAr: 'في حد للي أقدر أكسبه في اليوم؟',
+    answerEn:
+        'Yes. XP and Gold stop adding up once a day reaches a very high total, so the app can\'t be farmed. A normal day never gets near it, and your streak, medals and squares are never capped.',
+    answerAr:
+        'إي. الخبرة والذهب يوقفون عند مجموع يومي عالي، عشان ما أحد يستغل التطبيق. يومك العادي ما يوصله، وسلستك وأوسمتك ومربعاتك ما عليها حد.',
   ),
   FaqEntry(
     questionEn: 'What\'s the difference between the Shop and Level Prestige?',
@@ -517,7 +526,7 @@ Future<void> _openLink(BuildContext context, String url) async {
     ok = false;
   }
   if (ok || !context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.of(context).showOne(
     SnackBar(
       content: Text(S.of(context).premiumLinkOpenError),
       behavior: SnackBarBehavior.floating,

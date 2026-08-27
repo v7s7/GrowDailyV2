@@ -180,12 +180,35 @@ abstract final class CharacterCatalog {
     unlock: const UnlockRequirement(UnlockMetric.level, 25),
   );
 
+  /// The shmagh is the red-and-white checked headdress, worn across the
+  /// Gulf and instantly readable here as the dressiest look in the set.
+  ///
+  /// Its art has shipped in the repo since the character system landed and
+  /// was wired to nothing: the numbering above skips male3, and
+  /// male_shmagh_red.png was the only asset in assets/images/character with
+  /// no catalog entry. Added at 33 rather than appended near the others
+  /// because levels 31 to 34 were the first completely empty stretch after
+  /// the catalog ends at 25, so this is the one reward in the app that cost
+  /// nothing to make and fills a real gap.
+  static const male12 = CharacterOption(
+    id: 'male_shmagh_red',
+    assetPath: 'assets/images/character/male_shmagh_red.png',
+    gender: CharacterGender.male,
+    nameEn: 'Red Shemagh',
+    nameAr: 'الشماغ الأحمر',
+    // No `const` here, unlike its eleven neighbours: the outer CharacterOption
+    // is already const so the inner keyword is redundant, and the analyzer
+    // flags it. The neighbours predate that lint being enforced.
+    unlock: UnlockRequirement(UnlockMetric.level, 33),
+  );
+
   // The daglah and farwa looks are winter dress from Najd: a long robe
   // with a front opening, long sleeves and a high collar, worn over the
   // thobe. Deliberately distinct from a bisht, which is a loose open
   // cloak with wide sleeves and chest tassels.
   static const List<CharacterOption> males = [
     male1, male2, male4, male5, male6, male7, male8, male9, male10, male11,
+    male12,
   ];
   static const List<CharacterOption> females = [
     female1, female2, female3, female4, female5,
