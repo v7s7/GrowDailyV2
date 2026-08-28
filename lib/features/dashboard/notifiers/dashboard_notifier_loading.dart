@@ -18,6 +18,12 @@ extension DashboardNotifierLoading on DashboardNotifier {
       );
       final streakEarnedToday = (daily['streakEarnedToday'] as bool?) ?? false;
       final intentionsSetToday = (daily['intentionsSet'] as bool?) ?? false;
+      // Which habits already banked today's day-counters — see
+      // DashboardState.dayCountedHabitIds.
+      final dayCounted = {
+        for (final id in (daily['dayCounted'] as List?) ?? const [])
+          if (id is String) id,
+      };
       final rawGreenCounts =
           (saved['dailyGreenCounts'] as Map?)?.cast<String, dynamic>() ?? {};
       final dailyGreenCounts = rawGreenCounts.map(
@@ -114,6 +120,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
         totalCompletions: (saved['totalHabitCompletions'] as int?) ?? 0,
         streakFreezes: streakFreezes,
         completions: completions,
+        dayCountedHabitIds: dayCounted,
         unlockedAchievements:
             List<String>.from(saved['unlockedAchievements'] as List? ?? []),
         didUseStreakFreeze: didUseStreakFreeze,
@@ -262,6 +269,12 @@ extension DashboardNotifierLoading on DashboardNotifier {
     bool? streakEarnedToday,
     Map<String, int>? completedAtMinutes,
     Map<String, int>? habitTargets,
+    // The banked-day receipts, written WHOLE from the in-memory set (see
+    // DashboardState.dayCountedHabitIds) — null leaves the stored list
+    // untouched. Whole rather than merged: unlike completedAtMinutes there
+    // is no cross-device concern for a guest, and the set both grows
+    // (banking) and shrinks (undo), which a merge cannot express.
+    List<String>? dayCounted,
   }) async {
     // Inside updateDailyMap, so this read and write cannot interleave with
     // the grid's write to the same day. That interleaving is what let a
@@ -295,6 +308,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
       day['date'] = DateTime.now().effectiveDay.toIso8601String();
       if (streakEarnedToday != null) day['streakEarnedToday'] = streakEarnedToday;
       if (mergedMinutes.isNotEmpty) day['completedAtMinutes'] = mergedMinutes;
+      if (dayCounted != null) day['dayCounted'] = dayCounted;
     });
   }
 
@@ -370,6 +384,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
       DateTime? pendingStreakGapFrom;
       List<String> unlockedAchievements = [];
       Map<String, int> completions = {};
+      Set<String> dayCounted = {};
       bool intentionsSetToday = false;
       bool streakEarnedToday = false;
       int totalGreenSquares = 0;
@@ -571,6 +586,10 @@ extension DashboardNotifierLoading on DashboardNotifier {
             raw.map((k, v) => MapEntry(k, (v as num).toInt()));
         intentionsSetToday = (d['intentionsSet'] as bool?) ?? false;
         streakEarnedToday = (d['streakEarnedToday'] as bool?) ?? false;
+        dayCounted = {
+          for (final id in (d['dayCounted'] as List?) ?? const [])
+            if (id is String) id,
+        };
       }
 
       if (mounted) {
@@ -585,6 +604,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
           totalCompletions: totalCompletions,
           streakFreezes: streakFreezes,
           completions: completions,
+          dayCountedHabitIds: dayCounted,
           unlockedAchievements: unlockedAchievements,
           newlyUnlocked: const [],
           didUseStreakFreeze: didUseStreakFreeze,

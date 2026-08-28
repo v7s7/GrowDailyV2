@@ -374,10 +374,23 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // pinned to 1 by the editor and weekly ones resolve to 1 — so the claim
     // was correct by accident and stopped being correct the moment the
     // stepper could set it. Gating on finishesDay makes it true on purpose.
-    final newTotal = state.totalCompletions + (finishesDay ? 1 : 0);
+    //
+    // …and finishesDay alone is STILL not enough, for the same shape of
+    // reason: it compares against the target the caller passes NOW. Finish
+    // at 4/4 (counters banked), raise the habit's times-per-day to 6 the
+    // same day, and the tap reaching 6 finishes the day a second time —
+    // banking the same habit-day twice in every lifetime stat and
+    // achievement threshold, once per raise. The persisted receipt is what
+    // remembers the day already paid: see DashboardState.dayCountedHabitIds.
+    final banksDay =
+        finishesDay && !state.dayCountedHabitIds.contains(habitId);
+    final newDayCounted = banksDay
+        ? {...state.dayCountedHabitIds, habitId}
+        : state.dayCountedHabitIds;
+    final newTotal = state.totalCompletions + (banksDay ? 1 : 0);
 
     final newCategoryCompletions = {...state.categoryCompletions};
-    if (category != null && finishesDay) {
+    if (category != null && banksDay) {
       newCategoryCompletions[category] =
           (newCategoryCompletions[category] ?? 0) + 1;
     }
@@ -401,9 +414,9 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // one square green per day — on the tap that fills it. Counting the
     // part-done taps too would put more green squares in the heatmap than
     // the board has squares to show.
-    final newTotalGreenSquares = state.totalGreenSquares + (finishesDay ? 1 : 0);
+    final newTotalGreenSquares = state.totalGreenSquares + (banksDay ? 1 : 0);
     final newDailyGreenCounts = {...state.dailyGreenCounts};
-    if (finishesDay) {
+    if (banksDay) {
       newDailyGreenCounts[DashboardNotifier._todayKey] =
           (newDailyGreenCounts[DashboardNotifier._todayKey] ?? 0) + 1;
     }
@@ -551,6 +564,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       habitLongestStreaks: newHabitLongestStreaks,
       habitTotalCompletions: newHabitTotalCompletions,
       habitLastCompletedDate: newHabitLastCompletedDate,
+      dayCountedHabitIds: newDayCounted,
       // Spent, so repainting this same square after the day rolls over can
       // never redeem it a second time.
       undoneCompletions: redeemed == null
@@ -601,6 +615,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       await _saveGuestDaily(
         newCompletions,
         streakEarnedToday: newStreakEarnedToday,
+        dayCounted: banksDay ? newDayCounted.toList() : null,
         // Only for a habit that is counted more than once a day: at a target
         // of 1 the absence of an entry already means 1, and writing it for
         // every habit would grow every day document for nothing.
@@ -664,6 +679,10 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
             'completedAtMinutes': {
               habitId: minutesSinceMidnight(DateTime.now()),
             },
+          // The banked-day receipt — see DashboardState.dayCountedHabitIds.
+          // arrayUnion, so two devices finishing different habits cannot
+          // erase each other's receipts.
+          if (banksDay) 'dayCounted': FieldValue.arrayUnion([habitId]),
         },
         SetOptions(merge: true),
       );
@@ -737,9 +756,9 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // without touching other days.
           // Gated exactly as the local counters above are: one green
           // square per habit-day, credited on the tap that fills it.
-          'totalGreenSquares': FieldValue.increment(finishesDay ? 1 : 0),
+          'totalGreenSquares': FieldValue.increment(banksDay ? 1 : 0),
           'dailyGreenCounts': {
-            DashboardNotifier._todayKey: FieldValue.increment(finishesDay ? 1 : 0),
+            DashboardNotifier._todayKey: FieldValue.increment(banksDay ? 1 : 0),
           },
           // One nested key deleted, so the receipts outstanding on other
           // habit-days survive the merge.

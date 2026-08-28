@@ -265,6 +265,7 @@ class GrowDailyApp extends ConsumerStatefulWidget {
 class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     with WidgetsBindingObserver {
   ProviderSubscription<TimeOfDay?>? _reminderSub;
+  ProviderSubscription<Locale>? _localeSub;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitRemindersSub;
   ProviderSubscription<DashboardState>? _widgetSub;
   ProviderSubscription<NotificationSettings>? _notificationSettingsSub;
@@ -470,6 +471,17 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       reminderTimeProvider,
       (previous, next) => _recomputeNotifications(),
       fireImmediately: true,
+    );
+
+    // Language change re-bakes every scheduled notification's copy. The
+    // title/body are rendered AT SCHEDULE TIME from the isAr flag, so
+    // without this a mid-session switch left the daily reminder, habit
+    // reminders, nudges and check-ins in the previous language until some
+    // unrelated trigger or the next resume happened to recompute. No
+    // fireImmediately: the subscriptions above already cover cold start.
+    _localeSub = ref.listenManual(
+      localeProvider,
+      (previous, next) => _recomputeNotifications(),
     );
 
     // Resolve every habit's cue (fixed clock time or a prayer) into a real
@@ -976,7 +988,15 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // this on every resume, not just on explicit state changes, is what
       // keeps reminders self-healing for a day-cutoff rollover or a
       // yesterday-completed habit that happened while the app was closed.
-      _recomputeNotifications();
+      //
+      // The timezone refresh runs FIRST: tz.local is otherwise resolved
+      // once per process, so a device that travelled while the app stayed
+      // alive kept rescheduling every reminder on the old zone's wall
+      // clock. Fire-and-forget like the sync calls below; a recompute
+      // triggered by anything else meanwhile just uses the fresher zone.
+      unawaited(NotificationService.instance
+          .refreshTimezone()
+          .then((_) => _recomputeNotifications()));
       // Same self-healing idea for the ambient facts the room-finish push
       // Cloud Function reads (see _syncAmbientAccountFacts) — a trip across
       // time zones mid-session should be reflected by the next resume, not
@@ -1547,6 +1567,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _reminderSub?.close();
+    _localeSub?.close();
     _habitRemindersSub?.close();
     _widgetSub?.close();
     _notificationSettingsSub?.close();

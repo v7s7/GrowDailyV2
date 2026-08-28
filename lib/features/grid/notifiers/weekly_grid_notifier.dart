@@ -365,18 +365,31 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
 
   // ── Week navigation ──────────────────────────────────────────
 
-  void previousWeek() =>
-      _goToWeek(state.weekStart.subtract(const Duration(days: 7)));
+  /// True while the user has deliberately navigated AWAY from the current
+  /// week. [refresh] respects it: a resume must not yank someone off a
+  /// past week they are reading, but a board that was simply left on
+  /// "this week" must follow the calendar across a Saturday boundary.
+  bool _userPinnedWeek = false;
+
+  void previousWeek() {
+    _userPinnedWeek = true;
+    _goToWeek(state.weekStart.subtract(const Duration(days: 7)));
+  }
 
   void nextWeek() {
     if (!state.canGoForward) return;
-    _goToWeek(state.weekStart.add(const Duration(days: 7)));
+    final target = state.weekStart.add(const Duration(days: 7));
+    _userPinnedWeek = !target.isSameDayAs(startOfGridWeek(DateTime.now()));
+    _goToWeek(target);
   }
 
   /// Jumps to the real calendar's current week — see [WeeklyGridState.
   /// canGoForward]'s doc comment for why that's real-today's week and not
   /// effectiveDay's.
-  void goToCurrentWeek() => _goToWeek(startOfGridWeek(DateTime.now()));
+  void goToCurrentWeek() {
+    _userPinnedWeek = false;
+    _goToWeek(startOfGridWeek(DateTime.now()));
+  }
 
   /// Jumps to the week holding [day] — what the header's week picker calls.
   /// Never past the newest real week, so a picker built from stale bounds
@@ -384,6 +397,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   void goToWeek(DateTime day) {
     final target = startOfGridWeek(day);
     final newest = startOfGridWeek(DateTime.now());
+    _userPinnedWeek = target.isBefore(newest);
     _goToWeek(target.isAfter(newest) ? newest : target);
   }
 
@@ -808,7 +822,23 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     }
   }
 
-  Future<void> refresh() => _loadWeek();
+  /// Reloads the visible week — and, unless the user deliberately parked
+  /// the board on a past week, first snaps to the CURRENT week. refresh()
+  /// used to be a bare _loadWeek(), which re-read whatever weekStart the
+  /// notifier was constructed with; main.dart's resume path calls this
+  /// with a comment promising it fixes the stale-board-across-a-Saturday
+  /// case, and without the snap that promise was empty: an app left open
+  /// across the week boundary kept showing last week until a restart.
+  Future<void> refresh() async {
+    if (!_userPinnedWeek) {
+      final newest = startOfGridWeek(DateTime.now());
+      if (!state.weekStart.isSameDayAs(newest)) {
+        _goToWeek(newest);
+        return;
+      }
+    }
+    await _loadWeek();
+  }
 }
 
 /// Whether a habit qualifies for [WeeklyGridNotifier.autoCleanQuitDay]'s

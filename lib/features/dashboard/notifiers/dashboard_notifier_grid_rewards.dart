@@ -233,28 +233,38 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     if (state.level < offer.level) return false;
     if (state.gold < offer.cost) return false;
 
-    final previousGold = state.gold;
-    final previousCapacity = state.freezeCapacity;
-    final newGold = previousGold - offer.cost;
-    state = state.copyWith(gold: newGold, freezeCapacity: slot);
+    // Shared across every gold sink — see _goldSpendInFlight.
+    if (_goldSpendInFlight) return false;
+    _goldSpendInFlight = true;
     try {
-      if (_uid == null) {
-        await _saveGuestState();
-      } else {
-        await _userRef.set({
-          'gold': newGold,
-          'freezeCapacity': slot,
-        }, SetOptions(merge: true));
+      final previousGold = state.gold;
+      final previousCapacity = state.freezeCapacity;
+      final newGold = previousGold - offer.cost;
+      state = state.copyWith(gold: newGold, freezeCapacity: slot);
+      try {
+        if (_uid == null) {
+          await _saveGuestState();
+        } else {
+          // Timeout counts as success — same offline reasoning as spendGold.
+          await _userRef.set({
+            'gold': newGold,
+            'freezeCapacity': slot,
+          }, SetOptions(merge: true)).timeout(
+              const Duration(seconds: 8), onTimeout: () {});
+        }
+      } catch (_) {
+        state = state.copyWith(
+          gold: previousGold,
+          freezeCapacity: previousCapacity,
+        );
+        return false;
       }
-    } catch (_) {
-      state = state.copyWith(
-        gold: previousGold,
-        freezeCapacity: previousCapacity,
-      );
-      return false;
+      AnalyticsService.instance
+          .track('freeze_slot_bought', props: {'slot': slot});
+      return true;
+    } finally {
+      _goldSpendInFlight = false;
     }
-    AnalyticsService.instance.track('freeze_slot_bought', props: {'slot': slot});
-    return true;
   }
 
   /// Spends gold for an extra streak freeze. Returns whether the purchase
@@ -271,32 +281,43 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         state.streakFreezes >= state.freezeCapacityOrDefault) {
       return false;
     }
-    final previousGold = state.gold;
-    final previousFreezes = state.streakFreezes;
-    final newGold = previousGold - DashboardNotifier.streakFreezeCost;
-    final newFreezes = previousFreezes + 1;
-    state = state.copyWith(gold: newGold, streakFreezes: newFreezes);
-    if (_uid == null) {
+    // Shared across every gold sink — see _goldSpendInFlight.
+    if (_goldSpendInFlight) return false;
+    _goldSpendInFlight = true;
+    try {
+      final previousGold = state.gold;
+      final previousFreezes = state.streakFreezes;
+      final newGold = previousGold - DashboardNotifier.streakFreezeCost;
+      final newFreezes = previousFreezes + 1;
+      state = state.copyWith(gold: newGold, streakFreezes: newFreezes);
+      if (_uid == null) {
+        try {
+          await _saveGuestState();
+        } catch (_) {
+          state =
+              state.copyWith(gold: previousGold, streakFreezes: previousFreezes);
+          return false;
+        }
+        AnalyticsService.instance.track('streak_freeze_bought');
+        return true;
+      }
       try {
-        await _saveGuestState();
+        // Timeout counts as success — same offline reasoning as spendGold.
+        await _userRef.set({
+          'gold': newGold,
+          'streakFreezes': newFreezes,
+        }, SetOptions(merge: true)).timeout(
+            const Duration(seconds: 8), onTimeout: () {});
       } catch (_) {
-        state = state.copyWith(gold: previousGold, streakFreezes: previousFreezes);
+        state =
+            state.copyWith(gold: previousGold, streakFreezes: previousFreezes);
         return false;
       }
       AnalyticsService.instance.track('streak_freeze_bought');
       return true;
+    } finally {
+      _goldSpendInFlight = false;
     }
-    try {
-      await _userRef.set({
-        'gold': newGold,
-        'streakFreezes': newFreezes,
-      }, SetOptions(merge: true));
-    } catch (_) {
-      state = state.copyWith(gold: previousGold, streakFreezes: previousFreezes);
-      return false;
-    }
-    AnalyticsService.instance.track('streak_freeze_bought');
-    return true;
   }
 
   /// Generic gold spend for purchases outside the dashboard's own gold sinks
@@ -308,25 +329,41 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   /// failed write can't grant an item the player didn't actually pay for.
   Future<bool> spendGold(int amount) async {
     if (amount <= 0 || state.gold < amount) return false;
-    final previousGold = state.gold;
-    final newGold = previousGold - amount;
-    state = state.copyWith(gold: newGold);
-    if (_uid == null) {
+    if (_goldSpendInFlight) return false;
+    _goldSpendInFlight = true;
+    try {
+      final previousGold = state.gold;
+      final newGold = previousGold - amount;
+      state = state.copyWith(gold: newGold);
+      if (_uid == null) {
+        try {
+          await _saveGuestState();
+        } catch (_) {
+          state = state.copyWith(gold: previousGold);
+          return false;
+        }
+        return true;
+      }
       try {
-        await _saveGuestState();
+        // Bounded, and a timeout counts as SUCCESS. Offline, Firestore's
+        // set() future does not complete until the backend acknowledges,
+        // so an unbounded await left the claim/purchase hanging forever
+        // with the balance already deducted on screen (and the custom
+        // rewards claim guard latched for the whole session). The write is
+        // already durably queued in the local cache at this point, which
+        // is the same at-some-point-it-syncs guarantee every unawaited
+        // write in this class leans on; only a real rejection rolls back.
+        await _userRef
+            .set({'gold': newGold}, SetOptions(merge: true)).timeout(
+                const Duration(seconds: 8), onTimeout: () {});
       } catch (_) {
         state = state.copyWith(gold: previousGold);
         return false;
       }
       return true;
+    } finally {
+      _goldSpendInFlight = false;
     }
-    try {
-      await _userRef.set({'gold': newGold}, SetOptions(merge: true));
-    } catch (_) {
-      state = state.copyWith(gold: previousGold);
-      return false;
-    }
-    return true;
   }
 
   /// Puts gold back after a purchase that debited the balance and then

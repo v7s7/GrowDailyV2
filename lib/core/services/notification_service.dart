@@ -246,6 +246,24 @@ class NotificationService {
     callback(response.actionId ?? '', response.payload);
   }
 
+  /// Re-resolves the device's IANA timezone into tz.local.
+  ///
+  /// init() does this exactly once per process, which was correct until you
+  /// consider travel: a device that changes timezone while the app stays
+  /// alive kept scheduling every reminder on the OLD zone's wall clock (a
+  /// 21:00 habit fired at 21:00 Bahrain time in London), and quiet hours
+  /// were judged against the wrong local minutes. main.dart calls this on
+  /// every app resume, before the recompute, so the first reschedule after
+  /// landing is already in the new zone. Same silent-fallback contract as
+  /// init(): an unresolvable name keeps the previous location.
+  Future<void> refreshTimezone() async {
+    if (kIsWeb) return;
+    try {
+      final currentTimeZone = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(currentTimeZone));
+    } catch (_) {}
+  }
+
   Future<void> init() async {
     if (kIsWeb || _initialized) return;
 
@@ -896,6 +914,17 @@ class NotificationService {
         await _cancelAllHabitReminderSlots(habit.id);
         continue;
       }
+      // A habit that ARRIVED here from a multi-time clock cue (edited to a
+      // prayer this session or any earlier one) may still hold armed clock
+      // notifications in slots 1 and up. The clock branch sweeps only its
+      // own non-kept slots and the stale sweep below only covers habits
+      // that LEFT the list, so without this sweep those higher slots kept
+      // firing daily forever. Runs before _scheduleResolved, preserving
+      // the cancel-first ordering the sweep comment below argues for.
+      for (var slot = 1; slot < _maxHabitReminderSlots; slot++) {
+        await _plugin.cancel(_habitReminderId(habit.id, slot));
+        await _plugin.cancel(_snoozeId(habit.id, slot));
+      }
       resolved.add((
         id: habit.id,
         name: habit.name,
@@ -1017,7 +1046,27 @@ class NotificationService {
 
     final usedBundleIds = <int>{};
     var slot = 0;
+    // iOS keeps only the 64 soonest pending notification requests and
+    // SILENTLY discards the rest — reachable here (6 habits at 12 times a
+    // day is 72 slots before the daily reminder, nudges, snoozes and task
+    // reminders join in). Groups are already sorted by fire time, so once
+    // the budget is spent the remaining (latest-firing) entries are exactly
+    // the ones iOS would have dropped anyway; dropping them OURSELVES means
+    // their possibly-stale previous schedules get cancelled instead of
+    // lingering, and the next recompute re-creates them once earlier slots
+    // have fired. Headroom under 64 is reserved for everything that is not
+    // a habit slot.
+    var scheduledCount = 0;
+    var trimmed = 0;
     for (final group in groups) {
+      if (scheduledCount >= kMaxPendingHabitSlots) {
+        for (final r in group) {
+          await _plugin.cancel(_habitReminderId(r.id, r.slot));
+          trimmed++;
+        }
+        continue;
+      }
+      scheduledCount++;
       if (group.length == 1) {
         await _scheduleOne(group.first, isAr);
         continue;
@@ -1095,7 +1144,17 @@ class NotificationService {
       final id = _bundleSlotBase + i;
       if (!usedBundleIds.contains(id)) await _plugin.cancel(id);
     }
+    if (trimmed > 0) {
+      debugPrint('[NotificationService] trimmed $trimmed latest-firing '
+          'slot(s) to stay under the iOS 64-pending budget');
+    }
   }
+
+  /// Global ceiling on scheduled habit-reminder notifications, kept well
+  /// under iOS's hard 64-pending limit so the daily reminder, streak-risk
+  /// nudge, quit check-ins, snoozes and task reminders always have room.
+  /// See _scheduleResolved for how the latest-firing overflow is trimmed.
+  static const kMaxPendingHabitSlots = 48;
 
   /// The evening "you're about to lose your streak" nudge. Re-evaluated
   /// from scratch on every relevant state change instead of being a blind

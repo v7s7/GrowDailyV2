@@ -518,4 +518,79 @@ void main() {
               'both counted and once-a-day habits');
     });
   });
+
+  group('raising the target mid-day cannot bank the same day twice', () {
+    // Finish at 4/4 (day-counters banked once), raise times-per-day to 6 the
+    // same day, tap to 6/6. The tap reaching 6 "finishes the day" again by
+    // the live target, and used to bump totalCompletions, category counts,
+    // totalGreenSquares and dailyGreenCounts a SECOND time for the same
+    // habit-day — once per raise, feeding every lifetime stat and
+    // achievement threshold. The banked-day receipt
+    // (DashboardState.dayCountedHabitIds) is what refuses the repeat.
+    test('the four day-counters move exactly once for the habit-day',
+        () async {
+      final c = await loadedContainer();
+      addTearDown(c.dispose);
+      Future<void> tap(int target) =>
+          c.read(dashboardProvider.notifier).completeHabit(
+                habitId: 'raise',
+                xpReward: 12,
+                goldReward: 4,
+                frequencyTarget: target,
+                allHabitsDoneAfter: false,
+                category: 'custom',
+                habitName: 'raise',
+              );
+      for (var i = 0; i < 4; i++) {
+        await tap(4);
+      }
+      final banked = c.read(dashboardProvider);
+      expect(banked.totalCompletions, 1);
+      expect(banked.totalGreenSquares, 1);
+      expect(banked.categoryCompletions['custom'], 1);
+      expect(banked.dailyGreenCounts.values.fold(0, (a, b) => a + b), 1);
+      expect(banked.dayCountedHabitIds, contains('raise'));
+
+      // The stepper moves to 6; the two extra taps land under the new target.
+      await tap(6);
+      await tap(6);
+      final after = c.read(dashboardProvider);
+      expect(after.completions['raise'], 6);
+      expect(after.totalCompletions, 1,
+          reason: 'the same habit-day must never count twice');
+      expect(after.totalGreenSquares, 1);
+      expect(after.categoryCompletions['custom'], 1);
+      expect(after.dailyGreenCounts.values.fold(0, (a, b) => a + b), 1);
+    });
+
+    test('undoing the finished day hands the receipt back', () async {
+      final c = await loadedContainer();
+      addTearDown(c.dispose);
+      for (var i = 0; i < 2; i++) {
+        await c.read(dashboardProvider.notifier).completeHabit(
+              habitId: 'redo',
+              xpReward: 10,
+              goldReward: 4,
+              frequencyTarget: 2,
+              allHabitsDoneAfter: false,
+              category: 'custom',
+              habitName: 'redo',
+            );
+      }
+      expect(c.read(dashboardProvider).dayCountedHabitIds, contains('redo'));
+      await c.read(dashboardProvider.notifier).uncompleteHabit(
+            habitId: 'redo',
+            xpReward: 10,
+            goldReward: 4,
+            frequencyTarget: 2,
+            clearWholeDay: true,
+            category: 'custom',
+          );
+      final undone = c.read(dashboardProvider);
+      expect(undone.dayCountedHabitIds, isNot(contains('redo')),
+          reason: 'an undo that took the counters back must un-bank, so a '
+              'genuine re-finish can bank again');
+      expect(undone.totalCompletions, 0);
+    });
+  });
 }

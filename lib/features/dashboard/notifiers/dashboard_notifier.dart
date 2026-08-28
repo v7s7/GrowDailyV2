@@ -437,6 +437,20 @@ class DashboardState {
   final int totalCompletions;
   final int streakFreezes;
   final Map<String, int> completions;
+
+  /// Habits whose day-counters (totalCompletions, categoryCompletions,
+  /// totalGreenSquares, dailyGreenCounts) have already been banked TODAY.
+  ///
+  /// The finishing tap banks them, an undo that takes a finished day back
+  /// un-banks them, and completeHabit refuses to bank twice for the same
+  /// habit-day. Without this receipt the check was `current >=
+  /// frequencyTarget`, which forgets the day ever finished the moment its
+  /// times-per-day target is raised: finish at 4/4, edit the target to 6,
+  /// and the tap reaching 6 counted the SAME habit-day a second time in
+  /// every lifetime stat and achievement threshold. Persisted on the daily
+  /// doc as 'dayCounted' beside habitCompletions, so it scopes to today by
+  /// construction and needs no sweeping.
+  final Set<String> dayCountedHabitIds;
   final List<String> unlockedAchievements;
   final List<AchievementModel> newlyUnlocked;
   final bool didJustLevelUp;
@@ -697,6 +711,7 @@ class DashboardState {
     this.totalCompletions = 0,
     this.streakFreezes = 1,
     required this.completions,
+    this.dayCountedHabitIds = const {},
     this.unlockedAchievements = const [],
     this.newlyUnlocked = const [],
     this.didJustLevelUp = false,
@@ -792,6 +807,7 @@ class DashboardState {
     int? totalCompletions,
     int? streakFreezes,
     Map<String, int>? completions,
+    Set<String>? dayCountedHabitIds,
     List<String>? unlockedAchievements,
     List<AchievementModel>? newlyUnlocked,
     bool didJustLevelUp = false,
@@ -839,6 +855,7 @@ class DashboardState {
         totalCompletions: totalCompletions ?? this.totalCompletions,
         streakFreezes: streakFreezes ?? this.streakFreezes,
         completions: completions ?? this.completions,
+        dayCountedHabitIds: dayCountedHabitIds ?? this.dayCountedHabitIds,
         unlockedAchievements:
             unlockedAchievements ?? this.unlockedAchievements,
         newlyUnlocked: newlyUnlocked ?? this.newlyUnlocked,
@@ -888,6 +905,17 @@ class DashboardState {
 class DashboardNotifier extends StateNotifier<DashboardState> {
   static const int streakFreezeCost = 100;
   static const int maxStreakFreezes = 3;
+
+  /// Serializes every gold spend across ALL sinks — spendGold (closet,
+  /// custom rewards), buyStreakFreeze, buyFreezeSlot. The per-sink guards
+  /// (CustomRewardsState.claimingId, CharacterNotifier._buyingId) stop
+  /// double-taps within one shop, but each spend rolls back a failed write
+  /// by restoring an ABSOLUTE gold snapshot taken before its own deduction,
+  /// so two overlapping spends from different sinks could silently refund
+  /// each other when the first one's write eventually failed. One shared
+  /// flag makes the overlap impossible; a spend attempted while another is
+  /// in flight simply reports failure, same as an unaffordable one.
+  bool _goldSpendInFlight = false;
 
   /// The ceiling on purchased bank capacity. [maxStreakFreezes] is the FLOOR
   /// every account starts at; this is where buying stops.

@@ -309,6 +309,14 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       newDailyGreenCounts[dayKey] = rawDay < 0 ? 0 : rawDay;
     }
 
+    // The banked-day receipt is handed back with the counters: only an undo
+    // that actually decremented them (hadFinishedDay) un-banks, so a later
+    // genuine re-finish banks exactly once. See
+    // DashboardState.dayCountedHabitIds.
+    final newDayCounted = hadFinishedDay
+        ? ({...state.dayCountedHabitIds}..remove(habitId))
+        : state.dayCountedHabitIds;
+
     state = state.copyWith(
       level: xpResult.newLevel,
       currentLevelXp: xpResult.newCurrentLevelXp,
@@ -323,11 +331,15 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       habitLongestStreaks: newHabitLongestStreaks,
       habitTotalCompletions: newHabitTotalCompletions,
       habitLastCompletedDate: newHabitLastCompletedDate,
+      dayCountedHabitIds: newDayCounted,
       undoneCompletions: newUndoneCompletions,
     );
 
     if (_uid == null) {
-      await _saveGuestDaily(newCompletions);
+      await _saveGuestDaily(
+        newCompletions,
+        dayCounted: hadFinishedDay ? newDayCounted.toList() : null,
+      );
       // No lastActiveDate here — undoing isn't "new activity" and
       // shouldn't disturb the streak-gap-detection logic that field feeds.
       await _saveGuestState();
@@ -358,6 +370,10 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
         // FieldValue.delete(); this one did not.
         {
           'habitCompletions': habitCompletionDelta(habitId, newCompletions),
+          // Hand the banked-day receipt back — see
+          // DashboardState.dayCountedHabitIds. arrayRemove, mirroring
+          // completeHabit's arrayUnion, so other habits' receipts survive.
+          if (hadFinishedDay) 'dayCounted': FieldValue.arrayRemove([habitId]),
         },
         SetOptions(merge: true),
       );
