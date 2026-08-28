@@ -833,11 +833,40 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         .where((h) => h.isScheduledFor(today))
         .toList();
 
+    // Reminders are scheduled from every habit due in the WEEK AHEAD, not
+    // just today's.
+    //
+    // Today-only was half of the wrong-day bug. A habit set to specific
+    // weekdays kept its reminders only while today happened to be one of
+    // them: on any other day it fell out of this list, the stale sweep
+    // cancelled its slots, and nothing re-armed the next real occurrence
+    // until the app was opened on that morning. Paired with a fire time
+    // that rolled a single day forward regardless of the schedule, the
+    // result was a reminder that fired on days the habit did not run and
+    // could go missing on days it did. The scheduler now places each habit
+    // on its own next scheduled occurrence (see
+    // HabitReminderInput.scheduledWeekdays), so it needs to see the habits
+    // that are not due today too. Seven days is the full weekday cycle, so
+    // this catches every habit that has any upcoming occurrence at all,
+    // while still dropping ones that are archived or not yet born.
+    final upcomingHabits = ref.read(habitListProvider).where((h) {
+      for (var i = 0; i < 7; i++) {
+        if (h.isScheduledFor(today.add(Duration(days: i)))) return true;
+      }
+      return false;
+    }).toList();
+
     final reminders = <HabitReminderInput>[];
+    // Counts only what is actually owed TODAY — it feeds the evening
+    // streak-risk nudge, which is a question about today's board.
     var pendingCount = 0;
     for (final habit in todayHabits) {
-      final done = dash.isCompleted(habit.id, habit.effectiveDailyTarget);
-      if (!done) pendingCount++;
+      if (!dash.isCompleted(habit.id, habit.effectiveDailyTarget)) {
+        pendingCount++;
+      }
+    }
+    for (final habit in upcomingHabits) {
+      final scheduledToday = habit.isScheduledFor(today);
       final cue = HabitCue.fromStoredValue(habit.cueAfter);
       reminders.add((
         id: habit.id,
@@ -853,10 +882,18 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // The raw count, not the done bool: a habit counted twice a day with
         // one logged is neither "done" nor "untouched", and the scheduler
         // needs the number to know how many of today's reminders to stand
-        // down. `done` above still feeds pendingCount, which is a whole-habit
-        // question and unaffected.
-        completedCount: dash.completions[habit.id] ?? 0,
+        // down. pendingCount above is computed separately, off today's board
+        // only, and is unaffected.
+        //
+        // Zero for a habit that is not due today: the count answers "how
+        // many of TODAY's target are logged", and today's answer must not
+        // stand down a reminder belonging to a later day.
+        completedCount: scheduledToday ? (dash.completions[habit.id] ?? 0) : 0,
         dailyTarget: habit.effectiveDailyTarget,
+        // What days this habit actually runs, so a fire time that rolls
+        // past its own clock time lands on the next one it is due — see
+        // HabitReminderInput.scheduledWeekdays.
+        scheduledWeekdays: habit.scheduledWeekdays.toSet(),
         reminderOffsetMinutes: habit.reminderOffsetMinutes,
         ignoreQuietHours: habit.ignoreQuietHours,
         // Only a prayer gets named in the reminder's own text ("باقي ٤٥

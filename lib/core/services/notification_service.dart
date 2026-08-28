@@ -60,6 +60,16 @@ typedef HabitReminderInput = ({
   // Lets this habit's reminder through quiet hours (the per-habit "Allow
   // anyway" escape hatch). Mirrors IslamicHabitTemplate.ignoreQuietHours.
   bool ignoreQuietHours,
+  /// The weekdays this habit is actually due on (DateTime.weekday values,
+  /// 1 = Monday … 7 = Sunday). Empty means every day.
+  ///
+  /// The scheduler needs this because a fire time ROLLS: a reminder whose
+  /// clock time has already passed moves to the next day, and without
+  /// knowing the habit's real schedule that next day can be one the habit
+  /// was never due on. A habit set to Sun/Tue/Thu at 20:00, recomputed at
+  /// 21:00 on Thursday, was scheduled for Friday 20:00 and pinged about a
+  /// day it does not run. See [resolveClockSlots].
+  Set<int> scheduledWeekdays,
   /// What the offset is measured FROM, already localized, when that has a
   /// name worth saying out loud: "المغرب" / "Maghrib" for a prayer-linked
   /// habit, null for a clock time.
@@ -635,12 +645,28 @@ class NotificationService {
   /// shift for time i (negative before, positive after). A short list is read
   /// as 0 past its end, so a caller with one shared offset passes a one-entry
   /// list only when there is one time.
+  /// Whether a resolved [fire] moment lands on a day this habit actually
+  /// runs. [weekdays] is DateTime.weekday values; empty means every day.
+  ///
+  /// Tested against the fire time's EFFECTIVE day, not its calendar date,
+  /// because that is the day the rest of the app considers the habit due:
+  /// `isScheduledFor` is asked about `DateTime.now().effectiveDay`
+  /// everywhere else, so a 02:00 reminder belongs to the previous
+  /// calendar day's board, exactly like the square it is reminding about.
+  static bool _fireDayIsScheduled(DateTime fire, Set<int> weekdays) {
+    if (weekdays.isEmpty) return true;
+    return weekdays.contains(fire.effectiveDay.weekday);
+  }
+
   @visibleForTesting
   static List<({int slot, tz.TZDateTime fireTime})> resolveClockSlots(
     List<TimeOfDay> times,
     List<int> offsets,
-    tz.TZDateTime now,
-  ) {
+    tz.TZDateTime now, {
+    /// Days this habit runs — see HabitReminderInput.scheduledWeekdays.
+    /// Defaults to every day so existing callers and tests are unchanged.
+    Set<int> scheduledWeekdays = const {},
+  }) {
     final out = <({int slot, tz.TZDateTime fireTime})>[];
     for (var slot = 0; slot < times.length && slot < _maxHabitReminderSlots; slot++) {
       final offset =
@@ -661,7 +687,22 @@ class NotificationService {
       // (not a single if) is for a negative offset landing before now
       // across midnight, where one roll can still leave the moment behind
       // `now`, and for custom offsets larger than a day.
-      while (!fire.isAfter(now)) {
+      //
+      // The roll also has to land on a day the habit RUNS. Without the
+      // second condition a habit set to specific weekdays fired on the
+      // wrong ones: Sun/Tue/Thu at 20:00, recomputed at 21:00 on Thursday,
+      // rolled one day to Friday 20:00 and pinged about a day it was never
+      // due. Rolling on to the next scheduled weekday instead is also what
+      // keeps the NEXT real occurrence armed while the app stays closed,
+      // rather than relying on it being opened that morning.
+      //
+      // Bounded at 8 extra days so a corrupt weekday set (values outside
+      // 1-7, which no UI can produce) can never spin forever; the guard
+      // then leaves the moment on its natural next occurrence.
+      var rolls = 0;
+      while (!fire.isAfter(now) ||
+          (!_fireDayIsScheduled(fire, scheduledWeekdays) && rolls < 8)) {
+        if (fire.isAfter(now)) rolls++;
         fire = fire.add(const Duration(days: 1));
       }
       out.add((slot: slot, fireTime: fire));
@@ -743,8 +784,12 @@ class NotificationService {
     // prayer-linked habit shares the same location/method/madhab, so
     // there's exactly one "today" and, only if needed, one "tomorrow" set
     // of prayer times for the whole batch.
-    PrayerDayTimes? todayPrayers;
-    PrayerDayTimes? tomorrowPrayers;
+    // Prayer times per day offset from now, computed at most once each and
+    // shared across every prayer-linked habit in this pass. Was a pair of
+    // today/tomorrow locals; it became a map when the resolver had to be
+    // able to walk to the next SCHEDULED day rather than assuming the
+    // habit runs tomorrow.
+    final prayerDays = <int, PrayerDayTimes>{};
 
     for (final habit in habits) {
       // Slots this habit will hold after this pass. Everything NOT in here is
@@ -767,6 +812,7 @@ class NotificationService {
           habit.clockTimes,
           habit.clockOffsets,
           now,
+          scheduledWeekdays: habit.scheduledWeekdays,
         );
         final exempt = habit.ignoreQuietHours;
         // Quiet hours are judged PER TIME, not per habit. The old rule
@@ -846,42 +892,40 @@ class NotificationService {
       } else if (habit.prayerKey != null && settings.location != null) {
         isPrayerLinked = true;
         final loc = settings.location!;
-        todayPrayers ??= await PrayerTimesService.calculate(
-          latitude: loc.lat,
-          longitude: loc.lng,
-          date: now,
-          madhab: settings.madhab,
-          countryCode: settings.resolvedCountryCode,
-        );
-        // Named locals purely for readability (avoids repeating
-        // `todayPrayers!.forKey` etc. below) — `??=` above already
-        // promotes todayPrayers to non-null here, so no `!` is needed.
-        final today = todayPrayers;
-        // Written as an explicit null-check + reassignment rather than a
-        // `?.add(...).subtract(...)` chain — Dart's "null-shorting" would
-        // make that chain correct too (a `?.` shorts every plain `.` call
-        // chained after it, not just the very next one), but that's a
-        // sharp-edged-enough corner of the language to avoid leaning on
-        // without a compiler on hand to double check it.
-        var candidate = today.forKey(habit.prayerKey!);
-        if (candidate != null) {
-          candidate = candidate.add(offset);
-        }
-        if (candidate != null && !candidate.isAfter(now)) {
-          tomorrowPrayers ??= await PrayerTimesService.calculate(
+        // Walk forward to the next occurrence of this prayer that is both
+        // still ahead and on a day the habit actually runs.
+        //
+        // Day 0 and day 1 are the old today/tomorrow pair, unchanged for
+        // the overwhelmingly common case of a prayer habit with no weekday
+        // restriction: the loop exits on the first or second pass and asks
+        // PrayerTimesService for exactly what it always did. The extra days
+        // only ever run for a habit pinned to specific weekdays, which
+        // otherwise had the same wrong-day bug the clock path had — its
+        // reminder rolled to tomorrow's prayer whether or not the habit ran
+        // tomorrow. Bounded at 7, so any non-empty weekday set is covered.
+        for (var dayOffset = 0; dayOffset <= 7; dayOffset++) {
+          final day = prayerDays[dayOffset] ??= await PrayerTimesService.calculate(
             latitude: loc.lat,
             longitude: loc.lng,
-            date: now.add(const Duration(days: 1)),
+            date: now.add(Duration(days: dayOffset)),
             madhab: settings.madhab,
             countryCode: settings.resolvedCountryCode,
           );
-          final tomorrow = tomorrowPrayers;
-          candidate = tomorrow.forKey(habit.prayerKey!);
-          if (candidate != null) {
-            candidate = candidate.add(offset);
+          // Written as an explicit null-check + reassignment rather than a
+          // `?.add(...)` chain — Dart's "null-shorting" would make that
+          // chain correct too (a `?.` shorts every plain `.` call chained
+          // after it, not just the very next one), but that's a
+          // sharp-edged-enough corner of the language to avoid leaning on.
+          var candidate = day.forKey(habit.prayerKey!);
+          if (candidate == null) break;
+          candidate = candidate.add(offset);
+          if (!candidate.isAfter(now)) continue;
+          if (!_fireDayIsScheduled(candidate, habit.scheduledWeekdays)) {
+            continue;
           }
+          fireTime = candidate;
+          break;
         }
-        fireTime = candidate;
       }
 
       if (fireTime == null) {

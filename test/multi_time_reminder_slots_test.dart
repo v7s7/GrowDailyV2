@@ -135,6 +135,74 @@ void main() {
           reason: 'today 09:30 has not happened yet at 09:10');
     });
 
+    // August 2026: the 15th is a Saturday, so the 20th is a Thursday
+    // (DateTime.weekday 4), the 21st a Friday (5), the 23rd a Sunday (7).
+    group('a rolled reminder lands on a day the habit actually runs', () {
+      // Sun / Tue / Thu, DateTime.weekday values.
+      const sunTueThu = {7, 2, 4};
+
+      test('reported bug: 8pm on Thursday does not ping on Friday', () {
+        // Recomputed at 21:00 Thursday — the app was opened after the
+        // habit's own time. The bare roll moved this to Friday 20:00 and
+        // pinged about a day the habit does not run.
+        final out = NotificationService.resolveClockSlots(
+          times([(20, 0)]),
+          const [0],
+          at(21, 0, day: 20),
+          scheduledWeekdays: sunTueThu,
+        );
+        expect(out.single.fireTime, at(20, 0, day: 23),
+            reason: 'Friday and Saturday are skipped; Sunday is the next '
+                'day this habit is due');
+      });
+
+      test('a still-future time on a scheduled day is left alone', () {
+        final out = NotificationService.resolveClockSlots(
+          times([(20, 0)]),
+          const [0],
+          at(19, 0, day: 20),
+          scheduledWeekdays: sunTueThu,
+        );
+        expect(out.single.fireTime, at(20, 0, day: 20),
+            reason: 'Thursday is a scheduled day and 20:00 has not passed');
+      });
+
+      test('an unscheduled day is skipped even when the time is ahead', () {
+        // 09:00 Friday: 20:00 Friday is still in the future, but Friday is
+        // not one of this habit's days.
+        final out = NotificationService.resolveClockSlots(
+          times([(20, 0)]),
+          const [0],
+          at(9, 0, day: 21),
+          scheduledWeekdays: sunTueThu,
+        );
+        expect(out.single.fireTime, at(20, 0, day: 23));
+      });
+
+      test('an empty weekday set still means every day, unchanged', () {
+        final out = NotificationService.resolveClockSlots(
+          times([(20, 0)]),
+          const [0],
+          at(21, 0, day: 20),
+        );
+        expect(out.single.fireTime, at(20, 0, day: 21),
+            reason: 'a habit with no weekday restriction rolls one day, '
+                'exactly as it always did');
+      });
+
+      test('a corrupt weekday set cannot spin forever', () {
+        // No UI can produce this; the resolver still has to terminate.
+        final out = NotificationService.resolveClockSlots(
+          times([(20, 0)]),
+          const [0],
+          at(21, 0, day: 20),
+          scheduledWeekdays: const {99},
+        );
+        expect(out, hasLength(1));
+        expect(out.single.fireTime.isAfter(at(21, 0, day: 20)), isTrue);
+      });
+    });
+
     test('an offset that drags an imminent time into the past rolls a day', () {
       // The case the single-time path already documented: it is 8:58, the
       // habit is set for 9:00, the offset is -15, so 8:45 is behind us.
