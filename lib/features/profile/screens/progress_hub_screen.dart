@@ -1222,7 +1222,7 @@ class _InsightsPreviewSection extends ConsumerWidget {
     // preview and the screen it previews disagreed the moment anyone
     // archived or toggled off a habit.
     final habits = ref.watch(allHabitsEverProvider);
-    final isPremium = ref.watch(premiumProvider);
+    final isPremium = ref.watch(premiumAccessProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

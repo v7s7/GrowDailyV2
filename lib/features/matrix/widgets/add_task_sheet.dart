@@ -676,7 +676,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                                   elapsed: _elapsed,
                                   color: _color,
                                   onTap: _toggleRecording,
-                                  locked: !ref.watch(premiumProvider),
+                                  locked: !ref.watch(premiumAccessProvider),
                                 ),
                               ],
                             ),

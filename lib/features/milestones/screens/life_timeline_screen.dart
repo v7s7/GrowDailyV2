@@ -55,7 +55,7 @@ class LifeTimelineScreen extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final dark = gp.dark;
-    final isPremium = ref.watch(premiumProvider);
+    final isPremium = ref.watch(premiumAccessProvider);
     final dashState = ref.watch(dashboardProvider);
     // Every habit that still exists, archived included: archiving keeps its
     // history (the reports fold it under المؤرشفة rather than dropping it),
@@ -106,7 +106,7 @@ class LifeTimelineScreen extends ConsumerWidget {
     final oldestYearToShow = earliestYear > capYear ? earliestYear : capYear;
     // Every year, for everyone.
     //
-    // The roadmap decided this screen is free ("no premiumProvider check
+    // The roadmap decided this screen is free ("no premiumAccessProvider check
     // anywhere in this screen"), and the lifetime numbers it exists to show
     // - total completions, longest streak, the year you started - are not
     // history you browse, they are one sentence about your account. Hiding

@@ -3,14 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/l10n/app_strings.dart';
+import '../../core/services/analytics_service.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/premium/notifiers/premium_notifier.dart';
+import '../../features/premium/screens/premium_screen.dart';
 
 /// Whether the current account can use voice notes. A single bool check —
 /// call this before showing a mic button at all, not just before recording,
 /// so free users see a locked affordance rather than a working one that
 /// then gates on tap.
-bool hasVoiceNoteAccess(WidgetRef ref) => ref.read(premiumProvider);
+bool hasVoiceNoteAccess(WidgetRef ref) => ref.read(premiumAccessProvider);
 
 /// Shows the Premium upsell for voice notes.
 ///
@@ -21,6 +23,8 @@ bool hasVoiceNoteAccess(WidgetRef ref) => ref.read(premiumProvider);
 /// numeric cap, so there's no "limit" number to show, just what the feature
 /// does and that Premium unlocks it.
 void showVoiceNoteGate(BuildContext context, WidgetRef ref) {
+  AnalyticsService.instance
+      .track('premium_gate_hit', props: {'gate': 'voice_note'});
   final gp = context.gp;
   final s = S.of(context);
   HapticFeedback.mediumImpact();
@@ -79,7 +83,12 @@ void showVoiceNoteGate(BuildContext context, WidgetRef ref) {
               onPressed: () {
                 HapticFeedback.lightImpact();
                 Navigator.pop(ctx);
-                Navigator.pushNamed(context, '/premium');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PremiumScreen(source: 'voice_note', reason: PremiumReason.voice),
+                  ),
+                );
               },
               icon: const Icon(Icons.workspace_premium_rounded, size: 18),
               label: Text(s.premiumCta),

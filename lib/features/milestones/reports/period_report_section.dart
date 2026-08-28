@@ -285,7 +285,7 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     final locale = Localizations.localeOf(context).languageCode;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final dash = ref.watch(dashboardProvider);
-    final isPremium = ref.watch(premiumProvider);
+    final isPremium = ref.watch(premiumAccessProvider);
     final today = DateTime.now().effectiveDay;
     final historyAsync = ref.watch(habitYearHistoryProvider);
 

@@ -99,7 +99,7 @@ class _ThemePresetSheet extends ConsumerWidget {
     final s = S.of(context);
     final isAr = s.isAr;
     final selectedId = ref.watch(themePresetProvider);
-    final isPremium = ref.watch(premiumProvider);
+    final isPremium = ref.watch(premiumAccessProvider);
 
     // One tile builder for both sections, so free and premium rows are
     // provably the same control rather than two copies that drift.
@@ -509,7 +509,10 @@ void _openPremiumForAppearance(BuildContext context) {
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => const PremiumScreen(reason: PremiumReason.appearance),
+      builder: (_) => const PremiumScreen(
+        reason: PremiumReason.appearance,
+        source: 'theme_picker',
+      ),
     ),
   );
 }

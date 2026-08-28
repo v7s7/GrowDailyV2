@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/extensions/datetime_ext.dart';
 import '../../core/l10n/app_strings.dart';
+import '../../features/premium/screens/premium_screen.dart';
 import '../../core/services/local_store_service.dart';
 import '../../core/theme/game_theme.dart';
 import '../auth/notifiers/auth_notifier.dart';
@@ -186,7 +187,7 @@ class _InsightsBody extends ConsumerWidget {
     // means habitDisplayName below can resolve an archived habit's real
     // name instead of falling all the way back to "Deleted habit".
     final habits = ref.watch(allHabitsEverProvider);
-    final isPremium = ref.watch(premiumProvider);
+    final isPremium = ref.watch(premiumAccessProvider);
 
     return FutureBuilder<List<(DateTime, Map<String, dynamic>)>>(
       future: loadWindow(uid),
@@ -306,7 +307,12 @@ class _InsightsBody extends ConsumerWidget {
                 child: GestureDetector(
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    Navigator.pushNamed(context, '/premium');
+                    Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const PremiumScreen(source: 'insights_teaser'),
+          ),
+        );
                   },
                   child: Row(
                     children: [

@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/l10n/app_strings.dart';
+import '../../core/services/analytics_service.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/premium/notifiers/premium_notifier.dart';
+import '../../features/premium/screens/premium_screen.dart';
 
 /// Whether another reminder can be added to a task that already has
 /// [current] of them. Thin wrapper over [canAddReminder] so widgets read
@@ -18,7 +20,7 @@ import '../../features/premium/notifiers/premium_notifier.dart';
 /// would still be sitting there afterwards until something unrelated
 /// happened to rebuild the sheet.
 bool canAddAnotherReminder(WidgetRef ref, int current) =>
-    canAddReminder(current: current, isPremium: ref.watch(premiumProvider));
+    canAddReminder(current: current, isPremium: ref.watch(premiumAccessProvider));
 
 /// Shows the Premium upsell for stacking more than one reminder on a task.
 ///
@@ -29,6 +31,8 @@ bool canAddAnotherReminder(WidgetRef ref, int current) =>
 /// feature — free users already get one reminder — so the copy names what
 /// free includes instead of implying reminders are locked outright.
 void showReminderLimitGate(BuildContext context, WidgetRef ref) {
+  AnalyticsService.instance
+      .track('premium_gate_hit', props: {'gate': 'reminder_limit'});
   final gp = context.gp;
   final s = S.of(context);
   HapticFeedback.mediumImpact();
@@ -91,7 +95,12 @@ void showReminderLimitGate(BuildContext context, WidgetRef ref) {
               onPressed: () {
                 HapticFeedback.lightImpact();
                 Navigator.pop(ctx);
-                Navigator.pushNamed(context, '/premium');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PremiumScreen(source: 'reminder_limit', reason: PremiumReason.tasks),
+                  ),
+                );
               },
               icon: const Icon(Icons.workspace_premium_rounded, size: 18),
               label: Text(s.premiumCta),

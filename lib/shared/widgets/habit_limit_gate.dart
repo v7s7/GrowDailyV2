@@ -3,15 +3,21 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/l10n/app_strings.dart';
+import '../../core/services/analytics_service.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/auth/notifiers/auth_notifier.dart';
 import '../../features/premium/notifiers/premium_notifier.dart';
+import '../../features/premium/screens/premium_screen.dart';
 import 'guest_limit_sheet.dart';
 
 /// One gate for every "add habit" entry point. Guests who hit their trial
 /// cap are asked to create an account (existing flow); signed-in free users
 /// who hit the free cap get the Premium invitation.
 void showHabitLimitGate(BuildContext context, WidgetRef ref) {
+  AnalyticsService.instance.track('premium_gate_hit', props: {
+    'gate': 'habit_limit',
+    'tier': ref.read(guestModeProvider) ? 'guest' : 'free',
+  });
   if (ref.read(guestModeProvider)) {
     showGuestLimitSheet(context, ref);
     return;
@@ -75,7 +81,12 @@ void showHabitLimitGate(BuildContext context, WidgetRef ref) {
               onPressed: () {
                 HapticFeedback.lightImpact();
                 Navigator.pop(ctx);
-                Navigator.pushNamed(context, '/premium');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PremiumScreen(source: 'habit_limit'),
+                  ),
+                );
               },
               icon: const Icon(Icons.workspace_premium_rounded, size: 18),
               label: Text(s.premiumCta),

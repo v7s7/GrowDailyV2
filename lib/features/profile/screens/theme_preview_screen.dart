@@ -113,7 +113,7 @@ class _ThemePreviewScreenState extends ConsumerState<ThemePreviewScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final name = s.isAr ? widget.preset.nameAr : widget.preset.nameEn;
-    _locked = widget.preset.isPremium && !ref.watch(premiumProvider);
+    _locked = widget.preset.isPremium && !ref.watch(premiumAccessProvider);
 
     return PopScope(
       // Restore BEFORE the pop transition's frames rebuild the screen
@@ -196,6 +196,7 @@ class _ThemePreviewScreenState extends ConsumerState<ThemePreviewScreen> {
                                 MaterialPageRoute(
                                   builder: (_) => const PremiumScreen(
                                     reason: PremiumReason.appearance,
+                                    source: 'theme_preview',
                                   ),
                                 ),
                               );

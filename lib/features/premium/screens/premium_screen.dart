@@ -62,30 +62,64 @@ const String _privacyPolicyUrl =
 /// for. All eleven entry points used to land on an identical screen opening
 /// with "unlimited habits", including the ones you reach by tapping a locked
 /// COLOUR — pitching habit limits to someone who just asked about themes.
-enum PremiumReason { general, appearance }
+enum PremiumReason { general, appearance, history, tasks, voice }
 
 class PremiumScreen extends ConsumerStatefulWidget {
   /// Defaults to [PremiumReason.general] so every existing call site keeps
   /// working untouched.
   final PremiumReason reason;
-  const PremiumScreen({super.key, this.reason = PremiumReason.general});
+
+  /// Which surface opened the paywall, for the `paywall_view` analytics
+  /// event. With ~10 distinct entry points and none of them attributed,
+  /// there was no way to learn which gate actually sells; this is the
+  /// smallest fix for that. Free-text by design (an enum here would force
+  /// every new surface to touch this file).
+  final String source;
+  const PremiumScreen({
+    super.key,
+    this.reason = PremiumReason.general,
+    this.source = 'unknown',
+  });
 
   @override
   ConsumerState<PremiumScreen> createState() => _PremiumScreenState();
 }
 
 class _PremiumScreenState extends ConsumerState<PremiumScreen> {
-  _PlanKind _selected = _PlanKind.monthly;
+  // Lifetime is the plan this app leads with (see the strings' doc
+  // comment): pre-selected AND listed first, so the badge, the selection
+  // and the card order all agree instead of badging lifetime "best value"
+  // while pre-selecting monthly.
+  _PlanKind _selected = _PlanKind.lifetime;
   bool _loadingOffering = true;
   Offering? _offering;
   bool _isPurchasing = false;
   bool _isRestoring = false;
   bool _isOpeningCustomerCenter = false;
 
+  /// Whether the current entitlement is the lifetime purchase — resolved
+  /// async from CustomerInfo, so the managed-subscription button can hide
+  /// itself for buyers who have nothing to manage.
+  bool _isLifetimeBuyer = false;
+
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.track('paywall_view', props: {
+      'source': widget.source,
+      'reason': widget.reason.name,
+    });
     _loadOffering();
+    _checkLifetimeBuyer();
+  }
+
+  Future<void> _checkLifetimeBuyer() async {
+    final info = await PurchaseService.instance.getCustomerInfo();
+    if (!mounted || info == null) return;
+    final lifetime = PurchaseService.instance.isLifetimeEntitled(info);
+    if (lifetime != _isLifetimeBuyer) {
+      setState(() => _isLifetimeBuyer = lifetime);
+    }
   }
 
   Future<void> _loadOffering() async {
@@ -96,8 +130,8 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       _loadingOffering = false;
       // Default to whichever plan actually exists, in case only one of
       // the two was configured — see [_selectedPackage].
-      if (offering?.monthly == null && offering?.lifetime != null) {
-        _selected = _PlanKind.lifetime;
+      if (offering?.lifetime == null && offering?.monthly != null) {
+        _selected = _PlanKind.monthly;
       }
     });
   }
@@ -106,6 +140,34 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     final offering = _offering;
     if (offering == null) return null;
     return _selected == _PlanKind.monthly ? offering.monthly : offering.lifetime;
+  }
+
+  /// Days left in the new-install trial, zero when there is none. Read
+  /// fresh on every build (cheap date math) so the banner counts down.
+  int get _trialDaysLeft {
+    final start = ref.read(trialStartProvider);
+    if (start == null) return 0;
+    return trialDaysLeft(start: start, now: DateTime.now());
+  }
+
+  /// How many months of the monthly plan the lifetime price equals, rounded
+  /// UP so the sentence "less than N months" stays literally true. Null
+  /// whenever the math has nothing sound to stand on: either package
+  /// missing, a zero monthly price, or the two products priced in different
+  /// currencies (StoreKit never mixes currencies within one storefront, so
+  /// that last check is a guard, not an expected case).
+  int? get _breakEvenMonths {
+    final monthly = _offering?.monthly?.storeProduct;
+    final lifetime = _offering?.lifetime?.storeProduct;
+    if (monthly == null || lifetime == null) return null;
+    if (monthly.currencyCode != lifetime.currencyCode) return null;
+    if (monthly.price <= 0) return null;
+    final months = (lifetime.price / monthly.price).ceil();
+    // A ratio this low would make the caption say something absurd
+    // ("less than 1 month"); a ratio this high means the prices are
+    // misconfigured and the caption would advertise the mistake.
+    if (months < 2 || months > 48) return null;
+    return months;
   }
 
   Future<void> _startPurchase() async {
@@ -129,6 +191,16 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       // with no gap where someone who just paid still sees the paywall.
       final info = outcome.customerInfo!;
       ref.read(premiumProvider.notifier).applyCustomerInfo(info);
+      if (PurchaseService.instance.isEntitled(info)) {
+        // Distinct from premium_activated, which also fires on restores,
+        // cross-device logins and cache corrections: this one is a real
+        // purchase with its plan, i.e. the number a conversion rate needs.
+        AnalyticsService.instance.track('premium_purchase_success', props: {
+          'plan': _selected == _PlanKind.monthly ? 'monthly' : 'lifetime',
+          'source': widget.source,
+        });
+        setState(() => _isLifetimeBuyer = _selected == _PlanKind.lifetime);
+      }
       // A cleared purchase whose CustomerInfo does not actually carry the
       // entitlement used to return here silently: applyCustomerInfo would
       // set false, false-to-false is a no-op so nothing rebuilt, and the
@@ -244,6 +316,9 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     final monthly = _offering?.monthly;
     final lifetime = _offering?.lifetime;
     final hasPlans = monthly != null || lifetime != null;
+    // Keeps the trial banner live while this screen is open: the access
+    // provider self-invalidates when the window closes.
+    ref.watch(premiumAccessProvider);
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -310,6 +385,45 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               ),
               const SizedBox(height: 22),
 
+              // The new-install trial status, while it is running. Placed
+              // between the hero and the benefits so the list below reads
+              // as "what you keep", not "what you would get". Reads the
+              // REAL entitlement deliberately: a trial user must still see
+              // plans and prices, which is the whole reason gates read
+              // premiumAccessProvider and this screen does not.
+              if (!isPremium && _trialDaysLeft > 0) ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: GameColors.emerald.withOpacity(0.10),
+                    borderRadius:
+                        BorderRadius.circular(GameSpacing.buttonRadius),
+                    border: Border.all(
+                        color: GameColors.emerald.withOpacity(0.35)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.hourglass_bottom_rounded,
+                          size: 18, color: GameColors.emerald),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          s.premiumTrialLine(_trialDaysLeft),
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: gp.textPrimary,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ).animate(delay: 150.ms).fadeIn(),
+                const SizedBox(height: 16),
+              ],
+
               // Benefits
               ..._orderedBenefits(s).asMap().entries.map(
                     (e) => Padding(
@@ -354,17 +468,28 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                TextButton(
-                  onPressed:
-                      _isOpeningCustomerCenter ? null : _manageSubscription,
-                  child: _isOpeningCustomerCenter
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.2),
-                        )
-                      : Text(s.premiumManageSubscription),
-                ),
+                // A lifetime buyer has no renewal to view and nothing to
+                // cancel; RevenueCat's Customer Center is all subscription
+                // language, so showing it to them reads as "wait, is this
+                // going to charge me again?". They get a plain sentence.
+                if (_isLifetimeBuyer)
+                  Text(
+                    s.premiumLifetimeOwned,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: gp.textSec),
+                  )
+                else
+                  TextButton(
+                    onPressed:
+                        _isOpeningCustomerCenter ? null : _manageSubscription,
+                    child: _isOpeningCustomerCenter
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2.2),
+                          )
+                        : Text(s.premiumManageSubscription),
+                  ),
               ] else if (_loadingOffering) ...[
                 const SizedBox(height: 32),
                 const Center(child: CircularProgressIndicator()),
@@ -404,9 +529,31 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   ),
                 ),
               ] else ...[
-                // Plan picker
+                // Plan picker. Lifetime leads: first in the row, carrying
+                // the badge, and pre-selected — this paywall's job is to
+                // sell the one-time purchase, with monthly beside it as the
+                // yardstick that shows why (see premiumLifetimeBreakEven).
                 Row(
                   children: [
+                    if (lifetime != null)
+                      Expanded(
+                        child: _PlanCard(
+                          label: s.premiumLifetime,
+                          price: lifetime.storeProduct.priceString,
+                          period: s.premiumOneTime,
+                          badge: s.premiumBestValueBadge,
+                          caption: _breakEvenMonths == null
+                              ? null
+                              : s.premiumLifetimeBreakEven(_breakEvenMonths!),
+                          selected: _selected == _PlanKind.lifetime,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _selected = _PlanKind.lifetime);
+                          },
+                        ),
+                      ),
+                    if (monthly != null && lifetime != null)
+                      const SizedBox(width: 12),
                     if (monthly != null)
                       Expanded(
                         child: _PlanCard(
@@ -417,22 +564,6 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                           onTap: () {
                             HapticFeedback.selectionClick();
                             setState(() => _selected = _PlanKind.monthly);
-                          },
-                        ),
-                      ),
-                    if (monthly != null && lifetime != null)
-                      const SizedBox(width: 12),
-                    if (lifetime != null)
-                      Expanded(
-                        child: _PlanCard(
-                          label: s.premiumLifetime,
-                          price: lifetime.storeProduct.priceString,
-                          period: s.premiumOneTime,
-                          badge: s.premiumBestValueBadge,
-                          selected: _selected == _PlanKind.lifetime,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() => _selected = _PlanKind.lifetime);
                           },
                         ),
                       ),
@@ -538,8 +669,15 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   /// so the list still reads as a considered sequence rather than a shuffle.
   List<(IconData, String, String)> _orderedBenefits(S s) {
     final all = _benefits(s);
-    if (widget.reason != PremiumReason.appearance) return all;
-    final i = all.indexWhere((b) => b.$1 == Icons.palette_rounded);
+    final leadIcon = switch (widget.reason) {
+      PremiumReason.general => null,
+      PremiumReason.appearance => Icons.palette_rounded,
+      PremiumReason.history => Icons.history_rounded,
+      PremiumReason.tasks => Icons.notifications_active_rounded,
+      PremiumReason.voice => Icons.mic_rounded,
+    };
+    if (leadIcon == null) return all;
+    final i = all.indexWhere((b) => b.$1 == leadIcon);
     if (i <= 0) return all;
     return [all[i], ...all]..removeAt(i + 1);
   }
@@ -662,6 +800,12 @@ class _PlanCard extends StatelessWidget {
   final String price;
   final String period;
   final String? badge;
+
+  /// One extra line under the period — the lifetime card's break-even
+  /// sentence ("less than N months of monthly"). The anchor math is the
+  /// argument for the one-time price, so it lives on the card itself,
+  /// not in fine print.
+  final String? caption;
   final bool selected;
   final VoidCallback onTap;
 
@@ -670,6 +814,7 @@ class _PlanCard extends StatelessWidget {
     required this.price,
     required this.period,
     this.badge,
+    this.caption,
     required this.selected,
     required this.onTap,
   });
@@ -742,6 +887,18 @@ class _PlanCard extends StatelessWidget {
               period,
               style: TextStyle(fontSize: 11, color: gp.textTert),
             ),
+            if (caption != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                caption!,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: GameColors.emerald,
+                  height: 1.3,
+                ),
+              ),
+            ],
           ],
         ),
       ),

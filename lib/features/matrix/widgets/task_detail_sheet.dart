@@ -598,7 +598,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       elapsed: _elapsed,
                       color: _color,
                       onTap: _toggleRecording,
-                      locked: !ref.watch(premiumProvider),
+                      locked: !ref.watch(premiumAccessProvider),
                     ),
                     for (var i = 0; i < _voiceNotes.length; i++)
                       Padding(

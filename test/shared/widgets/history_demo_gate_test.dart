@@ -3,6 +3,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:grow_daily_v2/features/premium/screens/premium_screen.dart';
 import 'package:grow_daily_v2/shared/widgets/history_demo_gate.dart';
 
 /// The demo gate replaced a SnackBar refusal on every locked-history
@@ -15,7 +17,11 @@ void main() {
 
   Future<void> open(WidgetTester tester, {String locale = 'ar'}) async {
     String? pushed;
-    await tester.pumpWidget(MaterialApp(
+    // ProviderScope because the CTA now pushes the real PremiumScreen (a
+    // ConsumerStatefulWidget) directly, carrying its analytics source,
+    // instead of the bare '/premium' route name.
+    await tester.pumpWidget(ProviderScope(
+        child: MaterialApp(
       locale: Locale(locale),
       supportedLocales: const [Locale('en'), Locale('ar')],
       localizationsDelegates: const [
@@ -36,7 +42,7 @@ void main() {
           ),
         ),
       ),
-    ));
+    )));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     addTearDown(() => pushed = pushed); // silence unused warning paths
@@ -58,7 +64,9 @@ void main() {
     const s = S(Locale('ar'));
     await tester.tap(find.text(s.demoGateCta));
     await tester.pumpAndSettle();
-    expect(_lastPushed!(), '/premium');
+    // The destination is the paywall screen itself now (a direct push that
+    // carries its analytics source), not the bare '/premium' route name.
+    expect(find.byType(PremiumScreen), findsOneWidget);
     expect(find.text(s.demoGateExample), findsNothing,
         reason: 'sheet must close under the pushed route');
   });

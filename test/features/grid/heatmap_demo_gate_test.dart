@@ -28,6 +28,7 @@ import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/grid/screens/monthly_heatmap_screen.dart';
 import 'package:grow_daily_v2/features/milestones/notifiers/habit_history_notifier.dart';
 import 'package:grow_daily_v2/features/premium/notifiers/premium_notifier.dart';
+import 'package:grow_daily_v2/features/premium/screens/premium_screen.dart';
 
 class _Premium extends PremiumNotifier {
   _Premium(bool value) {
@@ -134,7 +135,9 @@ void main() {
     // button has to be targeted by type or the finder matches both.
     await tester.tap(find.widgetWithText(FilledButton, s.demoGateCta));
     await tester.pumpAndSettle();
-    expect(pushed, contains('/premium'));
+    // A direct push carrying source/reason now, not the bare named route —
+    // the paywall screen itself is the destination to assert on.
+    expect(find.byType(PremiumScreen), findsOneWidget);
   });
 
   testWidgets('premium: no upgrade card at all', (tester) async {

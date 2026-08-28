@@ -2131,6 +2131,43 @@ class S {
   String premiumSave(String pct) => isAr ? 'وفّر $pct' : 'SAVE $pct';
   String get premiumBestValueBadge => isAr ? 'الأفضل قيمة' : 'BEST VALUE';
   String get premiumCta => isAr ? 'ابدأ بريميوم' : 'START PREMIUM';
+  // ── Lifetime-first additions ─────────────────────────────────────────
+  // The lifetime plan is the one this paywall leads with (pre-selected,
+  // listed first): the app cannot out-market subscription apps, so it sells
+  // the honest indie deal instead — pay once, own your record forever.
+  /// Under the lifetime card when the monthly price is also known: anchors
+  /// the one-time price in months of subscription. Declined per count like
+  /// every count string here.
+  String premiumLifetimeBreakEven(int months) => isAr
+      ? switch (months) {
+          1 => 'أرخص من شهر اشتراك',
+          2 => 'أرخص من شهرين اشتراك',
+          <= 10 => 'أرخص من $months أشهر اشتراك',
+          _ => 'أرخص من $months شهر اشتراك',
+        }
+      : 'Less than $months months of monthly';
+  /// The trial status line under the hero while the new-install trial is
+  /// open (see kTrialDays): says what is true right now and when it ends,
+  /// so the plans below read as "keep this", not "start this".
+  String premiumTrialLine(int daysLeft) {
+    if (!isAr) {
+      return daysLeft == 1
+          ? "Everything is unlocked right now. Your free trial ends today."
+          : "Everything is unlocked right now. $daysLeft days left in your free trial.";
+    }
+    return switch (daysLeft) {
+      1 => 'كل شي مفتوح لك الحين. تجربتك المجانية تنتهي اليوم.',
+      2 => 'كل شي مفتوح لك الحين. باقي يومين من تجربتك المجانية.',
+      <= 10 => 'كل شي مفتوح لك الحين. باقي $daysLeft أيام من تجربتك المجانية.',
+      _ => 'كل شي مفتوح لك الحين. باقي $daysLeft يوم من تجربتك المجانية.',
+    };
+  }
+  /// Replaces the subscription-management button for a LIFETIME buyer: a
+  /// Customer Center full of renewal language is a confusing surface for a
+  /// purchase that cannot lapse and needs no managing.
+  String get premiumLifetimeOwned => isAr
+      ? 'شراؤك دائم. ما عليك أي اشتراك تديره.'
+      : 'Yours for life. No subscription to manage.';
   String get premiumRestore => isAr ? 'استعادة المشتريات' : 'Restore purchases';
   /// Shown under [premiumComingSoon] when the offering failed to load —
   /// which in App Review's sandbox is the COMMON case, not the rare one.

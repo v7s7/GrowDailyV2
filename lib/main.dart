@@ -210,6 +210,10 @@ Future<void> main() async {
     // Firestore field is not.
     final persistedPremium = await loadPersistedPremium();
     final persistedPremiumUid = await loadPersistedPremiumUid();
+    // Starts the new-install trial clock on the very first boot and reads
+    // it back on every later one — see loadOrStartTrial. Loaded here so
+    // premiumAccessProvider answers correctly from the first frame.
+    final trialStart = await loadOrStartTrial();
     final persistedThemeMode = await loadPersistedThemeMode();
     // Also applies the preset's colors to GameColors immediately, so the
     // very first frame already renders in the right preset.
@@ -234,6 +238,7 @@ Future<void> main() async {
               initial: persistedPremium,
               cachedUid: persistedPremiumUid,
             )),
+        trialStartProvider.overrideWithValue(trialStart),
         if (persistedThemeMode != null)
           themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
         if (persistedThemePreset != null)

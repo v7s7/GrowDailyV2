@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/l10n/app_strings.dart';
+import '../../core/services/analytics_service.dart';
 import '../../core/theme/game_theme.dart';
+import '../../features/premium/screens/premium_screen.dart';
 import '../../features/grid/screens/monthly_heatmap_screen.dart'
     show heatColor;
 
@@ -21,6 +23,8 @@ import '../../features/grid/screens/monthly_heatmap_screen.dart'
 /// The preview is deterministic on purpose: no Random, one hand-picked
 /// pattern, so the sheet renders identically every time and in tests.
 Future<void> showHistoryDemoGate(BuildContext context) {
+  AnalyticsService.instance
+      .track('premium_gate_hit', props: {'gate': 'history_demo'});
   HapticFeedback.selectionClick();
   return showModalBottomSheet<void>(
     context: context,
@@ -87,7 +91,12 @@ class _HistoryDemoGateSheet extends StatelessWidget {
               onPressed: () {
                 HapticFeedback.selectionClick();
                 Navigator.pop(context);
-                Navigator.pushNamed(context, '/premium');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PremiumScreen(source: 'history_demo', reason: PremiumReason.history),
+                  ),
+                );
               },
               style: FilledButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),

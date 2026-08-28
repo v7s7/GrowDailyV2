@@ -999,7 +999,7 @@ int? habitLimitFor({required bool isGuest, required bool isPremium}) {
 bool canAddHabits(WidgetRef ref, {int additionalCount = 1}) {
   final limit = habitLimitFor(
     isGuest: ref.read(guestModeProvider),
-    isPremium: ref.read(premiumProvider),
+    isPremium: ref.read(premiumAccessProvider),
   );
   if (limit == null) return true;
   final current = ref.read(habitListProvider).length;

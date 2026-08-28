@@ -62,7 +62,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
       isUnlocked: (month) => canBrowseHistoryMonth(
         monthStart: month,
         now: DateTime.now().effectiveDay,
-        isPremium: ref.read(premiumProvider),
+        isPremium: ref.read(premiumAccessProvider),
       ),
       hasStory: (month) => byDate.keys.any(
         (d) => d.year == month.year && d.month == month.month,
@@ -93,7 +93,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
         !canBrowseHistoryMonth(
           monthStart: target,
           now: DateTime.now().effectiveDay,
-          isPremium: ref.read(premiumProvider),
+          isPremium: ref.read(premiumAccessProvider),
         )) {
       showHistoryDemoGate(context);
       return;

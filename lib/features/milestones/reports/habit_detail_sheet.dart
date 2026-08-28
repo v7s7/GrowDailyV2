@@ -107,7 +107,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
         !canBrowseHistoryMonth(
           monthStart: next,
           now: DateTime.now().effectiveDay,
-          isPremium: ref.read(premiumProvider),
+          isPremium: ref.read(premiumAccessProvider),
         )) {
       // The sheet brings its own haptic, so none is fired here.
       showHistoryDemoGate(context);
@@ -151,7 +151,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
         )[habit.id] ??
         const <String, SquareState>{};
 
-    final isPremium = ref.watch(premiumProvider);
+    final isPremium = ref.watch(premiumAccessProvider);
 
     // The earliest day THIS habit recorded anything. Bounds how far back the
     // stepper may walk, for exactly the reason the reports hub bounds its

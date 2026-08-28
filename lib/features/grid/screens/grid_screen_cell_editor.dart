@@ -48,7 +48,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       note: note,
       day: widget.day,
       now: DateTime.now().effectiveDay,
-      isPremium: ref.read(premiumProvider),
+      isPremium: ref.read(premiumAccessProvider),
     );
     _noteCtrl = TextEditingController(text: _noteWalled ? '' : note);
   }
@@ -66,7 +66,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     // an EMPTY string in it when walled, so a rebuild alone would unlock a
     // text field onto a blank note and Save would write that blank through
     // over the note the user just bought access to.
-    ref.listen<bool>(premiumProvider, (_, isPremium) {
+    ref.listen<bool>(premiumAccessProvider, (_, isPremium) {
       final stored =
           ref.read(weeklyGridProvider).noteFor(widget.habit.id, widget.day);
       final walled = WeeklyGridState.noteIsWalled(

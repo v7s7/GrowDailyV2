@@ -57,7 +57,7 @@ class NightReviewHistoryScreen extends ConsumerWidget {
                       if (!canBrowseHistoryMonth(
                         monthStart: target,
                         now: DateTime.now().effectiveDay,
-                        isPremium: ref.read(premiumProvider),
+                        isPremium: ref.read(premiumAccessProvider),
                       )) {
                         showHistoryDemoGate(context);
                         return;
@@ -585,7 +585,7 @@ Future<void> _pickMonth(
     isUnlocked: (month) => canBrowseHistoryMonth(
       monthStart: month,
       now: now,
-      isPremium: ref.read(premiumProvider),
+      isPremium: ref.read(premiumAccessProvider),
     ),
     hasStory: (month) =>
         month.isSameMonthAs(state.monthStart) && state.entries.isNotEmpty,

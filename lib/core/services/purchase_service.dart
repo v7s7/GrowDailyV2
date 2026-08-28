@@ -198,6 +198,17 @@ class PurchaseService {
   bool isEntitled(CustomerInfo info) =>
       info.entitlements.all[entitlementId]?.isActive ?? false;
 
+  /// Whether the active entitlement came from the one-time lifetime
+  /// purchase rather than the subscription. PremiumScreen uses this to
+  /// swap the "Manage subscription" Customer Center button, a surface
+  /// full of renewal language, for a plain "yours for life" line: a
+  /// non-consumable cannot lapse and has nothing to manage.
+  bool isLifetimeEntitled(CustomerInfo info) {
+    final e = info.entitlements.all[entitlementId];
+    if (e == null || !e.isActive) return false;
+    return e.productIdentifier == 'growdaily_lifetime';
+  }
+
   /// Latest known entitlement snapshot. Safe to call often - RevenueCat
   /// caches this on-device and only hits the network when the cache is
   /// stale (see RevenueCat's customer-info docs), so this is cheap enough

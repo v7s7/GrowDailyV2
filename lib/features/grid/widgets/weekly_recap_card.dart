@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../features/premium/screens/premium_screen.dart';
 import '../../../core/providers/weekly_recap_collapsed_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
@@ -423,7 +424,7 @@ class _RecapDepth extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
-    final isPremium = ref.watch(premiumProvider);
+    final isPremium = ref.watch(premiumAccessProvider);
 
     final depth = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -480,7 +481,12 @@ class _RecapDepth extends ConsumerWidget {
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
-        Navigator.pushNamed(context, '/premium');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const PremiumScreen(source: 'weekly_recap', reason: PremiumReason.history),
+          ),
+        );
       },
       child: Stack(
         alignment: Alignment.center,

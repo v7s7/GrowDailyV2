@@ -90,7 +90,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final dark = gp.dark;
-    final isPremium = ref.watch(premiumProvider);
+    final isPremium = ref.watch(premiumAccessProvider);
     // The mirror is the truth; the rollup is only a stand-in for the one
     // frame before it resolves, so the grid does not flash empty.
     final dash = ref.watch(dashboardProvider);
@@ -356,7 +356,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
       isUnlocked: (month) => canBrowseHistoryMonth(
         monthStart: month,
         now: currentMonth,
-        isPremium: ref.read(premiumProvider),
+        isPremium: ref.read(premiumAccessProvider),
       ),
       hasStory: hasGreens,
     );

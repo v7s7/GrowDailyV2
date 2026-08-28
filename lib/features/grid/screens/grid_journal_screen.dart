@@ -119,7 +119,7 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                       if (!canBrowseHistoryMonth(
                         monthStart: target,
                         now: DateTime.now().effectiveDay,
-                        isPremium: ref.read(premiumProvider),
+                        isPremium: ref.read(premiumAccessProvider),
                       )) {
                         showHistoryDemoGate(context);
                         return;
@@ -364,7 +364,7 @@ Future<void> _pickMonth(
     isUnlocked: (month) => canBrowseHistoryMonth(
       monthStart: month,
       now: now,
-      isPremium: ref.read(premiumProvider),
+      isPremium: ref.read(premiumAccessProvider),
     ),
     // Only the loaded month's entries are known here, so every other month
     // renders in the neutral "no story yet" style rather than claiming to

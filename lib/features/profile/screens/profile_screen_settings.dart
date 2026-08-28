@@ -72,7 +72,12 @@ class _SettingsSection extends ConsumerWidget {
           InkWell(
             onTap: () {
               HapticFeedback.selectionClick();
-              Navigator.pushNamed(context, '/premium');
+              Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const PremiumScreen(source: 'settings_banner'),
+          ),
+        );
             },
             borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
             child: Container(

@@ -239,7 +239,7 @@ class _EntitlementRebuilder extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.watch(premiumProvider);
+    ref.watch(premiumAccessProvider);
     return build_();
   }
 }

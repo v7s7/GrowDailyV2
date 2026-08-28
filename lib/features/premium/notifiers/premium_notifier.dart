@@ -7,6 +7,84 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/purchase_service.dart';
 
+/// How long a brand-new install gets every Premium feature for free.
+///
+/// This is an APP-SIDE trial, not a StoreKit intro offer, because the plan
+/// this app leads with is the lifetime purchase and Apple only attaches
+/// free trials to auto-renewing subscriptions. The mechanics lean on a
+/// property the gates already have: access ending never deletes anything
+/// (reminders keep firing, voice notes stay playable, over-cap habits are
+/// kept — only ADDING re-gates), so letting the trial lapse is exactly as
+/// safe as letting a subscription lapse.
+const int kTrialDays = 7;
+
+/// Hive key for the trial's start moment. Written once, on the first boot
+/// that looks for it, and never moved: reinstalling resets it (device-local
+/// like every other boot setting here), which is an accepted cost — the
+/// alternative, anchoring it server-side, would put a date in Firestore
+/// that the client could also just rewrite.
+const _kTrialStartKey = 'premium_trial_start_v1';
+
+/// Whether the free-features trial window is still open. Pure so the
+/// window math is unit-testable without Riverpod or clocks — same shape as
+/// [canBrowseHistoryMonth].
+bool trialIsActive({required DateTime start, required DateTime now}) =>
+    now.isBefore(start.add(const Duration(days: kTrialDays)));
+
+/// Whole days of trial remaining, for the paywall's status line. Counts a
+/// partial day as a day (someone 6.5 days in has "1 day left", not zero).
+int trialDaysLeft({required DateTime start, required DateTime now}) {
+  final end = start.add(const Duration(days: kTrialDays));
+  if (!now.isBefore(end)) return 0;
+  return (end.difference(now).inSeconds / Duration.secondsPerDay).ceil();
+}
+
+/// Reads the stored trial start, stamping "now" the first time nothing is
+/// stored — every install's clock starts on its first boot under a build
+/// that has the trial. Called once from main.dart's boot sequence beside
+/// [loadPersistedPremium]; a broken box answers null, which simply means
+/// "no trial", never a crash.
+Future<DateTime?> loadOrStartTrial() async {
+  try {
+    final box = await LocalStoreService.settingsBox();
+    final raw = box.get(_kTrialStartKey);
+    if (raw is String) return DateTime.tryParse(raw);
+    final now = DateTime.now();
+    await box.put(_kTrialStartKey, now.toIso8601String());
+    return now;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The trial's start moment for this install, seeded at boot (see
+/// main.dart's overrides). Null when storage was unreadable or the app is
+/// running somewhere the boot seed doesn't run — both simply mean no trial.
+final trialStartProvider = Provider<DateTime?>((_) => null);
+
+/// Whether Premium FEATURES are open right now: a real entitlement, or an
+/// active new-install trial.
+///
+/// Every feature gate reads THIS, not [premiumProvider]. The distinction
+/// matters in exactly one place: the paywall, which must keep reading the
+/// real entitlement so a trial user still sees plans and prices (and a
+/// trial-days-left line) instead of "Premium is active".
+///
+/// Self-invalidates when the trial window closes mid-session, so gates
+/// re-lock without waiting for a restart.
+final premiumAccessProvider = Provider<bool>((ref) {
+  if (ref.watch(premiumProvider)) return true;
+  final start = ref.watch(trialStartProvider);
+  if (start == null) return false;
+  final now = DateTime.now();
+  if (!trialIsActive(start: start, now: now)) return false;
+  final untilEnd =
+      start.add(const Duration(days: kTrialDays)).difference(now);
+  final timer = Timer(untilEnd + const Duration(seconds: 1), ref.invalidateSelf);
+  ref.onDispose(timer.cancel);
+  return true;
+});
+
 /// Free-tier limits. Guests keep their existing 3-habit trial; signed-in
 /// free accounts get a generous cap that most users won't hit for weeks —
 /// the paywall should feel like an invitation, not a wall.
