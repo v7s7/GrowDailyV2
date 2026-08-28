@@ -1130,8 +1130,17 @@ class S {
   // matching matrixTasksDeleted's own count below for the multi-select case.
   String matrixTaskDeleted(String taskTitle) =>
       isAr ? 'تم حذف "$taskTitle"' : '"$taskTitle" deleted';
-  String matrixTasksDeleted(int count) =>
-      isAr ? 'تم حذف $count مهام' : '$count tasks deleted';
+  // Declined per count: multi-select allows a single selection, and
+  // «تم حذف 1 مهام» read as machine text for the smallest, most common
+  // batch sizes.
+  String matrixTasksDeleted(int count) => isAr
+      ? switch (count) {
+          1 => 'تم حذف مهمة',
+          2 => 'تم حذف مهمتين',
+          <= 10 => 'تم حذف $count مهام',
+          _ => 'تم حذف $count مهمة',
+        }
+      : (count == 1 ? '1 task deleted' : '$count tasks deleted');
   String get matrixPickADay => isAr
       ? 'اضغط على يوم أعلاه لترى ما أنجزته'
       : 'Tap a day above to see what you finished';
@@ -1263,8 +1272,15 @@ class S {
           : '$n you can take right now');
   String rewardsCardClosest(int n) =>
       isAr ? 'أقرب وحدة ينقصها $n ذهبًا' : 'Closest one is $n gold away';
+  // Declined like every other count in the app: dual for two, plural for
+  // 3-10, singular from 11 up (the list caps at 20, so 11+ is reachable).
   String rewardsCardCount(int n) => isAr
-      ? (n == 1 ? 'مكافأة وحدة' : '$n مكافآت')
+      ? switch (n) {
+          1 => 'مكافأة وحدة',
+          2 => 'مكافأتين',
+          <= 10 => '$n مكافآت',
+          _ => '$n مكافأة',
+        }
       : (n == 1 ? '1 reward' : '$n rewards');
 
   String get rewardsEmptyTitle => isAr ? 'ما فيه مكافآت بعد' : 'No rewards yet';
@@ -1625,8 +1641,12 @@ class S {
   // something away. Every other square tap only adds.
   String get gridClearMarkTitle =>
       isAr ? 'تشيل علامة اليوم؟' : "Clear today's mark?";
+  // The two languages carry the SAME three facts: the refund, the streak
+  // stepping back, and that re-marking restores it all. The Arabic used to
+  // stop after the refund, so Arabic users answered this dialog without
+  // being told their streak was part of the price.
   String gridClearMarkBody(String habitName, int xp, int gold) => isAr
-      ? '«$habitName» منجزة اليوم. لو شيلتها بيرجع منك $xp خبرة و$gold ذهب.'
+      ? '«$habitName» منجزة اليوم. لو شيلتها بيرجع منك $xp خبرة و$gold ذهب وترجع سلسلتها يوم ورا. علّمها من جديد ويرجع كل شي.'
       : '"$habitName" is marked done today. Clearing it takes back $xp XP and $gold gold, and this habit\'s streak steps back a day. Marking it again restores all of it.';
   /// The same confirmation, for a day that has already passed.
   ///
@@ -1737,6 +1757,12 @@ class S {
   String get gridSquareDoneFromToday => isAr
       ? 'أُنجزت هذه المهمة اليوم من صفحة اليوم. اختر لونًا آخر لتصحيحها.'
       : 'Completed from Today. Pick a different color to correct it.';
+  // The counted-habit sibling: the square is locked because real per-tap
+  // progress was paid today, but the day is not finished, so calling it
+  // "completed" would be false. Says what a correction actually does.
+  String get gridSquarePartlyDoneFromToday => isAr
+      ? 'فيها تقدّم مسجّل من اليوم. اختيار لون ثاني يمسح العدّ ويصحّح اليوم.'
+      : "Partly done from Today. Picking another color clears today's count and corrects the day.";
 
   // Habit Notes journal — long-press's note field and Skipped/Failed/Bonus
   // states (see gridEditSquare/gridNoteLabel above) are captured live from
@@ -3098,8 +3124,17 @@ class S {
   /// habit they have deliberately stood down.
   String get roomStoodDownToday =>
       isAr ? 'اليوم موقوف، ما عليك شي' : 'Paused today, nothing owed';
-  String habitPausedDaysBadge(int n) =>
-      isAr ? '$n يوم محفوظ' : '$n days saved';
+  // Declined per count: «يوم محفوظ» for one, dual for two, plural for
+  // 3-10, singular from 11 up. The flat «2 يوم محفوظ» read as machine text
+  // on the most common badge values.
+  String habitPausedDaysBadge(int n) => isAr
+      ? switch (n) {
+          1 => 'يوم واحد محفوظ',
+          2 => 'يومين محفوظين',
+          <= 10 => '$n أيام محفوظة',
+          _ => '$n يوم محفوظ',
+        }
+      : (n == 1 ? '1 day saved' : '$n days saved');
   /// Collapsed-list control. Three paused habits fit before the section
   /// starts pushing the sheet's actual subject (adding a habit) off the
   /// screen, so the rest sit behind this one tap.

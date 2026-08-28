@@ -196,9 +196,19 @@ void main() {
     });
 
     test('the streak is still the reason to act, so it is kept', () {
+      // The day count declines like every count in this module: «٧ أيام»
+      // for 3-10, dual for two, singular from 11 up.
       expect(
         body(offset: -15, streak: 7),
-        'باقي ١٥ دقيقة على وقتها. لا تفقد سلسلتك المكوّنة من 7 يوم.',
+        'باقي ١٥ دقيقة على وقتها. لا تفقد سلسلتك المكوّنة من ٧ أيام.',
+      );
+      expect(
+        body(offset: -15, streak: 2),
+        'باقي ١٥ دقيقة على وقتها. لا تفقد سلسلتك المكوّنة من يومين.',
+      );
+      expect(
+        body(offset: -15, streak: 15),
+        'باقي ١٥ دقيقة على وقتها. لا تفقد سلسلتك المكوّنة من ١٥ يوم.',
       );
       expect(
         body(offset: -15, streak: 7, isAr: false),
@@ -223,9 +233,16 @@ void main() {
 
   group('habitBundleTitle', () {
     test('all on time keeps "ready", which is true of all of them', () {
+      // Two takes the dual — «2 عادات» is the exact class of error
+      // countedOffsetPhrase exists to avoid, and two is a bundle's most
+      // common size.
       expect(
         habitBundleTitle(offsetMinutes: [0, 0], isAr: true),
-        '2 عادات جاهزة',
+        'عادتين جاهزتين',
+      );
+      expect(
+        habitBundleTitle(offsetMinutes: [0, 0, 0], isAr: true),
+        '٣ عادات جاهزة',
       );
       expect(
         habitBundleTitle(offsetMinutes: [0, 0, 0], isAr: false),
@@ -236,7 +253,7 @@ void main() {
     test('all early by the same amount counts down for the group', () {
       expect(
         habitBundleTitle(offsetMinutes: [-15, -15], isAr: true),
-        'باقي ١٥ دقيقة على 2 عادات',
+        'باقي ١٥ دقيقة على عادتين',
       );
       expect(
         habitBundleTitle(offsetMinutes: [-60, -60], isAr: false),
@@ -250,11 +267,11 @@ void main() {
       // time genuinely share a notification.
       expect(
         habitBundleTitle(offsetMinutes: [-15, 0], isAr: true),
-        '2 عادات تنتظرك',
+        'عادتين بانتظارك',
       );
       expect(
         habitBundleTitle(offsetMinutes: [-15, -30], isAr: true),
-        '2 عادات تنتظرك',
+        'عادتين بانتظارك',
       );
       expect(
         habitBundleTitle(offsetMinutes: [10, 10], isAr: false),

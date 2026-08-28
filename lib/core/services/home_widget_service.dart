@@ -213,16 +213,42 @@ class HomeWidgetService {
   Future<List<String>> takePendingCompletions() async {
     if (kIsWeb) return const [];
     try {
-      final raw = await HomeWidget.getWidgetData<String>(_pendingKey);
-      if (raw == null || raw.isEmpty) return const [];
-      await HomeWidget.saveWidgetData<String>(_pendingKey, '[]');
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
-      return decoded.whereType<String>().toList();
+      return await _takeQueue(_pendingKey);
     } catch (e) {
       debugPrint('[HomeWidgetService] pending-completions read skipped: $e');
       return const [];
     }
+  }
+
+  /// Serializes every queue take behind one future chain.
+  ///
+  /// The take is a get-then-clear across two platform-channel awaits, so
+  /// two CONCURRENT takes both read the same non-empty queue before either
+  /// writes the clear — and both hand the same ids to their drain. That is
+  /// not theoretical: the cold-start drain now waits on auth + data
+  /// readiness (see main.dart's _processPendingWidgetCompletions), and an
+  /// app-resume during that window starts a second drain that blocks on
+  /// the SAME provider emissions, so the two enter here in back-to-back
+  /// microtasks. A single-tap habit survives that (completeHabit refuses a
+  /// same-day repeat), but a counted habit credits a second slice for one
+  /// physical widget tap. Chaining means the second take runs after the
+  /// first's clear has landed, reads '[]', and returns empty — which is
+  /// what the doc comments above have always promised.
+  Future<void> _takeChain = Future.value();
+
+  Future<List<String>> _takeQueue(String key) {
+    final result = _takeChain.then((_) async {
+      final raw = await HomeWidget.getWidgetData<String>(key);
+      if (raw == null || raw.isEmpty) return const <String>[];
+      await HomeWidget.saveWidgetData<String>(key, '[]');
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const <String>[];
+      return decoded.whereType<String>().toList();
+    });
+    // The chain must survive a failed take, or one platform-channel error
+    // would wedge every future take behind a rejected future.
+    _takeChain = result.then<void>((_) {}, onError: (_) {});
+    return result;
   }
 
   /// Name of the Matrix widget's SwiftUI provider struct — must exactly
@@ -337,12 +363,7 @@ class HomeWidgetService {
   Future<List<String>> takePendingTaskCompletions() async {
     if (kIsWeb) return const [];
     try {
-      final raw = await HomeWidget.getWidgetData<String>(_pendingTaskKey);
-      if (raw == null || raw.isEmpty) return const [];
-      await HomeWidget.saveWidgetData<String>(_pendingTaskKey, '[]');
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
-      return decoded.whereType<String>().toList();
+      return await _takeQueue(_pendingTaskKey);
     } catch (e) {
       debugPrint(
           '[HomeWidgetService] pending-task-completions read skipped: $e');

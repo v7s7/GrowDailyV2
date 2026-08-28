@@ -181,8 +181,15 @@ String overdueTaskReminderTitle({
 /// The streak-protection line a habit reminder leads with once there's a
 /// streak worth protecting. Its own function because it is now appended to
 /// three different bodies and they must not drift apart.
+///
+/// The day count goes through [countedOffsetPhrase] (a streak is a count of
+/// days, and days are one of its units), so it declines properly: «يوم» for
+/// one, «يومين» for two, «٧ أيام» for 3–10, back to «١٥ يوم» from 11 up.
+/// The flat "$streak يوم" this used to interpolate was ungrammatical for
+/// 2–10, the exact range most live streaks are in.
 String habitStreakLine(int streak, bool isAr) => isAr
-    ? 'لا تفقد سلسلتك المكوّنة من $streak يوم.'
+    ? 'لا تفقد سلسلتك المكوّنة من '
+        '${countedOffsetPhrase(streak * ReminderUnit.days.inMinutes, true)}.'
     : "Don't lose your $streak-day streak.";
 
 /// Body for one habit's reminder.
@@ -249,15 +256,35 @@ String habitBundleTitle({
   required bool isAr,
 }) {
   final count = offsetMinutes.length;
+  // Counted the same way countedOffsetPhrase counts its units: dual for
+  // two (a bundle's most common size, and «2 عادات» is exactly the error
+  // that function exists to avoid), plural for 3–10, singular from 11 up.
+  // Genitive/spoken dual («عادتين») for the register the file header
+  // documents.
+  final counted = !isAr
+      ? '$count habits'
+      : switch (count) {
+          2 => 'عادتين',
+          <= 10 => '${arabicDigits(count)} عادات',
+          _ => '${arabicDigits(count)} عادة',
+        };
   if (offsetMinutes.every((o) => o == 0)) {
-    return isAr ? '$count عادات جاهزة' : '$count habits ready';
+    if (!isAr) return '$counted ready';
+    // The adjective agrees the way the noun declined: dual with dual,
+    // feminine singular with a non-human plural, and with the 11+
+    // singular noun.
+    return switch (count) {
+      2 => 'عادتين جاهزتين',
+      _ => '$counted جاهزة',
+    };
   }
   final first = offsetMinutes.first;
   if (first < 0 && offsetMinutes.every((o) => o == first)) {
     final gap = countedOffsetPhrase(first.abs(), isAr);
-    return isAr
-        ? 'باقي $gap على $count عادات'
-        : '$gap until $count habits';
+    return isAr ? 'باقي $gap على $counted' : '$gap until $counted';
   }
-  return isAr ? '$count عادات تنتظرك' : '$count habits waiting';
+  if (!isAr) return '$counted waiting';
+  // «بانتظارك» for the dual dodges the verb having to agree with a dual
+  // feminine subject, and matches the task copy's own register.
+  return count == 2 ? 'عادتين بانتظارك' : '$counted تنتظرك';
 }

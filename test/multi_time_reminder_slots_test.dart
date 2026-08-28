@@ -121,6 +121,20 @@ void main() {
       expect(out.single.fireTime, at(0, 20, day: 16));
     });
 
+    test('a recompute inside an "after" window keeps today\'s reminder', () {
+      // 09:00 with "+30 minutes" recomputed at 09:10 (the app was opened
+      // right around the habit's time — the normal case). The reminder is
+      // still ahead: today 09:30, not tomorrow's. Rolling the bare time
+      // before applying the shift used to lose it.
+      final out = NotificationService.resolveClockSlots(
+        times([(9, 0)]),
+        const [30],
+        at(9, 10),
+      );
+      expect(out.single.fireTime, at(9, 30),
+          reason: 'today 09:30 has not happened yet at 09:10');
+    });
+
     test('an offset that drags an imminent time into the past rolls a day', () {
       // The case the single-time path already documented: it is 8:58, the
       // habit is set for 9:00, the offset is -15, so 8:45 is behind us.

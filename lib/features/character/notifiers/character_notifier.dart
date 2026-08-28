@@ -92,6 +92,9 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
   // actions, so there's no fast-vs-slow asymmetry worth splitting them for.
   bool _mutatedBeforeLoad = false;
 
+  // Serializes buyAccessory — see its in-flight guard comment.
+  String? _buyingId;
+
   CharacterNotifier(this._ref, this._uid) : super(const CharacterState()) {
     if (_uid != null) {
       _load();
@@ -270,7 +273,23 @@ class CharacterNotifier extends StateNotifier<CharacterState> {
     if (state.owns(id)) return false;
     final accessory = AccessoryCatalog.findById(id);
     if (accessory == null) return false;
+    // In-flight guard, same shape as CustomRewardsState.claimingId and for
+    // the same race: ownership is only recorded after the awaited network
+    // write below, but spendGold deducts synchronously before its first
+    // await. A second tap landing inside that window passed every check —
+    // owns() still false, balance already reduced but often still
+    // sufficient — and spent the gold twice for one unlock, with no refund
+    // path for the extra charge.
+    if (_buyingId != null) return false;
+    _buyingId = id;
+    try {
+      return await _buyAccessoryInner(id, accessory);
+    } finally {
+      _buyingId = null;
+    }
+  }
 
+  Future<bool> _buyAccessoryInner(String id, Accessory accessory) async {
     final spent =
         await _ref.read(dashboardProvider.notifier).spendGold(accessory.goldCost);
     if (!spent) return false;

@@ -99,9 +99,24 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     // directly rather than isCompleted/frequencyTarget == 1 — covers
     // multi-target habits too now that _handleSquareTap/_handlePaletteTap
     // sync those as well; see _handleSquareTap's doc comment.
+    //
+    // A counted habit MID-count (2 of 4: stored square `partial`, painted
+    // for free by markResultFromHabit, paid in per-tap slices) is locked
+    // for the same reason a finished one is. Letting it fall through to
+    // the flat-rate setSquare path priced the correction off the COLOR
+    // (partial's flat 5) instead of what was actually paid: picking فارغ
+    // docked 5 XP the flat system never granted while the count instantly
+    // repainted the square, picking فشل docked 8, and re-picking جزئي
+    // recorded a stranded flat receipt the finishing tap later refunded as
+    // a deduction — the exact "counted day loses XP" class the canonical
+    // path exists to prevent.
+    final doneToday =
+        ref.watch(dashboardProvider).completions[widget.habit.id] ?? 0;
     final isLocked = widget.day.isToday &&
-        current == SquareState.complete &&
-        (ref.watch(dashboardProvider).completions[widget.habit.id] ?? 0) > 0;
+        doneToday > 0 &&
+        (current == SquareState.complete ||
+            (widget.habit.effectiveDailyTarget > 1 &&
+                current == SquareState.partial));
     final palette = [
       SquareState.complete,
       SquareState.partial,
@@ -203,7 +218,9 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      s.gridSquareDoneFromToday,
+                      current == SquareState.partial
+                          ? s.gridSquarePartlyDoneFromToday
+                          : s.gridSquareDoneFromToday,
                       style: TextStyle(fontSize: 12, color: gp.textSec),
                     ),
                   ),

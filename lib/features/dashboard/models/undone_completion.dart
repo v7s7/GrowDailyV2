@@ -53,6 +53,16 @@ class UndoneCompletion {
   final int streakAtCompletion;
   final int longestAtCompletion;
 
+  /// Whether the undone day had actually FINISHED (reached its
+  /// times-per-day target) when the undo ran. The lifetime counters —
+  /// totalCompletions, categoryCompletions, totalGreenSquares,
+  /// habitTotalCompletions — are only ever paid on the tap that finishes a
+  /// day, so a receipt minted from an unfinished counted day (1 of 4
+  /// emptied by a Slipped action, say) must not hand them out on
+  /// redemption. XP and gold are unaffected: they carry what the undo
+  /// actually removed either way.
+  final bool finishedDay;
+
   /// The day the undo happened, for the expiry sweep on load. A dateKey, not
   /// an instant: nothing here needs sub-day precision, and a stored calendar
   /// day cannot drift across a timezone change the way a Timestamp can (see
@@ -68,6 +78,7 @@ class UndoneCompletion {
     required this.streakAtCompletion,
     required this.longestAtCompletion,
     required this.undoneOnKey,
+    this.finishedDay = true,
   });
 
   /// The map key one record lives under, in both Firestore and the guest
@@ -90,6 +101,7 @@ class UndoneCompletion {
         'streak': streakAtCompletion,
         'longest': longestAtCompletion,
         'undoneOn': undoneOnKey,
+        'finished': finishedDay,
       };
 
   /// Null on anything that is not a well-formed record.
@@ -121,6 +133,11 @@ class UndoneCompletion {
           // covers, which is when the undo actually had to have happened:
           // uncompleteHabit only ever runs against today.
           : dateKey,
+      // Legacy receipts (written before the flag existed) default to true:
+      // over-crediting a counter on redemption is the pre-existing
+      // behavior, under-crediting a genuinely finished day would be new
+      // damage.
+      finishedDay: raw['finished'] is bool ? raw['finished'] as bool : true,
     );
   }
 

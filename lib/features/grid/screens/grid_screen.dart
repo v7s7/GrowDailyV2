@@ -822,7 +822,17 @@ class _GridScreenState extends ConsumerState<GridScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                  child: _SummaryCard(habits: habits, state: grid)
+                  child: _SummaryCard(
+                    habits: habits,
+                    state: grid,
+                    // What today actually PAID, from the same counter the
+                    // daily cap spends against — boosted, per-habit
+                    // rewards included. The card used to sum the squares'
+                    // flat per-state values, which showed 10 while the
+                    // un-mark dialog truthfully offered 40 back.
+                    xpToday: ref.watch(dashboardProvider.select((d) =>
+                        d.earnedXpOn(DateTime.now().effectiveDay.toDateKey()))),
+                  )
                       .animate()
                       .fadeIn(duration: 400.ms)
                       .slideY(begin: -0.05, curve: Curves.easeOut),

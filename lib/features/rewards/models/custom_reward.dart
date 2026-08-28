@@ -20,6 +20,7 @@
 // you set the habit in the first place. Someone saving 400 gold for a
 // Friday coffee is using this app exactly as intended.
 
+import 'package:characters/characters.dart';
 import 'package:uuid/uuid.dart';
 
 /// A price must be a real number of gold, but the ceiling is deliberately
@@ -129,8 +130,14 @@ class CustomReward {
 
     return CustomReward(
       id: theId,
-      name: name.length > kCustomRewardNameMaxChars
-          ? name.substring(0, kCustomRewardNameMaxChars)
+      // Clipped in grapheme clusters, matching how the sheet's
+      // LengthLimitingTextInputFormatter counted the name on the way in. A
+      // substring by UTF-16 code units shortened any emoji-carrying name
+      // the sheet legitimately accepted on every load, and could cut
+      // through a surrogate pair, leaving a malformed string the next edit
+      // then persisted back over the original.
+      name: name.characters.length > kCustomRewardNameMaxChars
+          ? name.characters.take(kCustomRewardNameMaxChars).toString()
           : name,
       priceGold: priceInt.clamp(kCustomRewardMinPrice, kCustomRewardMaxPrice),
       // A missing or unreadable date is not worth discarding a reward over:

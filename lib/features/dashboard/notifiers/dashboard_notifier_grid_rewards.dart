@@ -441,8 +441,17 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       if (_uid == null) {
         await _saveGuestState(lastActiveDate: yesterday);
       } else {
-        _userRef.set({'lastActiveDate': Timestamp.fromDate(yesterday)},
-            SetOptions(merge: true)).ignore();
+        // BOTH fields, not just the Timestamp. The loader prefers the
+        // 'lastActiveDay' string whenever it exists (see
+        // dashboard_notifier_loading.dart), and completeHabit is that
+        // string's only other writer — so a gap closed here while the doc
+        // still carried an old string was re-detected on the very next
+        // refresh, re-spending freezes / re-breaking the streak that this
+        // write just settled.
+        _userRef.set({
+          'lastActiveDate': Timestamp.fromDate(yesterday),
+          'lastActiveDay': yesterday.toDateKey(),
+        }, SetOptions(merge: true)).ignore();
       }
       return;
     }
@@ -474,6 +483,11 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         _userRef.set({
           'streakFreezes': newFreezes,
           'lastActiveDate': Timestamp.fromDate(yesterday),
+          // Same both-fields rule as the rest-day branch above: leaving the
+          // stale 'lastActiveDay' string in place made the loader re-detect
+          // this exact gap on the next app resume and drain the remaining
+          // freezes (or break the streak) for days already paid for.
+          'lastActiveDay': yesterday.toDateKey(),
         }, SetOptions(merge: true)).ignore();
       }
       return;
@@ -498,7 +512,14 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   Future<void> useStreakFreeze() async {
     if (state.streakFreezes <= 0 || state.previousStreak <= 0) return;
     final newFreezes = state.streakFreezes - 1;
-    final restoredStreak = state.previousStreak;
+    // Never restore DOWN. Since completeHabit stopped clearing a pending
+    // comeback while a freeze is banked, the offer can stay armed while the
+    // user rebuilds a fresh streak past the lost one — and taking the offer
+    // then would have paid a freeze to replace the larger live streak with
+    // the smaller stored one. The restore is a floor, not an assignment.
+    final restoredStreak = state.previousStreak > state.streak
+        ? state.previousStreak
+        : state.streak;
     final newLongest = restoredStreak > state.longestStreak
         ? restoredStreak
         : state.longestStreak;
@@ -539,8 +560,15 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // wave it through even if today went completely untouched. The
     // automatic freeze in the loader has always written yesterday for
     // exactly this reason; this is the manual path catching up.
-    final yesterday =
-        DateTime.now().effectiveDay.subtract(const Duration(days: 1));
+    //
+    // …unless today's streak point WAS already earned: completeHabit then
+    // stamped the marker to today, and writing yesterday over it would
+    // rewind the record and make tomorrow's gap check bill a freeze for a
+    // fully-finished today. The marker only ever moves forward.
+    final today = DateTime.now().effectiveDay;
+    final marker = state.streakEarnedToday
+        ? today
+        : today.subtract(const Duration(days: 1));
 
     if (_uid == null) {
       // This was previously missing entirely — the restore only ever
@@ -551,7 +579,7 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       // lastActiveDate passed explicitly here too: without it the guest
       // branch wrote no date at all, so a restored guest streak kept
       // whatever stale date it had and could break again on next launch.
-      await _saveGuestState(lastActiveDate: yesterday);
+      await _saveGuestState(lastActiveDate: marker);
       return;
     }
     _userRef.set({
@@ -562,7 +590,11 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       'level': result.newLevel,
       'currentLevelXp': result.newCurrentLevelXp,
       'cumulativeXp': result.newCumulativeXp,
-      'lastActiveDate': Timestamp.fromDate(yesterday),
+      'lastActiveDate': Timestamp.fromDate(marker),
+      // The string twin the loader actually prefers — see the gap-closer
+      // branches in resolveStreakGap for why omitting it re-broke the
+      // streak this restore just paid for.
+      'lastActiveDay': marker.toDateKey(),
     }, SetOptions(merge: true)).ignore();
   }
 

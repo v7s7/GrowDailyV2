@@ -257,6 +257,12 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // method that runs across a day boundary ends up writing half its fields
     // to one day and half to the next.
     final dayKey = DashboardNotifier._todayKey;
+    // Whether the day being emptied had actually reached its target —
+    // declared here (rather than beside the counters below that read it)
+    // because the receipt has to carry it too: an unfinished counted day
+    // never paid the lifetime counters, so its receipt must not hand them
+    // out on redemption. See UndoneCompletion.finishedDay.
+    final hadFinishedDay = current >= frequencyTarget;
     final receipt = newCompletions.containsKey(habitId)
         ? null
         : UndoneCompletion(
@@ -268,6 +274,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
             streakAtCompletion: state.habitStreakCounts[habitId] ?? 0,
             longestAtCompletion: state.habitLongestStreaks[habitId] ?? 0,
             undoneOnKey: dayKey,
+            finishedDay: hadFinishedDay,
           );
     final newUndoneCompletions = receipt == null
         ? null
@@ -283,8 +290,8 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // never paid.
     //
     // Always true for an ordinary once-a-day habit, whose single tap both
-    // starts and finishes its day.
-    final hadFinishedDay = current >= frequencyTarget;
+    // starts and finishes its day. (Declared above, next to the receipt
+    // that also records it.)
 
     final newCategoryCompletions = {...state.categoryCompletions};
     if (category != null && hadFinishedDay) {
@@ -494,18 +501,26 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       xpDelta: receipt.xp,
     );
     final newGold = state.gold + receipt.gold;
-    final newTotal = state.totalCompletions + 1;
+    // The lifetime counters mirror what the undo actually decremented:
+    // uncompleteHabit only takes them back for a FINISHED day, so a receipt
+    // minted from an unfinished counted day (its finishedDay is false)
+    // restores XP, gold and the streak link but none of the counters —
+    // handing those out would mint completions the account was never paid.
+    final countsDay = receipt.finishedDay;
+    final newTotal = state.totalCompletions + (countsDay ? 1 : 0);
 
     final newCategoryCompletions = {...state.categoryCompletions};
     final category = receipt.category;
-    if (category != null) {
+    if (category != null && countsDay) {
       newCategoryCompletions[category] =
           (newCategoryCompletions[category] ?? 0) + 1;
     }
 
     final newHabitTotalCompletions = {...state.habitTotalCompletions};
-    newHabitTotalCompletions[habitId] =
-        (newHabitTotalCompletions[habitId] ?? 0) + 1;
+    if (countsDay) {
+      newHabitTotalCompletions[habitId] =
+          (newHabitTotalCompletions[habitId] ?? 0) + 1;
+    }
 
     // ── Re-linking the streak ────────────────────────────────────
     //
@@ -546,7 +561,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       gold: newGold,
       totalCompletions: newTotal,
       categoryCompletions: newCategoryCompletions,
-      totalGreenSquares: state.totalGreenSquares + 1,
+      totalGreenSquares: state.totalGreenSquares + (countsDay ? 1 : 0),
       habitTotalCompletions: newHabitTotalCompletions,
       habitStreakCounts: newHabitStreakCounts,
       habitLongestStreaks: newHabitLongestStreaks,
@@ -596,7 +611,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
           // Atomic, mirroring uncompleteHabit's own decrement of this field:
           // Grid's applyGridSquareChange writes it too, so an absolute value
           // computed locally could lose an update.
-          'totalGreenSquares': FieldValue.increment(1),
+          'totalGreenSquares': FieldValue.increment(countsDay ? 1 : 0),
           'habitTotalCompletions':
               habitCompletionDelta(habitId, newHabitTotalCompletions),
           if (relink != null) ...{

@@ -711,8 +711,18 @@ class ReminderTimeNotifier extends StateNotifier<TimeOfDay?> {
           .catchError((_) {});
     }
     final granted = await NotificationService.instance.requestPermissions();
-    await NotificationService.instance
-        .scheduleDailyReminder(hour: time.hour, minute: time.minute);
+    // Kept (not left to main.dart's reactive recompute alone) because the
+    // listener fired on the `state = time` assignment above, BEFORE the
+    // permission request — a first-time grant needs this post-grant
+    // schedule. But it must carry the locale: this id is the same one the
+    // listener just scheduled localized, and the parameter's default is
+    // English, so omitting it re-wrote an Arabic user's daily reminder in
+    // English until the next recompute happened to run.
+    await NotificationService.instance.scheduleDailyReminder(
+      hour: time.hour,
+      minute: time.minute,
+      isAr: NotificationService.instance.isArabic,
+    );
     return granted;
   }
 

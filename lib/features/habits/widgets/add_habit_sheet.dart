@@ -274,7 +274,14 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       if (storedTimes.isNotEmpty) {
         _timingMode = _TimingMode.time;
         _pickedTimes = [...storedTimes];
-        _pickedOffsets = [...parsed.clockOffsets];
+        // A single-time cue never carries its own shift (offsetsAreOwn) —
+        // its number lives in the habit-level field, including a multi-time
+        // form saved with only one row filled (see _currentCue's collapse).
+        // Seeding the row chip from clockOffsets alone showed «في الوقت»
+        // for a shift the scheduler was honoring.
+        _pickedOffsets = parsed.offsetsAreOwn
+            ? [...parsed.clockOffsets]
+            : [existing.reminderOffsetMinutes];
       } else if (parsed.isPrayer) {
         _timingMode = _TimingMode.prayer;
         _selectedPrayer = parsed.prayerKey;
@@ -392,6 +399,19 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     super.dispose();
   }
 
+  /// The multi-time form's FILLED rows, each with its own signed shift —
+  /// the single source both [_currentCue] and [_effectiveReminderOffset]
+  /// read, so the two can never disagree about how many rows count or
+  /// which shift belongs to which time.
+  List<(TimeOfDay, int)> get _multiTimeEntries => [
+        for (var i = 0; i < _effectiveTimeCount; i++)
+          if (i < _pickedTimes.length && _pickedTimes[i] != null)
+            (
+              _pickedTimes[i]!,
+              i < _pickedOffsets.length ? _pickedOffsets[i] : 0,
+            ),
+      ];
+
   /// Resolves whichever timing mode is active right now into the single
   /// [HabitCue] that gets saved and previewed — the one place that turns
   /// "Time / Prayer / Custom text + before-after" into the actual value,
@@ -404,15 +424,18 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         // the form has to think about order.
         // Multi-time carries its shifts inside the cue, beside the times they
         // belong to; single-time keeps the habit-level field untouched.
+        // A multi-time form with exactly ONE row filled collapses to the
+        // plain single-time shape (no offset suffix in the cue) and hands
+        // its row's shift to the habit-level field instead — see
+        // _effectiveReminderOffset. A one-time cue has offsetsAreOwn false,
+        // so the scheduler reads the habit-level field for it; storing the
+        // shift only inside the cue silently dropped it (the reminder fired
+        // on the dot) while re-opening the sheet kept showing the chip the
+        // schedule was not honoring.
         _TimingMode.time => _isMultiTime
-            ? HabitCue.timesWithOffsets([
-                for (var i = 0; i < _effectiveTimeCount; i++)
-                  if (i < _pickedTimes.length && _pickedTimes[i] != null)
-                    (
-                      _pickedTimes[i]!,
-                      i < _pickedOffsets.length ? _pickedOffsets[i] : 0,
-                    ),
-              ])
+            ? (_multiTimeEntries.length == 1
+                ? HabitCue.times([_multiTimeEntries.single.$1])
+                : HabitCue.timesWithOffsets(_multiTimeEntries))
             : HabitCue.times(_filledTimes),
         // The preset KEY, kept intact — never a localized label round-tripped
         // through text.
@@ -448,7 +471,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // A multi-time habit answers per occurrence, from inside its cue. Writing
     // the habit-level field as well would leave two numbers describing the
     // same shift, and the next reader would have to guess whether they stack.
-    if (_timingMode == _TimingMode.time && _isMultiTime) return 0;
+    //
+    // Except when only ONE row is filled: _currentCue collapses that to the
+    // plain single-time shape (whose cue never carries offsets), so the
+    // row's shift lives here — the one home a single-time habit has always
+    // used.
+    if (_timingMode == _TimingMode.time && _isMultiTime) {
+      final entries = _multiTimeEntries;
+      return entries.length == 1 ? entries.single.$2 : 0;
+    }
     // One number, one home. The custom value used to live as a magnitude in a
     // text controller plus a direction in a bool, re-derived here on every
     // read — so the field and the toggle could disagree, and a stray "-"

@@ -1400,6 +1400,20 @@ class RoomsController {
         },
         SetOptions(merge: true),
       );
+      // The rejoin path is also the only self-heal a half-applied first
+      // join has: the first join's three writes are sequential and
+      // unbatched, so a kill or dropped connection after the participant
+      // doc landed left this account on the leaderboard with the room
+      // permanently missing from its own roomCodes list (the sole source
+      // of "my rooms") — and retrying the join used to end here without
+      // ever writing it. arrayUnion is idempotent, so an ordinary rejoin
+      // costs one no-op write.
+      await _userRef(uid).set(
+        {
+          'roomCodes': FieldValue.arrayUnion([room.code]),
+        },
+        SetOptions(merge: true),
+      );
       await syncLinkedHabitsProgress(room);
       return true;
     }

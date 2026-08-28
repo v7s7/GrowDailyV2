@@ -6,6 +6,7 @@ import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../features/settings/models/notification_settings.dart';
+import '../extensions/datetime_ext.dart';
 import '../l10n/reminder_copy.dart';
 import 'local_store_service.dart';
 import 'prayer_times_service.dart';
@@ -627,16 +628,24 @@ class NotificationService {
       final offset =
           Duration(minutes: slot < offsets.length ? offsets[slot] : 0);
       final t = times[slot];
-      var fire =
-          tz.TZDateTime(tz.local, now.year, now.month, now.day, t.hour, t.minute);
-      // Same two rolls the single-time path has always done, applied per time.
-      // The first puts the bare clock time in the future; the second catches an
-      // offset dragging it back into the past (it is 8:58, the habit is set for
-      // 9:00, the offset is -15). A wall-clock time repeats daily, so the fix
-      // for both is the same moment tomorrow.
-      if (fire.isBefore(now)) fire = fire.add(const Duration(days: 1));
-      fire = fire.add(offset);
-      if (!fire.isAfter(now)) fire = fire.add(const Duration(days: 1));
+      var fire = tz.TZDateTime(
+              tz.local, now.year, now.month, now.day, t.hour, t.minute)
+          .add(offset);
+      // The offset is applied BEFORE any day roll, then the whole shifted
+      // moment rolls forward until it is in the future. Rolling the bare
+      // clock time first (as this used to) breaks every "after" shift: at
+      // 09:10 a habit set for 09:00 with +30 was rolled to tomorrow 09:00
+      // and then shifted, silently skipping today's still-future 09:30 —
+      // any recompute inside the anchor→anchor+offset window lost the
+      // reminder. Shift-then-roll also covers the two cases the old pair of
+      // rolls handled: a bare time already passed, and an offset dragging an
+      // imminent time into the past (8:58, habit at 9:00, -15). The loop
+      // (not a single if) is for a negative offset landing before now
+      // across midnight, where one roll can still leave the moment behind
+      // `now`, and for custom offsets larger than a day.
+      while (!fire.isAfter(now)) {
+        fire = fire.add(const Duration(days: 1));
+      }
       out.add((slot: slot, fireTime: fire));
     }
     return out;
@@ -768,10 +777,17 @@ class NotificationService {
         // re-arm it until the app was next opened.
         final today = <({int slot, tz.TZDateTime fireTime})>[];
         final later = <({int slot, tz.TZDateTime fireTime})>[];
+        // "Today" here must mean the same day the completion count is keyed
+        // to — the EFFECTIVE day that rolls at kDayCutoffHour, not the
+        // calendar date. Between midnight and the cutoff the two disagree in
+        // both directions: a 23:00 habit completed at 23:15 and recomputed
+        // at 00:30 resolves to calendar-today 23:00, which is the NEXT
+        // effective day's reminder and must not be suppressed by today's
+        // count; while a 00:30 slot for an already-finished effective day
+        // resolves to calendar-tomorrow and used to stay armed, pinging for
+        // a habit the app itself grades as done.
         for (final c in awake) {
-          (c.fireTime.day == now.day &&
-                      c.fireTime.month == now.month &&
-                      c.fireTime.year == now.year
+          (c.fireTime.effectiveDay.isSameDayAs(now.effectiveDay)
                   ? today
                   : later)
               .add(c);
@@ -1028,6 +1044,22 @@ class NotificationService {
       final bundleId = _bundleSlotBase + slot;
       usedBundleIds.add(bundleId);
       slot++;
+      // A member that was scheduled INDIVIDUALLY on a previous recompute and
+      // joined a bundle on this one still holds its old standalone
+      // notification: the pre-schedule cleanup skips kept slots, and the
+      // bundle only writes to its own 7000-band id. Without this cancel the
+      // user gets both the stale solo ping and the bundle at the same
+      // minute. Only the exact (habit, slot) pairs in THIS bundle are
+      // cancelled — never the habit's other slots, which is what the old
+      // per-member _cancelAllHabitReminderSlots did and what made it
+      // order-dependently destroy reminders scheduled by earlier groups. A
+      // bundled slot is by definition not individually scheduled this pass,
+      // so this cancel can never race a _scheduleOne for the same id.
+      // Snoozes (6000 band) are left alone: a pending snooze is something
+      // the user explicitly asked for from a delivered reminder.
+      for (final r in group) {
+        await _plugin.cancel(_habitReminderId(r.id, r.slot));
+      }
       final names = group.map((e) => e.name).join(isAr ? '، ' : ', ');
       await _plugin.zonedSchedule(
         bundleId,
@@ -1044,15 +1076,17 @@ class NotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-      // NOTHING is cancelled here any more, and that is the fix for the
-      // nastiest defect this change could have shipped. Groups are walked in
-      // fire-time order, so a habit's 08:00 scheduled alone in group 1 was
-      // destroyed the moment its own 20:00 bundled with another habit in
-      // group 2 — order-dependent, silent, and only reachable once a habit
-      // can hold two times. Slot cleanup now happens in ONE pass before
-      // anything is scheduled (see scheduleSmartReminders), which is also the
-      // ordering this file's own comment above the stale sweep argues for:
-      // cancel first, schedule second, so an id collision is harmless.
+      // Whole-habit cancellation stays banished from this branch — the
+      // per-member cancel above touches only the exact slots bundled HERE.
+      // Groups are walked in fire-time order, so the old per-member
+      // _cancelAllHabitReminderSlots destroyed a habit's 08:00 scheduled
+      // alone in group 1 the moment its own 20:00 bundled with another habit
+      // in group 2 — order-dependent, silent, and only reachable once a
+      // habit can hold two times. Slot cleanup otherwise happens in ONE pass
+      // before anything is scheduled (see scheduleSmartReminders), which is
+      // also the ordering this file's own comment above the stale sweep
+      // argues for: cancel first, schedule second, so an id collision is
+      // harmless.
     }
     // A bundle slot not used this round might still hold a stale
     // notification from a previous recompute (fewer bundles today than

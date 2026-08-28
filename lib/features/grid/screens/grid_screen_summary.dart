@@ -423,7 +423,16 @@ class _NavArrow extends StatelessWidget {
 class _SummaryCard extends StatelessWidget {
   final List<IslamicHabitTemplate> habits;
   final WeeklyGridState state;
-  const _SummaryCard({required this.habits, required this.state});
+
+  /// XP actually paid out today, handed in by the caller from
+  /// DashboardState.earnedXpOn — see the construction site in
+  /// grid_screen.dart for why this replaced the flat per-state sum.
+  final int xpToday;
+  const _SummaryCard({
+    required this.habits,
+    required this.state,
+    required this.xpToday,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -438,9 +447,10 @@ class _SummaryCard extends StatelessWidget {
     final greens = state.greenSquares(habitIds);
     final ratio = state.todayCompletionRatio(scheduledTodayIds);
 
-    // Only today's marks are reward-eligible. Past-day marks remain visual
-    // history, but the summary must not present them as earned XP.
-    final points = state.rewardEligiblePoints(scheduledTodayIds);
+    // What today actually paid out (see xpToday's doc comment). Past-day
+    // marks still contribute nothing: setSquare's anti-backdating guard
+    // means they never pay, so they never reach this counter either.
+    final points = xpToday;
 
     final greensToday = () {
       if (!state.days.any((d) => d.isSameDayAs(today))) return 0;

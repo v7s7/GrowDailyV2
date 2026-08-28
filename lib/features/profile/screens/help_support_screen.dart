@@ -87,7 +87,7 @@ const List<FaqEntry> kFaqEntries = [
   ),
   FaqEntry(
     questionEn: 'How does my streak work?',
-    questionAr: 'كيف تعمل سلستي؟',
+    questionAr: 'كيف تعمل سلسلتي؟',
     answerEn:
         'It counts the days in a row where you finished everything on your board, not just one habit. And your day doesn\'t end at midnight. Anything you finish before 10 AM the next day still counts for the day before.',
     answerAr:
@@ -99,7 +99,7 @@ const List<FaqEntry> kFaqEntries = [
     answerEn:
         'Your streak breaks, unless you have a streak freeze saved up. You start with one and earn another each week automatically. It kicks in on its own the moment you miss a day.',
     answerAr:
-        'تنكسر سلستك، إلا إذا كان لديك تجميد سلسلة محفوظ. تبدأ بواحد وتكسب آخر كل أسبوع تلقائيًا. يعمل من تلقاء نفسه لحظة تفويتك يومًا.',
+        'تنكسر سلسلتك، إلا إذا كان لديك تجميد سلسلة محفوظ. تبدأ بواحد وتكسب آخر كل أسبوع تلقائيًا. يعمل من تلقاء نفسه لحظة تفويتك يومًا.',
   ),
   FaqEntry(
     questionEn: 'Why doesn\'t my day end at midnight?',
@@ -123,7 +123,7 @@ const List<FaqEntry> kFaqEntries = [
     answerEn:
         'Yes. XP and Gold stop adding up once a day reaches a very high total, so the app can\'t be farmed. A normal day never gets near it, and your streak, medals and squares are never capped.',
     answerAr:
-        'إي. الخبرة والذهب يوقفون عند مجموع يومي عالي، عشان ما أحد يستغل التطبيق. يومك العادي ما يوصله، وسلستك وأوسمتك ومربعاتك ما عليها حد.',
+        'إي. الخبرة والذهب يوقفون عند مجموع يومي عالي، عشان ما أحد يستغل التطبيق. يومك العادي ما يوصله، وسلسلتك وأوسمتك ومربعاتك ما عليها حد.',
   ),
   FaqEntry(
     questionEn: 'What\'s the difference between the Shop and Level Prestige?',
@@ -155,7 +155,7 @@ const List<FaqEntry> kFaqEntries = [
     answerEn:
         'Small bonus suggestions on your Today screen. A little extra XP or gold for something simple, on top of your normal habits. They don\'t fill a Grid square and don\'t touch your streak.',
     answerAr:
-        'اقتراحات صغيرة إضافية في شاشة اليوم. خبرة أو ذهب إضافي مقابل شيء بسيط، فوق عاداتك المعتادة. لا تملأ مربعًا في الجدول ولا تؤثر على سلستك.',
+        'اقتراحات صغيرة إضافية في شاشة اليوم. خبرة أو ذهب إضافي مقابل شيء بسيط، فوق عاداتك المعتادة. لا تملأ مربعًا في الجدول ولا تؤثر على سلسلتك.',
   ),
   FaqEntry(
     questionEn: 'What is Night Review?',

@@ -379,7 +379,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             ref.read(premiumProvider.notifier).applyCustomerInfo(info);
           }
         });
-      } else if (next.hasValue) {
+      } else if (next.hasValue && previous?.valueOrNull != null) {
         // ── Only a RESOLVED sign-out counts ───────────────────────────
         //
         // `uid == null` is two different states wearing one face:
@@ -396,11 +396,17 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // the round trip the cache exists to remove. Offline, it never
         // came back at all.
         //
-        // hasValue is the precise test. It is true for AsyncData(null),
-        // which is a real sign-out, and it stays true while a later
-        // refresh is in flight, so a reconnect does not flap the session
-        // either. It is false for a first load and for an error with
-        // nothing behind it, which are the two cases that must do nothing.
+        // hasValue alone is NOT the whole test, though: AsyncData(null) is
+        // also the RESTING state of every guest launch — Firebase's first
+        // emission on a signed-out device is null. That ran this branch on
+        // every guest cold start, re-wiping the guest's own persisted
+        // entitlement (guests never bindAccount, so their premium lives
+        // under uid == null) and calling Purchases.logOut() for an
+        // anonymous user each launch. Hence the `previous` check: only a
+        // transition FROM a real signed-in user is a sign-out. Riverpod's
+        // AsyncLoading preserves the prior value via copyWithPrevious, so
+        // a sign-out landing mid-refresh still qualifies; a guest launch's
+        // previous is loading-with-nothing-behind-it and is skipped.
         ref.read(themeModeProvider.notifier).detachAccount();
         ref.read(themePresetProvider.notifier).detachAccount();
         ref.read(savedThemeColoursProvider.notifier).detachAccount();
@@ -750,6 +756,14 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _maybeAutoCleanQuitYesterday() {
     final todayKey = DateTime.now().effectiveDay.toDateKey();
     if (_lastQuitAutoCleanKey == todayKey) return;
+    // While auth is still resolving, every provider read below is the
+    // transient GUEST instance, whose Hive load settles within microtasks —
+    // before Firebase Auth's first emission. Passing the loading checks
+    // against that (typically empty) store used to burn the once-per-day
+    // key on account-less data, so for signed-in users the real pass never
+    // ran on any cold start. Wait for auth to settle; the listeners that
+    // call this re-fire as the real account's stores load.
+    if (ref.read(authStateProvider).isLoading) return;
     final dash = ref.read(dashboardProvider);
     if (dash.isLoading || ref.read(habitsStillLoadingProvider)) return;
     _lastQuitAutoCleanKey = todayKey;
@@ -1113,6 +1127,28 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     }
   }
 
+  /// The habit-list counterpart of [_awaitDashboardLoaded]: resolves true
+  /// once [habitsStillLoadingProvider] reports the custom-habit store has
+  /// settled, false if it has not within [timeout]. Queued actions that
+  /// resolve a habit by id need this as well as the dashboard wait — an
+  /// empty, still-loading list makes _resolveHabit return null and the
+  /// action silently dissolves.
+  Future<bool> _awaitHabitsLoaded({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    if (!ref.read(habitsStillLoadingProvider)) return true;
+    final completer = Completer<bool>();
+    final sub =
+        ref.listenManual<bool>(habitsStillLoadingProvider, (_, stillLoading) {
+      if (!completer.isCompleted && !stillLoading) completer.complete(true);
+    });
+    try {
+      return await completer.future.timeout(timeout, onTimeout: () => false);
+    } finally {
+      sub.close();
+    }
+  }
+
   /// Drains habit ids the large widget's Mark Done button queued (see the
   /// AppIntent in WIDGET_SETUP.md) and runs each through the exact same
   /// completeHabit + grid-mirror path as a real in-app tap — reusing
@@ -1136,7 +1172,29 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // takePendingCompletions REMOVES the ids, so a tap refused here would
     // be gone. Waiting first means a slow load costs the tap a moment, and
     // a load that never arrives leaves the queue untouched for next launch.
+    //
+    // Auth FIRST, exactly like the Matrix twin below. On a signed-in cold
+    // start every uid-keyed provider is initially the guest instance (auth
+    // is still AsyncLoading), and the guest dashboard's Hive load settles
+    // in microtasks — long before Firebase Auth's first emission. Gating on
+    // the dashboard alone therefore opened against the GUEST store,
+    // drained the queue, and each id then died against the real account's
+    // still-loading providers: completeHabit refuses while loading, custom
+    // ids resolve to nothing. The taps were unrecoverable — the exact loss
+    // this gate exists to prevent, reintroduced one provider earlier.
+    try {
+      await ref.read(authStateProvider.future);
+    } catch (_) {
+      // Signed out or auth unavailable — the guest providers below are then
+      // the correct target.
+    }
+    if (!mounted) return;
     if (!await _awaitDashboardLoaded()) return;
+    // Custom habits need their list too: _handleNotificationAction resolves
+    // the id against customHabitsProvider, and an empty in-flight list
+    // silently discards the tap.
+    if (!await _awaitHabitsLoaded()) return;
+    if (!mounted) return;
     final ids = await HomeWidgetService.instance.takePendingCompletions();
     for (final id in ids) {
       await _handleNotificationAction(NotificationService.actionMarkDone, id);
@@ -1313,6 +1371,17 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // then the correct one, which is exactly what the un-awaited version
       // could never distinguish.
     }
+    if (!mounted) return;
+    // Auth settles WHICH account — not that account's DATA. Immediately
+    // after the await, the uid-keyed dashboard and habit providers are
+    // freshly constructed and still loading from Firestore, so on a cold
+    // launch _resolveHabit found an empty list (killing every action) and
+    // completeHabit refused while state.isLoading (killing Mark Done for
+    // catalog habits). The notification is already dismissed by then, so
+    // the tap was silently unrecoverable. Wait for the data the same way
+    // the widget queue does; on a warm app both gates resolve instantly.
+    if (!await _awaitDashboardLoaded()) return;
+    if (!await _awaitHabitsLoaded()) return;
     if (!mounted) return;
     final habit = _resolveHabit(habitId);
     if (habit == null) return;

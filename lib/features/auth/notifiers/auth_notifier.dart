@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/analytics_service.dart';
+import '../../../core/services/push_notification_service.dart';
 import '../../../core/utils/text_moderation.dart';
 import '../../../core/services/local_store_service.dart';
 
@@ -99,6 +100,14 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
   }
 
   Future<void> signOut() async {
+    // The FCM token doc has to go while this account is still signed in:
+    // users/{uid}/fcmTokens/* is owner-only in firestore.rules, so the
+    // delete main.dart's auth listener attempts AFTER authStateChanges
+    // emits null runs unauthenticated, is rejected, and was silently
+    // swallowed — a shared or handed-over device kept receiving the old
+    // account's room pushes. The listener's call stays as a harmless no-op
+    // backstop.
+    await PushNotificationService.instance.clearForSignOut();
     await FirebaseAuth.instance.signOut();
     AnalyticsService.instance.track('auth_signed_out');
     state = const AsyncData(null);
@@ -160,6 +169,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     const subcollections = [
       'daily',
       'custom_habits',
+      'custom_rewards',
       'focus_plans',
       'matrix_tasks',
       'weekly_challenges',
