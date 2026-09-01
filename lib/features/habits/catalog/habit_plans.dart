@@ -150,10 +150,12 @@ const habitPlans = <HabitPlan>[
 
 // ─── Active catalog provider ──────────────────────────────────────────────────
 
-const _kActiveKey = 'active_catalog_ids_v1';
-const _kActivatedAtKey = 'active_catalog_activated_at_v1';
-const _kArchivedAtKey = 'active_catalog_archived_at_v1';
-const _kStintHistoryKey = 'active_catalog_stint_history_v1';
+// One definition, in core, because LocalStoreService.hasGuestProgress needs
+// this key too and cannot import this file (see that constant's comment).
+const _kActiveKey = LocalStoreService.activeCatalogIdsKey;
+const _kActivatedAtKey = LocalStoreService.activeCatalogActivatedAtKey;
+const _kArchivedAtKey = LocalStoreService.activeCatalogArchivedAtKey;
+const _kStintHistoryKey = LocalStoreService.activeCatalogStintHistoryKey;
 const _kReminderKey = 'daily_reminder_time_v1';
 
 /// Which Islamic Habit Catalog templates the user has turned on — the

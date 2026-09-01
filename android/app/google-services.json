@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "508215311979",
+    "project_id": "grow-daily-339ef",
+    "storage_bucket": "grow-daily-339ef.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:508215311979:android:ccb9c6e15496fac81fbb2e",
+        "android_client_info": {
+          "package_name": "com.growdaily.v2"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "508215311979-56pq3q1h9l3s9fbgfegomud8o0mi734o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA5x-guZJ4BGXpa-IUN9iV7Wj45ww4lBQk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "508215311979-56pq3q1h9l3s9fbgfegomud8o0mi734o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "508215311979-mgcmcfoo34l3i8kbtckqh0qmi0oud9p2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.growDailyV2"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

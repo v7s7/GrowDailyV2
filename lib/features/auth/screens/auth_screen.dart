@@ -5,8 +5,10 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../notifiers/auth_notifier.dart';
+import '../notifiers/guest_reconnect_provider.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -28,9 +30,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _confirmCtrl = TextEditingController();
   String? _errorMessage;
 
+  /// Whether this device still holds guest progress, which is what the
+  /// fresh-start warning below is about. Resolved once, in initState:
+  /// nothing can create or destroy guest data while this screen is up.
+  bool _hasGuestProgress = false;
+
   @override
   void initState() {
     super.initState();
+    LocalStoreService.hasGuestProgress().then((has) {
+      if (mounted && has) setState(() => _hasGuestProgress = true);
+    });
     ref.listenManual<AsyncValue<void>>(authNotifierProvider, (_, next) {
       next.whenOrNull(
         error: (e, _) {
@@ -88,8 +98,29 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final notifier = ref.read(authNotifierProvider.notifier);
     if (_isSignIn) {
       await notifier.signIn(email, pass);
-    } else {
-      await notifier.register(email, pass);
+      return;
+    }
+    // Armed BEFORE the await, and that ordering is the whole point.
+    //
+    // createUserWithEmailAndPassword makes authStateChanges emit the new
+    // user immediately, part-way through register(). _AuthGate (main.dart)
+    // routes on that emission, so this screen is disposed while the await
+    // is still running and NOTHING after it is guaranteed to execute. Arming
+    // afterwards behind the usual `if (!mounted) return` meant the flag was
+    // never set on the one path it exists for, and the sheet never appeared.
+    //
+    // Arming early is safe because the offer provider independently requires
+    // a signed-in uid, so a flag set before a registration that then fails
+    // shows nothing; the disarm below clears it anyway, and that one DOES
+    // run, since a failed registration never emits and never disposes this
+    // screen.
+    if (_hasGuestProgress) {
+      ref.read(justRegisteredProvider.notifier).state = true;
+    }
+    await notifier.register(email, pass);
+    if (!mounted) return;
+    if (ref.read(authNotifierProvider).hasError) {
+      ref.read(justRegisteredProvider.notifier).state = false;
     }
   }
 
@@ -331,9 +362,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
               // Fresh-start warning for a guest who is creating the
               // account (register mode only): their local progress will
               // NOT carry over, and this is the last moment that fact can
-              // still change their decision. Watched, not read - the flag
-              // flips if they sign out mid-session.
-              if (!_isSignIn && ref.watch(guestModeProvider))
+              // still change their decision.
+              //
+              // Gated on the DATA existing, not on guestModeProvider. That
+              // flag is always false here and this warning therefore never
+              // rendered once, in either direction: _AuthGate (main.dart)
+              // only builds this screen when guest mode is off, and every
+              // path that sends a guest here - the Rooms gate, the guest
+              // limit sheet, sign-out - calls setGuestMode(ref, false)
+              // before it navigates. The registered '/auth' route is never
+              // pushed by anything. Asking LocalStoreService instead is
+              // both reachable and the better question: what matters is
+              // whether there is progress on this device to lose.
+              if (!_isSignIn && _hasGuestProgress)
                 Padding(
                   padding: const EdgeInsets.only(top: 14),
                   child: Container(

@@ -29,6 +29,11 @@ Future<void> setGuestMode(WidgetRef ref, bool value) async {
   ref.read(guestModeProvider.notifier).state = value;
   final box = await LocalStoreService.settingsBox();
   await box.put(_kGuestModeKey, value);
+  // Re-entering guest mode cancels any pending deletion of the guest data.
+  // Someone who signed out and came back to guest is plainly still using
+  // it, and a countdown started by an earlier account's answer must not
+  // delete it out from under them mid-session.
+  if (value) await LocalStoreService.clearGuestDiscardMark();
 }
 
 /// Reads the persisted guest-mode flag. Called once at app boot (see
@@ -85,7 +90,11 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       );
       try {
         // Create Firestore profile on first registration
-        await _createUserDoc(cred.user!.uid, cred.user?.email ?? email.trim());
+        await _createUserDoc(
+          cred.user!.uid,
+          cred.user?.email ?? email.trim(),
+          freshRegistration: true,
+        );
       } catch (_) {
         // The Auth account exists but has no profile doc. _AuthGate routes
         // on authStateChanges() alone, so leaving this account signed in
@@ -228,7 +237,36 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     }
   }
 
-  static Future<void> _createUserDoc(String uid, String email) async {
+  /// Creates the profile doc for [uid].
+  ///
+  /// [freshRegistration] separates the two callers, and it is load-bearing.
+  /// A genuine new registration also gets an empty `activeCatalogIds`,
+  /// which reads like a no-op and is not: ActiveCatalogNotifier._load()
+  /// (habit_plans.dart) treats a MISSING field as "this account predates
+  /// catalog syncing" and seeds itself from this device's own Hive box
+  /// instead. That fallback is right for the account it was written for
+  /// and wrong for a guest who just signed up: it handed the new account
+  /// the guest's catalog picks while their activation dates - already
+  /// parsed from the absent Firestore field into an empty map, and never
+  /// re-read from Hive on that path - stayed lost, then wrote that
+  /// emptiness back. A catalog habit with no birth date reports itself as
+  /// scheduled on every past day (IslamicHabitTemplate.isScheduledFor
+  /// skips the guard when createdAt is null), and with none of the guest's
+  /// completions carried over, every one of those days graded as a miss:
+  /// Grid squares, the heatmap, insights, the weekly recap, room credit.
+  /// Writing the field, even empty, says "this account HAS an answer and
+  /// it is none", so the fallback stays out of it.
+  ///
+  /// [_ensureUserDoc] deliberately does NOT pass it. Its caller is a
+  /// sign-in that found no profile doc at all, which is the exact legacy
+  /// case the fallback exists to rescue.
+  ///
+  /// See test/features/habits/guest_signup_catalog_carryover_test.dart.
+  static Future<void> _createUserDoc(
+    String uid,
+    String email, {
+    bool freshRegistration = false,
+  }) async {
     final ref =
         FirebaseFirestore.instance.collection('users').doc(uid);
     await ref.set({
@@ -254,6 +292,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       'streakFreezes': 1,
       'unlockedAchievements': <String>[],
       'equippedHabitIds': <String>[],
+      if (freshRegistration) 'activeCatalogIds': <String>[],
       'createdAt': FieldValue.serverTimestamp(),
     });
   }

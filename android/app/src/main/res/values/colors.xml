@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The accent Android tints the notification's small icon and app name
+      with. This is the default theme preset's `emerald` (see `emerald:
+      Color(0xFF2ECF8F)` in lib/core/theme/theme_preset.dart), not the
+      #FEFAF0 splash cream - the tint is drawn against the notification
+      shade's own background, where a near-white would be invisible.
+
+      Preset-independent on purpose: a user who switches to Ocean or Nour
+      Violet in-app changes GameColors at runtime, but this is a compiled
+      resource read by the system process, so it cannot follow. The default
+      brand green is the honest constant.
+    -->
+    <color name="notification_color">#FF2ECF8F</color>
+	<color name="ic_launcher_background">#0E6A4B</color>
+</resources>

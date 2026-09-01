@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status-bar notification icon: the GrowDaily seedling mark
+  (assets/images/icon_app.png) reduced to a flat white silhouette.
+
+  Android renders a notification's small icon as an ALPHA MASK - every
+  non-transparent pixel is repainted with the system's own tint, so any
+  colour here is discarded. Pointing the manifest at the full-colour
+  @mipmap/ic_launcher instead (the flutter create default) is why an
+  unconfigured Android app shows a featureless grey/white square in the
+  status bar. Hence a dedicated white-on-transparent vector.
+
+  24dp viewport with the artwork inset a little from every edge, per
+  Material's notification icon spec.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Pot: the rounded square the mark sits in. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8,13.2h8c1,0 1.8,0.8 1.8,1.8v4.2c0,1 -0.8,1.8 -1.8,1.8H8c-1,0 -1.8,-0.8 -1.8,-1.8v-4.2c0,-1 0.8,-1.8 1.8,-1.8z" />
+
+    <!-- Stem, rising out of the pot into the two leaves. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.3,13.2c0,-2.2 0.2,-3.8 0.8,-5.2l1.3,0.5c-0.5,1.2 -0.7,2.6 -0.7,4.7z" />
+
+    <!-- Right leaf, the taller of the two. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12.6,9.5C12.9,6.4 15.3,3.4 19.1,2.7c0.5,3.7 -1.1,6.6 -4.2,7.5 -1,0.3 -1.9,0.1 -2.3,-0.7z" />
+
+    <!-- Left leaf, smaller and lower. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.4,11.2C11,8.7 9.2,6.3 5.9,5.5c-0.5,3 0.8,5.5 3.5,6.2 0.9,0.2 1.7,0.1 2,-0.5z" />
+</vector>

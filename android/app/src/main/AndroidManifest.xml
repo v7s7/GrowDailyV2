@@ -1,0 +1,154 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Firebase, the Aladhan prayer-time API, Open-Meteo geocoding,
+         BigDataCloud reverse geocoding and RevenueCat all need the network.
+         Declared here (not only in the debug manifest) so release builds
+         have it too. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Android 13 (API 33) and up: notifications are a runtime permission.
+         Without this declaration every habit reminder, prayer-time reminder
+         and room push is silently dropped on a modern device. The runtime
+         request itself is made from NotificationService.requestPermission. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- flutter_local_notifications: reminders are scheduled in the future,
+         so they must survive a reboot (RECEIVE_BOOT_COMPLETED) and be able
+         to buzz (VIBRATE). No SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM here on
+         purpose: every zonedSchedule call in notification_service.dart uses
+         AndroidScheduleMode.inexactAllowWhileIdle, which needs no exact-alarm
+         permission and avoids Play's restricted-permission declaration form
+         entirely. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <!-- geolocator, for the prayer-time auto-detect path
+         (DeviceLocationService). Foreground only: there is no
+         ACCESS_BACKGROUND_LOCATION here, matching the iOS Info.plist promise
+         that the app "never tracks your location in the background". Adding
+         it later would trigger Play's background-location review. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
+    <!-- record, for the Tasks voice notes (VoiceNoteService). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
+    <!-- Advertising ID, REMOVED on purpose.
+         firebase_analytics pulls in play-services-ads-identifier, which
+         merges com.google.android.gms.permission.AD_ID into the manifest
+         without this app ever asking for it (confirmed by dumping the built
+         APK's badging, where the permission appeared alongside the ones
+         declared above).
+         Carrying it means declaring advertising-ID collection on Play's
+         Data safety form and keeping the privacy policy consistent with
+         that, all to enable ad attribution this app does not use and does
+         not sell. Analytics itself keeps working without it: only
+         ad-ID-linked audiences and attribution are lost.
+         tools:node="remove" strips it at manifest-merge time. -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+
+    <!-- The Privacy Sandbox half of the same thing, also merged in by
+         firebase_analytics (via androidx.privacysandbox.ads:ads-adservices).
+         Removing only the GMS AD_ID permission above is NOT enough: a build
+         with just that removed still declared
+         android.permission.ACCESS_ADSERVICES_AD_ID, so the app would still
+         have been requesting an advertising identifier while the Play Data
+         safety form said it collects none. Verified by dumping the built
+         APK's badging both before and after. -->
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
+        tools:node="remove" />
+
+    <!-- android:label is "Grow Daily" with the space, matching
+         CFBundleDisplayName in ios/Runner/Info.plist, the Play Store
+         listing, and the wordmark the app itself renders. This is the
+         string Android shows under the launcher icon and inside the
+         notification permission dialog, so a different spelling here is a
+         visible brand split. -->
+    <application
+        android:label="Grow Daily"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true"
+        android:supportsRtl="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- growdaily://join/CODE - the room invite link built by
+                 roomShareMessage in app_strings.dart and handled by app_links
+                 in main.dart. Custom scheme only, mirroring
+                 ios/Runner/Info.plist's CFBundleURLSchemes; App Links over
+                 HTTPS would additionally need an assetlinks.json hosted on a
+                 real domain and the Play signing certificate's fingerprint. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="growdaily"/>
+            </intent-filter>
+        </activity>
+
+        <!-- The status-bar icon for every notification. Android draws this as
+             a pure alpha mask, so a full-colour @mipmap/ic_launcher renders as
+             a solid grey/white blob; ic_notification is the flat white
+             silhouette drawn from the app mark. Matches the
+             AndroidInitializationSettings value in notification_service.dart. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification"/>
+        <!-- Brand cream, the same colour the splash and iOS build use. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color"/>
+        <!-- Routes FCM messages that arrive with no explicit channel into the
+             same channel flutter_local_notifications creates, so a room push
+             and a habit reminder share one entry in Android's per-channel
+             notification settings instead of appearing as two. Must stay in
+             sync with _channelId in notification_service.dart. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="growdaily_general"/>
+
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

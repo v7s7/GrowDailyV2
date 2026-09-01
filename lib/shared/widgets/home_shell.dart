@@ -161,21 +161,44 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       if (next.isEmpty) return;
       unawaited(_maybePromptNewSharedHabits());
     });
-    return Scaffold(
-      // The shell owns the one nav bar; each page keeps its own Scaffold
-      // (FABs, app bars, backgrounds) minus the bar it used to carry.
-      bottomNavigationBar: GameNavBar(
-        currentIndex: _index,
-        onSelect: _onTabSelected,
-      ),
-      body: PageView(
-        controller: _controller,
-        onPageChanged: (i) => setState(() => _index = i),
-        children: const [
-          GridScreen(),
-          ProfileScreen(),
-          MatrixScreen(),
-        ],
+    // Android's system back button, which iOS has no equivalent of.
+    //
+    // The three tabs are pages of one PageView inside a SINGLE route, so
+    // there is nothing on the navigator stack for back to pop: pressing it
+    // on Profile or Matrix used to drop the user straight out to the
+    // launcher. Verified on an Android 16 emulator before this was added -
+    // back from the Matrix tab backgrounded the app and resumed
+    // NexusLauncherActivity.
+    //
+    // Android's expectation is that back walks up to the primary
+    // destination first and only leaves the app from there, so: on tab 0
+    // let the pop through (leaving the app is then correct), and on any
+    // other tab swallow it and animate home instead.
+    //
+    // Inert on iOS: this shell is the root route, so there is no back
+    // gesture here for canPop to affect.
+    return PopScope(
+      canPop: _index == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _onTabSelected(0);
+      },
+      child: Scaffold(
+        // The shell owns the one nav bar; each page keeps its own Scaffold
+        // (FABs, app bars, backgrounds) minus the bar it used to carry.
+        bottomNavigationBar: GameNavBar(
+          currentIndex: _index,
+          onSelect: _onTabSelected,
+        ),
+        body: PageView(
+          controller: _controller,
+          onPageChanged: (i) => setState(() => _index = i),
+          children: const [
+            GridScreen(),
+            ProfileScreen(),
+            MatrixScreen(),
+          ],
+        ),
       ),
     );
   }

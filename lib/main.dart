@@ -33,7 +33,9 @@ import 'core/services/notification_service.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/services/purchase_service.dart';
 import 'core/theme/game_theme.dart';
+import 'core/services/local_store_service.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
+import 'features/auth/widgets/guest_reconnect_prompt.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/notifiers/dashboard_notifier.dart';
 import 'features/habits/catalog/habit_plans.dart'
@@ -189,6 +191,17 @@ Future<void> main() async {
     // data lands back on their grid instead of being bounced to the auth
     // screen (the provider's own default is always `false` in memory).
     final persistedGuestMode = await loadPersistedGuestMode();
+    // Delete guest data whose grace period has run out.
+    //
+    // Boot is the only place this can run: the sweep clears the daily box,
+    // which a live guest session reads and writes continuously, so it has
+    // to happen before any notifier has loaded from it. Passing the
+    // just-read flag rather than letting the sweep look it up keeps the
+    // veto honest at exactly this moment (see sweepDiscardedGuestData).
+    await LocalStoreService.sweepDiscardedGuestData(
+      now: DateTime.now(),
+      inGuestMode: persistedGuestMode,
+    );
     final persistedLocale = await loadPersistedLocale();
     final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
     final persistedGetStartedDismissed = await loadPersistedGetStartedDismissed();
@@ -1884,16 +1897,18 @@ class _OnboardingOrGrid extends ConsumerWidget {
     // rather than a scheduled notification. Wrapped here rather than inside
     // HomeShell so it survives the crossfade below without remounting (and
     // re-asking) every time onboarding flips.
-    return RoomFinaleAnnouncer(
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 400),
-        switchInCurve: Curves.easeOut,
-        switchOutCurve: Curves.easeIn,
-        child: !seen
-            ? const OnboardingScreen(key: ValueKey('onboarding'))
-            : offerAsked
-                ? const HomeShell(key: ValueKey('home'))
-                : const FirstRunOfferScreen(key: ValueKey('offer')),
+    return GuestReconnectPrompt(
+      child: RoomFinaleAnnouncer(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 400),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: !seen
+              ? const OnboardingScreen(key: ValueKey('onboarding'))
+              : offerAsked
+                  ? const HomeShell(key: ValueKey('home'))
+                  : const FirstRunOfferScreen(key: ValueKey('offer')),
+        ),
       ),
     );
   }

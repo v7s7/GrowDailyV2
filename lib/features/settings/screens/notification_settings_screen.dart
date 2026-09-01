@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/country_lookup_service.dart';
@@ -714,8 +713,12 @@ class _RoomPushStatusState extends ConsumerState<_RoomPushStatus>
           if (needsSystemSettings) ...[
             const SizedBox(height: 6),
             GestureDetector(
-              onTap: () => launchUrl(Uri.parse('app-settings:'),
-                  mode: LaunchMode.externalApplication),
+              // Not launchUrl('app-settings:'): that scheme is iOS-only and
+              // silently did nothing on Android, so this link was dead on
+              // exactly the platform the surrounding warning is about. See
+              // NotificationService.openSystemNotificationSettings.
+              onTap: () =>
+                  NotificationService.instance.openSystemNotificationSettings(),
               child: Text(
                 s.notifOpenSystemSettings,
                 style: TextStyle(
@@ -815,11 +818,17 @@ class _SystemPermissionBannerState extends State<_SystemPermissionBanner>
             Align(
               alignment: AlignmentDirectional.centerStart,
               child: TextButton(
-                onPressed: () {
+                onPressed: () async {
                   HapticFeedback.selectionClick();
-                  // iOS deep-links straight to this app's own Settings page;
-                  // on Android the same call opens the app-info screen.
-                  launchUrl(Uri.parse('app-settings:'));
+                  // Prompt first, Settings only as a fallback - see
+                  // NotificationService.ensureSystemPermission. On Android
+                  // 13+ this banner's state is simply the default for a
+                  // fresh install, so the fix is usually one system dialog.
+                  //
+                  // This used to call launchUrl('app-settings:') directly,
+                  // an iOS-only scheme that silently did nothing on Android.
+                  await NotificationService.instance.ensureSystemPermission();
+                  if (mounted) _check();
                 },
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 8),

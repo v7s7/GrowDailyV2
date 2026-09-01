@@ -215,6 +215,18 @@ class _GuestGate extends ConsumerWidget {
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: gp.textSec, height: 1.4),
             ),
+            const SizedBox(height: 12),
+            // The cost of taking the button below, stated before they take
+            // it. This is the one guest-to-account path that said nothing:
+            // the guest limit sheet has carried the same fact for a while
+            // (see guest_limit_sheet.dart), but someone who came here to
+            // join a room read only "Rooms need an account", tapped Sign
+            // In, and found out afterwards.
+            Text(
+              s.guestFreshStartWarning,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: gp.textTert, height: 1.4),
+            ),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: () {

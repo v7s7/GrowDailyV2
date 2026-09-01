@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
+import 'package:flutter/services.dart' show MethodChannel;
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
@@ -287,7 +289,16 @@ class NotificationService {
       // that's resolved.
     }
 
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // '@drawable/ic_notification', not '@mipmap/ic_launcher': Android draws a
+    // notification's small icon as a pure alpha mask, discarding colour, so
+    // the full-colour launcher icon arrives in the status bar as a
+    // featureless white square. ic_notification is the seedling mark redrawn
+    // as a white-on-transparent vector. Must stay in sync with the
+    // com.google.firebase.messaging.default_notification_icon meta-data in
+    // AndroidManifest.xml, so a local reminder and an FCM room push look the
+    // same in the shade.
+    const androidInit =
+        AndroidInitializationSettings('@drawable/ic_notification');
     // Not const: DarwinNotificationAction.plain() below isn't a const
     // constructor (confirmed by `flutter analyze`, not assumed), so nothing
     // that contains it can be const either — built once at runtime instead
@@ -339,6 +350,31 @@ class NotificationService {
       InitializationSettings(android: androidInit, iOS: iosInit),
       onDidReceiveNotificationResponse: _dispatch,
     );
+
+    // Create the Android channel up front rather than letting the first
+    // AndroidNotificationDetails create it lazily.
+    //
+    // On Android 8+ a notification posted to a channel that does not exist
+    // yet is dropped by the system. The lazy path is fine for local
+    // reminders, which are always posted by this process, but an FCM room
+    // push (see functions/index.js notifyRoomFinish) can be handled by the
+    // Firebase SDK while the app has never run a scheduling call - a fresh
+    // install that joins a room and gets a push before setting its first
+    // reminder. The manifest points FCM's default_notification_channel_id at
+    // this same id, so creating it here is what makes that push land.
+    //
+    // No-op on iOS: resolvePlatformSpecificImplementation returns null.
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _channelId,
+            _channelName,
+            description: _channelDesc,
+            importance: Importance.defaultImportance,
+          ),
+        );
 
     // If a notification action cold-launched the app (it was fully
     // terminated when tapped), the tap never reaches
@@ -448,6 +484,62 @@ class NotificationService {
         AndroidFlutterLocalNotificationsPlugin>();
     if (android != null) return android.areNotificationsEnabled();
     return null;
+  }
+
+  /// Sends the person to this app's own notification settings in the OS.
+  ///
+  /// Android goes through a MethodChannel into MainActivity.kt rather than
+  /// url_launcher. The banner used to call `launchUrl('app-settings:')` for
+  /// both platforms, but that scheme is iOS-only: url_launcher_android
+  /// builds a plain ACTION_VIEW around `Uri.parse("app-settings:")`, nothing
+  /// resolves it, and the button did nothing at all. Verified on an Android
+  /// 13 emulator - the intent was dispatched and the foreground activity
+  /// never changed, so the one escape hatch offered to someone whose
+  /// reminders were silently dropped was itself dead.
+  ///
+  /// Returns whether a settings screen was actually opened.
+  Future<bool> openSystemNotificationSettings() async {
+    if (kIsWeb) return false;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        const channel = MethodChannel('com.growdaily.v2/system_settings');
+        final ok = await channel.invokeMethod<bool>(
+          'openNotificationSettings',
+        );
+        return ok ?? false;
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('openSystemNotificationSettings failed: $e');
+        }
+        return false;
+      }
+    }
+    // iOS: the documented deep link into this app's own Settings page.
+    try {
+      return await launchUrl(Uri.parse('app-settings:'));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Best effort at getting notifications actually switched on, for the
+  /// banner's single call to action.
+  ///
+  /// Tries the OS permission prompt FIRST. That matters on Android 13+,
+  /// where POST_NOTIFICATIONS starts ungranted on every fresh install: the
+  /// banner's "notifications are off" state is the DEFAULT there, not
+  /// evidence that anyone switched anything off, and the fix is one system
+  /// dialog rather than a trip through Settings. If the prompt cannot help
+  /// (already answered, or an OS that does not ask), fall back to opening
+  /// the settings screen.
+  ///
+  /// Returns true if notifications are enabled by the time this resolves.
+  Future<bool> ensureSystemPermission() async {
+    if (kIsWeb) return false;
+    if (await requestPermissions()) return true;
+    if (await checkSystemPermission() == true) return true;
+    await openSystemNotificationSettings();
+    return false;
   }
 
   NotificationDetails get _details => const NotificationDetails(

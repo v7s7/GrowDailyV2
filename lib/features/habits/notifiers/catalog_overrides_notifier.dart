@@ -122,7 +122,7 @@ class CatalogHabitOverride {
       );
 }
 
-const String kCatalogOverridesKey = 'catalog_habit_overrides_v1';
+const String kCatalogOverridesKey = LocalStoreService.catalogOverridesKey;
 
 /// catalogId -> that person's changes to it. Empty for anyone who has never
 /// edited a preset, which is the overwhelmingly common case, so this costs

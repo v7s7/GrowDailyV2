@@ -518,7 +518,17 @@ class _DashboardSection extends ConsumerWidget {
       return recap.thisWeekTotal != 0 || recap.lastWeekTotal != 0;
     }();
 
-    if (!showStreak && !showNightReview && !showRecap) {
+    // The reconnect offer is part of this gate, not just part of the
+    // Column below. Every other card here is an evening/Friday nudge that
+    // a brand-new account never qualifies for, so the section as a whole
+    // used to collapse to nothing on exactly the account the offer exists
+    // for: freshly registered, guest data still on the device, all three
+    // of the flags above false. The banner was in the Column and never
+    // built.
+    final showReconnect =
+        ref.watch(guestReconnectOfferProvider).asData?.value != null;
+
+    if (!showStreak && !showNightReview && !showRecap && !showReconnect) {
       return const SizedBox.shrink();
     }
 
@@ -536,6 +546,7 @@ class _DashboardSection extends ConsumerWidget {
                   color: gp.textSec,
                   letterSpacing: 1.5)),
         ),
+        if (showReconnect) const _GuestReconnectBanner(),
         if (showStreak) const _StreakAtRiskBanner(),
         if (showNightReview) const _NightReviewPromptCard(),
         if (showRecap) const WeeklyRecapCard(),

@@ -61,6 +61,168 @@ class LocalStoreService {
   static String habitResumeDatesKeyFor(String? uid) =>
       '${habitResumeDatesKey}_${uid ?? 'guest'}';
 
+  /// Everything a guest owns in the settings box.
+  ///
+  /// One list so [hasGuestProgress] and [sweepDiscardedGuestData] can never
+  /// disagree about what "the guest's data" means - a key that counts as
+  /// progress worth offering to migrate but is not swept afterwards would
+  /// leave the offer coming back forever.
+  static const List<String> _guestSettingsKeys = [
+    guestDashboardKey,
+    guestCharacterKey,
+    guestPrestigeKey,
+    guestMatrixTasksKey,
+    guestMatrixQuadrantsKey,
+    guestCustomRewardsKey,
+    activeCatalogIdsKey,
+    activeCatalogActivatedAtKey,
+    activeCatalogArchivedAtKey,
+    activeCatalogStintHistoryKey,
+    catalogOverridesKey,
+    habitOrderKey,
+  ];
+
+  /// The same, for the habits box.
+  static const List<String> _guestHabitsKeys = [
+    guestCustomHabitsKey,
+    guestArchivedCustomHabitsKey,
+    guestCustomStintHistoryKey,
+  ];
+
+  /// Which catalog presets are switched on.
+  ///
+  /// These four live here rather than beside ActiveCatalogNotifier
+  /// (habit_plans.dart, where they are aliased) because they are NOT
+  /// guest-scoped like every `guest*Key` above: the same keys are what a
+  /// signed-in account's local-seed fallback reads. [hasGuestProgress] and
+  /// the migration both need them, and core cannot import a feature file.
+  static const String activeCatalogIdsKey = 'active_catalog_ids_v1';
+  static const String activeCatalogActivatedAtKey =
+      'active_catalog_activated_at_v1';
+  static const String activeCatalogArchivedAtKey =
+      'active_catalog_archived_at_v1';
+  static const String activeCatalogStintHistoryKey =
+      'active_catalog_stint_history_v1';
+
+  /// A person's edits to catalog presets, and their manual habit order.
+  /// Device-global for the same reason as the catalog keys above.
+  static const String catalogOverridesKey = 'catalog_habit_overrides_v1';
+  static const String habitOrderKey = 'habit_order';
+
+  /// When the guest data on this device should be deleted, ISO8601.
+  ///
+  /// Set once someone has ANSWERED the reconnect offer, either way, and
+  /// deliberately also on "yes": a migration writes to the user document
+  /// and eight subcollections, so it can fail partway, and deleting the
+  /// source on success would make that unrecoverable. Both answers get the
+  /// same grace period and the same retry path.
+  static const String guestDiscardAtKey = 'guest_discard_at_v1';
+
+  /// The accounts that have already answered the offer, so it stops being
+  /// asked. Per-uid rather than a single bool because one device can sign
+  /// into more than one account, and each of them is entitled to the offer
+  /// exactly once while the data is still there.
+  static const String guestReconnectDecidedKey =
+      'guest_reconnect_decided_uids_v1';
+
+  /// How long guest data outlives the answer. Their words: someone may sign
+  /// out, tap guest again, and expect to find it.
+  static const int guestDiscardGraceDays = 7;
+
+  /// Whether this device is holding guest progress right now.
+  ///
+  /// Guest data outlives the guest session: nothing deleted it when
+  /// someone registered, so it sat here indefinitely. That makes "were you
+  /// a guest?" the wrong question to ask anywhere outside guest mode -
+  /// guestModeProvider is already false by the time a guest reaches the
+  /// auth screen, since every path there clears it before navigating. This
+  /// asks the question that is still answerable: is there anything of
+  /// theirs left to lose.
+  ///
+  /// Deliberately cheap and shallow. It only proves data EXISTS, so a
+  /// caller can decide whether to say something about it; it never reads
+  /// or interprets any of it.
+  static Future<bool> hasGuestProgress() async {
+    final settings = await settingsBox();
+    for (final key in _guestSettingsKeys) {
+      if (_isNonEmpty(settings.get(key))) return true;
+    }
+    final habits = await habitsBox();
+    for (final key in _guestHabitsKeys) {
+      if (_isNonEmpty(habits.get(key))) return true;
+    }
+    // Completions and grid squares. Any stored day at all counts.
+    return (await dailyBox()).isNotEmpty;
+  }
+
+  static bool _isNonEmpty(Object? value) {
+    if (value is Map) return value.isNotEmpty;
+    if (value is List) return value.isNotEmpty;
+    return false;
+  }
+
+  /// Starts the grace period, unless one is already running.
+  ///
+  /// Not restarted on a second call on purpose: a person who answers "no",
+  /// then signs into a second account and answers "no" again, should not
+  /// keep pushing the deletion further out.
+  static Future<void> markGuestDataForDiscard(DateTime now) async {
+    final box = await settingsBox();
+    if (box.get(guestDiscardAtKey) is String) return;
+    await box.put(
+      guestDiscardAtKey,
+      now.add(const Duration(days: guestDiscardGraceDays)).toIso8601String(),
+    );
+  }
+
+  /// Cancels a running grace period. Called when someone re-enters guest
+  /// mode: they are plainly still using this data, so nothing should be
+  /// counting down on it.
+  static Future<void> clearGuestDiscardMark() async =>
+      (await settingsBox()).delete(guestDiscardAtKey);
+
+  /// The deadline, or null if nothing is counting down.
+  static Future<DateTime?> guestDiscardDeadline() async {
+    final raw = (await settingsBox()).get(guestDiscardAtKey);
+    return raw is String ? DateTime.tryParse(raw) : null;
+  }
+
+  /// Deletes the guest data if its grace period has run out.
+  ///
+  /// [inGuestMode] is a hard veto rather than something the caller is
+  /// trusted to check: this wipes the daily box, which a guest session is
+  /// actively reading and writing. Returns whether anything was deleted.
+  static Future<bool> sweepDiscardedGuestData({
+    required DateTime now,
+    required bool inGuestMode,
+  }) async {
+    if (inGuestMode) return false;
+    final deadline = await guestDiscardDeadline();
+    if (deadline == null || now.isBefore(deadline)) return false;
+    final settings = await settingsBox();
+    await settings.deleteAll(_guestSettingsKeys);
+    await (await habitsBox()).deleteAll(_guestHabitsKeys);
+    await (await dailyBox()).clear();
+    await settings.delete(guestDiscardAtKey);
+    await settings.delete(guestReconnectDecidedKey);
+    return true;
+  }
+
+  /// Whether [uid] has already answered the reconnect offer.
+  static Future<bool> hasDecidedReconnect(String uid) async {
+    final raw = (await settingsBox()).get(guestReconnectDecidedKey);
+    return raw is List && raw.contains(uid);
+  }
+
+  /// Records that [uid] has answered, so the offer stops.
+  static Future<void> markReconnectDecided(String uid) async {
+    final box = await settingsBox();
+    final raw = box.get(guestReconnectDecidedKey);
+    final decided = raw is List ? raw.whereType<String>().toSet() : <String>{};
+    if (!decided.add(uid)) return;
+    await box.put(guestReconnectDecidedKey, decided.toList());
+  }
+
   static Future<Box<dynamic>> settingsBox() => _open(GameConstants.boxSettings);
   static Future<Box<dynamic>> dailyBox() => _open(GameConstants.boxDailyLogs);
   static Future<Box<dynamic>> habitsBox() => _open(GameConstants.boxHabits);

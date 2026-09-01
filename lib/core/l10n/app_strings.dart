@@ -109,18 +109,99 @@ class S {
       : 'No account needed. Complete your first Quran, athkar, or focus win now.';
   String get guestLimitTitle =>
       isAr ? 'وصلت لحد التجربة' : "You've hit the guest limit";
-  // "keep your progress synced" was removed from this line deliberately:
-  // there is NO guest-to-account migration today (every notifier
-  // hard-branches on uid), so the account a guest creates starts empty and
-  // this sheet was promising the opposite at the exact moment it mattered.
-  // The fresh-start fact lives in [guestFreshStartWarning], shown alongside.
-  // If a real migration ships in 1.1, restore the promise then.
+  // "keep your progress synced" stays out of this line. The migration now
+  // exists (GuestMigrationService), but it is OFFERED rather than
+  // automatic, and it is offered after registration - so promising a sync
+  // here, before the account exists and before anyone has been asked,
+  // would still be describing something that has not happened. What does
+  // carry the fact is [guestFreshStartWarning], shown alongside.
   String get guestLimitBody => isAr
       ? 'التجربة كضيف تسمح بـ 3 عادات. أنشئ حسابًا مجانيًا لإضافة عدد غير محدود من العادات والمزامنة عبر أجهزتك.'
       : 'Guest mode is capped at 3 habits. A free account removes the cap and syncs across your devices.';
+  /// Rewritten when the reconnect offer shipped. This used to promise the
+  /// opposite ("does not carry over"), which was true at the time and is
+  /// now false in the one direction that matters: the offer is made right
+  /// after registration, so telling someone their progress is stranded
+  /// would talk them out of a choice the app is about to give them.
   String get guestFreshStartWarning => isAr
-      ? 'الحساب الجديد يبدأ من الصفر: تقدمك كضيف يبقى على هذا الجهاز ولا ينتقل إلى الحساب.'
-      : 'A new account starts fresh: your guest progress stays on this device and does not carry over.';
+      ? 'تقدمك كضيف يبقى على هذا الجهاز. بعد ما تسوي الحساب بنسألك إذا تبي تنقله.'
+      : "Your guest progress stays on this device. Once the account is made, we'll ask if you want to bring it over.";
+  // ── Guest reconnect ──────────────────────────────────────────────────
+  //
+  // The offer made once, right after a guest registers, and again from the
+  // Profile banner while their local data is still alive. Bahraini rather
+  // than MSA throughout, per the app's own Gulf voice.
+
+  String get reconnectTitle =>
+      isAr ? 'تبي ننقل تقدمك معاك؟' : 'Bring your progress with you?';
+
+  /// Names the data back rather than describing it abstractly.
+  ///
+  /// This is the whole safety mechanism for a shared or handed-down phone:
+  /// only the person holding it can tell whether "level 22, 140 days" is
+  /// theirs, and they cannot tell from "bring your progress over?". See
+  /// GuestSnapshot's doc comment.
+  String reconnectFound(int habits, int days, int level) => isAr
+      ? 'لقينا على هذا الجهاز: ${habitsCount(habits)}، ${daysInSentence(days)}، المستوى $level.'
+      : 'Found on this device: ${habitsCount(habits)}, ${daysInSentence(days)}, level $level.';
+
+  String get reconnectNotYours => isAr
+      ? 'إذا هذا مو تقدمك، اختر «ابدأ من جديد».'
+      : "If this isn't yours, choose Start fresh.";
+
+  String get reconnectKeep => isAr ? 'انقلها لحسابي' : 'Bring it over';
+  String get reconnectFresh => isAr ? 'ابدأ من جديد' : 'Start fresh';
+  String get reconnectWorking => isAr ? 'نننقل تقدمك...' : 'Moving your progress...';
+  String get reconnectDone =>
+      isAr ? 'تم. تقدمك صار بحسابك.' : 'Done. Your progress is on your account.';
+
+  /// Deliberately not phrased as a plain failure: nothing was lost, the
+  /// local copy is untouched, and the retry is a real one (the migration
+  /// is idempotent). Saying "try again" without saying the data is still
+  /// there would read as "you lost it".
+  String get reconnectPartial => isAr
+      ? 'جزء منه ما انتقل. نسختك على الجهاز لا زالت موجودة، وتقدر تعيد المحاولة من ملفك.'
+      : "Some of it didn't move. Your copy on this device is still there, and you can try again from your profile.";
+
+  /// How long the guest copy sticks around after either answer, said where
+  /// it changes what someone would do.
+  String reconnectGrace(int days) => isAr
+      ? 'نسختك على الجهاز تنحذف بعد ${daysInSentence(days)}.'
+      : 'Your copy on this device is deleted in ${daysInSentence(days)}.';
+
+  // Profile banner — the second chance, for the misclick and the change of
+  // mind. Only ever shown while the local data is still alive.
+  String get reconnectBannerTitle => isAr
+      ? 'عندك تقدم كضيف على هذا الجهاز'
+      : 'You still have guest progress on this device';
+  String reconnectBannerBody(int days) => isAr
+      ? 'تقدر تنقله لحسابك. بينحذف بعد ${daysInSentence(days)}.'
+      : 'You can still bring it over. It is deleted in ${daysInSentence(days)}.';
+  String get reconnectBannerDismiss => isAr ? 'مو الحين' : 'Not now';
+
+  /// The day count as it reads INSIDE a sentence.
+  ///
+  /// [daysCount] is a standalone label ("3 Days" under a stat), so its
+  /// English form is capitalised and always plural. Dropped mid-sentence
+  /// that gives "deleted in 1 Days". Arabic needs no separate form - it
+  /// has no capitalisation and [daysCount] already handles the dual and
+  /// the 3-10/11+ splits - so this only diverges for English.
+  String daysInSentence(int n) =>
+      isAr ? daysCount(n) : (n == 1 ? '1 day' : '$n days');
+
+  /// Arabic counts habits the same way [daysCount] counts days — the
+  /// dual, the 3-10 plural and the 11+ singular-accusative are all
+  /// different words, so a bare '$n عادات' is wrong for most numbers.
+  String habitsCount(int n) {
+    if (!isAr) return n == 1 ? '1 habit' : '$n habits';
+    if (n == 0) return 'لا عادات';
+    if (n == 1) return 'عادة وحدة';
+    if (n == 2) return 'عادتين';
+    final mod100 = n % 100;
+    if (mod100 >= 3 && mod100 <= 10) return '$n عادات';
+    return '$n عادة';
+  }
+
   String get guestLimitCta => isAr ? 'إنشاء حساب مجاني' : 'Create free account';
   String get guestLimitMaybeLater => isAr ? 'ربما لاحقاً' : 'Maybe later';
 

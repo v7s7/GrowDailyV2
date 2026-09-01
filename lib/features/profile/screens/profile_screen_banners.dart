@@ -95,6 +95,118 @@ class _LoadFailedBannerState extends ConsumerState<_LoadFailedBanner> {
 /// live streak and hasn't finished today's habits yet (streak means a full
 /// 100% day — see [DashboardState.streakEarnedToday]), warn them warmly.
 /// Disappears the moment today's streak point is earned.
+/// The second chance at the reconnect offer.
+///
+/// A modal sheet is shown exactly once, straight after registration, and
+/// that is the right place for it - but a single modal is a bad place to
+/// put an irreversible choice. Someone taps the wrong button, or says no
+/// and thinks better of it ten minutes later, and there is otherwise no
+/// route back: the data is still sitting on the device but the only way
+/// to reach it would be signing out and guessing that guest mode still
+/// holds it.
+///
+/// Shows only while the local copy is actually still there, and disappears
+/// the moment it is migrated, declined-and-expired, or swept. Dismissing
+/// is per-visit rather than persisted, since the countdown in the copy is
+/// the thing that eventually ends it.
+class _GuestReconnectBanner extends ConsumerStatefulWidget {
+  const _GuestReconnectBanner();
+
+  @override
+  ConsumerState<_GuestReconnectBanner> createState() =>
+      _GuestReconnectBannerState();
+}
+
+class _GuestReconnectBannerState
+    extends ConsumerState<_GuestReconnectBanner> {
+  bool _dismissed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
+    final offer = ref.watch(guestReconnectOfferProvider).asData?.value;
+    if (offer == null) return const SizedBox.shrink();
+
+    final gp = context.gp;
+    final s = S.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: GameColors.gold.withOpacity(gp.dark ? 0.10 : 0.08),
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: GameColors.gold.withOpacity(0.4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.cloud_upload_rounded,
+                    color: GameColors.gold, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        s.reconnectBannerTitle,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: gp.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        s.reconnectBannerBody(offer.daysLeft),
+                        style: TextStyle(
+                            fontSize: 12, color: gp.textSec, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Stacked, not a Row, and that is a constraint rather than a
+            // taste call: this app's FilledButton theme sets
+            // `minimumSize: Size(double.infinity, 52)` (game_theme.dart),
+            // so every filled button demands the full width it is offered.
+            // A Row lays non-flex children out with an UNBOUNDED main
+            // axis, so that minimum resolves to a literally infinite
+            // width and layout throws - which takes the whole Profile
+            // screen down with it, not just this card. Every other filled
+            // button in the app is wrapped exactly like this (see
+            // guest_limit_sheet.dart).
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () async {
+                  await showReconnectGuestSheet(context, ref, offer.uid);
+                  if (!mounted) return;
+                  ref.invalidate(guestReconnectOfferProvider);
+                },
+                child: Text(s.reconnectKeep),
+              ),
+            ),
+            Center(
+              child: TextButton(
+                onPressed: () => setState(() => _dismissed = true),
+                child: Text(
+                  s.reconnectBannerDismiss,
+                  style: TextStyle(color: gp.textSec),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _StreakAtRiskBanner extends ConsumerWidget {
   const _StreakAtRiskBanner();
 

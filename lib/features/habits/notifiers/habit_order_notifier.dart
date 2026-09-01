@@ -24,7 +24,7 @@ class HabitOrderNotifier extends StateNotifier<Map<String, double>> {
     }
   }
 
-  static const String _kGuestKey = 'habit_order';
+  static const String _kGuestKey = LocalStoreService.habitOrderKey;
 
   DocumentReference<Map<String, dynamic>> get _userRef =>
       FirebaseFirestore.instance.collection('users').doc(_uid);

@@ -15,6 +15,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../auth/notifiers/guest_reconnect_provider.dart';
+import '../../auth/widgets/reconnect_guest_sheet.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/game_theme.dart';

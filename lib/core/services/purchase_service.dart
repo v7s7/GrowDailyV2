@@ -82,9 +82,29 @@ class PurchaseOutcome {
 ///    In-App Purchase (RevenueCat's own install docs call this out
 ///    explicitly; it's a 10-second toggle, not something worth hand-
 ///    editing project.pbxproj for).
+///
+/// ── The Android half of the same setup (still outstanding) ──
+/// 7. In Play Console, create the app under package `com.growdaily.v2` and
+///    upload a build to any track. Play will not let you create products
+///    until a release with the Billing library in it has been uploaded
+///    once, so this genuinely has to come first.
+/// 8. Create the two products, mirroring step 3 but in Play's own model:
+///    `growdaily_monthly` as a Subscription with a single base plan, and
+///    `growdaily_lifetime` as a one-time In-app product. Play has no
+///    "non-consumable" toggle - a one-time product simply is not consumed
+///    unless the app consumes it, and this app never does.
+/// 9. In RevenueCat, add a Play Store app to the SAME project, upload the
+///    Google Cloud service-account JSON it asks for (that credential is
+///    what lets RevenueCat verify Play receipts server-side), then attach
+///    both new products to the SAME [entitlementId] entitlement and the
+///    same default Offering used for iOS. Reusing one entitlement is what
+///    makes Premium bought on one platform recognised on the other.
+/// 10. Copy the Android public API key (`goog_...`) into [_androidApiKey].
+///
 /// Until a real key is in place, [configure] deliberately no-ops (see
 /// [isConfigured]) so the app still boots and PremiumScreen shows an
-/// honest "not available yet" state instead of crashing.
+/// honest "not available yet" state instead of crashing. That is currently
+/// the state on Android, by design, until step 10 is done.
 class PurchaseService {
   PurchaseService._();
   static final instance = PurchaseService._();
@@ -108,6 +128,37 @@ class PurchaseService {
   /// safe.
   static const String _iosApiKey = 'appl_aGGLOTfxUScNrQwyIcetVUvyDRW';
 
+  /// RevenueCat **Android** API key (`goog_` prefix), from the same
+  /// RevenueCat project -> Project Settings -> API keys, but issued only
+  /// once a Play Store app has been added to that project.
+  ///
+  /// Deliberately empty, not a guess: unlike the iOS key above, this string
+  /// cannot be known until the one-time Play setup in the class doc comment
+  /// is done. While it is empty [configure] no-ops on Android exactly as it
+  /// used to before a real iOS key existed, so PremiumScreen shows its
+  /// honest "not available yet" state rather than an empty paywall - see
+  /// [isConfigured].
+  ///
+  /// Filling this in is the ONLY code change the Android paywall needs; the
+  /// offering/entitlement/package wiring below is platform-agnostic and
+  /// already correct.
+  static const String _androidApiKey = '';
+
+  /// The key for the platform this build is running on, or null where
+  /// purchases are not supported at all (web).
+  ///
+  /// This replaced a hard `if (kIsWeb || !Platform.isIOS) return;` in
+  /// [configure]. That line predated the Android project existing and meant
+  /// RevenueCat was never configured on Android under any circumstances -
+  /// so every Android user saw "not available yet" no matter how complete
+  /// the store setup was, and Premium could not be sold at all.
+  static String? get _apiKeyForPlatform {
+    if (kIsWeb) return null;
+    if (Platform.isIOS) return _iosApiKey;
+    if (Platform.isAndroid) return _androidApiKey;
+    return null;
+  }
+
   bool _configured = false;
 
   /// Whether [configure] actually initialized the SDK - false until a real
@@ -130,21 +181,25 @@ class PurchaseService {
   /// able to crash app launch for every user.
   Future<void> configure() async {
     if (_configured) return;
-    if (kIsWeb || !Platform.isIOS) return; // iOS-only for now, see pubspec.
-    if (_iosApiKey.isEmpty) return; // safety net, not expected in practice
+    final apiKey = _apiKeyForPlatform;
+    // Null on web (no store at all); empty on Android until [_androidApiKey]
+    // is filled in. Both mean "no store integration here", which is a
+    // supported state, not an error - PremiumScreen reads [isConfigured].
+    if (apiKey == null || apiKey.isEmpty) return;
     try {
       if (kDebugMode) await Purchases.setLogLevel(LogLevel.debug);
-      await Purchases.configure(PurchasesConfiguration(_iosApiKey));
+      await Purchases.configure(PurchasesConfiguration(apiKey));
       Purchases.addCustomerInfoUpdateListener(_customerInfoController.add);
       _configured = true;
       // Loud, debug-only reminder so a Test Store key never quietly rides
-      // along into a release build - see [_iosApiKey]'s doc comment.
-      if (kDebugMode && _iosApiKey.startsWith('test_')) {
+      // along into a release build - see [_iosApiKey]'s doc comment. Checks
+      // the key actually in use, so it covers the Android key too.
+      if (kDebugMode && apiKey.startsWith('test_')) {
         debugPrint(
           '⚠️ PurchaseService: configured with a RevenueCat TEST STORE key. '
-          'Purchases are simulated - no real money, no real App Store '
-          'prices. Swap _iosApiKey for the appl_... production key before '
-          'shipping to TestFlight/the App Store.',
+          'Purchases are simulated - no real money, no real store prices. '
+          'Swap in the production key (appl_... on iOS, goog_... on '
+          'Android) before shipping to TestFlight/Play.',
         );
       }
     } catch (e) {

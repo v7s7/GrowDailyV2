@@ -52,7 +52,7 @@
 <body>
 
 <h1>GrowDaily Privacy Policy</h1>
-<p class="updated">Last updated: August 19, 2026</p>
+<p class="updated">Last updated: September 1, 2026</p>
 
 <p>This policy explains what information GrowDaily ("the app", "we") collects, how it's used, and the choices you have. GrowDaily is an Islamic habit-tracking app. We built it around a simple principle: no ads, and we never sell your data.</p>
 
@@ -62,9 +62,9 @@
 
 <p><strong>Habit and progress data.</strong> The habits you track, your daily completions, streaks, XP, gold, focus plans, and similar in-app progress are stored under your account in Cloud Firestore (also a Google/Firebase service) so your data syncs across your devices. A copy is also cached locally on your device for offline use.</p>
 
-<p><strong>Purchase information.</strong> If you subscribe to or purchase GrowDaily Premium, the purchase is processed entirely by Apple's App Store. We use RevenueCat to confirm your subscription status with Apple. GrowDaily and RevenueCat never see or store your card details — only Apple does.</p>
+<p><strong>Purchase information.</strong> If you subscribe to or purchase GrowDaily Premium, the purchase is processed entirely by your platform's own app store: Apple's App Store on iPhone and iPad, or Google Play on Android. We use RevenueCat to confirm your purchase status with that store. GrowDaily and RevenueCat never see or store your card details, only the store does.</p>
 
-<p><strong>Prayer-time location (optional).</strong> Prayer times need to know where you are. You can either type a city name, or let the app detect your location. If you choose detection, the app asks iOS for permission and then reads your device's location from GPS. Those coordinates are used to calculate prayer times, are saved to your account so your reminders stay correct across your devices, and are sent to two third-party services for that purpose: Aladhan (prayer-time calculation) and BigDataCloud (turning coordinates into a country, so the app picks the calculation method your country uses). If you type a city name instead, it is sent to Open-Meteo to be resolved into coordinates. The whole feature is optional: if you never enable prayer-time reminders, no location of any kind is requested, read, or stored. You can revoke location permission at any time in iOS Settings.</p>
+<p><strong>Prayer-time location (optional).</strong> Prayer times need to know where you are. You can either type a city name, or let the app detect your location. If you choose detection, the app asks your device for permission and then reads your location from GPS. Those coordinates are used to calculate prayer times, are saved to your account so your reminders stay correct across your devices, and are sent to two third-party services for that purpose: Aladhan (prayer-time calculation) and BigDataCloud (turning coordinates into a country, so the app picks the calculation method your country uses). If you type a city name instead, it is sent to Open-Meteo to be resolved into coordinates. The whole feature is optional: if you never enable prayer-time reminders, no location of any kind is requested, read, or stored. You can revoke location permission at any time in your device settings: Settings on iPhone and iPad, or Settings then Apps then Grow Daily then Permissions on Android.</p>
 
 <p><strong>Voice notes (optional).</strong> If you record a voice note on a task, the recording is stored inside that task's record in Cloud Firestore, alongside the rest of your task data, so it syncs to your other devices the same way everything else does. It is private to your account: no other user can access it, and it is not shared with anyone. Deleting the note, or the task, deletes the recording with it.</p>
 
@@ -72,7 +72,7 @@
 
 <p><strong>Religious practice.</strong> Because GrowDaily is an Islamic habit app, the habits you track (for example صلاة, أذكار, or Qur'an reading) can indicate religious practice. That information is stored under your account like any other habit data, and is visible to other people only through Rooms you choose to join, as described above.</p>
 
-<p><strong>Notifications.</strong> If you allow notifications, Apple issues your device a push token, which we store under your account so we can send Room activity notifications to the right device. Removing the app or turning notifications off stops this.</p>
+<p><strong>Notifications.</strong> If you allow notifications, your platform issues your device a push token (Apple on iPhone and iPad, Google's Firebase Cloud Messaging on Android), which we store under your account so we can send Room activity notifications to the right device. Removing the app or turning notifications off stops this.</p>
 
 <p><strong>Diagnostics and usage.</strong> The app uses Firebase Crashlytics to report crashes and Firebase Analytics to record which features are used. This is aggregate product information tied to your account identifier, not to your name or email, and it is not used for advertising.</p>
 
@@ -83,12 +83,12 @@
 <p>GrowDaily relies on the following third-party services to operate, each of which processes a limited slice of your data as described above:</p>
 <ul>
   <li><strong>Firebase</strong> (Google) — account authentication, app data storage, push notification delivery, crash reporting, and usage analytics.</li>
-  <li><strong>Apple App Store</strong> — processes all payments; GrowDaily never handles your payment details directly.</li>
-  <li><strong>RevenueCat</strong> — confirms subscription/purchase status with Apple on our behalf.</li>
+  <li><strong>Apple App Store and Google Play</strong> — process all payments; GrowDaily never handles your payment details directly.</li>
+  <li><strong>RevenueCat</strong> — confirms subscription/purchase status with Apple or Google on our behalf.</li>
   <li><strong>Aladhan</strong> — calculates prayer times from your coordinates, if you use prayer-time reminders.</li>
   <li><strong>BigDataCloud</strong> — turns coordinates into a country so the app can pick the prayer-time calculation method used there.</li>
   <li><strong>Open-Meteo</strong> — resolves a typed city name into coordinates, if you enter a city instead of using location detection.</li>
-  <li><strong>Google Fonts</strong> — the app downloads its typefaces from Google's font service the first time you run it, which means Google receives your device's IP address at that moment.</li>
+  
 </ul>
 
 <h2>Data Storage and Security</h2>

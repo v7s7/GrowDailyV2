@@ -237,6 +237,7 @@ dev_dependencies:
   # ────────────────────────────────────────────────────────────
   flutter_launcher_icons: ^0.14.1
   flutter_native_splash: ^2.4.1
+  fake_cloud_firestore: ^3.1.0
 
 flutter:
   uses-material-design: true
@@ -265,15 +266,46 @@ flutter:
 #   dart run flutter_launcher_icons
 flutter_launcher_icons:
   image_path: "assets/images/icon_app.png"
-  ios: true
-  # Flip this back to true once `flutter create --platforms=android .` has
-  # been run — right now there's no android/ folder, and this package hard
-  # crashes (rather than skipping gracefully) if android: true with no
-  # AndroidManifest.xml to write into, which meant the run that included
-  # this config never even got to the iOS icons below it.
-  android: false
+  # ios: false, and it must STAY false. flutter_launcher_icons 0.14.4
+  # corrupts the Xcode project on every iOS run: it rewrites
+  #   ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS
+  #   ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME       (AccentColor)
+  #   ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME   (WidgetBackground)
+  # in both build configurations to the literal string "AppIcon", which
+  # breaks the accent colour and the widget extension's background colour
+  # (see ios/WIDGET_SETUP.md) - the widgets render on the wrong ground.
+  # Observed and reverted while wiring up Android, not theoretical.
+  #
+  # The iOS icons are already generated and committed under
+  # ios/Runner/Assets.xcassets, so nothing is lost by leaving this off. If
+  # icon_app.png ever changes, flip this to true for ONE run, then check
+  # `git diff ios/Runner.xcodeproj/project.pbxproj` and revert those three
+  # settings by hand before committing.
+  ios: false
+  # `flutter create --platforms=android .` has now been run, so there is an
+  # AndroidManifest.xml to write into and this can finally be true.
+  android: true
+  # Adaptive icon (API 26+, i.e. effectively every device above this app's
+  # minSdk 24). Without these two keys the launcher gets only the legacy
+  # square bitmap and modern launchers letterbox or crop it badly.
+  #
+  # Background is the flat brand green sampled from icon_app.png itself
+  # (RGB 14,106,75). Foreground is the gold seedling alone on transparency,
+  # generated from that same source and inset to Android's 66.7% safe zone
+  # so a circular mask cannot clip the leaves — regenerate it by running
+  # tool/icons/make_adaptive_foreground.py if the app icon ever changes,
+  # then re-running this generator. It lives under tool/
+  # rather than assets/ on purpose: it is build-time input for this
+  # generator, not a runtime asset, and assets/images/ is bundled wholesale
+  # into the shipped app.
+  adaptive_icon_background: "#0E6A4B"
+  adaptive_icon_foreground: "tool/icons/icon_adaptive_foreground.png"
   remove_alpha_ios: true # iOS icons must not have transparency
-  min_sdk_android: 21
+  # 26, matching the minSdk set in android/app/build.gradle.kts (see the
+  # comment there for why the floor is above what the dependencies require).
+  # Was 21, which no build ever honoured since Android icons were not being
+  # generated at all. At 26 every target device supports adaptive icons.
+  min_sdk_android: 26
 
 # ── Native splash screen ─────────────────────────────────────────
 # Run once (and again any time splash_background.png changes):
@@ -281,6 +313,28 @@ flutter_launcher_icons:
 flutter_native_splash:
   color: "#FEFAF0"
   image: assets/images/splash_background.png
+  # Android only, for the same reason flutter_launcher_icons is above: an
+  # iOS run rewrites ios/Runner/Info.plist wholesale (re-indenting all ~170
+  # lines around a single UIStatusBarHidden change) and a web run rewrites
+  # web/index.html. The iOS splash assets are already generated and
+  # committed, so regenerating them only produces churn in a working,
+  # shipping iOS project.
+  ios: false
+  web: false
   android_12:
     color: "#FEFAF0"
-    image: assets/images/splash_background.png
+    # A SQUARE icon, not the full-screen splash_background.png the
+    # pre-12 splash uses.
+    #
+    # Android 12+ does not draw a full-bleed splash image at all: it drops
+    # whatever you give windowSplashScreenAnimatedIcon into a fixed 288dp
+    # icon slot. Handing it the 853x1844 portrait background made Android
+    # squash that 1:2.16 image into a square slot, and the four rounded
+    # tiles of the mark rendered as visibly stretched horizontal bars.
+    # Confirmed on an Android 16 emulator before this was changed.
+    #
+    # This image is the mark alone, lifted out of splash_background.png and
+    # squared about its own centre, on transparency (the cream comes from
+    # `color` above). Regenerate with
+    # tool/icons/make_android12_splash.py if the splash art changes.
+    image: tool/icons/splash_android12_icon.png

@@ -40,8 +40,32 @@ class HomeWidgetService {
 
   static const _pendingKey = 'pendingWidgetCompletions';
 
+  /// Whether this build has real home screen widgets to feed.
+  ///
+  /// iOS only. The widgets are native SwiftUI (see ios/WIDGET_SETUP.md) and
+  /// the first Android release ships without them, so on Android there is
+  /// no AppWidgetProvider for the plugin to find.
+  ///
+  /// This guard is not merely cosmetic. home_widget's Android implementation
+  /// resolves `updateWidget`'s target as
+  /// `Class.forName("<package>.${androidName ?? name}")`; every call in this
+  /// class passes `iOSName:` only, so on Android that resolves against a
+  /// null class name, throws ClassNotFoundException, and comes back as a
+  /// PlatformException. The try/catch in each method already swallowed it,
+  /// but updateWidgetData is driven by ref.listenManual on
+  /// dashboardProvider - so without this the app paid for a platform-channel
+  /// round trip plus a thrown-and-caught exception on every single habit
+  /// completion, and logged a scary line each time.
+  ///
+  /// Uses `defaultTargetPlatform` rather than `dart:io`'s `Platform` for the
+  /// same reason game_nav_bar.dart documents: it is const-foldable, works
+  /// under `flutter test` without a host platform, and does not drag in
+  /// dart:io on a file that also has to compile for web.
+  static bool get _supported =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
   Future<void> init() async {
-    if (kIsWeb) return;
+    if (!_supported) return;
     await HomeWidget.setAppGroupId(_appGroupId);
   }
 
@@ -66,7 +90,7 @@ class HomeWidgetService {
     required List<({String id, String name, bool done})> todayHabits,
     required Map<String, int> dailyGreenCounts,
   }) async {
-    if (kIsWeb) return;
+    if (!_supported) return;
     try {
       await HomeWidget.saveWidgetData<int>('streak', streak);
       await HomeWidget.saveWidgetData<int>('level', level);
@@ -169,7 +193,7 @@ class HomeWidgetService {
             })>
         rows = const [],
   }) async {
-    if (kIsWeb) return;
+    if (!_supported) return;
     try {
       await HomeWidget.saveWidgetData<String>(
         'roomRaceJson',
@@ -211,7 +235,7 @@ class HomeWidgetService {
   /// main.dart's app-resume handling. Clears the queue as it reads it, so a
   /// habit can't get double-credited if this runs twice.
   Future<List<String>> takePendingCompletions() async {
-    if (kIsWeb) return const [];
+    if (!_supported) return const [];
     try {
       return await _takeQueue(_pendingKey);
     } catch (e) {
@@ -314,7 +338,7 @@ class HomeWidgetService {
     // MatrixEntry.doneToday in GrowDailyWidget.swift.
     required int doneTodayCount,
   }) async {
-    if (kIsWeb) return;
+    if (!_supported) return;
     try {
       await HomeWidget.saveWidgetData<int>(
         'matrixDoneTodayCount',
@@ -361,7 +385,7 @@ class HomeWidgetService {
   /// is actually open. Clears the queue as it reads it, same double-credit
   /// guard as the habit version.
   Future<List<String>> takePendingTaskCompletions() async {
-    if (kIsWeb) return const [];
+    if (!_supported) return const [];
     try {
       return await _takeQueue(_pendingTaskKey);
     } catch (e) {
