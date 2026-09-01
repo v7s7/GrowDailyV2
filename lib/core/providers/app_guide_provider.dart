@@ -55,7 +55,7 @@ String appGuideLessonSubtitle(AppGuideLesson lesson, bool isAr) =>
       // The core loop, and the reason the app exists — worded as the promise
       // rather than the mechanic.
       AppGuideLesson.colorSquare =>
-        isAr ? 'هذي هي اللعبة كلها' : 'This is the whole thing',
+        isAr ? 'هذه هي اللعبة كلها' : 'This is the whole thing',
       AppGuideLesson.addTask =>
         isAr ? 'رتّب يومك في أربع خانات' : 'Sort your day into four boxes',
       AppGuideLesson.discoverRooms =>

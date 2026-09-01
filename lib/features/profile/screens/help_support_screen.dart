@@ -180,7 +180,7 @@ const List<FaqEntry> kFaqEntries = [
     answerEn:
         'As a guest you can try the app with up to 3 habits, but everything stays on this one device. A free account raises that to 10 habits and backs up your progress. Premium removes the habit limit entirely and unlocks your full history, deeper insights, extra themes, and voice notes.',
     answerAr:
-        'كضيف يمكنك تجربة التطبيق بحتى 3 عادات، لكن كل شيء يبقى على هذا الجهاز فقط. الحساب المجاني يرفع الحد إلى 10 عادات ويحفظ نسخة من تقدّمك. الاشتراك المميز يزيل حد العادات تمامًا ويفتح سجلّك الكامل، رؤى أعمق، سمات إضافية، وملاحظات صوتية.',
+        'كضيف يمكنك تجربة التطبيق بـ 3 عادات، لكن كل شيء يبقى على هذا الجهاز فقط. الحساب المجاني يرفع الحد إلى 10 عادات ويحفظ نسخة من تقدّمك. الاشتراك المميز يزيل حد العادات تمامًا ويفتح سجلّك الكامل، رؤى أعمق، سمات إضافية، وملاحظات صوتية.',
   ),
   FaqEntry(
     questionEn: 'Why isn\'t my prayer-time reminder going off?',

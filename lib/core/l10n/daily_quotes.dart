@@ -51,8 +51,19 @@ class DailyQuote {
 /// The rotation. Roughly a month long, so a daily line does not repeat inside
 /// the same month.
 ///
-/// Arabic is Bahraini/Gulf, matching the app's newer copy rather than the older
-/// MSA it still carries in places. Order is not meaningful: [quoteForDay] walks
+/// Arabic here is EASY SPOKEN Arabic, not Modern Standard. Aziz chose every
+/// line in this list himself on 2026-09-01, so treat the wording as settled
+/// and do not "correct" it toward MSA: اللي, شي, مو, عشان, خلّها and تسويه are
+/// all deliberate, because they are how the sentence is actually said and are
+/// understood far beyond the Gulf.
+///
+/// Two things he did change, and they are the rule for new lines: spell it
+/// باجر, never باچر, because چ is not a letter most readers can scan; and take
+/// the plainer word where it genuinely reads better (أفضل over أحسن, ما تصبح
+/// عليه over اللي يصير أنت, لا يهم كم قطعت over ما يهم شقد رحت).
+///
+/// The hadith and the two proverbs below are quoted, not written for this app,
+/// so they keep their own wording. Order is not meaningful: [quoteForDay] walks
 /// the list one entry per day, so appending is always safe, and inserting in
 /// the middle only shifts which day shows what.
 const List<DailyQuote> kDailyQuotes = [
@@ -61,7 +72,7 @@ const List<DailyQuote> kDailyQuotes = [
     en: 'Your habits build you.',
   ),
   DailyQuote(
-    ar: 'لمن تغيّر عاداتك، كل شي يتغيّر.',
+    ar: 'يوم تغيّر عاداتك، كل شي يتغيّر.',
     en: 'When you change your habits, everything shifts.',
   ),
   DailyQuote(
@@ -91,15 +102,15 @@ const List<DailyQuote> kDailyQuotes = [
     en: 'You do not need to be perfect. You need to keep going.',
   ),
   DailyQuote(
-    ar: 'يوم واحد ما يغيّر شي، بس الأيام كلها تغيّر كل شي.',
-    en: 'One day changes nothing. All the days change everything.',
+    ar: 'يوم واحد ما بيغيّر شي، بس الاستمرارية تغيّر كل شي.',
+    en: 'One day changes nothing. Consistency changes everything.',
   ),
   DailyQuote(
-    ar: 'ابدأ صغير، بس ابدأ اليوم.',
+    ar: 'ابدأ بشيء صغير، لكن ابدأ اليوم.',
     en: 'Start small, but start today.',
   ),
   DailyQuote(
-    ar: 'اللي يفوتك اليوم ترجعه باچر، المهم ما توقف.',
+    ar: 'اللي يفوتك اليوم ترجعه باجر، المهم ما توقف.',
     en: 'What you miss today you pick up tomorrow. What matters is not stopping.',
   ),
   DailyQuote(
@@ -107,7 +118,7 @@ const List<DailyQuote> kDailyQuotes = [
     en: 'Progress is not a straight line.',
   ),
   DailyQuote(
-    ar: 'عاداتك هي اللي تقرر شكل سنتك.',
+    ar: 'عاداتك هي التي تحدد شكلك.',
     en: 'Your habits decide what your year looks like.',
   ),
   DailyQuote(
@@ -115,11 +126,11 @@ const List<DailyQuote> kDailyQuotes = [
     en: 'Discipline tastes better than regret.',
   ),
   DailyQuote(
-    ar: 'مربّع واحد اليوم أحسن من خطة كاملة باچر.',
+    ar: 'مربّع واحد اليوم أفضل من خطة كاملة باجر.',
     en: 'One square today beats a perfect plan tomorrow.',
   ),
   DailyQuote(
-    ar: 'اللي تسويه كل يوم هو اللي يصير أنت.',
+    ar: 'ما تفعله كل يوم هو ما تصبح عليه.',
     en: 'What you do every day is what you become.',
   ),
   DailyQuote(
@@ -159,7 +170,7 @@ const List<DailyQuote> kDailyQuotes = [
     en: 'Plant every day, harvest every year.',
   ),
   DailyQuote(
-    ar: 'ما يهم شقد رحت بعيد، يهم إنك ما وقفت.',
+    ar: 'لا يهم كم قطعت من المسافة، المهم أنك لم تتوقف.',
     en: 'It is not how far you got. It is that you did not stop.',
   ),
 ];

@@ -124,7 +124,7 @@ class S {
   /// after registration, so telling someone their progress is stranded
   /// would talk them out of a choice the app is about to give them.
   String get guestFreshStartWarning => isAr
-      ? 'تقدمك كضيف يبقى على هذا الجهاز. بعد ما تسوي الحساب بنسألك إذا تبي تنقله.'
+      ? 'تقدمك كضيف يبقى على هذا الجهاز، وبنسألك بعد ما تسوي الحساب إذا تبي تنقله.'
       : "Your guest progress stays on this device. Once the account is made, we'll ask if you want to bring it over.";
   // ── Guest reconnect ──────────────────────────────────────────────────
   //
@@ -133,7 +133,7 @@ class S {
   // than MSA throughout, per the app's own Gulf voice.
 
   String get reconnectTitle =>
-      isAr ? 'تبي ننقل تقدمك معاك؟' : 'Bring your progress with you?';
+      isAr ? 'ننقل تقدمك معاك؟' : 'Bring your progress with you?';
 
   /// Names the data back rather than describing it abstractly.
   ///
@@ -151,16 +151,16 @@ class S {
 
   String get reconnectKeep => isAr ? 'انقلها لحسابي' : 'Bring it over';
   String get reconnectFresh => isAr ? 'ابدأ من جديد' : 'Start fresh';
-  String get reconnectWorking => isAr ? 'نننقل تقدمك...' : 'Moving your progress...';
+  String get reconnectWorking => isAr ? 'ننقل تقدمك...' : 'Moving your progress...';
   String get reconnectDone =>
-      isAr ? 'تم. تقدمك صار بحسابك.' : 'Done. Your progress is on your account.';
+      isAr ? 'تم. تقدمك الآن في حسابك.' : 'Done. Your progress is on your account.';
 
   /// Deliberately not phrased as a plain failure: nothing was lost, the
   /// local copy is untouched, and the retry is a real one (the migration
   /// is idempotent). Saying "try again" without saying the data is still
   /// there would read as "you lost it".
   String get reconnectPartial => isAr
-      ? 'جزء منه ما انتقل. نسختك على الجهاز لا زالت موجودة، وتقدر تعيد المحاولة من ملفك.'
+      ? 'جزء منه ما انتقل. نسختك على الجهاز باقية، وتقدر تعيد المحاولة من ملفك.'
       : "Some of it didn't move. Your copy on this device is still there, and you can try again from your profile.";
 
   /// How long the guest copy sticks around after either answer, said where
@@ -295,7 +295,7 @@ class S {
   String get statsUnavailableTitle =>
       isAr ? 'ما قدرنا نجيب تقدمك' : "Couldn't load your progress";
   String get statsUnavailableBody => isAr
-      ? 'أرقامك محفوظة كلها، بس ما وصلت لهذا الجهاز. تأكد من الاتصال وجرب مرة ثانية.'
+      ? 'أرقامك محفوظة كلها، لكن ما وصلت لهذا الجهاز. تأكد من الاتصال وجرب مرة ثانية.'
       : 'All your numbers are safe, they just have not reached this device. Check your connection and try again.';
   String get statsUnavailableRetry => isAr ? 'جرب مرة ثانية' : 'Retry';
 
@@ -443,7 +443,7 @@ class S {
   /// Deliberately the colloquial form rather than 'التالي' — it's the one
   /// label on the screen that names a *moment* rather than a stat, and the
   /// Gulf phrasing carries that without addressing anyone.
-  String get achievementsNextUp => isAr ? 'اللي جاي' : 'Next up';
+  String get achievementsNextUp => isAr ? 'القادم' : 'Next up';
 
   /// The gap left to an achievement's threshold — the single most useful
   /// number on the screen, and the one the old layout made you work out
@@ -1168,7 +1168,7 @@ class S {
   /// kMaxHabitOffsetMinutes. Says the ceiling rather than just refusing:
   /// a disabled button with no reason is a puzzle.
   String get habitOffsetTooLarge => isAr
-      ? 'أكثر شي ١٢ ساعة تقديم أو تأخير. غيّر الوقت نفسه إذا تبي أبعد من كذا.'
+      ? 'أكثر شي ١٢ ساعة تقديم أو تأخير. غيّر الوقت نفسه إذا تبي أبعد من هذا.'
       : 'Twelve hours is the most. Change the time itself for anything further.';
   String get customReminderAdd => isAr ? 'إضافة' : 'Add';
   // Heading over the list of everything currently set, each row removable.
@@ -1338,7 +1338,11 @@ class S {
   // times in the 3,500 lines above this, whose interrogatives are كيف, متى
   // and أي. Owner's call, 2026-08: match the shipped voice here and treat a
   // broader dialect pass as its own decision. Every other Gulf marker
-  // stays: تبي، تقدر، حطّ، سوّ، عشان، الحين، هذي، جذي، محد، برّا.
+  // stays: تبي، تقدر، حطّ، سوّ، عشان، الحين، برّا.
+  // هذه, not هذي (his ruling 2026-09-01): spoken vocabulary, but the
+  // standard spelling for demonstratives.
+  // Retired 2026-09-01: جذي and محد were the heaviest dialect in the file and
+  // read as local rather than merely spoken. لين is spelled لي (his ruling).
   String get rewardsTitle => isAr ? 'مكافآتي' : 'My Rewards';
   String get rewardsCardTitle => isAr ? 'مكافآتي' : 'My Rewards';
   String get rewardsCardEmpty => isAr
@@ -1364,13 +1368,13 @@ class S {
         }
       : (n == 1 ? '1 reward' : '$n rewards');
 
-  String get rewardsEmptyTitle => isAr ? 'ما فيه مكافآت بعد' : 'No rewards yet';
+  String get rewardsEmptyTitle => isAr ? 'ما في مكافآت بعد' : 'No rewards yet';
   String get rewardsEmptyBody => isAr
-      ? 'أي شي تبي تعطيه لنفسك لمن تكمّل عاداتك؟ سمّه، وحطّ له سعر، واشتره بذهبك.'
+      ? 'أي شي تبي تعطيه لنفسك عندما تكمّل عاداتك؟ سمّه، وحطّ له سعر، واشتره بذهبك.'
       : 'What do you want to give yourself when you follow through? Name it, '
           'price it, buy it with your gold.';
   String get rewardsStarterTitle => isAr
-      ? 'اضغط وحدة من هذي وعدّلها زي ما تبي'
+      ? 'اضغط وحدة من هذه وعدّلها كما تحب'
       : 'Tap one of these and change it however you like';
   String get rewardsWriteMyOwn =>
       isAr ? 'اكتب وحدة من عندي' : 'Write my own';
@@ -1389,12 +1393,12 @@ class S {
   String get rewardsSave => isAr ? 'احفظ' : 'Save';
   String get rewardsCancel => isAr ? 'إلغاء' : 'Cancel';
   String get rewardsDelete =>
-      isAr ? 'احذف هذي المكافأة' : 'Delete this reward';
+      isAr ? 'احذف هذه المكافأة' : 'Delete this reward';
   String get rewardsLimitReached => isAr
       ? 'أكثر شي 20 مكافأة. احذف وحدة عشان تضيف غيرها.'
       : 'Twenty rewards is the most. Delete one to add another.';
   String get rewardsListUnavailable => isAr
-      ? 'ما قدرنا نجيب مكافآتك الحين، عشان جذي الإضافة والتعديل مقفولة. مكافآتك محفوظة ومحد لمسها.'
+      ? 'ما قدرنا نجيب مكافآتك الحين، ولذلك الإضافة والتعديل مقفولة. مكافآتك محفوظة وما أحد لمسها.'
       : "We couldn't load your rewards right now, so adding and editing are "
           'off. Nothing of yours has been touched.';
   String get rewardsBalanceUnavailable => isAr
@@ -1636,13 +1640,13 @@ class S {
       : 'Your badge got stronger, and it shows next to your name everywhere.';
 
   String rankUpNextAtLevel(int level) => isAr
-      ? 'الرتبة الجاية عند المستوى $level.'
+      ? 'الرتبة القادمة عند المستوى $level.'
       : 'Next rank at level $level.';
 
   /// Rank 8 only. No ladder metaphor: السلّم appears nowhere else in the app,
   /// and this is not the line to introduce one on.
   String get rankUpSummitLine => isAr
-      ? 'ما فوقها رتبة. هذي آخر وحدة.'
+      ? 'ما فوقها رتبة. هذه آخر وحدة.'
       : 'Nothing above this one. It is the last.';
 
   String rankUpSemantic(String title, int rank, int total) => isAr
@@ -1761,7 +1765,7 @@ class S {
   // cutoff has moved once already (6 AM to 10 AM). A hardcoded hour here
   // would quietly start lying the next time it moves.
   String get gridNotYetActiveHint => isAr
-      ? 'لم يصبح هذا اليوم رسميًا بعد: تقدر تلوّنه، بس بدون مكافآت لين $_cutoffClockAr.'
+      ? 'لم يصبح هذا اليوم رسميًا بعد: تقدر تلوّنه، لكن بدون مكافآت لي $_cutoffClockAr.'
       : "This day isn't official yet. You can color it in, but no rewards "
           'until $_cutoffClockEn.';
 
@@ -1892,17 +1896,17 @@ class S {
   // ── Weekly recap (Friday card on the Grid) ────────────────────────────────
   String get weeklyRecapTitle => isAr ? 'حصاد الأسبوع' : 'Weekly recap';
   String get weeklyRecapThisWeek => isAr ? 'هالأسبوع' : 'This week';
-  String get weeklyRecapLastWeek => isAr ? 'الأسبوع اللي طاف' : 'Last week';
+  String get weeklyRecapLastWeek => isAr ? 'الأسبوع الماضي' : 'Last week';
   String weeklyRecapNeedsLove(String name) =>
-      isAr ? 'يبيلها شوية اهتمام: $name' : 'Needs a little love: $name';
+      isAr ? 'تحتاج شوية اهتمام: $name' : 'Needs a little love: $name';
   String get weeklyRecapUp => isAr
-      ? 'أقوى من الأسبوع اللي طاف. استمر.'
+      ? 'أقوى من الأسبوع الماضي. استمر.'
       : 'Stronger than last week. Keep it going.';
   String get weeklyRecapSame => isAr
       ? 'ثابت على مستواك، والثبات ذهب.'
       : 'Steady as last week. Consistency is gold.';
   String get weeklyRecapDown => isAr
-      ? 'أسبوع أهدى من اللي قبله. الجاي لك.'
+      ? 'أسبوع أهدى من الأسبوع قبله. القادم لك.'
       : 'A quieter week. The next one is yours.';
   String get weeklyRecapFirst => isAr
       ? 'أول أسبوع مسجل لك. بداية حلوة.'
@@ -1993,7 +1997,7 @@ class S {
       ? 'أقل بـ$points نقطة من أثبت عاداتك، "$habit".'
       : '$points points behind your most consistent habit, "$habit".';
   String get insightOnlyHabitTracked => isAr
-      ? 'عادتك الوحيدة اللي عندها بيانات كافية لين الحين.'
+      ? 'عادتك الوحيدة اللي عندها بيانات كافية لي الحين.'
       : 'Your only habit with enough data to compare yet.';
   String get historyLockedCta => isAr ? 'افتح' : 'Unlock';
   // ── Rooms lifecycle (lobby, start, finale) ────────────────────────────────
@@ -2059,14 +2063,14 @@ class S {
       : 'The challenge starts tomorrow morning. Get ready, every completion pays double XP and gold.';
   String get roomEndedTitle => isAr ? 'انتهى التحدي' : 'Challenge complete';
   String get roomEndedBody => isAr
-      ? 'ما قصرتوا. هذي النتيجة النهائية.'
+      ? 'ما قصرتوا. هذه النتيجة النهائية.'
       : 'Well done, all of you. Here is the final result.';
   String get notifLocationResolving =>
       isAr ? 'جاري التعرف على موقعك…' : 'Finding your location…';
   String get notifLocationSetGeneric =>
       isAr ? 'تم تحديد الموقع' : 'Location set';
   String get roomBoostHint => isAr
-      ? 'عادات هذي الغرفة تدفع 2x نقاط وذهب وهي شغالة'
+      ? 'عادات هذه الغرفة تدفع 2x نقاط وذهب وهي شغالة'
       : 'This room\'s habits pay 2x XP and gold while it runs';
   String get historyLockedBody => isAr
       ? 'الحساب المجاني يرجع 3 أشهر. Premium يفتح سجلك كامل، من أول يوم.'
@@ -2085,7 +2089,7 @@ class S {
   String get demoGateNotNow => isAr ? 'ليس الآن' : 'Not now';
 
   String get heatmapDayEmpty =>
-      isAr ? 'ما في نشاط مسجل هاليوم' : 'Nothing recorded on this day';
+      isAr ? 'ما في نشاط مسجل هذا اليوم' : 'Nothing recorded on this day';
   String get heatmapUpgradeTitle =>
       isAr ? 'افتح سجلّك الكامل' : 'Unlock your full history';
   String heatmapUpgradeBody(int freeMonths) => isAr
@@ -2837,7 +2841,7 @@ class S {
   String get roomSkipSharedHabit => isAr ? 'تخطَّ هذه' : 'Skip this one';
   String get roomSkippedLabel => isAr ? 'متخطاة' : 'Skipped';
   String get roomSkippedHint => isAr
-      ? 'هذه العادة لا تُحسب لك، لا لصالحك ولا ضدك. اضغط لإضافتها لاحقًا.'
+      ? 'هذه العادة ما تنحسب لك، لا لك ولا عليك. اضغط لإضافتها لاحقًا.'
       : 'This habit does not count for you either way. Tap to add it after all.';
 
   /// Leader-only removal of a shared habit (see
@@ -2846,7 +2850,7 @@ class S {
   String get roomRemoveSharedHabit =>
       isAr ? 'إزالة من الخطة' : 'Remove from plan';
   String roomRemoveSharedHabitConfirm(String habitName) => isAr
-      ? 'إزالة "$habitName" من خطة الغرفة؟ ستتوقف عن الحساب للجميع، ولن تتأثر الأيام السابقة.'
+      ? 'إزالة "$habitName" من خطة الغرفة؟ ستتوقف عن الحساب للجميع، وما تتأثر الأيام السابقة.'
       : 'Remove "$habitName" from the room plan? It stops counting for everyone, and no past day changes.';
   String get roomRemovedLabel => isAr ? 'مُزالة' : 'Removed';
   String roomPlanPartialCreditHint(int n) => isAr
@@ -2883,7 +2887,7 @@ class S {
   String get roomAddHabitPickerTitle =>
       isAr ? 'إضافة عادة إلى الخطة' : 'Add a habit to the plan';
   String get roomAddHabitPickerHint => isAr
-      ? 'كل من هم بالفعل في هذه الغرفة سيُطلب منهم ربط إحدى عاداتهم بها أيضًا.'
+      ? 'كل من هم بالفعل في هذه الغرفة بيطلب منهم يربطون وحدة من عاداتهم فيها.'
       : 'Everyone already in this room will be asked to link one of their own habits to it too.';
   String roomHabitAddedConfirmation(String habitName) => isAr
       ? 'تمت إضافة "$habitName" إلى الخطة'
@@ -2943,7 +2947,7 @@ class S {
   /// existing match) - a nudge, not a gate, so it never blocks the habit
   /// that was already created.
   String roomPossibleDuplicateWarning(String existingName) => isAr
-      ? 'ملاحظة: لديك بالفعل عادة باسم "$existingName" مشابهة لهذه.'
+      ? 'ملاحظة: عندك بالفعل عادة باسم "$existingName" تشبه هذه.'
       : 'Heads up: you already have a habit called "$existingName" that looks similar.';
 
   /// The banner _MyPlanCard shows a guest once the leader's added a new
@@ -2972,7 +2976,7 @@ class S {
   // every prior day of progress in this room - only worth it if starting
   // over here is genuinely fine.
   String get roomLinkedHabitDeletedHint => isAr
-      ? 'إحدى العادات المرتبطة لم تعد موجودة في شبكتك. يمكن لمغادرة الغرفة وإعادة الانضمام إعادة ربطها، لكن ذلك يصفّر تقدمك في هذه الغرفة أيضًا، فافعل ذلك فقط إذا كنت لا تمانع البدء من جديد.'
+      ? 'وحدة من العادات المرتبطة ما عادت في شبكتك. تقدر تطلع من الغرفة وترجع تنضم عشان ترتبط من جديد، لكن هذا يصفّر تقدمك في هذه الغرفة، فسوّها بس إذا ما يهمّك تبدأ من جديد.'
       : "A linked habit no longer exists in your Grid. Leaving and rejoining relinks it, but also resets your progress in this room. Only do that if you're fine starting over here.";
 
   /// The paused twin of [roomLinkedHabitDeletedHint], and the reason that
@@ -2998,8 +3002,8 @@ class S {
     if (isAr) {
       final list = quoted.join('، ');
       return habitNames.length == 1
-          ? 'عادة $list موقوفة مؤقتًا، وما تنحسب عليك في هذي الغرفة. نسبتك تنحسب من باقي عاداتك، واستئنافها من اللوحة يرجّعها للحساب.'
-          : 'العادات $list موقوفة مؤقتًا، وما تنحسب عليك في هذي الغرفة. نسبتك تنحسب من باقي عاداتك، واستئنافها من اللوحة يرجّعها للحساب.';
+          ? 'عادة $list موقوفة مؤقتًا، وما تنحسب عليك في هذه الغرفة. نسبتك تنحسب من باقي عاداتك، واستئنافها من اللوحة يرجّعها للحساب.'
+          : 'العادات $list موقوفة مؤقتًا، وما تنحسب عليك في هذه الغرفة. نسبتك تنحسب من باقي عاداتك، واستئنافها من اللوحة يرجّعها للحساب.';
     }
     final list = quoted.length == 1
         ? quoted.first
@@ -3102,8 +3106,8 @@ class S {
     if (isAr) {
       final list = quoted.join('، ');
       return roomNames.length == 1
-          ? 'هذي العادة الوحيدة المحسوبة لك في غرفة $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها لين ترجّعها. تقدر ترجعها في أي وقت.'
-          : 'هذي العادة الوحيدة المحسوبة لك في غرف $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها لين ترجّعها. تقدر ترجعها في أي وقت.';
+          ? 'هذه العادة الوحيدة المحسوبة لك في غرفة $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها لي ترجّعها. تقدر ترجعها في أي وقت.'
+          : 'هذه العادة الوحيدة المحسوبة لك في غرف $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها لي ترجّعها. تقدر ترجعها في أي وقت.';
     }
     final list = quoted.length == 1
         ? quoted.first
@@ -3128,7 +3132,7 @@ class S {
   String roomLinkedHabitAllPausedHint(List<String> habitNames) {
     final list = habitNames.map((n) => '"$n"').join(isAr ? '، ' : ', ');
     return isAr
-        ? 'عاداتك $list موقوفة كلها، وما بقى شي ثاني ينحسب لك في هذي الغرفة، فأيام الإيقاف ما تنحسب لك ولا عليك ونسبتك ثابتة مكانها. استئنافها من اللوحة يرجّعها للحساب.'
+        ? 'عاداتك $list موقوفة كلها، وما بقى شي ثاني ينحسب لك في هذه الغرفة، فأيام الإيقاف ما تنحسب لك ولا عليك ونسبتك ثابتة مكانها. استئنافها من اللوحة يرجّعها للحساب.'
         : 'Your linked habits $list are all paused, so nothing is left counting for you here. Those days count neither for you nor against you and your percentage holds where it is. Resume them from your board and they count again.';
   }
 
@@ -3322,7 +3326,7 @@ class S {
   String get roomLeaveConfirmTitle =>
       isAr ? 'مغادرة هذه الغرفة؟' : 'Leave this room?';
   String get roomLeaveConfirmBody => isAr
-      ? 'يمكنك الانضمام مرة أخرى لاحقًا برمز الغرفة.'
+      ? 'تقدر تنضم مرة ثانية برمز الغرفة.'
       : 'You can rejoin later with the room code.';
   // Shown instead of roomLeaveConfirmBody specifically when the leaving
   // member is the room's own leader (see RoomDetailScreen's _confirmLeave)
@@ -3360,7 +3364,7 @@ class S {
   // "still waiting on you" is banter, "you didn't" is a reprimand.
   String get notifRoomNudges => isAr ? 'تحفيز ودّي' : 'Friendly nudges';
   String get notifRoomNudgesDesc => isAr
-      ? 'لما أحد يخلّص قبلك، يوصلك تنبيه خفيف يذكّرك. في الغرف الصغيرة فقط، ومرّة وحدة باليوم.'
+      ? 'لما أحد يكمّل قبلك، يوصلك تنبيه خفيف يذكّرك. في الغرف الصغيرة فقط، ومرّة وحدة باليوم.'
       : 'When someone finishes before you, get a light teasing reminder. Small rooms only, once a day.';
   String get roomCadenceDaily => isAr ? 'يومي' : 'Daily';
   // Shown when a member's linked habits don't all share one cadence, so the
@@ -3769,11 +3773,11 @@ class S {
   /// Empty state per tab. Phrased about the PERIOD, never about the person:
   /// an empty August is a month with nothing in it yet, not a verdict.
   String get reportsEmptyWeek =>
-      isAr ? 'ما فيه شيء مسجّل في هذا الأسبوع.' : 'Nothing recorded this week.';
+      isAr ? 'ما في شيء مسجّل في هذا الأسبوع.' : 'Nothing recorded this week.';
   String get reportsEmptyMonth =>
-      isAr ? 'ما فيه شيء مسجّل في هذا الشهر.' : 'Nothing recorded this month.';
+      isAr ? 'ما في شيء مسجّل في هذا الشهر.' : 'Nothing recorded this month.';
   String get reportsEmptyYear =>
-      isAr ? 'ما فيه شيء مسجّل في هذي السنة.' : 'Nothing recorded this year.';
+      isAr ? 'ما في شيء مسجّل في هذه السنة.' : 'Nothing recorded this year.';
 
   // ── One habit's own page ───────────────────────────────────────────────
   //
@@ -3807,7 +3811,7 @@ class S {
   /// another. 'تم إنجاز' states what happened and belongs to nobody.
   String reportsDayDone(int n) => isAr ? 'تم إنجاز $n' : '$n done';
   String get reportsDayNothing =>
-      isAr ? 'ما فيه إنجاز في هذا اليوم.' : 'Nothing done on this day.';
+      isAr ? 'ما في إنجاز في هذا اليوم.' : 'Nothing done on this day.';
   String get reportsDayScheduled => isAr ? 'مطلوب' : 'Due';
   String get reportsDayNotDue => isAr ? 'غير مطلوب' : 'Not due';
 
@@ -3852,7 +3856,7 @@ class S {
 
   /// Shown only once the count is above one, spelling out the whole rule.
   String timesPerDayNote(int n) => isAr
-      ? 'كل ضغطة على المربّع تزيد واحد. المربّع يصير جزئي لين تكمّل الـ $n، وبعدها يصير كامل.'
+      ? 'كل ضغطة على المربّع تزيد واحد. المربّع يصير جزئي لي تكمّل الـ $n، وبعدها يصير كامل.'
       : 'Each tap on the square adds one. It stays partial until you finish all $n, then it fills.';
 
   /// The Grid badge on a habit counted more than once a day.
@@ -3887,6 +3891,6 @@ class S {
         : target <= 10
             ? 'الـ $target مرات'
             : 'الـ $target مرة';
-    return '"$habitName" تنحسب لك في الغرفة لمن تخلّص $all كلها.';
+    return '"$habitName" تنحسب لك في الغرفة عندما تكمّل $all كلها.';
   }
 }
