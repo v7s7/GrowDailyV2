@@ -11,6 +11,7 @@ import '../../../core/theme/game_theme.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../../onboarding/notifiers/guide_chain.dart';
 import '../../../core/providers/home_tab_provider.dart';
+import '../../../core/providers/nav_layout_provider.dart' show NavTab;
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../../shared/widgets/comeback_card.dart';
@@ -25,7 +26,12 @@ import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/widgets/habit_actions_sheet.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../habits/notifiers/habit_order_notifier.dart';
 import '../../habits/notifiers/habit_resume_notifier.dart';
+import '../../../core/services/health_steps_service.dart';
+import '../../habits/step_auto_complete.dart'
+    show stepsFailureProvider, stepsTodayProvider;
+import '../../habits/notifiers/newly_added_habit_provider.dart';
 import '../../habits/widgets/pause_until_sheet.dart';
 import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/widgets/add_habit_hub_sheet.dart';
@@ -52,7 +58,8 @@ import '../../../shared/widgets/app_snackbar.dart';
 part 'grid_screen_summary.dart'; // _SelectionBar, _GridHeader, _NavArrow, _SummaryCard, _RingStat, _MiniStat
 part 'grid_screen_table.dart'; // _GridTable/_GridTableState (the interactive board + tap/reward handlers), _BoostBadge, _SquareCell
 part 'grid_screen_cell_editor.dart'; // _CellEditorSheet/_CellEditorSheetState (long-press palette + note editor), _PaletteSwatch
-part 'grid_screen_misc.dart'; // _GridSkeleton, _GridSectionHeader, _GridEmptyState
+part 'grid_screen_misc.dart'; // _GridSkeleton, _GridSectionHeader, _GridEmptyState, _PausedElsewhereRow
+part 'grid_screen_reorder_sheet.dart'; // _HabitReorderSheet (drag-to-reorder rows)
 
 /// The Grid's three boards, in the order the day actually asks about them:
 /// what you are DOING, what you are STAYING AWAY from, and what you have PUT
@@ -316,6 +323,8 @@ class _GridScreenState extends ConsumerState<GridScreen> {
         behavior: SnackBarBehavior.floating,
         dismissDirection: DismissDirection.down,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        // Never pin the bar open. See AppSnackBar.
+        persist: false,
         action: restorable.isEmpty
             ? null
             : SnackBarAction(
@@ -371,11 +380,51 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // Only ever true for a habit paused earlier today, whose row stays on
     // the board for the rest of the day — see showHabitActions's isPaused.
     final isPaused = habit.archivedAt != null;
+    // A steps-linked habit's live progress, shown under the sheet's title.
+    // stepsTodayProvider holds whatever runStepAutoComplete last read; a
+    // null there (no read yet this session) just hides the count and
+    // shows the goal, so this line never blocks on a health call.
+    //
+    // This sheet is where somebody comes to ask why a linked habit is not
+    // completing itself, so it is also where the answer belongs. A stalled
+    // link drops the number entirely rather than showing the last one that
+    // came back: presenting a stale count as today's would be the same false
+    // claim the silent zero used to make.
+    final s = S.of(context);
+    final goal = habit.stepGoal;
+    final failure = goal == null ? null : ref.read(stepsFailureProvider);
+    final steps = goal == null ? null : ref.read(stepsTodayProvider);
+    final stepsLine = goal == null
+        ? null
+        : s.stepsProgressLine(failure == null ? steps : null, goal);
+    final stepsNote = goal == null
+        ? null
+        : switch (failure) {
+            // Both of these are Android-only: Health Connect is the only
+            // store that tells an app it is being refused, which is why the
+            // wording is allowed to name it (see HealthStepsService).
+            HealthStepsFailure.notSupported => s.stepsLinkNoProvider,
+            HealthStepsFailure.permissionDenied => s.stepsLinkBlocked,
+            // A one-off platform-channel failure. It clears on the next
+            // read, so there is nothing worth telling anybody about.
+            HealthStepsFailure.unavailable => null,
+            // No failure and no steps. On iOS this is genuinely ambiguous
+            // (Apple hides read denials), and on Android it usually means
+            // nothing is writing steps into Health Connect at all, so the
+            // hint names what to check instead of guessing a cause.
+            null => steps == 0
+                ? s.stepsNotArrivingHint(
+                    isHealthConnect: HealthStepsService.usesHealthConnect,
+                  )
+                : null,
+          };
     final action = await showHabitActions(
       context,
       habitName: name,
       canDeleteForever: !isCatalog,
       isPaused: isPaused,
+      stepsLine: stepsLine,
+      stepsNote: stepsNote,
     );
     if (action == null || !mounted) return;
     switch (action) {
@@ -598,6 +647,8 @@ class _GridScreenState extends ConsumerState<GridScreen> {
         // is always something to put back — including a habit that had
         // never been completed, which the old rule silently destroyed and
         // then, correctly for that behavior, refused to offer an Undo for.
+        // Never pin the bar open. See AppSnackBar.
+        persist: false,
         action: SnackBarAction(
           label: s.undo,
           onPressed: () {
@@ -772,8 +823,9 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                 // (see matrix_screen.dart's _showAdd) - from here, the
                 // right move is just getting there. See
                 // requestedHomeTabProvider's doc comment.
-                onAddTask: () =>
-                    ref.read(requestedHomeTabProvider.notifier).state = 2,
+                onAddTask: () => ref
+                    .read(requestedHomeTabProvider.notifier)
+                    .state = NavTab.matrix,
               ),
             ),
             // The day's line. Below the two cards above rather than above
@@ -832,6 +884,18 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                     // un-mark dialog truthfully offered 40 back.
                     xpToday: ref.watch(dashboardProvider.select((d) =>
                         d.earnedXpOn(DateTime.now().effectiveDay.toDateKey()))),
+                    // A walk in progress: the card turns this into part-done
+                    // credit for any habit linked to the step count, so the
+                    // percentage moves with the walk instead of sitting at
+                    // zero until the goal lands.
+                    //
+                    // Null while the link is stalled, for the same reason the
+                    // board drops the fill: the last good count is stale, and
+                    // a percentage is the last place to quietly spend a
+                    // number the app can no longer vouch for.
+                    stepsToday: ref.watch(stepsFailureProvider) == null
+                        ? ref.watch(stepsTodayProvider)
+                        : null,
                   )
                       .animate()
                       .fadeIn(duration: 400.ms)
@@ -954,6 +1018,26 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                   ),
                 ),
               ),
+              // Habits paused on an EARLIER day have no row anywhere on
+              // this screen (the paused section above only carries today's,
+              // see habitsArchivedTodayProvider), so until now their only
+              // home was a section inside the Add Habit hub nobody would
+              // think to open for a habit they already have. One quiet line
+              // names how many are set down and takes you to that exact
+              // section, which already does resume/delete right.
+              if (ref.watch(pausedHabitsProvider).length >
+                  pausedHabits.length)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    child: _PausedElsewhereRow(
+                      count: ref.watch(pausedHabitsProvider).length -
+                          pausedHabits.length,
+                      onTap: () => showAddHabitHub(context, ref,
+                          initialTab: HubTab.plans),
+                    ),
+                  ),
+                ),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),

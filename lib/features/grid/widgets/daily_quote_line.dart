@@ -26,40 +26,23 @@ class DailyQuoteLine extends StatelessWidget {
     // day (10am) like the board underneath it, so someone up at 2am is not
     // handed tomorrow's quote above today's still-open squares.
     final quote = quoteForDay(DateTime.now().effectiveDay);
-    final source = quote.source(s.isAr);
 
+    // One line and nothing under it. A credit used to sit here for some
+    // quotes; Aziz removed it (2026-09-06), see DailyQuote's own comment.
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            quote.text(s.isAr),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.45,
-              color: gp.textSec,
-              // Italic is a Latin convention. Arabic script has no italic
-              // form, so asking for one makes the engine synthesise a slant
-              // that reads as a rendering fault rather than as emphasis.
-              fontStyle: s.isAr ? FontStyle.normal : FontStyle.italic,
-            ),
-          ),
-          if (source != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              source,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                height: 1.3,
-                color: gp.textTert,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ],
+      child: Text(
+        quote.text(s.isAr),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 13,
+          height: 1.45,
+          color: gp.textSec,
+          // Italic is a Latin convention. Arabic script has no italic
+          // form, so asking for one makes the engine synthesise a slant
+          // that reads as a rendering fault rather than as emphasis.
+          fontStyle: s.isAr ? FontStyle.normal : FontStyle.italic,
+        ),
       ),
     );
   }

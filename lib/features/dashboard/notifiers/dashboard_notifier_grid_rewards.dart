@@ -704,15 +704,13 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   }
 
   /// Generic XP/Gold award — every lump-sum reward in the app comes through
-  /// here: Focus Timer sessions, Weekly Challenges, Matrix task completion,
-  /// Quick Wins, and Rooms' team/podium bonuses.
+  /// here: Matrix task completion and Rooms' team/podium bonuses.
   ///
-  /// Callers are responsible for paying only once. They all do, and all
+  /// Callers are responsible for paying only once. Both do, and
   /// differently, matched to what they can rely on: MatrixNotifier.toggle
-  /// gates on the task's persisted `rewarded` flag, QuickWinsNotifier on its
-  /// `dailyDone`/`weeklyDone` flags (local-only — see the TODO there), and
-  /// RoomsController's two bonuses on a Firestore transaction that flips the
-  /// claim flag before paying. This method itself is deliberately dumb about
+  /// gates on the task's persisted `rewarded` flag, and RoomsController's
+  /// two bonuses on a Firestore transaction that flips the claim flag before
+  /// paying. This method itself is deliberately dumb about
   /// that; it cannot tell a legitimate second award from a duplicate.
   /// Reserves one of today's Matrix task payouts, see
   /// [kDailyRewardedTaskCap]. Returns false once the day's allowance is gone.
@@ -749,8 +747,8 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   /// which is the default because a new caller is far more likely to be
   /// farmable than not, and the safe failure is to cap something that did not
   /// need it. Pass false only for a genuinely once-per-episode claim whose
-  /// caller flips a one-way claim flag before paying: a room podium prize or
-  /// a weekly challenge cannot be ground out, and silently withholding one
+  /// caller flips a one-way claim flag before paying: a room podium prize
+  /// cannot be ground out, and silently withholding one
   /// would strand a reward that no later sweep can re-offer.
   Future<void> awardBonus({
     required int xp,
@@ -765,9 +763,9 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // _loadToday's catch comment lists as "turned away by their own
     // preconditions" (spendGold can't pass an affordability check against 0
     // gold, useStreakFreeze needs a freeze it no longer appears to have),
-    // this one has no precondition at all: finishing a Focus session or
-    // tapping a Quick Win after a failed load was enough to write `gold: 0 +
-    // reward` straight over the real balance.
+    // this one has no precondition at all: claiming a bonus after a failed
+    // load was enough to write `gold: 0 + reward` straight over the real
+    // balance.
     if (_uid != null && state.loadFailed) return;
 
     final capped = countsTowardDailyCap

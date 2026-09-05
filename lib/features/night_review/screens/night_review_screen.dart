@@ -19,7 +19,7 @@ import 'night_review_history_screen.dart';
 import '../../../core/utils/xp_calculator.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
-/// The evening counterpart to the morning IntentionScreen: pick a mood,
+/// The end of the day in one screen: pick a mood,
 /// write a short reflection, and see the day distilled into the numbers
 /// that matter — XP earned, green squares colored, and the streak they
 /// protected. "How many green squares did I earn today?"

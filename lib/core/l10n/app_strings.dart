@@ -159,9 +159,20 @@ class S {
   /// local copy is untouched, and the retry is a real one (the migration
   /// is idempotent). Saying "try again" without saying the data is still
   /// there would read as "you lost it".
-  String get reconnectPartial => isAr
-      ? 'جزء منه ما انتقل. نسختك على الجهاز باقية، وتقدر تعيد المحاولة من ملفك.'
-      : "Some of it didn't move. Your copy on this device is still there, and you can try again from your profile.";
+  ///
+  /// It NAMES THE DEADLINE, and that is the load-bearing half. A partial
+  /// failure starts the same discard countdown a clean answer does (see
+  /// _ReconnectSheetState._answer, which marks the discard either way), so
+  /// a message that said only "still there, try again" was true today and
+  /// quietly wrong a week later: someone who read it, meant to retry
+  /// tomorrow, and forgot, lost the very copy this sentence had reassured
+  /// them about.
+  String reconnectPartial(int days) => isAr
+      ? 'جزء منه ما انتقل. نسختك على الجهاز باقية وتقدر تعيد المحاولة من ملفك. '
+          'تنحذف بعد ${daysInSentence(days)}.'
+      : "Some of it didn't move. Your copy on this device is still there and "
+          'you can try again from your profile. It is deleted in '
+          '${daysInSentence(days)}.';
 
   /// How long the guest copy sticks around after either answer, said where
   /// it changes what someone would do.
@@ -186,8 +197,16 @@ class S {
   /// that gives "deleted in 1 Days". Arabic needs no separate form - it
   /// has no capitalisation and [daysCount] already handles the dual and
   /// the 3-10/11+ splits - so this only diverges for English.
-  String daysInSentence(int n) =>
-      isAr ? daysCount(n) : (n == 1 ? '1 day' : '$n days');
+  String daysInSentence(int n) {
+    if (!isAr) return n == 1 ? '1 day' : '$n days';
+    // Mid-sentence the count sits after بعد or as an object, which puts the
+    // dual in the genitive/accusative: «بعد يومين»، never «بعد يومان» — the
+    // nominative dual [daysCount] correctly uses as a standalone stat label
+    // is a grammar error here. Every other count form is written the same
+    // in both positions, so only the dual branches.
+    if (n == 2) return 'يومين';
+    return daysCount(n);
+  }
 
   /// Arabic counts habits the same way [daysCount] counts days — the
   /// dual, the 3-10 plural and the 11+ singular-accusative are all
@@ -616,7 +635,24 @@ class S {
       : "Experience earned from every habit and task you complete. It's what levels your character up over time.";
 
   // Progress report
-  String get fourteenDayProgress => isAr ? 'تقدم 14 يوم' : '14-day progress';
+  /// The card's title, now that the window is a control rather than a fact.
+  /// The old 'تقدم 14 يوم' would have printed the range twice: once in a
+  /// heading nobody can act on, and once in the segment right underneath.
+  String get progressDayByDay => isAr ? 'يوم بيوم' : 'Day by day';
+
+  /// One segment of the chart's range filter, by day count.
+  ///
+  /// Named by the SPAN, not the number: أسبوع reads as a thing a person
+  /// has, while '7 أيام' reads as a setting. Falls back to a day count for
+  /// any span that is not one of the three the chart offers, so adding a
+  /// fourth cannot silently render an empty segment.
+  String progressRangeLabel(int days) => switch (days) {
+        7 => isAr ? 'أسبوع' : 'Week',
+        14 => isAr ? 'أسبوعين' : '2 weeks',
+        30 => isAr ? 'شهر' : 'Month',
+        _ => isAr ? '$days يوم' : '$days days',
+      };
+
   // Impersonal, matching the achievements chrome — the app states what the
   // chart shows rather than addressing the reader. "أسبوعك الأخير قوي" and
   // "ابدأ اليوم مجدداً" made the same surface sound like a coach one screen
@@ -637,6 +673,14 @@ class S {
   String get activeDays => isAr ? 'الأيام النشطة' : 'ACTIVE DAYS';
   String get bestDay => isAr ? 'أفضل يوم' : 'BEST DAY';
 
+  /// The rate cell under the 14-day chart. Says the same thing as
+  /// [reportsRate] and deliberately does not reuse it: the mini-stat family
+  /// on this card ([total], [bestDay]) is upper case in English, while
+  /// reportsRate is a sentence-case label on التقارير. Sharing one string
+  /// put "Completion" between "TOTAL" and "BEST DAY" in the same row.
+  /// Arabic has no case, so the two are identical there.
+  String get progressStatRate => isAr ? 'نسبة الإنجاز' : 'COMPLETION';
+
   // Progress report — per-day detail sheet (tapping a bar in the 14-day chart)
   String get progressToday => isAr ? 'اليوم' : 'Today';
   String get progressYesterday => isAr ? 'أمس' : 'Yesterday';
@@ -646,11 +690,57 @@ class S {
   /// habit from Grid's long-press editor.
   String get progressDayBreakdown => isAr ? 'تفاصيل اليوم' : 'THAT DAY';
 
-  String progressDayCompletions(int count) {
-    if (count == 0) return isAr ? 'لا عادات مكتملة' : 'No habits completed';
-    if (count == 1) return isAr ? 'عادة واحدة مكتملة' : '1 habit completed';
-    return isAr ? '$count عادات مكتملة' : '$count habits completed';
-  }
+
+  /// The line under the 14-day chart, and the only place the shaded band is
+  /// explained. Without it the band reads as styling and the whole "out of
+  /// how many" idea never lands.
+  String get progressChartLegend => isAr
+      ? 'الخط يبيّن كم عادة تمّت كل يوم، والظل خلفه كم كانت مطلوبة.'
+      : 'The line is how many habits were done each day. The shading behind it is how many were due.';
+
+  /// The day sheet's headline: what the day asked for and what it got.
+  ///
+  /// No LTR isolate needed and none wanted: the Arabic word «من» sits
+  /// between the two numbers, so neither can merge with the other the way
+  /// the bare "4 / 10" form does (which paints as "10 / 4" and is what
+  /// progressFraction exists to prevent).
+  ///
+  /// Impersonal on purpose. «أنجزت» carries a gender in a vowel nobody
+  /// types, so every second-person verb in this app is avoided rather than
+  /// guessed at.
+  String progressDayScore(int done, int owed) =>
+      isAr ? 'تم إنجاز $done من $owed' : '$done of $owed done';
+
+  /// The compact form for the chart's scrub readout, where the date is
+  /// already sitting on the other side of the same row and "تم إنجاز" would
+  /// be repeated on every drag frame.
+  ///
+  /// Same no-isolate reasoning as [progressDayScore]: «من» between the two
+  /// numbers stops them merging the way a bare "4 / 10" does.
+  String progressScoreFraction(int done, int owed) =>
+      isAr ? '$done من $owed' : '$done of $owed';
+
+  /// Readout text for a day that owed nothing. Short because it shares a row
+  /// with the date; the sheet says it at length.
+  String get progressNothingDueShort =>
+      isAr ? 'ما فيه شي مطلوب' : 'Nothing due';
+
+  /// Readout text for a day that was entirely تخطّي. Never folded into
+  /// [progressNothingDueShort]: a rest is a choice somebody made, and the
+  /// whole reason the state exists is that it is not the same as a blank.
+  String get progressRestedShort => isAr ? 'يوم راحة' : 'Rest day';
+
+
+  /// A day where every habit was marked تخطّي. Never "0 من 0": a rest is a
+  /// choice someone made, and scoring it as a blank is exactly the thing
+  /// the state exists to prevent.
+  String get progressDayRested =>
+      isAr ? 'يوم راحة، ما كان فيه شي مطلوب' : 'A rest day, nothing was due';
+
+  /// A day nothing was scheduled for: before the first habit existed, or a
+  /// weekday no habit runs on. Distinct from a rest day, and from a zero.
+  String get progressDayNothingDue =>
+      isAr ? 'ما كان فيه شي مطلوب هذا اليوم' : 'Nothing was due that day';
 
   // Streak Freeze card
   String get streakFreeze => isAr ? 'تجميد السلسلة' : 'Streak Freeze';
@@ -1199,6 +1289,33 @@ class S {
   String get reminderGateBody => isAr
       ? 'أضف أكثر من تذكير لنفس المهمة: نبّهك الساعة 3:00 و3:30 و4:00 قبل اجتماع الساعة 5. المجاني يتيح تذكيرًا واحدًا لكل مهمة.'
       : 'Add as many reminders to one task as you need: nudged at 3:00, 3:30 and 4:00 before a 5pm meeting. Free includes one reminder per task.';
+
+  /// The same gate, asked about a habit. Its own string rather than reusing
+  /// the task one because the example has to be a habit's: a prayer-anchored
+  /// stack is the case this feature exists for, and «لكل مهمة» in a sheet
+  /// opened from Add Habit reads as the wrong screen's copy.
+  String get reminderGateHabitBody => isAr
+      ? 'أضف أكثر من تذكير للعادة الوحدة: قبل المغرب بعشر دقايق، وفي وقتها، وبعدها بنص ساعة. المجاني يعطيك تذكير واحد لكل عادة.'
+      : 'Add as many reminders to one habit as you need: ten minutes before Maghrib, again on time, and again half an hour later. Free includes one reminder per habit.';
+
+  /// Add Habit's one worded route to the gate above, shown under the offset
+  /// grid on the free tier. The chips there stay single-select for free, so
+  /// this is the only place stacking is discoverable.
+  String get habitAddAnotherReminder =>
+      isAr ? 'أضف أكثر من تذكير' : 'Add another reminder';
+
+  /// Shown when the habit already holds kMaxHabitReminders. A ceiling that
+  /// applies to Premium too, so it is worded as a limit, not an upsell.
+  String get habitReminderMaxReached => isAr
+      ? 'هذا أكثر عدد تذكيرات للعادة الوحدة'
+      : "That's the most reminders one habit can have";
+
+  /// Shown when someone taps the only selected chip. A habit's shift IS its
+  /// reminder, so clearing the last one would mean "never remind me", which
+  /// this form says by choosing a custom-text cue, not by emptying a grid.
+  String get habitReminderKeepOne => isAr
+      ? 'لازم يبقى تذكير واحد على الأقل'
+      : 'Keep at least one reminder';
   String get matrixDone => isAr ? 'تم' : 'Done';
   String get matrixUndo => isAr ? 'تراجع' : 'Undo';
 
@@ -1342,7 +1459,9 @@ class S {
   // هذه, not هذي (his ruling 2026-09-01): spoken vocabulary, but the
   // standard spelling for demonstratives.
   // Retired 2026-09-01: جذي and محد were the heaviest dialect in the file and
-  // read as local rather than merely spoken. لين is spelled لي (his ruling).
+  // read as local rather than merely spoken. لين was respelled لي, then that
+  // spelling was retired in turn (his ruling 2026-09-02): before a verb it is
+  // إلى أن, which is also what pauseUntilTitle below settled on.
   String get rewardsTitle => isAr ? 'مكافآتي' : 'My Rewards';
   String get rewardsCardTitle => isAr ? 'مكافآتي' : 'My Rewards';
   String get rewardsCardEmpty => isAr
@@ -1489,21 +1608,60 @@ class S {
   String get profileEditNameError =>
       isAr ? 'تعذّر الحفظ، حاول مرة أخرى' : "Couldn't save. Try again";
 
-  // ── Quick Wins ───────────────────────────────────────────────────────────
-  String get quickWins => isAr ? 'مكاسب سريعة' : 'Quick Wins';
-  String get quickWinToday => isAr ? 'اليوم' : 'TODAY';
-  String get quickWinThisWeek => isAr ? 'هذا الأسبوع' : 'THIS WEEK';
-  String get quickWinDone => isAr ? 'تم' : 'Done';
-  String get quickWinSwap => isAr ? 'تبديل' : 'Swap';
-  String get quickWinClaim => isAr ? 'استلام' : 'Claim';
-
   // ── Navigation ───────────────────────────────────────────────────────────
+  // navToday is not a tab any more (Today left the bar long ago); it
+  // survives as the "today" day label in the Matrix history and the Grid
+  // journal. The Focus and Goals tabs it used to sit beside are gone with
+  // their screens, and their labels went with them.
   String get navToday => isAr ? 'اليوم' : 'Today';
   String get navGrid => isAr ? 'العادات' : 'Habits';
   String get navMatrix => isAr ? 'المهام' : 'Tasks';
-  String get navFocus => isAr ? 'التركيز' : 'Focus';
-  String get navGoals => isAr ? 'الأهداف' : 'Goals';
   String get navProfile => isAr ? 'ملفي' : 'Profile';
+  // The optional tabs a Premium account can add to the bar (see NavTab in
+  // nav_layout_provider.dart). One short word each where the screen title
+  // is two: five of these share one phone width at a 10pt label.
+  String get navRooms => isAr ? 'الغرف' : 'Rooms';
+  String get navProgress => isAr ? 'التقدّم' : 'Progress';
+  String get navSettings => isAr ? 'الإعدادات' : 'Settings';
+  String get navTasbih => isAr ? 'السبحة' : 'Tasbih';
+  String get navRewards => isAr ? 'مكافآتي' : 'Rewards';
+  String get navCloset => isAr ? 'الخزانة' : 'Closet';
+  String get navNightReview => isAr ? 'المراجعة' : 'Review';
+  String get navYearRecord => isAr ? 'سجل السنة' : 'Year Record';
+
+  // ── Bottom bar customiser (Settings › Personalization, Premium) ──────────
+  String get navBarSettingsTitle => isAr ? 'الشريط السفلي' : 'Bottom bar';
+  String get navBarSettingsIntro => isAr
+      ? 'اختر لحد 5 تبويبات، واسحبها عشان ترتّبها. العادات وملفي دائمًا موجودين.'
+      : 'Pick up to 5 tabs, and drag to put them in order. Habits and Profile always stay.';
+  String get navBarYourTabs => isAr ? 'شريطك' : 'Your bar';
+  String get navBarAddTabs => isAr ? 'أضف تبويب' : 'Add a tab';
+  String get navBarFull => isAr
+      ? 'الشريط ممتلئ. احذف تبويب عشان تضيف غيره.'
+      : 'The bar is full. Remove a tab to add another.';
+  String get navBarPinned => isAr ? 'دائمًا موجود' : 'Always here';
+  String get navBarRemove => isAr ? 'حذف من الشريط' : 'Remove from bar';
+  String get navBarAdd => isAr ? 'أضف للشريط' : 'Add to bar';
+  String get navBarReset => isAr ? 'استرجاع الافتراضي' : 'Reset to default';
+  String get navBarLockedTitle =>
+      isAr ? 'رتّب شريطك على كيفك' : 'Make the bar your own';
+  String get navBarLockedBody => isAr
+      ? 'مع بريميوم تقدر تضيف الغرف والتقدّم والسبحة وغيرها للشريط السفلي، وترتّبها مثل ما تبي.'
+      : 'With Premium you can add Rooms, Progress, Tasbih and more to the bottom bar, and order them the way you like.';
+  String get navBarLockedCta => isAr ? 'افتح بريميوم' : 'Unlock Premium';
+  // The one-time coach-mark on the bar itself, once Premium is active.
+  String get navBarHintTitle => isAr ? 'رتّب شريطك' : 'Arrange your bar';
+  String get navBarHintBody => isAr
+      ? 'اضغط مطولًا على الشريط عشان تضيف الغرف أو التقدّم أو غيرها، وترتّبها على كيفك.'
+      : 'Press and hold the bar to add Rooms, Progress and more, and put them in your order.';
+  // The badges switch under the customiser's preview.
+  String get navBadgesTitle => isAr ? 'الشارات' : 'Badges';
+  String get navBadgesDesc => isAr
+      ? 'عدّاد الغرف والمهام، ونقطة مراجعة الليل.'
+      : 'Rooms and tasks counts, and the Night Review dot.';
+  // Screen-reader label for the dot on the Night Review tab.
+  String get navBadgeReviewPending =>
+      isAr ? 'مراجعة الليل ما انحفظت بعد' : 'Night review not saved yet';
 
   // GetStartedChecklistCard (Grid + Matrix, disappears once both are done —
   // see that widget's own doc comment for why this replaces leaning on the
@@ -1706,6 +1864,25 @@ class S {
   String get gridTapHint => isAr
       ? 'اضغط لتلوين المربّع · اضغط مطولاً للمزيد من الألوان'
       : 'Tap to color · long-press for more colors';
+
+  // ── Tasbih ──────────────────────────────────────────────────────────
+  //
+  // Spoken register like the rest of the app. The mark-habit button uses
+  // «علّم», the same verb the Grid's own copy settled on for marking a
+  // day (see gridRestorableDayHint), so the two surfaces describe the one
+  // action with one word.
+  String get tasbihTitle => isAr ? 'السبحة' : 'Tasbih';
+  String get tasbihTapHint =>
+      isAr ? 'اضغط في أي مكان للتسبيح' : 'Tap anywhere to count';
+  String get tasbihCustom => isAr ? 'مخصص' : 'Custom';
+  String get tasbihCustomTitle => isAr ? 'عدد مخصص' : 'Custom count';
+  String get tasbihCustomCancel => isAr ? 'إلغاء' : 'Cancel';
+  String get tasbihCustomSet => isAr ? 'اعتماد' : 'Set';
+  String get tasbihReset => isAr ? 'تصفير' : 'Reset';
+  String get tasbihResetDone => isAr ? 'صفّرنا العداد' : 'Counter reset';
+  String tasbihMarkHabit(String name) =>
+      isAr ? 'علّم «$name»؟' : 'Mark "$name" done?';
+  String get tasbihMarked => isAr ? 'تم، تقبّل الله' : 'Done, may it be accepted';
   String get gridRewardHint => isAr
       ? 'اليوم فقط يمنحك نقاط الخبرة والذهب، ويزيد سلسلتك مرة واحدة يوميًا كحد أقصى.'
       : 'Only today earns XP, gold, and streak credit. Once per day at most.';
@@ -2200,6 +2377,13 @@ class S {
   String get premiumBenefitVoiceDesc => isAr
       ? 'سجّل تأملاتك بصوتك. لا حاجة للكتابة.'
       : 'Speak your reflections. No typing required.';
+  // Real gate: NavBarSettingsScreen puts every add, remove and reorder
+  // behind premiumAccessProvider. The bar itself, and Reset, stay free.
+  String get premiumBenefitNavBarTitle =>
+      isAr ? 'شريط سفلي على كيفك' : 'Your own bottom bar';
+  String get premiumBenefitNavBarDesc => isAr
+      ? 'حط الغرف أو التقدّم أو السبحة بضغطة وحدة، ورتّب التبويبات مثل ما تبي.'
+      : 'Put Rooms, Progress or Tasbih one tap away, and order the tabs the way you like.';
   String get premiumBenefitSupportTitle =>
       isAr ? 'ادعم صانعًا مستقلًا' : 'Support an independent maker';
   // No ad SDK exists anywhere in this codebase (verified by grep) —
@@ -3106,8 +3290,8 @@ class S {
     if (isAr) {
       final list = quoted.join('، ');
       return roomNames.length == 1
-          ? 'هذه العادة الوحيدة المحسوبة لك في غرفة $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها لي ترجّعها. تقدر ترجعها في أي وقت.'
-          : 'هذه العادة الوحيدة المحسوبة لك في غرف $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها لي ترجّعها. تقدر ترجعها في أي وقت.';
+          ? 'هذه العادة الوحيدة المحسوبة لك في غرفة $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها إلى أن ترجّعها. تقدر ترجّعها في أي وقت.'
+          : 'هذه العادة الوحيدة المحسوبة لك في غرف $list. إذا أوقفتها، أيام الإيقاف ما تنحسب لك ولا عليك، فنسبتك تثبت مكانها إلى أن ترجّعها. تقدر ترجّعها في أي وقت.';
     }
     final list = quoted.length == 1
         ? quoted.first
@@ -3186,7 +3370,7 @@ class S {
       : 'Choose when "$habitName" comes back, or leave it to you.';
   String get pauseUntilManual => isAr ? 'أنا أقرر' : 'I decide';
   String get pauseUntilManualHint => isAr
-      ? 'تبقى موقوفة إلى أن ترجعها بنفسك.'
+      ? 'تبقى موقوفة إلى أن ترجّعها بنفسك.'
       : 'It stays paused until you bring it back yourself.';
   String pauseUntilPreset(String preset) => switch (preset) {
         'week' => isAr ? 'أسبوع' : 'One week',
@@ -3452,9 +3636,12 @@ class S {
   // escape hatch to manual city search only exists for travel/denied-GPS
   // cases, so it needs to stay discoverable even after a location is
   // already set. See NotificationSettingsScreen's doc comment.
+  // Rewritten when the search icon landed on the location row: the old
+  // text pointed at long-press as the only road to manual search, which
+  // was the discoverability problem the icon exists to fix.
   String get notifLocationManualHint => isAr
-      ? 'اضغط مطولاً للبحث عن مدينة يدويًا بدلاً من ذلك'
-      : 'Long-press to search for a city manually instead';
+      ? 'أيقونة البحث تختار مدينة يدويًا، مفيد وقت السفر.'
+      : 'The search icon picks a city manually, handy when traveling.';
   String get notifDetectingLocation =>
       isAr ? 'جارٍ تحديد الموقع…' : 'Detecting…';
   String get notifLocationDetectFailed => isAr
@@ -3748,7 +3935,12 @@ class S {
   /// 80%-of-habits rule that survives rest days, and this is only the
   /// longest unbroken run INSIDE the period on screen. Two different
   /// numbers sharing one word would make the report look wrong.
-  String get reportsLongestRun => isAr ? 'أطول تتابع' : 'Longest run';
+  // «أخضر» is load-bearing: Profile's «السلسلة» counts consecutive PERFECT
+  // days (every habit done), while this counts consecutive days with ANY
+  // green square, so the two can read 0 and 34 on the same account. Naming
+  // the green makes this one self-describing instead of looking like the
+  // same stat disagreeing with itself across two screens.
+  String get reportsLongestRun => isAr ? 'أطول تتابع أخضر' : 'Longest green run';
 
   /// The ribbon on a habit card whose period was fully met.
   String get reportsPerfect => isAr ? 'كامل' : 'PERFECT';
@@ -3856,7 +4048,7 @@ class S {
 
   /// Shown only once the count is above one, spelling out the whole rule.
   String timesPerDayNote(int n) => isAr
-      ? 'كل ضغطة على المربّع تزيد واحد. المربّع يصير جزئي لي تكمّل الـ $n، وبعدها يصير كامل.'
+      ? 'كل ضغطة على المربّع تزيد واحد. المربّع يصير جزئي إلى أن تكمّل الـ $n، وبعدها يصير كامل.'
       : 'Each tap on the square adds one. It stays partial until you finish all $n, then it fills.';
 
   /// The Grid badge on a habit counted more than once a day.
@@ -3893,4 +4085,210 @@ class S {
             : 'الـ $target مرة';
     return '"$habitName" تنحسب لك في الغرفة عندما تكمّل $all كلها.';
   }
+
+  // ── Steps link (walking habits auto-complete from the step count) ──────
+
+  /// Card title shown in Add Habit when the typed name reads as walking
+  /// (see step_habit_detector.dart).
+  String get stepLinkTitle =>
+      isAr ? 'نربطها بخطواتك؟' : 'Link it to your steps?';
+
+  /// The pitch under the title. Platform-split because the data source has
+  /// a user-facing name on each OS, and on iOS the Apple Watch is the
+  /// selling point.
+  String stepLinkBody(bool isIOS) {
+    if (isAr) {
+      return isIOS
+          ? 'هالعادة شكلها مشي. إذا انربطت، التطبيق يقرأ خطواتك من Apple Health (ومن ساعة Apple إذا عندك وحدة) وتكتمل بروحها لما توصل الهدف.'
+          : 'هالعادة شكلها مشي. إذا انربطت، التطبيق يقرأ خطواتك من Health Connect وتكتمل بروحها لما توصل الهدف.';
+    }
+    return isIOS
+        ? 'This looks like a walking habit. Link it and the app reads your steps from Apple Health (including your Apple Watch) and completes it for you when you hit the goal.'
+        : 'This looks like a walking habit. Link it and the app reads your steps from Health Connect and completes it for you when you hit the goal.';
+  }
+
+  /// The daily goal row on the same card. Western digits inside Arabic,
+  /// like every other number in the app.
+  String stepLinkGoal(int goal) =>
+      isAr ? 'الهدف: $goal خطوة في اليوم' : 'Goal: $goal steps a day';
+
+  /// The fourth choice beside the three preset goals: type your own.
+  ///
+  /// The presets answer for most people in one tap and answered for nobody
+  /// else at all, and a goal that came out of the habit's own name could be
+  /// read but never adjusted.
+  String get stepGoalCustom => isAr ? 'مخصص' : 'Custom';
+
+  /// What the number field is for, under it, so the field is never a bare
+  /// box of digits with no unit.
+  String get stepGoalFieldLabel =>
+      isAr ? 'خطوة في اليوم' : 'steps a day';
+
+  /// Shown while the typed number is not a goal the app can use. Names the
+  /// range rather than just refusing, and the last good goal stays selected
+  /// underneath, so there is no way to save nothing by mistake.
+  String stepGoalOutOfRange(int min, int max) => isAr
+      ? 'اكتب رقم بين $min و $max خطوة.'
+      : 'Enter a number between $min and $max steps.';
+
+  /// The five FAQ group headings, in the order somebody meets the app.
+  ///
+  /// Sixteen questions in one list meant reading all sixteen to find yours.
+  /// These are deliberately plain nouns rather than clever ones: a heading in
+  /// a help screen has one job, which is letting somebody skip past it.
+  String faqGroupTitle(String group) => switch (group) {
+        'basics' => isAr ? 'الأساسيات' : 'Basics',
+        'rewards' => isAr ? 'الخبرة والذهب' : 'XP and Gold',
+        'rooms' => isAr ? 'الغرف' : 'Rooms',
+        'features' => isAr ? 'مزايا ثانية' : 'Other features',
+        _ => isAr ? 'الحساب والتذكيرات' : 'Account and reminders',
+      };
+
+  /// Subject line on the support email, so a mailbox can sort them.
+  String get helpEmailSubject =>
+      isAr ? 'مساعدة في Grow Daily' : 'Grow Daily support';
+
+  /// The one line already in the body, above the blank space someone types
+  /// into. It exists so the message never opens completely empty, which is
+  /// the moment people close it again.
+  String get helpEmailBodyLead => isAr
+      ? 'اكتب مشكلتك هنا:'
+      : 'Describe the problem here:';
+
+  /// Toggle label.
+  String get stepLinkSwitch => isAr ? 'ربط الخطوات' : 'Link steps';
+
+  /// Chip/semantics label for a linked habit on the Grid.
+  String get stepLinkedBadge => isAr ? 'مربوطة بالخطوات' : 'Linked to steps';
+
+  /// Snackbar when the platform permission was declined: the habit still
+  /// saves, only the link is off. Mirrors the notification-permission
+  /// "saved but silent" contract in AddHabitSheet.
+  /// Save-time snackbar when the platform would not grant the read.
+  ///
+  /// Does NOT say "try again from Edit" on its own any more, because on both
+  /// platforms that is a dead end by the time somebody reads this. Android
+  /// blocks the Health Connect request permanently after the second refusal,
+  /// so the sheet never reappears; iOS shows its own sheet exactly once ever.
+  /// Either way the only road back is the device's own settings, so that is
+  /// the road this names.
+  String get stepLinkDenied => isAr
+      ? 'انحفظت العادة، بس الربط مطفي: ما انعطى إذن قراءة الخطوات. شغّل الإذن من إعدادات الجهاز وبعدين اربطها من تعديل العادة.'
+      : 'Habit saved, but the link is off: permission to read steps was not granted. Turn the permission on in your device settings, then link it from Edit.';
+
+  /// Snackbar on Android when Health Connect is missing entirely.
+  String get stepLinkUnsupported => isAr
+      ? 'انحفظت العادة، بس هالجهاز ما فيه Health Connect، فالربط مطفي.'
+      : 'Habit saved, but this device has no Health Connect, so the link is off.';
+
+  /// Live progress line for a steps-linked habit (actions sheet header).
+  /// Null steps means no health read has happened yet this session, so
+  /// only the goal is shown. The fraction goes through [progressFraction]
+  /// so "5320 / 8000" keeps its order inside the Arabic sentence.
+  String stepsProgressLine(int? steps, int goal) {
+    if (steps == null) {
+      return isAr ? 'الهدف: $goal خطوة' : 'Goal: $goal steps';
+    }
+    final fraction = progressFraction(steps, goal);
+    return isAr ? '$fraction خطوة اليوم' : '$fraction steps today';
+  }
+
+  /// The second line under [stepsProgressLine] when the count is zero and
+  /// the app cannot say why.
+  ///
+  /// Zero is never a lie the app should tell on its own: on iOS a refused
+  /// read and a day that has not started yet are the same empty answer by
+  /// Apple's design, so the honest move is to name what the person can check
+  /// rather than to assert either. [isHealthConnect] picks the right place to
+  /// send them, and on Android the likeliest cause is a different one
+  /// entirely: Health Connect is a store, not a sensor, so it holds no steps
+  /// at all unless some other app is writing them into it.
+  String stepsNotArrivingHint({required bool isHealthConnect}) {
+    if (isHealthConnect) {
+      return isAr
+          ? 'ما وصلتنا خطوات اليوم. Health Connect ما يجمع خطوات بنفسه، لازم في تطبيق يكتبها فيه مثل Fitbit أو Samsung Health.'
+          : 'No steps have reached us today. Health Connect does not count steps itself; another app has to write them into it, like Fitbit or Samsung Health.';
+    }
+    return isAr
+        ? 'ما وصلتنا خطوات اليوم. إذا مشيت وخطواتك ظاهرة في تطبيق صحتي، راجع الإذن من الإعدادات > الخصوصية والأمن > صحتي.'
+        : 'No steps have reached us today. If you walked and Apple Health shows it, check the permission in Settings > Privacy & Security > Health.';
+  }
+
+  /// The link is on, but the platform is refusing to hand steps over.
+  ///
+  /// Android only, and stated as a fact because on Android it IS one: Health
+  /// Connect fails the query outright when the read permission is gone, so
+  /// the app knows. iOS can never reach this — see
+  /// HealthStepsService.hasReadPermission — which is why the wording names
+  /// Health Connect rather than "your health app".
+  String get stepsLinkBlocked => isAr
+      ? 'الربط متوقف: ما عندنا إذن نقرأ خطواتك من Health Connect. شغّل الإذن من إعدادات الجهاز وترجع العادة تكمّل بروحها.'
+      : 'The link is stalled: we have no permission to read your steps from Health Connect. Turn the permission back on in your device settings and the habit goes back to completing itself.';
+
+  /// Health Connect is gone from the device (uninstalled, or the person
+  /// restored onto an older Android). The habit itself is untouched: it
+  /// stays on the board and can still be tapped like any other.
+  String get stepsLinkNoProvider => isAr
+      ? 'الربط متوقف: هذا الجهاز ما فيه Health Connect. العادة باقية وتقدر تعلّمها بنفسك.'
+      : 'The link is stalled: this device has no Health Connect. The habit stays, and you can still mark it yourself.';
+
+  // ── Grid: paused-elsewhere row ─────────────────────────────────────────
+
+  /// The Grid's one line for habits paused on an earlier day (today's
+  /// paused habits keep their board rows instead). Tapping opens the Add
+  /// Habit hub's paused section, where resume lives.
+  String pausedElsewhereRow(int count) {
+    if (!isAr) {
+      return count == 1
+          ? '1 paused habit, tap to bring it back'
+          : '$count paused habits, tap to bring them back';
+    }
+    final noun = count == 1
+        ? 'عادة وحدة موقوفة'
+        : count == 2
+            ? 'عادتين موقوفتين'
+            : count <= 10
+                ? '$count عادات موقوفة'
+                : '$count عادة موقوفة';
+    return '$noun، اضغط ترجع لها';
+  }
+
+  // ── Grid: list actions (header overflow menu) ──────────────────────────
+
+  String get gridMoreActions => isAr ? 'إجراءات القائمة' : 'List actions';
+
+  String get reorderHabitsTitle => isAr ? 'ترتيب العادات' : 'Reorder habits';
+
+  /// Hint inside the reorder sheet itself.
+  String get reorderHabitsHint => isAr
+      ? 'اسحب أي عادة وحطها بالمكان اللي يناسبك، الترتيب ينحفظ بروحه.'
+      : 'Drag any habit to where you want it. The order saves itself.';
+
+  /// One-line description on the menu row that opens the reorder sheet.
+  String get reorderHabitsMenuHint => isAr
+      ? 'غيّر ترتيب العادات في الشبكة'
+      : 'Change the order of the rows on the board';
+
+  String get gridSelectMultiple => isAr ? 'تحديد متعدد' : 'Select multiple';
+
+  String get gridSelectMultipleHint => isAr
+      ? 'حدد أكثر من عادة وامسحها مرة وحدة'
+      : 'Pick several habits and remove them together';
+
+  // ── Notification settings: madhab row + visible city search ────────────
+
+  String get notifMadhab => isAr ? 'مذهب العصر' : 'Asr madhab';
+
+  /// The one line that keeps the sheet from reading as a sect-picker.
+  String get notifMadhabHint => isAr
+      ? 'يأثر على وقت العصر بس، باقي الأوقات ما تتغير.'
+      : 'Only affects the Asr time. Nothing else changes.';
+
+  /// Spoken label for the location row's search icon.
+  String get notifLocationSearchAction =>
+      isAr ? 'ابحث عن مدينة' : 'Search for a city';
+
+  /// Add Habit: the collapsed reminder-offset section's affordance.
+  String get adjustReminderTiming =>
+      isAr ? 'قدّم أو أخّر التذكير' : 'Adjust reminder timing';
 }

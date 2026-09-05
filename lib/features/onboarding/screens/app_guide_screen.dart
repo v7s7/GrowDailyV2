@@ -7,6 +7,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../notifiers/guide_steps_provider.dart';
 import '../../../core/providers/home_tab_provider.dart';
+import '../../../core/providers/nav_layout_provider.dart' show NavTab;
 import '../../../core/theme/game_theme.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart' show habitListProvider;
@@ -255,10 +256,12 @@ void startGuideLesson(
       ref.read(weeklyGridProvider.notifier).goToCurrentWeek();
     }
 
-    final tabIndex = switch (target) {
-      AppGuideLesson.addHabit || AppGuideLesson.colorSquare => 0,
-      AppGuideLesson.discoverRooms => 1,
-      AppGuideLesson.addTask => 2,
+    // By tab identity, not page number: the bar is customisable, and
+    // HomeShell pushes a tab that is not in it as a route instead.
+    final tab = switch (target) {
+      AppGuideLesson.addHabit || AppGuideLesson.colorSquare => NavTab.grid,
+      AppGuideLesson.discoverRooms => NavTab.profile,
+      AppGuideLesson.addTask => NavTab.matrix,
     };
     // Instant, not animated — this screen is about to pop, and HomeShell's
     // PageView sits directly underneath it, so an animated page-turn here
@@ -266,7 +269,7 @@ void startGuideLesson(
     // glitchy double-shift instead of one clean motion. See
     // requestedHomeTabInstantProvider's doc comment.
     ref.read(requestedHomeTabInstantProvider.notifier).state = true;
-    ref.read(requestedHomeTabProvider.notifier).state = tabIndex;
+    ref.read(requestedHomeTabProvider.notifier).state = tab;
     ref.read(activeAppGuideLessonProvider.notifier).state = target;
     // popUntil(isFirst), NOT a single pop.
     //

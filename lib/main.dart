@@ -20,6 +20,9 @@ import 'core/providers/app_guide_provider.dart';
 import 'core/providers/get_started_checklist_provider.dart';
 import 'core/providers/home_tab_provider.dart'
     show requestedHomeTabProvider, requestedMatrixQuickAddProvider;
+import 'core/providers/nav_badges_setting_provider.dart';
+import 'core/providers/nav_bar_hint_provider.dart';
+import 'core/providers/nav_layout_provider.dart';
 import 'core/providers/first_run_offer_provider.dart';
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/room_finale_seen_provider.dart';
@@ -35,6 +38,7 @@ import 'core/services/purchase_service.dart';
 import 'core/theme/game_theme.dart';
 import 'core/services/local_store_service.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
+import 'features/auth/notifiers/guest_reconnect_provider.dart';
 import 'features/auth/widgets/guest_reconnect_prompt.dart';
 import 'features/auth/screens/auth_screen.dart';
 import 'features/dashboard/notifiers/dashboard_notifier.dart';
@@ -44,7 +48,8 @@ import 'features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitCatalog, IslamicHabitTemplate;
 import 'features/habits/models/habit_cue.dart';
 import 'features/insights/insights_screen.dart';
-import 'features/habits/models/habit_model.dart' show GoalType, ReductionType;
+import 'features/habits/models/habit_model.dart'
+    show GoalType, HabitFrequencyType, ReductionType;
 import 'features/habits/notifiers/custom_habits_notifier.dart'
     show
         allHabitsEverProvider,
@@ -69,12 +74,14 @@ import 'features/matrix/widgets/voice_note_player.dart'
 import 'features/night_review/notifiers/night_review_notifier.dart';
 import 'features/night_review/screens/night_review_screen.dart';
 import 'features/onboarding/screens/app_guide_screen.dart';
+import 'features/tasbih/tasbih_screen.dart';
 import 'features/onboarding/screens/first_run_offer_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/premium/notifiers/premium_notifier.dart';
 import 'features/premium/screens/premium_screen.dart';
 import 'features/profile/screens/help_support_screen.dart';
 import 'features/profile/screens/profile_screen.dart' show SettingsScreen;
+import 'features/settings/screens/nav_bar_settings_screen.dart';
 import 'features/rooms/notifiers/rooms_notifier.dart'
     show
         RoomRaceSnapshot,
@@ -203,6 +210,13 @@ Future<void> main() async {
       inGuestMode: persistedGuestMode,
     );
     final persistedLocale = await loadPersistedLocale();
+    // The iOS buttons under a habit reminder («تمت» / «تأجيل ساعة») belong
+    // to a category that was registered inside init() above, before this
+    // line had read which language to use. See applyLocale: it is a no-op
+    // for English and for Android, and it runs before anything is
+    // scheduled either way.
+    await NotificationService.instance
+        .applyLocale(persistedLocale?.languageCode == 'ar');
     final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
     final persistedGetStartedDismissed = await loadPersistedGetStartedDismissed();
     final persistedAppGuideRoomsSeen = await loadPersistedAppGuideRoomsSeen();
@@ -236,6 +250,11 @@ Future<void> main() async {
     // frame already renders in the right typeface instead of flashing the
     // default and then swapping.
     final persistedFont = await loadPersistedFont();
+    // The bottom bar's tabs, so the first frame draws the bar this account
+    // arranged instead of three tabs that then jump to five.
+    final persistedNavTabs = await loadPersistedNavTabs();
+    final persistedNavBarHintSeen = await loadPersistedNavBarHintSeen();
+    final persistedNavBadgesEnabled = await loadPersistedNavBadgesEnabled();
     runApp(ProviderScope(
       overrides: [
         guestModeProvider.overrideWith((ref) => persistedGuestMode),
@@ -260,6 +279,12 @@ Future<void> main() async {
               (ref) => SavedThemeColoursNotifier(persistedSavedColours)),
         if (persistedFont != null)
           appFontProvider.overrideWith((ref) => AppFontNotifier(persistedFont)),
+        if (persistedNavTabs != null)
+          navLayoutProvider
+              .overrideWith((ref) => NavLayoutNotifier(persistedNavTabs)),
+        navBarHintSeenProvider.overrideWith((ref) => persistedNavBarHintSeen),
+        navBadgesEnabledProvider.overrideWith(
+            (ref) => NavBadgesSettingNotifier(persistedNavBadgesEnabled)),
       ],
       child: const GrowDailyApp(),
     ));
@@ -357,6 +382,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         ref.read(appFontProvider.notifier).pullFromAccount(uid);
         ref.read(reminderTimeProvider.notifier).pullFromAccount(uid);
         ref.read(notificationSettingsProvider.notifier).pullFromAccount(uid);
+        ref.read(navLayoutProvider.notifier).pullFromAccount(uid);
+        ref.read(navBadgesEnabledProvider.notifier).pullFromAccount(uid);
         _syncAmbientAccountFacts(uid);
         // Keeps this device's FCM token mirrored to this account for the
         // room-finish push (see PushNotificationService's own doc comment)
@@ -432,6 +459,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         ref.read(appFontProvider.notifier).detachAccount();
         ref.read(reminderTimeProvider.notifier).detachAccount();
         ref.read(notificationSettingsProvider.notifier).detachAccount();
+        ref.read(navLayoutProvider.notifier).detachAccount();
+        ref.read(navBadgesEnabledProvider.notifier).detachAccount();
         PurchaseService.instance.logOut();
         // Clears the cached entitlement with it. Without this the signed-out
         // device would keep answering "Premium" from disk on the next cold
@@ -440,6 +469,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         Future.microtask(() {
           if (!mounted) return;
           ref.read(premiumProvider.notifier).detachAccount();
+          // A registration that rolled back (register()'s profile-doc write
+          // failed and the auth user was deleted) resolves as this same
+          // signed-out transition, with the auth screen's pre-await arming
+          // of justRegisteredProvider still standing — its own disarm sits
+          // behind an `if (!mounted)` that the rollback's dispose already
+          // tripped. Left armed, the NEXT sign-in that has any legitimate
+          // offer would get the post-registration modal it never earned.
+          // Same microtask deferral as the premium calls above, and for the
+          // same red-screen reason.
+          ref.read(justRegisteredProvider.notifier).state = false;
         });
         // Drops this device's own token doc so a shared/reset device stops
         // being a room-finish push target for the account that just left it.
@@ -494,7 +533,15 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // fireImmediately: the subscriptions above already cover cold start.
     _localeSub = ref.listenManual(
       localeProvider,
-      (previous, next) => _recomputeNotifications(),
+      (previous, next) {
+        // The copy below is re-baked by the recompute; the iOS action
+        // buttons are not, because they live on a category registered once
+        // per process rather than on each notification.
+        NotificationService.instance
+            .applyLocale(next.languageCode == 'ar')
+            .ignore();
+        _recomputeNotifications();
+      },
     );
 
     // Resolve every habit's cue (fixed clock time or a prayer) into a real
@@ -870,6 +917,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     }).toList();
 
     final reminders = <HabitReminderInput>[];
+    // Read once for this pass: the quit check-ins and the weekly digest
+    // below read it too, and a flexible weekly quota's reminder wording
+    // needs this week's squares. Reading it fresh here can transiently
+    // miss data while the grid is still loading or showing a past week —
+    // the _gridSub recompute corrects that the moment the real data lands.
+    final grid = ref.read(weeklyGridProvider);
     // Counts only what is actually owed TODAY — it feeds the evening
     // streak-risk nudge, which is a question about today's board.
     var pendingCount = 0;
@@ -880,18 +933,52 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     }
     for (final habit in upcomingHabits) {
       final scheduledToday = habit.isScheduledFor(today);
+      final isFlexibleQuota =
+          habit.frequencyType == HabitFrequencyType.weekly &&
+              habit.scheduledWeekdays.isEmpty;
       final cue = HabitCue.fromStoredValue(habit.cueAfter);
+      // Days since this habit was last logged, or null if it never has
+      // been. Read off the same map habitStreak reads, so "never done" and
+      // "streak lapsed" can't disagree about one habit. It is wording
+      // input only: see HabitReminderInput.lastDoneDaysAgo.
+      final lastDoneKey = dash.habitLastCompletedDate[habit.id];
+      final lastDone =
+          lastDoneKey == null ? null : DateTime.tryParse(lastDoneKey);
+      // The cue's own shifts when it has them (multi-time), the habit's
+      // single field when it does not. Never both: see HabitCue.offsetsAreOwn.
+      final baseTimes = cue.clockTimes;
+      final baseOffsets = cue.offsetsAreOwn
+          ? cue.clockOffsets
+          : [habit.reminderOffsetMinutes];
+      // A stacked reminder is the SAME occurrence fired at several shifts, so
+      // it is expanded into the (time, offset) pairs the scheduler already
+      // speaks in — one pair per slot, index-aligned, exactly the shape a
+      // multi-time habit produces. That keeps resolveClockSlots the single
+      // unchanged piece of clock arithmetic, and slot 0 the pair it has
+      // always been.
+      final expanded = NotificationService.expandStackedSlots(
+        times: baseTimes,
+        offsets: baseOffsets,
+        primaryOffset: habit.reminderOffsetMinutes,
+        extraOffsets: habit.extraReminderOffsets,
+      );
       reminders.add((
         id: habit.id,
         name: habit.localName(isAr),
-        clockTimes: cue.clockTimes,
-        // The cue's own shifts when it has them (multi-time), the habit's
-        // single field when it does not. Never both: see HabitCue.offsetsAreOwn.
-        clockOffsets: cue.offsetsAreOwn
-            ? cue.clockOffsets
-            : [habit.reminderOffsetMinutes],
+        clockTimes: expanded.times,
+        clockOffsets: expanded.offsets,
+        // How many of those slots belong to ONE occurrence — see
+        // HabitReminderInput.remindersPerOccurrence. Logging a habit once has
+        // to stand down its whole stack, not just the earliest entry of it.
+        remindersPerOccurrence: expanded.perOccurrence,
+        extraReminderOffsets: habit.extraReminderOffsets,
         prayerKey: cue.prayerKey,
-        streak: dash.habitStreak(habit.id),
+        // On the habit's own days: a Wed/Sat habit done Wednesday still has
+        // its streak on Saturday. See DashboardState.habitStreak.
+        streak: dash.habitStreak(
+          habit.id,
+          scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+        ),
         // The raw count, not the done bool: a habit counted twice a day with
         // one logged is neither "done" nor "untouched", and the scheduler
         // needs the number to know how many of today's reminders to stand
@@ -913,6 +1000,30 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // دقيقة على المغرب"). A clock cue's anchor is a clock, and the
         // notification is already stamped with one.
         anchorLabel: cue.prayerKey != null ? cue.labelForLocale(isAr) : null,
+        lastDoneDaysAgo: lastDone == null
+            ? null
+            : today
+                .difference(
+                    DateTime(lastDone.year, lastDone.month, lastDone.day))
+                .inDays,
+        // Only a habit that really runs a timer can state a length; a
+        // hasTimer habit with no duration stored has nothing true to say.
+        timerSeconds: habit.hasTimer ? habit.timerDurationSeconds : null,
+        // A flexible weekly quota ("N times a week, any days") is judged by
+        // its week, and the week's squares are the Grid's. Null target for
+        // every other cadence; null squares while the Grid is not showing
+        // the current week, in which case the wording makes no claim about
+        // the week until the next recompute. Same predicate the Grid row
+        // uses (grid_screen_table's isFlexibleQuota): "Specific Days" is
+        // also stored as weekly, told apart only by scheduledWeekdays.
+        weekTarget: isFlexibleQuota ? habit.frequencyTarget : null,
+        weekDoneDays:
+            !isFlexibleQuota || !grid.isCurrentWeek || grid.isLoading
+                ? null
+                : {
+                    for (var i = 0; i < grid.days.length; i++)
+                      if (grid.squareFor(habit.id, grid.days[i]).isGreen) i,
+                  },
       ));
     }
     NotificationService.instance
@@ -953,11 +1064,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // evening check-in instead of relying on the user remembering to tap
     // (see NotificationService.scheduleQuitCheckIns). Resolved = affirmed
     // on-track (completed) or logged as a slip (today's square already
-    // red). Same single-tap-only rule as HabitCard's slip link. Reading
-    // the grid fresh here can transiently miss a slip while the grid is
-    // still loading or showing a past week — the _gridSub recompute
-    // corrects that the moment the real data lands.
-    final grid = ref.read(weeklyGridProvider);
+    // red). Same single-tap-only rule as HabitCard's slip link. The grid
+    // read above can transiently miss a slip while the grid is still
+    // loading or showing a past week — the _gridSub recompute corrects
+    // that the moment the real data lands.
     final quitCheckIns = <QuitCheckInInput>[
       for (final habit in todayHabits)
         if (habit.goalType == GoalType.quit && habit.effectiveDailyTarget == 1)
@@ -1355,7 +1465,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       return;
     }
     if (isMatrixQuickAddLink(uri)) {
-      ref.read(requestedHomeTabProvider.notifier).state = 2;
+      ref.read(requestedHomeTabProvider.notifier).state = NavTab.matrix;
       ref.read(requestedMatrixQuickAddProvider.notifier).state = true;
     }
   }
@@ -1509,6 +1619,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       final mirroredBySingleTap =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
+                scheduledWeekdays: habit.scheduledWeekdays.toSet(),
                 // 2x while a linked room is live — see roomBoostedReward.
                 xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
                 goldReward:
@@ -1703,6 +1814,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         '/': (_) => const _LanguageGate(),
         '/heatmap': (_) => const MonthlyHeatmapScreen(),
         '/night-review': (_) => const NightReviewScreen(),
+        '/tasbih': (_) => const TasbihScreen(),
         '/grid-journal': (_) => const GridJournalScreen(),
         '/insights': (_) => const InsightsScreen(),
         '/premium': (_) => const PremiumScreen(),
@@ -1710,6 +1822,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         '/notification-settings': (_) => const NotificationSettingsScreen(),
         '/help-support': (_) => const HelpSupportScreen(),
         '/settings': (_) => const SettingsScreen(),
+        '/nav-bar': (_) => const NavBarSettingsScreen(),
         '/app-guide': (_) => const AppGuideScreen(),
       },
       onGenerateRoute: (settings) {
@@ -1725,9 +1838,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
           // payload naming it now falls through to null below and simply
           // opens the app, which is the right outcome for a route that no
           // longer describes anywhere.
-          '/grid' => (_) => const HomeShell(initialIndex: 0),
-          '/profile' => (_) => const HomeShell(initialIndex: 1),
-          '/matrix' => (_) => const HomeShell(initialIndex: 2),
+          '/grid' => (_) => const HomeShell(initialTab: NavTab.grid),
+          '/profile' => (_) => const HomeShell(initialTab: NavTab.profile),
+          '/matrix' => (_) => const HomeShell(initialTab: NavTab.matrix),
           _ => null,
         };
         if (builder == null) return null;

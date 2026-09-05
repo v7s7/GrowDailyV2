@@ -1,5 +1,8 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
@@ -48,16 +51,27 @@ const List<({String titleEn, String titleAr, String url})> kGuideVideos = [];
 /// routing question/answer text through app_strings.dart (which is for UI
 /// chrome, not this kind of long-form content - see that file's own
 /// comment above these strings).
+/// Which part of the app a question is about.
+///
+/// Sixteen questions in one undivided list meant reading all sixteen titles
+/// to find yours, which is the difference between "there is a FAQ" and "I
+/// found my answer". The order below is the order they appear, and it is the
+/// order somebody meets the app in: the board first, then what it pays, then
+/// the social part, then the corners, then the account.
+enum FaqGroup { basics, rewards, rooms, features, account }
+
 class FaqEntry {
   final String questionEn;
   final String questionAr;
   final String answerEn;
   final String answerAr;
+  final FaqGroup group;
   const FaqEntry({
     required this.questionEn,
     required this.questionAr,
     required this.answerEn,
     required this.answerAr,
+    required this.group,
   });
 
   String question(bool isAr) => isAr ? questionAr : questionEn;
@@ -69,7 +83,8 @@ class FaqEntry {
 /// dashboard_notifier_loading.dart, the 10 AM day cutoff in
 /// datetime_ext.dart, Room habit-editing in rooms_notifier.dart, guest/free
 /// habit caps in custom_habits_notifier.dart, Premium's real benefit list in
-/// premium_screen.dart, Quick Wins' own doc comments, Night Review's screen,
+/// premium_screen.dart, Night Review's screen, the bottom bar customiser in
+/// nav_bar_settings_screen.dart,
 /// the Journey/Life Timeline milestone log, prayer-time reminders in
 /// notification_service.dart/prayer_times_service.dart, and account
 /// deletion in delete_account_sheet.dart) rather than generic copy. Plain,
@@ -84,6 +99,7 @@ const List<FaqEntry> kFaqEntries = [
         'Tap a square on the Grid to move it through empty, halfway, and done. Hold your finger on it for more options, like marking it failed or skipped, or adding a note.',
     answerAr:
         'اضغط على المربع في الجدول لينتقل بين فارغ، نصف مُنجز، ومكتمل. اضغط مطوّلاً عليه لخيارات أكثر، مثل تعليمه فاشل أو متروك، أو إضافة ملاحظة.',
+    group: FaqGroup.basics,
   ),
   FaqEntry(
     questionEn: 'How does my streak work?',
@@ -92,6 +108,7 @@ const List<FaqEntry> kFaqEntries = [
         'It counts the days in a row where you finished everything on your board, not just one habit. And your day doesn\'t end at midnight. Anything you finish before 10 AM the next day still counts for the day before.',
     answerAr:
         'تحسب الأيام المتتالية التي أنجزت فيها كل ما في جدولك، وليس عادة واحدة فقط. ويومك لا ينتهي عند منتصف الليل. أي شيء تنجزه قبل الساعة 10 من صباح اليوم التالي يُحتسب لليوم السابق.',
+    group: FaqGroup.basics,
   ),
   FaqEntry(
     questionEn: 'What happens if I miss a day?',
@@ -100,6 +117,7 @@ const List<FaqEntry> kFaqEntries = [
         'Your streak breaks, unless you have a streak freeze saved up. You start with one and earn another each week automatically. It kicks in on its own the moment you miss a day.',
     answerAr:
         'تنكسر سلسلتك، إلا إذا كان لديك تجميد سلسلة محفوظ. تبدأ بواحد وتكسب آخر كل أسبوع تلقائيًا. يعمل من تلقاء نفسه لحظة تفويتك يومًا.',
+    group: FaqGroup.basics,
   ),
   FaqEntry(
     questionEn: 'Why doesn\'t my day end at midnight?',
@@ -108,6 +126,7 @@ const List<FaqEntry> kFaqEntries = [
         'So a late night, or a late morning, doesn\'t cost you anything. Your day stays open until 10 AM the next day. Finish a habit at 2 AM or at 9 AM and it still counts for the day before instead of getting marked as missed.',
     answerAr:
         'عشان السهر، أو النوم لين متأخر، ما يكلّفك شي. يومك يظل مفتوح لين الساعة 10 من صبح اليوم التالي. لو أنجزت عادة الساعة 2 الفجر أو الساعة 9 الصبح، تنحسب لليوم السابق بدل ما تنعدّ فايتة.',
+    group: FaqGroup.basics,
   ),
   FaqEntry(
     questionEn: 'What\'s the difference between XP and Gold?',
@@ -116,6 +135,7 @@ const List<FaqEntry> kFaqEntries = [
         'Both come from finishing habits and tasks. XP levels up your character. Gold is money you spend in the Shop.',
     answerAr:
         'كلاهما تكسبهما بإنجاز عاداتك ومهامك. الخبرة ترفع مستوى شخصيتك. والذهب مال تنفقه في المتجر.',
+    group: FaqGroup.rewards,
   ),
   FaqEntry(
     questionEn: 'Is there a limit to how much I can earn in a day?',
@@ -124,6 +144,7 @@ const List<FaqEntry> kFaqEntries = [
         'Yes. XP and Gold stop adding up once a day reaches a very high total, so the app can\'t be farmed. A normal day never gets near it, and your streak, medals and squares are never capped.',
     answerAr:
         'إي. الخبرة والذهب يوقفون عند مجموع يومي عالي، عشان ما أحد يستغل التطبيق. يومك العادي ما يوصله، وسلسلتك وأوسمتك ومربعاتك ما عليها حد.',
+    group: FaqGroup.rewards,
   ),
   FaqEntry(
     questionEn: 'What\'s the difference between the Shop and Level Prestige?',
@@ -132,6 +153,7 @@ const List<FaqEntry> kFaqEntries = [
         'The Shop sells accessories for your character with Gold, and it\'s totally optional. Level Prestige is a free title next to your name that unlocks as you level up, like Seeker or Legacy. They\'re two separate things, one has nothing to do with the other.',
     answerAr:
         'المتجر يبيع إكسسوارات لشخصيتك بالذهب، وهو اختياري بالكامل. مرتبة المستوى لقب مجاني بجانب اسمك يُفتح كلما ارتفع مستواك، مثل الباحث أو الإرث. هما نظامان منفصلان تمامًا، لا علاقة لأحدهما بالآخر.',
+    group: FaqGroup.rewards,
   ),
   FaqEntry(
     questionEn: 'What are Rooms?',
@@ -140,6 +162,7 @@ const List<FaqEntry> kFaqEntries = [
         'A shared space to build habits with friends or family. The leader can set one plan everyone follows together, or let everyone track their own habits. Either way, you can see each other\'s progress.',
     answerAr:
         'مساحة مشتركة لبناء العادات مع الأصدقاء أو العائلة. يمكن للقائد وضع خطة واحدة يتبعها الجميع، أو ترك كل شخص يتابع عاداته الخاصة. وفي الحالتين يرى الجميع تقدّم بعضهم.',
+    group: FaqGroup.rooms,
   ),
   FaqEntry(
     questionEn: 'Can the leader add a new habit to a Room later?',
@@ -148,14 +171,7 @@ const List<FaqEntry> kFaqEntries = [
         'Yes, anytime. Everyone in the room gets a prompt to link one of their own habits to it.',
     answerAr:
         'نعم، في أي وقت. سيظهر لكل من في الغرفة تنبيه لربط إحدى عاداتهم بها.',
-  ),
-  FaqEntry(
-    questionEn: 'What are Quick Wins?',
-    questionAr: 'ما هي المكاسب السريعة؟',
-    answerEn:
-        'Small bonus suggestions on your Today screen. A little extra XP or gold for something simple, on top of your normal habits. They don\'t fill a Grid square and don\'t touch your streak.',
-    answerAr:
-        'اقتراحات صغيرة إضافية في شاشة اليوم. خبرة أو ذهب إضافي مقابل شيء بسيط، فوق عاداتك المعتادة. لا تملأ مربعًا في الجدول ولا تؤثر على سلسلتك.',
+    group: FaqGroup.rooms,
   ),
   FaqEntry(
     questionEn: 'What is Night Review?',
@@ -164,6 +180,7 @@ const List<FaqEntry> kFaqEntries = [
         'A quick check-in at the end of your day. Pick how you felt and write a short reflection if you want. You\'ll also see what you got done. Open it anytime, and you can edit it later.',
     answerAr:
         'تسجيل سريع في نهاية يومك. اختر كيف كان شعورك واكتب تأملاً قصيرًا إن أردت. سترى أيضًا ما أنجزته. افتحه في أي وقت، ويمكنك تعديله لاحقًا.',
+    group: FaqGroup.features,
   ),
   FaqEntry(
     questionEn: 'Why is my Journey or Timeline page empty?',
@@ -172,6 +189,16 @@ const List<FaqEntry> kFaqEntries = [
         'Those pages only started recording from the day this feature launched. They can\'t pull in history from before that, even if you\'ve used Grow Daily for months. Everything from now on will show up.',
     answerAr:
         'هاتان الصفحتان بدأتا التسجيل فقط من يوم إطلاق هذه الميزة. لا يمكنهما استرجاع ما قبل ذلك، حتى لو كنت تستخدم Grow Daily منذ أشهر. كل ما يحدث من الآن سيظهر.',
+    group: FaqGroup.features,
+  ),
+  FaqEntry(
+    questionEn: 'Can I change the tabs in the bottom bar?',
+    questionAr: 'أقدر أغيّر الشريط السفلي؟',
+    answerEn:
+        'Yes, with Premium. Go to Settings, then Bottom bar, or press and hold the bar itself. Add up to 5 tabs like Rooms, Progress or Tasbih, drag them into the order you like, or remove Tasks. Habits and Profile always stay. If Premium ends, the bar stays the way you left it, and Reset to default is always available.',
+    answerAr:
+        'نعم، مع بريميوم. روح للإعدادات ثم الشريط السفلي، أو اضغط مطولًا على الشريط نفسه. أضف لحد 5 تبويبات مثل الغرف أو التقدّم أو السبحة، ورتّبها مثل ما تبي، أو احذف المهام. العادات وملفي دائمًا موجودين. وإذا انتهى بريميوم، الشريط يبقى مثل ما تركته، واسترجاع الافتراضي متاح دائمًا.',
+    group: FaqGroup.features,
   ),
   FaqEntry(
     questionEn: 'What\'s the difference between a guest, a free account, '
@@ -181,6 +208,7 @@ const List<FaqEntry> kFaqEntries = [
         'As a guest you can try the app with up to 3 habits, but everything stays on this one device. A free account raises that to 10 habits and backs up your progress. Premium removes the habit limit entirely and unlocks your full history, deeper insights, extra themes, and voice notes.',
     answerAr:
         'كضيف يمكنك تجربة التطبيق بـ 3 عادات، لكن كل شيء يبقى على هذا الجهاز فقط. الحساب المجاني يرفع الحد إلى 10 عادات ويحفظ نسخة من تقدّمك. الاشتراك المميز يزيل حد العادات تمامًا ويفتح سجلّك الكامل، رؤى أعمق، سمات إضافية، وملاحظات صوتية.',
+    group: FaqGroup.account,
   ),
   FaqEntry(
     questionEn: 'Why isn\'t my prayer-time reminder going off?',
@@ -189,6 +217,7 @@ const List<FaqEntry> kFaqEntries = [
         'Most likely your location isn\'t set. Without it, the app can\'t work out prayer times for you. Go to Notification Settings, set your location, and check the reminder is still on for that habit.',
     answerAr:
         'الأرجح أن موقعك غير محدَّد. وبدونه، لا يستطيع التطبيق حساب أوقات الصلاة لك. اذهب إلى إعدادات الإشعارات، حدّد موقعك، وتأكد أن التذكير مفعّل لتلك العادة.',
+    group: FaqGroup.account,
   ),
   FaqEntry(
     questionEn: 'How do I set a reminder for a task?',
@@ -197,6 +226,7 @@ const List<FaqEntry> kFaqEntries = [
         'When you add a task, the reminder option is right there under the title. No extra tapping needed.',
     answerAr:
         'عند إضافة مهمة، خيار التذكير موجود مباشرة أسفل العنوان. بلا حاجة لأي ضغط إضافي.',
+    group: FaqGroup.account,
   ),
   FaqEntry(
     questionEn: 'Can I delete my account?',
@@ -205,6 +235,7 @@ const List<FaqEntry> kFaqEntries = [
         'Yes. Go to Settings and tap Delete Account. You\'ll re-enter your password to confirm. After that it\'s permanent.',
     answerAr:
         'نعم. اذهب إلى الإعدادات واضغط على حذف الحساب. ستُعيد إدخال كلمة المرور للتأكيد. وبعدها يكون نهائيًا.',
+    group: FaqGroup.account,
   ),
 ];
 
@@ -291,10 +322,43 @@ class _FaqListState extends State<_FaqList> {
   // Only one open at a time - same shape PlanPickerSheet's _expandedPlanId
   // already uses for the same reason: reading one answer at a time is the
   // point, not accumulating a wall of open text.
-  int? _expandedIndex;
+  //
+  // Keyed on the question rather than an index now that the list is split
+  // into cards: an index is only unique within its own card, so two answers
+  // in two groups would have opened together.
+  String? _expandedIndex;
 
   @override
   Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    // One card per group, each under its own quiet heading. Groups with no
+    // questions in them simply do not appear, so adding or moving an entry
+    // above needs nothing here.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final group in FaqGroup.values)
+          if (kFaqEntries.where((e) => e.group == group).isNotEmpty) ...[
+            if (group != FaqGroup.values.first) const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, right: 2, left: 2),
+              child: Text(
+                s.faqGroupTitle(group.name),
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textTert,
+                ),
+              ),
+            ),
+            _groupCard(kFaqEntries.where((e) => e.group == group).toList()),
+          ],
+      ],
+    );
+  }
+
+  Widget _groupCard(List<FaqEntry> entries) {
     final gp = context.gp;
     return Container(
       decoration: BoxDecoration(
@@ -304,15 +368,18 @@ class _FaqListState extends State<_FaqList> {
       ),
       child: Column(
         children: [
-          for (var i = 0; i < kFaqEntries.length; i++) ...[
+          for (var i = 0; i < entries.length; i++) ...[
             if (i != 0) Container(height: 0.5, color: gp.divider),
             _FaqRow(
-              entry: kFaqEntries[i],
+              entry: entries[i],
               isAr: widget.isAr,
-              isExpanded: _expandedIndex == i,
+              isExpanded: _expandedIndex == entries[i].questionEn,
               onTap: () {
                 HapticFeedback.selectionClick();
-                setState(() => _expandedIndex = _expandedIndex == i ? null : i);
+                setState(() => _expandedIndex =
+                    _expandedIndex == entries[i].questionEn
+                        ? null
+                        : entries[i].questionEn);
               },
             ),
           ],
@@ -388,7 +455,71 @@ class _FaqRow extends StatelessWidget {
 
 // ─── Contact ────────────────────────────────────────────────────────────────
 
-class _ContactCard extends StatelessWidget {
+/// The support address with a subject and the device already written into it.
+///
+/// A bare `mailto:` opened a blank message, so every conversation started
+/// with the same two questions back: which phone, and which version. The
+/// person writing in has no idea, and asking them costs a round trip before
+/// anyone has even read the problem.
+///
+/// What is here needs no plugin: dart:io knows the platform and the OS
+/// build, and the sheet knows the language. The APP's own version is the one
+/// field still missing, and it is the most useful of the lot — it needs
+/// package_info_plus, which is a dependency decision rather than a code one.
+///
+/// The body is left in the person's own language and ends with a blank line
+/// under a divider, so what they type lands above the technical part instead
+/// of after it.
+///
+/// [appVersion] is null only in the moment before package_info answers, which
+/// is a frame or two after the screen opens. The line is dropped rather than
+/// filled with "unknown": a support mail that says the version is unknown is
+/// no better than one that does not mention it, and worse to read.
+String supportMailto(S s, {String? appVersion}) {
+  final device = [
+    'App: Grow Daily${appVersion == null ? '' : ' $appVersion'}',
+    'Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+    'Language: ${s.isAr ? 'ar' : 'en'}',
+  ].join('\n');
+  final body = '${s.helpEmailBodyLead}\n\n\n--\n$device';
+  return Uri(
+    scheme: 'mailto',
+    path: kSupportEmail,
+    query: Uri.encodeFull('subject=${s.helpEmailSubject}&body=$body')
+        .replaceAll('#', '%23'),
+  ).toString();
+}
+
+/// Loads the app's version once and hands it to the mailto.
+///
+/// Stateful only for that: package_info is a platform channel, so it cannot
+/// be read while building. A failure leaves the version out and the rest of
+/// the mail intact, because not knowing the build is a far smaller problem
+/// than a support screen that throws.
+class _ContactCard extends StatefulWidget {
+  @override
+  State<_ContactCard> createState() => _ContactCardState();
+}
+
+class _ContactCardState extends State<_ContactCard> {
+  String? _appVersion;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() => _appVersion = '${info.version} (${info.buildNumber})');
+    } catch (_) {
+      // Leave it null; see supportMailto.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
@@ -398,7 +529,7 @@ class _ContactCard extends StatelessWidget {
         (
           icon: Icons.email_outlined,
           label: s.helpContactEmailLabel,
-          url: 'mailto:$kSupportEmail',
+          url: supportMailto(s, appVersion: _appVersion),
         ),
       if (kSupportWhatsApp != null)
         (

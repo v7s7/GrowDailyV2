@@ -34,8 +34,7 @@ class NightReviewState {
 }
 
 /// Tonight's mood + reflection check-in. Scoped only to *today* — there is
-/// no history browsing here, just "how was today", mirroring the simplicity
-/// of the morning IntentionScreen this pairs with.
+/// no history browsing here, just "how was today".
 ///
 /// "Today" here is the cutoff-aware app day (see DateTimeGameExt.
 /// effectiveDay), not the raw calendar date — doing tonight's review at

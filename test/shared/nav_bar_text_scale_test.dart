@@ -16,8 +16,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:grow_daily_v2/core/providers/nav_layout_provider.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/shared/widgets/game_nav_bar.dart';
+import 'package:grow_daily_v2/shared/widgets/nav_tabs.dart';
 
 void main() {
   setUp(() => GoogleFonts.config.allowRuntimeFetching = false);
@@ -40,6 +42,8 @@ void main() {
     WidgetTester tester, {
     required double scale,
     required Locale locale,
+    List<NavTab> tabs = kDefaultNavTabs,
+    Map<NavTab, NavBadge> badges = const {},
   }) async {
     await tester.pumpWidget(MaterialApp(
       locale: locale,
@@ -55,12 +59,25 @@ void main() {
             .copyWith(textScaler: TextScaler.linear(scale)),
         child: child!,
       ),
-      home: const Scaffold(
-        bottomNavigationBar: GameNavBar(currentIndex: 0),
+      home: Scaffold(
+        bottomNavigationBar:
+            GameNavBar(currentIndex: 0, tabs: tabs, badges: badges),
       ),
     ));
     await tester.pumpAndSettle();
   }
+
+  // The widest bar a Premium account can build: five tabs, with the two
+  // longest labels in both languages ("Year Record" and "سجل السنة") in it.
+  // kNavTabsMax is five BECAUSE this fits; the assertions below are what
+  // that number rests on.
+  const fiveTabs = [
+    NavTab.grid,
+    NavTab.profile,
+    NavTab.matrix,
+    NavTab.yearRecord,
+    NavTab.nightReview,
+  ];
 
   double barHeight(WidgetTester tester) =>
       tester.getSize(find.byType(GameNavBar)).height;
@@ -93,6 +110,60 @@ void main() {
           expect(find.text(label), findsOneWidget, reason: '$label vanished');
           expect(tester.getSize(find.text(label)).height, greaterThan(0));
         }
+      });
+    });
+  }
+
+  for (final locale in const [Locale('ar'), Locale('en')]) {
+    final tag = locale.languageCode;
+    for (final scale in scales) {
+      testWidgets('[$tag] five tabs do not overflow at ${scale}x',
+          (tester) async {
+        await onIOS(() async {
+          await pumpBar(tester, scale: scale, locale: locale, tabs: fiveTabs);
+          expect(tester.takeException(), isNull);
+        });
+      });
+    }
+
+    testWidgets('[$tag] five tabs are still 60pt tall at the largest size',
+        (tester) async {
+      await onIOS(() async {
+        await pumpBar(tester, scale: 3.1, locale: locale, tabs: fiveTabs);
+        expect(barHeight(tester), closeTo(60 + 8, 0.5));
+        final labels = locale.languageCode == 'ar'
+            ? ['العادات', 'ملفي', 'المهام', 'سجل السنة', 'المراجعة']
+            : ['Habits', 'Profile', 'Tasks', 'Year Record', 'Review'];
+        for (final label in labels) {
+          expect(find.text(label), findsOneWidget, reason: '$label vanished');
+        }
+      });
+    });
+  }
+
+  for (final locale in const [Locale('ar'), Locale('en')]) {
+    final tag = locale.languageCode;
+    testWidgets('[$tag] badges neither overflow nor scale at the largest size',
+        (tester) async {
+      // A count pill hangs off the icon inside a fixed 60pt bar. It is
+      // exempt from text scaling on purpose (see _GlassBadgedIcon), so the
+      // bar must stay 60pt and clean with badges on at 3.1x.
+      await onIOS(() async {
+        await pumpBar(
+          tester,
+          scale: 3.1,
+          locale: locale,
+          tabs: fiveTabs,
+          badges: const {
+            NavTab.matrix: NavBadge.count(3),
+            NavTab.nightReview: NavBadge.dot(),
+          },
+        );
+        expect(tester.takeException(), isNull);
+        expect(barHeight(tester), closeTo(60 + 8, 0.5));
+        expect(find.text('3'), findsOneWidget);
+        expect(tester.getSize(find.text('3')).height, lessThan(16),
+            reason: 'the count scaled with the text setting');
       });
     });
   }

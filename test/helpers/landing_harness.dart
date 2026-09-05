@@ -13,9 +13,9 @@ import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/grid/screens/grid_screen.dart';
 import 'package:grow_daily_v2/features/grid/screens/monthly_heatmap_screen.dart';
-import 'package:grow_daily_v2/features/intention/screens/intention_screen.dart';
 import 'package:grow_daily_v2/features/night_review/screens/night_review_screen.dart';
 import 'package:grow_daily_v2/features/premium/screens/premium_screen.dart';
+import 'package:grow_daily_v2/features/settings/screens/nav_bar_settings_screen.dart';
 
 /// Widget-test harness for the landing flows.
 ///
@@ -101,9 +101,9 @@ class LandingHarness {
           home: home ?? const GridScreen(),
           routes: {
             '/heatmap': (_) => const MonthlyHeatmapScreen(),
-            '/intention': (_) => const IntentionScreen(),
             '/night-review': (_) => const NightReviewScreen(),
             '/premium': (_) => const PremiumScreen(),
+            '/nav-bar': (_) => const NavBarSettingsScreen(),
           },
         ),
       );

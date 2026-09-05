@@ -6,31 +6,58 @@ import 'package:flutter/services.dart';
 
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
+import 'nav_tabs.dart';
 
 class _NavItem {
   final IconData icon;
   final String label;
-  const _NavItem(this.icon, this.label);
+  final NavBadge? badge;
+  const _NavItem(this.icon, this.label, this.badge);
 }
 
-// "Today" is retired from bottom-nav (Grid is the app's home screen and
-// already covers day-to-day habit completion) — three peer tabs now,
-// not four. Order here is logical/code order; the nav bar itself mirrors
-// for RTL locales same as before, so this reads Grid→Profile→Matrix in
-// English and Matrix→Profile→Grid in Arabic.
-const _kRoutes = ['/grid', '/profile', '/matrix'];
+// The three original tabs still answer to their old named routes (see
+// main.dart's onGenerateRoute), which is all the standalone fallback in
+// _select below needs. Order in the bar is whatever [GameNavBar.tabs] says:
+// the default reads Habits→Profile→Tasks in English and, because the bar
+// mirrors for RTL locales, Tasks→Profile→Habits in Arabic. A Premium
+// account can reorder that and grow it to five (see NavBarSettingsScreen);
+// HomeShell passes the live layout in.
+const _kLegacyRoutes = {
+  NavTab.grid: '/grid',
+  NavTab.profile: '/profile',
+  NavTab.matrix: '/matrix',
+};
 
 class GameNavBar extends StatelessWidget {
   final int currentIndex;
 
+  /// The tabs to draw, in order. Defaults to [kDefaultNavTabs] so a bar
+  /// pumped on its own (the theme and text-scale tests, the customiser's
+  /// preview) needs no provider; HomeShell always passes the account's
+  /// layout.
+  final List<NavTab> tabs;
+
+  /// Marks per tab (see [NavBadge]); tabs absent from the map draw none.
+  /// HomeShell passes navBadgesProvider's map; a bar on its own draws
+  /// nothing, which is also what the customiser's preview wants.
+  final Map<NavTab, NavBadge> badges;
+
   /// When set, tab taps call this instead of navigating routes — HomeShell
   /// passes its PageView animator here so taps and swipes share one page
-  /// stack. When null (any screen still using the bar standalone, e.g.
-  /// Today), taps keep the original pushReplacementNamed behavior, which
-  /// now lands on HomeShell anyway.
+  /// stack. When null (a bar shown standalone, which today is only tests
+  /// and the customiser's preview), a tap on one of the three original
+  /// tabs keeps the old pushReplacementNamed behaviour, which lands on
+  /// HomeShell anyway; any other tab has no route of its own and the tap
+  /// does nothing.
   final ValueChanged<int>? onSelect;
 
-  const GameNavBar({super.key, required this.currentIndex, this.onSelect});
+  const GameNavBar({
+    super.key,
+    required this.currentIndex,
+    this.tabs = kDefaultNavTabs,
+    this.badges = const {},
+    this.onSelect,
+  });
 
   void _select(BuildContext context, int i) {
     if (i == currentIndex) return;
@@ -40,16 +67,15 @@ class GameNavBar extends StatelessWidget {
       override(i);
       return;
     }
-    Navigator.pushReplacementNamed(context, _kRoutes[i]);
+    final route = _kLegacyRoutes[tabs[i]];
+    if (route != null) Navigator.pushReplacementNamed(context, route);
   }
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
     final items = [
-      _NavItem(Icons.grid_view_rounded, s.navGrid),
-      _NavItem(Icons.person_rounded, s.navProfile),
-      _NavItem(Icons.view_quilt_rounded, s.navMatrix),
+      for (final tab in tabs) _NavItem(tab.icon, tab.label(s), badges[tab]),
     ];
 
     // `defaultTargetPlatform` (rather than `dart:io`'s `Platform`) so this
@@ -65,7 +91,7 @@ class GameNavBar extends StatelessWidget {
     // and paints over the whole screen (bar included), so anything docked
     // in here would go invisible the moment one opened even though
     // playback kept going. Nothing else about this bar changes.
-    return isIOS
+    final bar = isIOS
         ? _GlassNavBar(
             currentIndex: currentIndex,
             items: items,
@@ -76,6 +102,22 @@ class GameNavBar extends StatelessWidget {
             items: items,
             onSelect: (i) => _select(context, i),
           );
+    // Press and hold anywhere on the bar to rearrange it. The Settings row
+    // is the documented way in; this is the one people find by themselves,
+    // because holding a thing you want to move is what every home screen
+    // has taught them. A tap still wins the arena on release, so nothing
+    // about selecting a tab changes; only a hold past the long-press delay
+    // goes here. The customiser's own preview bar sits under an
+    // IgnorePointer, so it cannot open a second copy of itself.
+    return GestureDetector(
+      onLongPress: () => _openCustomiser(context),
+      child: bar,
+    );
+  }
+
+  void _openCustomiser(BuildContext context) {
+    HapticFeedback.mediumImpact();
+    Navigator.of(context).pushNamed('/nav-bar');
   }
 }
 
@@ -99,13 +141,26 @@ class _MaterialNavBar extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: gp.divider, width: 0.5)),
       ),
-      child: NavigationBar(
-        selectedIndex: currentIndex,
-        onDestinationSelected: onSelect,
-        destinations: [
-          for (final item in items)
-            NavigationDestination(icon: Icon(item.icon), label: item.label),
-        ],
+      // No tooltips. The label is always drawn under the icon, so the
+      // tooltip only repeated it, and its long-press recogniser sat deeper
+      // in the tree than GameNavBar's press-and-hold, so it won the arena
+      // and the customiser was unreachable that way on Android. An empty
+      // `tooltip` string is not enough on this Flutter: NavigationBar wraps
+      // every destination in a Tooltip regardless, and Tooltip only skips
+      // its gesture handling when TooltipVisibility says it is not visible.
+      child: TooltipVisibility(
+        visible: false,
+        child: NavigationBar(
+          selectedIndex: currentIndex,
+          onDestinationSelected: onSelect,
+          destinations: [
+            for (final item in items)
+              NavigationDestination(
+                icon: _materialIcon(item),
+                label: item.label,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -259,7 +314,7 @@ class _GlassNavItem extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(item.icon, size: 22, color: color),
+              _GlassBadgedIcon(item: item, color: color),
               const SizedBox(height: 2),
               Text(
                 item.label,
@@ -277,7 +332,8 @@ class _GlassNavItem extends StatelessWidget {
                 // wrapper reads the label aloud regardless, so nothing is lost
                 // to somebody who actually needs the larger type. Three tabs of
                 // 31pt text would either ellipsis into nothing readable or push
-                // the bar to a third of the screen.
+                // the bar to a third of the screen, and a Premium bar can hold
+                // five (kNavTabsMax), which is why that cap is what it is.
                 textScaler: MediaQuery.textScalerOf(context)
                     .clamp(maxScaleFactor: 1.4),
                 style: TextStyle(
@@ -291,6 +347,90 @@ class _GlassNavItem extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Material's own Badge in the app's colours, so the Android bar says the
+/// same thing as the glass bar in its platform's native voice.
+Widget _materialIcon(_NavItem item) {
+  final badge = item.badge;
+  final icon = Icon(item.icon);
+  if (badge == null || badge.isEmpty) return icon;
+  if (badge.dot) {
+    return Badge(
+      smallSize: 7,
+      backgroundColor: GameColors.iconXp,
+      child: icon,
+    );
+  }
+  return Badge.count(
+    count: badge.count,
+    backgroundColor: GameColors.gold,
+    textColor: GameColors.onGold,
+    child: icon,
+  );
+}
+
+/// The glass bar's icon with its badge hung off the top-end corner: a gold
+/// count pill, or the small blue dot the Night Review prompt card already
+/// uses for "tonight is still open". Directional, so in Arabic the mark
+/// sits top-left, which is where an RTL eye expects a trailing mark.
+class _GlassBadgedIcon extends StatelessWidget {
+  final _NavItem item;
+  final Color color;
+  const _GlassBadgedIcon({required this.item, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = Icon(item.icon, size: 22, color: color);
+    final badge = item.badge;
+    if (badge == null || badge.isEmpty) return icon;
+    final Widget mark = badge.dot
+        ? Semantics(
+            label: S.of(context).navBadgeReviewPending,
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: GameColors.iconXp,
+                shape: BoxShape.circle,
+              ),
+            ),
+          )
+        : Container(
+            constraints: const BoxConstraints(minWidth: 15),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: GameColors.gold,
+              borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+            ),
+            child: Text(
+              badge.count > 99 ? '99+' : '${badge.count}',
+              textAlign: TextAlign.center,
+              // Never scales. At 3.1x a 9pt count becomes a 28pt blob over
+              // a 22pt icon; the icon and the label carry the meaning at
+              // any size, and the number is read aloud regardless (it is
+              // plain text inside the tab's own Semantics container).
+              textScaler: TextScaler.noScaling,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                color: GameColors.onGold,
+                height: 1.2,
+              ),
+            ),
+          );
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        icon,
+        PositionedDirectional(
+          top: badge.dot ? -2 : -6,
+          end: badge.dot ? -4 : -10,
+          child: mark,
+        ),
+      ],
     );
   }
 }

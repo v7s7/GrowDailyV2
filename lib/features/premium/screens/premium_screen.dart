@@ -62,7 +62,7 @@ const String _privacyPolicyUrl =
 /// for. All eleven entry points used to land on an identical screen opening
 /// with "unlimited habits", including the ones you reach by tapping a locked
 /// COLOUR — pitching habit limits to someone who just asked about themes.
-enum PremiumReason { general, appearance, history, tasks, voice }
+enum PremiumReason { general, appearance, history, tasks, voice, navBar }
 
 class PremiumScreen extends ConsumerStatefulWidget {
   /// Defaults to [PremiumReason.general] so every existing call site keeps
@@ -675,6 +675,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       PremiumReason.history => Icons.history_rounded,
       PremiumReason.tasks => Icons.notifications_active_rounded,
       PremiumReason.voice => Icons.mic_rounded,
+      PremiumReason.navBar => Icons.dashboard_customize_rounded,
     };
     if (leadIcon == null) return all;
     final i = all.indexWhere((b) => b.$1 == leadIcon);
@@ -712,6 +713,11 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           Icons.notifications_active_rounded,
           s.premiumBenefitTaskRemindersTitle,
           s.premiumBenefitTaskRemindersDesc,
+        ),
+        (
+          Icons.dashboard_customize_rounded,
+          s.premiumBenefitNavBarTitle,
+          s.premiumBenefitNavBarDesc,
         ),
         (
           Icons.favorite_rounded,

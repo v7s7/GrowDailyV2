@@ -19,10 +19,9 @@
 /// right-to-left exactly as before. Both characters are zero-width and
 /// change nothing in English, where the run order was already correct.
 ///
-/// A plain function, not a widget, because two of the call sites hand the
-/// string to another widget as a parameter (NightReview's stat `value:`,
-/// QuickWins' `progressText:`) and never get to set a `textDirection` on the
-/// Text that eventually renders it.
+/// A plain function, not a widget, because some call sites hand the string
+/// to another widget as a parameter (NightReview's stat `value:`, say) and
+/// never get to set a `textDirection` on the Text that eventually renders it.
 library;
 
 const String _lri = '⁦'; // LEFT-TO-RIGHT ISOLATE

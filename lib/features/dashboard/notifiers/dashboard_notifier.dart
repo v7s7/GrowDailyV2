@@ -17,6 +17,7 @@ import '../../auth/notifiers/auth_notifier.dart';
 import '../models/undone_completion.dart';
 import '../../milestones/models/milestone_event.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/models/habit_schedule.dart';
 import '../../grid/models/square_state.dart';
 import '../../milestones/reports/habit_day_marks.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
@@ -781,19 +782,27 @@ class DashboardState {
       (completions[habitId] ?? 0) >= target;
 
   /// The live current streak for a single habit — unlike reading
-  /// [habitStreakCounts] directly, this returns 0 once more than a day has
-  /// passed since [habitLastCompletedDate], so a habit that's actually been
-  /// abandoned never keeps showing an inflated, stale streak.
-  int habitStreak(String habitId) {
+  /// [habitStreakCounts] directly, this returns 0 once a day the habit RUNS
+  /// ON has ended without it since [habitLastCompletedDate], so a habit
+  /// that's actually been abandoned never keeps showing an inflated, stale
+  /// streak.
+  ///
+  /// [scheduledWeekdays] is the habit's own schedule (empty = every day),
+  /// and it matters: measured on the calendar, a Wed/Sat habit done on
+  /// Wednesday read as dead by Friday and as 0 in Saturday's own reminder,
+  /// though not one of its days had been missed. Today is never counted as
+  /// missed, since it is not over. See scheduledDaysStrictlyBetween.
+  int habitStreak(String habitId, {Set<int> scheduledWeekdays = const {}}) {
     final lastKey = habitLastCompletedDate[habitId];
     if (lastKey == null) return 0;
     final last = DateTime.tryParse(lastKey);
     if (last == null) return 0;
-    final gap = DateTime.now()
-        .effectiveDay
-        .difference(DateTime(last.year, last.month, last.day))
-        .inDays;
-    return gap <= 1 ? (habitStreakCounts[habitId] ?? 0) : 0;
+    final missed = scheduledDaysStrictlyBetween(
+      last,
+      DateTime.now().effectiveDay,
+      scheduledWeekdays,
+    );
+    return missed == 0 ? (habitStreakCounts[habitId] ?? 0) : 0;
   }
 
   DashboardState copyWith({
@@ -962,8 +971,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   static const int maxDisplayNameLength = 24;
 
   final String? _uid;
-  // Injectable for tests; defaults to a real Random in production — same
-  // pattern QuickWinsNotifier already uses for its own randomized picks.
+  // Injectable for tests; defaults to a real Random in production.
   final Random _random;
 
   /// habitId → snapshot of that habit's per-habit fields from the instant
@@ -1002,15 +1010,30 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   /// awaited resolves as soon as its load does.
   Future<void> get ready => _initialLoad ?? Future<void>.value();
 
-  DashboardNotifier(this._uid, {Random? random})
+  DashboardNotifier(this._uid, {Random? random, DateTime Function()? clock})
       : _random = random ?? Random(),
+        _clock = clock ?? DateTime.now,
         super(DashboardState.initial()) {
     _initialLoad = _uid != null ? _loadToday() : _loadGuestToday();
   }
 
+  /// The wall clock, injectable for tests.
+  ///
+  /// Same reason [_random] is injectable, and a sharper one. The grace window
+  /// (yesterday still payable until [kDayCutoffHour]) is reachable for ten
+  /// hours out of twenty-four, so against the real clock its paying branch
+  /// can only be exercised by a suite that happens to run in the morning —
+  /// which is to say it would be untested most of the time, in the one file
+  /// whose past bugs cost people real XP and gold. Everything that decides
+  /// WHICH day is being paid for reads this.
+  final DateTime Function() _clock;
+
   // ── Helpers ─────────────────────────────────────────────────
 
   static String get _todayKey => DateTime.now().effectiveDay.toDateKey();
+
+  /// [_todayKey] against this notifier's own clock.
+  String get _todayKeyNow => _clock().effectiveDay.toDateKey();
 
   /// How much of a REPEATABLE award today can still pay.
   ///
@@ -1038,10 +1061,35 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     required int xp,
     required int gold,
     required int habitCount,
+  }) =>
+      _allowedOn(
+        spentXp: state.earnedXpOn(_todayKey),
+        spentGold: state.earnedGoldOn(_todayKey),
+        xp: xp,
+        gold: gold,
+        habitCount: habitCount,
+      );
+
+  /// [_allowedToday] for any day, given what that day has already spent.
+  ///
+  /// The cap belongs to a calendar DAY, not to a sitting. Yesterday stays
+  /// payable until [kDayCutoffHour] (see DateTimeGameExt.isOpenDay), so
+  /// during those ten hours two days each need their own full allowance:
+  /// catching up on yesterday must not eat into today's, and vice versa.
+  ///
+  /// Today's spend lives in `state` (a single slot, since there is only ever
+  /// one today). A grace day's is read off, and written back to, that day's
+  /// own document — see _readStoredDay and completeHabit's grace write. Two
+  /// storage places for one idea, which is not lovely, but it beats adding a
+  /// second persisted slot to the user doc for a value only two of the day's
+  /// twenty-four hours can ever use.
+  ({int xp, int gold, int newXpToday, int newGoldToday}) _allowedOn({
+    required int spentXp,
+    required int spentGold,
+    required int xp,
+    required int gold,
+    required int habitCount,
   }) {
-    final dayKey = _todayKey;
-    final spentXp = state.earnedXpOn(dayKey);
-    final spentGold = state.earnedGoldOn(dayKey);
     final xpRoom = dailyXpCapFor(habitCount) - spentXp;
     final goldRoom = dailyGoldCapFor(habitCount) - spentGold;
     final grantedXp = xp <= 0 || xpRoom <= 0 ? 0 : (xp < xpRoom ? xp : xpRoom);
@@ -1054,6 +1102,73 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       newGoldToday: spentGold + grantedGold,
     );
   }
+
+  /// One stored day's own board, for a day that is NOT the one in `state`.
+  ///
+  /// Only ever called for a grace day (yesterday, still inside its window),
+  /// so it costs one read on a path that can fire for ten hours a day and
+  /// only for someone who deliberately stepped back. Reading rather than
+  /// keeping a second live slice of state is the point: today's board is
+  /// what every screen is showing, and a mark on another day must not be
+  /// able to touch it.
+  ///
+  /// Everything degrades to empty rather than throwing, same posture as the
+  /// loader: a malformed day costs that day's counts, not the completion.
+  Future<
+      ({
+        Map<String, int> completions,
+        Set<String> dayCounted,
+        bool streakEarned,
+        int earnedXp,
+        int earnedGold,
+      })> _readStoredDay(DateTime day) async {
+    final key = day.toDateKey();
+    Map<String, dynamic> d = const {};
+    if (_uid == null) {
+      d = await LocalStoreService.getDailyMap(key);
+    } else {
+      try {
+        d = (await _dailyRefFor(day).get()).data() ?? const {};
+      } catch (_) {
+        // Offline, or a rules change. An empty day makes the completion
+        // land as the day's first, which the merge write then reconciles.
+        d = const {};
+      }
+    }
+    final rawCompletions = d['habitCompletions'];
+    return (
+      completions: <String, int>{
+        if (rawCompletions is Map)
+          for (final e in rawCompletions.entries)
+            if (e.value is num) e.key.toString(): (e.value as num).toInt(),
+      },
+      dayCounted: <String>{
+        for (final id in (d['dayCounted'] as List?) ?? const [])
+          if (id is String) id,
+      },
+      streakEarned: d['streakEarnedToday'] == true,
+      earnedXp: (d['dayEarnedXp'] as num?)?.toInt() ?? 0,
+      earnedGold: (d['dayEarnedGold'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// Whether the streak's recorded last-active day is already LATER than
+  /// [dayKey] — i.e. whether writing [dayKey] would drag it backwards.
+  ///
+  /// The load-time gap check measures from that field (see
+  /// dashboard_notifier_loading's lastActiveDay branch), so moving it back a
+  /// day invents a break that never happened. Reachable the moment yesterday
+  /// can still be marked after today has already earned its point.
+  ///
+  /// Derived rather than stored, and it is exact. Only two days can ever be
+  /// passed here: today, which nothing can be later than, so the answer is
+  /// always false; and yesterday during its grace window, where the only day
+  /// that could be later is today, and today is the last active day exactly
+  /// when it has earned its own streak point. So [DashboardState
+  /// .streakEarnedToday] IS the answer, and adding a field to carry it would
+  /// only be a second copy that could disagree.
+  bool _lastActiveIsAfter(String dayKey) =>
+      dayKey != _todayKeyNow && state.streakEarnedToday;
 
   static String get _weekKey {
     final today = DateTime.now().effectiveDay;
@@ -1165,7 +1280,17 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       FirebaseFirestore.instance.collection('users').doc(_uid);
 
   DocumentReference<Map<String, dynamic>> get _dailyRef =>
-      _userRef.collection('daily').doc(_todayKey);
+      _dailyRefFor(DateTime.now().effectiveDay);
+
+  /// The daily doc for one specific day.
+  ///
+  /// Exists because today is no longer the only day that can be PAID for:
+  /// yesterday stays open until [kDayCutoffHour] (see
+  /// DateTimeGameExt.isOpenDay), and a completion marked there has to land
+  /// on its own document rather than on today's. Everything else still goes
+  /// through [_dailyRef], which is this with today's day.
+  DocumentReference<Map<String, dynamic>> _dailyRefFor(DateTime day) =>
+      _userRef.collection('daily').doc(day.toDateKey());
 
   /// The shared, append-only history behind Journey Page / Monthly Story /
   /// Legacy Shelf — see MilestoneEvent's own doc comment. completeHabit is

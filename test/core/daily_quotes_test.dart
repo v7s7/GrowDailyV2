@@ -18,21 +18,11 @@ void main() {
       }
     });
 
-    test('a source, when given, is given in both languages', () {
-      // Half an attribution is worse than none: the Arabic reader would see a
-      // hadith credited and the English reader would see it as an app slogan.
-      for (var i = 0; i < kDailyQuotes.length; i++) {
-        final q = kDailyQuotes[i];
-        expect(q.sourceAr == null, q.sourceEn == null,
-            reason: 'quote $i attributes in only one language');
-      }
-    });
-
     test('no em dash anywhere in the copy', () {
       // House rule: the em dash is never used in this app's copy.
       for (var i = 0; i < kDailyQuotes.length; i++) {
         final q = kDailyQuotes[i];
-        for (final text in [q.ar, q.en, q.sourceAr ?? '', q.sourceEn ?? '']) {
+        for (final text in [q.ar, q.en]) {
           expect(text.contains('—'), isFalse,
               reason: 'quote $i uses an em dash');
         }
@@ -47,7 +37,10 @@ void main() {
     });
 
     test('the set is long enough not to repeat within a month', () {
-      expect(kDailyQuotes.length, greaterThanOrEqualTo(25));
+      // 31, not 25: the name of this test only became true when the eight
+      // attributed quotes landed. At 25 a line came back six days before the
+      // month did, which is exactly the repeat the rotation exists to avoid.
+      expect(kDailyQuotes.length, greaterThanOrEqualTo(31));
     });
   });
 

@@ -35,10 +35,9 @@ stored in our database (Cloud Firestore, operated by Google) tied to your
 account:
 - The habits you create or activate, and your daily completions
 - Streaks, XP, levels, in-app currency ("gold"), and unlocked achievements
-- Content you write inside the app: daily intentions, priorities, and
-  night-review reflections
-- Focus timer sessions, Eisenhower Matrix tasks, and weekly challenge
-  progress
+- Content you write inside the app: night-review reflections and the
+  notes you leave on a habit's day
+- Eisenhower Matrix tasks
 - Your subscription status (whether GrowDaily Premium is active)
 
 **Guest mode data.** If you use the app without creating an account, all of
@@ -65,10 +64,19 @@ a technical report — the error, the code path that failed, and device state
 at the time. This is used to fix bugs. It may incidentally contain
 identifiers Firebase generates for the installation, but no habit content.
 
+**Steps for walking habits (optional).** If you link a walking habit to
+your steps, the app reads your daily step total from Apple Health (iPhone,
+including a paired Apple Watch) or Health Connect (Android) after you grant
+the health permission. Only the day's total is read, nothing is written,
+and the count stays on your device — it is used solely to mark the linked
+habit done when you reach your goal. Never link a habit, and no health data
+is requested or read at all.
+
 **What we don't collect.** GrowDaily does not access your contacts, photos,
-camera, microphone, or precise location. We do not use advertising SDKs, we
-do not sell your data, and we do not build advertising profiles. We never
-ask for your phone number.
+or camera. We do not use advertising SDKs, we do not sell your data, and we
+do not build advertising profiles. We never ask for your phone number.
+(Microphone, location, and step access exist only behind the optional,
+permission-gated features described above.)
 
 ## How we use your information
 

@@ -8,6 +8,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../../onboarding/notifiers/guide_chain.dart';
 import '../../../core/providers/home_tab_provider.dart';
+import '../../../core/providers/nav_layout_provider.dart' show NavTab;
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../../shared/widgets/get_started_checklist_card.dart';
@@ -73,6 +74,20 @@ bool _isUpcoming(MatrixTask t, DateTime now) {
   return first != null && first.startOfDay.isAfter(now);
 }
 
+/// Today's still-open tasks, by the exact rule the Today lens uses to fill
+/// the board (see build()'s todayTasks): open, anchored to today, and not
+/// deliberately dated forward. Carried-over tasks are excluded on purpose,
+/// same as the lens. The bottom bar's Tasks badge (navBadgesProvider) shows
+/// this number, and living here beside [_anchorDay] and [_isUpcoming] is
+/// what keeps the badge and the board a tap lands on in agreement.
+int matrixOpenTodayCount(Iterable<MatrixTask> tasks, DateTime now) {
+  final day = now.startOfDay;
+  return tasks
+      .where((t) =>
+          !t.isDone && _isSameDay(_anchorDay(t), day) && !_isUpcoming(t, day))
+      .length;
+}
+
 /// The three top-level lenses on the board — see _MatrixScreenState._filter.
 /// Deliberately just three plain client-side filters over one already-loaded
 /// task list, not three separate queries: nothing here needs a network round
@@ -87,6 +102,23 @@ class MatrixScreen extends ConsumerStatefulWidget {
 }
 
 class _MatrixScreenState extends ConsumerState<MatrixScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // The widget's quick-add link can arrive before this screen exists:
+    // with Tasks out of the bottom bar, HomeShell pushes this screen as a
+    // route AFTER the deep link set the flag, so the ref.listen in build
+    // (which only fires on changes) never sees it. One post-frame check
+    // covers that case; the listener still covers a link that lands while
+    // this screen is already up. Both reset the flag, so the sheet opens
+    // once either way.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !ref.read(requestedMatrixQuickAddProvider)) return;
+      ref.read(requestedMatrixQuickAddProvider.notifier).state = false;
+      _showAdd(context, ref, MatrixQuadrant.doFirst);
+    });
+  }
+
   final Set<String> _selectedIds = {};
   // App Guide's "Add a task" coach-mark target — see the CoachMarkOverlay
   // near the end of build(). The Do First quadrant is the canonical "add a
@@ -302,6 +334,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     messenger.showOne(
       SnackBar(
         content: Text(message),
+        // Never pin the bar open. See AppSnackBar.
+        persist: false,
         action: SnackBarAction(
           label: S.of(context).matrixUndo,
           onPressed: onUndo,
@@ -497,8 +531,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                   // grid_screen.dart's showAddHabitHub call) - from here, the
                   // right move is just getting there. See
                   // requestedHomeTabProvider's doc comment.
-                  onAddHabit: () =>
-                      ref.read(requestedHomeTabProvider.notifier).state = 0,
+                  onAddHabit: () => ref
+                      .read(requestedHomeTabProvider.notifier)
+                      .state = NavTab.grid,
                   onAddTask: () =>
                       _showAdd(context, ref, MatrixQuadrant.doFirst),
                 ),
