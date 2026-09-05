@@ -43,11 +43,93 @@ import '../../../shared/widgets/app_snackbar.dart';
 /// 17 more, and a plain global default everywhere else — see that
 /// function's doc comment), so there's nothing left for a picker to
 /// meaningfully change.
-/// [_InfoRow] below shows the resolved method read-only, next to
-/// [NotificationSettings.madhab] (also currently display-only here — no
-/// switch edits it yet, it's fixed at its Shafi default).
+/// [_InfoRow] below shows the resolved method read-only. The madhab,
+/// unlike the method, IS a personal choice the location can't infer (a
+/// Hanafi user in Bahrain still prays Asr at the Hanafi time), so it gets
+/// its own editable row — a two-option sheet, since the only fork adhan
+/// exposes is Hanafi vs everyone else, and it only moves Asr.
 class NotificationSettingsScreen extends ConsumerWidget {
   const NotificationSettingsScreen({super.key});
+
+  /// The two-option madhab sheet. A sheet rather than an inline toggle so
+  /// there is room to say the one thing that stops this reading as a
+  /// sect-picker: it only moves the Asr time.
+  void _pickMadhab(
+      BuildContext context, WidgetRef ref, PrayerMadhab current) {
+    HapticFeedback.selectionClick();
+    final s = S.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        final gp = sheetContext.gp;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+            decoration: BoxDecoration(
+              color: gp.surfaceHigh,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  s.notifMadhab,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  s.notifMadhabHint,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 11.5, color: gp.textSec, height: 1.35),
+                ),
+                const SizedBox(height: 8),
+                for (final option in PrayerMadhab.values)
+                  InkWell(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      ref
+                          .read(notificationSettingsProvider.notifier)
+                          .update((c) => c.copyWith(madhab: option));
+                      Navigator.pop(sheetContext);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              option.label(s.isAr),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: gp.textPrimary,
+                              ),
+                            ),
+                          ),
+                          if (option == current)
+                            Icon(Icons.check_rounded,
+                                size: 18, color: GameColors.gold),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -201,7 +283,24 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       label: s.notifCalcMethod,
                       value: settings.location == null
                           ? s.notifLocationNotSet
-                          : '${PrayerTimesService.resolveRegion(settings.location!.lat, settings.location!.lng, countryCode: settings.resolvedCountryCode).method.label(isAr)} · ${settings.madhab.label(isAr)}',
+                          : PrayerTimesService.resolveRegion(
+                                  settings.location!.lat,
+                                  settings.location!.lng,
+                                  countryCode: settings.resolvedCountryCode)
+                              .method
+                              .label(isAr),
+                    ),
+                    const _RowDivider(),
+                    // Editable, unlike the method above: see the screen's
+                    // doc comment. Everything downstream (serialization,
+                    // copyWith, the scheduler's calculate call) already
+                    // carried this field; only this control was missing,
+                    // so a Hanafi user lived with a visibly wrong Asr.
+                    _NavRow(
+                      icon: Icons.school_rounded,
+                      label: s.notifMadhab,
+                      value: settings.madhab.label(isAr),
+                      onTap: () => _pickMadhab(context, ref, settings.madhab),
                     ),
                     // The global "minutes after prayer" stepper used to sit
                     // here. Removed: it was silently added on top of each
@@ -580,6 +679,30 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
               ),
               const SizedBox(width: 6),
               Icon(Icons.my_location_rounded, size: 16, color: gp.textTert),
+              // Manual city search, as its own visible target. It used to
+              // be long-press-only on this row (kept, for anyone used to
+              // it) with the tap path only falling back to it after a GPS
+              // failure — so a traveler with working GPS had no
+              // discoverable way to set a different city at all.
+              const SizedBox(width: 2),
+              InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: _detecting
+                    ? null
+                    : () {
+                        HapticFeedback.selectionClick();
+                        _openManualSearch();
+                      },
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Semantics(
+                    button: true,
+                    label: s.notifLocationSearchAction,
+                    child: Icon(Icons.search_rounded,
+                        size: 18, color: gp.textSec),
+                  ),
+                ),
+              ),
             ],
           ],
         ),

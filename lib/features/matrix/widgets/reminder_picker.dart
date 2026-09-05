@@ -22,7 +22,8 @@ import 'custom_offset_sheet.dart';
 // for: a time rendered inside an Arabic run picks up Arabic-Indic digits
 // from the font, so a bare chip number next to it has to be converted by
 // hand or the two disagree on screen.
-export '../../../core/l10n/reminder_copy.dart' show arabicDigits;
+export '../../../core/l10n/reminder_copy.dart'
+    show arabicDigits, kReminderOffsetPresets, reminderOffsetLabel;
 
 /// Formats [dt] for display on [ReminderRow] / anywhere else a task's
 /// reminder needs a human label — "Today · 5:00 PM" / "Tomorrow · 9:00 AM"
@@ -56,14 +57,6 @@ String formatReminderMoment(DateTime dt, bool isAr, {DateTime? now}) {
   return '$date · $time';
 }
 
-/// Offsets (in minutes) a task's extra reminders can sit at, relative to its
-/// anchor. Mirrors Add Habit's `_offsetPresets` in spirit — same question,
-/// "how long before or after?" — but unsigned here, because direction is a
-/// separate two-chip toggle the user sets once and then applies to as many
-/// offsets as they like.
-/// Five, which together with the custom field makes six cells on a
-/// 3-column grid: two complete rows with no ragged gap.
-const kReminderOffsetPresets = <int>[5, 10, 15, 30, 60];
 
 /// Every moment a task will nudge at: the anchor itself, plus one reminder
 /// per selected offset.
@@ -115,15 +108,6 @@ Set<int> offsetsFrom({
 /// the minutes field must get 45, not a silent no-op.
 String normalizeArabicDigits(String input) => toWesternDigits(input);
 
-/// Chip label for an offset: the number for minutes, a word for the hours,
-/// since "120" reads worse than "ساعتان" at a glance. Direction comes from
-/// the قبل/بعد toggle above the grid, not from the label.
-@visibleForTesting
-String reminderOffsetLabel(int minutes, bool isAr) {
-  if (minutes == 60) return isAr ? 'ساعة' : '1 hour';
-  if (minutes == 120) return isAr ? 'ساعتان' : '2 hours';
-  return isAr ? arabicDigits(minutes) : '$minutes';
-}
 
 /// Two native dialogs (date, then time), not one bespoke combined widget —
 /// this app has no custom date+time picker anywhere yet, and

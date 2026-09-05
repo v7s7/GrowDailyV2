@@ -35,5 +35,12 @@
 	<array>
 		<string>applinks:grow-daily-339ef.web.app</string>
 	</array>
+	<!-- HealthKit capability - the same entitlement Xcode's "+ Capability >
+	     HealthKit" button would add. Used read-only: HealthStepsService reads
+	     the day's step total so a linked walking habit can complete itself.
+	     The App ID on the developer portal must also have HealthKit enabled;
+	     Xcode's automatic signing does that on the next archive. -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
 </dict>
 </plist>

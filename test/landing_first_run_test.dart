@@ -42,7 +42,11 @@ void main() {
 
     // A brand-new user lands on the Grid — no intention prompt in the way.
     expect(find.text('Set your intention'), findsNothing);
-    expect(find.text('Victory Grid'), findsOneWidget);
+    // The header's own title used to be asserted here. It was removed from
+    // _GridHeader (the board itself is the identity; the header is now a
+    // pure action strip), so the empty state's own line is what proves we
+    // landed on the Grid — and it is the better anchor anyway: it names
+    // what this screen has to say to a first-run user.
     expect(find.text('No habits to track yet'), findsOneWidget);
 
     // Recruit right on the flagship screen: browse plans in place.

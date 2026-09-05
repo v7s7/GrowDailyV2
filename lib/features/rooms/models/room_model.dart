@@ -503,12 +503,16 @@ class RoomParticipant {
   /// moment of their last sync — a leaderboard-only, cosmetic mirror of the
   /// same title chip the Profile hero header already shows, same
   /// "displayName/characterId/accessoryId" denormalization pattern (see
-  /// RoomsController._profileFields), not a separate source of truth. Null
-  /// for a participant doc written before this field existed, or for a
-  /// signed-in account still on level 1/"Seeker" before the leaderboard row
-  /// bothers rendering a chip at all — see _LeaderboardRow's own gate for
-  /// why level 1 is deliberately excluded, mirroring the Profile card's
-  /// identical "nothing to show off yet" restraint.
+  /// RoomsController._profileFields), not a separate source of truth.
+  ///
+  /// Written unconditionally, at every tier including the base level-1
+  /// "Seeker", and rendered at every tier too. (It was once written for
+  /// everyone but DISPLAYED only above level 1, on the reasoning that a
+  /// badge everyone starts with says nothing; in a room that reads as a
+  /// broken row rather than as restraint. See _LeaderboardRow.)
+  ///
+  /// So null means exactly one thing now: a participant doc written before
+  /// this field existed, which self-heals on that member's next sync.
   final String? prestigeTierId;
   final DateTime joinedAt;
 
@@ -1551,13 +1555,35 @@ class RoomParticipant {
 /// same list the leaderboard sorts.
 extension RoomTeamProgress on RoomModel {
   /// 0.0-1.0 - total credited days across every participant, out of the
-  /// "everyone did every single day" ceiling (memberCount × daysElapsed).
-  /// This is the number the team card's progress bar fills to: a room
-  /// where everyone's been perfect reads 100%, same as any one person's own
+  /// "everyone did every single day" ceiling. This is the number the team
+  /// card's progress bar fills to: a room where everyone's been perfect
+  /// reads 100%, same as any one person's own
   /// [RoomParticipant.progressRatio] would.
+  ///
+  /// The ceiling is the SUM OF EACH MEMBER'S OWN [RoomParticipant
+  /// .daysElapsedIn], not `participants.length * daysElapsed`, and that
+  /// distinction is the whole correctness of this number. Every excusing
+  /// rule in this file lives inside `daysElapsedIn`: a room pause, a late
+  /// join ([countedStartIn]), a conceded rest day, and a stand-down
+  /// stretch. A flat `length * daysElapsed` ceiling knows about none of
+  /// them, so it counted days no member was ever asked about.
+  ///
+  /// The stand-down case was the one that actually bit. Two members both
+  /// reading a true 100% on their own rows, one of whom had paused their
+  /// only habit, produced a team card of 74%. Worse, [teamIsPerfect] is an
+  /// all-history `>= 1.0` check and gates the bonus button, so a single
+  /// paused stretch made `RoomsController.claimTeamBonus` permanently
+  /// unreachable for that room — it did not heal on resume, because the
+  /// dead days stayed in the denominator forever. Pausing a habit is
+  /// supposed to hold a percentage still, and it does on the member's own
+  /// row; the team card was the one surface still punishing it.
+  ///
+  /// This is the same fix [RoomModel.daysElapsed] already documents for
+  /// ROOM-level pauses ("88% per member above 47% for the team"), finally
+  /// extended to the per-participant ones.
   double teamProgressRatio(List<RoomParticipant> participants) {
     if (participants.isEmpty) return 0;
-    final maxPossible = participants.length * daysElapsed;
+    final maxPossible = teamMaxPossibleDays(participants);
     if (maxPossible <= 0) return 0;
     final total =
         participants.fold<double>(0, (sum, p) => sum + p.daysCompleted(this));
@@ -1573,8 +1599,12 @@ extension RoomTeamProgress on RoomModel {
       .fold<double>(0, (sum, p) => sum + p.daysCompleted(this))
       .round();
 
+  /// The denominator behind [teamProgressRatio] — each member's own
+  /// elapsed days, summed, so the card's "14 of 20" agrees with its own
+  /// percentage. See [teamProgressRatio] for why this is not
+  /// `participants.length * daysElapsed`.
   int teamMaxPossibleDays(List<RoomParticipant> participants) =>
-      participants.length * daysElapsed;
+      participants.fold<int>(0, (sum, p) => sum + p.daysElapsedIn(this));
 
   /// True the moment *every* participant has fully credited today — the
   /// one binary "did the whole team show up" signal, distinct from the
@@ -1586,18 +1616,49 @@ extension RoomTeamProgress on RoomModel {
     return participants.every((p) => p.isFullyDone(today));
   }
 
-  /// True once the team has never missed a single credited day - every
-  /// participant, every day, since [RoomModel.startDate]. The strict
-  /// "everyone, every day" bar [RoomCompeteMode.team]'s bonus asks for
+  /// True once the team has never missed a credited day: every participant
+  /// individually perfect, and every participant present since
+  /// [RoomModel.startDate]. The bar [RoomCompeteMode.team]'s bonus asks for
   /// (see RoomsController.claimTeamBonus), deliberately harder than
-  /// [teamCompletedToday] (which only ever looks at today): one partial day
-  /// anywhere in the room's history rules this out for good, same as any
-  /// perfect streak would. Because [creditFor] only ever contributes exact
-  /// 1.0s once every credited day is full, summing them never drifts below
-  /// exactly 1.0 the way partial credit could - no epsilon needed.
+  /// [teamCompletedToday], which only ever looks at today.
+  ///
+  /// NOT `teamProgressRatio >= 1.0`, and the difference is a real payout.
+  /// The ratio's ceiling is each member's own [RoomParticipant.daysElapsedIn]
+  /// (see [teamProgressRatio] for why it must be), and that is exactly what
+  /// a one-day-old member has: one day. Deriving the gate from the ratio
+  /// therefore let somebody join an already-perfect room, finish a single
+  /// day, and unlock 150 XP and 75 gold on the strength of other people's
+  /// months — repeatably, because leaveRoom deletes the participant doc that
+  /// holds `teamBonusClaimed` and rejoining re-stamps `joinedAt`. The flat
+  /// ceiling this replaced happened to block that by swamping the joiner,
+  /// and blocking it was the only thing it did right.
+  ///
+  /// Two separate requirements, because they fail for opposite reasons:
+  ///
+  ///  - **Perfect**, per member, through their own [progressRatio]. Summing
+  ///    across members and clamping only the total let one member's
+  ///    overshoot subsidise another's genuine miss (reachable: a conceded
+  ///    rest day carrying a جزئي square leaves the denominator while its 0.5
+  ///    stays in the numerator). Asking each member separately makes a
+  ///    subsidy unrepresentable.
+  ///  - **Tenure**, so a newcomer cannot inherit the room's history. This is
+  ///    the guard [RoomsController.claimPodiumBonus] already carries in its
+  ///    own form, and the one this gate was missing.
+  ///
+  /// A member who paused still passes: their stand-down days leave both
+  /// sides of their own ratio, which is the whole point of standDownDays and
+  /// the reason this stopped being `>= 1.0` on a flat ceiling. Likewise a
+  /// member who spent their weekly rest allowance reads 1.0 — the app's
+  /// stated position (see [kRestConcessionsPerWeek]) is that six honest days
+  /// of seven IS a full week, and the team gate agrees with the row rather
+  /// than holding a stricter private opinion.
   bool teamIsPerfect(List<RoomParticipant> participants) {
     if (participants.isEmpty) return false;
-    return teamProgressRatio(participants) >= 1.0;
+    return participants.every(
+      (p) =>
+          !p.countedStartIn(this).isAfter(startDate) &&
+          p.progressRatio(this) >= 1.0,
+    );
   }
 }
 

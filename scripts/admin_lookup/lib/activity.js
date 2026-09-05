@@ -45,6 +45,13 @@ const {
   dayKeyParts,
   CATEGORY_META,
   MOOD_META,
+  QUADRANT_META,
+  SQUARE_META,
+  summarizeHabitDay,
+  readUndoneReceipts,
+  habitLabel,
+  fmtMinutes,
+  dayWriteContext,
 } = require('./render');
 
 function db() {
@@ -150,6 +157,230 @@ function milestoneHeadline(type, data) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Detail chips
+// ---------------------------------------------------------------------------
+//
+// Every event carries a `details` list alongside its one-line `sub`. The sub
+// answers "what happened"; these answer "what exactly", and the dashboard
+// draws them as small chips under the row.
+//
+// They are built HERE and not in the browser because this is the last place
+// that still holds the documents: the browser only ever sees what this file
+// put in the payload, so a detail not assembled here cannot be recovered
+// later without another read of the project.
+//
+// `tone` says what a chip MEANS, never what colour it is (done, miss, warn,
+// undo, note, quote, plain). The stylesheet decides how each one looks, so
+// re-theming the feed never involves editing this file.
+
+/** A chip, or null when there was nothing to say - callers filter those out. */
+function chip(text, tone) {
+  const t = String(text == null ? '' : text).trim();
+  return t ? { text: t, tone: tone || 'plain' } : null;
+}
+
+const WEEKDAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/**
+ * How a habit's scheduledWeekdays reads out loud.
+ *
+ * Stored as Dart weekday numbers (1=Mon..7=Sun) with an EMPTY list meaning
+ * every day, not "no days" - see habitScheduledOnParts, which is the test
+ * this label has to agree with.
+ */
+function scheduleLabel(weekdays) {
+  const list = Array.from(new Set(
+    (Array.isArray(weekdays) ? weekdays : []).filter((d) => d >= 1 && d <= 7),
+  )).sort((a, b) => a - b);
+  if (list.length === 0 || list.length === 7) return 'Every day';
+  const key = list.join(',');
+  if (key === '1,2,3,4,5') return 'Weekdays';
+  if (key === '6,7') return 'Weekends';
+  return list.map((d) => WEEKDAY_SHORT[d]).join(', ');
+}
+
+/** A run of somebody's own writing, shortened to fit one feed row. */
+function clip(text, max) {
+  const s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  return s.length > max ? `${s.slice(0, max - 1)}\u2026` : s;
+}
+
+/** A duration in the largest unit that still says something useful. */
+function humanSpan(ms) {
+  // Under a minute is measured on the real value, not on the rounded one:
+  // rounding first makes 30 seconds report as "1 min" and puts the
+  // sub-minute case permanently out of reach.
+  if (ms < 60000) return 'under a minute';
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'}`;
+}
+
+/**
+ * Whatever plain values a document carries, as chips.
+ *
+ * Used for the two collections this tool has no schema for (milestones'
+ * free-form `data` bag and focus_plans). Printing the fields that are
+ * actually there beats hard-coding a list that silently drops any field the
+ * app adds later, and skipping objects and arrays keeps a nested blob from
+ * turning into "[object Object]".
+ */
+function scalarDetails(data, skipKeys, labels) {
+  const skip = new Set(skipKeys || []);
+  const names = labels || {};
+  const out = [];
+  for (const [k, v] of Object.entries(data && typeof data === 'object' ? data : {})) {
+    if (skip.has(k) || v == null || typeof v === 'object' || typeof v === 'function') continue;
+    if (v === false || v === '') continue;
+    const label = names[k] || k;
+    out.push(v === true ? chip(label, 'note') : chip(`${label}: ${clip(v, 70)}`, 'plain'));
+  }
+  return out.filter(Boolean);
+}
+
+/**
+ * One logged day, spelled out habit by habit.
+ *
+ * The feed used to say "3 habits done" and stop, which is the one part an
+ * admin can already guess from the ring on the accounts table. WHICH three,
+ * at what time, and which of that day's other habits went unmarked is the
+ * part that settles a support question, and all of it is already inside the
+ * day document this scan has in hand.
+ *
+ * [sum] must come from summarizeHabitDay called WITH that day's scheduled
+ * ids, so habits that were due and never touched arrive as 'none' rows and
+ * can be listed. Ordered the way it gets read: what they did, then the two
+ * disagreements worth chasing, then what they did not do, then the day's own
+ * notes.
+ */
+function dailyDetails(data, sum, habitCtx, dayKey, tzOffsetMinutes) {
+  const d = data || {};
+  const out = [];
+
+  const rank = { completed: 0, grid_only: 1, undone: 2, marked: 3, none: 4 };
+  const rows = sum.rows.slice().sort((a, b) => {
+    const byVerdict = (rank[a.verdict] === undefined ? 9 : rank[a.verdict])
+      - (rank[b.verdict] === undefined ? 9 : rank[b.verdict]);
+    if (byVerdict !== 0) return byVerdict;
+    // Inside a verdict, the order they happened. Habits with no timestamp
+    // (a Grid square carries none) sort last rather than to midnight.
+    const at = (r) => (r.stampedAt === null ? Number.MAX_SAFE_INTEGER : r.stampedAt);
+    return at(a) - at(b);
+  });
+
+  for (const r of rows) {
+    const name = habitLabel(r.habitId, habitCtx, r.receipt ? r.receipt.category : null);
+    const at = r.stampedAt !== null ? fmtMinutes(r.stampedAt) : '';
+    switch (r.verdict) {
+      case 'completed': {
+        const times = r.count > 1 ? ` \u00d7${r.count}` : '';
+        const of = r.target > 1 ? ` of ${r.target}` : '';
+        out.push(chip(`\u2705 ${name}${times}${of}${at ? ` \u00b7 ${at}` : ''}`, 'done'));
+        break;
+      }
+      case 'grid_only':
+        // The disagreement from the Grid-square trap: a Room counts this,
+        // the ledger paid nothing for it.
+        out.push(chip(`\ud83d\udfe9 ${name} \u00b7 Grid square only, no completion`, 'warn'));
+        break;
+      case 'undone':
+        out.push(chip(`\u21a9\ufe0f ${name} \u00b7 completed${at ? ` ${at}` : ''}, then un-marked`, 'undo'));
+        break;
+      case 'marked': {
+        const meta = SQUARE_META[r.square] || SQUARE_META.none;
+        out.push(chip(`${meta.emoji} ${name} \u00b7 ${meta.label}`, 'note'));
+        break;
+      }
+      default:
+        out.push(chip(`\u2b1c ${name} \u00b7 not marked`, 'miss'));
+    }
+  }
+
+  if (d.mood && MOOD_META[d.mood]) {
+    out.push(chip(`${MOOD_META[d.mood].emoji} Mood: ${MOOD_META[d.mood].label}`, 'note'));
+  }
+  if (d.nightReviewDone) out.push(chip('\ud83c\udf19 Night review done', 'note'));
+  const reflection = clip(d.dailyReflection, 180);
+  if (reflection) out.push(chip(`\u201c${reflection}\u201d`, 'quote'));
+
+  const xp = Number(d.totalXpEarned) || 0;
+  const gold = Number(d.totalGoldEarned) || 0;
+  if (xp || gold) out.push(chip(`+${xp} XP \u00b7 +${gold} gold`, 'note'));
+
+  const timers = d.timerSeconds && typeof d.timerSeconds === 'object' ? d.timerSeconds : {};
+  const timerSecs = Object.values(timers).reduce((a, b) => a + (Number(b) || 0), 0);
+  if (timerSecs > 0) out.push(chip(`\u23f1 ${Math.round(timerSecs / 60)} min on habit timers`, 'note'));
+
+  // WHEN the day was written against WHICH day it was written about. A day
+  // filled in the next morning is normal, not a fault, but a feed that shows
+  // only one of the two timestamps invites reading it as one - which is the
+  // same confusion the pre-cutoff Grid square caused.
+  const write = dayWriteContext(d, tzOffsetMinutes);
+  if (write) {
+    out.push(write.key === dayKey
+      ? chip(`Written ${write.clock}, their clock`, 'plain')
+      : chip(`Written ${write.clock} on ${write.key}, their clock`, 'warn'));
+  }
+
+  return out.filter(Boolean);
+}
+
+/** A matrix task, as the board itself would describe it. */
+function taskDetails(t, finished) {
+  const out = [];
+  const q = QUADRANT_META[t.quadrant];
+  if (q) out.push(chip(`${q.label} \u00b7 ${q.subtitle}`, 'plain'));
+  // 'isToday' on the wire is the star, not a due date - see MatrixTask.isFav.
+  if (t.isToday) out.push(chip('\u2b50 Starred for today', 'note'));
+  const desc = clip(t.description, 160);
+  if (desc) out.push(chip(desc, 'quote'));
+  const reminders = Array.isArray(t.reminderAts)
+    ? t.reminderAts.length
+    : (t.reminderAt ? 1 : 0);
+  if (reminders) out.push(chip(`\u23f0 ${reminders} reminder${reminders === 1 ? '' : 's'}`, 'plain'));
+  const notes = Array.isArray(t.voiceNotes) ? t.voiceNotes.length : 0;
+  if (notes) out.push(chip(`\ud83c\udfa4 ${notes} voice note${notes === 1 ? '' : 's'}`, 'plain'));
+  if (finished) {
+    const made = toJsDate(t.createdAt);
+    const done = toJsDate(t.completedAt);
+    if (made && done && done >= made) {
+      out.push(chip(`Open for ${humanSpan(done.getTime() - made.getTime())}`, 'plain'));
+    }
+    if (t.rewarded === false) out.push(chip('Finished without being paid for', 'warn'));
+  }
+  return out.filter(Boolean);
+}
+
+/** A habit, as its own setup sheet would describe it. */
+function habitDetails(h) {
+  const out = [];
+  const cat = CATEGORY_META[h.category];
+  if (cat) out.push(chip(`${cat.emoji} ${cat.label}`, 'plain'));
+  out.push(chip(scheduleLabel(h.scheduledWeekdays), 'plain'));
+  const target = Number(h.frequencyTarget) || 1;
+  if (h.frequencyType === 'weekly') out.push(chip(`${target}\u00d7 a week`, 'plain'));
+  else if (target > 1) out.push(chip(`${target}\u00d7 a day`, 'plain'));
+  if (h.goalType === 'quit') out.push(chip('A habit they are quitting', 'note'));
+  if (h.hasTimer) {
+    const secs = Number(h.timerDurationSeconds) || 0;
+    out.push(chip(secs ? `\u23f1 ${Math.round(secs / 60)} min timer` : '\u23f1 Has a timer', 'plain'));
+  }
+  out.push(chip(h.isPreset ? 'From the catalog' : 'Their own', 'plain'));
+  const xp = Number(h.xpReward) || 0;
+  const gold = Number(h.goldReward) || 0;
+  if (xp || gold) out.push(chip(`Pays ${xp} XP \u00b7 ${gold} gold`, 'plain'));
+  const cue = clip(h.cueAfter, 90);
+  if (cue) out.push(chip(`After: ${cue}`, 'note'));
+  const desc = clip(h.description, 160);
+  if (desc) out.push(chip(desc, 'quote'));
+  return out.filter(Boolean);
+}
+
 /**
  * Everything one account did recently, as feed events plus the numbers the
  * accounts table shows.
@@ -179,55 +410,138 @@ async function scanOneAccount(uid, profile, authRow) {
   const displayName = (profile && profile.displayName) || '';
   const email = (authRow && authRow.email) || '';
   const who = displayName || email || uid;
+  const tzOffsetMinutes = profile && profile.tzOffsetMinutes;
   const events = [];
-  const push = (at, type, title, sub, dayKey) => {
+  const push = (at, type, title, sub, dayKey, details) => {
     const d = toJsDate(at);
     if (!d) return;
-    events.push({ at: d.getTime(), uid, who, email, type, title, sub: sub || '', dayKey: dayKey || '' });
+    events.push({
+      at: d.getTime(),
+      uid,
+      who,
+      email,
+      type,
+      title,
+      sub: sub || '',
+      dayKey: dayKey || '',
+      // Always an array, never undefined: the feed maps over this on every
+      // row, and one event missing the key would take the whole render down.
+      details: details || [],
+    });
   };
+
+  const receiptsByKey = readUndoneReceipts(profile);
+
+  // Habit names for every id this account still has a doc for, so a detail
+  // line can say "Quran" instead of a 20-character id. A habit deleted
+  // outright is not in here at all, and habitLabel says so in those words
+  // rather than printing a bare id.
+  const habitCtx = {};
+  for (const doc of habitDocs) {
+    const h = doc.data();
+    habitCtx[doc.id] = { name: h.name, category: h.category };
+  }
 
   for (const doc of dailyDocs) {
     const d = doc.data();
-    const completions = d.habitCompletions && typeof d.habitCompletions === 'object'
-      ? Object.values(d.habitCompletions).filter((c) => Number(c) > 0).length
-      : 0;
+    // Every habit that was DUE on that day, not only the ones that left a
+    // trace, so the detail list below can name what went unmarked and the
+    // headline can carry an honest denominator. Feeding these to
+    // summarizeHabitDay only ever ADDS 'none' rows - not one of its counts
+    // moves - so the classifier reading below is the one it always was.
+    const scheduledIds = habitDocs
+      .filter((h) => habitScheduledOnParts(h.data(), dayKeyParts(doc.id)))
+      .map((h) => h.id);
+    // Through the classifier, so this line can never say "no habit
+    // completions" about a day the person had actually marked. It said
+    // exactly that about a day a Room was crediting, because a square
+    // painted outside the reward window writes squareStates and nothing
+    // else - see readHabitDay in render.js.
+    const sum = summarizeHabitDay(d, scheduledIds, receiptsByKey, doc.id);
     const bits = [];
-    if (completions > 0) bits.push(`${completions} habit${completions === 1 ? '' : 's'} done`);
+    // greens, not done: what the PERSON did, by either route. The two ways
+    // those can differ are both called out on the next lines, so folding
+    // them together in the headline number hides nothing.
+    if (scheduledIds.length > 0) bits.push(`${sum.greens} of ${scheduledIds.length} done`);
+    else if (sum.greens > 0) bits.push(`${sum.greens} done`);
+    if (sum.gridOnly > 0) bits.push(`${sum.gridOnly} marked on the Grid only (no completion)`);
+    if (sum.undone > 0) bits.push(`${sum.undone} completed then un-marked`);
+    if (sum.marked > 0) bits.push(`${sum.marked} non-green mark${sum.marked === 1 ? '' : 's'}`);
     if (d.mood && MOOD_META[d.mood]) bits.push(`${MOOD_META[d.mood].emoji} ${MOOD_META[d.mood].label}`);
     if (d.nightReviewDone) bits.push('night review');
     if (d.dailyReflection) bits.push('wrote a reflection');
     push(d.lastUpdated, 'habits', `Logged their day (${doc.id})`,
-      bits.length ? bits.join(' · ') : 'no habit completions', doc.id);
+      bits.length ? bits.join(' · ') : 'nothing marked', doc.id,
+      dailyDetails(d, sum, habitCtx, doc.id, tzOffsetMinutes));
+  }
+
+  // Un-marking has no timestamp of its own anywhere - the UndoneCompletion
+  // receipt stores undoneOn as a plain date key, deliberately (see that
+  // class), so day is all the precision that exists. Anchored at noon of
+  // that day so it sorts inside the right date heading without pretending
+  // to a time it does not have.
+  for (const r of Object.values(receiptsByKey)) {
+    if (!r.undoneOn) continue;
+    const at = new Date(`${r.undoneOn}T12:00:00`);
+    if (Number.isNaN(at.getTime())) continue;
+    const habit = habitDocs.find((h) => h.id === r.habitId);
+    const ctx = habit ? { [habit.id]: { name: habit.data().name, category: habit.data().category } } : {};
+    push(at, 'habit_undone', 'Un-marked a completion',
+      `${habitLabel(r.habitId, ctx, r.category)} · for ${r.dateKey} · took back ${r.xp} XP and ${r.gold} gold`,
+      r.dateKey, [
+        // Only what the line above does NOT already say. The habit, the day
+        // and the amount are all in the summary; repeating them as chips
+        // made the row twice as tall and no clearer. This is the part that
+        // is not obvious: the receipt is still sitting on the profile, so
+        // marking that habit-day again REDEEMS it rather than paying twice.
+        chip('Receipt outstanding, so re-marking redeems it rather than paying twice', 'note'),
+      ].filter(Boolean));
   }
 
   for (const doc of newTaskDocs) {
     const t = doc.data();
-    push(t.createdAt, 'task_new', 'Added a task', t.title || '(untitled task)');
+    push(t.createdAt, 'task_new', 'Added a task', t.title || '(untitled task)', '',
+      taskDetails(t, false));
   }
   for (const doc of doneTaskDocs) {
     const t = doc.data();
     if (!t.isDone) continue; // completedAt left behind on a restored task
-    push(t.completedAt, 'task_done', 'Finished a task', t.title || '(untitled task)');
+    push(t.completedAt, 'task_done', 'Finished a task', t.title || '(untitled task)', '',
+      taskDetails(t, true));
   }
   for (const doc of habitDocs) {
     const h = doc.data();
     const cat = CATEGORY_META[h.category];
     push(h.createdAt, 'habit_new', 'Created a habit',
-      `${cat ? cat.emoji + ' ' : ''}${h.name || '(unnamed habit)'}`);
+      `${cat ? cat.emoji + ' ' : ''}${h.name || '(unnamed habit)'}`, '', habitDetails(h));
     if (h.archivedAt) {
-      push(h.archivedAt, 'habit_archived', 'Archived a habit', h.name || '(unnamed habit)');
+      // What it was worth by the time they put it away, which is the whole
+      // question when someone asks why a streak stopped.
+      push(h.archivedAt, 'habit_archived', 'Archived a habit',
+        h.name || '(unnamed habit)', '', [
+          chip(`${Number(h.totalCompletions) || 0} completions in its life`, 'plain'),
+          chip(`Longest streak ${Number(h.longestStreak) || 0}`, 'plain'),
+          chip(`Streak was ${Number(h.currentStreak) || 0} when it was archived`, 'plain'),
+        ].filter(Boolean));
     }
   }
   for (const doc of milestoneDocs) {
     const m = doc.data();
-    push(m.occurredAt, 'milestone', milestoneHeadline(m.type, m.data), '');
+    push(m.occurredAt, 'milestone', milestoneHeadline(m.type, m.data), '', '',
+      scalarDetails(m.data, [], {
+        level: 'Level', days: 'Days', xp: 'XP', gold: 'Gold',
+        roomName: 'Room', achievementId: 'Achievement', habitName: 'Habit',
+      }));
   }
   for (const doc of focusDocs) {
     const f = doc.data();
     const bits = [];
     if (f.focusSessions) bits.push(`${f.focusSessions} session${f.focusSessions === 1 ? '' : 's'}`);
     if (f.topTask) bits.push(f.topTask);
-    push(f.updatedAt, 'focus', `Worked on their focus plan (${doc.id})`, bits.join(' · '), doc.id);
+    push(f.updatedAt, 'focus', `Worked on their focus plan (${doc.id})`, bits.join(' · '), doc.id,
+      scalarDetails(f, ['uid', 'dateKey', 'createdAt', 'updatedAt'], {
+        focusSessions: 'Sessions', topTask: 'Top task', focusMinutes: 'Minutes',
+      }));
   }
 
   if (authRow && authRow.createdAt) push(authRow.createdAt, 'signup', 'Created their account', email);
@@ -236,7 +550,7 @@ async function scanOneAccount(uid, profile, authRow) {
   // ---- The accounts table's own numbers ----
   //
   // "Today" is this ACCOUNT's today (their reported device offset, and this
-  // app's 6 AM habit cutoff), never this machine's, so a person in another
+  // app's habit day cutoff), never this machine's, so a person in another
   // timezone is judged against the day their own phone is showing them.
   const todayParts = effectiveTodayParts(profile && profile.tzOffsetMinutes);
   const todayDoc = dailyDocs.find((d) => d.id === todayParts.key);
@@ -325,11 +639,14 @@ async function scanActivity(forceRefresh) {
 
     // One query for every account's profile highlights, rather than a
     // seventh per-account read. select() keeps it to the fields the
-    // dashboard actually prints.
+    // dashboard actually prints - so anything a scan reads has to be named
+    // here or it silently arrives undefined, which is exactly how the
+    // un-marked events came out empty on their first run.
     const profiles = new Map();
     const profileSnap = await db().collection('users')
       .select('displayName', 'createdAt', 'level', 'currentStreak', 'longestStreak',
-        'gold', 'cumulativeXp', 'totalHabitCompletions', 'tzOffsetMinutes', 'locale')
+        'gold', 'cumulativeXp', 'totalHabitCompletions', 'tzOffsetMinutes', 'locale',
+        'undoneCompletions')
       .get();
     profileSnap.forEach((doc) => profiles.set(doc.id, doc.data()));
 
@@ -437,19 +754,24 @@ async function scanDay(dateKey) {
     ]);
     const data = dailySnap && dailySnap.exists ? dailySnap.data() : null;
     const parts = dayKeyParts(dateKey);
-    const completions = data && data.habitCompletions && typeof data.habitCompletions === 'object'
-      ? data.habitCompletions : {};
-    let scheduled = 0;
-    let done = 0;
-    for (const doc of habitDocs) {
-      if (!habitScheduledOnParts(doc.data(), parts)) continue;
-      scheduled += 1;
-      if (Number(completions[doc.id] || 0) > 0) done += 1;
-    }
+    const scheduledIds = habitDocs
+      .filter((doc) => habitScheduledOnParts(doc.data(), parts))
+      .map((doc) => doc.id);
+    // Through the same classifier the report uses, so this table and a
+    // person's own report can never disagree about one day. `done` is every
+    // green square by either route - what the person marked, and what a Room
+    // credits - with the two disagreements carried alongside rather than
+    // folded in. Counting only habitCompletions here read a marked day as a
+    // flat zero, which is how a Room and this dashboard came to report
+    // different numbers for the same person on the same day.
+    const sum = summarizeHabitDay(data, scheduledIds, {}, dateKey);
     return {
       uid,
-      done,
-      scheduled,
+      done: sum.greens,
+      completed: sum.done,
+      gridOnly: sum.gridOnly,
+      undone: sum.undone,
+      scheduled: scheduledIds.length,
       mood: data && data.mood ? data.mood : '',
       nightReviewDone: !!(data && data.nightReviewDone),
       reflection: (data && data.dailyReflection) || '',
@@ -469,4 +791,13 @@ module.exports = {
   milestoneHeadline,
   mapLimit,
   ONLINE_WINDOW_MS,
+  // Exported for the tests, which can exercise these against a document
+  // shape without a Firestore connection - the scan itself needs one.
+  scheduleLabel,
+  humanSpan,
+  clip,
+  dailyDetails,
+  taskDetails,
+  habitDetails,
+  scalarDetails,
 };

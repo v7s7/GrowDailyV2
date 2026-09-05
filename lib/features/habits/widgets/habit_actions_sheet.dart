@@ -38,6 +38,22 @@ Future<HabitAction?> showHabitActions(
   /// holds this habit, so every change is silently dropped. A paused row
   /// gets Resume instead, and no Edit until it is back on the board.
   bool isPaused = false,
+
+  /// One already-localized context line under the name — today it carries
+  /// a steps-linked habit's live progress ("5320 / 8000"), which otherwise
+  /// has no visible home: the Grid row can't grow a subtitle (fixed row
+  /// height, see _habitRow), so the sheet a tap on that row opens is where
+  /// the number lives. Null renders nothing.
+  String? stepsLine,
+
+  /// The explanation under [stepsLine] when the number needs one: the link
+  /// is stalled, or the count is zero and the platform will not say why.
+  ///
+  /// A separate slot rather than a longer [stepsLine] because that line is
+  /// deliberately one ellipsised row of green: a sentence belongs in muted
+  /// body text that is allowed to wrap, and the person only ever sees it in
+  /// the moment they came here to ask why nothing is happening.
+  String? stepsNote,
 }) {
   HapticFeedback.mediumImpact();
   return showModalBottomSheet<HabitAction>(
@@ -49,6 +65,8 @@ Future<HabitAction?> showHabitActions(
       habitName: habitName,
       canDeleteForever: canDeleteForever,
       isPaused: isPaused,
+      stepsLine: stepsLine,
+      stepsNote: stepsNote,
     ),
   );
 }
@@ -57,10 +75,14 @@ class _HabitActionsSheet extends StatelessWidget {
   final String habitName;
   final bool canDeleteForever;
   final bool isPaused;
+  final String? stepsLine;
+  final String? stepsNote;
   const _HabitActionsSheet({
     required this.habitName,
     required this.canDeleteForever,
     required this.isPaused,
+    required this.stepsLine,
+    required this.stepsNote,
   });
 
   @override
@@ -105,6 +127,44 @@ class _HabitActionsSheet extends StatelessWidget {
                 color: gp.textPrimary,
               ),
             ),
+            if (stepsLine != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.directions_walk_rounded,
+                      size: 13, color: GameColors.success),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      stepsLine!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: GameColors.success,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (stepsNote != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                stepsNote!,
+                textAlign: TextAlign.center,
+                maxLines: 4,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.45,
+                  fontWeight: FontWeight.w600,
+                  color: gp.textSec,
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             if (isPaused)
               _ActionRow(

@@ -1,6 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+// OverflowBoxFit only — material.dart does not re-export it, and
+// RoomStripMonthLabel needs deferToChild so the strip's header band keeps
+// the text's own height instead of the parent's unbounded one.
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

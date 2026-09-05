@@ -756,7 +756,18 @@ class _CustomThemeSheetState extends ConsumerState<_CustomThemeSheet> {
             borderRadius: BorderRadius.circular(22),
             border: Border.all(color: gp.border, width: 0.5),
           ),
-          child: SingleChildScrollView(
+          // Scroll the controls, pin the button. The whole sheet used to be
+          // one scroll view, so on a short phone — where 0.88 of the screen
+          // is less than this sheet's content — Done scrolled off the bottom
+          // and the way out of a colour you had just changed your mind about
+          // was to scroll looking for it. It is the one control here that
+          // must never move.
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Flexible(
+                child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -788,14 +799,6 @@ class _CustomThemeSheetState extends ConsumerState<_CustomThemeSheet> {
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: gp.textSec),
                 ),
-                const SizedBox(height: 14),
-                // The single most important addition. The whole feature is
-                // "pick two colours and twenty-six more are derived from
-                // them", and until this strip existed none of that
-                // derivation was visible: the sheet covers the screen it
-                // claims to be previewing, so "the app behind it is the
-                // preview" was true only for the strip of it still showing.
-                _ThemePreviewStrip(accent: _accent, grid: _grid),
                 const SizedBox(height: 14),
                 _RoleTabs(
                   labels: [s.themeCustomAccent, s.themeCustomGrid],
@@ -837,7 +840,21 @@ class _CustomThemeSheetState extends ConsumerState<_CustomThemeSheet> {
                     setState(() => _freePicker = i == 1);
                   },
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
+                // Directly above the swatches, not up by the title.
+                //
+                // The whole feature is "pick two colours and twenty-six more
+                // are derived from them", and this strip is the only place
+                // that derivation is visible while the sheet covers the app
+                // it claims to be previewing. But it used to sit at the top
+                // of a sheet whose controls are all at the bottom, so on a
+                // phone the thing you tap and the thing that answers were a
+                // third of a screen apart, with a hand in between. Here the
+                // answer lands just above the finger that asked for it, and
+                // above rather than below because a thumb on the grid covers
+                // everything under it.
+                _ThemePreviewStrip(accent: _accent, grid: _grid),
+                const SizedBox(height: 12),
                 if (_freePicker)
                   _HsvPicker(
                     hue: _hue,
@@ -862,16 +879,19 @@ class _CustomThemeSheetState extends ConsumerState<_CustomThemeSheet> {
                   swatch: active,
                   onChanged: _onHexChanged,
                 ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(s.themeCustomDone),
-                  ),
-                ),
               ],
             ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(s.themeCustomDone),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1125,6 +1145,17 @@ class _SavedColourRow extends StatelessWidget {
 /// Separate from [_RoleTabs] rather than a flag on it: that one's segments
 /// each carry a colour swatch, which is load-bearing there (it is the only
 /// place the OTHER role's colour is visible) and meaningless here.
+/// Palette or free picker. Deliberately SMALLER and quieter than [_RoleTabs],
+/// which sits a few rows above it.
+///
+/// The two were the same full-width pill at the same height, one under the
+/// other, and they answer completely different questions: the one above is
+/// "which of my two colours am I setting", which is the state everything else
+/// on the sheet hangs off, and this one is only "which way do I want to pick
+/// it". Two identical controls stacked like that read as one control that
+/// moved, and there was no way to tell at a glance which of them the swatches
+/// below belonged to. Narrower, shorter and untinted says "this is the minor
+/// one" without a word of explanation.
 class _ModeTabs extends StatelessWidget {
   final List<String> labels;
   final int selected;
@@ -1139,7 +1170,10 @@ class _ModeTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    return Container(
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 240),
+        child: Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: gp.surfaceHL,
@@ -1156,7 +1190,7 @@ class _ModeTabs extends StatelessWidget {
                 child: AnimatedContainer(
                   duration: GameMotion.relaxed,
                   curve: Curves.easeOutCubic,
-                  padding: const EdgeInsets.symmetric(vertical: 7),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   decoration: BoxDecoration(
                     color: i == selected
                         ? gp.surfaceHigh
@@ -1170,7 +1204,7 @@ class _ModeTabs extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 11.5,
                       fontWeight:
                           i == selected ? FontWeight.w800 : FontWeight.w600,
                       color: i == selected ? gp.textPrimary : gp.textSec,
@@ -1180,6 +1214,8 @@ class _ModeTabs extends StatelessWidget {
               ),
             ),
         ],
+      ),
+        ),
       ),
     );
   }

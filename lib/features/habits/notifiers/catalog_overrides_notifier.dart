@@ -31,8 +31,28 @@ class CatalogHabitOverride {
   final int? frequencyTarget;
   final List<int>? scheduledWeekdays;
   final int? reminderOffsetMinutes;
+
+  /// The extra shifts stacked on top of [reminderOffsetMinutes] — see
+  /// IslamicHabitTemplate.extraReminderOffsets.
+  ///
+  /// An EMPTY list is a real override here, not "not overridden": clearing
+  /// every extra reminder off a preset has to survive a reload, and null
+  /// would hand the catalog's own default straight back. Only the field
+  /// being absent means untouched.
+  final List<int>? extraReminderOffsets;
   final bool? ignoreQuietHours;
   final String? iconColorHex;
+
+  /// The daily step goal this person linked this preset to, or null for the
+  /// ordinary case of a preset nobody linked.
+  ///
+  /// The one override field that is not a tweak to how the preset LOOKS or
+  /// when it fires: it is the link itself (see IslamicHabitTemplate.stepGoal
+  /// for why non-null IS the link). It lives here rather than on the catalog
+  /// template because a link belongs to one person, not to the preset every
+  /// account shares, and because the template's own suggestedStepGoal has to
+  /// stay a suggestion.
+  final int? stepGoal;
 
   const CatalogHabitOverride({
     this.name,
@@ -41,8 +61,10 @@ class CatalogHabitOverride {
     this.frequencyTarget,
     this.scheduledWeekdays,
     this.reminderOffsetMinutes,
+    this.extraReminderOffsets,
     this.ignoreQuietHours,
     this.iconColorHex,
+    this.stepGoal,
   });
 
   bool get isEmpty =>
@@ -52,8 +74,10 @@ class CatalogHabitOverride {
       frequencyTarget == null &&
       scheduledWeekdays == null &&
       reminderOffsetMinutes == null &&
+      extraReminderOffsets == null &&
       ignoreQuietHours == null &&
-      iconColorHex == null;
+      iconColorHex == null &&
+      stepGoal == null;
 
   /// Lays this override over [t]. Anything null here keeps the catalog's own
   /// value.
@@ -86,9 +110,17 @@ class CatalogHabitOverride {
         iconColorHex: iconColorHex ?? t.iconColorHex,
         reminderOffsetMinutes:
             reminderOffsetMinutes ?? t.reminderOffsetMinutes,
+        extraReminderOffsets:
+            extraReminderOffsets ?? t.extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours ?? t.ignoreQuietHours,
         createdAt: t.createdAt,
         archivedAt: t.archivedAt,
+        stepGoal: stepGoal ?? t.stepGoal,
+        // Carried, not overridable: the catalog's suggestion is what the Add
+        // Habit picker opens on, and it has to survive an edit or reopening
+        // a linked preset would offer the generic default instead of the
+        // number this habit is actually about.
+        suggestedStepGoal: t.suggestedStepGoal,
       );
 
   Map<String, dynamic> toMap() => {
@@ -99,8 +131,13 @@ class CatalogHabitOverride {
         if (scheduledWeekdays != null) 'scheduledWeekdays': scheduledWeekdays,
         if (reminderOffsetMinutes != null)
           'reminderOffsetMinutes': reminderOffsetMinutes,
+        // Written even when empty — see the field's doc: [] is "no extras",
+        // which is a different answer from "never touched".
+        if (extraReminderOffsets != null)
+          'extraReminderOffsets': extraReminderOffsets,
         if (ignoreQuietHours != null) 'ignoreQuietHours': ignoreQuietHours,
         if (iconColorHex != null) 'iconColorHex': iconColorHex,
+        if (stepGoal != null) 'stepGoal': stepGoal,
       };
 
   factory CatalogHabitOverride.fromMap(Map<String, dynamic> d) =>
@@ -117,8 +154,15 @@ class CatalogHabitOverride {
             .where((n) => n >= DateTime.monday && n <= DateTime.sunday)
             .toList(),
         reminderOffsetMinutes: (d['reminderOffsetMinutes'] as num?)?.toInt(),
+        extraReminderOffsets: (d['extraReminderOffsets'] as List?)
+            ?.whereType<num>()
+            .map((n) => n.toInt())
+            .toSet()
+            .toList()
+          ?..sort(),
         ignoreQuietHours: d['ignoreQuietHours'] as bool?,
         iconColorHex: d['iconColorHex'] as String?,
+        stepGoal: (d['stepGoal'] as num?)?.toInt(),
       );
 }
 

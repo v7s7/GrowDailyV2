@@ -29,6 +29,68 @@ class _GridSkeleton extends StatelessWidget {
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
+/// The one line habits paused on an earlier day get on this screen — a
+/// quiet count plus a chevron, opening the Add Habit hub whose paused
+/// section holds the actual resume/delete rows. Kept in the paused
+/// section's own tertiary voice (it is a record, not a demand), and a row
+/// rather than a board section because these habits deliberately have no
+/// squares to show here.
+class _PausedElsewhereRow extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const _PausedElsewhereRow({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: gp.border, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.pause_circle_outline_rounded,
+                  size: 16, color: gp.textTert),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.pausedElsewhereRow(count),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textSec,
+                  ),
+                ),
+              ),
+              // s.isAr, not Directionality: intl is imported by this
+              // library and its TextDirection shadows dart:ui's (same
+              // collision insights_screen.dart documents).
+              Icon(
+                s.isAr
+                    ? Icons.chevron_left_rounded
+                    : Icons.chevron_right_rounded,
+                size: 18,
+                color: gp.textTert,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Quiet label row above each of the Grid's two boards (build vs quit) —
 /// small icon, uppercase-style label, and a count chip, deliberately far
 /// lighter than a card header so the boards themselves stay the loudest

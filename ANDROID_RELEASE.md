@@ -105,10 +105,14 @@ Done:
   (`aapt` will not read an .aab, only an .apk.) Note bundletool needs
   `JAVA_TOOL_OPTIONS="-Duser.language=en -Duser.country=US"` on this machine;
   see "Locale note" above.
-- Government apps: No. Financial features: none. Health apps: **no health
-  features**. The `health`, `fitness`, `sleep` and `mind` habit categories
-  are user-chosen labels; the app records a completion boolean and reads no
-  sensors, no Health Connect, and no health metric.
+- Government apps: No. Financial features: none. Health apps: **yes, since
+  2026-09-02** — the walking-habit steps link reads the day's step total
+  from Health Connect (`android.permission.health.READ_STEPS`, read only).
+  This answer was "no health features" for every build up to 64 and is now
+  wrong for 65+; see "Steps link" at the bottom of this file for the two
+  Console forms that have to be filled before the next AAB ships. The
+  `health`, `fitness`, `sleep` and `mind` habit *categories* are still just
+  user-chosen labels and read nothing.
 - Data safety: all 11 data types answered and **saved as a draft**. It
   cannot be submitted until Target audience is set (see below).
 
@@ -137,6 +141,31 @@ Done:
 - Crashlytics and Analytics are *required* because nothing in the app lets a
   user turn them off (`main.dart:170` sets Crashlytics on unconditionally in
   release).
+
+### Build 64 has a release-only notification bug. Do not ship it.
+
+Found on 2026-09-01 by installing the **release** APK on an API 33 emulator,
+the first time a release build had ever run on an Android device:
+
+    IllegalStateException: TypeToken must be created with a type argument
+      at FlutterLocalNotificationsPlugin.loadScheduledNotifications
+      at FlutterLocalNotificationsPlugin.cancelNotification
+
+R8 stripped the generic signature from Gson's `TypeToken`. The keep rules
+covered `TypeAdapter`, `JsonSerializer` and `JsonDeserializer` but never
+`TypeToken` itself, and `-keepattributes Signature` alone is not enough under
+R8 full mode (the AGP 8 default). `loadScheduledNotifications` is the
+plugin's scheduled-reminder cache, so reminder operations fail.
+
+Only reproduces in release, because R8 does not run in debug. No amount of
+iPhone or debug-build testing would ever have surfaced it.
+
+Fixed in `proguard-rules.pro` with Gson's own two documented rules. Verified
+on the same emulator with a clean install: the exception is gone and the
+local_notifications error count went from 22 lines to 0.
+
+**Build 64, already through review, still contains this bug.** It needs a
+version bump and a fresh AAB before any tester installs it.
 
 ### SUBMITTED FOR REVIEW on 2026-09-01
 
@@ -240,3 +269,23 @@ Nothing else about the closed test needs doing: finish Sign in details ->
 Target audience -> Data safety, then roll out and the clock starts.
 
 Ship to internal testing first, not straight to production.
+
+### Steps link (added 2026-09-02): Play Console consequences
+
+The walking-habit steps link added `android.permission.health.READ_STEPS`
+to the manifest. Before the NEXT AAB with this permission goes to any
+track, two Console forms need touching, or review will bounce it:
+
+1. **App content -> Health apps declaration.** Health Connect permissions
+   require declaring the app under "Health apps" and stating the use case
+   (habit tracking / fitness). Read-only steps, no research, no
+   health-records category.
+2. **Data safety.** Add "Health and fitness -> Fitness info" as collected,
+   processed ephemerally on device, not shared, optional. This matches
+   what the code actually does (HealthStepsService reads a daily total,
+   stores nothing but the habit completion) and what privacy.html now
+   says in its "Steps for walking habits" section (deploy the updated
+   privacy page BEFORE submitting the form that points at it).
+
+Build 64 predates the permission, so nothing already in review is
+affected; this gates build 65+ only.

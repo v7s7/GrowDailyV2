@@ -116,6 +116,56 @@ const int kFreeTaskReminders = 1;
 bool canAddReminder({required int current, required bool isPremium}) =>
     isPremium || current < kFreeTaskReminders;
 
+/// How many reminders one HABIT may carry on the free tier.
+///
+/// Deliberately the same number, and the same argument, as
+/// [kFreeTaskReminders]: one nudge at the time you chose is what a habit
+/// tracker is expected to do, and a stack around that one moment — ten
+/// minutes before Maghrib, again on the dot, again half an hour after — is
+/// the part worth paying for. Two features asking the identical question
+/// should not answer it differently, or the app has two reminder rules to
+/// learn instead of one.
+///
+/// "Reminders", not "extras": a habit's primary shift
+/// (IslamicHabitTemplate.reminderOffsetMinutes) counts toward this, exactly
+/// as a task's anchor counts toward its own limit. So free means the one
+/// reminder every habit has always had, and nothing is taken away from
+/// anybody by this gate existing.
+///
+/// Gates *adding* only, for the same reason [kFreeTaskReminders] does: a
+/// habit that already carries a stack keeps firing all of it if an
+/// entitlement lapses, and can still have entries removed.
+///
+/// Separately from this product cap, [kMaxHabitReminders] bounds how many
+/// the OS will hold for one habit — that one applies to Premium too.
+const int kFreeHabitReminders = 1;
+
+/// The ceiling on one habit's reminder stack, Premium included.
+///
+/// Lower than a task's eight because a habit's reminders are STANDING: each
+/// one occupies a pending OS notification every day for as long as the
+/// habit lives, where a task's are spent once and gone. iOS keeps only 64
+/// pending notifications per app, and NotificationService already sizes its
+/// own budget note against "8 habits at 4 times a day" — four is that same
+/// number, so a habit with a stack costs no more than a habit counted four
+/// times a day already did.
+const int kMaxHabitReminders = 4;
+
+/// Whether another reminder may be added to a habit that currently has
+/// [current] of them (its primary shift included). Pure, same shape as
+/// [canAddReminder], and it answers false at [kMaxHabitReminders] for
+/// everyone: [locked] separates "you could buy this" from "this is full".
+({bool allowed, bool locked}) canAddHabitReminder({
+  required int current,
+  required bool isPremium,
+}) {
+  if (current >= kMaxHabitReminders) return (allowed: false, locked: false);
+  if (isPremium || current < kFreeHabitReminders) {
+    return (allowed: true, locked: false);
+  }
+  return (allowed: false, locked: true);
+}
+
 /// How many months of any history surface the free tier can browse — the
 /// current month plus two before it, matching the Monthly Heatmap's free
 /// window exactly so the whole app tells one consistent story: free sees

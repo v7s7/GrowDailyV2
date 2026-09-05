@@ -856,18 +856,20 @@ const int kRoomSyncWindowDays = 45;
 /// Above this many members, a room joins MUTED by default (see
 /// [RoomsController.joinRoom]).
 ///
-/// Must stay in step with FANOUT_MEMBER_LIMIT in functions/index.js, which
-/// uses the same number to decide when a room stops sending one push per
-/// finisher. The two are the same idea from opposite ends: the server caps
-/// what a big room may send, this decides what a new member hears by default.
+/// The server no longer needs this number: functions/index.js notifies on
+/// three room EVENTS a day (first to finish, last one standing, perfect
+/// day) whatever the size, and functions/push_policy.js caps every person
+/// at one heads-up, one nudge and one celebration a day across all their
+/// rooms. So this is purely about what a new member of a big room hears by
+/// default. Mirrored as AUTO_MUTE_LIMIT in functions/test/push_scenarios
+/// .test.js, which plays whole days out at 13, 50, 100 and 200 members and
+/// checks only the unmuted members are ever reached.
 ///
-/// Why default to silence rather than trusting the cap alone: the cap is a
-/// decision nobody can see or undo, and a room this size is usually one
-/// someone joined out of interest rather than to be pinged by. A muted bell
-/// in the room's own app bar is visible, honest and one tap from reversing -
-/// and thanks to the server cap, reversing it is pleasant (one "first to
-/// finish today" a day) rather than the ~199-a-day firehose per-finisher
-/// notifications would otherwise be in a 200-person room.
+/// Why default to silence rather than trusting the caps alone: a room this
+/// size is usually one someone joined out of interest rather than to be
+/// pinged by, and a muted bell in the room's own app bar is visible, honest
+/// and one tap from reversing. Reversing it is pleasant (at most one push of
+/// each kind a day) rather than a firehose.
 const int kRoomAutoMuteMemberLimit = 12;
 
 /// The rule in force on [dateKey] out of [rules] - the latest period that

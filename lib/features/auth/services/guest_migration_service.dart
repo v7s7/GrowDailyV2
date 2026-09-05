@@ -26,8 +26,23 @@ class GuestSnapshot {
   final int level;
   final int taskCount;
 
-  /// Whether there is anything here worth offering at all. A device that
-  /// only ever had the app opened once has keys but nothing in them.
+  /// Whether the four numbers this sheet actually NAMES are all blank — a
+  /// device that only ever had the app opened once has keys but nothing in
+  /// them.
+  ///
+  /// MUST NOT be used to decide whether to make the offer, and an audit
+  /// that called this "dead code, wire it or delete it" is why the warning
+  /// is written down rather than left to be re-derived. It counts habits,
+  /// days, tasks and level; [GuestMigrationService.migrate] ALSO moves the
+  /// guest's character, prestige, custom rewards and matrix quadrants. So
+  /// someone whose only guest data is an avatar they picked reads as
+  /// "empty" here while genuinely having something to lose — gating the
+  /// offer on this would refuse to move it and then let the 7-day sweep
+  /// delete it, having never asked. [LocalStoreService.hasGuestProgress] is
+  /// the correct gate precisely because it asks the broader question.
+  ///
+  /// What it is legitimately for: deciding whether the summary LINE has
+  /// anything to say.
   bool get isEmpty =>
       habitCount == 0 && dayCount == 0 && taskCount == 0 && level <= 1;
 }

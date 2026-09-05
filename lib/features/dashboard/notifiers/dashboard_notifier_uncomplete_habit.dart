@@ -37,9 +37,13 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
   /// Reverses a same-day completion made via [completeHabit] — the "I
   /// completed this by mistake" correction available from Grid's
   /// long-press editor on a synced, completed-today square, and from
-  /// quit-habit's affirm→slip mis-tap correction. Always operates on
-  /// *today* (there's no "edit yesterday's completion" concept anywhere in
-  /// this app).
+  /// quit-habit's affirm→slip mis-tap correction.
+  ///
+  /// Operates on today by default, and on [day] when one is given — which is
+  /// only ever yesterday, still inside its grace window (see
+  /// DateTimeGameExt.isOpenDay). An undo has to reach exactly as far back as
+  /// a completion can, or a mark made during the grace could not be taken
+  /// back by the person who made it.
   ///
   /// Reverses what's safe to reverse: the base XP/gold the caller passes
   /// in, plus — via [_lastHabitCompletion], when a same-session record of
@@ -50,7 +54,10 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
   /// reverses `completions[habitId]` (back to not-done so Today un-checks
   /// it too), `categoryCompletions`, `totalCompletions`, and the
   /// `totalGreenSquares`/`dailyGreenCounts` counters this phase added for
-  /// synced completions.
+  /// synced completions. Today's spent cap allowance
+  /// (`earnedXpToday`/`earnedGoldToday`) is refunded alongside them, sized
+  /// from what the undo actually removed — see the earn-counter note in the
+  /// body for why that size and not the nominal reward.
   ///
   /// Without a snapshot (the app was fully restarted between the
   /// completion and the undo, so [_lastHabitCompletion] lost it) the
@@ -99,6 +106,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     int frequencyTarget = 1,
     bool clearWholeDay = false,
     String? category,
+    DateTime? day,
   }) async {
     // See completeHabit's guard: this method writes level, currentLevelXp,
     // cumulativeXp, gold, totalHabitCompletions and categoryCompletions as
@@ -108,7 +116,23 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // that an explicit rule rather than a side effect of the zeros lining up.
     if (_uid != null && state.loadFailed) return;
 
-    final current = state.completions[habitId] ?? 0;
+    // Which day is being corrected — see completeHabit's [day] for the whole
+    // reasoning. Null is today; a non-null day is only ever yesterday inside
+    // its grace window, so an undo can reach exactly as far back as a
+    // completion can.
+    final markDay = (day ?? _clock().effectiveDay).startOfDay;
+    final isGraceDay = markDay.toDateKey() != _todayKeyNow;
+    if (isGraceDay && !markDay.isOpenDayAt(_clock())) return;
+
+    // Today's counts are in `state`; a grace day's are read off the day, the
+    // same split completeHabit makes and for the same reason: an undo on
+    // another day must not touch the board on screen.
+    Map<String, int> dayCompletions = state.completions;
+    if (isGraceDay) {
+      dayCompletions = (await _readStoredDay(markDay)).completions;
+    }
+
+    final current = dayCompletions[habitId] ?? 0;
     if (current <= 0) return;
 
     // Decrement by one, not remove.
@@ -133,7 +157,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // are. Before habits could be counted `current` was never above 1, so this
     // was unconditionally true and the distinction did not exist.
     final emptiesDay = clearWholeDay || current <= 1;
-    final newCompletions = Map<String, int>.from(state.completions);
+    final newCompletions = Map<String, int>.from(dayCompletions);
     if (emptiesDay) {
       newCompletions.remove(habitId);
     } else {
@@ -256,7 +280,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // SAME day, and four independent reads of a getter named "today" is how a
     // method that runs across a day boundary ends up writing half its fields
     // to one day and half to the next.
-    final dayKey = DashboardNotifier._todayKey;
+    final dayKey = markDay.toDateKey();
     // Whether the day being emptied had actually reached its target —
     // declared here (rather than beside the counters below that read it)
     // because the receipt has to carry it too: an unfinished counted day
@@ -279,6 +303,32 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     final newUndoneCompletions = receipt == null
         ? null
         : {...state.undoneCompletions, receipt.key: receipt};
+
+    // ── The daily earn counter ──────────────────────────────────
+    //
+    // Give today's cap allowance back too. completeHabit spends
+    // earnedXpToday/earnedGoldToday on every payout, and a same-day redo
+    // spends it AGAIN (its receipt redemption reuses the normal reward
+    // arithmetic), so leaving the counter untouched here made every
+    // complete→undo→redo lap inflate it by one full reward: the summary
+    // card's "XP اليوم" read 60 on a day that actually held 40, and honest
+    // corrections burned real cap room until genuine completions started
+    // being clamped early.
+    //
+    // Sized from [removedXp]/[removedGold] — what this undo actually took
+    // out of the account — not from the nominal reward, so an undo whose
+    // clawback was floored (the XP already spent case above) frees no room
+    // it did not reclaim. The clawback can also EXCEED what the completion
+    // put into the counter (milestone bonuses are paid past the clamp and
+    // never banked against it), and freeing that much is safe for the same
+    // reason the clamp exempts them: the XP leaving the account is real and
+    // once-per-lifetime, so no lap can mint from it. Clamped at zero, and
+    // read through earnedXpOn so an undo landing after the cutoff sees the
+    // fresh day's zero rather than yesterday's spend.
+    final rawEarnedXp = state.earnedXpOn(dayKey) - removedXp;
+    final newEarnedXpToday = rawEarnedXp < 0 ? 0 : rawEarnedXp;
+    final rawEarnedGold = state.earnedGoldOn(dayKey) - removedGold;
+    final newEarnedGoldToday = rawEarnedGold < 0 ? 0 : rawEarnedGold;
 
     // ── The day-counters ────────────────────────────────────────
     //
@@ -322,8 +372,16 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       currentLevelXp: xpResult.newCurrentLevelXp,
       cumulativeXp: xpResult.newCumulativeXp,
       gold: newGold,
+      // TODAY's cap slot only, mirroring completeHabit: a grace day's ledger
+      // lives on that day's own document, so refunding into this slot would
+      // hand today allowance it never spent.
+      earnedDayKey: isGraceDay ? null : dayKey,
+      earnedXpToday: isGraceDay ? null : newEarnedXpToday,
+      earnedGoldToday: isGraceDay ? null : newEarnedGoldToday,
       totalCompletions: newTotal,
-      completions: newCompletions,
+      // The board on screen is today's, so a correction to another day must
+      // not touch it — same split completeHabit makes.
+      completions: isGraceDay ? null : newCompletions,
       categoryCompletions: newCategoryCompletions,
       totalGreenSquares: newTotalGreenSquares,
       dailyGreenCounts: newDailyGreenCounts,
@@ -331,7 +389,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       habitLongestStreaks: newHabitLongestStreaks,
       habitTotalCompletions: newHabitTotalCompletions,
       habitLastCompletedDate: newHabitLastCompletedDate,
-      dayCountedHabitIds: newDayCounted,
+      dayCountedHabitIds: isGraceDay ? null : newDayCounted,
       undoneCompletions: newUndoneCompletions,
     );
 
@@ -339,6 +397,9 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       await _saveGuestDaily(
         newCompletions,
         dayCounted: hadFinishedDay ? newDayCounted.toList() : null,
+        dayKey: dayKey,
+        dayEarnedXp: isGraceDay ? newEarnedXpToday : null,
+        dayEarnedGold: isGraceDay ? newEarnedGoldToday : null,
       );
       // No lastActiveDate here — undoing isn't "new activity" and
       // shouldn't disturb the streak-gap-detection logic that field feeds.
@@ -350,7 +411,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       final batch = FirebaseFirestore.instance.batch();
 
       batch.set(
-        _dailyRef,
+        _dailyRefFor(markDay),
         // A DELTA for this one habit, not the whole map.
         //
         // SetOptions(merge: true) merges a nested map key by key, so a key
@@ -370,6 +431,12 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
         // FieldValue.delete(); this one did not.
         {
           'habitCompletions': habitCompletionDelta(habitId, newCompletions),
+          // The grace day's own cap ledger, refunded where it is kept — see
+          // _allowedOn. Absolute, like the completion side.
+          if (isGraceDay) ...{
+            'dayEarnedXp': newEarnedXpToday,
+            'dayEarnedGold': newEarnedGoldToday,
+          },
           // Hand the banked-day receipt back — see
           // DashboardState.dayCountedHabitIds. arrayRemove, mirroring
           // completeHabit's arrayUnion, so other habits' receipts survive.
@@ -411,6 +478,13 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
           'currentLevelXp': xpResult.newCurrentLevelXp,
           'cumulativeXp': xpResult.newCumulativeXp,
           'gold': newGold,
+          // The refunded cap allowance, mirroring completeHabit's own write
+          // of this trio — see the earn-counter note above the copyWith.
+          if (!isGraceDay) ...{
+            'earnedDayKey': dayKey,
+            'earnedXpToday': newEarnedXpToday,
+            'earnedGoldToday': newEarnedGoldToday,
+          },
           'totalHabitCompletions': newTotal,
           'categoryCompletions': newCategoryCompletions,
           // Atomic increments, matching completeHabit's own writes to

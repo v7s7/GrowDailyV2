@@ -107,29 +107,45 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
     // removed — the denominator would shrink to today's habit count while
     // dailyGreenCounts (the numerator) stays a frozen historical rollup,
     // so the two would stop agreeing. allHabitsEverProvider keeps an
-    // archived habit counted for exactly the days it was really active.
-    // Archived habits are excluded from this screen entirely, on BOTH
-    // sides of the ratio.
+    // archived habit counted for exactly the days it was really active,
+    // and NO archived filter here is what lets it do that: `_dayCell` asks
+    // `isScheduledFor(day)` per day, which already stops at `archivedAt`,
+    // so a paused habit leaves the denominator on the day it was paused
+    // and not one day earlier.
     //
-    // The screen used to keep them, on the reasoning that a habit you had
-    // on the 18th and did not do IS a miss on the 18th, and that letting
-    // people prune their way to a perfect history makes the map worthless
-    // as a record. That argument is real; this deliberately overrules it.
+    // ── Why the filter that used to sit here is gone ────────────────────
     //
-    // What wins: `archivedAt` records the day you got round to tidying up,
-    // not the day you stopped. On a real account habit 07eb2b82 carried
-    // archivedAt 2026-08-19 and so dragged 18 August down to 5 of 6 for a
-    // habit already on its way out. The stamp systematically lags the real
-    // end date, so the trailing days it penalises are exactly the days the
-    // habit was already dead.
+    // It excluded every archived habit from the DENOMINATOR across all of
+    // history while the numerator below kept their completions. That is
+    // precisely the asymmetry this file's own comment called out as the
+    // thing to avoid ("counting an archived habit's completions while
+    // dropping it from the denominator would let a day exceed 100%"), and
+    // it arrived by accident: the two halves were decided months apart,
+    // and the second one silently broke the first one's invariant.
     //
-    // Excluding it from BOTH sides is the load-bearing part: counting an
-    // archived habit's completions while dropping it from the denominator
-    // would let a day exceed 100%.
-    final habits = ref
-        .watch(allHabitsEverProvider)
-        .where((h) => h.archivedAt == null)
-        .toList();
+    // The cost was not one bad day, it was the whole record. Pausing a
+    // habit re-coloured every day it had ever been active, right back to
+    // its creation: a June day where only that habit was logged went from
+    // 1 of 2 (level 2) to 1 of 1 (level 4, deepest green). The map was
+    // quietly rewriting the past to be better than it was, which is the
+    // one thing a record must not do.
+    //
+    // What the filter was FOR, and what that costs now: `archivedAt`
+    // records the day you got round to tidying up, not the day you
+    // stopped, so the trailing days between really stopping and formally
+    // pausing now count as misses again. On a real account, habit
+    // 07eb2b82 carried archivedAt 2026-08-19 and drags 18 August down to
+    // 5 of 6. That is a real cost and it is the honest one: those days are
+    // days the habit was still on the board and was not done, and it is
+    // bounded by the lag rather than unbounded across history. If it ever
+    // needs softening, the shape is a small trailing grace window before
+    // `archivedAt` — never a filter over all of time.
+    //
+    // This also settles a cross-screen disagreement: Life Timeline and the
+    // yearly report already grade archived habits per day this way, and
+    // the heatmap reading 82 against the report's 83 for the same window
+    // was this filter, one archived habit apart.
+    final habits = ref.watch(allHabitsEverProvider).toList();
 
     // Today is resolved from LIVE state, never from a rollup. See
     // [_todayDoneCount] — dailyGreenCounts does not reliably hold today.
@@ -138,37 +154,33 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
     final todayKey = DateTime.now().effectiveDay.toDateKey();
     // The mirror is the truth for settled days; the rollup is only a
     // stand-in for the one frame before it resolves.
-    // WHAT WAS DONE is counted from every habit the mirror holds, even
-    // ones since archived or deleted. WHAT WAS OWED counts only habits
-    // that still exist (see `habits` above).
     //
-    // So the ratio can exceed 1, and that is the point: it clamps to a
-    // full day, which is the honest reading of "you did at least as much
-    // as you currently track". The alternative, filtering the numerator to
-    // match, blanked out most of July while the month badge above it still
-    // said 133 squares — the same screen telling two different stories.
+    // BOTH sides now count every habit that still exists, archived or not:
+    // the numerator here through `countedIds`, the denominator through
+    // `isScheduledFor` in `_dayCell`. Removing the archived filter closed
+    // the gap where a paused habit's completions were counted while its
+    // days were not owed.
     //
-    // This does mean archiving a habit can turn a past day green. That is
-    // a deliberate trade: `archivedAt` records the day you tidied up, not
-    // the day you stopped, so leaving old obligations in the denominator
-    // punishes people for pruning. One line to reverse if it ever gets
-    // abused: put the filter back on the numerator.
-    // ARCHIVED IS NOT DELETED, and only deleted was ever the target here.
+    // Precisely, because a later reader should not over-trust this: the two
+    // sides are not windowed the same way. `countedIds` is a flat set, so
+    // the numerator credits any day the mirror holds for a surviving id,
+    // while only the denominator is windowed per day. A day can therefore
+    // still read done > planned if a habit's active window is lost (a
+    // legacy preset reactivated without a recorded stint), and `dayFill`
+    // clamps rather than asserting. The change makes overflow strictly
+    // rarer — it only ever adds to the denominator — but does not make it
+    // impossible, so keep the clamp.
+    //
+    // Filtering the NUMERATOR to match instead was tried and is worse: it
+    // blanked out most of July while the month badge above it still said
+    // 133 squares, the same screen telling two different stories. Archived
+    // is not deleted, and the archived habit's green days really happened.
     //
     // [derivedDayCounts]' doc comment explains at length why habits the user
     // THREW AWAY must stop marking their past: orphaned ids from a rebuilt
     // habit list were painting glowing perfect days. Archiving is a
-    // different act. The reports hub keeps archived history and folds it
-    // under المؤرشفة rather than dropping it, and the Year Record does the
-    // same, so filtering archived habits out here made this screen the only
-    // one that quietly forgot them: on Aziz's own account the heatmap read
-    // 82 squares beside a yearly report reading 83, for the same window, one
-    // archived habit apart.
-    //
-    // So: the NUMERATOR counts every habit that still exists, archived or
-    // not (below), while the DENOMINATOR keeps counting only live ones (see
-    // `habits` above) - archiving is still "not part of my present", and
-    // nobody should be graded against a habit they deliberately put away.
+    // different act, and the reports hub and Year Record both keep archived
+    // history rather than dropping it.
     final countedIds = {for (final h in ref.watch(allHabitsEverProvider)) h.id};
     final counts = ref.watch(habitYearHistoryProvider).maybeWhen(
           data: (mirror) => {
@@ -753,7 +765,9 @@ class _MonthSection extends StatelessWidget {
 
   Widget _dayCell(DateTime day) {
     final count = counts[day.toDateKey()] ?? 0;
-    final scheduled = habits.where((h) => h.isScheduledFor(day)).length;
+    // Named rather than inlined so the "no archived filter" rule has one
+    // place to live and one place to be tested — see heatmapScheduledOn.
+    final scheduled = heatmapScheduledOn(habits, day);
     return _HeatCell(
       day: day,
       count: count,
@@ -826,6 +840,27 @@ class _WeekdayHeaderRow extends StatelessWidget {
 /// the HEIGHT the colour climbs, which is a non-colour channel: it ranks
 /// by eye at a glance, survives greyscale, and survives colourblindness.
 enum _DayFill { rest, empty, partial, full }
+
+/// How many habits were OWED on [day] — the heatmap's denominator.
+///
+/// Takes the full habit list ([allHabitsEverProvider]), archived entries
+/// included, and windows each one per day through
+/// [IslamicHabitTemplate.isScheduledFor], which already stops at
+/// `archivedAt`. So a habit counts for exactly the days it was really
+/// active and not one day more.
+///
+/// CALLERS MUST NOT PRE-FILTER ARCHIVED HABITS OUT. That filter existed
+/// here once and is the bug this function is named to prevent: it removed
+/// archived habits from the denominator across ALL of history while the
+/// numerator kept their completions, so pausing one habit silently
+/// re-coloured every day it had ever been active. A June day where only
+/// that habit was logged went from 1 of 2 to 1 of 1 — from a half day to
+/// the deepest green — and the map quietly rewrote the past to be better
+/// than it was. See the long note at the `habits` declaration in
+/// [MonthlyHeatmapScreen.build], and
+/// test/features/grid/heatmap_archived_denominator_test.dart.
+int heatmapScheduledOn(List<IslamicHabitTemplate> habits, DateTime day) =>
+    habits.where((h) => h.isScheduledFor(day)).length;
 
 _DayFill dayFill(int done, int planned) {
   if (planned <= 0) {
@@ -1110,12 +1145,16 @@ class _HeatDayDetailSheet extends ConsumerWidget {
     // allHabitsEverProvider so an archived (not hard-deleted) habit still
     // resolves to its real name here instead of falling all the way back
     // to [deletedLabel] — see [_outcomesFor]'s isDeleted union above.
-    // Archived habits are dropped here too, so the sheet and the cell can
-    // never disagree about what a day owed.
-    final habits = ref
-        .watch(allHabitsEverProvider)
-        .where((h) => h.archivedAt == null)
-        .toList();
+    //
+    // Unfiltered, and it must STAY unfiltered: this sheet is what opens
+    // when you tap a day cell, so it and the cell have to agree about what
+    // that day owed. Both now take the whole list and let
+    // [IslamicHabitTemplate.isScheduledFor] window it per day — see
+    // [heatmapScheduledOn]. While an archived filter sat on the cell it sat
+    // here too, for exactly this reason; removing it from one without the
+    // other would give a day a cell reading 1 of 2 and a sheet listing one
+    // habit.
+    final habits = ref.watch(allHabitsEverProvider).toList();
 
     return SafeArea(
       child: Container(

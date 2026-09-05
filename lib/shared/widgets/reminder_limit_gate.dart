@@ -30,9 +30,17 @@ bool canAddAnotherReminder(WidgetRef ref, int current) =>
 /// Unlike voice notes though, this gates a *cap* rather than a whole
 /// feature — free users already get one reminder — so the copy names what
 /// free includes instead of implying reminders are locked outright.
-void showReminderLimitGate(BuildContext context, WidgetRef ref) {
-  AnalyticsService.instance
-      .track('premium_gate_hit', props: {'gate': 'reminder_limit'});
+/// [forHabit] swaps the body copy and the analytics tag for Add Habit's
+/// version of the same gate. Everything else is identical on purpose: it is
+/// one product rule (see kFreeTaskReminders / kFreeHabitReminders), and two
+/// sheets that looked different would read as two different limits.
+void showReminderLimitGate(
+  BuildContext context,
+  WidgetRef ref, {
+  bool forHabit = false,
+}) {
+  AnalyticsService.instance.track('premium_gate_hit',
+      props: {'gate': forHabit ? 'habit_reminder_limit' : 'reminder_limit'});
   final gp = context.gp;
   final s = S.of(context);
   HapticFeedback.mediumImpact();
@@ -86,7 +94,7 @@ void showReminderLimitGate(BuildContext context, WidgetRef ref) {
             ),
             const SizedBox(height: 8),
             Text(
-              s.reminderGateBody,
+              forHabit ? s.reminderGateHabitBody : s.reminderGateBody,
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13.5, color: gp.textSec, height: 1.4),
             ),
@@ -98,7 +106,16 @@ void showReminderLimitGate(BuildContext context, WidgetRef ref) {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const PremiumScreen(source: 'reminder_limit', reason: PremiumReason.tasks),
+                    // PremiumReason.tasks either way: it selects which
+                    // benefit the paywall leads with, and that benefit is
+                    // the reminders one (Icons.notifications_active_rounded)
+                    // — the same thing a habit stack is buying.
+                    builder: (_) => PremiumScreen(
+                      source: forHabit
+                          ? 'habit_reminder_limit'
+                          : 'reminder_limit',
+                      reason: PremiumReason.tasks,
+                    ),
                   ),
                 );
               },

@@ -125,6 +125,24 @@ class LocalStoreService {
   static const String guestReconnectDecidedKey =
       'guest_reconnect_decided_uids_v1';
 
+  /// The accounts that REGISTERED FRESH on this device, the only ones the
+  /// reconnect offer may ever be made to. Recorded by AuthNotifier.register
+  /// the moment the profile doc lands.
+  ///
+  /// This is the standing half of the rule GuestMigrationService's doc
+  /// states: the migration is never wired to plain sign-in, because merging
+  /// a guest's XP and history into an account that already has its own is a
+  /// reconciliation with no correct answer. The modal sheet always honoured
+  /// that (it is gated on justRegisteredProvider), but the Profile banner is
+  /// the RETRY surface and persists across launches, so it needs a persisted
+  /// fact to gate on — without one it offered this device's guest data to
+  /// any account that signed in, including a months-old one whose level and
+  /// streaks the merge would then field-replace with the guest's smaller
+  /// numbers. A list, like the decided key above, because more than one
+  /// account can be registered from one device while the data sits here.
+  static const String guestReconnectCandidateKey =
+      'guest_reconnect_candidate_uids_v1';
+
   /// How long guest data outlives the answer. Their words: someone may sign
   /// out, tap guest again, and expect to find it.
   static const int guestDiscardGraceDays = 7;
@@ -205,6 +223,7 @@ class LocalStoreService {
     await (await dailyBox()).clear();
     await settings.delete(guestDiscardAtKey);
     await settings.delete(guestReconnectDecidedKey);
+    await settings.delete(guestReconnectCandidateKey);
     return true;
   }
 
@@ -212,6 +231,23 @@ class LocalStoreService {
   static Future<bool> hasDecidedReconnect(String uid) async {
     final raw = (await settingsBox()).get(guestReconnectDecidedKey);
     return raw is List && raw.contains(uid);
+  }
+
+  /// Whether [uid] registered fresh on this device — see
+  /// [guestReconnectCandidateKey] for why only these accounts may be offered
+  /// the guest data.
+  static Future<bool> isReconnectCandidate(String uid) async {
+    final raw = (await settingsBox()).get(guestReconnectCandidateKey);
+    return raw is List && raw.contains(uid);
+  }
+
+  /// Records that [uid] just registered fresh on this device.
+  static Future<void> markReconnectCandidate(String uid) async {
+    final box = await settingsBox();
+    final raw = box.get(guestReconnectCandidateKey);
+    final uids = raw is List ? raw.whereType<String>().toSet() : <String>{};
+    if (!uids.add(uid)) return;
+    await box.put(guestReconnectCandidateKey, uids.toList());
   }
 
   /// Records that [uid] has answered, so the offer stops.

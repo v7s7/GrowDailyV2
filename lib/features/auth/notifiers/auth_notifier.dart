@@ -104,6 +104,11 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
         await cred.user?.delete();
         rethrow;
       }
+      // Only a registration that fully landed (profile doc written, no
+      // rollback) makes this uid eligible for the guest-data offer — see
+      // LocalStoreService.guestReconnectCandidateKey. Recording it before
+      // the doc write would leave a rolled-back registration eligible.
+      await LocalStoreService.markReconnectCandidate(cred.user!.uid);
       AnalyticsService.instance.track('auth_registered');
     });
   }

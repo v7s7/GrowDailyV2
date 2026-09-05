@@ -436,11 +436,12 @@ class _ParticipantHeader extends StatelessWidget {
             if (isYou) _Tag(label: s.roomYouLabel, color: GameColors.gold),
             if (participant.uid == room.createdBy)
               _Tag(label: s.roomLeaderLabel, color: gp.textSec),
-            // Same level-1 restraint the row and the Profile card both use: a
-            // base tier is not something to show off, so it renders nothing
-            // rather than a chip everybody would have from day one.
-            if (prestige != null && prestige.minLevel > 1)
-              _PrestigeChip(tier: prestige),
+            // Every rank shows here too, for the same reason the leaderboard
+            // row now shows them all: this sheet is opened FROM that row, so
+            // a stamp on the row and nothing here would read as the sheet
+            // having lost it. This one is a Wrap, so the extra chip costs a
+            // line at worst, never an overflow.
+            if (prestige != null) _PrestigeChip(tier: prestige),
           ],
         ).animate(delay: 90.ms).fadeIn(duration: 240.ms).moveY(begin: 6, end: 0),
         if (names.isNotEmpty) ...[

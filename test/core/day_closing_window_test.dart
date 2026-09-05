@@ -39,31 +39,39 @@ void main() {
     expect(at(17).isDayClosing, isFalse);
   });
 
-  test('the window agrees with effectiveDay about which day it is', () {
-    // 11pm Wednesday and 1am Thursday are the same effective day, and both
-    // are inside the window. That pairing is the invariant: the warning is
-    // live for a contiguous stretch of ONE day, not two half-days split by
-    // the calendar.
+  test('the window covers one day\'s last chance, across midnight', () {
+    // 11pm Wednesday and 1am Thursday are two different days now — the day
+    // rolls at midnight — but they are the same WARNING, because Wednesday
+    // is still markable at 1am inside its grace tail. The invariant is
+    // about the last chance, not about the date: it is live for a
+    // contiguous stretch, and what it points at is Wednesday throughout.
     final lateWed = DateTime(2026, 8, 19, 23, 0);
     final earlyThu = DateTime(2026, 8, 20, 1, 0);
-    expect(lateWed.effectiveDay, earlyThu.effectiveDay);
+    final wed = DateTime(2026, 8, 19);
+    expect(lateWed.effectiveDay, isNot(earlyThu.effectiveDay),
+        reason: 'midnight really does roll the day now');
+    expect(wed.isOpenDayAt(lateWed), isTrue);
+    expect(wed.isOpenDayAt(earlyThu), isTrue,
+        reason: 'and Wednesday is what is still on the line at 1am');
     expect(lateWed.isDayClosing, isTrue);
     expect(earlyThu.isDayClosing, isTrue);
 
-    // And the first hour past the cutoff has rolled over: new day, window
-    // shut.
+    // Past the cutoff Wednesday is closed for good, and so is the warning.
     final afterCutoffThu = DateTime(2026, 8, 20, kDayCutoffHour, 0);
-    expect(afterCutoffThu.effectiveDay, isNot(lateWed.effectiveDay));
+    expect(wed.isOpenDayAt(afterCutoffThu), isFalse);
     expect(afterCutoffThu.isDayClosing, isFalse);
   });
 
-  test('the last minute before the cutoff still belongs to yesterday', () {
-    // The reason the cutoff was widened: someone who slept until 9:30am
-    // opens the app and the board is still yesterday's, still markable,
-    // still warning them.
-    final lateNight = DateTime(2026, 8, 19, 23, 0);
+  test('the last minute before the cutoff is yesterday\'s last chance', () {
+    // Why the grace is ten hours: someone who slept until 9:30am opens the
+    // app, yesterday is still markable, and the warning is still up. What
+    // changed is that the BOARD is now today's, and yesterday is a day they
+    // step back to rather than the one the app assumed they meant.
+    final wed = DateTime(2026, 8, 19);
     final lateMorning = DateTime(2026, 8, 20, kDayCutoffHour - 1, 59);
-    expect(lateMorning.effectiveDay, lateNight.effectiveDay);
+    expect(wed.isOpenDayAt(lateMorning), isTrue);
+    expect(lateMorning.effectiveDay, DateTime(2026, 8, 20),
+        reason: 'the board itself has moved on to Thursday');
     expect(lateMorning.isDayClosing, isTrue);
   });
 }

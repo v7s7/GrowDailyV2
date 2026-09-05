@@ -448,6 +448,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       // synchronously and only persists in the background, so the square
       // still turns red on the same frame as the tap.
       await ref.read(dashboardProvider.notifier).uncompleteHabit(
+            day: day,
             habitId: habit.id,
             // Mirrors the completion's boost, see roomBoostedReward.
             xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
@@ -473,10 +474,15 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       return;
     }
 
-    final isSyncable = day.isToday;
-    final alreadyDoneToday = ref
-        .read(dashboardProvider)
-        .isCompleted(habit.id, habit.effectiveDailyTarget);
+    // isOpenDay, matching the square tap: a grace day's palette pick has to
+    // pay the same way its square tap does, or the two ways of marking one
+    // day would disagree about whether it earned anything.
+    final isSyncable = day.isOpenDay;
+    // Today's map only — see _completeSquareToday's identical guard.
+    final alreadyDoneToday = day.isToday &&
+        ref
+            .read(dashboardProvider)
+            .isCompleted(habit.id, habit.effectiveDailyTarget);
     if (isSyncable && picked == SquareState.complete && !alreadyDoneToday) {
       final target = habit.effectiveDailyTarget;
       final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward);
@@ -496,25 +502,39 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       // counting did.
       var landed = false;
       for (var i = 0; i < target; i++) {
-        final before = ref.read(dashboardProvider).completions[habit.id] ?? 0;
-        if (before >= target) break;
+        // The early break is a today-only optimisation: `completions` holds
+        // today's counts, so on a grace day it would answer about the wrong
+        // day. There, the loop simply runs its full length and completeHabit
+        // refuses the taps past the target itself, which costs a few no-op
+        // awaits on a rare path and cannot over-count.
+        final before = day.isToday
+            ? (ref.read(dashboardProvider).completions[habit.id] ?? 0)
+            : 0;
+        if (day.isToday && before >= target) break;
         final dashState = ref.read(dashboardProvider);
-        await ref.read(dashboardProvider.notifier).completeHabit(
+        final rewarded =
+            await ref.read(dashboardProvider.notifier).completeHabit(
+              day: day,
               habitId: habit.id,
+              scheduledWeekdays: habit.scheduledWeekdays.toSet(),
               // 2x while a linked room is live — see roomBoostedReward.
               xpReward: xpReward,
               goldReward: goldReward,
               frequencyTarget: target,
-              allHabitsDoneAfter: willCompleteAllHabitsToday(
-                state: dashState,
-                todayHabits: todayHabits,
-                habitId: habit.id,
-                frequencyTarget: target,
-                // A جزئي square counts half toward the threshold, so a day
-                // that is nearly full still keeps its streak.
-                halfDoneHabitIds:
-                    ref.read(weeklyGridProvider).halfDoneTodayIds(),
-              ),
+              // See _willCompleteAllSquaresOn: only today can be answered
+              // from `completions`.
+              allHabitsDoneAfter: day.isToday
+                  ? willCompleteAllHabitsToday(
+                      state: dashState,
+                      todayHabits: todayHabits,
+                      habitId: habit.id,
+                      frequencyTarget: target,
+                      // A جزئي square counts half toward the threshold, so a
+                      // day that is nearly full still keeps its streak.
+                      halfDoneHabitIds:
+                          ref.read(weeklyGridProvider).halfDoneTodayIds(),
+                    )
+                  : _willCompleteAllSquaresOn(ref, habit, day),
               // Scales the daily earn ceiling with the roster, see
               // dailyXpCapFor. Same list the predicate above uses.
               scheduledHabitCount: todayHabits.length,
@@ -529,9 +549,23 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         // returned before painting the square or syncing the room. The count
         // is the only honest witness, and it still detects the real refusals
         // (a load in flight, a failed load), which is what the branch is for.
-        final after = ref.read(dashboardProvider).completions[habit.id] ?? 0;
-        if (after <= before) break;
-        landed = true;
+        if (day.isToday) {
+          final after = ref.read(dashboardProvider).completions[habit.id] ?? 0;
+          if (after <= before) break;
+          landed = true;
+        } else {
+          // A grace day leaves no trace in `completions` (that map is
+          // today's), so the count cannot witness it. The RETURN value can,
+          // for the single-tap habits this is nearly always about:
+          // completeHabit returns isGridSyncable, which is true exactly when
+          // frequencyTarget is 1 AND the call was not refused. Above a
+          // target of 1 it is always false and says nothing, so there the
+          // loop trusts its own guard — completeHabit refuses anything past
+          // the target itself, and the worst case is a snackbar that does
+          // not appear on a path a cold start already makes rare.
+          if (target == 1 && !rewarded) break;
+          landed = true;
+        }
       }
       if (!mounted) return;
       if (!landed) {

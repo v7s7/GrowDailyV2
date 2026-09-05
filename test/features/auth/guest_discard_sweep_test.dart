@@ -5,8 +5,13 @@ import 'package:hive/hive.dart';
 
 import 'package:flutter/widgets.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/services/local_store_service.dart';
+import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
+import 'package:grow_daily_v2/features/auth/notifiers/guest_reconnect_provider.dart';
+
+import '../../helpers/fake_user.dart';
 
 /// The 7-day grace period the guest copy gets after someone answers the
 /// reconnect offer, either way.
@@ -169,6 +174,86 @@ void main() {
     });
   });
 
+  group('candidate accounts', () {
+    test('only a fresh registration is a candidate', () async {
+      // The persisted half of "the migration is never wired to plain
+      // sign-in": an account that did not register on this device must
+      // never see the offer, however much guest data sits here.
+      expect(await LocalStoreService.isReconnectCandidate('a'), isFalse);
+      await LocalStoreService.markReconnectCandidate('a');
+      expect(await LocalStoreService.isReconnectCandidate('a'), isTrue);
+      expect(await LocalStoreService.isReconnectCandidate('b'), isFalse);
+    });
+
+    test('the sweep forgets them with the data', () async {
+      await seedGuestData();
+      await LocalStoreService.markReconnectCandidate('a');
+      await LocalStoreService.markGuestDataForDiscard(now);
+
+      await LocalStoreService.sweepDiscardedGuestData(
+        now: now.add(const Duration(days: 8)),
+        inGuestMode: false,
+      );
+
+      expect(await LocalStoreService.isReconnectCandidate('a'), isFalse);
+    });
+  });
+
+  group('the offer', () {
+    Future<ProviderContainer> signedIn(String uid) async {
+      final container = ProviderContainer(overrides: [
+        authStateProvider.overrideWith((ref) => Stream.value(fakeUser(uid))),
+      ]);
+      addTearDown(container.dispose);
+      // Let the auth stream emit before the offer is read, the same order a
+      // real launch resolves in — read too early the offer only ever sees
+      // the loading state's null uid.
+      await container.read(authStateProvider.future);
+      return container;
+    }
+
+    test('is not made to an account that merely signed in', () async {
+      // The bug this gate closes: a months-old account signing in on a
+      // device holding a short guest trial was offered the merge, and
+      // accepting field-replaced its level, XP, gold and streak with the
+      // guest's smaller values.
+      await seedGuestData();
+      final container = await signedIn('old-account');
+      expect(
+        await container.read(guestReconnectOfferProvider.future),
+        isNull,
+      );
+    });
+
+    test('is made to the account that registered fresh here', () async {
+      await seedGuestData();
+      await LocalStoreService.markReconnectCandidate('fresh');
+      final container = await signedIn('fresh');
+      final offer = await container.read(guestReconnectOfferProvider.future);
+      expect(offer, isNotNull);
+      expect(offer!.uid, 'fresh');
+      expect(offer.daysLeft, LocalStoreService.guestDiscardGraceDays);
+    });
+
+    test('an expired deadline reads as gone, not as one more day', () async {
+      // ~/ truncates toward zero, so an hour PAST the deadline computed
+      // 0 + 1 = "1 day left" while the next cold start's sweep was about
+      // to delete the data. The promise must never outlive the grace.
+      await seedGuestData();
+      await LocalStoreService.markReconnectCandidate('fresh');
+      // A deadline one hour in the past.
+      await settings.put(
+        LocalStoreService.guestDiscardAtKey,
+        DateTime.now().subtract(const Duration(hours: 1)).toIso8601String(),
+      );
+      final container = await signedIn('fresh');
+      expect(
+        await container.read(guestReconnectOfferProvider.future),
+        isNull,
+      );
+    });
+  });
+
   // ── Copy ────────────────────────────────────────────────────────────
   //
   // The sheet and banner drop a day count into the middle of a sentence,
@@ -187,7 +272,12 @@ void main() {
     test('Arabic keeps the dual and the 3-10 plural', () {
       const s = S(Locale('ar'));
       expect(s.daysInSentence(1), 'يوم واحد');
-      expect(s.daysInSentence(2), 'يومان');
+      // The GENITIVE dual, not daysCount's nominative يومان: every use of
+      // this helper sits after بعد or as an object («بينحذف بعد يومين»),
+      // where يومان is a grammar error.
+      expect(s.daysInSentence(2), 'يومين');
+      expect(s.daysCount(2), 'يومان',
+          reason: 'the standalone stat label keeps the nominative');
       expect(s.daysInSentence(7), '7 أيام');
     });
 
@@ -197,6 +287,22 @@ void main() {
           'Found on this device: 1 habit, 1 day, level 1.');
       expect(s.reconnectFound(3, 12, 4),
           'Found on this device: 3 habits, 12 days, level 4.');
+    });
+
+    test('the partial-failure message names the deadline', () {
+      // A partial failure starts the SAME discard countdown a clean answer
+      // does (see _ReconnectSheetState._answer). The message used to say
+      // only "your copy is still there, try again" — true on the day, and
+      // quietly wrong a week later, which is the one way this sentence
+      // could cost someone the data it was reassuring them about.
+      for (final locale in const [Locale('en'), Locale('ar')]) {
+        final text = S(locale).reconnectPartial(7);
+        expect(text, contains(S(locale).daysInSentence(7)),
+            reason: 'the $locale partial-failure message must say how long '
+                'the local copy has left, not just that it exists');
+      }
+      expect(S(const Locale('ar')).reconnectPartial(2), contains('يومين'),
+          reason: 'and it must decline the count correctly mid-sentence');
     });
   });
 }

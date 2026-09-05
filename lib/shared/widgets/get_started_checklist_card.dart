@@ -143,6 +143,8 @@ class GetStartedChecklistCard extends ConsumerWidget {
                             dismissDirection: DismissDirection.down,
                             margin:
                                 const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            // Never pin the bar open. See AppSnackBar.
+                            persist: false,
                             action: SnackBarAction(
                               label: s.undo,
                               onPressed: () {

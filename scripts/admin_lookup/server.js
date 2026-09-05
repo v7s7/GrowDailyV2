@@ -91,30 +91,56 @@ app.get('/', (req, res) => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Inter and JetBrains Mono, with the platform's own faces listed behind
+     them in --sans and --mono. This tool is opened on a laptop that is
+     sometimes offline, so display=swap plus a full fallback stack means a
+     failed fetch costs the page its typeface and nothing else. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <title>GrowDaily — Admin Lookup</title>
 <style>${BASE_STYLES}
-  body { max-width: 1120px; padding-top: 3vh; }
-  .lockup { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
-  .lockup h1 { font-size: 22px; margin: 0; }
-  .lockup p { color: var(--text-sec); font-size: 12.5px; margin: 3px 0 0; }
-  .lockup .right { display: flex; align-items: center; gap: 10px; }
+  body { max-width: 1180px; padding-top: 34px; }
 
-  .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 11px; margin-bottom: 10px; }
-  .filter-bar input[type="search"] { flex: 2; min-width: 190px; }
-  .filter-group { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-sec); }
-  .filter-group input[type="date"] { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; background: var(--bg); color: var(--text); font-family: inherit; }
-  .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
-  .chip-btn { padding: 6px 12px; border-radius: 100px; border: 1px solid var(--border); background: var(--surface); font-size: 12px; cursor: pointer; color: var(--text-sec); font-family: inherit; }
-  .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .chip-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  /* The title block. A page title, the one line that says what this data is
+     and when it was read, and the single control that changes that. */
+  .lockup { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s4); margin-bottom: var(--s6); flex-wrap: wrap; }
+  .lockup h1 { font-size: 27px; margin: 0; letter-spacing: -0.7px; }
+  .lockup p { color: var(--text-tert); font-size: 12.5px; margin: var(--s2) 0 0; }
+  .lockup .right { display: flex; align-items: center; gap: var(--s3); }
 
-  .status-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 2px 2px 9px; font-size: 12px; color: var(--text-tert); flex-wrap: wrap; }
+  /* One search bar with everything that narrows the list, on one surface.
+     The date inputs are given the same treatment as the search field rather
+     than the browser's default control, which arrives 4px taller than
+     everything beside it and in a completely different idiom. */
+  .filter-bar { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s3); margin-bottom: var(--s3); box-shadow: var(--shadow-sm); }
+  .filter-bar input[type="search"] { flex: 2; min-width: 210px; border-color: transparent; background: var(--bg-sunken); }
+  .filter-bar input[type="search"]:focus { background: var(--surface); border-color: var(--accent); }
+  .filter-group { display: flex; align-items: center; gap: var(--s2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-tert); }
+  .filter-group input[type="date"] { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 12.5px; background: var(--surface); color: var(--text); font-family: inherit; }
+  .filter-group input[type="date"]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
-  .online-rail { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 12px; }
-  .online-pill { display: flex; align-items: center; gap: 7px; padding: 6px 13px 6px 10px; border-radius: 100px; border: 1px solid var(--success); background: rgba(31,157,108,0.08); font-size: 12.5px; cursor: pointer; font-family: inherit; color: var(--text); }
-  .online-pill:hover { background: rgba(31,157,108,0.16); }
-  .online-pill .nm { font-weight: 700; unicode-bidi: isolate; }
-  .online-pill .ago { color: var(--text-sec); font-size: 11px; }
+  /* Filter chips are a quiet row of choices until one is picked. Outlining
+     all eight of them made a wall of identical capsules where only the
+     selected one carries any information. */
+  .chip-row { display: flex; gap: var(--s1); flex-wrap: wrap; }
+  .chip-btn { padding: 5px var(--s4); border-radius: var(--r-sm); border: 1px solid transparent; background: none; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text-sec); font-family: inherit; white-space: nowrap; }
+  .chip-btn:hover { background: var(--bg-sunken); color: var(--text); }
+  .chip-btn.active { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); font-weight: 600; }
+  .filter-bar .chip-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  /* The type chips and the details toggle are two different questions, so
+     they sit at opposite ends of the same line rather than running together
+     into one undifferentiated row of pills. */
+  .chip-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+
+  .status-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4); margin: var(--s1) var(--s2) var(--s3); font-size: 12px; color: var(--text-tert); flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+
+  .online-rail { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s4); }
+  .online-pill { display: flex; align-items: center; gap: var(--s2); padding: 5px var(--s4) 5px var(--s3); border-radius: var(--r-pill); border: 1px solid var(--success-line); background: var(--success-soft); font-size: 12.5px; cursor: pointer; font-family: inherit; color: var(--text); }
+  .online-pill:hover { border-color: var(--success); }
+  .online-pill .avatar { width: 20px; height: 20px; font-size: 9.5px; }
+  .online-pill .nm { font-weight: 650; unicode-bidi: isolate; }
+  .online-pill .ago { color: var(--text-sec); font-size: 11px; font-variant-numeric: tabular-nums; }
 
   /* The sticky <th> below needs a scroll container that actually scrolls.
      Setting overflow-x alone does not give it one: per spec, overflow-y
@@ -123,25 +149,26 @@ app.get('/', (req, res) => {
      the header silently never pinned. A max-height is what makes the box
      genuinely scroll, so the header pins against it while 112 rows move
      underneath. */
-  .user-table-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 72vh; background: var(--surface); }
+  .user-table-wrap { border: 1px solid var(--border); border-radius: var(--r-lg); overflow: auto; max-height: 72vh; background: var(--surface); box-shadow: var(--shadow-sm); }
   table.users { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.users th { text-align: left; padding: 10px 13px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-sec); cursor: pointer; user-select: none; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+  table.users th { text-align: left; padding: var(--s3) var(--s5); background: var(--bg-sunken); border-bottom: 1px solid var(--border); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-tert); cursor: pointer; user-select: none; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
   table.users th:hover { color: var(--accent); }
   table.users th .arrow { opacity: 0.35; margin-inline-start: 4px; }
+  table.users th.sorted { color: var(--text); }
   table.users th.sorted .arrow { opacity: 1; }
-  table.users td { padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.users td { padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
   table.users tr:last-child td { border-bottom: none; }
-  table.users tr.row:hover { background: var(--accent-soft); cursor: pointer; }
-  .u-name { font-weight: 700; font-size: 13px; unicode-bidi: isolate; }
+  table.users tr.row:hover { background: var(--surface-2); cursor: pointer; }
+  .u-name { font-weight: 650; font-size: 13.5px; letter-spacing: -0.1px; unicode-bidi: isolate; }
   .u-email { font-size: 11.5px; color: var(--text-sec); }
-  .u-uid { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--text-tert); }
+  .u-uid { font-family: var(--mono); font-size: 10.5px; letter-spacing: -0.2px; color: var(--text-tert); }
   .u-date { font-size: 12.5px; white-space: nowrap; }
   .u-date .rel { color: var(--text-tert); font-size: 11px; display: block; }
   .u-did { font-size: 11.5px; color: var(--text-tert); max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: isolate; }
   .u-num { font-variant-numeric: tabular-nums; font-size: 12.5px; white-space: nowrap; }
   .view-btn { padding: 5px 11px; border-radius: 100px; border: 1px solid var(--border); background: var(--bg); font-size: 11.5px; font-weight: 600; color: var(--accent); white-space: nowrap; }
   .disabled-chip { display: inline-block; margin-inline-start: 6px; padding: 1px 8px; border-radius: 100px; background: rgba(255,90,82,0.14); color: #c23b34; font-size: 10px; font-weight: 700; text-transform: uppercase; }
-  .empty-state { padding: 40px 20px; text-align: center; color: var(--text-tert); font-size: 13px; }
+  .empty-state { padding: 56px var(--s5); text-align: center; color: var(--text-tert); font-size: 13.5px; }
   .view { display: none; }
   .view.active { display: block; }
 
@@ -152,7 +179,7 @@ app.get('/', (req, res) => {
 
   /* What the feed does NOT contain. Without this, the last row reads as the
      beginning of history rather than as the edge of what was fetched. */
-  .horizon { font-size: 11.5px; color: var(--text-tert); line-height: 1.6; margin: var(--s4) var(--s1) 0; }
+  .horizon { font-size: 11.5px; color: var(--text-tert); line-height: 1.65; margin: var(--s5) 0 0; padding: var(--s4) var(--s5); border-inline-start: 2px solid var(--border); max-width: 76ch; }
 
   /* ---- Quick-look drawer ----------------------------------------------
      Checking five people used to be five page loads and five trips back.
@@ -284,7 +311,7 @@ app.get('/', (req, res) => {
   <!-- ============ ACTIVITY ============ -->
   <div class="view active" id="viewActivity">
     <div class="filter-bar">
-      <input id="qA" type="search" placeholder="Search person, habit, task, milestone…" autofocus>
+      <input id="qA" type="search" placeholder="Search a person, a habit, a task, a day…" autofocus>
       <div class="filter-group">
         <span>Day</span>
         <input id="feedDay" type="date" title="Show only this day">
@@ -297,14 +324,18 @@ app.get('/', (req, res) => {
       </div>
       <button class="btn" id="clearA">Clear</button>
     </div>
-    <div class="chip-row" id="typeChips" style="margin-bottom:10px;">
+    <div class="chip-bar">
+    <div class="chip-row" id="typeChips">
       <button class="chip-btn active" data-type="">Everything</button>
-      <button class="chip-btn" data-type="habits">Habits logged</button>
+      <button class="chip-btn" data-type="habits,habit_undone">Habits logged</button>
+      <button class="chip-btn" data-type="habit_undone">Un-marked</button>
       <button class="chip-btn" data-type="task_new,task_done">Tasks</button>
       <button class="chip-btn" data-type="milestone">Milestones</button>
       <button class="chip-btn" data-type="habit_new,habit_archived">Habit edits</button>
       <button class="chip-btn" data-type="focus">Focus</button>
       <button class="chip-btn" data-type="signup,signin">Sign ups &amp; ins</button>
+    </div>
+      <button class="chip-btn active" id="detailToggle" title="Show or hide the per-row detail chips">Details on</button>
     </div>
 
     <div class="online-rail" id="onlineRail"></div>
@@ -363,7 +394,8 @@ app.get('/', (req, res) => {
   var DATA = { accounts: [], events: [], onlineWindowMinutes: 15 };
   var EV_ICON = {
     habits: '✅', task_new: '➕', task_done: '☑️', habit_new: '⭐',
-    habit_archived: '📦', milestone: '🏆', focus: '🎯', signup: '🆕', signin: '🔑'
+    habit_archived: '📦', milestone: '🏆', focus: '🎯', signup: '🆕', signin: '🔑',
+    habit_undone: '↩️'
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -372,6 +404,21 @@ app.get('/', (req, res) => {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+  // Every date and time on this page, in one language.
+  //
+  // Leaving the locale argument out means the MACHINE's locale, and this
+  // machine runs ar_BH: day headings came out in Arabic inside an otherwise
+  // English, left-to-right, uppercased strip, and the accounts table dated
+  // an account "1 2026 سبتمبر" in the middle of an English column. Pinning
+  // to one locale is not a statement about the person reading it - the app
+  // itself is bilingual and stays that way - it is that a log is read by
+  // scanning, and a column that switches script and direction partway down
+  // cannot be scanned. Habit names, task titles and display names are the
+  // users' own words and are never touched by this; they stay in whatever
+  // language they were written in, isolated with .bidi so they sit correctly
+  // inside these rows.
+  var UI_LOCALE = 'en-GB';
+
   function ago(ms) {
     var s = Math.floor((Date.now() - ms) / 1000);
     if (s < 45) return 'just now';
@@ -379,14 +426,14 @@ app.get('/', (req, res) => {
     if (s < 86400) return Math.floor(s / 3600) + 'h ago';
     var d = Math.floor(s / 86400);
     if (d < 30) return d + 'd ago';
-    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(ms).toLocaleDateString(UI_LOCALE, { month: 'short', day: 'numeric', year: 'numeric' });
   }
   function fmtDate(iso) {
     if (!iso) return { abs: '—', rel: '' };
     var d = new Date(iso);
     if (isNaN(d.getTime())) return { abs: '—', rel: '' };
     return {
-      abs: d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
+      abs: d.toLocaleDateString(UI_LOCALE, { year: 'numeric', month: 'short', day: 'numeric' }),
       rel: ago(d.getTime())
     };
   }
@@ -489,12 +536,16 @@ app.get('/', (req, res) => {
         ? '<p class="muted">Nothing recorded for this account.</p>'
         : '<div class="dw-tl">' + mine.map(function (e) {
             var fresh = (Date.now() - e.at) <= onlineMs;
+            var chips = (e.details || []).slice(0, 5).map(function (c) {
+              return '<span class="chip-d ' + esc(c.tone || 'plain') + '">' + esc(c.text) + '</span>';
+            }).join('');
             return '<div class="dw-ev' + (fresh ? ' fresh' : '') + '" data-day="'
               + esc(e.dayKey || dayKeyOf(e.at)) + '">'
               + '<div class="dw-ev-top"><span class="dw-ev-what">'
               + (EV_ICON[e.type] || '•') + ' ' + esc(e.title) + '</span>'
-              + '<span class="dw-ev-when">' + ago(e.at) + '</span></div>'
+              + '<span class="dw-ev-when">' + clockOf(e.at) + ' · ' + ago(e.at) + '</span></div>'
               + (e.sub ? '<div class="dw-ev-sub">' + esc(e.sub) + '</div>' : '')
+              + (chips ? '<div class="ev-chips">' + chips + '</div>' : '')
               + '</div>';
           }).join('') + '</div>')
       + '<div class="dw-hint"><kbd>↑</kbd> <kbd>↓</kbd> next account · <kbd>Enter</kbd> full report · <kbd>Esc</kbd> close</div>'
@@ -657,9 +708,10 @@ app.get('/', (req, res) => {
       + card(DATA.accounts.length, 'Accounts total');
 
     $('onlineRail').innerHTML = online.length === 0 ? '' : online.map(function (a) {
+      var label = a.displayName || a.email || a.uid.slice(0, 8);
       return '<button class="online-pill" data-uid="' + esc(a.uid) + '">'
-        + '<span class="live-dot"></span>'
-        + '<span class="nm bidi">' + esc(a.displayName || a.email || a.uid.slice(0, 8)) + '</span>'
+        + avatarFor(a.uid, label)
+        + '<span class="nm bidi">' + esc(label) + '</span>'
         + '<span class="ago">' + ago(new Date(a.lastActiveAt).getTime()) + '</span></button>';
     }).join('');
     Array.prototype.forEach.call($('onlineRail').querySelectorAll('.online-pill'), function (p) {
@@ -668,6 +720,25 @@ app.get('/', (req, res) => {
   }
 
   // ================= ACTIVITY FEED =================
+
+  /**
+   * Everything about one event that a search should be able to find it by.
+   *
+   * The detail chips belong in here as much as the summary does: now that a
+   * logged day names the habits it covers, typing a habit's name should
+   * reach the days it was done on, not only the moment it was created. Built
+   * once per event and cached on it, because this runs against every event
+   * on every keystroke and the chips do not change between renders.
+   */
+  function searchBlob(e) {
+    if (e._hay === undefined) {
+      var parts = [e.who, e.email, e.title, e.sub, e.uid, e.dayKey];
+      (e.details || []).forEach(function (c) { parts.push(c.text); });
+      e._hay = parts.join(' ').toLowerCase();
+    }
+    return e._hay;
+  }
+
   var feedTypes = '';
   function feedFiltered() {
     var q = $('qA').value.trim().toLowerCase();
@@ -688,67 +759,222 @@ app.get('/', (req, res) => {
       if (day && dayKeyOf(e.at) !== day) return false;
       if (cutoff && e.at < cutoff) return false;
       if (q) {
-        var hay = (e.who + ' ' + e.email + ' ' + e.title + ' ' + e.sub + ' ' + e.uid).toLowerCase();
-        if (hay.indexOf(q) === -1) return false;
+        if (searchBlob(e).indexOf(q) === -1) return false;
       }
       return true;
     });
   }
   var FEED_PAGE = 300;
   var feedShown = FEED_PAGE;
+
+  // How many rows one person's run may hold before the feed re-announces
+  // whose run it is. Without a ceiling, somebody logging fourteen days in one
+  // sitting produces fourteen rows under a single header that has long since
+  // scrolled off, and every one of them reads as belonging to nobody.
+  var RUN_MAX = 8;
+  // Detail chips shown before a row folds the rest behind "+n more". Six is
+  // about one line at this width; a person with twelve habits would otherwise
+  // push every other event off the screen.
+  var CHIP_CAP = 6;
+
+  var showDetails = true;
+  // Rows the admin has opened out in full. Keyed rather than kept on the
+  // element, because this list re-renders on a filter change and on the 60s
+  // tick, and an expanded row silently folding shut underneath someone
+  // reading it is worse than not being able to expand it at all.
+  var expandedRows = {};
+
+  /**
+   * An initial in a coloured disc, for whoever this row belongs to.
+   *
+   * The hue comes from the uid rather than from the name, so two people
+   * called Aziz are still two different colours, and one person keeps the
+   * same colour on every row of every day for as long as their account
+   * exists. Saturation and lightness are fixed at a muted band that reads on
+   * both the paper and the dark theme; only the hue moves.
+   */
+  function avatarFor(uid, name) {
+    var h = 0;
+    var id = String(uid || '');
+    for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+    var letter = String(name || id || '?').trim().charAt(0) || '?';
+    return '<span class="avatar" style="background:hsl(' + h + ' 42% 42%)" aria-hidden="true">'
+      + esc(letter) + '</span>';
+  }
+
+  /** 24h clock, on the reader's own machine - same choice dayKeyOf makes. */
+  function clockOf(ms) {
+    var d = new Date(ms);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  /**
+   * "Sat 5 Sep 2026" from a YYYY-MM-DD key.
+   *
+   * Pinned to en-GB rather than the machine's locale. This machine runs
+   * ar_BH, so the default rendered the day headings in Arabic inside an
+   * otherwise English, left-to-right, uppercased strip - a heading that
+   * fought its own row rather than labelling it. The ISO key stays beside it
+   * regardless, because that is the string that matches a daily/{key}
+   * document and the day picker.
+   */
+  function longDayOf(key) {
+    var p = key.split('-');
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    if (isNaN(d.getTime())) return key;
+    return d.toLocaleDateString(UI_LOCALE,
+      { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function chipsHtml(e, key) {
+    if (!showDetails || !e.details || e.details.length === 0) return '';
+    var open = !!expandedRows[key];
+    var shown = open ? e.details.length : Math.min(e.details.length, CHIP_CAP);
+    var out = [];
+    for (var i = 0; i < shown; i++) {
+      var c = e.details[i];
+      out.push('<span class="chip-d ' + esc(c.tone || 'plain') + '">' + esc(c.text) + '</span>');
+    }
+    if (e.details.length > shown) {
+      out.push('<button class="chip-d more" data-expand="' + esc(key) + '">+ '
+        + (e.details.length - shown) + ' more</button>');
+    } else if (open && e.details.length > CHIP_CAP) {
+      out.push('<button class="chip-d more" data-expand="' + esc(key) + '">Show less</button>');
+    }
+    return '<div class="ev-chips">' + out.join('') + '</div>';
+  }
+
   function renderFeed() {
     var list = feedFiltered();
-    $('statusA').textContent = 'Showing ' + Math.min(list.length, feedShown)
-      + ' of ' + list.length + ' event' + (list.length === 1 ? '' : 's');
     var day = $('feedDay').value;
+
+    // What the feed is showing, in the terms someone would ask it: how much
+    // of the match is on screen, how many people it covers, and how far back
+    // it reaches. The bare "300 of 523 events" answered only the first.
+    var people = {};
+    list.forEach(function (e) { people[e.uid] = 1; });
+    var peopleCount = Object.keys(people).length;
+    var status = 'Showing ' + Math.min(list.length, feedShown)
+      + ' of ' + list.length + ' event' + (list.length === 1 ? '' : 's');
+    if (list.length > 0) {
+      status += ' · ' + peopleCount + ' account' + (peopleCount === 1 ? '' : 's');
+      var newest = dayKeyOf(list[0].at);
+      var oldest = dayKeyOf(list[list.length - 1].at);
+      status += ' · ' + (newest === oldest ? newest : oldest + ' to ' + newest);
+    }
+    $('statusA').textContent = status;
     $('dayStat').textContent = day
-      ? (function () {
-          var people = {};
-          list.forEach(function (e) { people[e.uid] = 1; });
-          return Object.keys(people).length + ' account(s) in the feed for this day';
-        })()
+      ? peopleCount + ' account(s) in the feed for this day'
       : '';
     if (list.length === 0) {
       $('feed').innerHTML = '<div class="empty-state">Nothing matches these filters.</div>';
       return;
     }
+
+    var shown = list.slice(0, feedShown);
+    var perDay = {};
+    list.forEach(function (e) {
+      var k = dayKeyOf(e.at);
+      perDay[k] = (perDay[k] || 0) + 1;
+    });
+
+    // Consecutive events from one person on one day, gathered before
+    // rendering so a run's header can say how many rows it covers and the
+    // span they happened over - neither of which is knowable from inside the
+    // loop that draws them.
+    var runs = [];
+    var runAt = {};
+    shown.forEach(function (e, i) {
+      var d = dayKeyOf(e.at);
+      var last = runs.length ? runs[runs.length - 1] : null;
+      if (last && last.uid === e.uid && last.day === d && last.len < RUN_MAX) {
+        last.len += 1;
+        last.lastAt = e.at;
+      } else {
+        last = { uid: e.uid, day: d, who: e.who, email: e.email, start: i, len: 1, firstAt: e.at, lastAt: e.at };
+        runs.push(last);
+      }
+      runAt[i] = last;
+    });
+
     var out = [], lastDay = null;
     var onlineMs = DATA.onlineWindowMinutes * 60000;
-    list.slice(0, feedShown).forEach(function (e) {
+    shown.forEach(function (e, i) {
       var d = dayKeyOf(e.at);
       if (d !== lastDay) {
         lastDay = d;
-        var label = d === dayKeyOf(Date.now()) ? 'Today · ' + d
-          : d === dayKeyOf(Date.now() - 86400000) ? 'Yesterday · ' + d : d;
-        out.push('<div class="feed-day">' + esc(label) + '</div>');
+        var label = d === dayKeyOf(Date.now()) ? 'Today · ' + longDayOf(d)
+          : d === dayKeyOf(Date.now() - 86400000) ? 'Yesterday · ' + longDayOf(d)
+          : longDayOf(d);
+        out.push('<div class="feed-day"><span>' + esc(label) + '</span>'
+          + '<span class="fd-count">' + esc(d) + ' · ' + perDay[d] + ' event'
+          + (perDay[d] === 1 ? '' : 's') + '</span></div>');
+      }
+      var run = runAt[i];
+      var inRun = run.len > 1;
+      if (inRun && run.start === i) {
+        var span = clockOf(run.lastAt) === clockOf(run.firstAt)
+          ? clockOf(run.firstAt)
+          : clockOf(run.lastAt) + ' to ' + clockOf(run.firstAt);
+        out.push('<div class="ev-run" data-uid="' + esc(run.uid) + '" data-day="' + esc(run.day) + '">'
+          + avatarFor(run.uid, run.who)
+          + '<span class="nm bidi">' + esc(run.who) + '</span>'
+          + (run.email && run.email !== run.who
+              ? '<span class="ml bidi">' + esc(run.email) + '</span>' : '')
+          + '<span class="cnt">' + run.len + ' events · ' + esc(span) + '</span></div>');
       }
       var live = (Date.now() - e.at) <= onlineMs;
-      out.push('<div class="ev" data-uid="' + esc(e.uid) + '" data-day="' + esc(e.dayKey || d) + '">'
+      var key = e.uid + '|' + e.at + '|' + e.type;
+      out.push('<div class="ev' + (inRun ? ' in-run' : '') + (live ? ' live' : '')
+        + '" data-uid="' + esc(e.uid) + '" data-day="' + esc(e.dayKey || d) + '"'
+        + ' title="' + esc(new Date(e.at).toLocaleString(UI_LOCALE)) + '">'
+        + '<div class="ev-time"><b>' + clockOf(e.at) + '</b>'
+        + '<span class="rel">' + ago(e.at) + '</span></div>'
         + '<div class="ev-ico">' + (EV_ICON[e.type] || '•') + '</div>'
-        + '<div class="ev-main"><div class="ev-who"><span class="bidi">' + esc(e.who) + '</span>'
+        + '<div class="ev-main"><div class="ev-who">' + avatarFor(e.uid, e.who)
+        + '<span class="bidi">' + esc(e.who) + '</span>'
         + (e.email && e.email !== e.who ? '<span class="ev-mail bidi">' + esc(e.email) + '</span>' : '')
         + '</div><div class="ev-what">' + esc(e.title)
-        + (e.sub ? ' <span class="ev-sub">· ' + esc(e.sub) + '</span>' : '') + '</div></div>'
-        + '<div class="ev-when' + (live ? ' ev-live' : '') + '">' + ago(e.at) + '</div></div>');
+        + (e.sub ? ' <span class="ev-sub">· ' + esc(e.sub) + '</span>' : '') + '</div>'
+        + chipsHtml(e, key)
+        + '</div></div>');
     });
     if (list.length > feedShown) {
-      out.push('<div class="ev" id="feedMore" style="justify-content:center;color:var(--accent);font-weight:600;">'
-        + 'Show ' + Math.min(FEED_PAGE, list.length - feedShown) + ' more</div>');
+      out.push('<button class="feed-more" id="feedMore">Show '
+        + Math.min(FEED_PAGE, list.length - feedShown) + ' more of these '
+        + list.length + '</button>');
     }
     $('feed').innerHTML = out.join('');
-    Array.prototype.forEach.call($('feed').querySelectorAll('.ev[data-uid]'), function (row) {
-      row.addEventListener('click', function (e) {
-        // Cmd/ctrl click still means "take me there", the way a link does.
-        if (e.metaKey || e.ctrlKey) {
-          goTo(row.getAttribute('data-uid'), row.getAttribute('data-day'));
-          return;
-        }
-        openDrawer(row.getAttribute('data-uid'), row.getAttribute('data-day'));
-      });
-    });
-    var more = $('feedMore');
-    if (more) more.addEventListener('click', function () { feedShown += FEED_PAGE; renderFeed(); });
+
+    // One delegated handler rather than one per row: at 300 rows with a run
+    // header every few of them that is a few hundred listeners re-attached on
+    // every filter keystroke.
+    $('feed').addEventListener('click', onFeedClick);
     markPicked(drawerUid);
+  }
+
+  function onFeedClick(ev) {
+    var expander = ev.target.closest ? ev.target.closest('[data-expand]') : null;
+    if (expander) {
+      // Not the row underneath it: this click is about the chips.
+      ev.stopPropagation();
+      var k = expander.getAttribute('data-expand');
+      if (expandedRows[k]) delete expandedRows[k]; else expandedRows[k] = 1;
+      renderFeed();
+      return;
+    }
+    if (ev.target.id === 'feedMore') {
+      feedShown += FEED_PAGE;
+      renderFeed();
+      return;
+    }
+    var row = ev.target.closest ? ev.target.closest('.ev[data-uid], .ev-run[data-uid]') : null;
+    if (!row) return;
+    // Cmd/ctrl click still means "take me there", the way a link does.
+    if (ev.metaKey || ev.ctrlKey) {
+      goTo(row.getAttribute('data-uid'), row.getAttribute('data-day'));
+      return;
+    }
+    openDrawer(row.getAttribute('data-uid'), row.getAttribute('data-day'));
   }
 
   // ---- Day roster: one specific day, read straight from Firestore.
@@ -794,7 +1020,7 @@ app.get('/', (req, res) => {
                 var sub = [];
                 if (r.lastUpdated) {
                   sub.push('last write ' + new Date(r.lastUpdated)
-                    .toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
+                    .toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' }));
                 }
                 if (r.mood) sub.push(r.mood);
                 if (r.nightReviewDone) sub.push('night review');
@@ -802,7 +1028,10 @@ app.get('/', (req, res) => {
                 if (!r.hasDoc) sub.push('nothing logged');
                 return '<button class="rcard" data-uid="' + esc(r.uid) + '">'
                   + '<span class="mini-ring ' + cls + '">'
-                  + (r.scheduled ? r.done + '/' + r.scheduled : '—') + '</span>'
+                  + (r.scheduled ? r.done + '/' + r.scheduled : '—')
+                  + (r.gridOnly ? ' <b title="Marked on the Grid with no completion behind it: no XP, but Rooms count it">&#9888;</b>' : '')
+                  + (r.undone ? ' <b title="Completed, then un-marked">&#8617;</b>' : '')
+                  + '</span>'
                   + '<span class="rcard-main"><span class="rcard-name bidi">'
                   + esc(a.displayName || a.email || r.uid.slice(0, 10)) + '</span>'
                   + '<span class="rcard-sub">' + esc(sub.join(' · ') || 'logged, no detail') + '</span></span>'
@@ -843,6 +1072,15 @@ app.get('/', (req, res) => {
       feedShown = FEED_PAGE;
       renderFeed();
     });
+  });
+  // Detail on or off, for the reading where the summary line is all that is
+  // wanted. It re-renders rather than hiding with CSS so a compact feed is
+  // genuinely compact rather than a tall feed with invisible rows in it.
+  $('detailToggle').addEventListener('click', function () {
+    showDetails = !showDetails;
+    $('detailToggle').classList.toggle('active', showDetails);
+    $('detailToggle').textContent = showDetails ? 'Details on' : 'Details off';
+    renderFeed();
   });
   $('qA').addEventListener('input', function () { feedShown = FEED_PAGE; renderFeed(); });
   // Picking an exact day and holding a rolling range are two answers to the
@@ -1034,7 +1272,11 @@ app.get('/', (req, res) => {
       + ' milestones and ' + L.focusPlans + ' focus plans PER ACCOUNT. '
       + 'Anything older is not missing from the data, only from this list: '
       + 'pick a day above to read that day straight from Firestore, or open an '
-      + 'account for its full history.';
+      + 'account for its full history. '
+      + 'Each row spells out what it can: a logged day names every habit that '
+      + 'was due, done, marked on the Grid without a completion, or un-marked, '
+      + 'with the time it was tapped. Click a row for the account, '
+      + 'cmd-click for its full report.';
   }
 
   function renderWarn() {
@@ -1073,7 +1315,7 @@ app.get('/', (req, res) => {
         DATA = d;
         $('scanNote').textContent = DATA.accounts.length + ' accounts scanned in '
           + (DATA.durationMs / 1000).toFixed(1) + 's · '
-          + new Date(DATA.scannedAt).toLocaleTimeString()
+          + new Date(DATA.scannedAt).toLocaleTimeString(UI_LOCALE)
           + ' · "on the app now" means a write in the last '
           + DATA.onlineWindowMinutes + ' min';
         renderAll();

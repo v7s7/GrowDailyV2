@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -66,6 +67,19 @@ class _ReconnectSheetState extends ConsumerState<_ReconnectSheet> {
   /// unrecoverable. See GuestMigrationService's doc comment.
   Future<void> _answer({required bool bringItOver}) async {
     if (_working) return;
+    // The uid this sheet was pushed for can stop being the signed-in user
+    // while it is on screen: register()'s rollback path deletes the auth
+    // account when the profile-doc write fails, after authStateChanges has
+    // already emitted it and this sheet has already been pushed. Answering
+    // then would migrate into (or start the discard countdown over) a uid
+    // that no longer exists, and mark a phantom uid decided. The sheet is
+    // deliberately non-dismissible, so this is also the only way out of it
+    // on that path: close quietly, record nothing, and the Profile banner
+    // remains the retry surface for whichever real account comes next.
+    if (FirebaseAuth.instance.currentUser?.uid != widget.uid) {
+      Navigator.pop(context, false);
+      return;
+    }
     setState(() => _working = true);
     HapticFeedback.mediumImpact();
 
@@ -102,7 +116,7 @@ class _ReconnectSheetState extends ConsumerState<_ReconnectSheet> {
           !bringItOver
               ? s.reconnectGrace(LocalStoreService.guestDiscardGraceDays)
               : result?.failed == true
-                  ? s.reconnectPartial
+                  ? s.reconnectPartial(LocalStoreService.guestDiscardGraceDays)
                   : s.reconnectDone,
         ),
       ),

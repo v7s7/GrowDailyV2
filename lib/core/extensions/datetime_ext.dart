@@ -1,23 +1,26 @@
-// The hour of day (0-23) before which a new calendar day hasn't "really"
-// started yet for the app's purposes — see [DateTimeGameExt.effectiveDay].
-// A fixed 10:00 AM cutoff (not user-configurable), widened from the 6 AM it
-// started as. 6 AM already covered someone who went to bed at 3 or 4, but
-// not the person the window is really for: someone who is simply asleep at
-// 6 AM and opens the app for the first time at 9. Ten hours means the 28th
-// at 9:59 AM is still the 27th — the board, the streak, and the gold are
-// all yesterday's, exactly as if the day had never rolled.
+// How long a finished day stays open for marking after midnight: until
+// 10:00 AM the next morning, fixed and not user-configurable.
 //
-// Ten rather than twelve on purpose: Dhuhr in Bahrain falls between 11:22
-// and 11:53 all year (assets/prayer/bahrain_official.json, 521 days), so a
-// noon cutoff would have banked every on-time Dhuhr against the previous
-// day. Ten clears the earliest Dhuhr by well over an hour.
+// ── THIS IS A DEADLINE NOW, NOT A DAY BOUNDARY ────────────────────────────
 //
-// Every place in the app that decides "what day is this for streaks/grid
-// squares/logs" should go through effectiveDay (or isToday/isYesterday
-// below, which already do) instead of a raw calendar date — that's what
-// keeps a task finished at 9:40 AM counted as belonging to the day that
-// hadn't ended yet, rather than silently skipped because the calendar
-// quietly rolled over at midnight.
+// It used to BE the boundary: [DateTimeGameExt.effectiveDay] shifted back by
+// it, so until 10 AM the whole app still called yesterday "today". That is
+// gone (see effectiveDay for what it cost). The new day now starts at
+// midnight everywhere, and this constant only says how long YESTERDAY
+// remains markable alongside it — see [DateTimeGameExt.isOpenDay].
+//
+// Ten hours, because the person the window is really for is not the one who
+// went to bed at 3 or 4 (6 AM already covered them) but the one who is
+// simply asleep at 6 and opens the app at 9. They can still finish the 27th
+// at 9:59 on the 28th, and still keep its streak point.
+//
+// The old value had to clear Bahrain's earliest Dhuhr (11:22 across all 521
+// days in assets/prayer/bahrain_official.json), because back then a cutoff
+// past noon would have silently banked every on-time Dhuhr against the
+// previous day. That constraint is gone with the shift: a completion is
+// always stamped on the day it happened, and yesterday is only ever marked
+// deliberately. Ten is kept because it is the right amount of grace, not
+// because Dhuhr forces it.
 const int kDayCutoffHour = 10;
 
 extension DateTimeGameExt on DateTime {
@@ -39,32 +42,36 @@ extension DateTimeGameExt on DateTime {
   bool isSameMonthAs(DateTime other) =>
       year == other.year && month == other.month;
 
-  /// True when this date is the same as "today," where "today" itself
-  /// respects [kDayCutoffHour] — see [effectiveDay]. A grid square for
-  /// yesterday's calendar date is still `isToday` until the cutoff hour
-  /// actually passes.
+  /// True when this date is the CURRENT calendar day.
+  ///
+  /// It used to respect [kDayCutoffHour], so yesterday's square stayed
+  /// `isToday` until 10 AM. It no longer does — the day rolls at midnight,
+  /// which makes this and [isRealToday] the same answer at every hour.
+  ///
+  /// Use this for "which day is the current one": what the board opens on,
+  /// which square wears the ring, which day a fresh completion defaults to.
+  /// Do NOT use it to decide whether a square may EARN anything — yesterday
+  /// is still payable inside its grace tail, and [isOpenDay] is the test for
+  /// that. Getting those two confused is what produced the bug this whole
+  /// model change exists to fix.
   bool get isToday => isSameDayAs(DateTime.now().effectiveDay);
 
   bool get isYesterday =>
       isSameDayAs(DateTime.now().effectiveDay.subtract(const Duration(days: 1)));
 
-  /// True when this date is today on the *real* device calendar — unlike
-  /// [isToday], this never shifts for [kDayCutoffHour]. Exists for exactly
-  /// one purpose: deciding which date the gold "today" marker sits on in
-  /// calendar-style views (Grid's week header, Monthly Heatmap, Night
-  /// Review, Rooms, Matrix history) — nothing about *earning* anything
-  /// (streak/XP/gold, which square is editable, which day a completion is
-  /// recorded under) should ever key off this getter, only [isToday]/
-  /// [effectiveDay] should.
+  /// True when this date is today on the device calendar.
   ///
-  /// The two only disagree between midnight and [kDayCutoffHour] —
-  /// outside that window `isRealToday == isToday` exactly, so this is a
-  /// no-op change for the rest of the day. Inside it, this lets the UI
-  /// stop looking like it's stuck on
-  /// yesterday (the calendar clearly shows a new day) while [isToday]
-  /// keeps pointing at the still-open previous day for anything that
-  /// actually earns a reward — see effectiveDay's doc comment for why that
-  /// day, not this one, is still the one that counts.
+  /// Now IDENTICAL to [isToday] at every hour, because the day rolls at
+  /// midnight for both. It existed to mark the gold "today" ring in
+  /// calendar views while [isToday] pointed at the still-open previous day,
+  /// and that gap is exactly what let a square be labelled TODAY, be
+  /// tappable, and pay nothing.
+  ///
+  /// Kept rather than removed, at 45 call sites that all read better for
+  /// it: at a marker or a header, "is this the real calendar today" is the
+  /// question being asked, and spelling it out is clearer than [isToday]
+  /// there. The two must never drift apart again — if a future change gives
+  /// "the current day" a different definition, this getter follows it.
   bool get isRealToday => isSameDayAs(DateTime.now());
 
   /// Returns the start of this day (00:00:00).
@@ -94,42 +101,106 @@ extension DateTimeGameExt on DateTime {
     return startOfDay.subtract(Duration(days: daysFromSaturday));
   }
 
-  /// The "app day" this moment belongs to — a plain midnight-aligned
-  /// DateTime, exactly like [startOfDay], except the boundary between one
-  /// day and the next sits at [kDayCutoffHour] instead of midnight.
+  /// The "app day" this moment belongs to — the plain calendar day, which
+  /// starts at midnight on the device's own clock.
   ///
-  /// Concretely: subtracting the cutoff and then taking that moment's
-  /// startOfDay rolls anything before the cutoff back onto the previous
-  /// calendar date automatically (00:00–09:59 becomes "yesterday" at the
-  /// 10 AM cutoff), while anything at or after the cutoff is
-  /// unaffected. Call this instead of raw `DateTime.now()` (or `.startOfDay`
-  /// on it) anywhere the app is deciding which day "today" currently is —
-  /// streak keys, grid/log date keys, the current week/month, habit
-  /// scheduling, "is this the current day" checks. Don't call it on a
-  /// DateTime that already represents a *specific*, deliberately-chosen
-  /// calendar date (e.g. one column of a rendered week) — only on "now"
-  /// (or another moment you're asking "what day did this happen on,"
-  /// like a completion timestamp).
-  DateTime get effectiveDay =>
-      subtract(const Duration(hours: kDayCutoffHour)).startOfDay;
+  /// ── THIS USED TO SHIFT BACK BY [kDayCutoffHour], AND NO LONGER DOES ──
+  ///
+  /// It returned `subtract(cutoff).startOfDay`, so between 00:00 and 09:59
+  /// "today" was still YESTERDAY everywhere: the Today board, the streak,
+  /// the Grid's editable square. The cutoff's purpose was to protect
+  /// someone who is up at 2am or asleep at 6, and it did — but by making
+  /// the whole app disagree with the phone in their hand for ten hours a
+  /// day, and the two halves of the app then disagreed with each other.
+  /// The Grid drew its week and its gold "today" ring from the real
+  /// calendar (see [isRealToday]) while the reward engine was still on
+  /// yesterday, so at 2am the square labelled TODAY was tappable, turned
+  /// green, and paid nothing: no XP, no gold, no streak, no completion
+  /// record. Rooms grade off the square, so the room credited the day while
+  /// the person's own account did not. Real case, room ELQVF8, 2026-09-05.
+  ///
+  /// The rule now: the new day starts at midnight, everywhere, with no
+  /// exception. What the cutoff bought is kept, and kept explicitly — the
+  /// PREVIOUS day stays open for marking until [kDayCutoffHour] (see
+  /// [isOpenDay] and [isInGraceWindow]), so a night owl can still finish
+  /// yesterday and still earn its streak point. The difference is that
+  /// yesterday is now a day you deliberately go back to, instead of the day
+  /// the app silently assumed you meant.
+  ///
+  /// That also removes a quiet mis-attribution the old shift caused: a
+  /// habit finished at 9:40am was banked against YESTERDAY, which is why
+  /// the cutoff had to be argued down from noon to clear Bahrain's earliest
+  /// Dhuhr (see [kDayCutoffHour]). A 9:40am completion is today's now, and
+  /// the Dhuhr argument no longer has to hold anything up.
+  ///
+  /// Still call this rather than raw `.startOfDay` anywhere the app decides
+  /// which day "today" is: it is the one place that answer is defined, and
+  /// leaving the calls in place is what makes a future change to the rule a
+  /// single edit again. Don't call it on a DateTime that already represents
+  /// a specific, deliberately-chosen calendar date (one column of a
+  /// rendered week) — only on "now", or on a moment you are asking "what
+  /// day did this happen on", like a completion timestamp.
+  DateTime get effectiveDay => startOfDay;
 
-  /// The closing stretch of the CURRENT effective day: 6pm until the
-  /// cutoff. What "your streak is on the line" surfaces should key off.
+  /// Whether this calendar day is currently open for marking.
+  ///
+  /// A day runs from its own 00:00 until [kDayCutoffHour] the NEXT morning,
+  /// so from midnight to 10:00 there are TWO open days: the one that just
+  /// started, and the one that just ended still inside its grace tail.
+  /// Both may be marked, and both pay in full — the grace exists so that
+  /// going to bed at 23:00 with a habit unticked does not cost the day.
+  ///
+  /// This is the test for "may this square earn anything", replacing
+  /// [isToday] at every such decision. [isToday] still answers the narrower
+  /// question of which day is the CURRENT one (what the board defaults to,
+  /// which square wears the ring); a day can be open without being today.
+  ///
+  /// Tomorrow is never open: `now` is before its 00:00, so no square can be
+  /// marked ahead of the day it belongs to.
+  bool get isOpenDay => isOpenDayAt(DateTime.now());
+
+  /// [isOpenDay] against an explicit clock.
+  ///
+  /// Exists so the rule can be tested at every hour of the day rather than
+  /// only at whichever hour the suite happens to run — the old cutoff had a
+  /// full window test precisely because a rule that reads `DateTime.now()`
+  /// internally is otherwise only ever exercised at one point on the clock,
+  /// and this rule has a boundary at midnight AND another at the cutoff.
+  bool isOpenDayAt(DateTime now) {
+    final start = startOfDay;
+    if (now.isBefore(start)) return false;
+    return now.isBefore(
+      start.add(const Duration(days: 1, hours: kDayCutoffHour)),
+    );
+  }
+
+  /// Whether this day is open ONLY because of the grace tail — i.e. it is
+  /// yesterday, and the clock has not yet reached [kDayCutoffHour].
+  ///
+  /// Exactly `isOpenDay && !isToday`, spelled out because the reward engine
+  /// has to treat the two differently: today's marks move the in-memory
+  /// board state, a grace day's marks belong to a day the board is no
+  /// longer showing.
+  bool get isInGraceWindow => isInGraceWindowAt(DateTime.now());
+
+  /// [isInGraceWindow] against an explicit clock — see [isOpenDayAt].
+  bool isInGraceWindowAt(DateTime now) =>
+      isOpenDayAt(now) && !isSameDayAs(now.effectiveDay);
+
+  /// The stretch in which SOME day's streak is on the line: 6pm until
+  /// [kDayCutoffHour] the next morning. What "your streak is on the line"
+  /// surfaces should key off.
   ///
   /// The obvious spelling, `hour >= 18`, silently stops being true at
-  /// midnight — and midnight is not when the day ends here. Someone up at
-  /// 1am still has until 10 AM to save their streak, which is the entire
-  /// reason [kDayCutoffHour] exists, and the warning used to disappear on
-  /// them at exactly the moment it mattered most. It ran 18:00 to 23:59
-  /// and then went quiet for the hours the cutoff had just granted.
+  /// midnight, and midnight is not when the last chance passes. Someone up
+  /// at 1am still has until 10 AM to save YESTERDAY (see [isOpenDay]'s
+  /// grace tail), and the warning used to disappear on them at exactly the
+  /// moment it mattered most.
   ///
-  /// Note this is a WIDE window at a 10 AM cutoff — 18:00 through 09:59,
-  /// so sixteen hours of the twenty-four. That is the definition working as
-  /// intended, not drift: the streak really is still savable at 9am, and
-  /// the whole point of widening the cutoff was to say so.
-  ///
-  /// Deliberately a wrapped window (>= 18 OR < cutoff) rather than a
-  /// comparison against [effectiveDay]: those small hours belong to
-  /// yesterday's effective day, so they are late in it, not early.
+  /// The definition is unchanged by the move to calendar days, but what it
+  /// means shifted by one day either side of midnight: from 18:00 it is
+  /// today's own streak that is closing, and from midnight to the cutoff it
+  /// is yesterday's, still savable in its grace window. Both are real, and
+  /// both deserve the same warning.
   bool get isDayClosing => hour >= 18 || hour < kDayCutoffHour;
 }

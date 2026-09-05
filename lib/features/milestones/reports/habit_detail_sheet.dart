@@ -212,7 +212,10 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     //
     // `best` stays raw on purpose. A lifetime best is a record, not a claim
     // about now, and records do not go stale.
-    final streak = dash.habitStreak(habit.id);
+    final streak = dash.habitStreak(
+      habit.id,
+      scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+    );
     final best = dash.habitLongestStreaks[habit.id] ?? 0;
 
     return DraggableScrollableSheet(

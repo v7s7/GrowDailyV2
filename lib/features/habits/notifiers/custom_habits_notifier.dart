@@ -317,7 +317,9 @@ class CustomHabitsNotifier
     String? customUnitLabel,
     String? iconColorHex,
     int reminderOffsetMinutes = 0,
+    List<int> extraReminderOffsets = const [],
     bool ignoreQuietHours = false,
+    int? stepGoal,
   }) {
     final rewards = _rewards(category);
     final template = IslamicHabitTemplate(
@@ -341,7 +343,9 @@ class CustomHabitsNotifier
       goldReward: rewards.$2,
       iconColorHex: iconColorHex,
       reminderOffsetMinutes: reminderOffsetMinutes,
+      extraReminderOffsets: extraReminderOffsets,
       ignoreQuietHours: ignoreQuietHours,
+      stepGoal: stepGoal,
       // Birth date — what stops every history surface from painting the
       // days before this habit existed as misses. effectiveDay so a habit
       // created at 1 AM belongs to the app-day actually in progress.
@@ -374,6 +378,11 @@ class CustomHabitsNotifier
     String? customUnitLabel,
     String? iconColorHex,
     int? reminderOffsetMinutes,
+    /// The stack on top of [reminderOffsetMinutes] — see
+    /// IslamicHabitTemplate.extraReminderOffsets. Null means "not touched";
+    /// an empty list is a real instruction to clear the stack, which is what
+    /// editing a habit back down to one reminder has to be able to say.
+    List<int>? extraReminderOffsets,
     bool? ignoreQuietHours,
     // Distinguishes "leave the current icon color alone" (the default —
     // every other caller that doesn't touch color just omits iconColorHex)
@@ -382,6 +391,11 @@ class CustomHabitsNotifier
     // passing a null iconColorHex, which `iconColorHex ?? existing.
     // iconColorHex` below would otherwise silently ignore.
     bool clearIconColor = false,
+    int? stepGoal,
+    // Same null-vs-clear split as clearIconColor: turning the steps link
+    // OFF in the sheet passes clearStepGoal, because a null stepGoal here
+    // means "not touched", not "unlink".
+    bool clearStepGoal = false,
   }) {
     // No orElse on firstWhere would throw a bare StateError for any id that
     // isn't an ACTIVE custom habit — a catalog id, or one already archived.
@@ -437,7 +451,10 @@ class CustomHabitsNotifier
       iconColorHex: effectiveIconColorHex,
       reminderOffsetMinutes:
           reminderOffsetMinutes ?? existing.reminderOffsetMinutes,
+      extraReminderOffsets:
+          extraReminderOffsets ?? existing.extraReminderOffsets,
       ignoreQuietHours: ignoreQuietHours ?? existing.ignoreQuietHours,
+      stepGoal: clearStepGoal ? null : (stepGoal ?? existing.stepGoal),
       // Editing a habit never changes when it was born.
       createdAt: existing.createdAt,
     );

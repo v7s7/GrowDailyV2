@@ -96,6 +96,53 @@ class _GridHeader extends ConsumerWidget {
     this.onStartSelection,
   });
 
+  /// The two list-wide actions, in the app's own sheet language rather
+  /// than a Material popup: reorder the rows, or arm multi-select.
+  void _showListActionsMenu(BuildContext context) {
+    final s = S.of(context);
+    final gp = context.gp;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+          decoration: BoxDecoration(
+            color: gp.surfaceHigh,
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _ListActionRow(
+                icon: Icons.swap_vert_rounded,
+                label: s.reorderHabitsTitle,
+                subtitle: s.reorderHabitsMenuHint,
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  showHabitReorderSheet(context);
+                },
+              ),
+              Divider(color: gp.divider, height: 1),
+              _ListActionRow(
+                icon: Icons.checklist_rounded,
+                label: s.gridSelectMultiple,
+                subtitle: s.gridSelectMultipleHint,
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  onStartSelection?.call();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
@@ -135,112 +182,182 @@ class _GridHeader extends ConsumerWidget {
         children: [
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  s.gridTitle,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    color: gp.textPrimary,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-              ),
-              // This row holds ACTIONS only. The Progress Heatmap used to sit
-              // here as a third unlabelled glyph (Icons.insights_rounded),
-              // and it was the weakest thing on the screen: a *report*, drawn
-              // as a sparkline, whose headline stat ("Squares filled" /
-              // "مربّعات ملوّنة") is the same string in both languages as the
-              // big number 200px below it. It now lives behind a worded row
-              // at the bottom of the summary card that already previews it —
-              // see _SummaryCard — which is both more discoverable and
-              // honest about what it is.
+              // No title anymore, on Aziz's call: «شبكة الانتصارات» was the
+              // one line of the header that did nothing, and every icon that
+              // earned a slot squeezed it further (it was already scaling
+              // down to fit). The board below IS the identity; the header is
+              // now purely the action strip, with the labelled add chip
+              // holding the reading edge the title used to anchor and the
+              // shortcuts clustered at the far end.
               //
-              // What replaced it is the add-habit button, moved up from a
-              // floating action button. On a tall habit list that FAB
-              // overlapped the board and covered a real, tappable square:
-              // fine over a list, wrong over a grid where every cell is a
-              // target. Up here it can never cover the thing the app is for,
-              // and "+" needs no tooltip to be understood.
-              // Labelled, not a bare glyph. The comment above used to argue
-              // that "+" needs no tooltip — true of a "+" standing alone, but
-              // it does not stand alone: it sits immediately beside a second
-              // unlabelled glyph, and two mystery icons in a row make the
-              // app's single most important action look like a peer of the
-              // journal shortcut rather than the thing the screen is for.
-              // Naming it costs about 60pt of a header that has empty space to
-              // spare, and it is the one control a first-run user must find.
-              //
+              // The chip stays labelled, not a bare "+": it sits beside four
+              // unlabelled glyphs, and the app's single most important
+              // action must not look like a peer of the journal shortcut.
               // Still in the header rather than a FAB, for the reason the
-              // original move records: a floating button over a grid covers a
-              // real, tappable square.
+              // original move records: a floating button over a grid covers
+              // a real, tappable square.
+              //
+              // (History: the Progress Heatmap once sat here as a sparkline
+              // glyph and now lives behind a worded row in _SummaryCard —
+              // that reasoning is unchanged by the title's removal.)
+              // The chip owns ALL the row's slack, and is the only thing in
+              // it that can give way.
+              //
+              // The removed title used to be the Expanded that absorbed
+              // that slack; without it the row was entirely inflexible (a
+              // fixed chip beside four tight 44pt frames) and overflowed by
+              // 20px at a 320pt viewport — an iPhone on Zoomed display, or
+              // a small Android — and by 6px at 360pt once the system font
+              // scale reached 1.4. Caught by an adversarial review probe,
+              // not by any device I looked at, because a 402pt iPhone has
+              // room to spare.
+              //
+              // Expanded + Align rather than Flexible + a Spacer, and the
+              // difference is not cosmetic: a Spacer is an Expanded with
+              // flex 1, so it and a Flexible chip SPLIT the free space
+              // evenly. At 320pt that handed the chip ~44pt, crushing its
+              // own inner Row until the "+" glyph overflowed — the same
+              // stripe one layer down. Align gives the chip its natural
+              // width at the reading edge and leaves every spare pixel
+              // beside it, so the label only ellipsizes once the row
+              // genuinely runs out of room.
               if (showAddAction)
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(end: 4),
-                  child: Material(
-                    color: GameColors.gold.withOpacity(gp.dark ? 0.16 : 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                    child: InkWell(
-                      key: addHabitKey,
+                Expanded(
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 4),
+                    child: Material(
+                      color:
+                          GameColors.gold.withOpacity(gp.dark ? 0.16 : 0.12),
                       borderRadius: BorderRadius.circular(999),
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        showAddHabitHub(context, ref);
-                      },
-                      child: Padding(
-                        // Asymmetric on purpose: the icon carries its own
-                        // optical padding, the text does not.
-                        padding: const EdgeInsetsDirectional.fromSTEB(
-                            10, 7, 12, 7),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add_rounded,
-                                size: 18, color: GameColors.gold),
-                            const SizedBox(width: 5),
-                            Text(
-                              s.addHabit,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
-                                color: GameColors.gold,
-                                height: 1.1,
+                      child: InkWell(
+                        key: addHabitKey,
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          showAddHabitHub(context, ref);
+                        },
+                        child: Padding(
+                          // Asymmetric on purpose: the icon carries its own
+                          // optical padding, the text does not.
+                          //
+                          // Grown on his call: this is the app's single most
+                          // important action and it was sized like the glyphs
+                          // beside it. The room came from dropping the fourth
+                          // icon rather than from squeezing the row, so the
+                          // narrow-phone fit test still has the slack it was
+                          // written to protect.
+                          padding: const EdgeInsetsDirectional.fromSTEB(
+                              14, 10, 17, 10),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.add_rounded,
+                                  size: 21, color: GameColors.gold),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  s.addHabit,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: GameColors.gold,
+                                    height: 1.1,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
+                  ),
                 ),
-              // The Progress Map, in the slot the multi-select control used
-              // to hold. Same glyph as the worded row further down the
-              // summary card, which stays: that row is the discoverable
-              // introduction, this is the shortcut once you know what it
-              // is. Icons.calendar_view_month_rounded rather than a chart
-              // glyph, because the thing it opens is a calendar of days.
-              IconButton(
-                icon: Icon(Icons.calendar_view_month_rounded,
-                    color: gp.textSec),
-                tooltip: s.heatmapTitle,
-                onPressed: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.pushNamed(context, '/heatmap');
-                },
-              ),
-              IconButton(
-                // Not a moon: Sleep already uses a crescent
-                // (Icons.bedtime_rounded, see HabitCategory.icon) and a
-                // second moon here read as "toggle dark mode" more than
-                // "review my day". An open book reads as the daily
-                // journal/reflection this actually opens.
-                icon: Icon(Icons.auto_stories_rounded, color: gp.textSec),
+              // Only when the chip is absent (an empty habit list, where
+              // _GridEmptyState owns the add action instead). With the chip
+              // present its Expanded already pushes the cluster to the far
+              // end; a Spacer here as well would compete with it for the
+              // free space — see the chip's own note.
+              if (!showAddAction) const Spacer(),
+              // The Progress Map's header glyph was removed on his call
+              // (2026-09-03), and it is the one icon here that could go
+              // without stranding anything: the worded row inside
+              // _SummaryCard, a couple of hundred pixels below on this very
+              // screen, opens exactly the same place. Two doors into one
+              // room on one screen, and the one that came out was the
+              // unlabelled glyph rather than the row that says what it is.
+              //
+              // The other three stay, and each for its own reason. Night
+              // Review's only other door is a card on the Profile tab, and
+              // it is an every-evening action; the tasbih's header slot is
+              // its ONLY door in the whole app; and the overflow menu is the
+              // only way to reach multi-select or reorder at all.
+              //
+              // All the action icons share one 44pt _HeaderAction frame, one
+              // shared number so the cluster cannot drift uneven.
+              //
+              // Not a moon: Sleep already uses a crescent
+              // (Icons.bedtime_rounded, see HabitCategory.icon) and a
+              // second moon here read as "toggle dark mode" more than
+              // "review my day". An open book reads as the daily
+              // journal/reflection this actually opens.
+              _HeaderAction(
+                icon: Icons.auto_stories_rounded,
                 tooltip: s.nightReviewTitle,
-                onPressed: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.pushNamed(context, '/night-review');
-                },
+                route: '/night-review',
               ),
+              // The tasbih counter, shown only to people who are actually
+              // doing dhikr. A ring of dots is the closest Material gets to a
+              // misbaha; every bead-free alternative read as something else
+              // (workspaces as "groups", timelapse as a timer).
+              //
+              // Conditional on his call (2026-09-03): not everyone wants a
+              // misbaha in their header, and it was costing every one of them
+              // a permanent slot. An athkar-category habit on the board is
+              // the honest test for "this person would use one" — أذكار
+              // الصباح, أذكار المساء, تهجّد, or any custom habit they filed
+              // under أذكار themselves.
+              //
+              // Deliberately NOT a setting. A toggle would have to default to
+              // something, and both answers are worse than this: default on
+              // and nothing changes for the people it was meant to spare;
+              // default off and the feature is invisible to everyone who
+              // would have wanted it, including the people who already use
+              // it. Keying it to the board means it appears for exactly the
+              // people it is for, and disappears when it stops being for
+              // them, with nothing to discover or configure.
+              if (ref
+                  .watch(habitListProvider)
+                  .any((h) => h.category == HabitCategory.athkar))
+                _HeaderAction(
+                  icon: Icons.blur_circular,
+                  tooltip: s.tasbihTitle,
+                  route: '/tasbih',
+                ),
+              // List-wide actions: multi-select and reorder. Multi-select
+              // used to have its own header slot; when the Progress Map
+              // took it, onStartSelection kept being passed here and
+              // silently never rendered — the selection bar, bulk delete
+              // and all, had NO entry point left in the app. Both actions
+              // are rare-but-real, which is exactly what an overflow menu
+              // is for.
+              if (onStartSelection != null)
+                IconButton(
+                  icon: Icon(Icons.more_vert_rounded,
+                      color: gp.textSec, size: 23),
+                  tooltip: s.gridMoreActions,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: 44, height: 44),
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    _showListActionsMenu(context);
+                  },
+                ),
               // A third icon used to live here for Habit Notes (per-habit
               // notes and Skipped/Failed/Bonus marks left from this
               // screen's own long-press editor) - moved to Dashboard's
@@ -386,6 +503,97 @@ Future<void> _pickWeek(
   notifier.goToWeek(picked);
 }
 
+/// One of the header's shortcut icons, in one shared 44pt frame — a single
+/// number for the whole cluster so the icons cannot drift uneven, sized
+/// between IconButton's default 48pt and the cramped 40pt these used while
+/// they still shared the row with the (since removed) title.
+class _HeaderAction extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final String route;
+  const _HeaderAction({
+    required this.icon,
+    required this.tooltip,
+    required this.route,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return IconButton(
+      icon: Icon(icon, color: gp.textSec, size: 23),
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+      onPressed: () {
+        HapticFeedback.selectionClick();
+        Navigator.pushNamed(context, route);
+      },
+    );
+  }
+}
+
+/// One row of the header's list-actions menu — icon, label, quiet hint.
+/// Mirrors habit_actions_sheet's _ActionRow shape so the two sheets read
+/// as one family.
+class _ListActionRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final VoidCallback onTap;
+  const _ListActionRow({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: gp.textPrimary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: gp.textSec,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NavArrow extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
@@ -428,11 +636,36 @@ class _SummaryCard extends StatelessWidget {
   /// DashboardState.earnedXpOn — see the construction site in
   /// grid_screen.dart for why this replaced the flat per-state sum.
   final int xpToday;
+
+  /// Today's step count as runStepAutoComplete last read it, or null on an
+  /// account with no linked walking habit (and before the first read of the
+  /// session). Feeds [_stepPartials] so a walk in progress moves the
+  /// percentage instead of counting for nothing until the goal lands.
+  final int? stepsToday;
   const _SummaryCard({
     required this.habits,
     required this.state,
     required this.xpToday,
+    required this.stepsToday,
   });
+
+  /// Part-done credit for walking habits linked to the step count: the real
+  /// fraction of today's goal walked so far.
+  ///
+  /// Only habits still short of their goal appear. One at or past it has been
+  /// auto-completed, so it is already worth a whole unit through its own
+  /// green square, and listing it here would be double counting (the ratio
+  /// only consults this map for squares that are still empty, but a map that
+  /// is wrong is a trap for the next reader of it).
+  Map<String, double> _stepPartials() {
+    final steps = stepsToday;
+    if (steps == null || steps <= 0) return const {};
+    return {
+      for (final habit in habits)
+        if (habit.stepGoal != null && steps < habit.stepGoal!)
+          habit.id: steps / habit.stepGoal!,
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -445,7 +678,10 @@ class _SummaryCard extends StatelessWidget {
         .map((h) => h.id)
         .toList();
     final greens = state.greenSquares(habitIds);
-    final ratio = state.todayCompletionRatio(scheduledTodayIds);
+    final ratio = state.todayCompletionRatio(
+      scheduledTodayIds,
+      partialUnits: _stepPartials(),
+    );
 
     // What today actually paid out (see xpToday's doc comment). Past-day
     // marks still contribute nothing: setSquare's anti-backdating guard

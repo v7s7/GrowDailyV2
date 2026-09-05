@@ -173,7 +173,17 @@ class WeeklyGridState {
   /// 20%, regardless of how many older squares were backfilled. A yellow
   /// partial square counts as half work, so 4 yellow marks across 4 tasks is
   /// 50% completion.
-  double todayCompletionRatio(Iterable<String> habitIds) {
+  ///
+  /// [partialUnits] carries part-done credit for habits whose square is still
+  /// empty because nothing has been tapped — today only the steps link uses
+  /// it, handing in steps-over-goal for a linked walking habit. Kept as a
+  /// parameter rather than read here because this class knows squares, not
+  /// habits: the caller is the one holding the habit list and the day's step
+  /// count. Empty by default, so every existing call is unchanged.
+  double todayCompletionRatio(
+    Iterable<String> habitIds, {
+    Map<String, double> partialUnits = const {},
+  }) {
     final ids = habitIds.toList(growable: false);
     if (ids.isEmpty) return 0;
 
@@ -207,7 +217,18 @@ class WeeklyGridState {
       completedUnits += switch (state) {
         SquareState.complete || SquareState.bonus => 1.0,
         SquareState.partial => 0.5,
-        SquareState.none || SquareState.failed || SquareState.skipped => 0.0,
+        // An empty square can still be part done: a walking habit linked to
+        // the step count contributes its real fraction of the goal here.
+        //
+        // The flat half a جزئي square gets is right for a tap — one of four
+        // taps is a decision to do the thing, and the app rounds that
+        // decision up. Steps are measured, not decided: 300 of 6,000 is not
+        // half a walk, and paying half for it would put credit on the home
+        // screen for carrying the phone to the kitchen. So this one is the
+        // true proportion, clamped below 1 by the caller (at the goal the
+        // habit is already complete and scores through its square).
+        SquareState.none => (partialUnits[id] ?? 0.0).clamp(0.0, 1.0),
+        SquareState.failed || SquareState.skipped => 0.0,
       };
     }
     // Nothing was owed, because everything was deliberately stood down. That
@@ -281,6 +302,47 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
           .doc(day.toDateKey());
 
   // ── Loading ──────────────────────────────────────────────────
+
+  /// Every habit's stored square for [day], read from the store rather than
+  /// from the visible week. Null when the store could not be read at all,
+  /// which is NOT the same answer as "no marks".
+  ///
+  /// [WeeklyGridState.squareFor] can only speak for the seven days actually
+  /// loaded. For every other day it returns `none`, which is indistinguishable
+  /// from "nobody ever marked it". That is harmless for drawing a board that
+  /// only shows those seven, and wrong for anything that has to DECIDE
+  /// something about a day off screen. The steps back-fill is exactly that: on
+  /// the first day of a grid week yesterday belongs to the week before, so an
+  /// unloaded تخطّي would have read as a blank day and been painted green.
+  ///
+  /// The null is the other half of the same care. An unreadable day (offline,
+  /// a cold first run) must not be reported as an empty one, or a caller
+  /// deciding "nobody has spoken about this day" acts on a day it never saw.
+  Future<Map<String, SquareState>?> storedSquaresFor(DateTime day) async {
+    final states = <String, Map<String, SquareState>>{};
+    final notes = <String, Map<String, String>>{};
+    final flatPaid = <String, Map<String, int>>{};
+    final key = day.toDateKey();
+    try {
+      if (_uid != null) {
+        final snap = await _dayRef(day).get();
+        if (snap.exists) {
+          _parseInto(snap.id, snap.data()!, states, notes, flatPaid);
+        }
+      } else {
+        _parseInto(
+          key,
+          await LocalStoreService.getDailyMap(key),
+          states,
+          notes,
+          flatPaid,
+        );
+      }
+    } catch (_) {
+      return null;
+    }
+    return states[key] ?? const {};
+  }
 
   Future<void> _loadWeek() async {
     final week = state.weekStart;
@@ -457,7 +519,13 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     // because the app day genuinely hasn't ended yet. The moment the
     // cutoff hour passes, that same square starts being treated as a past
     // day here, exactly like any other backdated square.
-    if (!day.isToday) {
+    // isOpenDay, not isToday. Yesterday is still payable until the day cutoff
+    // (see DateTimeGameExt.isOpenDay), so it must NOT take the no-reward path
+    // — its square goes through the canonical completion like today's. This
+    // said isToday, and between midnight and the cutoff that sent the square
+    // the app itself was calling TODAY down here: coloured, counted by Rooms,
+    // and paid nothing.
+    if (!day.isOpenDay) {
       if (greenDelta != 0) {
         _ref
             .read(dashboardProvider.notifier)
@@ -595,7 +663,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     // Only today ever earned flat-rate XP in the first place — [setSquare]
     // returns before the reward call on any other day (anti-backdating), so
     // there is nothing banked on a past square to give back.
-    if (!day.isToday || old == value) return written;
+    if (!day.isOpenDay || old == value) return written;
     // What was ACTUALLY paid for this square, not what its colour is worth.
     //
     // Reading _flatRateXp(old) here assumed every yellow square had been paid

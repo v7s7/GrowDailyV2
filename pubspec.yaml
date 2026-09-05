@@ -1,7 +1,7 @@
 name: grow_daily_v2
 description: "GrowDaily V2 — a visual life progress system. Color your life, one square at a time."
 publish_to: 'none'
-version: 1.0.0+64
+version: 1.0.0+65
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -146,6 +146,30 @@ dependencies:
   # inside this project's >=3.11.0 floor.
   geolocator: ^14.0.2
 
+  # ── Step tracking (walking habits) ───────────────────────────
+  # health: reads the day's step total from Apple Health (iOS, fed by the
+  # iPhone and any paired Apple Watch) and Health Connect (Android), so a
+  # walking-type habit can complete itself — see HealthStepsService and
+  # step_link.dart for how a habit gets linked to steps. Verified against
+  # pub.dev at wiring time: needs iOS 15+ (this project's floor is
+  # exactly 15.0) and Health Connect on Android (minSdk 26 is fine; the
+  # permission flow wants MainActivity to be a FlutterFragmentActivity,
+  # which MainActivity.kt now is). Pinned below 13.2: 13.2+ pulls
+  # device_info_plus ^13 (win32 ^6), which conflicts with share_plus 11.x
+  # (win32 ^5.5). Revisit when share_plus is next upgraded.
+  health: ^13.1.4
+
+  # package_info_plus: the app's own version and build number at runtime.
+  #
+  # Only consumer is the support email (help_support_screen.dart), which used
+  # to open with no idea what version the person was on, so every conversation
+  # started by asking. Reads nothing but this bundle's own Info.plist /
+  # BuildConfig: no permission, no identifier, nothing for the Play Data
+  # safety form. Hardcoding the version instead was the alternative and it
+  # goes stale the first time pubspec's version line moves without anyone
+  # remembering this one.
+  package_info_plus: ^8.3.1
+
   # ── Home screen widget ───────────────────────────────────────
   # Dart-side bridge only — the widget's actual UI is native Swift, written
   # once the Xcode Widget Extension target exists. See ios/WIDGET_SETUP.md.
@@ -262,8 +286,18 @@ flutter:
     - google_fonts/
 
 # ── App icon generation ──────────────────────────────────────────
-# Run once (and again any time icon_app.png changes):
-#   dart run flutter_launcher_icons
+# Run all five, in this order, any time icon_app.png changes:
+#   python3 tool/icons/center_icon_mark.py --apply   # re-centre the mark first
+#   python3 tool/icons/make_adaptive_foreground.py   # Android adaptive layer
+#   python3 tool/icons/make_ios_appicons.py          # the 21 iOS icons
+#   python3 tool/icons/make_play_icon.py             # Play Console listing icon
+#   dart run flutter_launcher_icons                  # Android launcher icons
+#
+# center_icon_mark.py is idempotent and worth running as a check: the mark is
+# centred on its POT, not on its bounding box, because the two leaves are
+# deliberately asymmetric. Getting that wrong is what left the pot 8.7px left of
+# centre in the source art and 24.8px left of centre in the Android adaptive
+# foreground.
 flutter_launcher_icons:
   image_path: "assets/images/icon_app.png"
   # ios: false, and it must STAY false. flutter_launcher_icons 0.14.4
@@ -277,10 +311,10 @@ flutter_launcher_icons:
   # Observed and reverted while wiring up Android, not theoretical.
   #
   # The iOS icons are already generated and committed under
-  # ios/Runner/Assets.xcassets, so nothing is lost by leaving this off. If
-  # icon_app.png ever changes, flip this to true for ONE run, then check
-  # `git diff ios/Runner.xcodeproj/project.pbxproj` and revert those three
-  # settings by hand before committing.
+  # ios/Runner/Assets.xcassets. Do NOT flip this to true to refresh them - run
+  # `python3 tool/icons/make_ios_appicons.py` instead. It rebuilds all 21 PNGs
+  # at the sizes that catalogue's own Contents.json declares and never opens the
+  # Xcode project, so there is nothing to revert afterwards.
   ios: false
   # `flutter create --platforms=android .` has now been run, so there is an
   # AndroidManifest.xml to write into and this can finally be true.

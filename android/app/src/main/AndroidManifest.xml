@@ -34,6 +34,12 @@
     <!-- record, for the Tasks voice notes (VoiceNoteService). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
 
+    <!-- health, read-only steps from Health Connect so a linked walking
+         habit can complete itself (HealthStepsService). READ_STEPS is the
+         only health permission: nothing is written and nothing else is
+         read, keeping the Play Data safety form to a single row. -->
+    <uses-permission android:name="android.permission.health.READ_STEPS"/>
+
     <!-- Advertising ID, REMOVED on purpose.
          firebase_analytics pulls in play-services-ads-identifier, which
          merges com.google.android.gms.permission.AD_ID into the manifest
@@ -111,7 +117,28 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="growdaily"/>
             </intent-filter>
+
+            <!-- Health Connect shows the app's permission rationale through
+                 this intent (Android 13 and below use the androidx action,
+                 14+ rewrites it to ACTION_SHOW_PERMISSIONS_RATIONALE at the
+                 alias below). Both roads lead back into the app. -->
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+            </intent-filter>
         </activity>
+
+        <!-- Android 14+ Health Connect permission-rationale entry point;
+             the activity-alias form is what the health package documents. -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".MainActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
+            </intent-filter>
+        </activity-alias>
 
         <!-- The status-bar icon for every notification. Android draws this as
              a pure alpha mask, so a full-colour @mipmap/ic_launcher renders as
@@ -150,5 +177,8 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Lets the health package check whether the Health Connect app is
+             installed before offering to link a walking habit to steps. -->
+        <package android:name="com.google.android.apps.healthdata"/>
     </queries>
 </manifest>

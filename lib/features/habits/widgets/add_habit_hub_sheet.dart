@@ -155,8 +155,22 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
     // below stays blurred — an actual tap on one is what reveals it and
     // counts as choosing, rather than Add Goal quietly already being the
     // answer before anyone's looked at Plans.
+    // Add Goal is first, so in Arabic it sits on the leading (right) edge —
+    // directly above the Build a habit pill in the row below, which is also
+    // first and also the default. Both defaults on the same side means the
+    // eye lands in one place and the only decision left is whether to step
+    // sideways off it.
     final tabRow = Row(
       children: [
+        _TabPill(
+          label: s.addGoalTitle,
+          selected: !_showTabHint && _tab == HubTab.addGoal,
+          onTap: () {
+            _dismissTabHint();
+            setState(() => _tab = HubTab.addGoal);
+          },
+        ),
+        const SizedBox(width: 8),
         _TabPill(
           label: s.plansTab,
           selected: !_showTabHint && _tab == HubTab.plans,
@@ -166,15 +180,6 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
               _tab = HubTab.plans;
               _addGoalStep = 0;
             });
-          },
-        ),
-        const SizedBox(width: 8),
-        _TabPill(
-          label: s.addGoalTitle,
-          selected: !_showTabHint && _tab == HubTab.addGoal,
-          onTap: () {
-            _dismissTabHint();
-            setState(() => _tab = HubTab.addGoal);
           },
         ),
       ],

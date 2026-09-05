@@ -275,11 +275,22 @@ extension DashboardNotifierLoading on DashboardNotifier {
     // is no cross-device concern for a guest, and the set both grows
     // (banking) and shrinks (undo), which a merge cannot express.
     List<String>? dayCounted,
+    /// Which day to write. Null is today, which is every caller that existed
+    /// before yesterday could still be paid for inside its grace window (see
+    /// DateTimeGameExt.isOpenDay).
+    String? dayKey,
+
+    /// A grace day's running XP/gold spend, kept on the day itself because
+    /// the single `state` slot belongs to today — see _allowedOn. Null for
+    /// today, whose ledger lives in state as it always did.
+    int? dayEarnedXp,
+    int? dayEarnedGold,
   }) async {
     // Inside updateDailyMap, so this read and write cannot interleave with
     // the grid's write to the same day. That interleaving is what let a
     // square corrected to red keep its completion, see that method's comment.
-    await LocalStoreService.updateDailyMap(DashboardNotifier._todayKey, (day) {
+    await LocalStoreService.updateDailyMap(
+        dayKey ?? DashboardNotifier._todayKey, (day) {
       // completedAtMinutes is merged by hand, because the local store writes
       // the map whole. Without this the guest path would keep only the newest
       // stamp per day while the signed-in path (which gets Firestore's deep
@@ -305,10 +316,18 @@ extension DashboardNotifierLoading on DashboardNotifier {
           ...habitTargets,
         };
       }
-      day['date'] = DateTime.now().effectiveDay.toIso8601String();
+      // The day being written, not the clock's day: during the grace window
+      // those differ, and stamping yesterday's document with today's date
+      // would make it claim it was a different day.
+      day['date'] = (dayKey == null
+              ? DateTime.now().effectiveDay
+              : DateTime.parse(dayKey))
+          .toIso8601String();
       if (streakEarnedToday != null) day['streakEarnedToday'] = streakEarnedToday;
       if (mergedMinutes.isNotEmpty) day['completedAtMinutes'] = mergedMinutes;
       if (dayCounted != null) day['dayCounted'] = dayCounted;
+      if (dayEarnedXp != null) day['dayEarnedXp'] = dayEarnedXp;
+      if (dayEarnedGold != null) day['dayEarnedGold'] = dayEarnedGold;
     });
   }
 

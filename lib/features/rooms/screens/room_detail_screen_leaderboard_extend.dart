@@ -98,6 +98,259 @@ Color roomStripCellFill({
   return Color.alphaBlend(tone, backdrop);
 }
 
+/// How the strip's week columns divide into months — the ONE rule the header
+/// band, the week numbers and the wide month-break gap all read.
+///
+/// A column is one Saturday-start week, so a month boundary almost always
+/// falls INSIDE a column and that column has to be given to one month or the
+/// other. It goes to whichever month owns MORE of the days actually drawn in
+/// it: Aug 29 – Sep 4 is three August days against four September ones, so it
+/// is September's.
+///
+/// The alternative — giving it to the month of its first drawn day — reads as
+/// a lie in the header, which is the whole thing this band is for. August has
+/// 31 days and cannot fill five seven-day columns, but that is exactly what
+/// "أغسطس" spanning its four whole weeks plus the straddling one claimed: 35
+/// day-slots for a 31-day month. Majority keeps every month's block within a
+/// column of the weeks it can actually fill, and it degrades sensibly at the
+/// window's edges, where a straddling column may only draw a few days.
+///
+/// Ties go to the EARLIER month (only reachable at a window edge, where fewer
+/// than seven days are drawn), so a month is never announced before it
+/// genuinely dominates a column.
+///
+/// A column made entirely of padding has no days and inherits the month
+/// before it, so it never opens a stray one-column segment.
+///
+/// [keys] is what the grouping compares on and it carries the year: `MMM`
+/// alone formats December 2026 and December 2027 identically, which would
+/// merge two Decembers of a long fixed room into one nine-week segment.
+/// [labels] is only ever printed. [starts] is every column that opens a new
+/// month, and therefore every place the column row widens its gap.
+///
+/// [starts] used to be computed separately, as "this column contains a day
+/// numbered 1", while the header grouped by first-drawn-day. Those two cut
+/// the columns in different places, so the gap opened one column EARLY:
+/// August's last week was cut away from the "أغسطس" centred over it and read
+/// as belonging to "سبتمبر", and every label past such a boundary sat 6pt off
+/// its own columns — the difference between a normal gap and a break one.
+///
+/// Pure and top-level for the same reason [roomStripCellFill] is: the
+/// invariant is that [roomStripMonthSegments] and [starts] cut the columns
+/// in exactly the same places, and that must be testable without building
+/// the whole room screen.
+({List<int> keys, List<String> labels, List<int> starts}) roomStripMonths(
+  int weekCount,
+  int lead,
+  List<DateTime> days,
+  DateFormat monthFmt,
+) {
+  final keys = List<int>.filled(weekCount, -1);
+  final labels = List<String>.filled(weekCount, '');
+  var key = -1;
+  var label = '';
+  for (var w = 0; w < weekCount; w++) {
+    // year * 12 + (month - 1), so the key sorts chronologically and decodes
+    // back to a date without a special case for December.
+    final drawn = <int, int>{};
+    for (var r = 0; r < 7; r++) {
+      final i = w * 7 + r - lead;
+      if (i < 0 || i >= days.length) continue;
+      final k = days[i].year * 12 + days[i].month - 1;
+      drawn[k] = (drawn[k] ?? 0) + 1;
+    }
+    if (drawn.isNotEmpty) {
+      // Ascending, and strictly-greater, so a tie keeps the earlier month.
+      final candidates = drawn.keys.toList()..sort();
+      var best = candidates.first;
+      for (final k in candidates) {
+        if (drawn[k]! > drawn[best]!) best = k;
+      }
+      key = best;
+      label = monthFmt.format(DateTime(best ~/ 12, best % 12 + 1));
+    }
+    keys[w] = key;
+    labels[w] = label;
+  }
+  return (
+    keys: keys,
+    labels: labels,
+    starts: <int>[
+      for (var w = 1; w < weekCount; w++)
+        if (keys[w] != keys[w - 1]) w,
+    ],
+  );
+}
+
+/// The month labels for one run of week columns, each with how many columns
+/// it spans.
+///
+/// [leadingBreak] marks a segment that follows a month change, so the header
+/// inserts the same wider gap the column row inserts there
+/// (roomStripMonths.starts → `_gap * 5`). Both are read off the SAME
+/// per-column [monthKey], which is what keeps a label centred over its own
+/// weeks: a segment of n columns is laid out exactly `n * _cell + (n - 1) *
+/// _gap` wide, so the moment the two disagreed about which column a month
+/// owns, every label after that boundary drifted.
+///
+/// The first segment of a run never carries a break, matching the column
+/// row, which only inserts a gap for `c > 0`.
+List<({String label, int span, bool leadingBreak})> roomStripMonthSegments(
+  int run,
+  int perRun,
+  int weekCount,
+  List<int> monthKey,
+  List<String> monthLabel,
+) {
+  final out = <({String label, int span, bool leadingBreak})>[];
+  var lastKey = -1;
+  for (var c = 0; c < perRun && run * perRun + c < weekCount; c++) {
+    final w = run * perRun + c;
+    if (out.isEmpty || monthKey[w] != lastKey) {
+      out.add(
+        (
+          label: monthLabel[w],
+          span: 1,
+          leadingBreak: out.isNotEmpty,
+        ),
+      );
+    } else {
+      final last = out.removeLast();
+      out.add(
+        (
+          label: last.label,
+          span: last.span + 1,
+          leadingBreak: last.leadingBreak,
+        ),
+      );
+    }
+    lastKey = monthKey[w];
+  }
+  return out;
+}
+
+/// How many week columns fit on one line, given the width available and where
+/// the month breaks fall.
+///
+/// This used to be a single division — `(maxWidth + gap) / (cell + gap)` —
+/// which priced EVERY inter-column gap at [_MiniHeatmapStrip._gap]. But both
+/// rows widen a gap to `_gap * 5` at each month break ([roomStripMonths]'s
+/// starts), so a run holding B breaks is `4 * _gap * B` wider than that
+/// division allowed: 12pt per break. On a four-month room at a 402pt phone
+/// width the division chose 15 columns, whose run carried four breaks and
+/// needed 315pt against 274pt available. The `Row` overflowed the card, and
+/// in release there is no warning stripe — RenderFlex only paints that under
+/// an assert and clipBehavior is Clip.none — so it spilled silently, the same
+/// failure the leaderboard row had.
+///
+/// The answer can't be computed in one step, because it is circular: [perRun]
+/// decides which breaks land inside a run, and those breaks decide the width
+/// [perRun] needs. So start at the division's answer — always an upper bound,
+/// since breaks only ever cost width — and step down until every run fits.
+/// [starts] is small (one entry per month), so this is a handful of passes
+/// over a list of at most ~13 columns.
+///
+/// Pure and top-level for the same reason [roomStripMonths] is: the invariant
+/// is that no run is ever laid out wider than the width it was chosen for,
+/// and that must be testable without building the whole room screen.
+int roomStripPerRun(double maxWidth, int weekCount, List<int> starts) {
+  const cell = _MiniHeatmapStrip._cell;
+  const gap = _MiniHeatmapStrip._gap;
+  // What one month break costs over an ordinary gap. Both rows open the same
+  // `_gap * 5` there, so one number prices the cell row and the header band.
+  const breakExtra = gap * 5 - gap;
+  final breaks = starts.toSet();
+
+  /// Exactly what the rows lay out: [n] cells, an ordinary gap between each,
+  /// widened at any column that starts a month. Column [first] never carries
+  /// one, matching both rows, which only open a gap for `c > 0`.
+  double runWidth(int first, int n) {
+    var w = n * cell + (n - 1) * gap;
+    for (var c = 1; c < n; c++) {
+      if (breaks.contains(first + c)) w += breakExtra;
+    }
+    return w;
+  }
+
+  var perRun = ((maxWidth + gap) / (cell + gap)).floor().clamp(1, weekCount);
+  while (perRun > 1) {
+    var fits = true;
+    for (var first = 0; first < weekCount; first += perRun) {
+      final remaining = weekCount - first;
+      final n = perRun < remaining ? perRun : remaining;
+      if (runWidth(first, n) > maxWidth) {
+        fits = false;
+        break;
+      }
+    }
+    if (fits) break;
+    perRun--;
+  }
+  return perRun;
+}
+
+/// One month's name, centred on the block of week columns it owns.
+///
+/// The block is [width] wide and the name is often wider than that: a month
+/// that owns a single 15pt column cannot fit "سبتمبر". Truncating it is
+/// worse than spilling — it rendered as "سب…", which names nothing — so the
+/// name is allowed to run into the wide month-break gaps on either side of
+/// its block, and the neighbouring label is centred on a block of its own,
+/// so the two never reach each other.
+///
+/// The spill has to be SYMMETRIC, which a plain centred [Text] does not give
+/// you. When a line is wider than the box it is laid out in, the paragraph's
+/// centring shift is clamped to zero and the name anchors to one edge
+/// instead — which put "سبتمبر" about 4pt off the single column it names
+/// while "أغسطس", which fits its own three columns, sat dead centre. Two
+/// months, two different rules, in one header band.
+///
+/// [OverflowBox] hands the text an unbounded width so it sizes to its own
+/// line, then centres that line on the block ([OverflowBoxFit.deferToChild]
+/// keeps this row's height the text's, not the parent's). So a one-column
+/// month is centred exactly the way a five-column one is.
+class RoomStripMonthLabel extends StatelessWidget {
+  final String label;
+
+  /// The block this name sits over: `span * _cell + (span - 1) * _gap`, the
+  /// same arithmetic the column row below lays those columns out with.
+  final double width;
+
+  final Color color;
+
+  const RoomStripMonthLabel({
+    super.key,
+    required this.label,
+    required this.width,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: OverflowBox(
+        fit: OverflowBoxFit.deferToChild,
+        minWidth: 0,
+        maxWidth: double.infinity,
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.visible,
+          style: TextStyle(
+            fontSize: 9.5,
+            fontWeight: FontWeight.w700,
+            color: color,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _MiniHeatmapStrip extends StatelessWidget {
   final RoomModel room;
   final RoomParticipant participant;
@@ -255,8 +508,10 @@ class _MiniHeatmapStrip extends StatelessWidget {
     final s = S.of(context);
     final monthFmt = DateFormat('MMM', s.isAr ? 'ar' : 'en');
 
-    // First day actually drawn in week column [w], or null for a column
-    // made entirely of padding. Used to decide where a month label goes.
+    // Null for a week column made entirely of padding — which is what
+    // weekIndex below uses it for, to leave such a column unnumbered.
+    // Deciding which MONTH a column belongs to is roomStripMonths' job and
+    // reads all seven of its days, not just this one.
     DateTime? firstDayOf(int w) {
       for (var r = 0; r < 7; r++) {
         final i = w * 7 + r - lead;
@@ -265,26 +520,11 @@ class _MiniHeatmapStrip extends StatelessWidget {
       return null;
     }
 
-    // Columns where a new month begins — used only to widen the gap there,
-    // so the months read as groups. The label itself is a single centred
-    // title above the grid (below): a name floating over one 9pt column
-    // pointed at nothing in particular and read as debris, which is exactly
-    // what it looked like.
-    List<int> columnsWithFirstOfMonth() {
-      final out = <int>[];
-      for (var w = 0; w < weekCount; w++) {
-        for (var r = 0; r < 7; r++) {
-          final i = w * 7 + r - lead;
-          if (i >= 0 && i < days.length && days[i].day == 1) {
-            out.add(w);
-            break;
-          }
-        }
-      }
-      return out;
-    }
-
-    final monthStarts = columnsWithFirstOfMonth();
+    // One rule for the header band, the week numbers and the wide gap, so
+    // the three can never disagree about where a month starts. See
+    // roomStripMonths.
+    final months = roomStripMonths(weekCount, lead, days, monthFmt);
+    final monthStarts = months.starts;
 
     /// Week-of-month for every column: 1 for the first week of a month, then
     /// 2, 3… restarting at each month boundary.
@@ -292,34 +532,25 @@ class _MiniHeatmapStrip extends StatelessWidget {
     /// Columns run chronologically, which under RTL means the newest is on
     /// the left — so a five-week month reads "5 4 3 2 1" across the screen
     /// and a four-week one reads "4 3 2 1", which is exactly the shape this
-    /// row is meant to have.
-    ///
-    /// The month a column *belongs to* is the month of its first real day,
-    /// so a week straddling the 31st and the 1st counts as the older month
-    /// and the new month's numbering starts on the next column. That keeps
-    /// every month's run of numbers unbroken rather than showing two 1s.
+    /// row is meant to have. A full month can only ever reach 5 here when it
+    /// genuinely owns five columns; see roomStripMonths for why a straddling
+    /// week is not simply added to the older month.
     final weekIndex = List<int>.filled(weekCount, 0);
     {
       var counter = 0;
-      int? currentMonth;
       for (var w = 0; w < weekCount; w++) {
-        final first = firstDayOf(w);
-        if (first == null) {
+        if (firstDayOf(w) == null) {
           weekIndex[w] = 0; // all-padding column: nothing to number
           continue;
         }
-        if (currentMonth != first.month) {
-          currentMonth = first.month;
-          counter = 1;
-        } else {
-          counter++;
-        }
+        counter =
+            w > 0 && months.keys[w] == months.keys[w - 1] ? counter + 1 : 1;
         weekIndex[w] = counter;
       }
     }
 
     // Dead since the single strip-wide title was replaced by per-column
-    // month segments (_monthSegments), which label each column run with
+    // month segments (roomStripMonthSegments), which label each column run with
     // its own month instead of naming the whole span once. Removed rather
     // than left dangling: it still formatted two dates on every rebuild of
     // every row.
@@ -358,11 +589,14 @@ class _MiniHeatmapStrip extends StatelessWidget {
               padding: const EdgeInsetsDirectional.only(start: _labelInset),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  // How many columns fit on one line.
-                  final perRun =
-                      ((constraints.maxWidth + _gap) / (_cell + _gap))
-                          .floor()
-                          .clamp(1, weekCount);
+                  // How many columns fit on one line — counting the wider
+                  // gap a month break opens, which a flat division does not.
+                  // See roomStripPerRun.
+                  final perRun = roomStripPerRun(
+                    constraints.maxWidth,
+                    weekCount,
+                    monthStarts,
+                  );
 
                   // IntrinsicWidth so the Column is exactly as wide as its widest
                   // run — which is what lets the title centre over the SQUARES
@@ -389,41 +623,20 @@ class _MiniHeatmapStrip extends StatelessWidget {
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              for (final seg in _monthSegments(
+                              for (final seg in roomStripMonthSegments(
                                 run,
                                 perRun,
                                 weekCount,
-                                firstDayOf,
-                                monthFmt,
+                                months.keys,
+                                months.labels,
                               )) ...[
                                 if (seg.leadingBreak)
                                   const SizedBox(width: _gap * 5),
-                                SizedBox(
-                                  width:
-                                      seg.span * _cell + (seg.span - 1) * _gap,
-                                  // Centred over its own columns, and allowed
-                                  // to spill past them rather than truncate.
-                                  // A month that only owns one 15pt column —
-                                  // the tail of the month a room started in —
-                                  // cannot fit "يوليو" and was rendering as
-                                  // "يو…", which names nothing. The overflow
-                                  // lands in the wider month-break gap beside
-                                  // it, and the neighbouring label is centred
-                                  // over three or more columns, so the two
-                                  // never reach each other.
-                                  child: Text(
-                                    seg.label,
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    softWrap: false,
-                                    overflow: TextOverflow.visible,
-                                    style: TextStyle(
-                                      fontSize: 9.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: gp.textTert,
-                                      letterSpacing: 0.2,
-                                    ),
-                                  ),
+                                RoomStripMonthLabel(
+                                  label: seg.label,
+                                  width: seg.span * _cell +
+                                      (seg.span - 1) * _gap,
+                                  color: gp.textTert,
                                 ),
                               ],
                             ],
@@ -610,52 +823,6 @@ class _MiniHeatmapStrip extends StatelessWidget {
     if (real == 0) return neutral;
     if (settled == real) return GameColors.emerald;
     return open ? neutral : _weekShort;
-  }
-
-  /// The month labels for one run of week columns, each with how many
-  /// columns it spans.
-  ///
-  /// [leadingBreak] marks a segment that follows a month change, so the
-  /// header inserts the same wider gap the column row inserts there
-  /// (monthStarts → `_gap * 5`). Deriving both from the same rule is what
-  /// keeps a label centred over its own weeks instead of drifting a few
-  /// points off as the strip gets longer.
-  ///
-  /// A column made entirely of padding has no first day and therefore no
-  /// month of its own; it joins whatever segment precedes it rather than
-  /// starting a new one, so a week straddling a month boundary never
-  /// produces a stray one-column header.
-  List<({String label, int span, bool leadingBreak})> _monthSegments(
-    int run,
-    int perRun,
-    int weekCount,
-    DateTime? Function(int) firstDayOf,
-    DateFormat monthFmt,
-  ) {
-    final out = <({String label, int span, bool leadingBreak})>[];
-    for (var c = 0; c < perRun && run * perRun + c < weekCount; c++) {
-      final first = firstDayOf(run * perRun + c);
-      final label = first == null ? null : monthFmt.format(first);
-      if (out.isEmpty || (label != null && label != out.last.label)) {
-        out.add(
-          (
-            label: label ?? (out.isEmpty ? '' : out.last.label),
-            span: 1,
-            leadingBreak: out.isNotEmpty,
-          ),
-        );
-      } else {
-        final last = out.removeLast();
-        out.add(
-          (
-            label: last.label,
-            span: last.span + 1,
-            leadingBreak: last.leadingBreak,
-          ),
-        );
-      }
-    }
-    return out;
   }
 
   /// Whether a day with no credit is genuinely lost, and can be crossed out.
@@ -1139,28 +1306,50 @@ class _LeaderboardRow extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                // A WRAP, not a Row, and this is a layout correctness fix
+                // rather than a style choice.
+                //
+                // As a Row, the name was the only Flexible child: it
+                // collapsed to zero and then the fixed badges overflowed
+                // the card. Measured with the app's real bundled font, a
+                // level-1 row carrying أنت + القائد + موقوف + the rank
+                // stamp overflowed a 320pt screen at text scale 1.3 —
+                // which is an ordinary Large Text setting on both
+                // platforms, not an accessibility extreme — and by 29pt at
+                // 1.6. In release there is no yellow stripe to warn anyone:
+                // RenderFlex only paints that under an assert, and
+                // clipBehavior is Clip.none, so the badges simply spill
+                // past the card and the name renders as a bare ellipsis.
+                //
+                // The old Row was already this fragile for level 5+ members
+                // with a Paused tag; showing the base tier on every row is
+                // what made it reachable for a normal new account. A Wrap
+                // spends a line of height in the rare tight case and cannot
+                // overflow at any scale, which is the right trade on a
+                // screen whose whole job is comparing people.
+                //
+                // Same shape the participant sheet already uses for this
+                // exact set of badges (room_detail_screen_participant_
+                // calendar.dart), so the two now agree structurally.
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Flexible(
-                      child: Text(
-                        participant.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w800,
-                          color: gp.textPrimary,
-                        ),
+                    Text(
+                      participant.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: gp.textPrimary,
                       ),
                     ),
-                    if (isYou) ...[
-                      const SizedBox(width: 6),
+                    if (isYou)
                       _Tag(label: s.roomYouLabel, color: GameColors.gold),
-                    ],
-                    if (isLeader) ...[
-                      const SizedBox(width: 6),
+                    if (isLeader)
                       _Tag(label: s.roomLeaderLabel, color: gp.textSec),
-                    ],
                     // Stood down right now: every counted habit paused, so
                     // this member's percentage is holding still rather than
                     // moving (see RoomParticipant.standDownDays).
@@ -1173,33 +1362,46 @@ class _LeaderboardRow extends ConsumerWidget {
                     // tell. Neutral-toned rather than red — pausing is a normal
                     // state of a working room, not a fault (same reasoning as
                     // _WarningRow.informational).
-                    if (isStoodDownNow) ...[
-                      const SizedBox(width: 6),
+                    if (isStoodDownNow)
                       _Tag(label: s.roomPausedTag, color: gp.textTert),
-                    ],
                     // Inline null-check (not a separate bool) so Dart
                     // actually promotes prestigeTier to non-null for the
                     // _PrestigeChip call - a bool computed from the same
                     // check earlier doesn't carry that promotion through.
                     //
-                    // On the name's own row rather than stacked under it.
-                    // The chip is short and the row had spare width, while
-                    // the second line cost every card ~20pt of height that
-                    // the history grid underneath wanted far more. The name
-                    // stays Flexible so it ellipsizes before the badges do —
-                    // the badges are the part you scan, the full name is
-                    // recoverable by opening the row.
-                    if (prestigeTier != null && prestigeTier.minLevel > 1) ...[
-                      const SizedBox(width: 6),
-                      _PrestigeStamp(tier: prestigeTier),
-                    ],
+                    // Beside the name rather than stacked under it: the
+                    // stamp is short, and at ordinary sizes the Wrap keeps
+                    // the whole set on one line, so the card does not pay
+                    // the ~20pt of height the history grid underneath wants
+                    // more. It only takes a second line when the badges
+                    // genuinely do not fit, which is exactly when giving up
+                    // the height is worth it.
+                    //
+                    // EVERY rank shows, including the base Seeker at level 1.
+                    //
+                    // This used to hide the level-1 tier on the reasoning
+                    // that a badge everyone is born with says nothing. In a
+                    // ROOM that reasoning inverts: the row sits next to
+                    // other people's rows, so a missing stamp does not read
+                    // as "no rank yet", it reads as a broken row — which is
+                    // exactly how Aziz reported it ("why is level 1 not
+                    // appearing in the room as a badge same as the rest").
+                    // The Profile has always shown its own tier chip
+                    // unconditionally, so this makes the two agree rather
+                    // than introducing a new rule.
+                    //
+                    // 'seeker' has a rank-1 mark in kPrestigeMarks, so this
+                    // renders the compact plate rather than falling back to
+                    // the wider titled chip — pinned by
+                    // test/features/rooms/prestige_stamp_coverage_test.dart,
+                    // which matters more now that every row draws one.
+                    if (prestigeTier != null) _PrestigeStamp(tier: prestigeTier),
                     // Report/block, on everyone but yourself. An explicit
                     // control rather than a long-press: the card body is
                     // already a tap target (it opens the calendar), and a
                     // moderation affordance nobody can find satisfies
                     // neither an upset user nor App Review guideline 1.2.
-                    if (!isYou) ...[
-                      const SizedBox(width: 2),
+                    if (!isYou)
                       SizedBox(
                         width: 30,
                         height: 30,
@@ -1219,7 +1421,6 @@ class _LeaderboardRow extends ConsumerWidget {
                           ),
                         ),
                       ),
-                    ],
                   ],
                 ),
                 if (showDetails && names.isNotEmpty) ...[

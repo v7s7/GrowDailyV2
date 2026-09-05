@@ -345,11 +345,21 @@ class _StatsRow extends StatelessWidget {
     // DashboardState.statsAreReal for why a zero here is not a harmless
     // wrong number: it reads as a wiped account.
     String fig(int value) => state.statsAreReal ? '$value' : _kStatPlaceholder;
+    // A COLD flame on a zero streak, not the hot orange one. This row is
+    // the first thing the Profile shows, and a burning icon over a big 0
+    // reads as "you failed" on every single visit — the exact
+    // streak-anxiety framing the rest of the app avoids. Dim is honest
+    // (nothing is burning yet) without shouting about it; the moment the
+    // streak is 1 the flame lights as before. The unloaded state keeps the
+    // warm color: '…' is "not known yet", not a zero.
+    final streakIsCold = state.statsAreReal && state.streak == 0;
     return Row(
       children: [
         _StatCell(
             icon: Icons.local_fire_department_rounded,
-            color: GameColors.iconStreak,
+            color: streakIsCold
+                ? context.gp.textTert
+                : GameColors.iconStreak,
             value: fig(state.streak),
             label: s.streak,
             infoTitle: s.statInfoStreakTitle,

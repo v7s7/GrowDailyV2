@@ -50,6 +50,43 @@ void main() {
     expect(withLastCompleted(twoDaysAgo, 12).habitStreak('h1'), 0);
   });
 
+  group('a habit pinned to weekdays is judged on its own days', () {
+    // Relative to today so the suite passes on any day of the week: the
+    // habit runs today and three days ago, and on nothing in between.
+    final threeDaysAgo = today.subtract(const Duration(days: 3));
+    final twoDaysAgo = today.subtract(const Duration(days: 2));
+
+    test('reported bug: done on its last day, still alive on its next', () {
+      // Measured on the calendar this was "two days stale". Not one of the
+      // habit's days had ended without it.
+      expect(
+        withLastCompleted(threeDaysAgo, 12).habitStreak(
+          'h1',
+          scheduledWeekdays: {today.weekday, threeDaysAgo.weekday},
+        ),
+        12,
+      );
+    });
+
+    test('a skipped scheduled day in between is still a miss', () {
+      expect(
+        withLastCompleted(threeDaysAgo, 12).habitStreak(
+          'h1',
+          scheduledWeekdays: {today.weekday, twoDaysAgo.weekday},
+        ),
+        0,
+      );
+    });
+
+    test('an empty schedule is the every-day rule, unchanged', () {
+      expect(
+        withLastCompleted(twoDaysAgo, 12)
+            .habitStreak('h1', scheduledWeekdays: const {}),
+        0,
+      );
+    });
+  });
+
   test('a habit never completed reports zero', () {
     expect(DashboardState.initial().habitStreak('h1'), 0);
   });

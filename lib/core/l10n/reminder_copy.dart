@@ -178,19 +178,340 @@ String overdueTaskReminderTitle({
 // unambiguous), so the timing has to go in the body, alongside whatever
 // encouragement was already there.
 
-/// The streak-protection line a habit reminder leads with once there's a
-/// streak worth protecting. Its own function because it is now appended to
-/// three different bodies and they must not drift apart.
+/// The streak line a habit reminder leads with once there's a streak. Its
+/// own function because it is appended to three different bodies and they
+/// must not drift apart.
+///
+/// Framed forward, not as a loss. It used to read «لا تفقد سلسلتك المكوّنة
+/// من ٧ أيام» / "Don't lose your 7-day streak": the same number, pointed at
+/// what the reader stands to lose. Loss framing does move people, but it
+/// turns every reminder into a small threat, and the person it leans on
+/// hardest is the one who already missed a day. Pointing the number at
+/// tomorrow instead keeps the whole stake and drops the threat.
 ///
 /// The day count goes through [countedOffsetPhrase] (a streak is a count of
-/// days, and days are one of its units), so it declines properly: «يوم» for
-/// one, «يومين» for two, «٧ أيام» for 3–10, back to «١٥ يوم» from 11 up.
-/// The flat "$streak يوم" this used to interpolate was ungrammatical for
-/// 2–10, the exact range most live streaks are in.
-String habitStreakLine(int streak, bool isAr) => isAr
-    ? 'لا تفقد سلسلتك المكوّنة من '
-        '${countedOffsetPhrase(streak * ReminderUnit.days.inMinutes, true)}.'
-    : "Don't lose your $streak-day streak.";
+/// days, and days are one of its units), so it declines properly: «يومين»
+/// for two, «٧ أيام» for 3 to 10, back to «١٥ يوم» from 11 up. A streak of
+/// one is spelled out on its own: «يوم ورا بعض» counts a day against
+/// nothing.
+///
+/// [variantIndex] adds a second phrasing that says out loud that it is
+/// going well, rather than leaving the reader to infer it from the number.
+/// It defaults to the first line so the early/late bodies in
+/// [habitReminderBody], which have no variant of their own to spend, keep
+/// saying exactly one thing.
+///
+/// [everyDay] is false for a habit pinned to specific weekdays. Its streak
+/// counts the days it RUNS ON (see scheduledGap), so «٣ أيام ورا بعض» /
+/// "3 days in a row" would be read as three consecutive calendar days and
+/// be false for a Wed/Sat habit; those count «مرات» / times instead.
+String habitStreakLine(
+  int streak,
+  bool isAr, {
+  int variantIndex = 0,
+  bool everyDay = true,
+}) {
+  if (!isAr) {
+    if (streak == 1) {
+      return _pick(
+        everyDay
+            ? const [
+                'One day down. Today makes it two.',
+                "One day down and it's already working. Today makes it two.",
+              ]
+            : const [
+                'One down. Today makes it two.',
+                "One down and it's already working. Today makes it two.",
+              ],
+        variantIndex,
+      );
+    }
+    final run = everyDay ? '$streak days in a row' : '$streak in a row';
+    return _pick([
+      '$run. Today makes it ${streak + 1}.',
+      '$run and going strong. Today makes it ${streak + 1}.',
+    ], variantIndex);
+  }
+  if (streak == 1) {
+    return _pick(
+      everyDay
+          ? const [
+              'يوم واحد في السلسلة، واليوم يخليها يومين.',
+              'يوم واحد في السلسلة والبداية زينة، واليوم يخليها يومين.',
+            ]
+          : const [
+              'مرة وحدة في السلسلة، واليوم يخليها ثنتين.',
+              'مرة وحدة في السلسلة والبداية زينة، واليوم يخليها ثنتين.',
+            ],
+      variantIndex,
+    );
+  }
+  final counted = everyDay
+      ? countedOffsetPhrase(streak * ReminderUnit.days.inMinutes, true)
+      : _countedRepeats(streak, true);
+  final next = arabicDigits(streak + 1);
+  return _pick([
+    '$counted ورا بعض، واليوم يخليها $next.',
+    '$counted ورا بعض وماشية عدل، واليوم يخليها $next.',
+  ], variantIndex);
+}
+
+/// How many of today's target are still owed, counted the way a repetition
+/// is counted out loud: «وحدة», «ثنتين», «٣ مرات», «١١ مرة».
+///
+/// Separate from [countedOffsetPhrase] because that one counts *units of
+/// time* and this counts logs of a habit, which is a different noun in
+/// Arabic and no noun at all in English ("2 more", not "2 more times").
+String _countedRepeats(int n, bool isAr) {
+  // Capitalised: it opens the second sentence of the English line.
+  if (!isAr) return n == 1 ? 'One more' : '$n more';
+  return switch (n) {
+    1 => 'وحدة',
+    2 => 'ثنتين',
+    <= 10 => '${arabicDigits(n)} مرات',
+    _ => '${arabicDigits(n)} مرة',
+  };
+}
+
+/// "It only takes 2 minutes" for a habit that carries a timer, and so is
+/// the one kind of habit that knows exactly how long it takes.
+///
+/// Null when there is no timer, or when the duration isn't a whole number
+/// of minutes: the phrase counts minutes, and a reminder has no business
+/// saying «وقتها ٩٠ ثانية بس».
+String? _timerLead(int? timerSeconds, bool isAr) {
+  if (timerSeconds == null || timerSeconds < 60 || timerSeconds % 60 != 0) {
+    return null;
+  }
+  final phrase = countedOffsetPhrase(timerSeconds ~/ 60, isAr);
+  return isAr ? 'وقتها $phrase بس.' : 'It only takes $phrase.';
+}
+
+/// Which line of a state's pool this reminder gets. See [habitOnTimeLine]
+/// for what the caller mixes into [variantIndex].
+String _pick(List<String> pool, int variantIndex) =>
+    pool[variantIndex.abs() % pool.length];
+
+/// The one sentence a habit reminder says under the habit's own name when
+/// it fires on the dot.
+///
+/// ── Why this is a ladder and not a pool ─────────────────────
+/// It was one rotating pool of four generic lines, so a brand new habit,
+/// the most fragile thing in the app, drew «بضع دقائق لهذه العادة اليوم» /
+/// "A few minutes for this one today": a sentence that names no number,
+/// asks for nothing, and says "هذه العادة" about a habit the title directly
+/// above it has already named. Every reminder anyone actually likes does
+/// the opposite. Duolingo's are specific and carry a stake, Finch's are
+/// warm and never charge you for a gap, and Habitica's whole reminder
+/// feature is letting a habit say its own words instead of "complete
+/// habit". What they share is that the notification knows something about
+/// THIS habit and says it.
+///
+/// So the line is picked by the habit's real state, most specific first:
+///   1. part of today already logged, which is both the most useful thing
+///      the app knows and the one thing the title above cannot show;
+///   1b. for a flexible weekly quota, where the week stands, since the week
+///      is what that habit is measured by (see below);
+///   2. a live streak, pointed forward by [habitStreakLine];
+///   3. never once completed, so the ask is the first square and not a
+///      streak the habit doesn't have yet;
+///   4. completed before but lapsed, with the gap named and no blame
+///      attached, because "3 days" is a fact and "you broke it" is a
+///      charge;
+///   5. whatever is left, warm and short.
+///
+/// ── Lapsed means a day it RUNS ON was missed ──────────────
+/// State 4 is entered on [missedSinceLastDone], never on the size of
+/// [lastDoneDaysAgo]. The two agree for a daily habit and disagree for
+/// every other cadence, and the disagreement was a reported bug: a habit
+/// set to two weekdays, done on the first and reminded on the second, was
+/// told «صار لها ٣ أيام، وما ضاع شي» about a gap that owed nothing. Three
+/// days had passed and not one of them was a day the habit ran, so it had
+/// not lapsed, and a reminder that says otherwise is saying it is fine to
+/// be late to someone who is not late. The caller counts the missed days
+/// on the habit's own schedule (see NotificationService.reminderFactsAtFireDay);
+/// [lastDoneDaysAgo] only ever supplies the wording of a lapse that is real.
+///
+/// ── A weekly quota is judged by its week ──────────────────
+/// [weekTarget] is set for a habit that runs "N times a week, any days",
+/// with [weekDone] how many of this week are logged (null while the week's
+/// squares are not loaded, in which case nothing is claimed about the week)
+/// and [owedToday] whether skipping today puts the target out of reach
+/// (see DayDemand.owed). Such a habit has no days of its own to be late on,
+/// so it never draws the streak line either: its streak counter is a
+/// calendar count and says nothing true about a week.
+/// Each state carries more than one phrasing, and the extra ones are the
+/// two things a reminder is actually for: saying it is going well where
+/// there is something to say that about (states 1 and 2), and saying it
+/// would be a shame to let today go where there is not (3 and 5). State 4
+/// gets neither, because the person it is talking to has already missed
+/// days and does not need either a cheer or a nudge about it.
+/// States 3 to 5 prepend the habit's real length when it carries a timer,
+/// which is the honest version of what «بضع دقائق» was gesturing at.
+///
+/// ── The register ─────────────────────────────────────
+/// Impersonal, per this file's header, and it costs more here than
+/// anywhere else in the file: the obvious motivational sentence is an
+/// imperative, and an Arabic imperative is gendered («لوّن» vs «لوّني»). The
+/// old pool simply picked masculine and was wrong for half the people
+/// reading it. Every line below is nominal or third-person about the habit
+/// or the day, so none of them has a gender to get wrong.
+///
+/// [variantIndex] picks within a state's pool. The caller mixes the day
+/// with the habit id, so the wording holds still for one habit on one day
+/// (a mid-day reschedule must not visibly reword a pending notification)
+/// while two habits firing in the same minute don't say the same sentence
+/// twice.
+///
+/// [lastDoneDaysAgo] is null for a habit never completed, and otherwise
+/// counts effective days back from the day this reminder FIRES rather than
+/// from today, so a reminder armed tonight for Thursday still says a true
+/// number when it arrives.
+String habitOnTimeLine({
+  required int streak,
+  required int completedCount,
+  required int dailyTarget,
+  required int? lastDoneDaysAgo,
+  required int missedSinceLastDone,
+  required int? timerSeconds,
+  required int variantIndex,
+  required bool isAr,
+  bool everyDay = true,
+  int? weekTarget,
+  int? weekDone,
+  bool owedToday = false,
+}) {
+  // 1. Some of today is already in. Nothing else the app knows beats
+  //    telling someone exactly where they stand on the thing they're
+  //    being pinged about.
+  if (completedCount > 0 && completedCount < dailyTarget) {
+    final left = _countedRepeats(dailyTarget - completedCount, isAr);
+    if (!isAr) {
+      return _pick([
+        '$completedCount of $dailyTarget today. $left to go.',
+        '$completedCount of $dailyTarget today and going well. '
+            '$left to go.',
+      ], variantIndex);
+    }
+    final done = arabicDigits(completedCount);
+    final target = arabicDigits(dailyTarget);
+    return _pick([
+      '$done من $target اليوم، وباقي $left.',
+      '$done من $target اليوم وماشية عدل، وباقي $left.',
+    ], variantIndex);
+  }
+  // 1b. A flexible weekly quota measures itself by the week, and the week
+  //     is the one thing its title cannot show. Once the target is met the
+  //     rest of the week owes nothing and the line says so instead of
+  //     nagging; a day the quota genuinely needs is named as such. Nothing
+  //     is said while the week's squares are unknown: a claim about the
+  //     week needs the week.
+  if (weekTarget != null && weekDone != null) {
+    final target = isAr ? arabicDigits(weekTarget) : '$weekTarget';
+    final done = isAr ? arabicDigits(weekDone) : '$weekDone';
+    if (weekDone >= weekTarget) {
+      return isAr
+          ? 'هدف الأسبوع تم، $done من $target، ومربع اليوم زيادة.'
+          : 'Week target met, $done of $target. Today is a bonus square.';
+    }
+    final left = _countedRepeats(weekTarget - weekDone, isAr);
+    final needed = isAr ? '، واليوم مطلوب.' : ', and today is one of them.';
+    if (weekDone > 0) {
+      if (owedToday) {
+        return isAr
+            ? '$done من $target هذا الأسبوع، وباقي $left$needed'
+            : '$done of $target this week. $left to go$needed';
+      }
+      return _pick(
+        isAr
+            ? [
+                '$done من $target هذا الأسبوع، وباقي $left.',
+                '$done من $target هذا الأسبوع وماشية عدل، وباقي $left.',
+              ]
+            : [
+                '$done of $target this week. $left to go.',
+                '$done of $target this week and going well. $left to go.',
+              ],
+        variantIndex,
+      );
+    }
+    if (owedToday) {
+      return isAr
+          ? 'باقي $left هذا الأسبوع$needed'
+          : '$left to go this week$needed';
+    }
+  }
+  // 2. A live streak is its own reason to act. Never for a quota habit:
+  //    see the doc comment.
+  if (streak > 0 && weekTarget == null) {
+    return habitStreakLine(
+      streak,
+      isAr,
+      variantIndex: variantIndex,
+      everyDay: everyDay,
+    );
+  }
+
+  final lead = _timerLead(timerSeconds, isAr);
+  final String line;
+  if (lastDoneDaysAgo == null) {
+    // 3. Never done once. Ask for the first square.
+    line = _pick(
+      isAr
+          ? const [
+              'أول مربع فيها اليوم، ومن هنا تبدأ العادة.',
+              'عادة جديدة تنتظر أول مربع لها.',
+              'أول يوم هو الأصعب، وبعده تمشي مع نفسها.',
+              'أول مربع فيها اليوم، وخسارة يفوت.',
+            ]
+          : const [
+              'First square today. This is where it starts.',
+              'A new habit waiting on its first square.',
+              'The first day is the hard one, then it carries itself.',
+              'First square today. A shame to let it slip.',
+            ],
+      variantIndex,
+    );
+  } else if (missedSinceLastDone > 0 && lastDoneDaysAgo >= 2) {
+    // 4. Done before, and a day it runs on has ended without it. Name the
+    //    gap, and leave the door open. The gap is still counted in calendar
+    //    days, since that is how long it has actually been; only the
+    //    DECISION that there is a lapse to name is on the schedule.
+    final gap = countedOffsetPhrase(
+        lastDoneDaysAgo * ReminderUnit.days.inMinutes, isAr);
+    line = _pick(
+      isAr
+          ? [
+              'صار لها $gap. مربع واحد اليوم وترجع السلسلة.',
+              'آخر مرة كانت قبل $gap، واليوم بداية جديدة لها.',
+              'صار لها $gap، وما ضاع شي. مربع واحد يرجعها.',
+            ]
+          : [
+              "It's been $gap. One square today and the streak is back.",
+              'Last done $gap ago. Today is a clean start.',
+              "It's been $gap and nothing is lost. One square brings it back.",
+            ],
+      variantIndex,
+    );
+  } else {
+    // 5. Nothing specific to say, so say something short and kind.
+    line = _pick(
+      isAr
+          ? const [
+              'وقتها الحين، ومربع اليوم على بعد دقايق.',
+              'اليوم ما زال فيه وقت لها.',
+              'وقتها الحين، وخسارة لو تفوت اليوم.',
+            ]
+          : const [
+              "It's time. Today's square is minutes away.",
+              "There's still time for this one today.",
+              "It's time. Don't let today slip by.",
+            ],
+      variantIndex,
+    );
+  }
+  return lead == null ? line : '$lead $line';
+}
 
 /// Body for one habit's reminder.
 ///
@@ -208,12 +529,15 @@ String habitStreakLine(int streak, bool isAr) => isAr
 /// streak clause, because "you are 45 minutes out" and "you have 7 days
 /// riding on this" are two different things to say and the second is the
 /// reason to act.
+///
+/// [everyDay] reaches the streak clause, see [habitStreakLine].
 String habitReminderBody({
   required int offsetMinutes,
   required int streak,
   required String? anchorLabel,
   required bool isAr,
   required String onTimeLine,
+  bool everyDay = true,
 }) {
   if (offsetMinutes == 0) return onTimeLine;
   final gap = countedOffsetPhrase(offsetMinutes.abs(), isAr);
@@ -224,8 +548,36 @@ String habitReminderBody({
       : (anchorLabel != null
           ? (isAr ? 'فات $anchorLabel قبل $gap.' : '$anchorLabel was $gap ago.')
           : (isAr ? 'فات وقتها قبل $gap.' : '$gap past due.'));
-  return streak > 0 ? '$lead ${habitStreakLine(streak, isAr)}' : lead;
+  return streak > 0
+      ? '$lead ${habitStreakLine(streak, isAr, everyDay: everyDay)}'
+      : lead;
 }
+
+// ── Action buttons ──────────────────────────────────────────────────
+//
+// The two buttons under a habit reminder, and the two under a quit
+// check-in. They were English on an Arabic device, which is the one part of
+// the notification the reader is meant to ACT on, so the whole ping stopped
+// being in their language exactly where it asked for something.
+//
+// Nominal, not imperative, for the reason the file header gives: «تمت» is a
+// statement about the habit and works for whoever taps it, where «سجّل» has
+// to pick a gender. They are short on purpose too, since both platforms
+// truncate a button label hard.
+
+/// "Done" for a habit reminder's completion button.
+String markDoneAction(bool isAr) => isAr ? 'تمت' : 'Mark Done';
+
+/// "Snooze an hour" for a habit reminder's postpone button. Matches what
+/// [snoozedReminderBody] later says about it.
+String snoozeAction(bool isAr) => isAr ? 'تأجيل ساعة' : 'Snooze 1h';
+
+/// A quit check-in's two answers. «التزام» covers both quit shapes the way
+/// "On Track" does (avoid-completely and stay-under-a-limit alike), and
+/// «زلة» is the ordinary word for a slip, with none of the weight of
+/// «فشل».
+String onTrackAction(bool isAr) => isAr ? 'التزام' : 'On Track';
+String slippedAction(bool isAr) => isAr ? 'زلة' : 'Slipped';
 
 /// Body for the one-hour snooze fired from a habit reminder's "Snooze 1h"
 /// action.
@@ -287,4 +639,27 @@ String habitBundleTitle({
   // «بانتظارك» for the dual dodges the verb having to agree with a dual
   // feminine subject, and matches the task copy's own register.
   return count == 2 ? 'عادتين بانتظارك' : '$counted تنتظرك';
+}
+
+/// Offsets (in minutes) an extra reminder can sit at, relative to its
+/// anchor — a task's reminder time, or a habit's clock time or prayer.
+/// Unsigned: direction is a separate two-chip toggle the user sets once and
+/// then applies to as many offsets as they like.
+///
+/// Five, which together with the custom cell makes six on a 3-column grid:
+/// two complete rows with no ragged gap.
+///
+/// Lives here, beside the copy that words a reminder, rather than in either
+/// screen that draws the grid: Tasks and Add Habit ask the identical
+/// question and are meant to be indistinguishable, and a preset list owned
+/// by one of them is a preset list the other can drift away from.
+const kReminderOffsetPresets = <int>[5, 10, 15, 30, 60];
+
+/// Chip label for an offset: the number for minutes, a word for the hours,
+/// since "120" reads worse than "ساعتان" at a glance. Direction comes from
+/// the قبل/بعد toggle above the grid, not from the label.
+String reminderOffsetLabel(int minutes, bool isAr) {
+  if (minutes == 60) return isAr ? 'ساعة' : '1 hour';
+  if (minutes == 120) return isAr ? 'ساعتان' : '2 hours';
+  return isAr ? arabicDigits(minutes) : '$minutes';
 }

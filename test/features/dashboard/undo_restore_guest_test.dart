@@ -178,6 +178,55 @@ void main() {
         isNull);
   });
 
+  test('undoing a completion refunds the daily earn counter', () async {
+    // completeHabit spends earnedXpToday/earnedGoldToday, and a same-day
+    // redo spends it again through the normal reward arithmetic, so an undo
+    // that left the counter alone made every complete→undo→redo lap inflate
+    // it by one full reward: the Grid summary's "XP اليوم" overstated the
+    // day, and honest corrections burned real cap room.
+    final container = await launch();
+    final notifier = container.read(dashboardProvider.notifier);
+    final today = DateTime.now().effectiveDay;
+
+    final before = container.read(dashboardProvider).earnedXpOn(keyFor(today));
+    await notifier.completeHabit(
+      habitId: 'h1',
+      xpReward: 10,
+      goldReward: 5,
+      frequencyTarget: 1,
+      allHabitsDoneAfter: false,
+    );
+    final spent = container.read(dashboardProvider);
+    expect(spent.earnedXpOn(keyFor(today)), before + 10,
+        reason: 'the completion must bank its payout against the cap');
+    expect(spent.earnedGoldOn(keyFor(today)), 5);
+
+    await notifier.uncompleteHabit(
+      habitId: 'h1',
+      xpReward: 10,
+      goldReward: 5,
+    );
+    final refunded = container.read(dashboardProvider);
+    expect(refunded.earnedXpOn(keyFor(today)), before,
+        reason: 'the undo must give the banked allowance back');
+    expect(refunded.earnedGoldOn(keyFor(today)), 0);
+
+    // The redo spends it again — the counter tracks what the day has NET
+    // paid, so a lap must land exactly where a single completion would.
+    await notifier.completeHabit(
+      habitId: 'h1',
+      xpReward: 10,
+      goldReward: 5,
+      frequencyTarget: 1,
+      allHabitsDoneAfter: false,
+    );
+    expect(
+      container.read(dashboardProvider).earnedXpOn(keyFor(today)),
+      before + 10,
+      reason: 'a complete→undo→redo lap must not inflate the counter',
+    );
+  });
+
   test('undo and redo across a restart no longer resets the habit streak',
       () async {
     // The exact shape a person hits: complete a habit, close the app, reopen

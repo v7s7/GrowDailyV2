@@ -17,9 +17,9 @@ import 'package:grow_daily_v2/core/services/home_widget_service.dart';
 
 void main() {
   group('HomeWidgetService.recentHeatmap', () {
-    // A fixed, unambiguous instant - clear of both the 10am day-cutoff and
-    // any month/year rollover - so every test below is about the windowing
-    // math itself, never today's real date.
+    // A fixed, unambiguous instant - midday, clear of any month/year
+    // rollover - so every test below is about the windowing math itself,
+    // never today's real date.
     final fixedNow = DateTime(2026, 3, 15, 12, 0);
 
     test('produces exactly 28 entries', () {
@@ -68,16 +68,20 @@ void main() {
     });
 
     test(
-        'respects the day-cutoff: just after midnight still counts as the '
-        'previous calendar day (see DateTimeGameExt.effectiveDay)', () {
-      // 1am is before kDayCutoffHour (10am) - effectiveDay should roll this
-      // back onto March 14th, not March 15th.
+        'the strip rolls to the new day at midnight, like everything else '
+        '(see DateTimeGameExt.effectiveDay)', () {
+      // This asserted the opposite while effectiveDay shifted back by
+      // kDayCutoffHour: 1am on the 15th used to land the strip's last cell
+      // on the 14th, so the home-screen widget showed a day the phone's own
+      // clock had already left. It ends on the 15th now, and a home widget
+      // that disagrees with the lock-screen date is exactly the confusion
+      // the whole day-model change removes.
       final justAfterMidnight = DateTime(2026, 3, 15, 1, 0);
       final result = HomeWidgetService.recentHeatmap(
         {},
         now: justAfterMidnight,
       );
-      expect(result.last['date'], DateTime(2026, 3, 14).toDateKey());
+      expect(result.last['date'], DateTime(2026, 3, 15).toDateKey());
     });
 
     test('defaults [now] to the real current time when omitted', () {

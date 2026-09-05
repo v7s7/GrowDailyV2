@@ -1,0 +1,19 @@
+/* The iOS permission sheets, in Arabic.
+
+   Without this file every one of these prompts showed its English text on a
+   phone set to Arabic, including the Health one, which is the sheet that
+   decides whether the walking-habit link works at all. The app itself has
+   been fully Arabic since the first build; only the system sheets were not.
+
+   These are the same promises the English strings in Info.plist make, in the
+   same order. Change one, change both. */
+
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Grow Daily يستخدم موقعك بس والتطبيق مفتوح، عشان يحسب أوقات الصلاة بدقة لتذكيراتك. ما يتتبع موقعك في الخلفية أبدًا.";
+
+"NSLocationWhenInUseUsageDescription" = "Grow Daily يستخدم موقعك عشان يحسب أوقات الصلاة بدقة لتذكيراتك. إحداثياتك تنرسل لخدمة أوقات الصلاة، وإذا كنت مسجل دخول تنحفظ في حسابك عشان التذكيرات تمشي معك على كل أجهزتك.";
+
+"NSMicrophoneUsageDescription" = "Grow Daily يستخدم المايك عشان تسجل ملاحظات صوتية قصيرة تربطها بمهامك. إذا كنت مسجل دخول، ملاحظاتك تنحفظ في حسابك الخاص عشان تتزامن بين أجهزتك.";
+
+"NSHealthShareUsageDescription" = "Grow Daily يقرأ عدد خطواتك اليومي من تطبيق صحتي (ومنها خطوات ساعة Apple إذا عندك وحدة) عشان عادات المشي اللي تربطها بالخطوات تكتمل بروحها. الخطوات تنقرأ بس، ما تتغير، وتبقى على جهازك.";
+
+"NSHealthUpdateUsageDescription" = "Grow Daily ما يكتب أي بيانات صحية. هذا الإذن جزء من ربط الصحة المستخدم لقراءة عدد خطواتك لعادات المشي.";

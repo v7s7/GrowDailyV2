@@ -41,6 +41,17 @@ final guestReconnectOfferProvider =
   final isGuest = ref.watch(guestModeProvider);
   if (uid == null || isGuest) return null;
 
+  // Only an account that registered FRESH on this device is ever offered
+  // the data — the persisted half of the rule GuestMigrationService's doc
+  // states. Without this the banner made the offer to any plain sign-in:
+  // a months-old account signing in on a device with a short guest trial
+  // was invited to merge, and accepting field-replaced its level, XP, gold
+  // and streak with the guest's smaller values. It also made phantom
+  // offers out of pre-sync Hive leftovers, because the device-global
+  // catalog keys a LEGACY signed-in account once wrote are
+  // indistinguishable from guest progress to hasGuestProgress().
+  if (!await LocalStoreService.isReconnectCandidate(uid)) return null;
+
   if (!await LocalStoreService.hasGuestProgress()) return null;
   if (await LocalStoreService.hasDecidedReconnect(uid)) return null;
 
@@ -48,10 +59,17 @@ final guestReconnectOfferProvider =
   // grace period is still ahead. Once one exists it is what the copy
   // quotes, rounded UP: telling someone "0 days" on the last afternoon
   // reads as already gone, when they in fact still have until midnight.
+  // A deadline already PASSED must not round up the same way — ~/ on a
+  // negative duration truncates toward zero, so an hour past the deadline
+  // read as "1 day left" while the next cold start's sweep was about to
+  // delete the data. Expired is expired.
   final deadline = await LocalStoreService.guestDiscardDeadline();
-  final daysLeft = deadline == null
+  final remaining = deadline?.difference(DateTime.now());
+  final daysLeft = remaining == null
       ? LocalStoreService.guestDiscardGraceDays
-      : deadline.difference(DateTime.now()).inHours ~/ 24 + 1;
+      : remaining.isNegative
+          ? 0
+          : remaining.inHours ~/ 24 + 1;
   if (daysLeft <= 0) return null;
 
   return GuestReconnectOffer(uid: uid, daysLeft: daysLeft);

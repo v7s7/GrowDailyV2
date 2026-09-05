@@ -580,6 +580,8 @@ class _HistoryRow extends ConsumerWidget {
         ScaffoldMessenger.of(context).showOne(
           SnackBar(
             content: Text(s.matrixTaskDeleted(task.title)),
+            // Never pin the bar open. See AppSnackBar.
+            persist: false,
             action: SnackBarAction(
               label: s.matrixUndo,
               onPressed: () => ref.read(matrixProvider.notifier).restore(task),

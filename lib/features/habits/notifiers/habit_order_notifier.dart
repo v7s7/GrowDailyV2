@@ -37,7 +37,17 @@ class HabitOrderNotifier extends StateNotifier<Map<String, double>> {
       final raw =
           (snap.data()?['habitOrder'] as Map?)?.cast<String, dynamic>() ??
               {};
-      state = raw.map((k, v) => MapEntry(k, (v as num).toDouble()));
+      // Merged UNDER whatever is already in memory, not assigned over it:
+      // a reorder() that ran while this load was still in flight has
+      // already produced a rank the person watched land, and a plain
+      // `state = loaded` here silently threw it away — after which
+      // _persist wrote the emptied map back over the stored one, losing
+      // the order on disk too (caught by habit_reorder_test's reload
+      // case, where the write always races the constructor's load).
+      state = {
+        for (final e in raw.entries) e.key: (e.value as num).toDouble(),
+        ...state,
+      };
     } catch (_) {}
   }
 
@@ -45,7 +55,11 @@ class HabitOrderNotifier extends StateNotifier<Map<String, double>> {
     final box = await LocalStoreService.settingsBox();
     final raw = (box.get(_kGuestKey) as Map?)?.cast<String, dynamic>() ?? {};
     if (!mounted) return;
-    state = raw.map((k, v) => MapEntry(k, (v as num).toDouble()));
+    // Same merge-under as _load above, same clobber race.
+    state = {
+      for (final e in raw.entries) e.key: (e.value as num).toDouble(),
+      ...state,
+    };
   }
 
   /// Moves [id] so it sorts immediately before [beforeId] within
@@ -83,12 +97,16 @@ class HabitOrderNotifier extends StateNotifier<Map<String, double>> {
   }
 
   Future<void> _persist() async {
+    // Snapshot before any await: the guest path suspends on settingsBox(),
+    // and `state` read after that suspension is whatever it has become by
+    // then, not what this call was asked to save.
+    final snapshot = state;
     if (_uid != null) {
-      _userRef.set({'habitOrder': state}, SetOptions(merge: true)).ignore();
+      _userRef.set({'habitOrder': snapshot}, SetOptions(merge: true)).ignore();
       return;
     }
     final box = await LocalStoreService.settingsBox();
-    await box.put(_kGuestKey, state);
+    await box.put(_kGuestKey, snapshot);
   }
 }
 

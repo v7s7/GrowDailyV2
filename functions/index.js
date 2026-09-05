@@ -49,6 +49,7 @@ const {setGlobalOptions} = require("firebase-functions/v2");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const {roomEventFor} = require("./room_events");
+const {claimQuota, isQuietHoursNow, pushKindFor} = require("./push_policy");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -204,106 +205,33 @@ const NUDGE_MESSAGES = {
 const NUDGE_ROOM_LIMIT = 5;
 
 /**
- * Whether [tzOffsetMinutes] (this user's device's UTC offset in minutes,
- * mirrored by main.dart's _syncAmbientAccountFacts - see that function's
- * own doc comment for why a plain offset rather than a full IANA timezone)
- * currently falls inside their quiet-hours window. `quietHoursStart`/`End`
- * are "H:MM" strings (see NotificationSettings._timeToMap on the Dart
- * side). Correctly handles an overnight window (e.g. 22:00 -> 7:00). Fails
- * open (never blocks) when quiet hours are off, or when this device has
- * never reported a timezone offset - guessing wrong here would silently
- * swallow a real notification, which is worse than occasionally sending
- * one during what might be quiet hours for someone whose timezone this
- * function simply doesn't know yet.
- * @param {object|undefined} settings This account's mirrored
- * NotificationSettings map, if any.
- * @param {number|undefined} tzOffsetMinutes This device's last-known UTC
- * offset in minutes.
- * @return {boolean} True if now falls inside quiet hours for this account.
- */
-function isQuietHoursNow(settings, tzOffsetMinutes) {
-  if (!settings || settings.quietHoursEnabled !== true) return false;
-  if (typeof tzOffsetMinutes !== "number") return false;
-  const start = settings.quietHoursStart;
-  const end = settings.quietHoursEnd;
-  if (typeof start !== "string" || typeof end !== "string") return false;
-
-  const toMinutes = (hhmm) => {
-    const parts = hhmm.split(":");
-    if (parts.length !== 2) return null;
-    const h = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    if (Number.isNaN(h) || Number.isNaN(m)) return null;
-    return h * 60 + m;
-  };
-  const startMin = toMinutes(start);
-  const endMin = toMinutes(end);
-  if (startMin === null || endMin === null || startMin === endMin) {
-    return false;
-  }
-
-  const now = new Date();
-  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const localMinutes = ((utcMinutes + tzOffsetMinutes) % 1440 + 1440) % 1440;
-
-  if (startMin < endMin) {
-    return localMinutes >= startMin && localMinutes < endMin;
-  }
-  // Overnight window, e.g. 22:00 -> 7:00.
-  return localMinutes >= startMin || localMinutes < endMin;
-}
-
-/**
- * Whether [otherUid] should receive this push, checking every gate in the
- * same order NotificationSettings declares its own fields: this specific
- * room muted, the whole category off, the master switch off, then quiet
- * hours. Missing/unsynced settings default to "send" everywhere, same
- * "helpful by default" philosophy NotificationSettings itself documents on
- * the Dart side - a user this function knows nothing about yet (no
- * mirrored settings) is exactly like a fresh install with all-defaults.
- * @param {string} otherUid The candidate recipient's uid.
- * @param {object} participantData Their own doc in this room's
- * participants subcollection.
- * @return {Promise<{eligible: boolean, locale: string,
- * tzOffsetMinutes: (number|undefined)}>} Whether to send, which language to
- * send it in, and the recipient's UTC offset for day-keying the cap.
- */
-/**
- * The most room pushes one person may receive in a day, counted across
- * EVERY room they belong to.
- *
- * Each room used to decide alone, so nothing bounded what a single person
- * actually experienced. A member of four five-person rooms where everyone
- * finishes received sixteen pushes a day, none of which any one room could
- * see. This is the only limit that is expressed in terms of the human being
- * on the receiving end rather than the sending room.
- */
-const DAILY_PUSH_CAP_PER_USER = 3;
-
-/**
- * Whether this recipient still has room under the daily cap, incrementing
- * their counter when they do.
+ * Whether this recipient still has room for a push of [kind] today,
+ * spending the slot when they do. See push_policy.js for the three kinds
+ * and why they are capped separately: one heads-up, one nudge and one
+ * celebration per person per day, so a morning "first to finish" can never
+ * use up the evening "you're the last one", and neither can silence a
+ * "perfect day".
  *
  * Kept in a transaction because a person in several rooms can legitimately
  * be sent to by two finishers in different rooms at the same moment, and a
  * plain read-modify-write would let both through.
  *
- * `date` is the recipient's OWN app day, passed in by the caller, so the
- * counter rolls over on their clock rather than UTC.
+ * `dayKey` is the recipient's OWN app day, passed in by the caller, so the
+ * counters roll over on their clock rather than UTC.
  * @param {string} otherUid The recipient.
  * @param {string} dayKey Their local day, "YYYY-MM-DD".
+ * @param {string} kind "info" or "nudge", see pushKindFor.
  * @return {Promise<boolean>} Whether a push may be sent.
  */
-async function claimDailyPushSlot(otherUid, dayKey) {
+async function claimPushSlot(otherUid, dayKey, kind) {
   const ref = db.collection("users").doc(otherUid);
   try {
     return await db.runTransaction(async (txn) => {
       const snap = await txn.get(ref);
-      const quota = (snap.data() || {}).roomPushQuota || {};
-      const used = quota.date === dayKey ? (quota.count || 0) : 0;
-      if (used >= DAILY_PUSH_CAP_PER_USER) return false;
-      txn.set(ref, {roomPushQuota: {date: dayKey, count: used + 1}},
-          {merge: true});
+      const decision =
+        claimQuota((snap.data() || {}).roomPushQuota, dayKey, kind);
+      if (!decision.allowed) return false;
+      txn.set(ref, {roomPushQuota: decision.next}, {merge: true});
       return true;
     });
   } catch (err) {
@@ -318,7 +246,7 @@ async function claimDailyPushSlot(otherUid, dayKey) {
  * Claim this person's single evening reminder for [dayKey], across every
  * room they are in.
  *
- * Fails CLOSED (unlike claimDailyPushSlot): this push is triggered by
+ * Fails CLOSED (unlike claimPushSlot): this push is triggered by
  * inactivity rather than by anything the recipient did, so the cost of an
  * unnecessary one is higher than the cost of a missed one.
  * @param {string} uid The recipient.
@@ -418,7 +346,7 @@ async function nudgeAllowed(otherUid, participantData, roomSize) {
  * second would both compute "I am the first" from a plain read, so the
  * check and the write have to be one transaction.
  *
- * Fails CLOSED, unlike claimDailyPushSlot which falls back to sending. The
+ * Fails CLOSED, unlike claimPushSlot which falls back to sending. The
  * asymmetry is deliberate: a lost per-user quota claim costs at most one
  * extra push to one person, while a lost event claim would let a whole
  * room be notified twice for the same event.
@@ -522,11 +450,18 @@ exports.notifyRoomFinish = onCall(async (request) => {
   }[event];
 
   const sends = [];
+  // Why a recipient was skipped, counted so the log can answer "why did
+  // nobody get this" without anyone's phone in hand. No names, uids or
+  // tokens: counts only.
+  const skipped = {ineligible: 0, noToken: 0, capped: 0};
   for (const doc of recipients) {
     const other = doc.data() || {};
     const {eligible, locale, tzOffsetMinutes} =
       await isEligible(doc.id, other);
-    if (!eligible) continue;
+    if (!eligible) {
+      skipped.ineligible++;
+      continue;
+    }
 
     const tokensSnap = await db
         .collection("users").doc(doc.id)
@@ -535,8 +470,13 @@ exports.notifyRoomFinish = onCall(async (request) => {
     // device cannot receive anything, so spending one of their three daily
     // slots on an undeliverable push would silently exhaust the quota of
     // exactly the people who are already getting nothing.
-    if (tokensSnap.empty) continue;
-    if (!await claimDailyPushSlot(doc.id, localDayKey(tzOffsetMinutes))) {
+    if (tokensSnap.empty) {
+      skipped.noToken++;
+      continue;
+    }
+    if (!await claimPushSlot(
+        doc.id, localDayKey(tzOffsetMinutes), pushKindFor(event))) {
+      skipped.capped++;
       continue;
     }
 
@@ -584,6 +524,13 @@ exports.notifyRoomFinish = onCall(async (request) => {
     }
   }
   await Promise.all(sends);
+  logger.info("notifyRoomFinish", {
+    roomCode,
+    event,
+    recipients: recipients.length,
+    sent: sends.length,
+    ...skipped,
+  });
   return {sent: sends.length, event};
 });
 
@@ -691,7 +638,7 @@ exports.roomEveningReminder = onSchedule(
           // covers the two-hour window being wide enough for the hourly
           // schedule to pass through it twice.
           if (!await claimEveningNudge(doc.id, dayKey)) continue;
-          if (!await claimDailyPushSlot(doc.id, dayKey)) continue;
+          if (!await claimPushSlot(doc.id, dayKey, "nudge")) continue;
           const {title, body} =
             EVENING_REMINDER_MESSAGES[locale](roomName, part.gender);
           for (const tokenDoc of tokensSnap.docs) {

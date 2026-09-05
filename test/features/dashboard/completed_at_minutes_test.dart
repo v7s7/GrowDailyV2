@@ -17,26 +17,26 @@ void main() {
       expect(minutesSinceMidnight(DateTime(2026, 8, 20, 23, 59)), 1439);
     });
 
-    test('counts from real local midnight, not the 10am day cutoff', () {
-      // The wrinkle the doc comment warns about, pinned so nobody
-      // "corrects" it into effectiveDay minutes later: 02:00 is 120, even
-      // though effectiveDay still calls that moment the previous day.
+    test('counts from real local midnight, and now agrees with the day', () {
+      // This used to be the file's awkward case: 02:00 was 120 minutes while
+      // effectiveDay called that same instant the PREVIOUS day, so the stamp
+      // and the document it sat on disagreed and a reader had to resolve the
+      // ambiguity. The day rolls at midnight now, so the two simply agree.
       final twoAm = DateTime(2026, 8, 20, 2);
       expect(minutesSinceMidnight(twoAm), 120);
-      // Same instant, and effectiveDay disagrees about which day it is.
-      expect(twoAm.effectiveDay.day, 19);
+      expect(twoAm.effectiveDay.day, 20,
+          reason: 'the stamp and its document mean the same day');
     });
 
-    test('a value below the cutoff marks the morning after the doc date', () {
-      // Any stamp under 6 * 60 belongs to the calendar day AFTER the
-      // document it sits on, which is the whole reason the wall-clock
-      // choice is safe: the ambiguity is resolvable, an effectiveDay-based
-      // offset would have thrown the real clock time away.
-      const cutoffMinutes = 6 * 60;
-      expect(minutesSinceMidnight(DateTime(2026, 8, 20, 2)),
-          lessThan(cutoffMinutes));
-      expect(minutesSinceMidnight(DateTime(2026, 8, 20, 9)),
-          greaterThanOrEqualTo(cutoffMinutes));
+    test('a stamp always belongs to the document it sits on', () {
+      // The property that replaced the old "a value below the cutoff means
+      // the morning after" rule. No stamp is ever off-by-a-day now, at any
+      // hour, so nothing downstream has to know a cutoff to read one.
+      for (var h = 0; h < 24; h++) {
+        final at = DateTime(2026, 8, 20, h, 30);
+        expect(minutesSinceMidnight(at), h * 60 + 30);
+        expect(at.effectiveDay, DateTime(2026, 8, 20), reason: '${h}:30');
+      }
     });
 
     test('is stable across the whole day', () {

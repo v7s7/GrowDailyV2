@@ -70,6 +70,10 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     String? category,
     String? habitName,
     int scheduledHabitCount = 0,
+    DateTime? day,
+    /// The habit's own weekdays (empty = every day), so its streak gap is
+    /// measured on days it actually runs. See scheduledGap.
+    Set<int> scheduledWeekdays = const {},
   }) async {
     // Refuse to record anything while the signed-in load failed. Everything
     // this method persists — level, currentLevelXp, cumulativeXp, gold,
@@ -104,10 +108,45 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // nothing is lost there; this is the backstop for every other caller.
     if (_uid != null && state.isLoading) return false;
 
-    final current = state.completions[habitId] ?? 0;
+    // ── Which day is being paid for ──────────────────────────────
+    //
+    // Null means today, which is every caller that existed before yesterday
+    // could still be marked. A non-null [day] is only ever YESTERDAY inside
+    // its grace tail: the night-owl case kDayCutoffHour used to handle
+    // silently, by making the whole app pretend yesterday was still today
+    // until 10 AM. It is explicit now, so the board can show the real day
+    // while the person can still finish the one behind it.
+    final markDay = (day ?? _clock().effectiveDay).startOfDay;
+    final dayKey = markDay.toDateKey();
+    final isGraceDay = dayKey != _todayKeyNow;
+    // The anti-backdating rule, stated once, at the only place that pays: a
+    // day outside its own window can never be bought. No colouring in last
+    // month, and nothing marked ahead of its own midnight.
+    if (isGraceDay && !markDay.isOpenDayAt(_clock())) return false;
+
+    // Today's counts live in `state`. A grace day's do not, so they are read
+    // from the day itself: one extra read, only on the rare path (ten hours a
+    // day, and only for someone who deliberately stepped back), and it keeps
+    // today's in-memory board completely untouched by a mark that is not
+    // today's. Getting that wrong would tick the wrong day on Today's screen.
+    Map<String, int> dayCompletions = state.completions;
+    Set<String> dayCountedBefore = state.dayCountedHabitIds;
+    bool dayStreakEarnedBefore = state.streakEarnedToday;
+    var daySpentXp = state.earnedXpOn(dayKey);
+    var daySpentGold = state.earnedGoldOn(dayKey);
+    if (isGraceDay) {
+      final stored = await _readStoredDay(markDay);
+      dayCompletions = stored.completions;
+      dayCountedBefore = stored.dayCounted;
+      dayStreakEarnedBefore = stored.streakEarned;
+      daySpentXp = stored.earnedXp;
+      daySpentGold = stored.earnedGold;
+    }
+
+    final current = dayCompletions[habitId] ?? 0;
     if (current >= frequencyTarget) return false;
 
-    final newCompletions = Map<String, int>.from(state.completions)
+    final newCompletions = Map<String, int>.from(dayCompletions)
       ..[habitId] = current + 1;
 
     // ── This tap's share of the day ──────────────────────────────
@@ -164,7 +203,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // sidecar note and the write below), and the receipt has to be spent here
     // so it can never be redeemed a second time by repainting the same square
     // once the day has rolled over.
-    final redeemed = state.undoneFor(habitId, DashboardNotifier._todayKey);
+    final redeemed = state.undoneFor(habitId, dayKey);
     // Set only when this completion just crossed one of
     // GameConstants.habitStreakBonuses' thresholds — see below.
     HabitMilestoneEvent? newHabitMilestoneEvent;
@@ -172,14 +211,24 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     if (current == 0) {
       final lastKey = state.habitLastCompletedDate[habitId];
       final last = lastKey == null ? null : DateTime.tryParse(lastKey);
+      // Measured on the habit's OWN days, not the calendar. A Wed/Sat habit
+      // done Wednesday and again Saturday measures 1 and continues, where
+      // the calendar said 3 and restarted it at 1 on every completion, so
+      // its streak never rose past 1 and its milestones never paid. For an
+      // every-day habit this is exactly the calendar difference it always
+      // was. See scheduledGap.
       final gap = last == null
           ? null
-          : DateTime.now().effectiveDay.difference(DashboardNotifier._dateOnly(last)).inDays;
+          : scheduledGap(
+              last: DashboardNotifier._dateOnly(last),
+              day: markDay,
+              weekdays: scheduledWeekdays,
+            );
       final prevStreak = state.habitStreakCounts[habitId] ?? 0;
-      // Only a same-day-yesterday completion continues the streak; a gap of
-      // 2+, or no prior completion at all, restarts it at 1. A gap of zero is
-      // reachable and used to be destructive — see [nextHabitStreak], which
-      // owns the whole rule now so it can be tested.
+      // Only a completion on the very next day the habit runs continues the
+      // streak; a gap of 2+, or no prior completion at all, restarts it at
+      // 1. A gap of zero is reachable and used to be destructive — see
+      // [nextHabitStreak], which owns the whole rule now so it can be tested.
       final newHabitStreak =
           nextHabitStreak(gapDays: gap, previousStreak: prevStreak);
       newHabitStreakCounts[habitId] = newHabitStreak;
@@ -188,7 +237,16 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           newHabitStreak > prevLongest ? newHabitStreak : prevLongest;
       newHabitTotalCompletions[habitId] =
           (state.habitTotalCompletions[habitId] ?? 0) + 1;
-      newHabitLastCompletedDate[habitId] = DashboardNotifier._todayKey;
+      // The LATEST day this habit was completed, so it may only ever move
+      // forward. Marking yesterday during the grace after today was already
+      // marked would otherwise drag it back a day, and the per-habit gap
+      // above reads it: the next completion would then measure a gap of 1
+      // from the wrong day and quietly reset a live streak.
+      final priorKey = state.habitLastCompletedDate[habitId];
+      newHabitLastCompletedDate[habitId] =
+          (priorKey != null && priorKey.compareTo(dayKey) > 0)
+              ? priorKey
+              : dayKey;
 
       // ── Per-habit milestone ──────────────────────────────────
       //
@@ -281,9 +339,8 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // done" to "all done" (never on the 1st of N, only the Nth), it can
     // only ever fire once per calendar day, and once it fires it stays
     // earned for the rest of the day even if a new habit gets added later.
-    final justReachedAllDone =
-        allHabitsDoneAfter && !state.streakEarnedToday;
-    final newStreakEarnedToday = state.streakEarnedToday || justReachedAllDone;
+    final justReachedAllDone = allHabitsDoneAfter && !dayStreakEarnedBefore;
+    final newStreakEarnedToday = dayStreakEarnedBefore || justReachedAllDone;
     // A real, freshly-earned streak day supersedes any stale "restore your
     // old streak with a freeze" offer still sitting around from a past
     // loss — see DashboardState.previousStreak's doc comment. Without
@@ -342,8 +399,13 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // Read once into a local, like the receipt below does, because a method
     // that straddles the day cutoff must not bank against one day and
     // charge against the next.
-    final earnDayKey = DashboardNotifier._todayKey;
-    final capped = _allowedToday(
+    // The cap belongs to the DAY being paid for, not to the sitting: each
+    // calendar day gets its own full allowance, so catching up on
+    // yesterday during the grace cannot starve today's.
+    final earnDayKey = dayKey;
+    final capped = _allowedOn(
+      spentXp: daySpentXp,
+      spentGold: daySpentGold,
       xp: xpSlice + surpriseBonusXp,
       gold: goldSlice + surpriseBonusGold,
       habitCount: scheduledHabitCount,
@@ -383,10 +445,9 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // achievement threshold, once per raise. The persisted receipt is what
     // remembers the day already paid: see DashboardState.dayCountedHabitIds.
     final banksDay =
-        finishesDay && !state.dayCountedHabitIds.contains(habitId);
-    final newDayCounted = banksDay
-        ? {...state.dayCountedHabitIds, habitId}
-        : state.dayCountedHabitIds;
+        finishesDay && !dayCountedBefore.contains(habitId);
+    final newDayCounted =
+        banksDay ? {...dayCountedBefore, habitId} : dayCountedBefore;
     final newTotal = state.totalCompletions + (banksDay ? 1 : 0);
 
     final newCategoryCompletions = {...state.categoryCompletions};
@@ -417,8 +478,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     final newTotalGreenSquares = state.totalGreenSquares + (banksDay ? 1 : 0);
     final newDailyGreenCounts = {...state.dailyGreenCounts};
     if (banksDay) {
-      newDailyGreenCounts[DashboardNotifier._todayKey] =
-          (newDailyGreenCounts[DashboardNotifier._todayKey] ?? 0) + 1;
+      newDailyGreenCounts[dayKey] = (newDailyGreenCounts[dayKey] ?? 0) + 1;
     }
 
     // ── Achievement check ────────────────────────────────────
@@ -539,22 +599,20 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       currentLevelXp: bonusResult.newCurrentLevelXp,
       cumulativeXp: bonusResult.newCumulativeXp,
       gold: newGold + bonusGold,
-      earnedDayKey: earnDayKey,
-      earnedXpToday: capped.newXpToday,
-      earnedGoldToday: capped.newGoldToday,
+      // TODAY's cap slot, and only today's. A grace day carries its own
+      // spend on its own document (see _allowedOn), so writing yesterday's
+      // running total here would hand today a fresh allowance it had already
+      // partly spent.
+      earnedDayKey: isGraceDay ? null : earnDayKey,
+      earnedXpToday: isGraceDay ? null : capped.newXpToday,
+      earnedGoldToday: isGraceDay ? null : capped.newGoldToday,
       streak: newStreak,
       longestStreak: newLongest,
-      streakEarnedToday: newStreakEarnedToday,
       previousStreak: clearsPendingComeback ? 0 : null,
       totalCompletions: newTotal,
-      completions: newCompletions,
       unlockedAchievements: newUnlockedIds,
       newlyUnlocked: newly,
       didJustLevelUp: didLevelUp,
-      // The exact completion that finished today's whole list — same
-      // justReachedAllDone moment that earns the streak point, so this can
-      // fire at most once per day and never from a backfilled past square.
-      perfectDayCelebration: justReachedAllDone,
       lastCompletedId: habitId,
       setMilestone: newMilestone,
       categoryCompletions: newCategoryCompletions,
@@ -564,7 +622,19 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       habitLongestStreaks: newHabitLongestStreaks,
       habitTotalCompletions: newHabitTotalCompletions,
       habitLastCompletedDate: newHabitLastCompletedDate,
-      dayCountedHabitIds: newDayCounted,
+      // A grace day's board is not the one on screen, so its counts must not
+      // land in `state`. perfectDayCelebration is the exact completion that
+      // finished the list, the same justReachedAllDone moment that earns the
+      // streak point, so it fires at most once per day and never from a
+      // backfilled square. Everything above this line is account-wide (XP,
+      // gold, level, lifetime counters, per-habit streaks) and applies
+      // whichever day was marked; these four are TODAY's, and writing
+      // yesterday's numbers into them would tick the wrong day on Today's
+      // screen and mis-report the day percentage.
+      completions: isGraceDay ? null : newCompletions,
+      dayCountedHabitIds: isGraceDay ? null : newDayCounted,
+      streakEarnedToday: isGraceDay ? null : newStreakEarnedToday,
+      perfectDayCelebration: isGraceDay ? false : justReachedAllDone,
       // Spent, so repainting this same square after the day rolls over can
       // never redeem it a second time.
       undoneCompletions: redeemed == null
@@ -616,6 +686,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         newCompletions,
         streakEarnedToday: newStreakEarnedToday,
         dayCounted: banksDay ? newDayCounted.toList() : null,
+        dayKey: dayKey,
         // Only for a habit that is counted more than once a day: at a target
         // of 1 the absence of an entry already means 1, and writing it for
         // every habit would grow every day document for nothing.
@@ -625,9 +696,15 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         // the original stamp behind on purpose (see [minutesSinceMidnight]),
         // so the fajr adhkar that were really done at fajr keep saying so
         // instead of being rewritten to whenever the mis-tap was corrected.
-        completedAtMinutes: redeemed != null
+        // Not for a grace day either: the clock now is TODAY's, and stamping
+        // it on yesterday would claim a time nobody knows. Same rule as the
+        // signed-in write below.
+        completedAtMinutes: redeemed != null || isGraceDay
             ? null
             : {habitId: minutesSinceMidnight(DateTime.now())},
+        // The grace day's own cap ledger — see _allowedOn.
+        dayEarnedXp: isGraceDay ? capped.newXpToday : null,
+        dayEarnedGold: isGraceDay ? capped.newGoldToday : null,
       );
       // lastActiveDate means "the last calendar day that itself qualified
       // for the streak point" (see _loadGuestToday's gap-check doc comment)
@@ -638,22 +715,25 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       // way newStreakEarnedToday is already true); a non-qualifying day
       // leaves it untouched, exactly like uncompleteHabit already does.
       await _saveGuestState(
-        lastActiveDate:
-            newStreakEarnedToday ? DateTime.now().effectiveDay : null,
+        lastActiveDate: newStreakEarnedToday && !_lastActiveIsAfter(dayKey)
+            ? markDay
+            : null,
       );
       return isGridSyncable;
     }
 
     try {
-      // .effectiveDay, not the raw instant — everything downstream that
-      // reads dates back (habitStreak, completeHabit's per-habit gap,
-      // _loadToday/_loadGuestToday's app-wide gap) assumes day-cutoff
-      // alignment. See DateTimeGameExt.effectiveDay's doc comment.
-      final now = DateTime.now().effectiveDay;
+      // The day being PAID FOR, midnight-aligned — not the raw instant and
+      // not necessarily today. Everything downstream that reads these dates
+      // back (habitStreak, the per-habit gap above, _loadToday's app-wide
+      // gap) compares whole days, and during the grace window the day being
+      // marked is yesterday. Stamping it with today would put yesterday's
+      // completion on a document that says it happened today.
+      final now = markDay;
       final batch = FirebaseFirestore.instance.batch();
 
       batch.set(
-        _dailyRef,
+        _dailyRefFor(markDay),
         {
           'habitCompletions': newCompletions,
           // What this day asked of this habit, stamped on the day itself so a
@@ -666,6 +746,15 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
             'habitTargets': {habitId: frequencyTarget},
           'date': Timestamp.fromDate(now),
           'streakEarnedToday': newStreakEarnedToday,
+          // A grace day's own cap ledger, kept where the day is rather than
+          // in the single `state` slot that belongs to today — see
+          // _allowedOn. Absolute, not an increment: capped.newXpToday is
+          // already this day's running total, computed from the value
+          // _readStoredDay just read back out of this same field.
+          if (isGraceDay) ...{
+            'dayEarnedXp': capped.newXpToday,
+            'dayEarnedGold': capped.newGoldToday,
+          },
           // A nested map merged key by key, not written whole:
           // SetOptions(merge: true) deep-merges maps, so two habits
           // completed from two devices cannot erase each other the way a
@@ -675,7 +764,12 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // Not restamped when a receipt is being redeemed — see the guest
           // branch above for why the original time has to survive a
           // correction.
-          if (redeemed == null)
+          // Deliberately not written for a grace day: the clock now is
+          // TODAY's, and stamping it on yesterday's document would claim the
+          // habit happened at a time nobody knows. An absent stamp reads as
+          // "completed, time unrecorded", which is the truth. See
+          // [minutesSinceMidnight].
+          if (redeemed == null && !isGraceDay)
             'completedAtMinutes': {
               habitId: minutesSinceMidnight(DateTime.now()),
             },
@@ -701,9 +795,11 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // grows within one day and resets by stamp does not need
           // increment's merge semantics, and an absolute write is what makes
           // a stale device converge instead of double-counting.
-          'earnedDayKey': earnDayKey,
-          'earnedXpToday': capped.newXpToday,
-          'earnedGoldToday': capped.newGoldToday,
+          if (!isGraceDay) ...{
+            'earnedDayKey': earnDayKey,
+            'earnedXpToday': capped.newXpToday,
+            'earnedGoldToday': capped.newGoldToday,
+          },
           'currentStreak': newStreak,
           'longestStreak': newLongest,
           if (clearsPendingComeback) 'previousStreak': 0,
@@ -726,14 +822,19 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // regardless of whether today ever reached the threshold, so the
           // streak could coast forever on partial days without ever
           // tripping the gap-check below.
-          if (newStreakEarnedToday) 'lastActiveDate': Timestamp.fromDate(now),
+          if (newStreakEarnedToday && !_lastActiveIsAfter(dayKey))
+            'lastActiveDate': Timestamp.fromDate(now),
           // The offset free twin of the line above, and the one the streak
           // gap check actually reads. See dashboard_notifier_loading's
           // lastActiveDay branch for why a Timestamp cannot carry a calendar
           // day across a timezone change. The Timestamp stays because
           // UserAccount still reads it, and because an account written by an
           // older build has only that.
-          if (newStreakEarnedToday) 'lastActiveDay': DashboardNotifier._todayKey,
+          // Forward only, same reason as habitLastCompletedDate above: this
+          // is what the load-time gap check measures from, and dragging it
+          // back a day would invent a streak break that never happened.
+          if (newStreakEarnedToday && !_lastActiveIsAfter(dayKey))
+            'lastActiveDay': dayKey,
           'habitStreakCounts': newHabitStreakCounts,
           'habitLongestStreaks': newHabitLongestStreaks,
           'habitTotalCompletions': newHabitTotalCompletions,
@@ -758,7 +859,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // square per habit-day, credited on the tap that fills it.
           'totalGreenSquares': FieldValue.increment(banksDay ? 1 : 0),
           'dailyGreenCounts': {
-            DashboardNotifier._todayKey: FieldValue.increment(banksDay ? 1 : 0),
+            dayKey: FieldValue.increment(banksDay ? 1 : 0),
           },
           // One nested key deleted, so the receipts outstanding on other
           // habit-days survive the merge.
@@ -788,7 +889,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           // finishing tap green stays green so nothing moves; only the rare
           // bonus flourish is lost.
           'days': {
-            DashboardNotifier._todayKey: markToStored(
+            dayKey: markToStored(
                 finishesDay ? SquareState.complete : SquareState.partial),
           },
         },

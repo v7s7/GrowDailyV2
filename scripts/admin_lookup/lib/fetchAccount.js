@@ -27,6 +27,11 @@ const {
   habitScheduledOnParts,
   renderDayCard,
   renderCalendarSection,
+  renderUndoneSection,
+  readUndoneReceipts,
+  readHabitDay,
+  dayWriteContext,
+  DAY_CUTOFF_HOUR,
   dayKeyParts,
 } = require('./render');
 
@@ -161,12 +166,12 @@ async function getAccountRaw(uid, authRecord, { fresh } = {}) {
  * The Day section, for whatever day is asked for.
  *
  * [dateKey] is 'YYYY-MM-DD', or omitted for this ACCOUNT's own today (their
- * last-reported device offset and this app's 6 AM habit cutoff, never this
+ * last-reported device offset and this app's habit day cutoff, never this
  * machine's clock), so the headline number can't disagree with what the
  * user's own phone is showing them.
  *
  * Habits and tasks run on two different clocks here, on purpose, because
- * the app itself uses two: habits on the 6 AM flex day (effectiveTodayParts)
+ * the app itself uses two: habits on the flex day (effectiveTodayParts,
  * and the todo board on the plain calendar day (calendarTodayParts). See
  * calendarTodayParts' own comment for the bug that came of conflating them.
  */
@@ -182,17 +187,34 @@ function buildDaySection(raw, dateKey) {
   const dailyDocs = docsByCollection['daily'] || [];
   const dayDoc = dailyDocs.find((d) => d.id === dayKey);
   const dayData = dayDoc ? dayDoc.data() : {};
-  const completions = dayData.habitCompletions && typeof dayData.habitCompletions === 'object'
-    ? dayData.habitCompletions
-    : {};
+  // Read across all three of a habit-day's records rather than just
+  // habitCompletions - see readHabitDay. A day whose square was painted
+  // outside the reward window has no completion at all, and this card used
+  // to render it as a flat "0/2 done" while the Rooms section on the very
+  // same page credited it.
+  const receiptsByKey = readUndoneReceipts(profileData);
 
   const habitRows = [];
   for (const doc of habitDocs) {
     const h = doc.data();
     if (!habitScheduledOnParts(h, parts)) continue;
-    const count = Number(completions[doc.id] || 0);
+    const r = readHabitDay(dayData, doc.id, receiptsByKey[`${doc.id}|${dayKey}`] || null);
     const cat = CATEGORY_META[h.category] || { emoji: '⭐' };
-    habitRows.push({ name: h.name || '(unnamed habit)', emoji: cat.emoji, done: count > 0, count });
+    habitRows.push({
+      name: h.name || '(unnamed habit)',
+      emoji: cat.emoji,
+      // The ring counts what the PERSON did, which is any green square by
+      // either route - the same test a Room applies. `rewarded` below is the
+      // separate question of whether the account was actually paid for it.
+      done: r.rewarded || r.roomCounts,
+      count: r.count,
+      verdict: r.verdict,
+      square: r.square,
+      rewarded: r.rewarded,
+      roomCounts: r.roomCounts,
+      stampedAt: r.stampedAt,
+      receipt: r.receipt,
+    });
   }
 
   const taskDocs = docsByCollection['matrix_tasks'] || [];
@@ -222,6 +244,20 @@ function buildDaySection(raw, dateKey) {
       isToday,
       todayKey: todayParts.key,
       habitRows,
+      // Says WHICH kind of uncredited mark this is, when the day's own last
+      // write can tell - see dayWriteContext. Only reaches the card when
+      // there is a disagreement to explain; renderDayCard drops it otherwise.
+      writeNote: (() => {
+        const w = dayWriteContext(dayData, tz);
+        if (!w) return '';
+        if (w.key === dayKey && w.hour < DAY_CUTOFF_HOUR) {
+          return `Tapped at ${w.clock}, before the ${DAY_CUTOFF_HOUR}:00 cutoff, so the app's reward day was still the day before. The Grid had already moved on to this date and put the "today" ring on it, so the square shown as today was not the day that pays.`;
+        }
+        if (w.key > dayKey) {
+          return `Last written on ${w.key}, so this day was filled in after the fact. A backfilled square never pays, by design.`;
+        }
+        return '';
+      })(),
       mood: dayData.mood ? MOOD_META[dayData.mood] : null,
       nightReviewDone: !!dayData.nightReviewDone,
       reflection: dayData.dailyReflection || '',
@@ -245,6 +281,7 @@ function buildDaySection(raw, dateKey) {
 async function loadAccountReport(uid, authRecord, dateKey) {
   const raw = await getAccountRaw(uid, authRecord);
   const { profileData, subcollections, docsByCollection, habitCtx, roomsSectionHtml } = raw;
+  const tz = profileData && profileData.tzOffsetMinutes;
 
   const sections = [];
   const day = buildDaySection(raw, dateKey);
@@ -273,6 +310,18 @@ async function loadAccountReport(uid, authRecord, dateKey) {
       : '<p class="muted">No Firestore profile doc.</p>',
   });
 
+  // Its own tab rather than a line inside Profile: "what did they take back"
+  // is a question an admin arrives with, and burying the answer in the raw
+  // field table (where it was, unlabelled, as one more map) is why nobody
+  // could answer it. See renderUndoneSection for what an empty list does and
+  // does not prove.
+  sections.push({
+    id: 'undone',
+    label: 'Un-marked completions',
+    count: Object.keys(readUndoneReceipts(profileData)).length,
+    html: renderUndoneSection(profileData, habitCtx),
+  });
+
   for (const col of subcollections) {
     // 'daily' gets a real month-by-month calendar instead of the generic
     // flat log list every other subcollection uses - see
@@ -284,7 +333,8 @@ async function loadAccountReport(uid, authRecord, dateKey) {
         label: KNOWN_LABELS.daily,
         count: docsByCollection.daily.length,
         html: renderCalendarSection(
-          docsByCollection.daily, docsByCollection['custom_habits'] || [], habitCtx, day.todayKey),
+          docsByCollection.daily, docsByCollection['custom_habits'] || [], habitCtx, day.todayKey,
+          readUndoneReceipts(profileData), tz),
       });
       continue;
     }

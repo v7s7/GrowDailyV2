@@ -2,6 +2,50 @@ part of 'grid_screen.dart';
 
 // ─── The grid table itself ────────────────────────────────────────────────────
 
+
+/// "Will this day's whole list be done once this tap lands?", answered from
+/// the day's own SQUARES instead of from `DashboardState.completions`.
+///
+/// [willCompleteAllHabitsToday] reads `completions`, which only ever holds
+/// TODAY's counts — correct for today and meaningless for any other day. A
+/// day inside its grace window (yesterday, before the cutoff) still needs a
+/// real answer, because that answer is what earns its streak point, and
+/// getting it from today's map would either invent a point or withhold one.
+///
+/// The squares are the right source for that day: they are what the Grid is
+/// showing the person, what the yearly strip reports, and what a Room grades
+/// them on. جزئي counts half, exactly as it does everywhere else.
+bool _willCompleteAllSquaresOn(
+  WidgetRef ref,
+  IslamicHabitTemplate habit,
+  DateTime day,
+) {
+  final grid = ref.read(weeklyGridProvider);
+  final dayHabits =
+      ref.read(habitListProvider).where((h) => h.isScheduledFor(day)).toList();
+  var total = 0;
+  var credited = 0.0;
+  var sawTarget = false;
+  for (final h in dayHabits) {
+    total++;
+    if (h.id == habit.id) {
+      sawTarget = true;
+      credited += 1;
+      continue;
+    }
+    final square = grid.squareFor(h.id, day);
+    if (square.isGreen) {
+      credited += 1;
+    } else if (square == SquareState.partial) {
+      credited += 0.5;
+    }
+  }
+  // Same guard as willCompleteAllHabitsToday: a day with nothing scheduled is
+  // a day off, not a completed one.
+  if (total == 0 || !sawTarget) return false;
+  return credited / total >= kStreakDayCompletionThreshold;
+}
+
 class _GridTable extends ConsumerStatefulWidget {
   final List<IslamicHabitTemplate> habits;
   final WeeklyGridState state;
@@ -256,9 +300,6 @@ class _GridTableState extends ConsumerState<_GridTable> {
       IslamicHabitTemplate habit, List<DateTime> days, double cell,
       double rowHeight, double habitCol,
       {GlobalKey? todayCellKey}) {
-    final gp = context.gp;
-    final isAr = S.of(context).isAr;
-    final today = DateTime.now().effectiveDay;
     final selected = widget.selectedIds.contains(habit.id);
 
     // For a flexible weekly quota ("N times a week, any days") an empty square
@@ -283,6 +324,47 @@ class _GridTableState extends ConsumerState<_GridTable> {
           )
         : null;
 
+    // The row that was JUST created announces itself — see
+    // newlyAddedHabitIdProvider for why. Wrapping only the matching row
+    // keeps every other row's build byte-identical.
+    if (ref.watch(newlyAddedHabitIdProvider) == habit.id) {
+      return _NewHabitHighlight(
+        child: _habitRowBody(
+            context, ref, habit, days, cell, rowHeight, habitCol,
+            todayCellKey: todayCellKey, demand: demand, selected: selected),
+      );
+    }
+
+    return _habitRowBody(context, ref, habit, days, cell, rowHeight, habitCol,
+        todayCellKey: todayCellKey, demand: demand, selected: selected);
+  }
+
+  Widget _habitRowBody(BuildContext context, WidgetRef ref,
+      IslamicHabitTemplate habit, List<DateTime> days, double cell,
+      double rowHeight, double habitCol,
+      {GlobalKey? todayCellKey,
+      List<DayDemand>? demand,
+      required bool selected}) {
+    final gp = context.gp;
+    final isAr = S.of(context).isAr;
+    final today = DateTime.now().effectiveDay;
+    // Today's step count as runStepAutoComplete last read it, for the
+    // part-done fill on a linked walking habit's square below. Watched
+    // unconditionally rather than only for linked habits: the provider stays
+    // null forever on accounts that never linked one (runStepAutoComplete
+    // returns before writing it), so an unlinked board pays nothing for this,
+    // and a conditional watch would be re-subscribed on every rebuild.
+    //
+    // Dropped entirely while the link is stalled. A failed read deliberately
+    // leaves the last good count in place rather than zeroing it, which is
+    // right for a number the actions sheet can caption ("the link is
+    // stalled") and wrong for a fill on the board, where a square painted
+    // 60% full is an unqualified claim about today that nothing currently
+    // supports.
+    final stepsToday = ref.watch(stepsFailureProvider) == null
+        ? ref.watch(stepsTodayProvider)
+        : null;
+
     return SizedBox(
       height: rowHeight,
       child: Row(
@@ -298,9 +380,22 @@ class _GridTableState extends ConsumerState<_GridTable> {
             // habit cap), and Edit saves into a state list that no longer
             // holds it, so every change is silently dropped. Long-press
             // still works on these rows — that menu offers Resume.
-            onTap: widget.selectionMode && habit.archivedAt == null
-                ? () => widget.onSelectionToggle(habit.id)
-                : null,
+            //
+            // Outside selection mode a plain tap opens the same actions
+            // sheet as the long-press. Long-press was the ONLY way to
+            // reach Edit/Pause/Delete and nothing on the row hinted it
+            // existed; a tap on the name used to do nothing at all, so
+            // this claims a dead gesture rather than displacing one. (The
+            // name's own tap-to-reveal is retired below in exchange — the
+            // sheet's header shows the full name anyway.)
+            onTap: widget.selectionMode
+                ? (habit.archivedAt == null
+                    ? () => widget.onSelectionToggle(habit.id)
+                    : null)
+                : () {
+                    HapticFeedback.selectionClick();
+                    widget.onHabitLongPress(habit.id);
+                  },
             onLongPress: () {
               // In selection mode a long-press must not open a per-habit
               // menu on top of an active multi-select; it just toggles.
@@ -442,6 +537,28 @@ class _GridTableState extends ConsumerState<_GridTable> {
                                     size: 7, color: Colors.black),
                               ),
                             ),
+                          // Linked to the step count (stepGoal != null): the
+                          // "make it visible in the app" half of the steps
+                          // link. Same paint-only Positioned contract as the
+                          // trophy dot above — see the layout warning before
+                          // this Stack — on the opposite corner so a habit
+                          // that is both in a room and linked shows both.
+                          if (habit.stepGoal != null)
+                            Positioned(
+                              left: -3,
+                              bottom: -3,
+                              child: Container(
+                                width: 11,
+                                height: 11,
+                                decoration: BoxDecoration(
+                                  color: GameColors.success,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: gp.surface, width: 1.2),
+                                ),
+                                child: const Icon(Icons.directions_walk_rounded,
+                                    size: 7, color: Colors.white),
+                              ),
+                            ),
                           if (boosted)
                             // Anchored by `left` ONLY, at the icon's midpoint
                             // (11 = half its 22pt width), then pulled back by
@@ -479,24 +596,27 @@ class _GridTableState extends ConsumerState<_GridTable> {
                     }),
                     const SizedBox(width: 6),
                     Expanded(
-                      // Tap-to-reveal only outside selection mode: the
-                      // GestureDetector wrapping this whole label already
-                      // claims onTap there (to toggle selection), and a
-                      // second tap recognizer on the truncated name
-                      // underneath it would otherwise fight that gesture
-                      // for the same tap instead of cleanly falling through
-                      // to it. A name that isn't actually truncated is
-                      // unaffected either way - see SafeWrapText.
-                      // tapToRevealWhenTruncated's own doc comment.
+                      // No tap-to-reveal here anymore: the row's own tap
+                      // now opens the actions sheet (see the
+                      // GestureDetector above), whose header shows the
+                      // full untruncated name — the reveal's whole job —
+                      // and a second recognizer on the text would steal
+                      // exactly those taps from the sheet.
                       // The pause tile that replaced this row's category
                       // icon is the visible signal; this is the same thing
                       // said out loud, since a screen reader gets neither
                       // the glyph nor the dimmed color.
                       child: Semantics(
-                        label: habit.archivedAt != null
+                        // Spoken counterparts of the row's visual-only
+                        // states: the pause tile, and the steps-link dot.
+                        label: habit.archivedAt != null ||
+                                habit.stepGoal != null
                             ? [
                                 habit.localName(isAr),
-                                S.of(context).habitPausedSection,
+                                if (habit.archivedAt != null)
+                                  S.of(context).habitPausedSection,
+                                if (habit.stepGoal != null)
+                                  S.of(context).stepLinkedBadge,
                               ].join(isAr ? '، ' : ', ')
                             : null,
                         child: SafeWrapText(
@@ -514,7 +634,6 @@ class _GridTableState extends ConsumerState<_GridTable> {
                                 : gp.textPrimary,
                             height: 1.15,
                           ),
-                          tapToRevealWhenTruncated: !widget.selectionMode,
                         ),
                       ),
                     ),
@@ -531,6 +650,32 @@ class _GridTableState extends ConsumerState<_GridTable> {
               final doneToday = habit.effectiveDailyTarget > 1 && day.isToday
                   ? ref.watch(dashboardProvider).completions[habit.id] ?? 0
                   : 0;
+              // How far through today's step goal a linked walking habit is.
+              //
+              // Non-null only while the walk is genuinely part done AND the
+              // square is otherwise empty: at zero steps there is nothing to
+              // draw, at the goal runStepAutoComplete has already turned the
+              // square green, and an explicit mark (skipped, failed, bonus)
+              // is a deliberate statement about the day that outranks a
+              // measured count — the same precedence _effectiveSquare gives
+              // those marks over a times-per-day tally.
+              final steps = stepsToday;
+              final stepGoal = habit.stepGoal;
+              final double? stepFraction = (steps == null ||
+                      stepGoal == null ||
+                      !day.isToday ||
+                      // A day this habit does not run on is not part done, it
+                      // is not owed at all. Its square is drawn dimmed and
+                      // inert, and runStepAutoComplete skips it for the same
+                      // reason, so filling it in would be the one surface
+                      // claiming a day the rest of the app says is off.
+                      !habit.isScheduledFor(day) ||
+                      steps <= 0 ||
+                      steps >= stepGoal ||
+                      _effectiveSquare(habit, day, doneToday) !=
+                          SquareState.none)
+                  ? null
+                  : steps / stepGoal;
               return Padding(
                 padding: const EdgeInsets.only(left: _gap),
                 child: _SquareCell(
@@ -551,6 +696,15 @@ class _GridTableState extends ConsumerState<_GridTable> {
                     if (day.isToday && habit.effectiveDailyTarget > 1)
                       S.of(context).timesPerDayProgress(
                           doneToday, habit.effectiveDailyTarget),
+                    // "5320 / 8000 steps today" for a linked walking habit.
+                    // Same reason as the count above: the fill is a picture,
+                    // and a picture is nothing to a screen reader. Gated on
+                    // the schedule for the same reason the fill is: a day
+                    // this habit does not run on is not part done.
+                    if (day.isToday &&
+                        stepGoal != null &&
+                        habit.isScheduledFor(day))
+                      S.of(context).stepsProgressLine(steps, stepGoal),
                     if (day.isAfter(today))
                       isAr ? 'يوم قادم' : 'future day'
                     else if (!habit.isScheduledFor(day))
@@ -602,6 +756,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   dayCount: day.isToday && habit.effectiveDailyTarget > 1
                       ? (done: doneToday, target: habit.effectiveDailyTarget)
                       : null,
+                  stepFraction: stepFraction,
                   hasNote: widget.state.noteFor(habit.id, day).isNotEmpty,
                   onTap: widget.selectionMode
                       ? null
@@ -688,7 +843,13 @@ class _GridTableState extends ConsumerState<_GridTable> {
       ref.read(dashboardProvider).completions[habit.id] ?? 0,
     );
     final next = current.next;
-    final isSyncable = day.isToday;
+    // isOpenDay, not isToday: yesterday stays payable until the day cutoff
+    // (see DateTimeGameExt.isOpenDay), so its square must reach the same
+    // canonical reward path today's does. While this said isToday, a square
+    // the app itself had labelled TODAY between midnight and the cutoff fell
+    // into the anti-backdating branch instead — it turned green, paid
+    // nothing, and Rooms counted it anyway.
+    final isSyncable = day.isOpenDay;
 
     // ── A habit counted more than once a day ─────────────────────
     //
@@ -702,7 +863,12 @@ class _GridTableState extends ConsumerState<_GridTable> {
     // Deliberately ahead of the two branches below: for a counted habit the
     // question "is the next colour green" is the wrong question, and letting
     // it be asked first is what would pay a full day's reward for one tap.
-    if (isSyncable && perDay > 1) {
+    // day.isToday, not isSyncable: the counter UI below reads
+    // `dashboardProvider.completions`, which is today's map and nothing
+    // else. A counted habit on a grace day falls through to the plain
+    // complete path instead, which reads that day's real count inside
+    // completeHabit rather than guessing from today's.
+    if (day.isToday && perDay > 1) {
       final done = ref.read(dashboardProvider).completions[habit.id] ?? 0;
       if (done < perDay) {
         await _addOneToday(ref, habit, day, done: done, target: perDay);
@@ -775,6 +941,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
       final clearedCount =
           ref.read(dashboardProvider).completions[habit.id] ?? 0;
       await ref.read(dashboardProvider.notifier).uncompleteHabit(
+            day: day,
             habitId: habit.id,
             xpReward: xpReward,
             goldReward: goldReward,
@@ -800,6 +967,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
         ..showSnackBar(SnackBar(
           duration: const Duration(seconds: 6),
           content: Text(s.gridMarkCleared),
+          // Never pin the bar open. See AppSnackBar.
+          persist: false,
           action: SnackBarAction(
             label: s.undo,
             onPressed: () =>
@@ -876,9 +1045,13 @@ class _GridTableState extends ConsumerState<_GridTable> {
   /// twenty lines.
   Future<void> _completeSquareToday(
       WidgetRef ref, IslamicHabitTemplate habit, DateTime day) async {
-    final alreadyDoneToday = ref
-        .read(dashboardProvider)
-        .isCompleted(habit.id, habit.effectiveDailyTarget);
+    // Only meaningful for today: `completions` is today's map, so on a grace
+    // day this shortcut would answer about the wrong day. completeHabit's own
+    // `current >= frequencyTarget` guard covers that case safely instead.
+    final alreadyDoneToday = day.isToday &&
+        ref
+            .read(dashboardProvider)
+            .isCompleted(habit.id, habit.effectiveDailyTarget);
     HapticFeedback.mediumImpact();
     if (alreadyDoneToday) {
       // Already rewarded (e.g. completed from Today and the mirror
@@ -916,22 +1089,30 @@ class _GridTableState extends ConsumerState<_GridTable> {
       // outcome it must never have is silently doing nothing.
       final rewarded =
           await ref.read(dashboardProvider.notifier).completeHabit(
+                day: day,
                 habitId: habit.id,
+                scheduledWeekdays: habit.scheduledWeekdays.toSet(),
                 // 2x while a linked room is live — see roomBoostedReward.
                 xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
                 goldReward:
                     roomBoostedReward(ref, habit.id, habit.goldReward),
                 frequencyTarget: habit.effectiveDailyTarget,
-                allHabitsDoneAfter: willCompleteAllHabitsToday(
-                  state: dashState,
-                  todayHabits: todayHabits,
-                  habitId: habit.id,
-                  frequencyTarget: habit.effectiveDailyTarget,
-                  // A جزئي square counts half toward the threshold, so a
-                  // day that is nearly full still keeps its streak.
-                  halfDoneHabitIds:
-                      ref.read(weeklyGridProvider).halfDoneTodayIds(),
-                ),
+                // Today's answer comes from `completions`; a grace day's has
+                // to come from that day's own squares, because `completions`
+                // only ever holds today's counts. See
+                // _willCompleteAllSquaresOn.
+                allHabitsDoneAfter: day.isToday
+                    ? willCompleteAllHabitsToday(
+                        state: dashState,
+                        todayHabits: todayHabits,
+                        habitId: habit.id,
+                        frequencyTarget: habit.effectiveDailyTarget,
+                        // A جزئي square counts half toward the threshold, so
+                        // a day that is nearly full still keeps its streak.
+                        halfDoneHabitIds:
+                            ref.read(weeklyGridProvider).halfDoneTodayIds(),
+                      )
+                    : _willCompleteAllSquaresOn(ref, habit, day),
                 // Scales the daily earn ceiling with the roster, see
                 // dailyXpCapFor. Same list the predicate above uses.
                 scheduledHabitCount: todayHabits.length,
@@ -993,17 +1174,24 @@ class _GridTableState extends ConsumerState<_GridTable> {
       final before = ref.read(dashboardProvider).completions[habit.id] ?? 0;
       if (before >= target) break;
       await ref.read(dashboardProvider.notifier).completeHabit(
+            day: day,
             habitId: habit.id,
+            scheduledWeekdays: habit.scheduledWeekdays.toSet(),
             xpReward: xpReward,
             goldReward: goldReward,
             frequencyTarget: target,
-            allHabitsDoneAfter: willCompleteAllHabitsToday(
-              state: dashState,
-              todayHabits: todayHabits,
-              habitId: habit.id,
-              frequencyTarget: target,
-              halfDoneHabitIds: ref.read(weeklyGridProvider).halfDoneTodayIds(),
-            ),
+            // See _willCompleteAllSquaresOn: `completions` is today's map,
+            // so any other open day has to be answered from its squares.
+            allHabitsDoneAfter: day.isToday
+                ? willCompleteAllHabitsToday(
+                    state: dashState,
+                    todayHabits: todayHabits,
+                    habitId: habit.id,
+                    frequencyTarget: target,
+                    halfDoneHabitIds:
+                        ref.read(weeklyGridProvider).halfDoneTodayIds(),
+                  )
+                : _willCompleteAllSquaresOn(ref, habit, day),
             // Scales the daily earn ceiling with the roster, see
             // dailyXpCapFor. Same list the predicate above uses.
             scheduledHabitCount: todayHabits.length,
@@ -1075,17 +1263,23 @@ class _GridTableState extends ConsumerState<_GridTable> {
     // square — never heard that anything had happened.
     final before = ref.read(dashboardProvider).completions[habit.id] ?? 0;
     await ref.read(dashboardProvider.notifier).completeHabit(
+          day: day,
           habitId: habit.id,
+          scheduledWeekdays: habit.scheduledWeekdays.toSet(),
           xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
           goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
           frequencyTarget: target,
-          allHabitsDoneAfter: willCompleteAllHabitsToday(
-            state: dashState,
-            todayHabits: todayHabits,
-            habitId: habit.id,
-            frequencyTarget: target,
-            halfDoneHabitIds: ref.read(weeklyGridProvider).halfDoneTodayIds(),
-          ),
+          // See _willCompleteAllSquaresOn.
+          allHabitsDoneAfter: day.isToday
+              ? willCompleteAllHabitsToday(
+                  state: dashState,
+                  todayHabits: todayHabits,
+                  habitId: habit.id,
+                  frequencyTarget: target,
+                  halfDoneHabitIds:
+                      ref.read(weeklyGridProvider).halfDoneTodayIds(),
+                )
+              : _willCompleteAllSquaresOn(ref, habit, day),
           // Scales the daily earn ceiling with the roster, see
           // dailyXpCapFor. Same list the predicate above uses.
           scheduledHabitCount: todayHabits.length,
@@ -1401,6 +1595,18 @@ class _SquareCell extends StatelessWidget {
   /// counting pixels. The check still belongs to the finished state alone.
   final ({int done, int target})? dayCount;
 
+  /// Today's steps as a fraction of a linked walking habit's goal, or null
+  /// for every other square — which is every square that existed before the
+  /// steps link, so they all keep rendering exactly as they did.
+  ///
+  /// Drawn as the same rising portion a counted habit draws, and for the same
+  /// reason: the walk really is part done, and a flat empty square said it
+  /// was not. No number inside it, unlike [dayCount] — "5,320" does not fit a
+  /// grid cell at any legible size, and the proportion is the whole answer
+  /// anyway. The exact figure is in the square's screen-reader label and in
+  /// the habit's actions sheet.
+  final double? stepFraction;
+
   /// Whether the tap about to happen is the one that finishes this day, which
   /// is the only moment worth firing the completion burst for.
   ///
@@ -1449,6 +1655,7 @@ class _SquareCell extends StatelessWidget {
     this.isMissedQuotaDay = false,
     required this.square,
     this.dayCount,
+    this.stepFraction,
     required this.hasNote,
     required this.onTap,
     required this.onLongPress,
@@ -1542,6 +1749,19 @@ class _SquareCell extends StatelessWidget {
           if (_isHalfFill)
             _levelFill(
               factor: SquareState.partial.levelFactor!,
+              fill: SquareState.partial.levelFill(dark),
+              line: SquareState.partial.levelLine(dark),
+              radius: _squareInnerRadius,
+            ),
+          // The same picture again for a walking habit part-way to its step
+          // goal. Borrows the جزئي colours rather than inventing a "steps"
+          // colour: the board already teaches that a square filled part-way
+          // in that tone means part done, and this is that, measured instead
+          // of tapped. AnimatedContainer inside _levelFill means the level
+          // rises rather than jumps when a fresh read comes back.
+          if (stepFraction != null)
+            _levelFill(
+              factor: stepFraction!,
               fill: SquareState.partial.levelFill(dark),
               line: SquareState.partial.levelLine(dark),
               radius: _squareInnerRadius,
@@ -1661,5 +1881,60 @@ class _SquareCell extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Announces the row of a habit that was just created: scrolls it into
+/// view, then a one-shot gold shimmer, then clears
+/// [newlyAddedHabitIdProvider] so the highlight can never replay.
+///
+/// ensureVisible instead of a ScrollController on the CustomScrollView:
+/// the table builds eagerly inside a SliverToBoxAdapter, so the new row
+/// has a context the moment the sheet closes, and asking the scrollable
+/// from the inside means this works identically wherever the row lands —
+/// bottom of a single board, or mid-screen above the quit section — with
+/// no coordinate math to drift out of date.
+class _NewHabitHighlight extends ConsumerStatefulWidget {
+  final Widget child;
+  const _NewHabitHighlight({required this.child});
+
+  @override
+  ConsumerState<_NewHabitHighlight> createState() =>
+      _NewHabitHighlightState();
+}
+
+class _NewHabitHighlightState extends ConsumerState<_NewHabitHighlight> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // The delay covers the scroll, so the shimmer runs where the eye
+    // already is rather than off-screen. Clearing the provider on
+    // completion unmounts this wrapper and returns the row to the exact
+    // build every other row gets.
+    return widget.child
+        .animate(
+          onComplete: (_) {
+            if (!mounted) return;
+            ref.read(newlyAddedHabitIdProvider.notifier).state = null;
+          },
+        )
+        .shimmer(
+          delay: 500.ms,
+          duration: 1100.ms,
+          color: GameColors.gold.withOpacity(0.35),
+        );
   }
 }

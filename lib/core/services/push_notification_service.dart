@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
@@ -24,6 +25,22 @@ import 'notification_service.dart';
 /// pullFromAccount-style sync in main.dart's `_authSub` listener — a guest
 /// has no `users/{uid}` doc for a token to live on, so this is simply never
 /// called for one.
+///
+/// ── Why registration keeps trying, and says what happened ──────────────
+/// On 2026-09-05 the whole feature was measured against production: both
+/// Cloud Functions deployed and running, the callable invoked from phones
+/// that same day, every room event claimed correctly, and 0 of 113 accounts
+/// holding a single device token. Nothing had ever been sent to anyone. The
+/// registration path below had one attempt at launch, gave up after five
+/// seconds if APNs had not answered yet, attached its token-refresh listener
+/// only AFTER that attempt, and swallowed every failure without a trace, so
+/// the app could not say why and neither could anyone reading its data.
+///
+/// So now: the refresh listener is attached first, a failed attempt retries
+/// on a short bounded ladder ([pushRetryDelay]), every attempt's outcome is
+/// logged, a failure is reported to Crashlytics once, and the last outcome
+/// is mirrored to `users/{uid}.pushStatus` so an account that never
+/// registers can be diagnosed from its own document.
 /// Why a room push can or cannot reach this device, as three plain facts.
 ///
 /// Room notifications had one failure mode and no way to see it. Every
@@ -58,6 +75,25 @@ class PushDeliveryStatus {
       permissionGranted && tokenRegistered && roomActivityEnabled;
 }
 
+/// How long to wait before registration attempt number [attempt] (1-based,
+/// counting the attempt that is about to be made), or null once the ladder
+/// is spent.
+///
+/// The APNs token can land any time in the first minute or so after launch,
+/// and the FCM token a moment after that, so the early rungs are short. The
+/// ladder is bounded on purpose: after it, the next app resume or a token
+/// refresh event starts a fresh one, which is enough, and an unbounded
+/// timer would keep a phone busy for an account that genuinely cannot
+/// register (permission refused in system settings, say).
+Duration? pushRetryDelay(int attempt) => switch (attempt) {
+      1 => const Duration(seconds: 10),
+      2 => const Duration(seconds: 30),
+      3 => const Duration(seconds: 60),
+      4 => const Duration(minutes: 2),
+      5 => const Duration(minutes: 3),
+      _ => null,
+    };
+
 class PushNotificationService {
   PushNotificationService._();
   static final instance = PushNotificationService._();
@@ -66,6 +102,22 @@ class PushNotificationService {
   String? _uid;
   String? _lastToken;
   bool _listenersAttached = false;
+
+  /// One sync at a time. A resume, a refresh event and a retry timer can
+  /// all ask within the same second; the second and later callers simply
+  /// share the in-flight attempt's result rather than racing the write.
+  Future<void>? _inFlight;
+  Timer? _retryTimer;
+  int _failedAttempts = 0;
+
+  /// The last outcome written to `users/{uid}.pushStatus`, so the same
+  /// outcome is not rewritten on every attempt.
+  String? _lastStatusWritten;
+
+  /// Failure messages already sent to Crashlytics this process. One report
+  /// per distinct failure is the whole signal; a retry ladder repeating it
+  /// five times would only bury it.
+  final Set<String> _reported = {};
 
   /// Set by main.dart once real navigation is safe (mirrors
   /// NotificationService.onAction's own "can't navigate from way down here,
@@ -125,21 +177,13 @@ class PushNotificationService {
     final initial = await FirebaseMessaging.instance.getInitialMessage();
     if (initial != null) _onMessageOpenedApp(initial);
 
-    // Sync the token now that permission actually exists.
-    //
-    // Without this, no device ever registers one. [registerForUser] runs
-    // from main.dart's auth listener at launch — long before this prompt —
-    // and on iOS getToken() returns null until APNs registration has
-    // happened, which only follows the permission grant. So the launch-time
-    // sync writes nothing, and the only other trigger is onTokenRefresh,
-    // which fires when a token CHANGES and not when the first one is
-    // issued. The result was an empty users/{uid}/fcmTokens for everyone:
-    // notifyRoomFinish ran correctly, found no delivery target, and sent
-    // zero pushes — indistinguishable from the feature being switched off.
-    //
-    // Safe to call unconditionally: _syncToken no-ops without a uid, and
-    // no-ops again if the token is unchanged.
-    await _syncToken();
+    // Sync the token now that permission actually exists. On iOS the APNs
+    // token, and so the FCM token, can only follow the permission grant, so
+    // this is the moment a first registration most often succeeds. Safe to
+    // call unconditionally: _syncToken no-ops without a uid, and no-ops
+    // again if the token is unchanged.
+    _failedAttempts = 0;
+    await _syncToken('permission');
   }
 
   /// Registers (or re-registers) this device's FCM token for [uid] and
@@ -147,13 +191,28 @@ class PushNotificationService {
   /// listener alongside every other pullFromAccount call, and again on
   /// app resume (harmless - [_syncToken] only ever writes when the token
   /// actually changed).
+  ///
+  /// The refresh listener is attached BEFORE the first attempt, not after
+  /// it. On iOS the FCM token is issued a moment after APNs answers, and the
+  /// plugin announces it through onTokenRefresh; attaching that listener
+  /// only after a five-second first attempt meant the announcement could
+  /// arrive into nothing, and nothing else asked again until the next
+  /// resume.
   Future<void> registerForUser(String uid) async {
+    final changed = _uid != uid;
     _uid = uid;
-    await _syncToken();
-    _refreshSub?.cancel();
-    _refreshSub = FirebaseMessaging.instance.onTokenRefresh.listen((_) {
-      _syncToken();
-    });
+    if (_refreshSub == null || changed) {
+      _refreshSub?.cancel();
+      _refreshSub = FirebaseMessaging.instance.onTokenRefresh.listen((_) {
+        _failedAttempts = 0;
+        unawaited(_syncToken('refresh'));
+      });
+    }
+    // A resume or a sign-in is a fresh reason to try, so the ladder starts
+    // over rather than carrying on from where a previous one gave up.
+    _failedAttempts = 0;
+    _retryTimer?.cancel();
+    await _syncToken(changed ? 'sign-in' : 'resume');
   }
 
   /// Reads the delivery chain for the signed-in account.
@@ -175,7 +234,8 @@ class PushNotificationService {
     }
     var granted = false;
     try {
-      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      final settings =
+          await FirebaseMessaging.instance.getNotificationSettings();
       granted = settings.authorizationStatus == AuthorizationStatus.authorized ||
           settings.authorizationStatus == AuthorizationStatus.provisional;
     } catch (_) {
@@ -201,22 +261,29 @@ class PushNotificationService {
     );
   }
 
-  Future<void> _syncToken() async {
+  /// One registration attempt, coalesced: see [_inFlight].
+  Future<void> _syncToken(String trigger) {
+    final running = _inFlight;
+    if (running != null) return running;
+    final attempt = _attemptSync(trigger).whenComplete(() {
+      _inFlight = null;
+    });
+    _inFlight = attempt;
+    return attempt;
+  }
+
+  Future<void> _attemptSync(String trigger) async {
     final uid = _uid;
     if (uid == null) return;
+    String outcome;
     try {
       // On iOS an FCM token cannot exist until APNs has issued one, and that
-      // arrives asynchronously some time AFTER the permission grant. A single
-      // check right after requestPermission() legitimately returns null, and
-      // giving up there is what left every account with an empty fcmTokens
-      // collection — notifyRoomFinish then ran correctly and delivered to
-      // nobody, which looks exactly like the feature being switched off.
-      //
-      // So poll briefly rather than bail. ~5s total is far longer than the
-      // grant normally takes and costs nothing when the token is already
-      // there (first iteration wins). Still gives up eventually: on the
-      // Simulator, or with permission denied, APNs never issues one and
-      // there is genuinely nothing to register.
+      // arrives asynchronously some time AFTER launch (and after the
+      // permission grant, when there is one). A single check legitimately
+      // returns null, so poll briefly here, and if that is still not enough
+      // let the retry ladder below ask again in a while rather than giving
+      // up for the whole session. On the Simulator, or with permission
+      // refused, APNs may never issue one, and the ladder ends.
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
         String? apns;
         for (var i = 0; i < 10; i++) {
@@ -224,26 +291,110 @@ class PushNotificationService {
           if (apns != null) break;
           await Future<void>.delayed(const Duration(milliseconds: 500));
         }
-        if (apns == null) return;
+        if (apns == null) {
+          _finish(uid, trigger, 'no-apns-token');
+          return;
+        }
       }
       final token = await FirebaseMessaging.instance.getToken();
-      if (token == null || token == _lastToken) return;
-      _lastToken = token;
+      if (token == null) {
+        _finish(uid, trigger, 'no-fcm-token');
+        return;
+      }
+      if (token == _lastToken) {
+        // Already mirrored by this process. Nothing to write, and nothing
+        // to retry.
+        _settle(trigger, 'unchanged');
+        return;
+      }
       await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
           .collection('fcmTokens')
           .doc(token)
-          .set({
-        'platform': defaultTargetPlatform.name,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (_) {
-      // Best-effort, same as every other account-sync call in this app's
-      // main.dart listener - offline, or a transient failure, just leaves
-      // the previous token (if any) as the delivery target until the next
-      // successful sync (next resume, or the next onTokenRefresh).
+          .set(
+        {
+          'platform': defaultTargetPlatform.name,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      _lastToken = token;
+      outcome = 'registered';
+    } catch (e, st) {
+      // The one thing this used to do here was nothing. The exception's
+      // type and message are exactly what an "it never registers" report
+      // needs, and the retry ladder gets another go regardless.
+      outcome = 'error: ${e.runtimeType}: $e';
+      if (_reported.add(outcome)) {
+        try {
+          unawaited(
+            FirebaseCrashlytics.instance.recordError(
+              e,
+              st,
+              reason: 'PushNotificationService: token registration failed',
+            ),
+          );
+        } catch (_) {
+          // No Firebase app to report to (unit tests); the log line below
+          // still says what happened.
+        }
+      }
+      _finish(uid, trigger, outcome);
+      return;
     }
+    _settle(trigger, outcome);
+    _writeStatus(uid, outcome);
+  }
+
+  /// A failed attempt: log it, mirror it, and arm the next rung.
+  void _finish(String uid, String trigger, String outcome) {
+    debugPrint('[Push] $trigger: $outcome');
+    _writeStatus(uid, outcome);
+    _failedAttempts++;
+    final delay = pushRetryDelay(_failedAttempts);
+    _retryTimer?.cancel();
+    if (delay == null) {
+      debugPrint('[Push] giving up until the next resume or token refresh');
+      return;
+    }
+    _retryTimer = Timer(
+      delay,
+      () => unawaited(_syncToken('retry $_failedAttempts')),
+    );
+  }
+
+  /// A successful (or moot) attempt: log it and stand the ladder down.
+  void _settle(String trigger, String outcome) {
+    debugPrint('[Push] $trigger: $outcome');
+    _failedAttempts = 0;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  /// Mirrors the latest outcome onto the account, once per distinct
+  /// outcome per process, so an account that never registers can be read
+  /// from its own document (scripts/admin_lookup) instead of guessed at.
+  /// Best-effort like every other account-sync write in main.dart.
+  void _writeStatus(String uid, String outcome) {
+    if (outcome == _lastStatusWritten) return;
+    _lastStatusWritten = outcome;
+    unawaited(
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set(
+            {
+              'pushStatus': {
+                'outcome': outcome,
+                'platform': defaultTargetPlatform.name,
+                'at': FieldValue.serverTimestamp(),
+              },
+            },
+            SetOptions(merge: true),
+          )
+          .catchError((_) {}),
+    );
   }
 
   /// Signed out - drops this device's own token doc so a shared/reset
@@ -255,6 +406,10 @@ class PushNotificationService {
     final token = _lastToken;
     _uid = null;
     _lastToken = null;
+    _lastStatusWritten = null;
+    _failedAttempts = 0;
+    _retryTimer?.cancel();
+    _retryTimer = null;
     _refreshSub?.cancel();
     _refreshSub = null;
     if (uid == null || token == null) return;

@@ -200,23 +200,447 @@ void main() {
       // for 3-10, dual for two, singular from 11 up.
       expect(
         body(offset: -15, streak: 7),
-        'باقي ١٥ دقيقة على وقتها. لا تفقد سلسلتك المكوّنة من ٧ أيام.',
+        'باقي ١٥ دقيقة على وقتها. ٧ أيام ورا بعض، واليوم يخليها ٨.',
       );
       expect(
         body(offset: -15, streak: 2),
-        'باقي ١٥ دقيقة على وقتها. لا تفقد سلسلتك المكوّنة من يومين.',
+        'باقي ١٥ دقيقة على وقتها. يومين ورا بعض، واليوم يخليها ٣.',
       );
       expect(
         body(offset: -15, streak: 15),
-        'باقي ١٥ دقيقة على وقتها. لا تفقد سلسلتك المكوّنة من ١٥ يوم.',
+        'باقي ١٥ دقيقة على وقتها. ١٥ يوم ورا بعض، واليوم يخليها ١٦.',
       );
       expect(
         body(offset: -15, streak: 7, isAr: false),
-        "15 minutes to go. Don't lose your 7-day streak.",
+        '15 minutes to go. 7 days in a row. Today makes it 8.',
       );
       // And an on-time reminder with a streak is untouched: its caller
       // already passes the streak line in as onTimeLine.
       expect(body(offset: 0, streak: 7), 'حان الوقت.');
+    });
+  });
+
+  group('habitStreakLine', () {
+    test('points the count forward instead of at what is at risk', () {
+      // The number is the same lever either way; this is the version that
+      // isn't a threat. Nothing in it may read as blame or as a loss.
+      expect(habitStreakLine(7, true), '٧ أيام ورا بعض، واليوم يخليها ٨.');
+      expect(habitStreakLine(7, false), '7 days in a row. Today makes it 8.');
+      for (final streak in [1, 2, 3, 10, 11, 100]) {
+        expect(habitStreakLine(streak, true), isNot(contains('لا تفقد')));
+        expect(habitStreakLine(streak, false), isNot(contains("Don't lose")));
+      }
+    });
+
+    test('one day is spelled out, since it has nothing to sit behind', () {
+      expect(
+        habitStreakLine(1, true),
+        'يوم واحد في السلسلة، واليوم يخليها يومين.',
+      );
+      expect(habitStreakLine(1, false), 'One day down. Today makes it two.');
+      // And the dual is the dual, not «٢ أيام».
+      expect(habitStreakLine(2, true), startsWith('يومين'));
+    });
+  });
+
+  group('habitOnTimeLine', () {
+    String line({
+      int streak = 0,
+      int completedCount = 0,
+      int dailyTarget = 1,
+      int? lastDoneDaysAgo,
+      // Defaults to what a DAILY habit has missed: every day since the last
+      // one but today. The scheduled-habit tests below pass it explicitly.
+      int? missedSinceLastDone,
+      int? timerSeconds,
+      int variantIndex = 0,
+      bool isAr = true,
+      bool everyDay = true,
+      int? weekTarget,
+      int? weekDone,
+      bool owedToday = false,
+    }) =>
+        habitOnTimeLine(
+          streak: streak,
+          completedCount: completedCount,
+          dailyTarget: dailyTarget,
+          lastDoneDaysAgo: lastDoneDaysAgo,
+          missedSinceLastDone: missedSinceLastDone ??
+              (lastDoneDaysAgo == null ? 0 : (lastDoneDaysAgo - 1).clamp(0, 999)),
+          timerSeconds: timerSeconds,
+          variantIndex: variantIndex,
+          isAr: isAr,
+          everyDay: everyDay,
+          weekTarget: weekTarget,
+          weekDone: weekDone,
+          owedToday: owedToday,
+        );
+
+    test('today\'s progress outranks everything else it could say', () {
+      // The one fact the habit's own name in the title cannot show.
+      expect(
+        line(completedCount: 2, dailyTarget: 3),
+        '٢ من ٣ اليوم، وباقي وحدة.',
+      );
+      expect(
+        line(completedCount: 1, dailyTarget: 3),
+        '١ من ٣ اليوم، وباقي ثنتين.',
+      );
+      expect(
+        line(completedCount: 1, dailyTarget: 5),
+        '١ من ٥ اليوم، وباقي ٤ مرات.',
+      );
+      expect(
+        line(completedCount: 2, dailyTarget: 3, isAr: false),
+        '2 of 3 today. One more to go.',
+      );
+      // Even with a streak running: partial progress is more specific.
+      expect(
+        line(completedCount: 2, dailyTarget: 3, streak: 9),
+        startsWith('٢ من ٣'),
+      );
+    });
+
+    test('a streak speaks for itself once nothing is logged today', () {
+      expect(line(streak: 4), habitStreakLine(4, true));
+      expect(line(streak: 4, isAr: false), habitStreakLine(4, false));
+      // And it rotates with the state's own variant, so a long streak
+      // isn't the same sentence every single day.
+      expect(
+        line(streak: 4, variantIndex: 1),
+        habitStreakLine(4, true, variantIndex: 1),
+      );
+      expect(
+        line(streak: 4, variantIndex: 1),
+        isNot(line(streak: 4, variantIndex: 0)),
+      );
+      // A single-target habit with today already done never reaches here
+      // (the scheduler stands its reminder down), so 0-of-1 is the state
+      // that must NOT be reported as progress.
+      expect(line(streak: 4, completedCount: 0, dailyTarget: 1),
+          habitStreakLine(4, true));
+    });
+
+    test('a habit never once completed is asked for its first square', () {
+      // The exact state the old pool handled worst: it drew a generic
+      // «بضع دقائق لهذه العادة اليوم» for a habit created minutes ago.
+      for (var i = 0; i < 6; i++) {
+        final l = line(variantIndex: i);
+        expect(l, isNot(contains('بضع دقائق لهذه العادة')));
+        expect(l, isNot(contains('سلسلة')));
+      }
+      expect(
+        line(variantIndex: 0),
+        'أول مربع فيها اليوم، ومن هنا تبدأ العادة.',
+      );
+      expect(
+        line(variantIndex: 0, isAr: false),
+        'First square today. This is where it starts.',
+      );
+    });
+
+    test('a lapsed habit gets the gap named and no blame attached', () {
+      expect(
+        line(lastDoneDaysAgo: 3, variantIndex: 0),
+        'صار لها ٣ أيام. مربع واحد اليوم وترجع السلسلة.',
+      );
+      expect(
+        line(lastDoneDaysAgo: 2, variantIndex: 1),
+        'آخر مرة كانت قبل يومين، واليوم بداية جديدة لها.',
+      );
+      expect(
+        line(lastDoneDaysAgo: 3, variantIndex: 0, isAr: false),
+        "It's been 3 days. One square today and the streak is back.",
+      );
+      // Never-completed is a different state and must not borrow this one:
+      // there is no gap to name.
+      expect(line(variantIndex: 0), isNot(contains('صار لها')));
+    });
+
+    test('a timer habit states its real length instead of "a few minutes"', () {
+      expect(
+        line(timerSeconds: 120, variantIndex: 1),
+        'وقتها دقيقتين بس. عادة جديدة تنتظر أول مربع لها.',
+      );
+      expect(
+        line(timerSeconds: 600, variantIndex: 1, isAr: false),
+        'It only takes 10 minutes. A new habit waiting on its first square.',
+      );
+      // Nothing true to say: no timer, under a minute, or not a whole
+      // number of minutes.
+      expect(line(variantIndex: 1), isNot(contains('وقتها')));
+      expect(line(timerSeconds: 30, variantIndex: 1), isNot(contains('وقتها')));
+      expect(line(timerSeconds: 90, variantIndex: 1), isNot(contains('وقتها')));
+      // And a state that already carries its own numbers doesn't stack a
+      // second one on top.
+      expect(
+        line(timerSeconds: 120, streak: 4),
+        isNot(contains('وقتها دقيقتين')),
+      );
+    });
+
+    test('says it is going well where there is something to say it about',
+        () {
+      // Praise belongs where the app can point at something: progress
+      // logged today, or a streak that is running.
+      expect(
+        line(completedCount: 2, dailyTarget: 3, variantIndex: 1),
+        '٢ من ٣ اليوم وماشية عدل، وباقي وحدة.',
+      );
+      expect(
+        line(completedCount: 2, dailyTarget: 3, variantIndex: 1, isAr: false),
+        '2 of 3 today and going well. One more to go.',
+      );
+      expect(habitStreakLine(9, true, variantIndex: 1), contains('ماشية عدل'));
+      expect(
+        habitStreakLine(9, false, variantIndex: 1),
+        contains('going strong'),
+      );
+      // But never at someone who has already missed days: a lapsed habit
+      // has nothing going well to congratulate, and saying so would read
+      // as sarcasm.
+      for (var i = 0; i < 6; i++) {
+        final lapsed = line(lastDoneDaysAgo: 4, variantIndex: i);
+        expect(lapsed, isNot(contains('ماشية عدل')));
+        expect(lapsed, isNot(contains('going well')));
+      }
+    });
+
+    test('says it would be a shame to skip where there is no praise to give',
+        () {
+      // The other half of what a reminder is for. Phrased about the day or
+      // the square, never as «لا تفوّتها», which would have to pick a
+      // gender for the person reading it.
+      expect(line(variantIndex: 3), 'أول مربع فيها اليوم، وخسارة يفوت.');
+      expect(line(variantIndex: 3, isAr: false),
+          'First square today. A shame to let it slip.');
+      expect(
+        line(lastDoneDaysAgo: 1, variantIndex: 2),
+        'وقتها الحين، وخسارة لو تفوت اليوم.',
+      );
+      expect(
+        line(lastDoneDaysAgo: 1, variantIndex: 2, isAr: false),
+        "It's time. Don't let today slip by.",
+      );
+      // A lapsed habit is told nothing is lost, not that it slipped.
+      expect(
+        line(lastDoneDaysAgo: 4, variantIndex: 2),
+        'صار لها ٤ أيام، وما ضاع شي. مربع واحد يرجعها.',
+      );
+    });
+
+    test('reported bug: a habit on its own schedule is never called lapsed',
+        () {
+      // A Wed/Sat habit done Wednesday, reminded Saturday. Three calendar
+      // days, zero missed days. It used to draw «صار لها ٣ أيام، وما ضاع
+      // شي. مربع واحد يرجعها», telling someone exactly on time that it was
+      // fine to be late.
+      for (var i = 0; i < 6; i++) {
+        final l = line(
+          lastDoneDaysAgo: 3,
+          missedSinceLastDone: 0,
+          everyDay: false,
+          variantIndex: i,
+        );
+        expect(l, isNot(contains('صار لها')));
+        expect(l, isNot(contains('آخر مرة')));
+        expect(l, isNot(contains('ما ضاع')));
+        final en = line(
+          lastDoneDaysAgo: 3,
+          missedSinceLastDone: 0,
+          everyDay: false,
+          variantIndex: i,
+          isAr: false,
+        );
+        expect(en, isNot(contains("It's been")));
+        expect(en, isNot(contains('Last done')));
+      }
+      // With nothing else to say it gets the plain on-time line.
+      expect(
+        line(lastDoneDaysAgo: 3, missedSinceLastDone: 0, everyDay: false),
+        'وقتها الحين، ومربع اليوم على بعد دقايق.',
+      );
+    });
+
+    test('a scheduled habit\'s streak counts times, not days', () {
+      // Its streak is counted on the days it runs (see scheduledGap), so
+      // «٤ أيام ورا بعض» would read as four consecutive calendar days and be
+      // false for a Wed/Sat habit.
+      expect(
+        line(streak: 4, lastDoneDaysAgo: 3, missedSinceLastDone: 0,
+            everyDay: false),
+        '٤ مرات ورا بعض، واليوم يخليها ٥.',
+      );
+      expect(
+        line(streak: 1, lastDoneDaysAgo: 3, missedSinceLastDone: 0,
+            everyDay: false),
+        'مرة وحدة في السلسلة، واليوم يخليها ثنتين.',
+      );
+      expect(
+        line(streak: 2, lastDoneDaysAgo: 3, missedSinceLastDone: 0,
+            everyDay: false),
+        'ثنتين ورا بعض، واليوم يخليها ٣.',
+      );
+      expect(
+        line(streak: 4, lastDoneDaysAgo: 3, missedSinceLastDone: 0,
+            everyDay: false, isAr: false),
+        '4 in a row. Today makes it 5.',
+      );
+      // The every-day wording is byte-identical to what shipped.
+      expect(line(streak: 4), '٤ أيام ورا بعض، واليوم يخليها ٥.');
+    });
+
+    test('a real miss on a scheduled habit is still named', () {
+      // Wed/Sat habit, done a Saturday, Wednesday skipped, reminded the next
+      // Saturday. One missed day; the calendar gap is still how long it has
+      // actually been.
+      expect(
+        line(lastDoneDaysAgo: 7, missedSinceLastDone: 1, everyDay: false),
+        'صار لها ٧ أيام. مربع واحد اليوم وترجع السلسلة.',
+      );
+    });
+
+    test('a weekly quota is told where its week stands', () {
+      expect(
+        line(weekTarget: 3, weekDone: 1),
+        '١ من ٣ هذا الأسبوع، وباقي ثنتين.',
+      );
+      expect(
+        line(weekTarget: 3, weekDone: 1, variantIndex: 1),
+        '١ من ٣ هذا الأسبوع وماشية عدل، وباقي ثنتين.',
+      );
+      expect(
+        line(weekTarget: 4, weekDone: 1, isAr: false),
+        '1 of 4 this week. 3 more to go.',
+      );
+      // The last-chance day says so, and skips the praise.
+      expect(
+        line(weekTarget: 3, weekDone: 1, owedToday: true, variantIndex: 1),
+        '١ من ٣ هذا الأسبوع، وباقي ثنتين، واليوم مطلوب.',
+      );
+      expect(
+        line(weekTarget: 3, weekDone: 2, owedToday: true, isAr: false),
+        '2 of 3 this week. One more to go, and today is one of them.',
+      );
+      // Nothing yet and no slack left.
+      expect(
+        line(weekTarget: 3, weekDone: 0, owedToday: true),
+        'باقي ٣ مرات هذا الأسبوع، واليوم مطلوب.',
+      );
+      expect(
+        line(weekTarget: 3, weekDone: 0, owedToday: true, isAr: false),
+        '3 more to go this week, and today is one of them.',
+      );
+      // Target met: the rest of the week owes nothing, and the line says so
+      // rather than nagging.
+      expect(
+        line(weekTarget: 3, weekDone: 3),
+        'هدف الأسبوع تم، ٣ من ٣، ومربع اليوم زيادة.',
+      );
+      expect(
+        line(weekTarget: 3, weekDone: 4, isAr: false),
+        'Week target met, 4 of 3. Today is a bonus square.',
+      );
+    });
+
+    test('a weekly quota is never late by the calendar', () {
+      // Done Monday, reminded Wednesday, two of three still open: two days
+      // is a fact and not a lapse.
+      final spare = line(
+        weekTarget: 3,
+        weekDone: 0,
+        lastDoneDaysAgo: 2,
+        missedSinceLastDone: 0,
+      );
+      expect(spare, isNot(contains('صار لها')));
+      expect(spare, 'وقتها الحين، ومربع اليوم على بعد دقايق.');
+      // An unknown week claims nothing about the week either way.
+      final unknown = line(
+        weekTarget: 3,
+        weekDone: null,
+        lastDoneDaysAgo: 2,
+        missedSinceLastDone: 0,
+      );
+      expect(unknown, isNot(contains('هذا الأسبوع')));
+      expect(unknown, isNot(contains('صار لها')));
+      // And it never draws the streak line: a calendar streak says nothing
+      // true about a week.
+      expect(
+        line(weekTarget: 3, weekDone: 0, streak: 5),
+        isNot(contains('ورا بعض')),
+      );
+      // A proven lapse (a whole empty week) is still named.
+      expect(
+        line(
+          weekTarget: 3,
+          weekDone: 0,
+          lastDoneDaysAgo: 14,
+          missedSinceLastDone: 3,
+        ),
+        'صار لها ١٤ يوم. مربع واحد اليوم وترجع السلسلة.',
+      );
+    });
+
+    test('the same habit on the same day always picks the same line', () {
+      // Rescheduling mid-day (habit list edited, reminder time nudged) must
+      // not visibly reword a notification that is already pending.
+      for (var i = 0; i < 12; i++) {
+        expect(line(variantIndex: i), line(variantIndex: i));
+      }
+      // Negative seeds are reachable: the caller mixes in a habit id's
+      // hashCode, which is signed.
+      expect(() => line(variantIndex: -7), returnsNormally);
+      expect(line(variantIndex: -7), isNotEmpty);
+    });
+
+    test('no line addresses the reader with a gendered verb', () {
+      // The register this file documents: the old pool's «حافظ», «ابدأ»,
+      // «لا تدع» were all masculine, and half the people reading them are
+      // not. Every line below talks about the habit or the day instead.
+      const gendered = ['حافظ', 'ابدأ', 'لا تدع', 'لوّن', 'لا تفقد', 'لا تكسر'];
+      for (var i = 0; i < 12; i++) {
+        for (final state in [
+          line(variantIndex: i),
+          line(variantIndex: i, streak: 5),
+          line(variantIndex: i, lastDoneDaysAgo: 4),
+          line(variantIndex: i, completedCount: 1, dailyTarget: 2),
+          line(variantIndex: i, lastDoneDaysAgo: 1),
+        ]) {
+          for (final verb in gendered) {
+            expect(state, isNot(contains(verb)));
+          }
+        }
+      }
+    });
+  });
+
+  group('action buttons', () {
+    test('speak the same language as the notification above them', () {
+      // They were English on an Arabic device: the one part of the ping the
+      // reader is meant to act on was the one part not in their language.
+      expect(markDoneAction(true), 'تمت');
+      expect(snoozeAction(true), 'تأجيل ساعة');
+      expect(onTrackAction(true), 'التزام');
+      expect(slippedAction(true), 'زلة');
+      expect(markDoneAction(false), 'Mark Done');
+      expect(snoozeAction(false), 'Snooze 1h');
+      expect(onTrackAction(false), 'On Track');
+      expect(slippedAction(false), 'Slipped');
+    });
+
+    test('are nominal, so no button has a gender to get wrong', () {
+      // «سجّل» / «أجّل» would each have to pick one. A button label is also
+      // truncated hard by both platforms, hence the length bound.
+      for (final label in [
+        markDoneAction(true),
+        snoozeAction(true),
+        onTrackAction(true),
+        slippedAction(true),
+      ]) {
+        expect(label, isNot(startsWith('سجّل')));
+        expect(label, isNot(startsWith('أجّل')));
+        expect(label.length, lessThanOrEqualTo(12));
+      }
     });
   });
 

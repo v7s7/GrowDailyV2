@@ -146,7 +146,7 @@ test('the dashboard markup keeps the hooks its script binds to', () => {
   const html = renderDashboardHtml();
   const required = [
     'liveStrip', 'scanWarn', 'cntActivity', 'cntAccounts', 'qA', 'feedDay',
-    'feedRanges', 'typeChips', 'clearA', 'onlineRail', 'dayRoster', 'statusA',
+    'feedRanges', 'typeChips', 'detailToggle', 'clearA', 'onlineRail', 'dayRoster', 'statusA',
     'dayStat', 'feed', 'horizon', 'qU', 'fromDate', 'toDate', 'quickRanges',
     'onlyActive', 'clearU', 'statusU', 'rows', 'refresh', 'scanNote',
     'drawer', 'scrim',

@@ -47,6 +47,10 @@
 	<string>GrowDaily uses your location to calculate accurate prayer times for your reminders. Your coordinates are sent to a prayer-time service, and if you are signed in they are saved to your account so reminders follow you across devices.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>GrowDaily uses your microphone to record short voice notes you attach to tasks. If you are signed in, your notes are saved to your private GrowDaily account so they sync across your devices.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>GrowDaily reads your daily step count from Apple Health (including steps recorded by your Apple Watch) so walking habits you link to steps can complete themselves automatically. Steps are only read, never changed, and stay on your device.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>GrowDaily does not write any health data. This permission is part of the health integration used to read your step count for walking habits.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

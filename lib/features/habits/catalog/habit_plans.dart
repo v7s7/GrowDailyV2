@@ -89,11 +89,16 @@ const habitPlans = <HabitPlan>[
     id: 'discipline_30',
     nameEn: '30-Day Discipline',
     nameAr: 'تحدي الانضباط 30 يوم',
-    descEn: 'Cold showers, early mornings, no sugar, and the gym. One month to reset.',
-    descAr: 'دش بارد، صحيان مبكر، بدون سكر، ورياضة. شهر واحد يعدّل كل شي.',
+    descEn: 'Cold showers, early mornings, no sugar, the gym, and a walk every day. One month to reset.',
+    descAr: 'دش بارد، صحيان مبكر، بدون سكر، رياضة، ومشي كل يوم. شهر واحد يعدّل كل شي.',
     color: Color(0xFFFF6B35),
     icon: Icons.local_fire_department_rounded,
-    catalogIds: ['cold_shower', 'wake_early', 'no_sugar', 'gym_consistency'],
+    // daily_walk added 2026-09-02: this is the plan's only *daily* physical
+    // habit, and the one the steps link can complete by itself, so the plan
+    // stops being four things you have to remember to tick.
+    catalogIds: [
+      'cold_shower', 'wake_early', 'no_sugar', 'gym_consistency', 'daily_walk',
+    ],
   ),
   HabitPlan(
     id: 'deep_focus',

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/bidi_fraction.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
@@ -197,9 +198,16 @@ class ReportHeaderCard extends StatelessWidget {
               if (d != null && d != 0) ...[
                 const SizedBox(width: 8),
                 Text(
-                  d > 0
-                      ? '+${toWesternDigits('$d')}'
-                      : toWesternDigits('$d'),
+                  // Isolated because a bare signed number is all weak bidi
+                  // characters: in the Arabic paragraph the sign was
+                  // reordered to the other side of the digits, so −3
+                  // painted as «3-». Same fix as progressFraction, for the
+                  // same reason.
+                  bidiIsolate(
+                    d > 0
+                        ? '+${toWesternDigits('$d')}'
+                        : toWesternDigits('$d'),
+                  ),
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w800,

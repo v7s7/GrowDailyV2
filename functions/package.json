@@ -2,12 +2,12 @@
   "name": "functions",
   "description": "Grow Daily Cloud Functions - the room-finish push notification's server half (see ../lib/core/services/push_notification_service.dart for the client half, and NotificationSettings.roomActivityEnabled's doc comment for the feature end to end).",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "scripts": {
     "deploy": "firebase deploy --only functions",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "firebase-admin": "^13.10.0",

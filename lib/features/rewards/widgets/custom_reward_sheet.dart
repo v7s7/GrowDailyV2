@@ -322,6 +322,8 @@ class _CustomRewardSheetState extends ConsumerState<_CustomRewardSheet> {
       SnackBar(
         content: Text(s.rewardsDeleted(reward.name)),
         behavior: SnackBarBehavior.floating,
+        // Never pin the bar open. See AppSnackBar.
+        persist: false,
         action: SnackBarAction(
           label: s.undo,
           onPressed: () => notifier.restore(reward),

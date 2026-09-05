@@ -22,17 +22,28 @@ import '../../../features/auth/notifiers/auth_notifier.dart';
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/grid/models/square_state.dart';
 import '../../../features/grid/notifiers/grid_journal_notifier.dart';
+import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/grid/screens/grid_journal_screen.dart';
 import '../../../features/grid/screens/grid_screen.dart' show categoryVisual;
+import '../../../features/habits/catalog/islamic_habit_catalog.dart'
+    show IslamicHabitTemplate;
 import '../../../features/habits/models/habit_model.dart' show HabitCategory;
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/insights/insight_engine.dart';
 import '../../../features/insights/insights_screen.dart';
+import '../../../features/milestones/notifiers/habit_history_notifier.dart';
+import '../../../features/milestones/reports/day_score.dart';
+import '../../../features/milestones/reports/habit_day_marks.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
+import '../../../shared/widgets/segmented_tabs.dart';
 import 'achievements_screen.dart';
+import 'progress_day_chart.dart';
 
-// ─── 14-day progress chart data (moved verbatim from the old standalone ───
-// ProgressScreen, now retired — see ProgressHubScreen's own doc comment) ───
+// ─── The day sheet's raw day document ────────────────────────────────────
+// The CHART no longer reads these at all; it scores off the habit_history
+// mirror through day_score.dart. What survives here is the one day someone
+// actually taps, for the notes and the raw times-completed counts, which
+// live nowhere else. See progressDayDetailProvider.
 
 class ProgressPoint {
   final DateTime date;
@@ -65,56 +76,37 @@ class ProgressPoint {
     this.states = const {},
   });
 
-  /// Every habitId worth a row in the day sheet: anything completed, plus
-  /// anything carrying a note or a Skipped/Failed/Bonus mark even if it was
-  /// never completed — a day someone skipped everything and wrote down why
-  /// is exactly the day worth opening.
-  Set<String> get detailedHabitIds => {
-        ...habitCompletions.keys,
-        ...notes.keys.where((k) => (notes[k] ?? '').trim().isNotEmpty),
-        ...states.keys.where((k) =>
-            states[k] != null && states[k] != SquareState.none),
-      };
-
-  bool get hasDetail => detailedHabitIds.isNotEmpty;
 }
 
-// autoDispose: this section is only ever visible while ProgressHubScreen is
-// on screen, so it fully tears down on pop. Without autoDispose this plain
-// FutureProvider would compute once, cache forever, and never refetch —
-// complete a habit on Dashboard, come back here, and the chart (including
-// "today") would still show whatever was true the first time this was ever
-// opened this session, since the only thing that would invalidate it is
-// authStateProvider changing (sign in/out), not new completions.
-// autoDispose means it's torn down the moment this screen is popped, so
-// reopening it always re-fetches fresh instead.
-final progressReportProvider =
-    FutureProvider.autoDispose<List<ProgressPoint>>((ref) async {
+/// The raw `daily` document for ONE day, for the tap sheet only.
+///
+/// The chart itself no longer reads daily documents at all: it scores off
+/// the `habit_history` mirror, the same handful of docs the reports hub and
+/// the heatmap already hold. This used to be a 14-document fan-out paid in
+/// full on every open of the hub, whether or not anyone tapped anything.
+/// Now a day costs one read at the moment it is actually opened.
+///
+/// Still needed because the mirror stores a mark per habit-day and nothing
+/// else: the square NOTES, the raw times-completed counts and the per-day
+/// targets live only on the day document, and the notes are the reason this
+/// sheet is worth opening at all.
+///
+/// autoDispose.family: torn down with the sheet, so reopening a day re-reads
+/// it rather than serving a completion the user has since undone.
+final progressDayDetailProvider =
+    FutureProvider.autoDispose.family<ProgressPoint, DateTime>((ref, day) async {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
-
-  final today = DateTime.now().effectiveDay;
-  final days = List.generate(14, (i) {
-    final d = today.subtract(Duration(days: 13 - i));
-    return DateTime(d.year, d.month, d.day);
-  });
+  final key = _dateKey(day);
   if (uid == null) {
-    final logs = await Future.wait(
-      days.map((d) => LocalStoreService.getDailyMap(_dateKey(d))),
-    );
-    return [
-      for (var i = 0; i < days.length; i++) _pointFrom(days[i], logs[i]),
-    ];
+    return _pointFrom(day, await LocalStoreService.getDailyMap(key));
   }
-
-  final col = FirebaseFirestore.instance
+  final doc = await FirebaseFirestore.instance
       .collection('users')
       .doc(uid)
-      .collection('daily');
-  final docs = await Future.wait(days.map((d) => col.doc(_dateKey(d)).get()));
-
-  return [
-    for (var i = 0; i < days.length; i++) _pointFrom(days[i], docs[i].data()),
-  ];
+      .collection('daily')
+      .doc(key)
+      .get();
+  return _pointFrom(day, doc.data());
 });
 
 String _dateKey(DateTime d) =>
@@ -287,86 +279,162 @@ class _SectionHeader extends StatelessWidget {
 
 // ─── Progress section (unchanged content, moved from ProgressScreen) ──────
 
-class _ProgressReportCard extends ConsumerWidget {
+class _ProgressReportCard extends ConsumerStatefulWidget {
   final DashboardState state;
   const _ProgressReportCard({required this.state});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final report = ref.watch(progressReportProvider);
-    return report.when(
-      data: (points) {
-        final chartPoints = points.isEmpty
-            ? _guestPoints(state.completions.values.fold<int>(
-                0,
-                (sum, count) => sum + count,
-              ))
-            : points;
-        return _ProgressReportBody(points: chartPoints, state: state);
+  ConsumerState<_ProgressReportCard> createState() =>
+      _ProgressReportCardState();
+}
+
+class _ProgressReportCardState extends ConsumerState<_ProgressReportCard> {
+  /// Deliberately widget state, not persisted. The card is the first thing
+  /// on the screen and أسبوعين is the window the rest of the app calls
+  /// "recent", so it is what someone should meet every time rather than
+  /// whatever zoom they happened to leave it on days ago.
+  ///
+  /// It also costs NOTHING to change: every range is scored from the same
+  /// in-memory mirror the reports hub already holds, so switching is pure
+  /// arithmetic over data in hand, not a re-read. That is why this is a
+  /// filter and not a navigation.
+  ProgressRange _range = ProgressRange.fortnight;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final today = DateTime.now().effectiveDay;
+    final days = List.generate(_range.days, (i) {
+      final d = today.subtract(Duration(days: _range.days - 1 - i));
+      return DateTime(d.year, d.month, d.day);
+    });
+
+    // allHabitsEverProvider, UNDEDUPED, and that is load-bearing. It emits
+    // one synthetic template per catalog stint, each carrying its own
+    // createdAt/archivedAt window. The reports hub dedupes by first-seen id
+    // (period_report_section.dart:297-301) because it renders one ROW per
+    // habit and twins would look like a bug; here there are no rows, and
+    // deduping would keep whichever stint came out first and silently drop
+    // every day belonging to the others. dayScoreFor collects ids into a
+    // Set, so each stint claims its own days and the duplicates collapse.
+    final habits = ref.watch(allHabitsEverProvider);
+    final historyAsync = ref.watch(habitYearHistoryProvider);
+    final mirrored =
+        historyAsync.valueOrNull ?? const <String, Map<String, SquareState>>{};
+
+    // TODAY is never read from the mirror. It is a cache written by three
+    // writers, one of them fire-and-forget, so for the day someone is
+    // looking at on two screens at once it can lag or miss a write. Same
+    // overlay, same gridKnowsToday guard, as the reports hub.
+    final grid = ref.watch(weeklyGridProvider);
+    final history = withLiveToday(
+      mirrored: mirrored,
+      habitIds: {for (final h in habits) h.id},
+      squareToday: (id) => grid.squareFor(id, today),
+      completionsToday: (id) => widget.state.completions[id] ?? 0,
+      // Falls back to 1 rather than borrowing a neighbour's target, which
+      // would report an ordinary habit as part-done forever.
+      dailyTargetOf: (id) {
+        for (final h in habits) {
+          if (h.id == id) return h.effectiveDailyTarget;
+        }
+        return 1;
       },
-      loading: () => _ProgressReportBody(
-        points: _guestPoints(0),
-        state: state,
-        isLoading: true,
+      todayKey: today.toDateKey(),
+      gridKnowsToday: !grid.isLoading && grid.isCurrentWeek,
+    );
+
+    // Scored once and used twice: the header's trend line and the body's
+    // three numbers have to be reading the same window, and recomputing
+    // would be the seam they could drift at.
+    final scores = computeDayScores(habits: habits, history: history, days: days);
+
+    return _ProgressReportShell(
+      range: _range,
+      onRangeChanged: (range) => setState(() => _range = range),
+      subtitle: progressTrendLine(
+        s,
+        scores,
+        isLoading: historyAsync.isLoading,
+        // A failed read produces exactly the zeros an empty window does,
+        // and an empty state is an assertion about the person. Kept as its
+        // own state so the app never tells someone they did nothing because
+        // the network was down.
+        hasError: historyAsync.hasError,
       ),
-      error: (_, __) => _ProgressReportBody(
-        points: _guestPoints(state.completions.values.fold<int>(
-          0,
-          (sum, count) => sum + count,
-        )),
-        state: state,
+      rangeLabels: [
+        for (final range in ProgressRange.values)
+          s.progressRangeLabel(range.days),
+      ],
+      body: _ProgressReportBody(
+        scores: scores,
+        habits: habits,
+        history: history,
+        isLoading: historyAsync.isLoading,
       ),
     );
   }
-
-  List<ProgressPoint> _guestPoints(int todayCompletions) {
-    final today = DateTime.now().effectiveDay;
-    return List.generate(14, (i) {
-      final date = today.subtract(Duration(days: 13 - i));
-      return ProgressPoint(
-        date: DateTime(date.year, date.month, date.day),
-        completions: i == 13 ? todayCompletions : 0,
-      );
-    });
-  }
 }
 
-class _ProgressReportBody extends StatelessWidget {
-  final List<ProgressPoint> points;
-  final DashboardState state;
-  final bool isLoading;
+/// The one line under the card's title: is this window holding up or not.
+///
+/// FOUR states, not two. `second >= first` alone scores an empty window as
+/// 0 >= 0 and comes out as "holding strong", which is the app congratulating
+/// someone on a chart with nothing in it, and a failed read produces exactly
+/// the same zeros as an empty one.
+///
+/// Compares CREDIT, not the done count: a window that swapped whole days for
+/// half days has not held level, and this line is the only place the card
+/// says anything about direction.
+///
+/// The two halves are equal in length, with the middle day dropped on an odd
+/// window. Comparing 3 days against 4 would tilt every 7-day window toward
+/// the good news by construction.
+String progressTrendLine(
+  S s,
+  List<DayScore> scores, {
+  required bool isLoading,
+  required bool hasError,
+}) {
+  if (isLoading) return s.loadingReport;
+  if (hasError) return s.monthlyStoryLoadFailed;
+  if (scores.fold<int>(0, (running, p) => running + p.done) == 0) {
+    return s.noProgressYet;
+  }
+  final half = scores.length ~/ 2;
+  if (half == 0) return s.holdingStrong;
+  double creditOf(Iterable<DayScore> days) =>
+      days.fold<double>(0, (running, p) => running + p.credit);
+  final earlier = creditOf(scores.take(half));
+  final later = creditOf(scores.skip(scores.length - half));
+  return later >= earlier ? s.holdingStrong : s.startAgain;
+}
 
-  const _ProgressReportBody({
-    required this.points,
-    required this.state,
-    this.isLoading = false,
+/// The card chrome: header, the range filter, and the transition between
+/// one range and the next.
+///
+/// Split out from the body so the header and the filter DO NOT take part in
+/// the transition. Fading the control someone just tapped is what makes a
+/// filter feel unresponsive; only the thing it filters should move.
+class _ProgressReportShell extends StatelessWidget {
+  final ProgressRange range;
+  final ValueChanged<ProgressRange> onRangeChanged;
+  final List<String> rangeLabels;
+  final String subtitle;
+  final Widget body;
+
+  const _ProgressReportShell({
+    required this.range,
+    required this.onRangeChanged,
+    required this.rangeLabels,
+    required this.subtitle,
+    required this.body,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final locale = Localizations.localeOf(context).languageCode;
-    final total = points.fold<int>(0, (sum, p) => sum + p.completions);
-    final best = points.fold<int>(
-        0, (best, p) => p.completions > best ? p.completions : best);
-    final activeDays = points.where((p) => p.completions > 0).length;
-    final trendUp = points.length > 7 &&
-        points.skip(7).fold<int>(0, (sum, p) => sum + p.completions) >=
-            points.take(7).fold<int>(0, (sum, p) => sum + p.completions);
-    // Three states, not two. `trendUp` compares the last 7 days against the
-    // previous 7 with `>=`, so a completely empty fortnight scores 0 >= 0
-    // and came out as "holding strong" — the app congratulating someone on
-    // a chart with nothing in it, which is the fastest way to make every
-    // other encouraging line on the screen read as noise. An empty window
-    // now says so plainly instead of guessing at a trend that doesn't exist.
-    final subtitle = isLoading
-        ? s.loadingReport
-        : total == 0
-            ? s.noProgressYet
-            : trendUp
-                ? s.holdingStrong
-                : s.startAgain;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -395,8 +463,12 @@ class _ProgressReportBody extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // A fixed title now that the window is a control. It
+                    // used to read "تقدم 14 يوم", which would have printed
+                    // the range twice, once in a heading nobody can act on
+                    // and once in the segment right underneath it.
                     Text(
-                      s.fourteenDayProgress,
+                      s.progressDayByDay,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
@@ -404,6 +476,9 @@ class _ProgressReportBody extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
+                    // The trend line, kept where it has always been. The
+                    // legend explaining the band belongs under the chart it
+                    // describes, not up here displacing this.
                     Text(
                       subtitle,
                       style: TextStyle(fontSize: 12, color: gp.textSec),
@@ -413,44 +488,129 @@ class _ProgressReportBody extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          // textDirection: TextDirection.ltr — pinned regardless of app
-          // locale. points is oldest-first, today last (see
-          // progressReportProvider), and reading left-to-right with today
-          // on the right is the whole point of a chronological chart like
-          // this - a plain Row would otherwise mirror it to right-to-left
-          // under Arabic (Row always follows the ambient Directionality
-          // unless told not to), putting today on the left and running the
-          // calendar backwards. Each bar's own day-of-month label already
-          // renders correctly either way, since that's text content, not
-          // position - only the columns' left-right order needed pinning.
-          Row(
-            textDirection: TextDirection.ltr,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              for (var i = 0; i < points.length; i++)
-                Expanded(
-                  child: _ProgressBarColumn(
-                    point: points[i],
-                    maxValue: best <= 0 ? 1 : best,
-                    isToday: i == points.length - 1,
-                    locale: locale,
-                  ),
-                ),
-            ],
+          const SizedBox(height: 14),
+          SegmentedTabs(
+            labels: rangeLabels,
+            selected: range.index,
+            onChanged: (i) => onRangeChanged(ProgressRange.values[i]),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _MiniReportStat(label: s.total, value: '$total'),
-              const SizedBox(width: 8),
-              _MiniReportStat(label: s.activeDays, value: '$activeDays/14'),
-              const SizedBox(width: 8),
-              _MiniReportStat(label: s.bestDay, value: '$best'),
-            ],
+          const SizedBox(height: 16),
+          // Fade and scale, never slide. This is the app's own rule, set by
+          // _ReportTransition on the reports hub: stepping through TIME
+          // slides horizontally, while changing GRAIN fades and scales,
+          // because it changes zoom rather than position. Sliding here would
+          // say "you went back a period" every time someone tapped شهر.
+          // Same 260ms and the same 0.985 scale so the two surfaces feel
+          // like one app.
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            // Top-aligned: the three ranges are different heights (a month
+            // drops the per-day counts row), and a centred stack would
+            // slide the incoming chart vertically as well, which reads as a
+            // glitch rather than a transition.
+            layoutBuilder: (currentChild, previousChildren) => Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                ...previousChildren,
+                if (currentChild != null) currentChild,
+              ],
+            ),
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.985, end: 1).animate(animation),
+                child: child,
+              ),
+            ),
+            child: KeyedSubtree(key: ValueKey(range), child: body),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The part of the card that actually changes when the range changes: the
+/// chart, and the three numbers under it.
+class _ProgressReportBody extends ConsumerWidget {
+  final List<DayScore> scores;
+  final List<IslamicHabitTemplate> habits;
+  final Map<String, Map<String, SquareState>> history;
+  final bool isLoading;
+
+  const _ProgressReportBody({
+    required this.scores,
+    required this.habits,
+    required this.history,
+    this.isLoading = false,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = S.of(context);
+    final locale = Localizations.localeOf(context).languageCode;
+
+    final total = scores.fold<int>(0, (running, p) => running + p.done);
+    final best = scores.fold<int>(0, (b, p) => p.done > b ? p.done : b);
+    final rate = windowRate(scores);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DayScoreChart(
+          scores: scores,
+          todayIndex: scores.length - 1,
+          isLoading: isLoading,
+          onDayTap: (score) => _showDayDetailSheet(
+            context,
+            score: score,
+            silent: silentHabitsOn(
+              habits: habits,
+              history: history,
+              day: score.day,
+            ),
+            marks: {
+              for (final entry in history.entries)
+                if (entry.value[score.day.toDateKey()] != null)
+                  entry.key: entry.value[score.day.toDateKey()]!,
+            },
+            locale: locale,
+          ),
+        ),
+        const SizedBox(height: 8),
+        // The legend is what turns the band from decoration into the
+        // denominator. Without a line saying so, a faint shape behind a
+        // line is read as styling and the "out of how many" never lands.
+        Text(
+          s.progressChartLegend,
+          style: TextStyle(
+            fontSize: 11,
+            color: context.gp.textTert,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            _MiniReportStat(label: s.total, value: '$total'),
+            const SizedBox(width: 8),
+            // Replaces the old "active days" cell. Credit over obligation
+            // across the whole window, the same arithmetic التقارير prints,
+            // so the two screens agree. A plain hyphen, not an em dash
+            // (no_em_dash_in_copy_test scans every user-facing literal in
+            // lib) and never 0%, when the window owed nothing: see
+            // DayScore.rate for why that distinction is not cosmetic.
+            _MiniReportStat(
+              label: s.progressStatRate,
+              value: rate == null ? '-' : '${(rate * 100).round()}%',
+            ),
+            const SizedBox(width: 8),
+            _MiniReportStat(label: s.bestDay, value: '$best'),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -507,129 +667,27 @@ class _MiniReportStat extends StatelessWidget {
   }
 }
 
-/// One column of the 14-day bar chart — a numeric completion count sitting
-/// directly on top of a bar sized relative to the busiest day in the
-/// window, with a narrow weekday initial below. Replaces the old smooth
-/// line/area chart: for a small, countable metric like "habits done today",
-/// research into habit-tracker UX consistently favors bars with the actual
-/// number visible over a curve the eye has to interpolate — see this
-/// screen's redesign notes for the competitive patterns that drove this.
-class _ProgressBarColumn extends StatelessWidget {
-  final ProgressPoint point;
-  final int maxValue;
-  final bool isToday;
-  final String locale;
-
-  static const double _trackHeight = 72;
-
-  const _ProgressBarColumn({
-    required this.point,
-    required this.maxValue,
-    required this.isToday,
-    required this.locale,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final hasData = point.completions > 0;
-    final barColor = isToday
-        ? GameColors.gold
-        : hasData
-            ? GameColors.success
-            : gp.border;
-    // A zero-completion day still gets a small visible sliver instead of an
-    // empty gap — a blank column reads as "missing data" next to 13 others
-    // that all have real bars, not "zero, on purpose".
-    final barHeight = hasData
-        ? (_trackHeight * (point.completions / maxValue))
-            .clamp(6.0, _trackHeight)
-            .toDouble()
-        : 3.0;
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => _showDayDetailSheet(context, point, locale),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              '${point.completions}',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: hasData ? gp.textPrimary : gp.textTert,
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          SizedBox(
-            height: _trackHeight,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeOutCubic,
-                width: double.infinity,
-                height: barHeight,
-                margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                decoration: BoxDecoration(
-                  color: barColor,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          // The day-of-month number, not a bare weekday initial — 'EEEEE'
-          // (Tu/Th both read "T", Sa/Su both read "S") made it impossible
-          // to tell which actual day a column was without counting from
-          // today.
-          //
-          // Plain interpolation rather than DateFormat('d', locale). Routed
-          // through DateFormat, this axis rendered ٣ ٤ ٥ directly beneath
-          // the ASCII completion counts sitting on top of the very same
-          // bars — two numeral systems in one column. Interpolating the day
-          // fixes it (verified on device, Arabic locale).
-          //
-          // Worth knowing what it was *not*: `DateFormat('d', 'ar')` returns
-          // the ASCII string "3" in a plain test process — only 'ar_EG' and
-          // friends carry Arabic-Indic symbol data — so this is not intl
-          // choosing digits for the locale, and "just pass 'en'" would have
-          // been a fix for a cause that isn't there. The substitution
-          // happens further down, at render; reminder_picker.dart's
-          // reminderOffsetLabel documents the same class of surprise from
-          // the opposite direction. Either way the reliable rule is the one
-          // the rest of the app already follows by accident: Grid's week
-          // header, the monthly heatmap and the weekly recap all build day
-          // numbers with plain interpolation, and none of them has ever
-          // shown this. This was the outlier, not the standard.
-          Text(
-            '${point.date.day}',
-            style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
-              color: isToday ? GameColors.gold : gp.textTert,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Opens a lightweight read-only detail sheet for one bar of the 14-day
-/// chart — the chart itself only ever has room for a bare number per day,
-/// this is where "which day, and what actually happened on it" lives.
-void _showDayDetailSheet(BuildContext context, ProgressPoint point, String locale) {
-  HapticFeedback.selectionClick();
+/// Opens the read-only detail sheet for one day of the chart.
+///
+/// The chart has room for one number per day; this is where "which day, what
+/// actually happened, and where the denominator came from" lives.
+void _showDayDetailSheet(
+  BuildContext context, {
+  required DayScore score,
+  required List<IslamicHabitTemplate> silent,
+  required Map<String, SquareState> marks,
+  required String locale,
+}) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
     useSafeArea: true,
-    builder: (ctx) => _DayDetailSheet(point: point, locale: locale),
+    builder: (ctx) => _DayDetailSheet(
+      score: score,
+      silent: silent,
+      marks: marks,
+      locale: locale,
+    ),
   );
 }
 
@@ -647,35 +705,53 @@ class _DayHabitRow extends StatelessWidget {
   final String note;
   final SquareState state;
 
+  /// A habit that owed this day and recorded nothing. Rendered dimmed with
+  /// a «مطلوب» tag rather than as a plain not-done row: these rows exist to
+  /// account for the denominator in the header, so they have to be legible
+  /// as "this is where the 10 came from" and not as another kind of entry.
+  final bool isSilent;
+
   const _DayHabitRow({
     required this.name,
     required this.completions,
     required this.note,
     required this.state,
+    this.isSilent = false,
   });
 
-  /// Icon per state, with the color taken from [SquareState.accent] — the
+  /// Icon per state, with the colour taken from [SquareState.accent] — the
   /// same hue the Grid square itself uses, so a Skipped day reads as the
-  /// same thing in both places rather than picking new colors here.
-  (IconData, Color) _visual(BuildContext context) {
-    final gp = context.gp;
-    return switch (state) {
-      SquareState.skipped => (Icons.next_plan_outlined, state.accent),
-      SquareState.failed => (Icons.cancel_outlined, state.accent),
-      SquareState.bonus => (Icons.auto_awesome_rounded, state.accent),
-      _ => completions > 0
-          ? (Icons.check_circle_rounded, GameColors.success)
-          : (Icons.radio_button_unchecked_rounded, gp.textTert),
-    };
-  }
+  /// same thing in both places rather than picking new colours here.
+  ///
+  /// Keyed on the MARK, never on the completion count. It used to fall
+  /// through to `completions > 0` for anything that was not skipped, failed
+  /// or bonus, which is the same tap-count-versus-square split the chart
+  /// above was just rebuilt to end: a habit finished by painting a green
+  /// square on the Grid records no completion count, so a day the header
+  /// correctly called "3 من 6" listed three green habits with only ONE
+  /// checkmark against them. Caught on device, 27 August.
+  (IconData, Color) _visual(BuildContext context) => (
+        markRowIcon(state),
+        switch (state) {
+          SquareState.complete => GameColors.success,
+          SquareState.none => context.gp.textTert,
+          _ => state.accent,
+        },
+      );
 
-  /// Only the three "worth explaining" states get a written label — a plain
+  /// Only the states worth explaining get a written label — a plain
   /// completed or not-done habit is already obvious from the icon, and
   /// labelling it would just add noise to every row.
+  ///
+  /// جزئي is in the list because it is the one state whose ARITHMETIC is
+  /// surprising: it earns half a day, so a row that silently reads as
+  /// not-done is what makes "3 من 6" look wrong by one on a day with a
+  /// half in it.
   String? _stateLabel(bool isAr) => switch (state) {
         SquareState.skipped ||
         SquareState.failed ||
-        SquareState.bonus =>
+        SquareState.bonus ||
+        SquareState.partial =>
           isAr ? state.labelAr : state.label,
         _ => null,
       };
@@ -712,7 +788,7 @@ class _DayHabitRow extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w700,
-                          color: gp.textPrimary,
+                          color: isSilent ? gp.textSec : gp.textPrimary,
                         ),
                       ),
                     ),
@@ -726,6 +802,27 @@ class _DayHabitRow extends StatelessWidget {
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
                           color: GameColors.success,
+                        ),
+                      ),
+                    ],
+                    if (isSilent) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: gp.surface,
+                          borderRadius:
+                              BorderRadius.circular(GameSpacing.pillRadius),
+                          border: Border.all(color: gp.border, width: 0.5),
+                        ),
+                        child: Text(
+                          s.reportsDayScheduled,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: gp.textTert,
+                          ),
                         ),
                       ),
                     ],
@@ -772,51 +869,92 @@ class _DayHabitRow extends StatelessWidget {
   }
 }
 
-/// ConsumerWidget, not StatelessWidget: habit *names* aren't stored on the
-/// day's document (only ids are — see ProgressPoint.habitCompletions), so
-/// this resolves them live from habitListProvider at render time, falling
-/// back to the "deleted habit" label for one that's since been removed.
+/// One day, opened.
+///
+/// ConsumerWidget because habit NAMES are not stored per day (only ids are),
+/// so they resolve live from allHabitsEverProvider, falling back to the
+/// "deleted habit" label for one since removed. The day's notes and raw
+/// times-completed counts come from [progressDayDetailProvider], one read,
+/// paid only because someone tapped.
+///
+/// The header is the whole reason the denominator is trustworthy: it prints
+/// «تم إنجاز 4 من 10», and the list underneath names all ten. A fraction
+/// nobody can itemise is a fraction nobody should believe.
 class _DayDetailSheet extends ConsumerWidget {
-  final ProgressPoint point;
+  final DayScore score;
+
+  /// Habits that owed this day and recorded nothing. Built from the same
+  /// rule the denominator is, so the rows and the fraction cannot disagree.
+  final List<IslamicHabitTemplate> silent;
+
+  /// Every habit that recorded a mark that day, from the mirror with today
+  /// already overlaid. The mark is the authority on WHAT happened; the day
+  /// document below only adds the note and the ×count.
+  final Map<String, SquareState> marks;
+
   final String locale;
 
-  const _DayDetailSheet({required this.point, required this.locale});
+  const _DayDetailSheet({
+    required this.score,
+    required this.silent,
+    required this.marks,
+    required this.locale,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
-    final hasData = point.completions > 0;
     final isAr = s.isAr;
+    final detail = ref.watch(progressDayDetailProvider(score.day)).valueOrNull;
 
     final habitsById = {
       for (final h in ref.watch(allHabitsEverProvider)) h.id: h,
     };
-    // Completed habits first, then anything only carrying a note or a
-    // skip/fail mark; alphabetical within each group so the order is stable
-    // between openings rather than following map insertion order.
-    final rows = point.detailedHabitIds.map((id) {
+
+    // Recorded habits first (done before not-done, then alphabetical so the
+    // order is stable between openings), then the silent ones that owed the
+    // day. Recorded rows come from `marks`, never from the day document's
+    // habitCompletions, so this list counts the same habit-days the chart
+    // above it plotted.
+    final rows = marks.entries.map((entry) {
       return (
-        id: id,
-        name: habitsById[id]?.localName(isAr) ?? s.gridJournalDeletedHabit,
-        completions: point.habitCompletions[id] ?? 0,
-        note: point.notes[id] ?? '',
-        state: point.states[id] ?? SquareState.none,
+        name: habitsById[entry.key]?.localName(isAr) ?? s.gridJournalDeletedHabit,
+        completions: detail?.habitCompletions[entry.key] ?? 0,
+        note: detail?.notes[entry.key] ?? '',
+        state: entry.value,
+        isSilent: false,
       );
     }).toList()
       ..sort((a, b) {
-        final byDone = (b.completions > 0 ? 1 : 0)
-            .compareTo(a.completions > 0 ? 1 : 0);
+        final byDone =
+            (b.state.isGreen ? 1 : 0).compareTo(a.state.isGreen ? 1 : 0);
         return byDone != 0 ? byDone : a.name.compareTo(b.name);
       });
-    // Today/Yesterday reads faster at a glance, but the literal calendar
-    // date is always shown too (see below) so this never becomes
-    // ambiguous about which real day it's for.
-    final headline = point.date.isToday
+    rows.addAll([
+      for (final habit in silent)
+        (
+          name: habit.localName(isAr),
+          completions: 0,
+          note: '',
+          state: SquareState.none,
+          isSilent: true,
+        ),
+    ]);
+
+    final headline = score.day.isToday
         ? s.progressToday
-        : point.date.isYesterday
+        : score.day.isYesterday
             ? s.progressYesterday
-            : weekdayDateLabel(point.date, isAr: s.isAr, locale: locale);
+            : weekdayDateLabel(score.day, isAr: isAr, locale: locale);
+
+    // Three sentences, not one, because a day with no obligation and a day
+    // with an unmet one are different facts. Never "0 من 0".
+    final summary = score.owed > 0
+        ? s.progressDayScore(score.done, score.owed)
+        : score.rested > 0
+            ? s.progressDayRested
+            : s.progressDayNothingDue;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -855,10 +993,10 @@ class _DayDetailSheet extends ConsumerWidget {
                 color: gp.textPrimary,
               ),
             ),
-            if (point.date.isToday || point.date.isYesterday) ...[
+            if (score.day.isToday || score.day.isYesterday) ...[
               const SizedBox(height: 2),
               Text(
-                weekdayDateLabel(point.date, isAr: s.isAr, locale: locale),
+                weekdayDateLabel(score.day, isAr: isAr, locale: locale),
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: gp.textSec),
               ),
@@ -877,22 +1015,22 @@ class _DayDetailSheet extends ConsumerWidget {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: (hasData ? GameColors.success : gp.border)
-                          .withOpacity(hasData ? 0.12 : 0.3),
+                      color: (score.done > 0 ? GameColors.success : gp.border)
+                          .withOpacity(score.done > 0 ? 0.12 : 0.3),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
-                      hasData
+                      score.done > 0
                           ? Icons.check_circle_rounded
                           : Icons.remove_circle_outline_rounded,
                       size: 18,
-                      color: hasData ? GameColors.success : gp.textTert,
+                      color: score.done > 0 ? GameColors.success : gp.textTert,
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      s.progressDayCompletions(point.completions),
+                      summary,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -920,8 +1058,6 @@ class _DayDetailSheet extends ConsumerWidget {
               const SizedBox(height: 4),
               // Capped height + scroll: a heavy day with a dozen habits and
               // long notes would otherwise push this sheet past the screen.
-              // shrinkWrap keeps a light day compact instead of always
-              // reserving the full height.
               ConstrainedBox(
                 constraints: BoxConstraints(
                   maxHeight: MediaQuery.of(context).size.height * 0.42,
@@ -939,6 +1075,7 @@ class _DayDetailSheet extends ConsumerWidget {
                       completions: r.completions,
                       note: r.note,
                       state: r.state,
+                      isSilent: r.isSilent,
                     );
                   },
                 ),

@@ -66,6 +66,32 @@ class IslamicHabitTemplate {
   /// since that has no resolved moment to offset from in the first place.
   final int reminderOffsetMinutes;
 
+  /// Extra signed shifts this habit ALSO fires at, on top of the one in
+  /// [reminderOffsetMinutes] — the habit-side equivalent of the reminder
+  /// stack a task carries (see ReminderPicker). Same convention throughout:
+  /// negative is before the anchor, positive after, 0 is on the dot.
+  ///
+  /// The whole set a habit fires at is [reminderOffsetMinutes] plus these,
+  /// so a habit's reminder count is always `1 + extraReminderOffsets.length`
+  /// and this list never repeats the primary value. Kept as a separate field
+  /// rather than folding all of them into one list because
+  /// [reminderOffsetMinutes] is what every existing habit, every stored
+  /// document and notification slot 0 already mean by "the reminder" — the
+  /// primary shift had to keep its identity or every armed reminder on every
+  /// device would have had to be re-derived.
+  ///
+  /// Only ever populated for a habit with ONE anchor: a single clock time,
+  /// or a prayer. A habit counted several times a day already gets one
+  /// reminder per occurrence, each with its own shift stored beside its time
+  /// in the cue (see HabitCue.offsetsAreOwn); stacking these on top of those
+  /// would multiply the two lists together, which is not what either control
+  /// asks for. Add Habit drops them when the times-per-day stepper goes
+  /// above one.
+  ///
+  /// Empty for every habit that existed before this field, and omitted from
+  /// [toMap] when empty, so no stored habit is rewritten by its arrival.
+  final List<int> extraReminderOffsets;
+
   /// Lets this one habit's reminder through even when it lands inside the
   /// user's quiet hours — the "Allow anyway" escape hatch offered right in
   /// Add Habit the moment a picked time is detected to fall in that window.
@@ -100,6 +126,31 @@ class IslamicHabitTemplate {
   /// so nothing about today's Grid, Add sheet, or streak check changes.
   final DateTime? archivedAt;
 
+  /// Daily step target when this habit is linked to the phone's step count
+  /// (Apple Health / Health Connect) — null means not linked, which is the
+  /// only state a habit can be in unless the user accepted the link offer
+  /// in Add Habit (see step_habit_detector.dart for when that offer shows).
+  /// Non-null is the link: there is deliberately no separate boolean, so
+  /// the two can never disagree. When linked, stepAutoCompleteProvider
+  /// completes the habit the moment today's steps reach this number.
+  final int? stepGoal;
+
+  /// The goal to OFFER if this habit is linked to the step count, for
+  /// catalog habits that are obviously about walking. Never a link by
+  /// itself.
+  ///
+  /// Deliberately not [stepGoal]. That field IS the link: anything non-null
+  /// there and runStepAutoComplete starts reading health data, which for a
+  /// catalog habit would mean shipping a preset that reads somebody's steps
+  /// the moment they switch it on and before anyone has asked them. This one
+  /// only seeds the number in the Add Habit picker, and the link still has
+  /// to be turned on and permitted like any other.
+  ///
+  /// Catalog metadata, so it is never written to a habit document: a custom
+  /// habit has no preset to suggest anything, and an activated catalog habit
+  /// carries it in memory only (see the copy helpers below).
+  final int? suggestedStepGoal;
+
   const IslamicHabitTemplate({
     required this.id,
     required this.name,
@@ -122,9 +173,12 @@ class IslamicHabitTemplate {
     required this.goldReward,
     this.iconColorHex,
     this.reminderOffsetMinutes = 0,
+    this.extraReminderOffsets = const [],
     this.ignoreQuietHours = false,
     this.createdAt,
     this.archivedAt,
+    this.stepGoal,
+    this.suggestedStepGoal,
   });
 
   /// This habit's own icon color, or null to fall back to the category/
@@ -197,12 +251,15 @@ class IslamicHabitTemplate {
         // now, and would never be written at all under the old `> 0` guard.
         if (reminderOffsetMinutes != 0)
           'reminderOffsetMinutes': reminderOffsetMinutes,
+        if (extraReminderOffsets.isNotEmpty)
+          'extraReminderOffsets': extraReminderOffsets,
         if (ignoreQuietHours) 'ignoreQuietHours': true,
         // ISO string, not a Timestamp, on purpose: this exact map also
         // goes into Hive for guests (see CustomHabitsNotifier._saveGuest),
         // and Hive can't serialize Firestore Timestamps.
         if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
         if (archivedAt != null) 'archivedAt': archivedAt!.toIso8601String(),
+        if (stepGoal != null) 'stepGoal': stepGoal,
       };
 
   factory IslamicHabitTemplate.fromMap(String id, Map<String, dynamic> d) =>
@@ -266,9 +323,11 @@ class IslamicHabitTemplate {
         goldReward: d['goldReward'] as int? ?? 8,
         iconColorHex: d['iconColorHex'] as String?,
         reminderOffsetMinutes: _readReminderOffset(d),
+        extraReminderOffsets: _readExtraOffsets(d),
         ignoreQuietHours: d['ignoreQuietHours'] as bool? ?? false,
         createdAt: DateTime.tryParse(d['createdAt'] as String? ?? ''),
         archivedAt: DateTime.tryParse(d['archivedAt'] as String? ?? ''),
+        stepGoal: d['stepGoal'] as int?,
       );
 
   /// Reads [reminderOffsetMinutes], transparently migrating any habit still
@@ -286,6 +345,25 @@ class IslamicHabitTemplate {
     final legacyLead = d['reminderLeadMinutes'] as int?;
     if (legacyLead != null && legacyLead != 0) return -legacyLead;
     return 0;
+  }
+
+  /// Reads [extraReminderOffsets] defensively.
+  ///
+  /// Firestore hands a stored array back as `List<dynamic>` of `num`, and
+  /// Hive can return one written by an older build in shapes this field
+  /// never wrote. Anything that is not a whole number of minutes is dropped
+  /// rather than throwing: a malformed entry should cost that one extra
+  /// reminder, never the habit. Deduped and sorted so the same set always
+  /// produces the same notification slots (see
+  /// NotificationService.reminderSlotOffset — a slot's index IS its id).
+  static List<int> _readExtraOffsets(Map<String, dynamic> d) {
+    final raw = d['extraReminderOffsets'];
+    if (raw is! List) return const [];
+    final out = <int>{};
+    for (final entry in raw) {
+      if (entry is num) out.add(entry.toInt());
+    }
+    return List.unmodifiable(out.toList()..sort());
   }
 
   /// Whether this habit exists-and-is-due on [day]: never before its
@@ -354,8 +432,11 @@ class IslamicHabitTemplate {
         goldReward: goldReward,
         iconColorHex: iconColorHex,
         reminderOffsetMinutes: reminderOffsetMinutes,
+        extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,
         createdAt: date,
+        stepGoal: stepGoal,
+        suggestedStepGoal: suggestedStepGoal,
       );
 
   /// A full copy with [reminderOffsetMinutes] swapped in, everything else
@@ -388,9 +469,12 @@ class IslamicHabitTemplate {
         goldReward: goldReward,
         iconColorHex: iconColorHex,
         reminderOffsetMinutes: minutes,
+        extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,
         createdAt: createdAt,
         archivedAt: archivedAt,
+        stepGoal: stepGoal,
+        suggestedStepGoal: suggestedStepGoal,
       );
 
   /// A full copy with both [createdAt] and [archivedAt] swapped in — how
@@ -422,9 +506,12 @@ class IslamicHabitTemplate {
         goldReward: goldReward,
         iconColorHex: iconColorHex,
         reminderOffsetMinutes: reminderOffsetMinutes,
+        extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,
         createdAt: createdAt,
         archivedAt: archivedAt,
+        stepGoal: stepGoal,
+        suggestedStepGoal: suggestedStepGoal,
       );
 
   /// Locale-aware display name — mirrors [HabitPlan.localName]. Falls back
@@ -545,6 +632,35 @@ abstract final class IslamicHabitCatalog {
       hasTimer: false,
       xpReward: 50,
       goldReward: 20,
+    ),
+    // The one catalog habit the steps link was built for. Its goal is only
+    // SUGGESTED (see suggestedStepGoal): switching this preset on gives an
+    // ordinary tap-to-complete walking habit, and reading anybody's step
+    // count still takes turning the link on in Add Habit and granting the
+    // platform permission. A preset that started reading health data the
+    // moment it was activated would be the app helping itself.
+    IslamicHabitTemplate(
+      id: 'daily_walk',
+      name: 'Walk daily',
+      description: 'Up from the morning: steps every day',
+      // His wording, verbatim (2026-09-02). Steps, not a stroll: the habit is
+      // a number the phone can settle, and calling it مشية invited the
+      // reading that any wander counts.
+      nameAr: 'المشي اليومي',
+      descriptionAr: 'قومة من الصبح خطوات كل يوم',
+      // Fajr, not 'morning' (his call 2026-09-02: الصبح). The two are not
+      // interchangeable here: only the five prayers and explicit clock times
+      // resolve to a real reminder, and 'morning' is a routine anchor with no
+      // time this app can derive — it would have labelled the habit الصباح
+      // and then never notified anybody. Fajr means الصبح and rings.
+      cueAfter: 'fajr',
+      category: HabitCategory.fitness,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 20,
+      goldReward: 8,
+      suggestedStepGoal: 10000,
     ),
     IslamicHabitTemplate(
       id: 'gym_consistency',

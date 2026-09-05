@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -7,12 +10,17 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/game_constants.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/l10n/reminder_copy.dart';
 import '../../../core/services/device_location_service.dart';
+import '../../../core/services/health_steps_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/prayer_times_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/step_habit_detector.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../../../shared/widgets/reminder_limit_gate.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../settings/models/notification_settings.dart';
 import '../../settings/notifiers/notification_settings_notifier.dart';
@@ -22,10 +30,13 @@ import '../catalog/habit_plans.dart' show activeCatalogProvider;
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/catalog_overrides_notifier.dart';
 import '../models/habit_cue.dart';
+import '../models/habit_reminder_stack.dart';
 import '../models/habit_model.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../../premium/notifiers/premium_notifier.dart';
 import '../../rooms/notifiers/rooms_notifier.dart';
 import '../notifiers/custom_habits_notifier.dart';
+import '../notifiers/newly_added_habit_provider.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import 'habit_color_picker.dart';
 import 'habit_offset_sheet.dart';
@@ -115,6 +126,37 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   // render site falls back to on its own (category/done-state driven) — see
   // IslamicHabitTemplate.customColor's doc comment.
   String? _iconColorHex;
+
+  // ── Steps link (walking habits) ────────────────────────────────────────
+  // Whether the typed name currently reads as walking (see
+  // step_habit_detector.dart) — controls the link card's visibility, so
+  // the offer appears the moment "مشي" or "walkk" lands in the field and
+  // disappears if the name stops being about walking.
+  bool _nameLooksWalkish = false;
+  // The toggle on that card. Off by default even for a detected walking
+  // name: linking reads health data, so it stays a choice, never a side
+  // effect of typing.
+  bool _stepLinkEnabled = false;
+  int _stepGoal = _defaultStepGoal;
+  // Once the person picks a goal chip, a number parsed out of the name
+  // stops overwriting their choice.
+  bool _stepGoalTouched = false;
+  /// Whether the goal is being typed rather than picked from the presets.
+  ///
+  /// The three presets answer for most people in one tap, and answered for
+  /// nobody else at all: before this there was no way to ask for 7,500, and a
+  /// goal that arrived from the name ("امشي ٨٠٠٠ خطوة") could be seen but
+  /// never adjusted. Turning it on keeps whatever number is already chosen,
+  /// so the field opens on the person's own goal rather than on a blank.
+  bool _stepGoalCustom = false;
+  final _stepGoalCtrl = TextEditingController();
+  static const _defaultStepGoal = 6000;
+  static const _stepGoalPresets = [3000, 6000, 10000];
+  /// The range a daily step goal is allowed to be, matching
+  /// [parseStepGoal]'s own sanity check so a typed goal and a goal read out
+  /// of the name can never disagree about what counts as plausible.
+  static const _stepGoalMin = 100;
+  static const _stepGoalMax = 100000;
 
   // ── Two-step flow: 0 = What (name/category), 1 = When (timing) ──────────
   int _step = 0;
@@ -215,9 +257,67 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// shifts live per occurrence inside the cue (see HabitCue.offsetsAreOwn).
   int _reminderOffset = 0;
 
-  /// Whether the current shift came from the custom sheet rather than a
-  /// preset — display only, so the «مخصص» chip can show as selected.
-  bool _customOffsetSelected = false;
+  /// The shifts stacked ON TOP of [_reminderOffset] — the same set the
+  /// Tasks sheet calls extra reminders, asked here about a habit's one
+  /// anchor. Empty for every habit with a single reminder, which is the
+  /// default and what the free tier keeps.
+  ///
+  /// [_reminderOffset] deliberately stays the primary and is never a member:
+  /// it is what every stored habit, and notification slot 0, already mean by
+  /// "the reminder" (see IslamicHabitTemplate.extraReminderOffsets). Removing
+  /// the primary promotes the earliest of these into its place rather than
+  /// renumbering the whole stack.
+  Set<int> _extraOffsets = {};
+
+  /// Every shift this habit would fire at, earliest first — the primary plus
+  /// the stack. Never empty: a habit always has at least one reminder, which
+  /// is what [_toggleReminderOffset] refuses to let anyone delete.
+  List<int> get _allReminderOffsets =>
+      ({_reminderOffset, ..._extraOffsets}.toList()..sort());
+
+  /// Which direction the number chips currently mean.
+  ///
+  /// Seeded from the habit's own shifts rather than hardcoded, for the reason
+  /// the Tasks picker documents at length: a habit built entirely out of
+  /// "after" shifts that reopened on قبل showed an empty-looking grid with
+  /// every chip it actually had hiding in the other tab. Ties and a plain
+  /// "on time" go to قبل, because a reminder about something almost always
+  /// wants to arrive ahead of it.
+  late bool _offsetIsAfter = _seedOffsetDirection();
+
+  bool _seedOffsetDirection() {
+    final shifts = _allReminderOffsets.where((o) => o != 0);
+    if (shifts.isEmpty) return false;
+    return shifts.every((o) => !o.isNegative);
+  }
+
+  /// Why the last chip tap did nothing, shown inline under the grid.
+  ///
+  /// Inline rather than a SnackBar for the same reason the Tasks picker gives:
+  /// this form lives inside a showModalBottomSheet, and the ScaffoldMessenger
+  /// is BEHIND that sheet, so a SnackBar posted from here is drawn underneath
+  /// it and never seen.
+  String? _offsetNotice;
+  Timer? _offsetNoticeTimer;
+
+  void _showOffsetNotice(String message) {
+    setState(() => _offsetNotice = message);
+    _offsetNoticeTimer?.cancel();
+    // Roughly a SnackBar's dwell, then cleared, so the section doesn't keep a
+    // permanent scolding line under it.
+    _offsetNoticeTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _offsetNotice = null);
+    });
+  }
+
+  /// Whether the offset chip grid is open. Collapsed by default: the
+  /// default shift is "on time", most habits keep it, and six chips plus a
+  /// section label were a third of step-When's surface serving a choice
+  /// most people never make. Collapsed, the section is just the resolved
+  /// preview line plus one worded affordance to open the chips; it seeds
+  /// open when editing a habit that actually carries a shift, so an
+  /// existing choice is never hidden behind a control that looks unset.
+  bool _offsetExpanded = false;
 
   // Where the confetti burst on submit fires from — see _submit().
   final GlobalKey _createButtonKey = GlobalKey();
@@ -226,6 +326,27 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   final GlobalKey _suggestionsKey = GlobalKey();
 
   bool get _isEditing => widget.existing != null;
+
+  /// Editing a catalog preset stores a [CatalogHabitOverride] rather than a
+  /// habit document, so the save path below forks on this. The override now
+  /// carries the steps link too (see CatalogHabitOverride.stepGoal), which is
+  /// what lets a preset like المشي اليومي be linked at all.
+  bool get _isPresetEdit {
+    final existing = widget.existing;
+    return existing != null && IslamicHabitCatalog.findById(existing.id) != null;
+  }
+
+  /// Whether the steps-link card is on screen: any build-type habit whose
+  /// name reads as walking, OR one whose link is already on (so editing a
+  /// linked habit always shows the way to turn it off, even if the person
+  /// renamed it to something the detector misses).
+  ///
+  /// Presets are included. They used to be excluded because the override
+  /// could not carry a link, which meant the one catalog habit the feature
+  /// exists for — المشي اليومي — was the one habit that could not use it.
+  bool get _stepCardVisible =>
+      _goalType == GoalType.build &&
+      (_nameLooksWalkish || _stepLinkEnabled);
 
   int get _categoryXp => GameConstants.categoryXpRewards[_category.name] ?? 10;
 
@@ -292,7 +413,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _timingModeTouched = true;
       final storedOffset = existing.reminderOffsetMinutes;
       _reminderOffset = storedOffset;
-      _customOffsetSelected = !_offsetPresets.contains(storedOffset);
+      _extraOffsets = {...existing.extraReminderOffsets}..remove(storedOffset);
+      // Opens on its own for a habit that already carries a choice — a stack
+      // hidden behind a collapsed "Adjust reminder timing" line would read as
+      // if the extra reminders had not saved.
+      _offsetExpanded = storedOffset != 0 || _extraOffsets.isNotEmpty;
       _ignoreQuietHours = existing.ignoreQuietHours;
       _category = _canonicalCategory(existing.category);
       _freqType = existing.frequencyType;
@@ -318,6 +443,29 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _limitUnit = existing.limitUnit ?? LimitUnit.minutes;
       _customUnitCtrl.text = existing.customUnitLabel ?? '';
       _iconColorHex = existing.iconColorHex;
+      final storedStepGoal = existing.stepGoal;
+      _stepLinkEnabled = storedStepGoal != null;
+      if (storedStepGoal != null) {
+        _stepGoal = storedStepGoal;
+        _stepGoalTouched = true;
+        // A goal of their own opens on the field, already filled in. The
+        // alternative was showing it as a fourth number beside the presets,
+        // which read as a fourth suggestion rather than as their own answer.
+        _stepGoalCustom = !_stepGoalPresets.contains(storedStepGoal);
+      }
+      // A preset that ships its own suggested goal opens on that number
+      // instead of the generic default: المشي اليومي is a 10,000-step habit,
+      // and offering 6,000 for it would be the app forgetting what it just
+      // recommended. Only when nothing is linked yet — a real link always
+      // outranks a suggestion.
+      final suggested = existing.suggestedStepGoal;
+      if (storedStepGoal == null && suggested != null) {
+        _stepGoal = suggested;
+        _stepGoalCustom = !_stepGoalPresets.contains(suggested);
+      }
+      _stepGoalCtrl.text = _stepGoal.toString();
+      _nameLooksWalkish = looksLikeStepHabit(existing.name) ||
+          looksLikeStepHabit(existing.nameAr ?? '');
       _hasName = true;
       _didPickCategory = true;
     }
@@ -326,9 +474,27 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       final has = text.isNotEmpty;
       final inferred = _inferCategory(text);
       final categoryChanging = !_didPickCategory && inferred != _category;
-      if (has != _hasName || categoryChanging) {
+      final walkish = looksLikeStepHabit(text);
+      // A goal typed right into the name ("٨٠٠٠ خطوة") pre-fills the card,
+      // unless a chip was already deliberately picked.
+      final namedGoal = walkish && !_stepGoalTouched
+          ? (parseStepGoal(text) ?? _stepGoal)
+          : _stepGoal;
+      if (has != _hasName ||
+          categoryChanging ||
+          walkish != _nameLooksWalkish ||
+          namedGoal != _stepGoal) {
         setState(() {
           _hasName = has;
+          _nameLooksWalkish = walkish;
+          if (namedGoal != _stepGoal) {
+            // Read out of the name, so the person never typed it here: keep
+            // the field in step with it, and open the field when the number
+            // they wrote is not one of the presets.
+            _stepGoalCtrl.text = namedGoal.toString();
+            _stepGoalCustom = !_stepGoalPresets.contains(namedGoal);
+          }
+          _stepGoal = namedGoal;
           if (!_didPickCategory) {
             _category = inferred;
             if (!_timingModeTouched) {
@@ -392,10 +558,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   void dispose() {
     _nameCtrl.dispose();
     _cueCtrl.dispose();
+    _stepGoalCtrl.dispose();
     _limitCtrl.dispose();
     _customUnitCtrl.dispose();
     _focus.dispose();
     _cueFocus.dispose();
+    _offsetNoticeTimer?.cancel();
     super.dispose();
   }
 
@@ -488,6 +656,86 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return _reminderOffset;
   }
 
+  /// The stack that actually gets saved, beside [_effectiveReminderOffset].
+  ///
+  /// Empty in exactly the cases the section that edits it is not shown, so
+  /// what is stored and what was on screen can never disagree:
+  ///
+  ///  * Custom-text mode, which has no resolved moment to shift from at all.
+  ///  * A multi-time habit, which already gets one reminder per occurrence
+  ///    with its own shift stored beside its time in the cue. Stacking on top
+  ///    of that would multiply the two lists together — see
+  ///    IslamicHabitTemplate.extraReminderOffsets.
+  ///
+  /// Dropping them rather than keeping them hidden is deliberate: a habit
+  /// stepped up to 3x/day would otherwise go on firing a stack nothing in the
+  /// form admits to, and stepping back down would resurrect it.
+  List<int> get _effectiveExtraOffsets {
+    if (_timingMode == _TimingMode.text) return const [];
+    if (_timingMode == _TimingMode.time && _isMultiTime) return const [];
+    final primary = _effectiveReminderOffset;
+    return _extraOffsets.where((o) => o != primary).toList()..sort();
+  }
+
+  /// Applies one chip tap and says out loud what it did.
+  ///
+  /// The rule itself lives in HabitReminderStack.toggle, which is pure and
+  /// tested on its own — what is left here is only the part that needs a
+  /// screen: a notice, or the paywall.
+  void _toggleReminderOffset(int signed) => _applyOffsetTap(
+        HabitReminderStack(primary: _reminderOffset, extras: _extraOffsets)
+            .toggle(signed, isPremium: ref.read(premiumAccessProvider)),
+      );
+
+  void _applyOffsetTap(
+    ({HabitReminderStack stack, HabitOffsetTap outcome}) result,
+  ) {
+    final s = S.of(context);
+    switch (result.outcome) {
+      case HabitOffsetTap.refusedLast:
+        HapticFeedback.lightImpact();
+        _showOffsetNotice(s.habitReminderKeepOne);
+      case HabitOffsetTap.refusedFull:
+        HapticFeedback.lightImpact();
+        _showOffsetNotice(s.habitReminderMaxReached);
+      case HabitOffsetTap.locked:
+        showReminderLimitGate(context, ref, forHabit: true);
+      case HabitOffsetTap.removed:
+      case HabitOffsetTap.replaced:
+      case HabitOffsetTap.added:
+        HapticFeedback.selectionClick();
+        setState(() {
+          _reminderOffset = result.stack.primary;
+          _extraOffsets = result.stack.extras;
+        });
+    }
+  }
+
+  /// The signed value a number chip stands for, given the قبل/بعد toggle.
+  int _signedOffset(int magnitude) =>
+      _offsetIsAfter ? magnitude : -magnitude;
+
+  /// Shifts this habit carries that no chip on the CURRENT tab stands for —
+  /// a hand-typed 45, or an hours-scale one.
+  ///
+  /// Scoped to the visible direction, matching the Tasks grid: قبل and بعد
+  /// read as two tabs, so an "after" chip sitting under a selected قبل would
+  /// contradict the tab it is in. Anything in the other direction is still
+  /// scheduled and still named in the preview line below; switching tabs
+  /// brings it back into view.
+  List<int> get _unlistedOffsets => _allReminderOffsets
+      .where((o) => o != 0)
+      .where((o) => o.isNegative != _offsetIsAfter)
+      .where((o) => !kReminderOffsetPresets.contains(o.abs()))
+      .toList();
+
+  /// Offset stacks compare as sets, same reasoning as [_sameWeekdays]: both
+  /// sides are stored sorted, so this only ever differs from `==` for a
+  /// legacy value, and answering "changed" for a reordering would write an
+  /// override that says nothing.
+  static bool _sameOffsets(List<int> a, List<int> b) =>
+      _sameWeekdays(a, b);
+
   /// Weekday lists compare as sets — order is meaningless here and a
   /// re-sorted copy of the same days is not a change worth storing.
   static bool _sameWeekdays(List<int> a, List<int> b) {
@@ -500,13 +748,22 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return true;
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_hasName) return;
     final existing = widget.existing;
     if (existing == null && !canAddHabits(ref)) {
       Navigator.pop(context);
       showHabitLimitGate(context, ref);
       return;
+    }
+    // The steps link is resolved BEFORE anything irreversible (haptic,
+    // confetti, the save itself): it can show a real OS permission sheet,
+    // and the answer decides whether the habit is saved linked or not.
+    // Everything past this await is the same synchronous submit as always.
+    int? stepGoal;
+    if (_stepCardVisible && _stepLinkEnabled) {
+      stepGoal = await _confirmStepsAccess();
+      if (!mounted) return;
     }
     HapticFeedback.mediumImpact();
     // Celebrate starting something new — editing an existing goal is more
@@ -550,7 +807,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // pops null, same as this always used to pop nothing - every existing
     // caller that ignores the result is unaffected either way.
     IslamicHabitTemplate? created;
-    if (existing != null && IslamicHabitCatalog.findById(existing.id) != null) {
+    if (existing != null && _isPresetEdit) {
       // ── Editing a PRESET ────────────────────────────────────────────────
       // Catalog habits are const templates shared by every user, so there is
       // no per-user document to rewrite. Their changes are stored as an
@@ -589,6 +846,20 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                       catalogDefault.reminderOffsetMinutes
                   ? null
                   : _effectiveReminderOffset,
+              // Written whenever it differs from the preset's own, EMPTY
+              // included: clearing a stack off a catalog habit has to
+              // survive a reload, and null here would hand the catalog's
+              // default straight back (see the override field's doc).
+              extraReminderOffsets: _sameOffsets(_effectiveExtraOffsets,
+                      catalogDefault.extraReminderOffsets)
+                  ? null
+                  : _effectiveExtraOffsets,
+              // The link, resolved above through the same permission prompt
+              // a custom habit gets. Null both when nobody linked it and
+              // when somebody turned it off, which is the same thing: the
+              // catalog never ships a live link, so there is no preset value
+              // here for null to be confused with.
+              stepGoal: stepGoal,
               ignoreQuietHours:
                   _ignoreQuietHours == catalogDefault.ignoreQuietHours
                       ? null
@@ -617,7 +888,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         iconColorHex: _iconColorHex,
         clearIconColor: _iconColorHex == null,
         reminderOffsetMinutes: _effectiveReminderOffset,
+        extraReminderOffsets: _effectiveExtraOffsets,
         ignoreQuietHours: _ignoreQuietHours,
+        stepGoal: stepGoal,
+        clearStepGoal: stepGoal == null,
       );
     } else {
       created = notifier.add(
@@ -636,10 +910,47 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             : null,
         iconColorHex: _iconColorHex,
         reminderOffsetMinutes: _effectiveReminderOffset,
+        extraReminderOffsets: _effectiveExtraOffsets,
         ignoreQuietHours: _ignoreQuietHours,
+        stepGoal: stepGoal,
       );
+      // Hand the Grid the new id so the board can scroll the row into view
+      // and glow it once — creation appends below the fold, and without
+      // this the sheet closed onto a board that looked exactly as it did
+      // before. See newlyAddedHabitIdProvider.
+      ref.read(newlyAddedHabitIdProvider.notifier).state = created.id;
     }
     Navigator.pop(context, created);
+  }
+
+  /// The Save-time half of the steps link: makes sure the platform can and
+  /// may hand over the step count, and returns the goal to store — or null
+  /// to save the habit unlinked, after telling the person why in a
+  /// snackbar. Same "the habit still saves either way" contract as
+  /// _ensureNotificationPermission, just resolved before the write instead
+  /// of after, because linked-ness is part of what gets written.
+  Future<int?> _confirmStepsAccess() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final s = S.of(context);
+    if (!await HealthStepsService.instance.isSupported()) {
+      messenger.showOne(
+        SnackBar(
+          content: Text(s.stepLinkUnsupported),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return null;
+    }
+    if (!await HealthStepsService.instance.requestPermission()) {
+      messenger.showOne(
+        SnackBar(
+          content: Text(s.stepLinkDenied),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return null;
+    }
+    return _stepGoal;
   }
 
   /// Checks whether [existing] is still counted toward any open room before
@@ -935,6 +1246,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               .animate(delay: 60.ms)
               .fadeIn(duration: 240.ms)
               .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+          if (_stepCardVisible) ...[
+            const SizedBox(height: 12),
+            _stepLinkCard(s)
+                .animate()
+                .fadeIn(duration: 240.ms)
+                .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+          ],
           if (_goalType == GoalType.quit) ...[
             const SizedBox(height: 16),
             _quitStyleSection(s)
@@ -944,6 +1262,231 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ],
         ],
       );
+
+  /// The "this looks like a walking habit" card — the visible half of the
+  /// steps link (step_habit_detector.dart is the detection half). Explains
+  /// what linking does in one sentence, then a switch and, once on, the
+  /// daily-goal chips. Turning it on here promises nothing yet: the real
+  /// health permission is asked on Save (see _confirmStepsAccess), so
+  /// backing out of the sheet never leaves a half-granted state behind.
+  Widget _stepLinkCard(S s) {
+    final gp = context.gp;
+    // Always the same three, in the same order. A goal of the person's own
+    // used to be injected here as a fourth number, which read as a fourth
+    // suggestion from the app rather than as their own answer, and moved the
+    // other three around depending on its size. It lives in the Custom field
+    // below now, where it can also be changed.
+    const goalChoices = _stepGoalPresets;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: GameColors.success.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: GameColors.success.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.directions_walk_rounded,
+                  size: 18, color: GameColors.success),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.stepLinkTitle,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary,
+                  ),
+                ),
+              ),
+              Switch.adaptive(
+                value: _stepLinkEnabled,
+                activeColor: GameColors.success,
+                onChanged: (v) {
+                  HapticFeedback.selectionClick();
+                  setState(() => _stepLinkEnabled = v);
+                },
+              ),
+            ],
+          ),
+          Text(
+            s.stepLinkBody(Platform.isIOS),
+            style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.4),
+          ),
+          if (_stepLinkEnabled) ...[
+            const SizedBox(height: 10),
+            Text(
+              s.stepLinkGoal(_stepGoal),
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: gp.textSec,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                for (final goal in goalChoices) ...[
+                  Expanded(
+                    child: _SmallPick(
+                      label: '$goal',
+                      selected: !_stepGoalCustom && _stepGoal == goal,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() {
+                          _stepGoal = goal;
+                          _stepGoalTouched = true;
+                          // Closes the field, and takes its number with it:
+                          // a preset tapped last IS the answer, and leaving
+                          // a stale typed number on screen underneath would
+                          // make two different goals visible at once.
+                          _stepGoalCustom = false;
+                          _stepGoalCtrl.text = goal.toString();
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: _SmallPick(
+                    label: s.stepGoalCustom,
+                    selected: _stepGoalCustom,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        _stepGoalCustom = true;
+                        _stepGoalTouched = true;
+                        // Opens on the goal already chosen, not on a blank.
+                        // The person is adjusting a number, not inventing
+                        // one, and a cleared field would throw away the one
+                        // piece of context they have.
+                        _stepGoalCtrl.text = _stepGoal.toString();
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            if (_stepGoalCustom) ...[
+              const SizedBox(height: 8),
+              _stepGoalField(s),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The typed goal, or null while what is in the field is not a goal the
+  /// app can use (empty, or outside [_stepGoalMin]..[_stepGoalMax]).
+  ///
+  /// Deliberately not the same thing as [_stepGoal]: that one only ever
+  /// holds a number the app WOULD save, so a half-typed "8" on the way to
+  /// "8000" cannot momentarily become somebody's daily goal.
+  int? get _typedStepGoal {
+    final n = int.tryParse(toWesternDigits(_stepGoalCtrl.text.trim()));
+    if (n == null || n < _stepGoalMin || n > _stepGoalMax) return null;
+    return n;
+  }
+
+  /// The number field behind the Custom chip.
+  ///
+  /// Digits only and a number keyboard, because there is nothing else to
+  /// type here, and the unit sits beside the field rather than inside it as
+  /// a hint: a hint disappears the moment somebody starts typing, which is
+  /// exactly when "am I entering steps or minutes?" is being asked.
+  Widget _stepGoalField(S s) {
+    final gp = context.gp;
+    final invalid = _typedStepGoal == null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 104,
+              child: TextField(
+                controller: _stepGoalCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  // Arabic-Indic digits allowed through, not stripped.
+                  // digitsOnly is [0-9] only, so an Arabic keyboard typing
+                  // ٨٠٠٠ would have produced an empty field with no
+                  // explanation; toWesternDigits folds them on the way out.
+                  FilteringTextInputFormatter.allow(
+                    RegExp(r'[0-9\u0660-\u0669\u06F0-\u06F9]'),
+                  ),
+                  LengthLimitingTextInputFormatter(6),
+                ],
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: gp.textPrimary,
+                ),
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                  filled: true,
+                  fillColor: gp.surface,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(9),
+                    borderSide: BorderSide(
+                      color: invalid
+                          ? GameColors.error.withOpacity(0.7)
+                          : GameColors.success.withOpacity(0.45),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(9),
+                    borderSide: BorderSide(
+                      color: invalid ? GameColors.error : GameColors.success,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+                onChanged: (_) => setState(() {
+                  // Only a usable number is allowed to become the goal. An
+                  // unusable one leaves the last good goal standing and says
+                  // so below, so there is no way to save nothing by mistake.
+                  final typed = _typedStepGoal;
+                  if (typed != null) _stepGoal = typed;
+                }),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                s.stepGoalFieldLabel,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textSec,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (invalid) ...[
+          const SizedBox(height: 5),
+          Text(
+            s.stepGoalOutOfRange(_stepGoalMin, _stepGoalMax),
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: GameColors.error,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 
   Widget _goalTypeToggle(S s) => Row(
         children: [
@@ -1672,36 +2215,185 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 14),
-          _SectionLabel(s.remindMeSection),
-          const SizedBox(height: 8),
-          _ChipGrid(
-            columns: 3,
-            items: [
-              for (final preset in _offsetPresets)
-                _PlainChoiceChip(
-                  selected: !_customOffsetSelected && _reminderOffset == preset,
-                  label: _offsetPresetLabel(s, preset),
-                  onTap: () => _selectOffsetPreset(preset),
+          // Collapsed (the default — see [_offsetExpanded]): the resolved
+          // preview line plus one worded affordance stand in for the whole
+          // chip grid. The quiet-hours warning below renders in BOTH
+          // states on purpose: a warning must never be behind a disclosure.
+          if (!_offsetExpanded) ...[
+            _reminderTimePreview(s),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _offsetExpanded = true);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Text(
+                    s.adjustReminderTiming,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: GameColors.gold,
+                    ),
+                  ),
                 ),
-              // Same sheet the per-occurrence rows open, so "custom" means one
-              // thing in this form regardless of how many times a day the
-              // habit is counted.
-              //
-              // This used to expand three controls inline — a number field, a
-              // before/after pair, and the grid above them — which is the
-              // shape the task sheet was built to replace: entering a shift
-              // needs a number AND a unit AND a direction, and three controls
-              // competing for one column is exactly what a bottom sheet is
-              // for. It also had no unit at all, so "2 hours before" had to be
-              // typed as 120.
-              _PlainChoiceChip(
-                selected: _customOffsetSelected,
-                label: s.leadCustomOption,
-                onTap: () => _pickSingleOffset(s),
+              ),
+            ),
+          ] else ...[
+            _SectionLabel(s.remindMeSection),
+            // Says a grid that looks like every single-choice one in this app
+            // can hold more than one answer. Only for the tier that can act
+            // on it: on free the chips really are single-choice, and telling
+            // someone to pick several would be a promise the next tap breaks.
+            if (ref.watch(premiumAccessProvider)) ...[
+              const SizedBox(height: 2),
+              Text(
+                s.matrixExtraRemindersHint,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: context.gp.textTert.withOpacity(0.75),
+                ),
               ),
             ],
-          ),
-          _reminderTimePreview(s),
+            const SizedBox(height: 8),
+            // The same two-cell direction toggle the Tasks picker uses, above
+            // the same three-column number grid: both screens ask "how long
+            // before or after", and a person who has learned one should not
+            // have to learn the other.
+            _ChipGrid(
+              columns: 2,
+              items: [
+                _PlainChoiceChip(
+                  selected: !_offsetIsAfter,
+                  label: s.offsetBeforeLabel,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _offsetIsAfter = false);
+                  },
+                ),
+                _PlainChoiceChip(
+                  selected: _offsetIsAfter,
+                  label: s.offsetAfterLabel,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _offsetIsAfter = true);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _ChipGrid(
+              columns: 3,
+              items: [
+                // "On time" belongs to neither direction, which is exactly
+                // why it is a chip rather than a third tab: it is the default
+                // every habit starts on, and burying the default inside a
+                // direction the user has to guess would be the wrong shape.
+                //
+                // It is also what makes a habit's grid different from a
+                // task's, where the anchor row is always a reminder in its
+                // own right. Here the shift IS the reminder, so 0 has to be
+                // selectable — and «قبل ١٥ د» on its own means the habit
+                // fires ONLY then, not then and again on the dot.
+                _PlainChoiceChip(
+                  selected: _allReminderOffsets.contains(0),
+                  label: s.leadAtTime,
+                  onTap: () => _toggleReminderOffset(0),
+                ),
+                for (final magnitude in kReminderOffsetPresets)
+                  _PlainChoiceChip(
+                    selected:
+                        _allReminderOffsets.contains(_signedOffset(magnitude)),
+                    label: reminderOffsetLabel(magnitude, s.isAr),
+                    onTap: () =>
+                        _toggleReminderOffset(_signedOffset(magnitude)),
+                  ),
+                // Anything typed by hand gets its own chip so a stored shift
+                // is never invisible in the grid that is supposed to show it.
+                for (final offset in _unlistedOffsets)
+                  _PlainChoiceChip(
+                    selected: true,
+                    label: countedOffsetPhrase(offset.abs(), s.isAr),
+                    onTap: () => _toggleReminderOffset(offset),
+                  ),
+                // Same sheet the per-occurrence rows open, so "custom" means
+                // one thing in this form regardless of how many times a day
+                // the habit is counted.
+                //
+                // This used to expand three controls inline — a number field,
+                // a before/after pair, and the grid above them — which is the
+                // shape the task sheet was built to replace: entering a shift
+                // needs a number AND a unit AND a direction, and three
+                // controls competing for one column is exactly what a bottom
+                // sheet is for. It also had no unit at all, so "2 hours
+                // before" had to be typed as 120.
+                _PlainChoiceChip(
+                  selected: false,
+                  label: s.leadCustomOption,
+                  onTap: () => _pickSingleOffset(s),
+                ),
+              ],
+            ),
+            if (_offsetNotice != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline_rounded,
+                        size: 13, color: context.gp.textTert),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _offsetNotice!,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: context.gp.textTert,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            _reminderTimePreview(s),
+            // The one place free hears about stacking. A worded row rather
+            // than locked chips, because the chips above have a real job on
+            // this tier — see _toggleReminderOffset.
+            if (!ref.watch(premiumAccessProvider))
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => showReminderLimitGate(context, ref,
+                      forHabit: true),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_outline_rounded,
+                            size: 13, color: GameColors.gold),
+                        const SizedBox(width: 6),
+                        Text(
+                          s.habitAddAnotherReminder,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: GameColors.gold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
           _quietHoursWarning(s),
         ],
       );
@@ -1881,12 +2573,25 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ),
       );
     }
-    // Signed: added, never subtracted — the exact single operation
+    // Signed: added, never subtracted — the exact operation
     // NotificationService.scheduleSmartReminders performs, which is what
     // keeps this preview honest.
-    final reminderMoment = anchor.add(Duration(minutes: _effectiveReminderOffset));
+    //
+    // Every shift, not just the primary one. A stack whose line named one
+    // time would be the worst version of this control: it would look like
+    // confirmation that the extra reminders had not taken.
     final locale = s.isAr ? 'ar' : 'en';
-    final timeLabel = DateFormat('h:mm a', locale).format(reminderMoment);
+    final shifts = _timingMode == _TimingMode.time && _isMultiTime
+        ? [_effectiveReminderOffset]
+        : _allReminderOffsets;
+    final timeLabel = [
+      for (final shift in shifts)
+        DateFormat('h:mm a', locale)
+            .format(anchor.add(Duration(minutes: shift))),
+      // Joined with the language's own "and" rather than a comma list: two
+      // or three clock times read as a sentence here, and the pill is one
+      // line of running text, not a table.
+    ].join(s.isAr ? ' و' : ', ');
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Align(
@@ -1924,20 +2629,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         _ => s.offsetAfterMinutes(minutes),
       };
 
-  void _selectOffsetPreset(int minutes) {
-    HapticFeedback.selectionClick();
-    setState(() {
-      _reminderOffset = minutes;
-      _customOffsetSelected = false;
-    });
-  }
-
-  /// Opens the custom-shift sheet for a single-time habit.
+  /// Opens the custom-shift sheet for a single-anchor habit and folds what
+  /// comes back into the stack.
   ///
-  /// Writes straight back into [_reminderOffset] and clears the
-  /// custom-selected flag's dependence on the old inline field: the sheet
-  /// returns real minutes, so there is no longer a magnitude and a direction
-  /// living in two places waiting to disagree.
+  /// A hand-typed value is an ADD on a tier that can stack and a REPLACE on
+  /// one that cannot, which is the same split the chips make — so it is
+  /// routed through [_toggleReminderOffset], with the one guard that makes
+  /// "typed it" different from "tapped it": a value the habit already has
+  /// stays put rather than being toggled back off. Nobody types 45 into a
+  /// field and taps Add meaning "remove my 45-minute reminder".
   Future<void> _pickSingleOffset(S s) async {
     final chosen = await showHabitOffsetSheet(
       context,
@@ -1945,13 +2645,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       anchor: _timingMode == _TimingMode.time ? _pickedTime : null,
     );
     if (chosen == null || !mounted) return;
-    setState(() {
-      _reminderOffset = chosen;
-      // Still "custom" only when it is genuinely off-preset, so the chip's
-      // selected state keeps telling the truth about where the value came
-      // from — picking 15-before from the sheet lights the 15-before chip.
-      _customOffsetSelected = !_offsetPresets.contains(chosen);
-    });
+    // Follow the value into view: typing "30 after" while the grid is on قبل
+    // would otherwise light a chip on the tab the user cannot see.
+    if (chosen != 0) setState(() => _offsetIsAfter = !chosen.isNegative);
+    _applyOffsetTap(
+      HabitReminderStack(primary: _reminderOffset, extras: _extraOffsets)
+          .addTyped(chosen, isPremium: ref.read(premiumAccessProvider)),
+    );
   }
 
   /// Shown only when the reminder this form would actually schedule lands
