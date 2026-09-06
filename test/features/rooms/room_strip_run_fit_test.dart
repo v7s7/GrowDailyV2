@@ -32,7 +32,8 @@
 // it was chosen for, at the lengths and widths where it actually broke.
 //
 // The month-boundary rule itself is not this file's business: it belongs to
-// roomStripMonths, and room_strip_month_header_alignment_test.dart pins the
+// roomStripColumns (a straddling week is drawn as two columns, one per
+// month), and room_strip_month_header_alignment_test.dart pins the
 // header/column alignment that depends on it.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -42,7 +43,9 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import 'package:grow_daily_v2/features/rooms/screens/room_detail_screen.dart'
     show
+        RoomStripColumn,
         RoomStripMonthLabel,
+        roomStripColumns,
         roomStripMonthSegments,
         roomStripMonths,
         roomStripPerRun;
@@ -61,9 +64,10 @@ void main() {
   initializeDateFormatting('en');
   final monthFmt = DateFormat('MMM', 'en');
 
-  /// The strip's own column model: Saturday-start weeks, invisible padding
-  /// before the first day so every date lands on its true weekday row.
-  ({int weekCount, int lead, List<DateTime> days}) columnsFor(
+  /// The strip's own column model, from the function the widget uses:
+  /// Saturday-start weeks, invisible padding before the first day so every
+  /// date lands on its true weekday row, split at month boundaries.
+  ({int weekCount, List<RoomStripColumn> columns}) columnsFor(
     DateTime windowStart,
     DateTime lastDay,
   ) {
@@ -73,8 +77,8 @@ void main() {
       (i) => lastDay.subtract(Duration(days: total - 1 - i)),
     );
     final lead = (days.first.weekday + 1) % 7;
-    final weekCount = (lead + days.length + 6) ~/ 7;
-    return (weekCount: weekCount, lead: lead, days: days);
+    final columns = roomStripColumns(lead, days);
+    return (weekCount: columns.length, columns: columns);
   }
 
   /// A faithful replica of the two rows the strip lays out inside its
@@ -171,8 +175,7 @@ void main() {
     addTearDown(() => FlutterError.onError = previous);
 
     final cols = columnsFor(windowStart, lastDay);
-    final months =
-        roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
+    final months = roomStripMonths(cols.columns, monthFmt);
     final perRun = (chooseRun ?? roomStripPerRun)(
       maxWidth,
       cols.weekCount,
@@ -286,8 +289,7 @@ void main() {
           lastDay.subtract(Duration(days: windowDays - 1)),
           lastDay,
         );
-        final months =
-            roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
+        final months = roomStripMonths(cols.columns, monthFmt);
         for (final maxWidth in const [180.0, 220.0, 274.0, 338.0]) {
           final perRun =
               roomStripPerRun(maxWidth, cols.weekCount, months.starts);
@@ -322,8 +324,7 @@ void main() {
           lastDay.subtract(Duration(days: windowDays - 1)),
           lastDay,
         );
-        final months =
-            roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
+        final months = roomStripMonths(cols.columns, monthFmt);
         final breaks = months.starts.toSet();
         for (final maxWidth in const [180.0, 220.0, 274.0, 338.0]) {
           final perRun =

@@ -98,86 +98,83 @@ Color roomStripCellFill({
   return Color.alphaBlend(tone, backdrop);
 }
 
-/// How the strip's week columns divide into months — the ONE rule the header
-/// band, the week numbers and the wide month-break gap all read.
+/// One drawn column of the contribution strip: one Saturday-start week,
+/// restricted to ONE month.
 ///
-/// A column is one Saturday-start week, so a month boundary almost always
-/// falls INSIDE a column and that column has to be given to one month or the
-/// other. It goes to whichever month owns MORE of the days actually drawn in
-/// it: Aug 29 – Sep 4 is three August days against four September ones, so it
-/// is September's.
+/// A week that straddles a month boundary becomes two columns, drawn one
+/// after the other with the wide month-break gap between them: the earlier
+/// month's days on their weekday rows with the later rows empty, then the
+/// later month's days under empty earlier rows. Aug 29 – Sep 4 is therefore
+/// August's fifth column holding three cells at the top, and September's
+/// first column holding four cells at the bottom. That is the calendar
+/// shape Aziz asked for (2026-09-06): a month's block is exactly the weeks
+/// it touches, and no square ever sits under another month's name.
 ///
-/// The alternative — giving it to the month of its first drawn day — reads as
-/// a lie in the header, which is the whole thing this band is for. August has
-/// 31 days and cannot fill five seven-day columns, but that is exactly what
-/// "أغسطس" spanning its four whole weeks plus the straddling one claimed: 35
-/// day-slots for a 31-day month. Majority keeps every month's block within a
-/// column of the weeks it can actually fill, and it degrades sensibly at the
-/// window's edges, where a straddling column may only draw a few days.
+/// This replaces the majority rule, which drew a straddling week once and
+/// gave it to whichever month owned more of its days. That kept August to
+/// four columns for its 31 days, but it put Aug 29-31 under «سبتمبر», and a
+/// month whose only days fell inside such a week was never named at all.
 ///
-/// Ties go to the EARLIER month (only reachable at a window edge, where fewer
-/// than seven days are drawn), so a month is never announced before it
-/// genuinely dominates a column.
-///
-/// A column made entirely of padding has no days and inherits the month
-/// before it, so it never opens a stray one-column segment.
-///
-/// [keys] is what the grouping compares on and it carries the year: `MMM`
-/// alone formats December 2026 and December 2027 identically, which would
-/// merge two Decembers of a long fixed room into one nine-week segment.
-/// [labels] is only ever printed. [starts] is every column that opens a new
-/// month, and therefore every place the column row widens its gap.
-///
-/// [starts] used to be computed separately, as "this column contains a day
-/// numbered 1", while the header grouped by first-drawn-day. Those two cut
-/// the columns in different places, so the gap opened one column EARLY:
-/// August's last week was cut away from the "أغسطس" centred over it and read
-/// as belonging to "سبتمبر", and every label past such a boundary sat 6pt off
-/// its own columns — the difference between a normal gap and a break one.
-///
-/// Pure and top-level for the same reason [roomStripCellFill] is: the
-/// invariant is that [roomStripMonthSegments] and [starts] cut the columns
-/// in exactly the same places, and that must be testable without building
-/// the whole room screen.
-({List<int> keys, List<String> labels, List<int> starts}) roomStripMonths(
-  int weekCount,
-  int lead,
-  List<DateTime> days,
-  DateFormat monthFmt,
-) {
-  final keys = List<int>.filled(weekCount, -1);
-  final labels = List<String>.filled(weekCount, '');
-  var key = -1;
-  var label = '';
+/// [dayIndex] has seven entries, Saturday first, each an index into the
+/// strip's day list or -1 where this column draws nothing: padding before
+/// the window, or the rows that belong to the neighbouring month's column.
+class RoomStripColumn {
+  final int monthKey;
+  final List<int> dayIndex;
+  const RoomStripColumn({required this.monthKey, required this.dayIndex});
+}
+
+/// The strip's columns, oldest first. [lead] is how many empty weekday rows
+/// sit before the first day, `(weekday + 1) % 7` for a Saturday-start week.
+/// Pure and top-level so the tests can build the exact columns the widget
+/// draws without a room, a participant or a provider.
+List<RoomStripColumn> roomStripColumns(int lead, List<DateTime> days) {
+  final weekCount = (lead + days.length + 6) ~/ 7;
+  final out = <RoomStripColumn>[];
   for (var w = 0; w < weekCount; w++) {
-    // year * 12 + (month - 1), so the key sorts chronologically and decodes
-    // back to a date without a special case for December.
-    final drawn = <int, int>{};
+    var key = -1;
+    List<int>? rows;
     for (var r = 0; r < 7; r++) {
       final i = w * 7 + r - lead;
       if (i < 0 || i >= days.length) continue;
+      // year * 12 + (month - 1), so the key sorts chronologically and
+      // decodes back to a date without a special case for December.
       final k = days[i].year * 12 + days[i].month - 1;
-      drawn[k] = (drawn[k] ?? 0) + 1;
-    }
-    if (drawn.isNotEmpty) {
-      // Ascending, and strictly-greater, so a tie keeps the earlier month.
-      final candidates = drawn.keys.toList()..sort();
-      var best = candidates.first;
-      for (final k in candidates) {
-        if (drawn[k]! > drawn[best]!) best = k;
+      if (k != key) {
+        key = k;
+        rows = List<int>.filled(7, -1);
+        out.add(RoomStripColumn(monthKey: k, dayIndex: rows));
       }
-      key = best;
-      label = monthFmt.format(DateTime(best ~/ 12, best % 12 + 1));
+      rows![r] = i;
     }
-    keys[w] = key;
-    labels[w] = label;
   }
+  return out;
+}
+
+/// How the columns divide into months — the ONE rule the header band, the
+/// week numbers and the wide month-break gap all read, so the three can
+/// never disagree about where a month starts.
+///
+/// Trivial now that a column belongs to exactly one month (see
+/// [RoomStripColumn]). [keys] is each column's month and carries the year:
+/// `MMM` alone formats December 2026 and December 2027 identically, which
+/// would merge two Decembers of a long fixed room into one segment.
+/// [labels] is only ever printed. [starts] is every column that opens a new
+/// month, and therefore every place the column row widens its gap.
+({List<int> keys, List<String> labels, List<int> starts}) roomStripMonths(
+  List<RoomStripColumn> columns,
+  DateFormat monthFmt,
+) {
+  final keys = [for (final c in columns) c.monthKey];
+  final labels = [
+    for (final k in keys) monthFmt.format(DateTime(k ~/ 12, k % 12 + 1)),
+  ];
   return (
     keys: keys,
     labels: labels,
     starts: <int>[
-      for (var w = 1; w < weekCount; w++)
-        if (keys[w] != keys[w - 1]) w,
+      for (var c = 1; c < keys.length; c++)
+        if (keys[c] != keys[c - 1]) c,
     ],
   );
 }
@@ -518,13 +515,16 @@ class _MiniHeatmapStrip extends StatelessWidget {
     final realToday = DateTime.now().startOfDay;
     if (!room.isEnded && realToday.isAfter(last)) days.add(realToday);
 
-    // Align to the Grid's Saturday-start weeks: pad invisible slots before
-    // the first day so every date lands on its true weekday row (Sat=0 at
-    // the top through Fri=6 at the bottom — same (weekday+1)%7 mapping
-    // matrix_history_screen.dart's calendar uses).
+    // Saturday-start weeks, one column per week AND per month. Every date
+    // lands on its true weekday row (Sat=0 at the top through Fri=6 at the
+    // bottom, the same (weekday+1)%7 mapping matrix_history_screen.dart's
+    // calendar uses), and a week that straddles a month boundary is drawn
+    // as two columns, one per month, so August's last column holds Aug
+    // 29-31 at the top and September's first holds Sep 1-4 under three
+    // empty rows. See roomStripColumns.
     final lead = (days.first.weekday + 1) % 7;
-    final slots = lead + days.length;
-    final weekCount = (slots + 6) ~/ 7;
+    final columns = roomStripColumns(lead, days);
+    final columnCount = columns.length;
 
     // Weekday rows that no day of this room actually lands on are not drawn.
     //
@@ -541,60 +541,39 @@ class _MiniHeatmapStrip extends StatelessWidget {
     // meaning of the ones that remain: each is still one weekday, columns
     // are still weeks, and every day the room has drawn stays exactly where
     // its weekday puts it. For any room two weeks or longer every row is
-    // used, so this changes nothing at all there.
-    final usedRows = <int>[];
-    for (var r = 0; r < 7; r++) {
-      for (var w = 0; w < weekCount; w++) {
-        final i = w * 7 + r - lead;
-        if (i >= 0 && i < days.length) {
-          usedRows.add(r);
-          break;
-        }
-      }
-    }
+    // used, so this changes nothing at all there. The empty rows a split
+    // column leaves are not "unused": the other month's column fills them.
+    final usedRows = <int>[
+      for (var r = 0; r < 7; r++)
+        if (columns.any((c) => c.dayIndex[r] >= 0)) r,
+    ];
 
     final gp = context.gp;
     final s = S.of(context);
     final monthFmt = DateFormat('MMM', s.isAr ? 'ar' : 'en');
 
-    // Null for a week column made entirely of padding — which is what
-    // weekIndex below uses it for, to leave such a column unnumbered.
-    // Deciding which MONTH a column belongs to is roomStripMonths' job and
-    // reads all seven of its days, not just this one.
-    DateTime? firstDayOf(int w) {
-      for (var r = 0; r < 7; r++) {
-        final i = w * 7 + r - lead;
-        if (i >= 0 && i < days.length) return days[i];
-      }
-      return null;
-    }
-
     // One rule for the header band, the week numbers and the wide gap, so
     // the three can never disagree about where a month starts. See
     // roomStripMonths.
-    final months = roomStripMonths(weekCount, lead, days, monthFmt);
+    final months = roomStripMonths(columns, monthFmt);
     final monthStarts = months.starts;
 
-    /// Week-of-month for every column: 1 for the first week of a month, then
-    /// 2, 3… restarting at each month boundary.
+    /// Week-of-month for every column: 1 for a month's first column, then
+    /// 2, 3… restarting at each month boundary. A split week counts on both
+    /// sides: August's 29-31 slice is that month's fifth column, and
+    /// September's 1-4 slice is its first.
     ///
     /// Columns run chronologically, which under RTL means the newest is on
-    /// the left — so a five-week month reads "5 4 3 2 1" across the screen
-    /// and a four-week one reads "4 3 2 1", which is exactly the shape this
-    /// row is meant to have. A full month can only ever reach 5 here when it
-    /// genuinely owns five columns; see roomStripMonths for why a straddling
-    /// week is not simply added to the older month.
-    final weekIndex = List<int>.filled(weekCount, 0);
+    /// the left — so a five-column month reads "5 4 3 2 1" across the screen
+    /// and a four-column one reads "4 3 2 1", which is exactly the shape this
+    /// row is meant to have.
+    final weekIndex = List<int>.filled(columnCount, 0);
     {
       var counter = 0;
-      for (var w = 0; w < weekCount; w++) {
-        if (firstDayOf(w) == null) {
-          weekIndex[w] = 0; // all-padding column: nothing to number
-          continue;
-        }
+      for (var c = 0; c < columnCount; c++) {
         counter =
-            w > 0 && months.keys[w] == months.keys[w - 1] ? counter + 1 : 1;
-        weekIndex[w] = counter;
+            c > 0 && months.keys[c] == months.keys[c - 1] ? counter + 1 : 1;
+        weekIndex[c] = counter;
       }
     }
 
@@ -643,7 +622,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
                   // See roomStripPerRun.
                   final perRun = roomStripPerRun(
                     constraints.maxWidth,
-                    weekCount,
+                    columnCount,
                     monthStarts,
                   );
 
@@ -654,7 +633,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
                   return IntrinsicWidth(
                     child: Column(
                       children: [
-                        for (var run = 0; run * perRun < weekCount; run++) ...[
+                        for (var run = 0; run * perRun < columnCount; run++) ...[
                           if (run > 0) const SizedBox(height: _gap * 2),
                           // The merged-header band: one label per month,
                           // centred over exactly the columns that belong to
@@ -675,7 +654,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
                               for (final seg in roomStripMonthSegments(
                                 run,
                                 perRun,
-                                weekCount,
+                                columnCount,
                                 months.keys,
                                 months.labels,
                               )) ...[
@@ -700,7 +679,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               for (var c = 0;
-                                  c < perRun && run * perRun + c < weekCount;
+                                  c < perRun && run * perRun + c < columnCount;
                                   c++) ...[
                                 if (c > 0)
                                   SizedBox(
@@ -742,8 +721,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
                                       height: 2.5,
                                       decoration: BoxDecoration(
                                         color: _weekTone(
-                                          run * perRun + c,
-                                          lead,
+                                          columns[run * perRun + c],
                                           days,
                                           gp.border,
                                         ),
@@ -757,10 +735,8 @@ class _MiniHeatmapStrip extends StatelessWidget {
                                         ri++) ...[
                                       if (ri > 0) const SizedBox(height: _gap),
                                       _cellFor(
-                                        run * perRun * 7 +
-                                            c * 7 +
-                                            usedRows[ri] -
-                                            lead,
+                                        columns[run * perRun + c]
+                                            .dayIndex[usedRows[ri]],
                                         days,
                                         dark,
                                         s,
@@ -856,13 +832,16 @@ class _MiniHeatmapStrip extends StatelessWidget {
   /// Deliberately reads the same creditFor the percentage reads, rather than
   /// counting coloured squares, so the bar can never contradict the number
   /// at the top of the card the way a square count does.
-  Color _weekTone(int w, int lead, List<DateTime> days, Color neutral) {
+  ///
+  /// A split week's bar reads only the slice in its column, so August's
+  /// three-day last column and September's four-day first column each
+  /// answer for their own days.
+  Color _weekTone(RoomStripColumn column, List<DateTime> days, Color neutral) {
     var settled = 0;
     var real = 0;
     var open = false;
-    for (var r = 0; r < 7; r++) {
-      final i = w * 7 + r - lead;
-      if (i < 0 || i >= days.length) continue;
+    for (final i in column.dayIndex) {
+      if (i < 0) continue;
       final day = days[i];
       if (day.isAfter(room.lastCountedDay)) continue;
       real++;

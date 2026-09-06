@@ -1,27 +1,23 @@
-// The bug: on a room's contribution strip, a month's name did not sit over
-// that month's own week columns.
+// A room's contribution strip lays its days out as Saturday-start week
+// columns, and a month's name must sit over that month's own columns.
 //
-// Seen on the NO STOOOOP room (started 21 August 2026, read on 5 September):
-// the week numbers said 1 2 3 for August and 1 for September, but the wide
-// month-break gap fell between August's second and third columns — so the
-// eye grouped "2 1" under أغسطس and "3 1" under سبتمبر, and the أغسطس label
-// itself sat 6pt off the centre of the three columns it names.
+// The rule (Aziz, 2026-09-06): a week that straddles a month boundary is
+// drawn as TWO columns, one per month. August's last column holds Aug 29-31
+// in its top three rows with the rest empty; September's first column holds
+// Sep 1-4 in its bottom four rows under three empty ones. So a month's block
+// is exactly the weeks it touches, a 31-day month starting on a Saturday is
+// five columns of 7, 7, 7, 7 and 3, and no square ever sits under another
+// month's name.
 //
-// Cause was two different definitions of where a month starts. The header
-// band and the week numbers grouped a column by the month of its FIRST DRAWN
-// day; the gap was opened on any column CONTAINING a day numbered 1. Those
-// agree only when the 1st happens to be a Saturday (or the room's first day),
-// so for most months the gap landed one column early. The widths still summed
-// to the same total, which is why nothing overflowed and the drift was silent.
+// It replaced the majority rule, which drew a straddling week once and gave
+// it to whichever month owned more of its drawn days. That kept August to
+// four columns but put Aug 29-31 under سبتمبر, and a month whose only days
+// fell inside such a week (1-3 September of a room ending on the 3rd) was
+// never named at all.
 //
-// Both are read off roomStripMonths now, and it hands a straddling week to
-// whichever month owns most of its drawn days — first-drawn-day gave August
-// five seven-day columns, 35 day-slots for a 31-day month.
-//
-// These tests pin the invariant that makes the labels centre: the boxes
-// roomStripMonthSegments lays out must cover EXACTLY the columns that month
-// owns, at every wrap width. And they pin the column counts, so no month can
-// quietly claim more weeks than its days can fill.
+// These tests pin the split itself, and the invariant that makes the labels
+// centre: the boxes roomStripMonthSegments lays out must cover EXACTLY the
+// columns that month owns, at every wrap width.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -29,7 +25,12 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import 'package:grow_daily_v2/features/rooms/screens/room_detail_screen.dart'
-    show RoomStripMonthLabel, roomStripMonths, roomStripMonthSegments;
+    show
+        RoomStripColumn,
+        RoomStripMonthLabel,
+        roomStripColumns,
+        roomStripMonthSegments,
+        roomStripMonths;
 
 void main() {
   // Mirrors _MiniHeatmapStrip._cell / ._gap and the `_gap * 5` it widens a
@@ -45,40 +46,52 @@ void main() {
   initializeDateFormatting('en');
   final monthFmt = DateFormat('MMM', 'en');
 
-  /// The strip's own column model: Saturday-start weeks, invisible padding
-  /// before the first day so every date lands on its true weekday row.
-  ({
-    int weekCount,
-    int lead,
-    List<DateTime> days,
-    List<DateTime> Function(int) daysIn,
-  }) columnsFor(DateTime windowStart, DateTime lastDay) {
+  /// The strip's own column model, built by the very function the widget
+  /// uses: Saturday-start weeks, invisible padding before the first day so
+  /// every date lands on its true weekday row, split at month boundaries.
+  ({List<DateTime> days, List<RoomStripColumn> columns}) columnsFor(
+    DateTime windowStart,
+    DateTime lastDay,
+  ) {
     final total = lastDay.difference(windowStart).inDays + 1;
     final days = List.generate(
       total,
       (i) => lastDay.subtract(Duration(days: total - 1 - i)),
     );
     final lead = (days.first.weekday + 1) % 7;
-    final weekCount = (lead + days.length + 6) ~/ 7;
-    List<DateTime> daysIn(int w) => [
-          for (var r = 0; r < 7; r++)
-            if (w * 7 + r - lead >= 0 && w * 7 + r - lead < days.length)
-              days[w * 7 + r - lead],
-        ];
-
-    return (weekCount: weekCount, lead: lead, days: days, daysIn: daysIn);
+    return (days: days, columns: roomStripColumns(lead, days));
   }
+
+  /// The dates one column draws, top row first.
+  List<DateTime> daysIn(
+    ({List<DateTime> days, List<RoomStripColumn> columns}) cols,
+    int c,
+  ) =>
+      [
+        for (final i in cols.columns[c].dayIndex)
+          if (i >= 0) cols.days[i],
+      ];
+
+  /// Which of the seven rows a column fills.
+  List<int> rowsIn(
+    ({List<DateTime> days, List<RoomStripColumn> columns}) cols,
+    int c,
+  ) =>
+      [
+        for (var r = 0; r < 7; r++)
+          if (cols.columns[c].dayIndex[r] >= 0) r,
+      ];
 
   /// Where the CELL row puts each column of one run, in the run's own space.
   List<({double start, double end})> columnBoxes(
     int run,
     int perRun,
-    int weekCount,
+    int columnCount,
     List<int> starts,
   ) {
     final out = <({double start, double end})>[];
     var x = 0.0;
-    for (var c = 0; c < perRun && run * perRun + c < weekCount; c++) {
+    for (var c = 0; c < perRun && run * perRun + c < columnCount; c++) {
       if (c > 0) x += starts.contains(run * perRun + c) ? breakGap : gap;
       out.add((start: x, end: x + cell));
       x += cell;
@@ -101,8 +114,8 @@ void main() {
     return out;
   }
 
-  /// The assertion this whole file exists for: every label's box covers
-  /// exactly its own columns, so its centre IS their centre.
+  /// The assertion the header half of this file exists for: every label's
+  /// box covers exactly its own columns, so its centre IS their centre.
   void expectLabelsCentredOverTheirColumns(
     DateTime windowStart,
     DateTime lastDay, {
@@ -110,23 +123,18 @@ void main() {
     required String reason,
   }) {
     final cols = columnsFor(windowStart, lastDay);
-    final months = roomStripMonths(
-      cols.weekCount,
-      cols.lead,
-      cols.days,
-      monthFmt,
-    );
+    final count = cols.columns.length;
+    final months = roomStripMonths(cols.columns, monthFmt);
 
-    for (var run = 0; run * perRun < cols.weekCount; run++) {
+    for (var run = 0; run * perRun < count; run++) {
       final segments = roomStripMonthSegments(
         run,
         perRun,
-        cols.weekCount,
+        count,
         months.keys,
         months.labels,
       );
-      final columns =
-          columnBoxes(run, perRun, cols.weekCount, months.starts);
+      final columns = columnBoxes(run, perRun, count, months.starts);
       final labels = labelBoxes(segments);
 
       // Every column of the run is claimed by exactly one label.
@@ -163,32 +171,77 @@ void main() {
     }
   }
 
+  group('the month Aziz described: August into September 2026', () {
+    // 1 August 2026 is a Saturday, so August is four full columns and a
+    // fifth holding the 29th, 30th and 31st. 1 September is a Tuesday.
+    final start = DateTime(2026, 8, 1);
+    final last = DateTime(2026, 9, 30);
+
+    test('August is five columns: 7, 7, 7, 7 and 3', () {
+      final cols = columnsFor(start, last);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      final august = [
+        for (var c = 0; c < cols.columns.length; c++)
+          if (months.labels[c] == 'Aug') c,
+      ];
+      expect(august, [0, 1, 2, 3, 4]);
+      expect(august.map((c) => daysIn(cols, c).length).toList(), [7, 7, 7, 7, 3]);
+      expect(daysIn(cols, 4).first, DateTime(2026, 8, 29));
+      expect(daysIn(cols, 4).last, DateTime(2026, 8, 31));
+      expect(rowsIn(cols, 4), [0, 1, 2], reason: 'the three sit at the top');
+    });
+
+    test('September opens with three empty rows, then the 1st to the 4th', () {
+      final cols = columnsFor(start, last);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      expect(months.labels[5], 'Sep');
+      expect(rowsIn(cols, 5), [3, 4, 5, 6]);
+      expect(daysIn(cols, 5), [
+        DateTime(2026, 9, 1),
+        DateTime(2026, 9, 2),
+        DateTime(2026, 9, 3),
+        DateTime(2026, 9, 4),
+      ]);
+      // The two slices are the same calendar week, drawn twice.
+      expect(rowsIn(cols, 4).toSet().intersection(rowsIn(cols, 5).toSet()),
+          isEmpty);
+    });
+
+    test('the one gap opens between the two slices of that week', () {
+      final cols = columnsFor(start, last);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      expect(months.starts, [5]);
+      expect(months.labels.sublist(0, 6), ['Aug', 'Aug', 'Aug', 'Aug', 'Aug', 'Sep']);
+    });
+
+    test('centres every label over its own columns', () {
+      expectLabelsCentredOverTheirColumns(
+        start,
+        last,
+        perRun: 18,
+        reason: 'August into September',
+      );
+    });
+  });
+
   group('the reported room', () {
     // NO STOOOOP: started Friday 21 August 2026, read on Saturday 5 September.
     final start = DateTime(2026, 8, 21);
     final last = DateTime(2026, 9, 5);
 
-    test('gives the straddling week to September, which owns more of it', () {
+    test('the straddling week is split, not handed to either month', () {
       final cols = columnsFor(start, last);
-      expect(cols.weekCount, 4);
-
-      // Column 2 draws Aug 29, 30, 31 and Sep 1, 2, 3, 4 — four September
-      // days against three August ones.
-      expect(cols.daysIn(2).where((d) => d.month == 8).length, 3);
-      expect(cols.daysIn(2).where((d) => d.month == 9).length, 4);
-
-      final months =
-          roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
-      expect(months.labels, ['Aug', 'Aug', 'Sep', 'Sep']);
+      expect(cols.columns.length, 5);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      expect(months.labels, ['Aug', 'Aug', 'Aug', 'Sep', 'Sep']);
+      expect(daysIn(cols, 2).map((d) => d.day).toList(), [29, 30, 31]);
+      expect(daysIn(cols, 3).map((d) => d.day).toList(), [1, 2, 3, 4]);
     });
 
     test('opens exactly one gap, where the months actually change', () {
       final cols = columnsFor(start, last);
-      final months =
-          roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
-
-      expect(cols.daysIn(2).first, DateTime(2026, 8, 29));
-      expect(months.starts, [2]);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      expect(months.starts, [3]);
     });
 
     test('centres every label over its own columns', () {
@@ -201,88 +254,51 @@ void main() {
     });
   });
 
-  group('a month that owns one or two columns centres like any other', () {
-    // The room in the original report: started Tuesday 28 July 2026, so July
-    // owns a single column, August four, and September two.
-    final start = DateTime(2026, 7, 28);
-    final last = DateTime(2026, 9, 5);
+  group('every column belongs to exactly one month', () {
+    // A long room, so many boundaries fall inside weeks.
+    final start = DateTime(2026, 3, 4);
+    final last = DateTime(2026, 12, 31);
 
-    test('July 1 column, August 4, September 2', () {
+    test('no column draws two months', () {
       final cols = columnsFor(start, last);
-      final months =
-          roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
-      final segments = roomStripMonthSegments(
-        0,
-        cols.weekCount,
-        cols.weekCount,
-        months.keys,
-        months.labels,
-      );
-      expect(
-        segments.map((s) => '${s.label}:${s.span}').toList(),
-        ['Jul:1', 'Aug:4', 'Sep:2'],
-      );
-    });
-
-    test('a whole month never spans more weeks than it has days for', () {
-      // The complaint that produced this rule: "how in aug its 35 days? 5
-      // Col, 7 days". August is drawn in full here, so its block must fit
-      // its 31 days: four columns, not five.
-      final cols = columnsFor(start, last);
-      final months =
-          roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
-
-      final columnsPerMonth = <int, int>{};
-      for (var w = 0; w < cols.weekCount; w++) {
-        columnsPerMonth[months.keys[w]] =
-            (columnsPerMonth[months.keys[w]] ?? 0) + 1;
-      }
-      const august = 2026 * 12 + 7;
-      expect(cols.days.where((d) => d.month == 8).length, 31);
-      expect(columnsPerMonth[august], 4);
-      expect(columnsPerMonth[august]! * 7, lessThanOrEqualTo(31));
-    });
-
-    test('every column is labelled with the month that owns most of it', () {
-      // The property the block sizes fall out of, checked column by column.
-      // A month can only be named over a week it genuinely dominates, so a
-      // block of n columns can never be more than n weeks of that month.
-      final cols = columnsFor(start, last);
-      final months =
-          roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
-
-      for (var w = 0; w < cols.weekCount; w++) {
-        final drawn = <int, int>{};
-        for (final d in cols.daysIn(w)) {
-          final k = d.year * 12 + d.month - 1;
-          drawn[k] = (drawn[k] ?? 0) + 1;
-        }
-        final mine = drawn[months.keys[w]] ?? 0;
-        for (final other in drawn.entries) {
-          if (other.key == months.keys[w]) continue;
-          expect(
-            mine,
-            greaterThanOrEqualTo(other.value),
-            reason: 'column $w is labelled "${months.labels[w]}" but another '
-                'month draws more of its days',
-          );
-        }
+      for (var c = 0; c < cols.columns.length; c++) {
+        final months = daysIn(cols, c).map((d) => d.month).toSet();
+        expect(months.length, 1, reason: 'column $c draws $months');
       }
     });
 
-    test('centres every label over its own columns', () {
-      expectLabelsCentredOverTheirColumns(
-        start,
-        last,
-        perRun: 18,
-        reason: 'July-September',
-      );
+    test('every day of the window is drawn exactly once', () {
+      final cols = columnsFor(start, last);
+      final drawn = [
+        for (var c = 0; c < cols.columns.length; c++) ...daysIn(cols, c),
+      ];
+      expect(drawn, cols.days);
+    });
+
+    test('a month owns as many columns as the Saturday-weeks it touches', () {
+      final cols = columnsFor(start, last);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      final perMonth = <int, int>{};
+      for (final k in months.keys) {
+        perMonth[k] = (perMonth[k] ?? 0) + 1;
+      }
+      for (final entry in perMonth.entries) {
+        final year = entry.key ~/ 12;
+        final month = entry.key % 12 + 1;
+        final first = DateTime(year, month, 1);
+        final lastOfMonth = DateTime(year, month + 1, 0);
+        final from = first.isBefore(start) ? start : first;
+        final to = lastOfMonth.isAfter(last) ? last : lastOfMonth;
+        // Saturday-week index of a date: days since an arbitrary Saturday, ~/ 7.
+        int week(DateTime d) =>
+            d.difference(DateTime(2026, 1, 3)).inDays ~/ 7;
+        expect(entry.value, week(to) - week(from) + 1,
+            reason: '${monthFmt.format(first)} $year');
+      }
     });
   });
 
   group('holds at every wrap width', () {
-    // A long room, so the strip wraps into several runs and months straddle
-    // run boundaries.
     final start = DateTime(2026, 3, 4);
     final last = DateTime(2026, 9, 5);
 
@@ -298,17 +314,12 @@ void main() {
         // A run never opens with a break: the column row only inserts a gap
         // for c > 0, so a leading break would push the header off by 15pt.
         final cols = columnsFor(start, last);
-        final months = roomStripMonths(
-          cols.weekCount,
-          cols.lead,
-          cols.days,
-          monthFmt,
-        );
-        for (var run = 0; run * perRun < cols.weekCount; run++) {
+        final months = roomStripMonths(cols.columns, monthFmt);
+        for (var run = 0; run * perRun < cols.columns.length; run++) {
           final segments = roomStripMonthSegments(
             run,
             perRun,
-            cols.weekCount,
+            cols.columns.length,
             months.keys,
             months.labels,
           );
@@ -342,12 +353,9 @@ void main() {
         );
 
     testWidgets('a one-column month, whose name does not fit', (tester) async {
-      // One column: 1 * _cell + 0 * _gap.
       await pumpLabel(tester, 'سبتمبر', 15);
-
       final block = tester.getRect(find.byType(RoomStripMonthLabel));
       final name = tester.getRect(find.text('سبتمبر'));
-
       expect(
         name.width,
         greaterThan(block.width),
@@ -362,12 +370,9 @@ void main() {
     });
 
     testWidgets('a five-column month, whose name fits', (tester) async {
-      // Five columns: 5 * _cell + 4 * _gap.
       await pumpLabel(tester, 'أغسطس', 87);
-
       final block = tester.getRect(find.byType(RoomStripMonthLabel));
       final name = tester.getRect(find.text('أغسطس'));
-
       expect(block.width, 87);
       expect(
         name.center.dx,
@@ -377,8 +382,6 @@ void main() {
     });
 
     testWidgets('the block never grows to fit the name', (tester) async {
-      // The header row's width has to stay the columns' width, or the label
-      // band and the cell row stop lining up at all.
       await pumpLabel(tester, 'ديسمبر', 15);
       expect(tester.getRect(find.byType(RoomStripMonthLabel)).width, 15);
     });
@@ -387,8 +390,8 @@ void main() {
   group('edge cases', () {
     test('a room shorter than one week is a single labelled column', () {
       final cols = columnsFor(DateTime(2026, 9, 2), DateTime(2026, 9, 4));
-      expect(cols.weekCount, 1);
-      final months = roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
+      expect(cols.columns.length, 1);
+      final months = roomStripMonths(cols.columns, monthFmt);
       expect(months.starts, isEmpty);
       expect(months.labels, ['Sep']);
       expectLabelsCentredOverTheirColumns(
@@ -399,43 +402,17 @@ void main() {
       );
     });
 
-    test('a room starting ON the 1st still opens its months correctly', () {
-      // 1 August 2026 is a Saturday, so here the day-1 rule and the
-      // first-drawn-day rule agree — the fix must not move this one.
-      final cols = columnsFor(DateTime(2026, 8, 1), DateTime(2026, 9, 30));
-      final months = roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
-      expect(cols.daysIn(0).first, DateTime(2026, 8, 1));
-      expect(months.labels.first, 'Aug');
-      expect(months.starts.length, 1);
-      expect(months.labels[months.starts.first], 'Sep');
-      expectLabelsCentredOverTheirColumns(
-        DateTime(2026, 8, 1),
-        DateTime(2026, 9, 30),
-        perRun: 18,
-        reason: 'starts on the 1st',
-      );
-    });
-
-    test('a month with no drawn Saturday is silent, not falsely broken', () {
-      // 1-3 September 2026 fall inside the column that opens on August 29th,
-      // and September has no Saturday drawn at all, so the strip never names
-      // it. That is the same rule everything else here follows: a column
-      // belongs to the month of its first drawn day.
-      //
-      // Pinned because it is a deliberate trade, not an oversight. The old
-      // day-1 rule DID open a gap before that column — but the أغسطس label
-      // ran straight across the gap and the week number under it counted on
-      // as August's fifth week, so the break announced a month that neither
-      // of its neighbours agreed existed, and left the cell row 12pt wider
-      // than the header it sat under. A correct silence beats that.
+    test('a month with no drawn Saturday still gets its own column', () {
+      // 1-3 September 2026 fall inside the week that opens on August 29th.
+      // Under the majority rule the strip never named September here; now
+      // those three days are a column of their own, under their own name.
       final start = DateTime(2026, 8, 1);
       final last = DateTime(2026, 9, 3);
       final cols = columnsFor(start, last);
-      final months = roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
-
-      expect(cols.daysIn(4).first, DateTime(2026, 8, 29));
-      expect(months.labels, ['Aug', 'Aug', 'Aug', 'Aug', 'Aug']);
-      expect(months.starts, isEmpty);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      expect(months.labels, ['Aug', 'Aug', 'Aug', 'Aug', 'Aug', 'Sep']);
+      expect(months.starts, [5]);
+      expect(rowsIn(cols, 5), [3, 4, 5]);
       expectLabelsCentredOverTheirColumns(
         start,
         last,
@@ -444,15 +421,34 @@ void main() {
       );
     });
 
+    test('a window starting mid-week pads only the rows before its first day',
+        () {
+      // Tuesday 28 July 2026: three empty rows, then four July days.
+      final cols = columnsFor(DateTime(2026, 7, 28), DateTime(2026, 9, 5));
+      expect(rowsIn(cols, 0), [3, 4, 5, 6]);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      final segments = roomStripMonthSegments(
+        0,
+        cols.columns.length,
+        cols.columns.length,
+        months.keys,
+        months.labels,
+      );
+      expect(
+        segments.map((s) => '${s.label}:${s.span}').toList(),
+        ['Jul:1', 'Aug:5', 'Sep:2'],
+      );
+    });
+
     test('two Decembers a year apart are two segments, not one', () {
       // MMM formats both as "Dec". Grouping on the label alone would merge
       // them into a single nine-column month.
       final cols = columnsFor(DateTime(2026, 12, 1), DateTime(2027, 12, 31));
-      final months = roomStripMonths(cols.weekCount, cols.lead, cols.days, monthFmt);
+      final months = roomStripMonths(cols.columns, monthFmt);
       final segments = roomStripMonthSegments(
         0,
-        cols.weekCount,
-        cols.weekCount,
+        cols.columns.length,
+        cols.columns.length,
         months.keys,
         months.labels,
       );
