@@ -12,7 +12,6 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/alarm_choice_provider.dart';
 import '../../../core/services/alarm_service.dart';
-import '../../../core/services/device_location_service.dart';
 import '../../../core/services/health_steps_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/prayer_times_service.dart';

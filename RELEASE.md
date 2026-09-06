@@ -66,6 +66,39 @@ auto-bumps past whatever pubspec.yaml has on file) or, if pubspec.yaml is
 out of sync with what's actually on App Store Connect, edit its `version:`
 line's `+N` by hand to one above `previousBundleVersion` first.
 
+## When the app gains a new entitlement
+
+A provisioning profile freezes the App ID's capabilities at the moment it
+is made, so the first archive after a new key lands in
+`ios/Runner/Runner.entitlements` (or the widget's) fails with
+"Provisioning profile ... doesn't include the ... entitlement". `release.sh`
+now checks for this in its preflight, before the suite and the build.
+
+The fix is two steps, in this order:
+
+1. developer.apple.com > Certificates, Identifiers & Profiles > Identifiers
+   > GrowDaily > tick the capability > Save > Confirm. This needs your Apple
+   sign-in; the App Store Connect API cannot add most capabilities (it knows
+   only 28 of them, Time Sensitive Notifications is not one), and Xcode on
+   this Mac has no Apple ID.
+2. From the repo root, with `ASC_KEY_ID` / `ASC_ISSUER_ID` in the shell:
+   ```
+   python3 scripts/regen_appstore_profile.py
+   ```
+   It deletes and recreates "GrowDaily AppStore" through the API, installs
+   it where Xcode looks, and stops with a clear message if the capability
+   is still not on the App ID. For the widget's profile:
+   ```
+   python3 scripts/regen_appstore_profile.py --profile "GrowDailyWidget AppStore" \
+       --entitlements ios/GrowDailyWidgetExtension.entitlements
+   ```
+
+Then `./release.sh --ios` as usual (`--no-bump` if the bump was already
+committed by a run that failed at the archive).
+
+Time Sensitive Notifications was ticked and the profile regenerated this
+way on 2026-09-06 for build 1.0.0+66.
+
 ## HealthKit on the App ID (done 2026-09-02)
 
 The walking-habit steps link added `com.apple.developer.healthkit` to

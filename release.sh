@@ -70,6 +70,45 @@ fi
 command -v flutter  >/dev/null || die "flutter not on PATH"
 command -v firebase >/dev/null || warn "firebase CLI not found (needed for --firebase)"
 
+# ── Signing ──────────────────────────────────────────────────────────
+# A provisioning profile freezes the App ID's capabilities at the moment
+# it is made. Add an entitlement to the app and the archive fails AFTER
+# the build ("Provisioning profile ... doesn't include the ... entitlement",
+# seen 2026-09-06 with Time Sensitive Notifications, 2026-09-02 with
+# HealthKit). Checked here, before anything is built: every key in each
+# .entitlements file must already be in the installed profile it signs
+# with. The fix is a click on developer.apple.com and one script, see
+# RELEASE.md.
+check_profile() {
+  local ent_file="$1" profile_name="$2" dir p name missing
+  for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+             "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+    for p in "$dir"/*.mobileprovision; do
+      [ -f "$p" ] || continue
+      name="$(security cms -D -i "$p" 2>/dev/null | plutil -extract Name raw - 2>/dev/null)" || continue
+      [ "$name" = "$profile_name" ] || continue
+      missing="$(python3 - "$ent_file" "$p" <<'PYCHECK'
+import plistlib, subprocess, sys
+want = plistlib.load(open(sys.argv[1], 'rb'))
+raw = subprocess.run(['security', 'cms', '-D', '-i', sys.argv[2]], capture_output=True).stdout
+have = plistlib.loads(raw).get('Entitlements', {})
+print(' '.join(k for k in want if k not in have))
+PYCHECK
+)"
+      [ -z "$missing" ] || die "Profile '$profile_name' does not carry: $missing
+Tick the capability on developer.apple.com > Identifiers, then run
+  python3 scripts/regen_appstore_profile.py --profile '$profile_name' --entitlements $ent_file
+and start again."
+      echo "  $profile_name carries every entitlement of $ent_file"
+      return 0
+    done
+  done
+  warn "Profile '$profile_name' is not installed on this Mac; the archive will fail without it."
+}
+step "Signing"
+check_profile ios/Runner/Runner.entitlements "GrowDaily AppStore"
+check_profile ios/GrowDailyWidgetExtension.entitlements "GrowDailyWidget AppStore"
+
 step "Analyzer"
 ERRORS="$(flutter analyze lib 2>&1 | grep -cE '^\s*error' || true)"
 [ "$ERRORS" = "0" ] || die "$ERRORS analyzer error(s). Fix before releasing."
