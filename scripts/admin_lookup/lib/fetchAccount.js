@@ -4,7 +4,7 @@
  * Firebase Auth/Firestore access for the admin lookup tool.
  *
  * Assumes admin.initializeApp() has already been called by whichever entry
- * point required this module (lookup_user.js or server.js) — this file
+ * point required this module (lookup_user.js or server.js) - this file
  * only ever reads admin.firestore()/admin.auth() lazily, never initializes
  * the app itself, so both entry points stay in charge of their own
  * credentials setup.
@@ -17,7 +17,6 @@ const {
   escapeHtml,
   renderFieldTable,
   buildHabitContext,
-  CATEGORY_META,
   MOOD_META,
   QUADRANT_ORDER,
   toJsDate,
@@ -25,11 +24,12 @@ const {
   calendarTodayParts,
   triageTasksForDay,
   habitScheduledOnParts,
+  whyNotScheduled,
+  summarizeHabitDay,
   renderDayCard,
   renderCalendarSection,
   renderUndoneSection,
   readUndoneReceipts,
-  readHabitDay,
   dayWriteContext,
   DAY_CUTOFF_HOUR,
   dayKeyParts,
@@ -46,7 +46,7 @@ function auth() {
  * Resolves a query (an email or a uid) to { uid, authRecord }. Throws if
  * an email was given and no such Auth account exists. A uid that has no
  * Auth account (e.g. one manually deleted from the console) resolves with
- * authRecord: null instead of throwing — the caller falls back to
+ * authRecord: null instead of throwing - the caller falls back to
  * Firestore-only data, same self-healing spirit as the rest of this app.
  */
 async function resolveAccount(query) {
@@ -82,7 +82,7 @@ async function loadAccountRaw(uid, authRecord) {
   const userRef = db().collection('users').doc(uid);
   const userDoc = await userRef.get();
   if (!userDoc.exists && !authRecord) {
-    throw new Error(`Nothing found for "${uid}" — checked both Firebase Auth and Firestore.`);
+    throw new Error(`Nothing found for "${uid}". Checked both Firebase Auth and Firestore.`);
   }
   const profileData = userDoc.exists ? userDoc.data() : null;
 
@@ -121,7 +121,7 @@ async function loadAccountRaw(uid, authRecord) {
       ? '<p class="muted">Not in any rooms.</p>'
       : roomRows.map((r) => `
           <details class="doc">
-            <summary>Room ${escapeHtml(r.code)}${r.room.name ? ' — ' + escapeHtml(r.room.name) : ''}</summary>
+            <summary>Room ${escapeHtml(r.code)}${r.room.name ? ' · ' + escapeHtml(r.room.name) : ''}</summary>
             <div class="doc-id">${escapeHtml(r.code)}</div>
             <h3>Room</h3>
             ${renderFieldTable(r.room)}
@@ -131,7 +131,7 @@ async function loadAccountRaw(uid, authRecord) {
         `).join('');
   } catch (e) {
     roomRows = [];
-    roomsSectionHtml = `<p class="muted">Couldn't load this section — ${escapeHtml(e.message)}</p>`;
+    roomsSectionHtml = `<p class="muted">Couldn't load this section: ${escapeHtml(e.message)}</p>`;
   }
 
   return {
@@ -194,48 +194,107 @@ function buildDaySection(raw, dateKey) {
   // same page credited it.
   const receiptsByKey = readUndoneReceipts(profileData);
 
-  const habitRows = [];
+  // Scheduled that day, by the app's own rule. summarizeHabitDay then UNIONS
+  // this with every habit that left a trace on the day, so a habit archived
+  // since, deleted since, or simply not due that weekday still appears if it
+  // was marked. The old loop only walked custom_habits and only kept the
+  // scheduled ones, so exactly those habits vanished from the card without a
+  // word: the "my habit disappeared" ticket had no answer on the page.
+  const scheduledIds = [];
+  const habitById = {};
   for (const doc of habitDocs) {
+    habitById[doc.id] = doc.data();
+    if (habitScheduledOnParts(doc.data(), parts)) scheduledIds.push(doc.id);
+  }
+  const summary = summarizeHabitDay(dayData, scheduledIds, receiptsByKey, dayKey);
+  const scheduledSet = new Set(scheduledIds);
+  const habitRows = summary.rows;
+
+  // Named, with the reason, instead of dropped. Two kinds land here: a habit
+  // that exists but was not due (or not yet born, or already archived), and
+  // one this account no longer has at all, which still shows up in old daily
+  // docs and in undo receipts forever.
+  const offSchedule = [];
+  for (const doc of habitDocs) {
+    if (scheduledSet.has(doc.id)) continue;
     const h = doc.data();
-    if (!habitScheduledOnParts(h, parts)) continue;
-    const r = readHabitDay(dayData, doc.id, receiptsByKey[`${doc.id}|${dayKey}`] || null);
-    const cat = CATEGORY_META[h.category] || { emoji: '⭐' };
-    habitRows.push({
+    const touched = habitRows.some((r) => r.habitId === doc.id && r.verdict !== 'none');
+    const why = whyNotScheduled(h, parts);
+    if (!why && !touched) continue;
+    offSchedule.push({
       name: h.name || '(unnamed habit)',
-      emoji: cat.emoji,
-      // The ring counts what the PERSON did, which is any green square by
-      // either route - the same test a Room applies. `rewarded` below is the
-      // separate question of whether the account was actually paid for it.
-      done: r.rewarded || r.roomCounts,
-      count: r.count,
-      verdict: r.verdict,
-      square: r.square,
-      rewarded: r.rewarded,
-      roomCounts: r.roomCounts,
-      stampedAt: r.stampedAt,
-      receipt: r.receipt,
+      why: why || 'not scheduled that day',
+      marked: touched,
     });
   }
+  for (const r of habitRows) {
+    if (scheduledSet.has(r.habitId) || habitById[r.habitId]) continue;
+    offSchedule.push({
+      name: `no longer in this account, ${String(r.habitId).slice(0, 8)}`,
+      why: 'but it left a record on this day',
+      marked: true,
+    });
+  }
+
+  // The FOURTH record. habit_history is the per-habit chart mirror the app's
+  // Progress and Life Timeline screens read, and the profile doc carries
+  // four habitHistoryMarksV*BackfilledAt stamps, which is the app's own
+  // evidence that it has drifted from the day docs before. Compared on every
+  // row; the ledger prints it only where it disagrees.
+  const mirror = {};
+  for (const doc of (docsByCollection['habit_history'] || [])) {
+    const marks = doc.data() && doc.data().marks;
+    if (marks && typeof marks === 'object' && Object.prototype.hasOwnProperty.call(marks, dayKey)) {
+      mirror[doc.id] = marks[dayKey] === true || marks[dayKey] === 1;
+    }
+  }
+  const squareNotes = (dayData.squareNotes && typeof dayData.squareNotes === 'object')
+    ? dayData.squareNotes : {};
 
   const taskDocs = docsByCollection['matrix_tasks'] || [];
   const taskParts = isToday ? calendarTodayParts(tz) : dayKeyParts(dayKey);
   const triage = triageTasksForDay(taskDocs, taskParts);
 
-  const rooms = roomRows.map((r) => ({
-    name: r.room.name || r.code,
-    allDone: r.participant.allDoneToday === true && r.participant.allDoneDate === dayKey,
-    muted: r.participant.notificationsMuted === true,
-  }));
+  // `allDoneToday` is a SINGLE stored flag with a single stored date beside
+  // it (room_model.dart:752), so it can only ever answer for the one day it
+  // was last computed. On any other day the honest answer is "this flag was
+  // not about this day", and the card used to print a plain empty box, which
+  // reads as "the room says they did not do it" while the banner two inches
+  // above said the room counted the day. Two contradictory claims about the
+  // same room on the same screen.
+  //
+  // Grading a past day off the room's own per-day ledger is the real fix and
+  // is not in this pass; `known: false` at least stops the page asserting
+  // something it cannot know.
+  const rooms = roomRows.map((r) => {
+    const known = r.participant.allDoneDate === dayKey;
+    return {
+      name: r.room.name || r.code,
+      code: r.code,
+      known,
+      allDone: known && r.participant.allDoneToday === true,
+      muted: r.participant.notificationsMuted === true,
+    };
+  });
 
-  const done = habitRows.filter((h) => h.done).length;
+  // `done` is what was PAID. The card prints it beside the room-counted
+  // green squares rather than instead of them, so the two can visibly
+  // disagree instead of one silently standing in for the other.
+  const done = summary.done;
   const total = habitRows.length;
 
   return {
     id: 'today',
-    label: '📍 Day',
+    label: 'Day',
     count: `${done}/${total}`,
     done,
     total,
+    roomGreens: summary.roomGreens,
+    // Whether this day's records disagree at all. `roomGreens > done` is NOT
+    // the same question: on 2026-09-05 this account had one green square with
+    // no completion AND one completion with no green square, so both numbers
+    // are 2 while the two SETS are different. The tab has to flag that day.
+    disagree: summary.gridOnly > 0 || summary.undone > 0,
     dayKey,
     isToday,
     todayKey: todayParts.key,
@@ -267,6 +326,11 @@ function buildDaySection(raw, dateKey) {
       triage,
       taskDayKey: taskParts.key,
       rooms,
+      habitCtx: raw.habitCtx,
+      summary,
+      offSchedule,
+      mirrorFor: (id) => (Object.prototype.hasOwnProperty.call(mirror, id) ? mirror[id] : null),
+      notesFor: (id) => (typeof squareNotes[id] === 'string' ? squareNotes[id] : ''),
     }),
   };
 }
@@ -283,32 +347,47 @@ async function loadAccountReport(uid, authRecord, dateKey) {
   const { profileData, subcollections, docsByCollection, habitCtx, roomsSectionHtml } = raw;
   const tz = profileData && profileData.tzOffsetMinutes;
 
+  // AUTHORED ORDER, not "whatever listCollections happened to return".
+  //
+  // The old order was Day, Auth, Profile, Un-marked completions, then the
+  // subcollections in Firestore's own order, then Rooms. Which put the two
+  // sections nobody opens (a six row Auth table, and a disclosure whose only
+  // child is a raw field dump) at positions two and three, and Rooms, the
+  // section every "the room disagrees" ticket ends in, at position ten,
+  // off the end of a strip that could only show seven.
+  //
+  // Now: what happened, then the history, then the account's own things,
+  // then the receipts, then everything that is a raw dump in one Raw tab.
   const sections = [];
   const day = buildDaySection(raw, dateKey);
   sections.push(day);
 
-  if (authRecord) {
+  const bySub = {};
+  for (const col of subcollections) bySub[col.id] = col;
+
+  // 'daily' gets a real month-by-month calendar instead of the generic flat
+  // log list every other subcollection uses - see renderCalendarSection's
+  // doc comment for why this one specifically has a natural calendar shape
+  // the others don't.
+  if (bySub.daily) {
     sections.push({
-      id: 'auth',
-      label: 'Firebase Auth account',
-      html: `<table class="fields"><tbody>
-          <tr><th>uid</th><td>${escapeHtml(authRecord.uid)}</td></tr>
-          <tr><th>email</th><td>${escapeHtml(authRecord.email || '—')}</td></tr>
-          <tr><th>email verified</th><td>${authRecord.emailVerified}</td></tr>
-          <tr><th>created</th><td>${escapeHtml(authRecord.metadata.creationTime)}</td></tr>
-          <tr><th>last sign-in</th><td>${escapeHtml(authRecord.metadata.lastSignInTime)}</td></tr>
-          <tr><th>disabled</th><td>${authRecord.disabled}</td></tr>
-        </tbody></table>`,
+      id: 'daily',
+      label: KNOWN_LABELS.daily,
+      count: docsByCollection.daily.length,
+      html: renderCalendarSection(
+        docsByCollection.daily, docsByCollection['custom_habits'] || [], habitCtx, day.todayKey,
+        readUndoneReceipts(profileData), tz),
     });
   }
 
-  sections.push({
-    id: 'profile',
-    label: 'Profile',
-    html: profileData
-      ? `<details class="doc"><summary>Show all raw profile fields</summary>${renderFieldTable(profileData)}</details>`
-      : '<p class="muted">No Firestore profile doc.</p>',
-  });
+  const docList = (id) => renderDocList(
+    id, KNOWN_LABELS[id] || id, docsByCollection[id], { habitCtx, todayKey: day.todayKey });
+
+  for (const id of ['custom_habits', 'matrix_tasks']) {
+    if (bySub[id]) sections.push(docList(id));
+  }
+
+  sections.push({ id: 'rooms', label: 'Rooms', html: roomsSectionHtml });
 
   // Its own tab rather than a line inside Profile: "what did they take back"
   // is a question an admin arrives with, and burying the answer in the raw
@@ -317,36 +396,36 @@ async function loadAccountReport(uid, authRecord, dateKey) {
   // does not prove.
   sections.push({
     id: 'undone',
-    label: 'Un-marked completions',
+    label: 'Undo receipts',
     count: Object.keys(readUndoneReceipts(profileData)).length,
     html: renderUndoneSection(profileData, habitCtx),
   });
 
-  for (const col of subcollections) {
-    // 'daily' gets a real month-by-month calendar instead of the generic
-    // flat log list every other subcollection uses - see
-    // renderCalendarSection's doc comment for why this one specifically
-    // has a natural calendar shape the others don't.
-    if (col.id === 'daily') {
-      sections.push({
-        id: 'daily',
-        label: KNOWN_LABELS.daily,
-        count: docsByCollection.daily.length,
-        html: renderCalendarSection(
-          docsByCollection.daily, docsByCollection['custom_habits'] || [], habitCtx, day.todayKey,
-          readUndoneReceipts(profileData), tz),
-      });
-      continue;
-    }
-    sections.push(renderDocList(
-      col.id,
-      KNOWN_LABELS[col.id] || col.id,
-      docsByCollection[col.id],
-      { habitCtx, todayKey: day.todayKey },
-    ));
+  // Everything whose honest description is "a raw dump of documents",
+  // behind one tab instead of four. Nothing is deleted, it is demoted:
+  // KNOWN_LABELS stays a purely cosmetic map with a raw-id fallback, so a
+  // subcollection added to the app tomorrow still appears here on its own
+  // with no change to this file.
+  const rawParts = [];
+  if (authRecord) {
+    rawParts.push(`<h3>Sign-in account</h3><table class="fields"><tbody>
+        <tr><th>uid</th><td>${escapeHtml(authRecord.uid)}</td></tr>
+        <tr><th>email</th><td>${escapeHtml(authRecord.email || 'not set')}</td></tr>
+        <tr><th>email verified</th><td>${authRecord.emailVerified}</td></tr>
+        <tr><th>created</th><td>${escapeHtml(authRecord.metadata.creationTime)}</td></tr>
+        <tr><th>last sign-in</th><td>${escapeHtml(authRecord.metadata.lastSignInTime)}</td></tr>
+        <tr><th>disabled</th><td>${authRecord.disabled}</td></tr>
+      </tbody></table>`);
   }
-
-  sections.push({ id: 'rooms', label: 'Rooms', html: roomsSectionHtml });
+  rawParts.push('<h3>Profile document</h3>' + (profileData
+    ? `<details class="doc"><summary>All raw profile fields</summary>${renderFieldTable(profileData)}</details>`
+    : '<p class="muted">No Firestore profile doc.</p>'));
+  for (const col of subcollections) {
+    if (['daily', 'custom_habits', 'matrix_tasks'].includes(col.id)) continue;
+    const listed = docList(col.id);
+    rawParts.push(`<h3>${escapeHtml(listed.label)}<span class="h3-note">${listed.count} document${listed.count === 1 ? '' : 's'}</span></h3>${listed.html}`);
+  }
+  sections.push({ id: 'raw', label: 'Raw', html: rawParts.join('\n') });
 
   return {
     uid,
@@ -373,9 +452,9 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Every account, merged from two sources: Firebase Auth (authoritative for
- * uid + email + createdAt/lastSignIn — every real account has one) and the
+ * uid + email + createdAt/lastSignIn - every real account has one) and the
  * Firestore users/{uid}.displayName field (this app never calls
- * FirebaseAuth's own updateDisplayName — confirmed by grep across lib/ — so
+ * FirebaseAuth's own updateDisplayName - confirmed by grep across lib/ - so
  * Auth's own displayName is always empty and useless for a "search by
  * name" box on its own; ProfileScreen/edit_name_sheet.dart only ever
  * read/write the Firestore field). select('displayName', 'createdAt')
@@ -385,7 +464,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
  * present.
  *
  * Cached for CACHE_TTL_MS so the admin lookup homepage's filter/sort table
- * doesn't re-list every account on every keystroke — pass forceRefresh to
+ * doesn't re-list every account on every keystroke - pass forceRefresh to
  * bypass it (e.g. a manual "refresh" action) right after a new signup you
  * want to find immediately.
  */

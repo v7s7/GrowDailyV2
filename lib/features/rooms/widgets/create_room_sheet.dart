@@ -9,7 +9,6 @@ import '../../../core/theme/game_theme.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
-import '../../../shared/widgets/segmented_tabs.dart';
 import '../models/room_model.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../../../shared/widgets/app_snackbar.dart';
@@ -154,6 +153,15 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
     HapticFeedback.selectionClick();
     FocusScope.of(context).unfocus();
     setState(() => _step = 0);
+  }
+
+  /// One of the quick-pick lengths, or null for no end date. Leaves Custom.
+  void _pickLength(int? days) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _customDurationSelected = false;
+      _lengthDays = days;
+    });
   }
 
   Future<void> _submit() async {
@@ -332,7 +340,13 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
           if (onHabits) ...[
             const SizedBox(height: 3),
             Text(
-              s.roomCreateRoomSummary(_nameCtrl.text.trim(), _lengthLabel(s)),
+              s.roomCreateRoomSummary(
+                _nameCtrl.text.trim(),
+                _lengthLabel(s),
+                _competeMode == RoomCompeteMode.competitive
+                    ? s.roomCompeteModeCompetitive
+                    : s.roomCompeteModeTeam,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 11.5, color: gp.textTert),
@@ -415,46 +429,71 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
         const SizedBox(height: 20),
         _SectionLabel(s.roomCompeteModeLabel),
         const SizedBox(height: 8),
-        // Two segments and one line of explanation, rather than two stacked
-        // cards each carrying its own paragraph. The cards cost 375pt for
-        // what is, in the end, one either/or.
-        SegmentedTabs(
-          labels: [s.roomCompeteModeCompetitive, s.roomCompeteModeTeam],
+        // Two cards side by side, each saying in one line what it means,
+        // rather than a split button with the meaning in grey under it.
+        // This is the decision that shapes the whole room (see
+        // RoomCompeteMode), and the split button under-explained it: the
+        // hint only ever described the picked side, so the other side was
+        // a word. Side by side, not stacked, so it costs a card's height
+        // and not two.
+        _ChoiceCards(
+          choices: [
+            _Choice(
+              icon: Icons.leaderboard_rounded,
+              title: s.roomCompeteModeCompetitive,
+              hint: s.roomCompeteModeCompetitiveHint,
+            ),
+            _Choice(
+              icon: Icons.groups_rounded,
+              title: s.roomCompeteModeTeam,
+              hint: s.roomCompeteModeTeamHint,
+            ),
+          ],
           selected: _competeMode == RoomCompeteMode.competitive ? 0 : 1,
           onChanged: (i) => setState(() => _competeMode =
               i == 0 ? RoomCompeteMode.competitive : RoomCompeteMode.team),
         ),
-        const SizedBox(height: 8),
-        _ModeHint(_competeMode == RoomCompeteMode.competitive
-            ? s.roomCompeteModeCompetitiveHint
-            : s.roomCompeteModeTeamHint),
         const SizedBox(height: 20),
         _SectionLabel(s.roomDurationLabel),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        // Two rows that fill the width: the four lengths as equal quarters,
+        // then the two open choices as equal halves. A Wrap used to lay
+        // these out, and it left a ragged second line (two pills hugging one
+        // edge under four of different widths), which Aziz asked to fix.
+        Row(
           children: [
-            for (final days in _lengthOptions)
-              _DurationChip(
-                label:
-                    days == null ? s.roomDurationOpenEnded : s.daysCount(days),
-                selected: !_customDurationSelected && _lengthDays == days,
+            for (final (i, days) in _lengthOptions.whereType<int>().indexed) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(
+                child: _DurationChip(
+                  label: s.daysCount(days),
+                  selected: !_customDurationSelected && _lengthDays == days,
+                  onTap: () => _pickLength(days),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _DurationChip(
+                label: s.roomDurationOpenEnded,
+                selected: !_customDurationSelected && _lengthDays == null,
+                onTap: () => _pickLength(null),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _DurationChip(
+                label: s.roomDurationCustomOption,
+                selected: _customDurationSelected,
                 onTap: () {
                   HapticFeedback.selectionClick();
-                  setState(() {
-                    _customDurationSelected = false;
-                    _lengthDays = days;
-                  });
+                  setState(() => _customDurationSelected = true);
                 },
               ),
-            _DurationChip(
-              label: s.roomDurationCustomOption,
-              selected: _customDurationSelected,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() => _customDurationSelected = true);
-              },
             ),
           ],
         ),
@@ -478,6 +517,21 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
             ),
           ),
         ],
+        const SizedBox(height: 10),
+        // The length reads as a commitment the first time; it is not, and
+        // saying so here is what stops people picking 7 days to be safe.
+        Row(
+          children: [
+            Icon(Icons.schedule_rounded, size: 13, color: gp.textTert),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                s.roomDurationExtendHint,
+                style: TextStyle(fontSize: 11.5, color: gp.textTert),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -492,33 +546,65 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
       children: [
         _SectionLabel(s.roomHabitModeLabel),
         const SizedBox(height: 8),
-        SegmentedTabs(
-          labels: [s.roomHabitModeShared, s.roomHabitModeOwnShort],
+        // Same paired cards as the spirit on step one, for the same reason:
+        // "leader's plan" and "everyone's own" are not self-explaining
+        // words, and the one line each card carries is what tells them
+        // apart.
+        _ChoiceCards(
+          choices: [
+            _Choice(
+              icon: Icons.checklist_rounded,
+              title: s.roomHabitModeShared,
+              hint: s.roomHabitModeSharedHint,
+            ),
+            _Choice(
+              icon: Icons.person_rounded,
+              title: s.roomHabitModeOwnShort,
+              hint: s.roomHabitModeOwnHint,
+            ),
+          ],
           selected: shared ? 0 : 1,
           onChanged: (i) => setState(() => _habitMode =
               i == 0 ? RoomHabitMode.shared : RoomHabitMode.own),
         ),
-        const SizedBox(height: 8),
-        _ModeHint(shared ? s.roomHabitModeSharedHint : s.roomHabitModeOwnHint),
         const SizedBox(height: 18),
-        // No section heading above the picker. The control right above it
-        // already says which habits it means, and a heading that repeats
-        // the sentence over it is just another line to read. The running
-        // count keeps its place, because that is the one thing here the
-        // user cannot see at a glance once the list is long.
-        if (picked.isNotEmpty) ...[
-          Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: Text(
-              s.roomPlanSelectedCount(picked.length),
-              style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: GameColors.gold),
+        // One row above the picker: which habits this means, and, once
+        // something is picked, how many. The count is the one thing here
+        // the user cannot see at a glance once the list is long.
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                shared ? s.roomPlanHabitsLabel : s.roomOwnHabitsLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: context.gp.textTert),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-        ],
+            if (picked.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: GameColors.gold.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                ),
+                child: Text(
+                  s.roomPlanSelectedCount(picked.length),
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: GameColors.gold),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 10),
         _PlanHabitPicker(
           selectedIds: picked,
           onChanged: (ids) => setState(() {
@@ -604,16 +690,55 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                 borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
                 border: Border.all(color: GameColors.gold.withOpacity(0.4)),
               ),
-              child: Text(
-                code,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 6,
-                  color: GameColors.gold,
-                ),
+              child: Column(
+                children: [
+                  Text(
+                    code,
+                    textAlign: TextAlign.center,
+                    // Latin letters either way; pinned so Arabic shaping
+                    // never reorders them.
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 6,
+                      color: GameColors.gold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  // What was just made, under the code that names it, so
+                  // the sheet does not have to be remembered from a screen
+                  // ago.
+                  Text(
+                    s.roomCreateRoomSummary(
+                      _nameCtrl.text.trim(),
+                      _lengthLabel(s),
+                      _competeMode == RoomCompeteMode.competitive
+                          ? s.roomCompeteModeCompetitive
+                          : s.roomCompeteModeTeam,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11.5, color: gp.textTert),
+                  ),
+                ],
               ),
+            ),
+            const SizedBox(height: 8),
+            // The one privacy fact a leader asks about before sharing.
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.lock_outline_rounded, size: 13, color: gp.textTert),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    s.roomCreatedPrivateNote,
+                    style: TextStyle(fontSize: 11.5, color: gp.textTert),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Row(
@@ -651,10 +776,61 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            TextButton(
+            const SizedBox(height: 12),
+            // The room does not start by itself, and "created" reads as
+            // "started" to a first-time leader. One card says what the next
+            // move is and where it lives.
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: gp.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: gp.border, width: 0.5),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.play_circle_outline_rounded,
+                      size: 18, color: gp.textSec),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s.roomCreatedNextTitle,
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: gp.textPrimary),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          s.roomCreatedNextBody,
+                          style: TextStyle(
+                              fontSize: 11.5, color: gp.textSec, height: 1.35),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            // "Open the room" rather than "Done": done says the job is
+            // finished, and the next thing to do is inside the room.
+            OutlinedButton.icon(
               onPressed: () => Navigator.of(context).pop(code),
-              child: Text(s.roomDoneAction),
+              // A forward chevron: Flutter mirrors it in RTL, so it points
+              // the way the room is (left, in Arabic).
+              icon: const Icon(Icons.arrow_forward_ios_rounded, size: 15),
+              label: Text(s.roomOpenAction),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
+                foregroundColor: gp.textPrimary,
+                side: BorderSide(color: gp.border),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
             ),
           ],
         ),
@@ -694,21 +870,145 @@ class _StepDots extends StatelessWidget {
   }
 }
 
-/// The line of explanation under a [SegmentedTabs]. Centred, tertiary, and
-/// deliberately allowed to be two lines: the Team hint is a long sentence,
-/// and the whole point of moving these out of cards was to stop a long
-/// sentence dictating the height of the control it describes.
-class _ModeHint extends StatelessWidget {
-  final String text;
-  const _ModeHint(this.text);
+/// One of the sheet's two either/or decisions, as a pair of cards.
+///
+/// Each card is an icon, the option's name, and one line of what picking it
+/// means, with a check on the picked one. The pair replaced a split button
+/// with a single grey sentence under it: that sentence only ever explained
+/// the picked side, so the other option was a bare word until you tried it.
+/// Side by side rather than stacked, so the pair costs one card's height.
+class _ChoiceCards extends StatelessWidget {
+  final List<_Choice> choices;
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  const _ChoiceCards({
+    required this.choices,
+    required this.selected,
+    required this.onChanged,
+  });
 
   @override
-  Widget build(BuildContext context) => Text(
-        text,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-            fontSize: 11.5, color: context.gp.textTert, height: 1.35),
+  // IntrinsicHeight so the pair shares the taller card's height (the hints
+  // differ in length) without asking the scroll view for a height it does
+  // not have: a stretched Row inside SingleChildScrollView gets infinite
+  // constraints and throws.
+  Widget build(BuildContext context) => IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < choices.length; i++) ...[
+              if (i > 0) const SizedBox(width: 10),
+              Expanded(
+                child: _ChoiceCard(
+                  choice: choices[i],
+                  selected: i == selected,
+                  onTap: i == selected ? null : () => onChanged(i),
+                ),
+              ),
+            ],
+          ],
+        ),
       );
+}
+
+class _Choice {
+  final IconData icon;
+  final String title;
+  final String hint;
+  const _Choice({required this.icon, required this.title, required this.hint});
+}
+
+class _ChoiceCard extends StatelessWidget {
+  final _Choice choice;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _ChoiceCard({
+    required this.choice,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${choice.title}. ${choice.hint}',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        onTap: onTap == null
+            ? null
+            : () {
+                HapticFeedback.selectionClick();
+                onTap!();
+              },
+        child: AnimatedContainer(
+          duration: GameMotion.quick,
+          padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+          decoration: BoxDecoration(
+            color: selected ? GameColors.gold.withOpacity(0.10) : gp.surface,
+            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+            border: Border.all(
+              color: selected ? GameColors.gold : gp.border,
+              width: selected ? 1.1 : 0.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? GameColors.gold.withOpacity(0.16)
+                          : gp.surfaceHL,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(choice.icon,
+                        size: 20, color: selected ? GameColors.gold : gp.textSec),
+                  ),
+                  const Spacer(),
+                  AnimatedOpacity(
+                    duration: GameMotion.quick,
+                    opacity: selected ? 1 : 0,
+                    child: Container(
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: GameColors.gold,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.check_rounded,
+                          size: 12, color: GameColors.onGold),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                choice.title,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                choice.hint,
+                style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.4),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SectionLabel extends StatelessWidget {
@@ -720,15 +1020,15 @@ class _SectionLabel extends StatelessWidget {
           fontSize: 12, fontWeight: FontWeight.w700, color: context.gp.textTert));
 }
 
-/// One quick-pick or Custom duration pill. Sized to a minimum 44x44 tap
+/// One quick-pick or Custom duration pill. Sized to a minimum 44pt tap
 /// target (Apple HIG's floor for a comfortably-tappable control) via
 /// [BoxConstraints] rather than by inflating the font, so "7 Days" and a
 /// longer localized label like "No end date" - or a custom value the field
 /// below produces - all stay the same comfortable height instead of
-/// drifting with whatever text happens to be inside. Wrap (the only place
-/// this is ever laid out) sizes each pill to its own intrinsic width, so
-/// nothing here needs to truncate or wrap text. See the note on the missing
-/// `alignment:` below for what used to break that.
+/// drifting with whatever text happens to be inside. Laid out in rows of
+/// equal [Expanded] cells, so the pill fills whatever width its row gives
+/// it and the label scales down (never wraps or clips) if a cell is narrow
+/// for it at a large text size.
 class _DurationChip extends StatelessWidget {
   final String label;
   final bool selected;
@@ -743,16 +1043,9 @@ class _DurationChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: GameMotion.quick,
-        constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
-        // No `alignment:` here, and that is the whole fix. A Container with
-        // an alignment wraps its child in an Align, which EXPANDS to the
-        // largest width it is offered; inside a Wrap that is the full row,
-        // so every pill came out full-width and the six of them stacked
-        // into six rows instead of wrapping into two. The doc comment above
-        // asserted the opposite and was wrong about it. Padding plus the
-        // label sizes each pill past the 44pt minimum on its own, so
-        // nothing is lost by dropping it.
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        constraints: const BoxConstraints(minHeight: 44),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         decoration: BoxDecoration(
           color: selected ? GameColors.gold.withOpacity(0.14) : gp.surface,
           borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
@@ -761,12 +1054,16 @@ class _DurationChip extends StatelessWidget {
             width: selected ? 1.1 : 0.8,
           ),
         ),
-        child: Text(label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                color: selected ? GameColors.gold : gp.textSec)),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(label,
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? GameColors.gold : gp.textSec)),
+        ),
       ),
     );
   }
@@ -871,19 +1168,28 @@ class _PlanHabitPickerState extends ConsumerState<_PlanHabitPicker> {
                 Icon(Icons.add_circle_rounded, size: 18, color: GameColors.gold),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(s.roomCreateNewHabitAction,
-                      style: TextStyle(
-                          fontSize: 13.5, fontWeight: FontWeight.w700, color: GameColors.gold)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(s.roomCreateNewHabitAction,
+                          style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                              color: GameColors.gold)),
+                      // Inside the row it describes, not floating under it.
+                      if (widget.isSharedTemplate) ...[
+                        const SizedBox(height: 2),
+                        Text(s.roomCreateNewHabitSharedNote,
+                            style: TextStyle(
+                                fontSize: 11, color: gp.textSec, height: 1.3)),
+                      ],
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
         ),
-        if (widget.isSharedTemplate) ...[
-          const SizedBox(height: 6),
-          Text(s.roomCreateNewHabitSharedNote,
-              style: TextStyle(fontSize: 11, color: gp.textSec, height: 1.3)),
-        ],
         const SizedBox(height: 10),
         if (ordered.isEmpty)
           Container(

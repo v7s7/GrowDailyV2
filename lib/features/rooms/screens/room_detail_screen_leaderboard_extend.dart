@@ -360,11 +360,59 @@ class _MiniHeatmapStrip extends StatelessWidget {
   /// varies by whose row it is.
   final bool isYou;
 
+  /// The leaderboard row's form (2026-09-06): the last seven counted days
+  /// in one line, no month labels, no pinned start/today labels. The full
+  /// grid below is what the participant sheet opens into; on the row it
+  /// made every member a two-month wall and a three-person room showed a
+  /// row and a half per screen, so the leaderboard stopped being a glance.
+  /// Seven cells at the same pitch and the same cell painting keep the
+  /// row honest (a miss is still a red cross) while a tap keeps the record.
+  final bool compact;
+
   const _MiniHeatmapStrip({
     required this.room,
     required this.participant,
     required this.isYou,
+    this.compact = false,
   });
+
+  /// Up to seven cells, oldest first, ending on the same day the full grid
+  /// ends on; the caption says what the window is.
+  Widget _buildCompact(BuildContext context) {
+    final gp = context.gp;
+    final dark = gp.dark;
+    final s = S.of(context);
+    final backdrop = _cellBackdrop(context);
+    final windowStart = participant.countedStartIn(room);
+    final last = room.lastCountedDay;
+    final realToday = DateTime.now().startOfDay;
+    final end = (!room.isEnded && realToday.isAfter(last)) ? realToday : last;
+    final days = <DateTime>[];
+    for (var d = end;
+        !d.isBefore(windowStart) && days.length < 7;
+        d = d.subtract(const Duration(days: 1))) {
+      days.insert(0, d);
+    }
+    if (days.isEmpty) days.add(end);
+    return Row(
+      children: [
+        for (var i = 0; i < days.length; i++) ...[
+          if (i > 0) const SizedBox(width: _gap),
+          _cellFor(i, days, dark, s, gp.textPrimary, backdrop,
+              markStart: false, labelToday: false),
+        ],
+        const Spacer(),
+        Text(
+          s.roomLastSevenDays,
+          style: TextStyle(
+            fontSize: 9.5,
+            fontWeight: FontWeight.w600,
+            color: gp.textTert,
+          ),
+        ),
+      ],
+    );
+  }
 
   /// Ceiling for an OPEN-ENDED room only ([RoomDuration.open] - "runs until
   /// people leave"). A fixed-length room draws every one of its days: its
@@ -435,6 +483,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (compact) return _buildCompact(context);
     final dark = context.gp.dark;
     final backdrop = _cellBackdrop(context);
     // Their own window, so a late joiner's strip starts the day they joined
@@ -891,8 +940,13 @@ class _MiniHeatmapStrip extends StatelessWidget {
     bool dark,
     S s,
     Color startLabelColour,
-    Color backdrop,
-  ) {
+    Color backdrop, {
+    // Both off in the compact row: its first cell is not the room's start,
+    // and a side label has nowhere to sit beside seven cells and a caption.
+    // Today keeps its gold border either way.
+    bool markStart = true,
+    bool labelToday = true,
+  }) {
     if (index < 0 || index >= days.length) {
       return const SizedBox(width: _cell, height: _cell);
     }
@@ -947,7 +1001,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
         !isDeclaredRest &&
         credit <= 0 &&
         _missIsFinal(day);
-    final isStart = index == 0;
+    final isStart = markStart && index == 0;
     // isRealToday, not isToday: purely the "today" marker — see
     // DateTimeGameExt.isRealToday's doc comment.
     final isToday = day.isRealToday;
@@ -1036,7 +1090,7 @@ class _MiniHeatmapStrip extends StatelessWidget {
               : null,
     );
 
-    if (!isStart && !isToday) return cell;
+    if (!isStart && !(isToday && labelToday)) return cell;
 
     // The labels that replaced the legend row underneath the strip. That row
     // spelled out "البداية" once, far from the cell it described, and
@@ -1437,6 +1491,7 @@ class _LeaderboardRow extends ConsumerWidget {
                   room: room,
                   participant: participant,
                   isYou: isYou,
+                  compact: ref.watch(roomRowsCompactProvider),
                 ),
                 const SizedBox(height: 6),
                 Row(
@@ -2037,6 +2092,7 @@ class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
     final gp = context.gp;
     final s = S.of(context);
     final blocked = ref.watch(blockedMembersProvider);
+    final compact = ref.watch(roomRowsCompactProvider);
     // Ranks are computed BEFORE filtering, deliberately: blocking someone
     // hides their row, it does not promote you past them. A leaderboard
     // that silently renumbered itself per viewer would make blocking a way
@@ -2094,7 +2150,16 @@ class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
         // Sits above every strip, not inside one. A control inside a card
         // whose whole body is already a tap target (the strip opens the
         // calendar sheet) is a gesture fight; up here it's unambiguous, and
-        // one switch keeps every row showing the same thing.
+        // one switch keeps every row showing the same thing. Not in the
+        // lobby: nothing has been counted yet, so there is nothing to draw
+        // either way.
+        if (!widget.room.isLobby) ...[
+          _RowsViewSwitch(
+            compact: compact,
+            onChanged: (c) => setRoomRowsCompact(ref, c),
+          ),
+          const SizedBox(height: 10),
+        ],
         for (var i = 0; i < visibleCount; i++) rowAt(i),
         if (myRowIsHidden) ...[
           Padding(
@@ -2126,6 +2191,53 @@ class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
               child: Text(s.roomShowAllMembers(sorted.length)),
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// The ranking's view switch: every row's strip shows either the last seven
+/// days (compact, the default) or the whole room, the strip the rows had
+/// before 2026-09-06. Aziz liked both, so both stay and the viewer picks;
+/// see [roomRowsCompactProvider] for where the choice lives.
+///
+/// Content-sized rather than the full-width [SegmentedTabs] the reports hub
+/// uses, so it reads as a view control beside its label, not as a page tab
+/// bar above the list.
+class _RowsViewSwitch extends StatelessWidget {
+  final bool compact;
+  final ValueChanged<bool> onChanged;
+
+  const _RowsViewSwitch({required this.compact, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Row(
+      children: [
+        Icon(Icons.calendar_view_week_rounded, size: 15, color: gp.textTert),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            s.roomRowsViewTitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: gp.textSec,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 196,
+          child: SegmentedTabs(
+            labels: [s.roomLastSevenDays, s.roomRowsFull],
+            selected: compact ? 0 : 1,
+            onChanged: (i) => onChanged(i == 0),
+          ),
+        ),
       ],
     );
   }

@@ -4,12 +4,16 @@
 /// "morning walkk", "10k a day").
 ///
 /// Detection is offer-only by design: a match shows the "link to steps?"
-/// card in the habit editor, it never links silently. That asymmetry sets
-/// the tuning: a false positive costs one dismissible card, a false
-/// negative hides the feature from exactly the person it was built for.
-/// So matching is generous, but not reckless; the stoplists below exist
-/// because "work" and "waking" are one edit away from "walk"/"walking"
-/// and are common habit words in their own right.
+/// card in the habit editor with its switch already on, and files the
+/// habit under Health. It never links silently and it never asks the OS
+/// anything by itself, so the switch can still be turned off in one tap
+/// before anything is written. That asymmetry sets the tuning: a false
+/// positive costs one visible switch and, if nobody turns it off, one
+/// permission prompt the card announced in words before it appeared. A
+/// false negative hides the feature from exactly the person it was built
+/// for. So matching stays generous, but not reckless; the stoplists below
+/// exist because "work" and "waking" are one edit away from "walk"/
+/// "walking" and are common habit words in their own right.
 ///
 /// Kept as pure functions over strings so the whole thing is unit-testable
 /// without a widget tree, a store, or platform channels.

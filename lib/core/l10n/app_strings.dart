@@ -2726,8 +2726,12 @@ class S {
   // a card. The old version was a full sentence about the 100% bonus, which
   // is a rule to meet inside the room, not something anyone needs in order
   // to choose between two options here.
+  // One line, and it IS the whole rule of a team room now (see
+  // RoomTeamProgress's team-day rules): the day counts only when everyone
+  // has finished. The old line promised "the same leaderboard plus a
+  // shared goal", which described the bonus this replaced.
   String get roomCompeteModeTeamHint =>
-      isAr ? 'نفس اللوحة، وهدف مشترك للمجموعة' : 'Same leaderboard, plus a shared goal';
+      isAr ? 'اليوم يُحسب لما الكل يخلّص' : 'The day counts when everyone finishes';
 
   // Create Room - own-mode picker (multi-select from the leader's own
   // habits, tracked directly - no plan/cloning, unlike shared mode below)
@@ -2765,6 +2769,11 @@ class S {
   String get roomDurationCustomInvalid =>
       isAr ? 'أدخل رقمًا بين 1 و365' : 'Enter a number between 1 and 365';
   String get roomCreateSubmit => isAr ? 'إنشاء الغرفة' : 'Create Room';
+  // Under the duration chips: the length is not a commitment, the leader
+  // can extend from the room's menu later.
+  String get roomDurationExtendHint => isAr
+      ? 'تقدر تمدد المدة بعدين من داخل الغرفة.'
+      : 'You can extend it later from inside the room.';
 
   // ── Create Room: the two-step flow ────────────────────────────────────
   // The sheet used to ask for all four decisions on one 1241pt scroll, with
@@ -2781,8 +2790,8 @@ class S {
   /// Carries step one's answers into step two's header, so the room being
   /// built stays named on screen instead of being something you have to
   /// remember or go back for.
-  String roomCreateRoomSummary(String name, String length) =>
-      '$name · $length';
+  String roomCreateRoomSummary(String name, String length, String spirit) =>
+      '$name · $length · $spirit';
 
   // What the primary button says while it is disabled. A grey button with no
   // reason was the old behaviour, and the reason was usually scrolled out of
@@ -2798,8 +2807,10 @@ class S {
   /// each segment half a sheet and ellipsises what does not fit, and the full
   /// "عادة كل شخص الخاصة" does not; the long form still does the explaining,
   /// one line below the control.
+  // Aziz's wording (2026-09-06): the card title for the mode where each
+  // member links their own habit. Joined waw, per the house spelling.
   String get roomHabitModeOwnShort =>
-      isAr ? 'عادة كل شخص' : "Everyone's own";
+      isAr ? 'كل شخص وخطته' : "Everyone's own plan";
 
   // Just-created "share the code" moment
   String get roomCreatedTitle => isAr ? 'تم إنشاء الغرفة!' : 'Room created!';
@@ -2810,6 +2821,16 @@ class S {
   String get roomCopyAction => isAr ? 'نسخ الرمز' : 'Copy Code';
   String get roomShareAction => isAr ? 'مشاركة' : 'Share';
   String get roomDoneAction => isAr ? 'تم' : 'Done';
+  // The success sheet after creating a room.
+  String get roomCreatedPrivateNote => isAr
+      ? 'الغرفة خاصة، ما يدخلها إلا من معه الرمز.'
+      : 'The room is private: only people with the code can join.';
+  String get roomCreatedNextTitle =>
+      isAr ? 'الخطوة الجاية: البداية' : 'Next: the start';
+  String get roomCreatedNextBody => isAr
+      ? 'لما يجتمع الكل، ابدأ التحدي من داخل الغرفة أو حدد وقت البداية.'
+      : 'Once everyone is in, start the challenge from the room or pick a start time.';
+  String get roomOpenAction => isAr ? 'افتح الغرفة' : 'Open the room';
 
   /// The invite that actually travels — a WhatsApp message to someone who may
   /// or may not have the app.
@@ -3066,19 +3087,99 @@ class S {
   // roomDaysLeft above) covers the Arabic plural for the numbers here too.
   String get roomTeamProgressTitle => isAr ? 'تقدم الفريق' : 'Team progress';
   String roomTeamProgressDays(int completed, int possible) => isAr
-      ? '${daysCount(completed)} من ${daysCount(possible)} سويةً'
+      ? '${daysCount(completed)} من ${daysCount(possible)} مع بعض'
       : '$completed of $possible days together';
   String get roomTeamAllDoneToday =>
       isAr ? 'الكل حضر اليوم' : "Everyone's shown up today";
   // Team bonus claim (RoomCompeteMode.team only) - see _TeamProgressCard's
   // three states: still chasing it, ready to claim, already claimed.
   String roomTeamBonusHint(int xp, int gold) => isAr
-      ? 'أنجزوا 100% سويةً (كل يوم، كل شخص) ليحصل الجميع على +$xp خبرة و+$gold ذهب'
+      ? 'أنجزوا 100% مع بعض (كل يوم، كل شخص) ليحصل الجميع على +$xp خبرة و+$gold ذهب'
       : 'Hit 100% together (every day, every person) and everyone earns +$xp XP and +$gold gold';
   String get roomTeamBonusClaimAction =>
       isAr ? 'المطالبة بمكافأة الفريق' : 'Claim Team Bonus';
   String get roomTeamBonusClaimedLabel =>
       isAr ? 'تم استلام مكافأة الفريق' : 'Team bonus claimed';
+
+  // ── Team day (the cooperative reading of a team room, 2026-09-06) ──────
+  String get roomTeamDayTitle => isAr ? 'يوم الفريق' : 'Team day';
+  /// The streak pill: "6 أيام مع بعض" / "6 days together".
+  String roomTeamStreakPill(int days) {
+    // Zero is a state, not a count: "لا أيام مع بعض" read like a verdict.
+    if (days == 0) return isAr ? 'بعد ما بدأت' : 'Not started yet';
+    return isAr
+        ? '${daysCount(days)} مع بعض'
+        : '$days ${days == 1 ? 'day' : 'days'} together';
+  }
+  String get roomTeamDayWon =>
+      isAr ? 'الكل خلّص اليوم. يوم فريق!' : 'Everyone finished today. Team day!';
+  /// One member still to go, by name.
+  String roomTeamWaitingOn(String name) =>
+      isAr ? 'باقي $name. لسا فيه وقت' : 'Waiting on $name. Still time.';
+  /// Several still to go.
+  String roomTeamWaitingCount(int n) =>
+      isAr ? 'باقي $n من الفريق. لسا فيه وقت' : 'Waiting on $n of the team. Still time.';
+  String get roomTeamNobodyYet =>
+      isAr ? 'ما خلّص أحد بعد. ابدأ أنت' : 'Nobody has finished yet. Be the first.';
+  /// "12 من 14 يوم فزتوا فيها مع بعض" / "12 of 14 days won together".
+  String roomTeamDaysWon(int won, int counted) {
+    // Zero and the first day are sentences, not fractions: "0 من يوم واحد"
+    // read like a scoreboard for a race nobody had started.
+    if (won == 0) {
+      return isAr
+          ? 'لسا ما فزتوا بيوم مع بعض. خلّوه اليوم'
+          : 'No day won together yet. Make it today.';
+    }
+    if (counted == 1) {
+      return isAr ? 'فزتوا بأول يوم مع بعض!' : 'You won the first day together!';
+    }
+    return isAr
+        ? '$won من ${daysCount(counted)} فزتوا فيها مع بعض'
+        : '$won of $counted days won together';
+  }
+  String roomTeamNextMilestone(int days) =>
+      isAr ? 'التالي: ${daysCount(days)} مع بعض' : 'Next: $days days together';
+  String roomTeamMilestoneReached(int days) =>
+      isAr ? 'وصلتوا ${daysCount(days)} مع بعض!' : 'You reached $days days together!';
+  String roomTeamMilestoneClaimed(int days) =>
+      isAr ? 'استلمتوا مكافأة ${daysCount(days)}' : '$days-day reward claimed';
+  String roomTeamMilestonePrize(int xp, int gold) => isAr
+      ? 'لكل عضو +$xp خبرة و+$gold ذهب'
+      : 'Every member gets +$xp XP and +$gold gold';
+  String roomTeamDaysToGo(int n) =>
+      isAr ? 'باقي ${daysCount(n)}' : '$n ${n == 1 ? 'day' : 'days'} to go';
+  String get roomTeamAllMilestonesDone =>
+      isAr ? 'استلمتوا كل المكافآت. كمّلوا!' : 'Every reward claimed. Keep going!';
+  String get roomTeamClaimAction => isAr ? 'استلم' : 'Claim';
+  // ── Competitive room: today strip, compact rows, solo invite ─────────
+  String roomTodayFinished(int done, int total) =>
+      isAr ? '$done من $total خلّصوا' : '$done of $total finished';
+  String get roomLastSevenDays => isAr ? 'آخر 7 أيام' : 'Last 7 days';
+  // The ranking's view switch: the two ways a row can draw its days.
+  String get roomRowsViewTitle => isAr ? 'عرض الأيام' : 'Days shown';
+  String get roomRowsFull => isAr ? 'كل الأيام' : 'All days';
+  String get roomSoloTitle =>
+      isAr ? 'ما في أحد غيرك بعد' : 'Nobody but you yet';
+  // Screen-reader states for the faces on the Team Day card.
+  String get roomFaceDone => isAr ? 'خلّص اليوم' : 'finished today';
+  String get roomFaceWaiting => isAr ? 'باقي' : 'still to go';
+  String get roomFaceExcused => isAr ? 'مو مطلوب منه اليوم' : 'nothing asked today';
+  // The overflow circle when more faces than fit one row: screen-reader
+  // label; the circle itself shows +N.
+  String roomFacesMore(int n) => isAr ? 'و$n غيرهم، اضغط للكل' : 'and $n more, tap for all';
+  String get roomFacesSheetHint =>
+      isAr ? 'اضغط لعرض الكل' : 'Tap to see everyone';
+  String get roomFacesAll => isAr ? 'الكل' : 'All';
+  String get roomTeamRankingTitle => isAr ? 'الترتيب' : 'Ranking';
+  String get roomTeamRankingShow => isAr ? 'عرض' : 'Show';
+  String get roomTeamRankingHide => isAr ? 'إخفاء' : 'Hide';
+  /// Finale, team mode: the big number is [won] of [counted].
+  String roomTeamFinaleScore(int won, int counted) =>
+      isAr ? '$won من $counted' : '$won of $counted';
+  String get roomTeamFinaleCaption =>
+      isAr ? 'يوم فزتوا فيها مع بعض' : 'days won together';
+  String roomTeamFinaleBestStreak(int days) =>
+      isAr ? 'أطول سلسلة: ${daysCount(days)}' : 'Longest run: $days ${days == 1 ? 'day' : 'days'}';
   String get roomDetailsHidden => isAr ? 'مخفي عن الغرفة' : 'Hidden from room';
   String get roomDetailsVisible => isAr ? 'مرئي للغرفة' : 'Visible to room';
   // Editing a room's habit(s) after it's already been created - see
@@ -4110,8 +4211,18 @@ class S {
 
   /// Card title shown in Add Habit when the typed name reads as walking
   /// (see step_habit_detector.dart).
-  String get stepLinkTitle =>
-      isAr ? 'نربطها بخطواتك؟' : 'Link it to your steps?';
+  ///
+  /// Names the store, rather than saying "your steps" and leaving the
+  /// person to find out at Save which app was meant. The permission sheet
+  /// that arrives later is Apple's own, with Apple's wording on it, and a
+  /// title that already said Apple Health is what makes that sheet
+  /// recognisable instead of surprising.
+  String stepLinkTitle(bool isIOS) {
+    if (isAr) {
+      return isIOS ? 'نربطها بـ Apple Health؟' : 'نربطها بـ Health Connect؟';
+    }
+    return isIOS ? 'Link it to Apple Health?' : 'Link it to Health Connect?';
+  }
 
   /// The pitch under the title. Platform-split because the data source has
   /// a user-facing name on each OS, and on iOS the Apple Watch is the
@@ -4119,13 +4230,40 @@ class S {
   String stepLinkBody(bool isIOS) {
     if (isAr) {
       return isIOS
-          ? 'هالعادة شكلها مشي. إذا انربطت، التطبيق يقرأ خطواتك من Apple Health (ومن ساعة Apple إذا عندك وحدة) وتكتمل بروحها لما توصل الهدف.'
-          : 'هالعادة شكلها مشي. إذا انربطت، التطبيق يقرأ خطواتك من Health Connect وتكتمل بروحها لما توصل الهدف.';
+          ? 'شكلها عادة مشي. التطبيق يقرأ خطواتك من الآيفون ومن ساعة Apple إذا عندك وحدة، ويكمّلها بروحه لما توصل الهدف.'
+          : 'شكلها عادة مشي. التطبيق يقرأ خطواتك من Health Connect ويكمّلها بروحه لما توصل الهدف.';
     }
     return isIOS
-        ? 'This looks like a walking habit. Link it and the app reads your steps from Apple Health (including your Apple Watch) and completes it for you when you hit the goal.'
-        : 'This looks like a walking habit. Link it and the app reads your steps from Health Connect and completes it for you when you hit the goal.';
+        ? 'This looks like a walking habit. The app reads your steps from your iPhone and your Apple Watch if you have one, and completes it for you when you hit the goal.'
+        : 'This looks like a walking habit. The app reads your steps from Health Connect and completes it for you when you hit the goal.';
   }
+
+  /// Shown on the card only while the link is switched ON: says the OS
+  /// permission sheet is coming and what to do with it.
+  ///
+  /// The switch here grants nothing by itself (see AddHabitSheet's
+  /// _confirmStepsAccess), so somebody who left it on and then dismissed
+  /// Apple's sheet without reading it used to end up with a habit that
+  /// looked linked and read zero steps forever. On iOS that sheet is shown
+  /// exactly once ever, which makes the warning worth its two lines.
+  String stepLinkAskNext(bool isEditing) {
+    if (isAr) {
+      return isEditing
+          ? 'بيطلب منك الإذن أول ما تحفظ. وافق عشان يقدر يقرأ خطواتك.'
+          : 'بيطلب منك الإذن أول ما تنشئ العادة. وافق عشان يقدر يقرأ خطواتك.';
+    }
+    return isEditing
+        ? 'You will be asked for permission as soon as you save. Allow it so the app can read your steps.'
+        : 'You will be asked for permission as soon as you create the habit. Allow it so the app can read your steps.';
+  }
+
+  /// The one line about the link on the second step, inside the preview
+  /// card above the Create button. The card that asked the question lives
+  /// on the first step, so without this the last thing to mention health
+  /// was a screen ago and the permission sheet arrives unannounced.
+  String stepLinkRecap(int goal) => isAr
+      ? 'مربوطة بخطواتك، والهدف $goal خطوة في اليوم.'
+      : 'Linked to your steps, goal $goal steps a day.';
 
   /// The daily goal row on the same card. Western digits inside Arabic,
   /// like every other number in the app.

@@ -309,22 +309,29 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
             style: TextStyle(fontSize: 12, color: gp.textSec),
           ),
           const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              for (final (p, rank) in order)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: _PodiumColumn(
-                    participant: p,
-                    rank: rank,
-                    room: widget.room,
+          // A team room ends on what the room did together, not on who beat
+          // whom: no podium, no podium prize. The milestones on the Team
+          // Day card below stay claimable after the end.
+          if (widget.room.competeMode == RoomCompeteMode.team)
+            ..._teamSummary(context)
+          else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final (p, rank) in order)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: _PodiumColumn(
+                      participant: p,
+                      rank: rank,
+                      room: widget.room,
+                    ),
                   ),
-                ),
-            ],
-          ),
-          ..._prizeSection(context),
+              ],
+            ),
+            ..._prizeSection(context),
+          ],
           ..._keepGoingSection(context),
         ],
       ),
@@ -351,6 +358,49 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
   /// "waiting on the leader" framing _EmptyLobbyCard already uses — because
   /// a member on an ended room otherwise has no explanation for why the room
   /// is still in their list.
+  List<Widget> _teamSummary(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final days = widget.room.teamDays(widget.sorted);
+    final best = widget.room.teamBestStreak(widget.sorted);
+    return [
+      Text(
+        s.roomTeamFinaleScore(days.won, days.counted),
+        style: TextStyle(
+          fontSize: 34,
+          fontWeight: FontWeight.w800,
+          color: GameColors.gold,
+          height: 1.1,
+        ),
+      ),
+      const SizedBox(height: 2),
+      Text(
+        s.roomTeamFinaleCaption,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: gp.textPrimary,
+        ),
+      ),
+      const SizedBox(height: 10),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: GameColors.emerald.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+        ),
+        child: Text(
+          s.roomTeamFinaleBestStreak(best),
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            color: GameColors.emerald,
+          ),
+        ),
+      ),
+    ];
+  }
+
   List<Widget> _keepGoingSection(BuildContext context) {
     // An open-ended room can't be extended (there is no cutoff to move) and
     // can never be `isEnded` anyway, so this card never builds for one. The

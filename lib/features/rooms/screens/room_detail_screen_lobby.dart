@@ -120,6 +120,10 @@ class _RoomBody extends ConsumerWidget {
         data: (participants) {
           final mine = mineOf(participants);
           onSyncIfNeeded(room, mine);
+          // Live, not over, and nobody but the creator: the invite card
+          // takes the place of the one-row ranking (see below).
+          final soloLive =
+              !room.isLobby && !room.isEnded && participants.length == 1;
           final sorted = [...participants]..sort((a, b) {
             final byProgress =
                 b.progressRatio(room).compareTo(a.progressRatio(room));
@@ -160,6 +164,23 @@ class _RoomBody extends ConsumerWidget {
                   const SizedBox(height: 14),
                 ],
                 _RoomHeaderCard(room: room, memberCount: participants.length),
+                // Alone in a live room: the one useful thing on the screen
+                // is the code, so it gets a card instead of a 0% row and a
+                // trophy nobody competed for. Gone the moment someone joins.
+                if (soloLive) ...[
+                  const SizedBox(height: 14),
+                  RoomInviteCard(room: room),
+                ],
+                // A competitive room's "who finished today", answered by
+                // faces rather than by reading each row's strip. The team
+                // room has this inside its own hero card already.
+                if (!room.isLobby &&
+                    participants.length > 1 &&
+                    room.competeMode == RoomCompeteMode.competitive) ...[
+                  const SizedBox(height: 14),
+                  RoomTodayCard(
+                      room: room, participants: participants, mine: mine),
+                ],
                 // Team-wide combined goal, alongside (not instead of) the
                 // individual leaderboard below — see RoomTeamProgress's doc
                 // comment. Team mode only: a Competitive room's leaderboard
@@ -175,15 +196,27 @@ class _RoomBody extends ConsumerWidget {
                     participants.length > 1 &&
                     room.competeMode == RoomCompeteMode.team) ...[
                   const SizedBox(height: 14),
-                  _TeamProgressCard(
+                  _TeamDayCard(
                       room: room, participants: participants, mine: mine),
                 ],
                 if (mine != null && mine.linkedHabitIds.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   _MyPlanCard(room: room, mine: mine),
                 ],
-                const SizedBox(height: 14),
-                _LeaderboardList(sorted: sorted, room: room, myUid: uid),
+                // A team room's ranking is still there for anyone who wants
+                // it, behind one row, because leading with "who is ahead"
+                // is the competitive framing the leader chose against. A
+                // one-member live room has no ranking to show at all: its
+                // 0% row and trophy are what the invite card replaced.
+                if (!room.isLobby &&
+                    participants.length > 1 &&
+                    room.competeMode == RoomCompeteMode.team) ...[
+                  const SizedBox(height: 14),
+                  _CollapsedRanking(sorted: sorted, room: room, myUid: uid),
+                ] else if (!soloLive) ...[
+                  const SizedBox(height: 14),
+                  _LeaderboardList(sorted: sorted, room: room, myUid: uid),
+                ],
               ],
             ),
           );
@@ -616,6 +649,90 @@ class _ScheduledLobbyCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// The ranked list of a team room, folded behind one row. Default closed:
+/// in a team room the Team Day card above is the story, and a ranked list
+/// under it would quietly turn the room back into a race. Open is
+/// session-local, not persisted: it is a glance, not a setting.
+class _CollapsedRanking extends StatefulWidget {
+  final List<RoomParticipant> sorted;
+  final RoomModel room;
+  final String? myUid;
+  const _CollapsedRanking({
+    required this.sorted,
+    required this.room,
+    required this.myUid,
+  });
+
+  @override
+  State<_CollapsedRanking> createState() => _CollapsedRankingState();
+}
+
+class _CollapsedRankingState extends State<_CollapsedRanking> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: gp.surface,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+            side: BorderSide(color: gp.border, width: 0.5),
+          ),
+          child: InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _open = !_open);
+            },
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(Icons.leaderboard_rounded, size: 18, color: gp.textSec),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      s.roomTeamRankingTitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: gp.textPrimary,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _open ? s.roomTeamRankingHide : s.roomTeamRankingShow,
+                    style: TextStyle(fontSize: 11.5, color: gp.textSec),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _open
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: gp.textTert,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (_open) ...[
+          const SizedBox(height: 8),
+          _LeaderboardList(
+              sorted: widget.sorted, room: widget.room, myUid: widget.myUid),
+        ],
+      ],
     );
   }
 }

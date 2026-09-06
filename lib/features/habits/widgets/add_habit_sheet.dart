@@ -137,10 +137,28 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   // the offer appears the moment "مشي" or "walkk" lands in the field and
   // disappears if the name stops being about walking.
   bool _nameLooksWalkish = false;
-  // The toggle on that card. Off by default even for a detected walking
-  // name: linking reads health data, so it stays a choice, never a side
-  // effect of typing.
+  // The toggle on that card. ON by default for a name the detector reads as
+  // walking, and that default is the whole point of the card: it grants
+  // nothing (the OS permission is still asked at Save, see
+  // _confirmStepsAccess) and it is shown, switched on, right under the name
+  // being typed. What it replaces was worse than a dark pattern in the
+  // other direction: the card rendered below the fold, off, and somebody
+  // who typed "walking" and pressed the primary button lost the feature
+  // without ever knowing the app had offered it.
+  //
+  // An existing habit that is already linked keeps that, and one that is
+  // not gets the same offer a new habit gets, because "unlinked" and "never
+  // asked" are the same stored value. See [_stepLinkTouched].
   bool _stepLinkEnabled = false;
+  // Whether the link state is somebody's own decision rather than this
+  // sheet's default: the switch was tapped, or the habit arrived already
+  // carrying an answer. Once true, typing in the name field stops moving
+  // the switch.
+  bool _stepLinkTouched = false;
+  // Locates the steps card so [_revealStepCard] can scroll it fully into
+  // view the moment it appears, which on a phone with the keyboard open is
+  // the difference between seeing it and not.
+  final GlobalKey _stepCardKey = GlobalKey();
   int _stepGoal = _defaultStepGoal;
   // Once the person picks a goal chip, a number parsed out of the name
   // stops overwriting their choice.
@@ -446,6 +464,20 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _stepGoalCtrl.text = _stepGoal.toString();
       _nameLooksWalkish = looksLikeStepHabit(existing.name) ||
           looksLikeStepHabit(existing.nameAr ?? '');
+      // Only a LIVE link counts as somebody's own answer. "Unlinked" cannot
+      // be told apart from "never asked", and treating the two as the same
+      // thing left المشي اليومي permanently un-offered: the walking preset
+      // is switched on from the Grid or applied from a Plan, neither of
+      // which opens this sheet, so it arrives here unlinked having never
+      // shown the card once. The habit the whole feature exists for was the
+      // one habit that never got the offer.
+      //
+      // The cost is that somebody who declines and later edits the habit for
+      // an unrelated reason is offered again, since a decline is not stored.
+      // That is one visible switch to flip back, against a preset that could
+      // otherwise never be linked at all.
+      _stepLinkTouched = storedStepGoal != null;
+      if (_nameLooksWalkish) _stepLinkEnabled = true;
       _hasName = true;
       _didPickCategory = true;
     }
@@ -464,9 +496,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           categoryChanging ||
           walkish != _nameLooksWalkish ||
           namedGoal != _stepGoal) {
+        final appearing = walkish && !_nameLooksWalkish;
         setState(() {
           _hasName = has;
           _nameLooksWalkish = walkish;
+          // The switch follows the name until somebody touches it: on when
+          // the name reads as walking, off again when it stops (a half-typed
+          // "walk" on the way to "wake up early" must not leave a live link
+          // behind on a habit that has nothing to do with steps).
+          if (!_stepLinkTouched) _stepLinkEnabled = walkish;
           if (namedGoal != _stepGoal) {
             // Read out of the name, so the person never typed it here: keep
             // the field in step with it, and open the field when the number
@@ -482,6 +520,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             }
           }
         });
+        // The card is being added to the tree by this very setState, so the
+        // scroll has to wait for it to exist. Only on the frame it appears:
+        // scrolling on every keystroke afterwards would fight the person
+        // still typing.
+        if (appearing) _revealStepCard();
       }
     });
     _cueCtrl.addListener(() {
@@ -890,29 +933,31 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   /// The Save-time half of the steps link: makes sure the platform can and
   /// may hand over the step count, and returns the goal to store — or null
-  /// to save the habit unlinked, after telling the person why in a
-  /// snackbar. Same "the habit still saves either way" contract as
+  /// to save the habit unlinked, after telling the person why in an overlay
+  /// notice. Same "the habit still saves either way" contract as
   /// _ensureNotificationPermission, just resolved before the write instead
   /// of after, because linked-ness is part of what gets written.
   Future<int?> _confirmStepsAccess() async {
-    final messenger = ScaffoldMessenger.of(context);
     final s = S.of(context);
+    // showOverlayNotice, not a SnackBar. Both of these are posted while the
+    // sheet is still open, and a SnackBar goes to the Scaffold BEHIND it,
+    // at the bottom of the screen, which is precisely the part of the
+    // screen a bottom sheet is covering. What was left of the four seconds
+    // once the sheet finished dismissing was the only chance anybody had of
+    // reading why their link was off, with a confetti burst going off over
+    // it. See overlay_notice.dart, which exists for this class of bug: it
+    // is top-anchored and inserted into the ROOT overlay, so it is above
+    // the sheet, and it outlives it.
     if (!await HealthStepsService.instance.isSupported()) {
-      messenger.showOne(
-        SnackBar(
-          content: Text(s.stepLinkUnsupported),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      if (!mounted) return null;
+      showOverlayNotice(context, s.stepLinkUnsupported,
+          icon: Icons.directions_walk_rounded);
       return null;
     }
     if (!await HealthStepsService.instance.requestPermission()) {
-      messenger.showOne(
-        SnackBar(
-          content: Text(s.stepLinkDenied),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      if (!mounted) return null;
+      showOverlayNotice(context, s.stepLinkDenied,
+          icon: Icons.directions_walk_rounded);
       return null;
     }
     return _stepGoal;
@@ -1207,17 +1252,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               .fadeIn(duration: 240.ms)
               .slideY(begin: 0.06, curve: Curves.easeOutCubic),
           const SizedBox(height: 16),
+          // The steps card used to sit here, under the whole name +
+          // category + suggestions block. It lives inside that section now,
+          // directly under the name field that triggers it. See
+          // _nameAndCategorySection and _revealStepCard for the measurement
+          // that moved it.
           _nameAndCategorySection(s)
               .animate(delay: 60.ms)
               .fadeIn(duration: 240.ms)
               .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-          if (_stepCardVisible) ...[
-            const SizedBox(height: 12),
-            _stepLinkCard(s)
-                .animate()
-                .fadeIn(duration: 240.ms)
-                .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-          ],
           if (_goalType == GoalType.quit) ...[
             const SizedBox(height: 16),
             _quitStyleSection(s)
@@ -1242,26 +1285,47 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // other three around depending on its size. It lives in the Custom field
     // below now, where it can also be changed.
     const goalChoices = _stepGoalPresets;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    final on = _stepLinkEnabled;
+    return AnimatedContainer(
+      key: _stepCardKey,
+      duration: GameMotion.quick,
+      curve: Curves.easeOutCubic,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       decoration: BoxDecoration(
-        color: GameColors.success.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: GameColors.success.withOpacity(0.3)),
+        // The card carries the answer in its own weight: switched on it is
+        // a filled, outlined panel, switched off it recedes to an offer.
+        // Before this it looked identical either way, so the one state
+        // worth noticing (a link about to be created) announced nothing.
+        color: GameColors.success.withOpacity(on ? 0.12 : 0.05),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: GameColors.success.withOpacity(on ? 0.55 : 0.25),
+          width: on ? 1.4 : 1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.directions_walk_rounded,
-                  size: 18, color: GameColors.success),
-              const SizedBox(width: 8),
+              // A filled disc rather than a bare glyph: at 18pt on a tinted
+              // panel the old icon read as decoration on the border.
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: GameColors.success.withOpacity(on ? 0.22 : 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.directions_walk_rounded,
+                    size: 18, color: GameColors.success),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  s.stepLinkTitle,
+                  s.stepLinkTitle(Platform.isIOS),
                   style: TextStyle(
-                    fontSize: 13.5,
+                    fontSize: 14.5,
                     fontWeight: FontWeight.w800,
                     color: gp.textPrimary,
                   ),
@@ -1272,16 +1336,47 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 activeColor: GameColors.success,
                 onChanged: (v) {
                   HapticFeedback.selectionClick();
-                  setState(() => _stepLinkEnabled = v);
+                  setState(() {
+                    _stepLinkEnabled = v;
+                    // From here on the name field stops moving this switch:
+                    // an answer given by hand outranks one inferred from
+                    // spelling. See [_stepLinkTouched].
+                    _stepLinkTouched = true;
+                  });
                 },
               ),
             ],
           ),
+          const SizedBox(height: 2),
           Text(
             s.stepLinkBody(Platform.isIOS),
             style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.4),
           ),
           if (_stepLinkEnabled) ...[
+            const SizedBox(height: 8),
+            // What happens next, in the one place somebody is still looking
+            // at this decision. The switch grants nothing by itself, and an
+            // OS permission sheet that arrives unannounced two taps later
+            // gets dismissed by reflex. On iOS it is shown once, ever.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.lock_open_rounded,
+                    size: 13, color: GameColors.success),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    s.stepLinkAskNext(_isEditing),
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                      color: GameColors.success,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
             Text(
               s.stepLinkGoal(_stepGoal),
@@ -1479,6 +1574,17 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 HapticFeedback.selectionClick();
                 setState(() {
                   _goalType = GoalType.quit;
+                  // The card is build-only (see _stepCardVisible), so this
+                  // tap takes it off screen. Leaving the switch on behind it
+                  // meant _submit's guard skipped the whole resolution and an
+                  // edited habit was written with clearStepGoal: true: the
+                  // link went away with nothing on screen having said so, and
+                  // switching back to Build showed a card claiming it was
+                  // still on. The answer leaves with the card.
+                  if (_stepLinkEnabled) {
+                    _stepLinkEnabled = false;
+                    _stepLinkTouched = true;
+                  }
                   if (!_timingModeTouched) {
                     _timingMode = _defaultModeFor(_category, _goalType);
                   }
@@ -1557,6 +1663,18 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ),
             ),
           ),
+          // Right under the field whose text summoned it, above the
+          // category grid, because the question it asks is about the name
+          // that was just typed. It is also the only place in this step
+          // that is still on screen with the keyboard open.
+          if (_stepCardVisible) ...[
+            const SizedBox(height: 12),
+            _stepLinkCard(s)
+                .animate()
+                .fadeIn(duration: 260.ms)
+                .slideY(begin: 0.08, curve: Curves.easeOutCubic)
+                .scaleXY(begin: 0.97, curve: Curves.easeOutBack),
+          ],
           const SizedBox(height: 16),
           _SectionLabel(s.category),
           const SizedBox(height: 8),
@@ -3019,6 +3137,33 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ),
             ],
           ),
+          // The link, named on the last screen before the button that
+          // creates it. Step 2 is a different screen from the card, so
+          // without this the last mention of health was one Continue tap
+          // ago and the OS permission sheet arrived out of nowhere.
+          if (_stepCardVisible && _stepLinkEnabled) ...[
+            const SizedBox(height: 10),
+            Container(height: 0.5, color: color.withOpacity(0.18)),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(Icons.directions_walk_rounded,
+                    size: 15, color: GameColors.success),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    s.stepLinkRecap(_stepGoal),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: GameColors.success,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (showPlanSentence) ...[
             const SizedBox(height: 10),
             Container(height: 0.5, color: color.withOpacity(0.18)),
@@ -3167,6 +3312,36 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     });
   }
 
+  /// Scrolls the steps card fully into view the frame it first appears.
+  ///
+  /// Measured on an iPhone 17 Pro before this existed: with the Arabic
+  /// keyboard open, the sheet has about 210pt of usable height under the
+  /// name field, and the card used to render after the whole 3x3 category
+  /// grid. Somebody typing "walking" saw the name field, one row of
+  /// category chips, and the Continue button. The card was on screen in
+  /// the widget tree and off screen in every way that matters, which is
+  /// exactly the report this was built from.
+  ///
+  /// [alignment] 1.0 puts the card's BOTTOM edge at the bottom of the
+  /// viewport rather than its top, so the switch and the goal chips under
+  /// it come with it. Unlike [_revealSuggestions] this deliberately does
+  /// not drop the keyboard: the person is mid-word in the name field, and
+  /// closing it under them to show a card they did not ask for would be
+  /// its own kind of rude.
+  void _revealStepCard() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _stepCardKey.currentContext;
+      if (target == null) return;
+      Scrollable.ensureVisible(
+        target,
+        alignment: 1.0,
+        duration: GameMotion.slow,
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
   List<GoalSuggestion> _suggestions() {
     final list = goalSuggestions.where((s) => s.type == _goalType && s.category == _category).toList();
     if (list.isNotEmpty) return list;
@@ -3243,7 +3418,21 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     HabitCategory? best;
     var bestScore = 0;
     for (final entry in keywordsByCategory.entries) {
-      final score = entry.value.where((k) => words.contains(k)).length;
+      var score = entry.value.where((k) => words.contains(k)).length;
+      // The walking detector answers the same question about this name,
+      // only far better than a word list can: it folds Arabic, strips the
+      // definite article and forgives typos, so "المشي", "امشي شوي",
+      // "walkk" and "10k steps" reach Health the way the exact keyword
+      // "walking" already did. Before this they all landed on Custom,
+      // which is how a habit the app was about to offer a step link for
+      // could still be filed as uncategorised.
+      //
+      // Counted as one more health keyword rather than forced, so a name
+      // that is mostly about something else ("read while walking") is
+      // still decided by the rest of the words.
+      if (entry.key == HabitCategory.health && looksLikeStepHabit(text)) {
+        score += 1;
+      }
       if (score > bestScore) {
         best = entry.key;
         bestScore = score;

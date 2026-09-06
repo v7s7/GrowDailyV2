@@ -2152,6 +2152,48 @@ class RoomsController {
         .awardBonus(xp: xp, gold: gold, countsTowardDailyCap: false);
   }
 
+  /// Pays [mine] one team-streak [milestone] (7, 14 or 30 days: see
+  /// RoomTeamProgress.teamMilestones), exactly once. Same claim-then-pay
+  /// transaction as [claimTeamBonus], with the claim recorded as an
+  /// arrayUnion on `teamStreakClaims` so two taps, or two devices, can never
+  /// pay the same milestone twice. The caller (the team card) has already
+  /// checked RoomTeamProgress.teamBestStreakWith against [milestone]; this
+  /// method only guards the double payment, not the eligibility, because
+  /// eligibility is a function of history every client can read.
+  Future<void> claimTeamStreakBonus(
+    String code,
+    RoomParticipant mine,
+    int milestone,
+  ) async {
+    final uid = _uid;
+    if (uid == null) return;
+    if (mine.teamStreakClaims.contains(milestone)) return;
+    final prize = RoomTeamProgress.teamMilestonePrize(milestone);
+    if (prize.xp <= 0) return;
+    final participantRef = _rooms.doc(code).collection('participants').doc(uid);
+    final didClaim =
+        await FirebaseFirestore.instance.runTransaction<bool>((txn) async {
+      final snap = await txn.get(participantRef);
+      if (!snap.exists) return false;
+      final claimed = snap.data()?['teamStreakClaims'];
+      if (claimed is List && claimed.any((v) => v is num && v.toInt() == milestone)) {
+        return false;
+      }
+      txn.set(
+        participantRef,
+        {
+          'teamStreakClaims': FieldValue.arrayUnion([milestone]),
+        },
+        SetOptions(merge: true),
+      );
+      return true;
+    });
+    if (!didClaim) return;
+    await _ref
+        .read(dashboardProvider.notifier)
+        .awardBonus(xp: prize.xp, gold: prize.gold, countsTowardDailyCap: false);
+  }
+
   /// The end-of-room prize for finishing in [rank] (1-based), or null for
   /// anyone off the podium — a plain function so the finale card and any
   /// future summary can quote identical numbers without either re-deriving

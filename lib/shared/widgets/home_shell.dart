@@ -14,6 +14,8 @@ import '../../core/services/local_store_service.dart';
 import '../../core/theme/game_theme.dart' show GameMotion;
 import '../../features/dashboard/notifiers/dashboard_notifier.dart'
     show dashboardProvider;
+import '../../features/habits/catalog/islamic_habit_catalog.dart'
+    show IslamicHabitTemplate;
 import '../../features/habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider;
 import '../../features/premium/notifiers/premium_notifier.dart'
@@ -218,6 +220,27 @@ class _HomeShellState extends ConsumerState<HomeShell>
       ref.read(requestedHomeTabInstantProvider.notifier).state = false;
       ref.read(requestedHomeTabProvider.notifier).state = null;
       _openTab(next, instant: instant);
+    });
+    // A habit that has just BECOME linked to the step count, from the Add
+    // Habit sheet or from Edit on an existing walking habit. Without this
+    // the first read waited for the next app resume: somebody who had
+    // already walked 9,000 steps by the time they created the habit linked
+    // it, watched nothing happen, and had every reason to conclude the
+    // link was broken. Reading here closes that gap in the one place that
+    // survives every sheet, instead of each of those sheets having to
+    // remember to ask (and being unable to, since they are gone by the
+    // time the read would return).
+    //
+    // Forced past the two-minute throttle on purpose: this fires only when
+    // the linked set actually GREW, which is a handful of times in an
+    // account's life. Removing or unlinking one is not a reason to read.
+    ref.listen<List<IslamicHabitTemplate>>(habitListProvider, (prev, next) {
+      final before = <String>{
+        for (final h in prev ?? const <IslamicHabitTemplate>[])
+          if (h.stepGoal != null) h.id,
+      };
+      final grew = next.any((h) => h.stepGoal != null && !before.contains(h.id));
+      if (grew) unawaited(runStepAutoComplete(ref, force: true));
     });
     // The bar was just rearranged in NavBarSettingsScreen (which sits on
     // top of this shell while it happens). Pages are keyed by tab, so the

@@ -722,6 +722,13 @@ class RoomParticipant {
   /// nothing to claim.
   final bool teamBonusClaimed;
 
+  /// Team-day milestones this account has already been paid for (7, 14,
+  /// 30: see RoomTeamProgress.teamMilestones), written only by this account
+  /// through RoomsController.claimTeamStreakBonus's claim-once transaction.
+  /// A list rather than three flags so a fourth milestone is a data change,
+  /// not a schema one.
+  final List<int> teamStreakClaims;
+
   /// Whether this participant has claimed their end-of-room podium prize —
   /// the [RoomCompeteMode.competitive] counterpart to [teamBonusClaimed].
   ///
@@ -808,6 +815,7 @@ class RoomParticipant {
     this.habitRules = const {},
     required this.lastUpdated,
     this.teamBonusClaimed = false,
+    this.teamStreakClaims = const [],
     this.podiumBonusClaimed = false,
     this.allDoneToday = false,
     this.allDoneDate,
@@ -1444,6 +1452,10 @@ class RoomParticipant {
           const {},
       lastUpdated: (d['lastUpdated'] as Timestamp?)?.toDate() ?? DateTime.now(),
       teamBonusClaimed: d['teamBonusClaimed'] as bool? ?? false,
+      teamStreakClaims: [
+        for (final v in d['teamStreakClaims'] as List? ?? const [])
+          if (v is num) v.toInt(),
+      ],
       podiumBonusClaimed: d['podiumBonusClaimed'] as bool? ?? false,
       // Both self-heal the same way as every other field added after this
       // model shipped: a doc from before this existed just reads as "not
@@ -1485,6 +1497,11 @@ class RoomParticipant {
         ),
         'lastUpdated': Timestamp.fromDate(lastUpdated),
         'teamBonusClaimed': teamBonusClaimed,
+        // teamStreakClaims is deliberately NOT here. The only writer is the
+        // arrayUnion inside RoomsController.claimTeamStreakBonus, so no
+        // whole-document set or merge built from a stale snapshot can ever
+        // carry an older list back over a claim that just landed. Absent
+        // reads as empty, which is what a fresh participant is anyway.
         'podiumBonusClaimed': podiumBonusClaimed,
         'allDoneToday': allDoneToday,
         if (allDoneDate != null) 'allDoneDate': allDoneDate,
@@ -1510,6 +1527,7 @@ class RoomParticipant {
     Map<String, List<RoomHabitRule>>? habitRules,
     DateTime? lastUpdated,
     bool? teamBonusClaimed,
+    List<int>? teamStreakClaims,
     bool? podiumBonusClaimed,
     bool? allDoneToday,
     String? allDoneDate,
@@ -1536,6 +1554,7 @@ class RoomParticipant {
         habitRules: habitRules ?? this.habitRules,
         lastUpdated: lastUpdated ?? this.lastUpdated,
         teamBonusClaimed: teamBonusClaimed ?? this.teamBonusClaimed,
+        teamStreakClaims: teamStreakClaims ?? this.teamStreakClaims,
         podiumBonusClaimed: podiumBonusClaimed ?? this.podiumBonusClaimed,
         allDoneToday: allDoneToday ?? this.allDoneToday,
         allDoneDate: allDoneDate ?? this.allDoneDate,
@@ -1659,6 +1678,177 @@ extension RoomTeamProgress on RoomModel {
           !p.countedStartIn(this).isAfter(startDate) &&
           p.progressRatio(this) >= 1.0,
     );
+  }
+
+  // ─── Team day ──────────────────────────────────────────────────────────
+  //
+  // The cooperative reading of a team room (RoomCompeteMode.team), built
+  // 2026-09-06. The unit of success is the room's DAY, not a person's rank:
+  // the team wins a day when every member who was asked something that day
+  // finished it, and wins in a row are the team streak. The old rule above,
+  // one bonus for every member perfect over the whole room, was reachable
+  // in theory and never in practice; these are meant to be won every week.
+  //
+  // "Asked something that day" is the same door every other excuse in this
+  // file uses: a member counts on a day only once they had joined
+  // (countedStartIn), while the room is not paused, while they are not
+  // stood down, and while they have something linked. A day nobody was
+  // asked about is neither won nor lost and does not break a streak, so an
+  // extension's pause or everyone pausing together leaves the streak where
+  // it was, the same score-neutral promise RoomModel.daysElapsed makes.
+
+  /// Whether [p] was asked for anything on [day] ([dateKey] is its key).
+  bool memberCountsOn(RoomParticipant p, String dateKey, DateTime day) =>
+      p.hasCountedHabits &&
+      !p.countedStartIn(this).isAfter(day) &&
+      !isPausedOn(dateKey) &&
+      !p.isStoodDownOn(dateKey);
+
+  /// The team's result for one day: true when everyone who counted that
+  /// day finished, false when someone who counted did not, null when
+  /// nobody counted at all (the day is skipped, not lost). A rest day a
+  /// weekly quota granted reads as finished, exactly as it does on the
+  /// member's own row.
+  bool? teamDayResult(
+    String dateKey,
+    DateTime day,
+    List<RoomParticipant> participants,
+  ) {
+    var counted = 0;
+    for (final p in participants) {
+      if (!memberCountsOn(p, dateKey, day)) continue;
+      counted++;
+      if (!p.isFullyDone(dateKey)) return false;
+    }
+    return counted == 0 ? null : true;
+  }
+
+  /// Days the team won and days that counted at all, [startDate] through
+  /// [lastCountedDay]. The finale's "you won 24 of 30 days together".
+  ({int won, int counted}) teamDays(List<RoomParticipant> participants) {
+    var won = 0;
+    var counted = 0;
+    var day = startDate;
+    final last = lastCountedDay;
+    while (!day.isAfter(last)) {
+      final r = teamDayResult(day.toDateKey(), day, participants);
+      if (r != null) {
+        counted++;
+        if (r) won++;
+      }
+      day = day.add(const Duration(days: 1));
+    }
+    return (won: won, counted: counted);
+  }
+
+  /// Consecutive won days ending on [lastCountedDay]; skipped days do not
+  /// break it. While the room is live, a today that is not yet won is a
+  /// day in progress rather than a miss, so it is stepped over and the
+  /// card keeps showing yesterday's streak until today closes without
+  /// everyone. Once today IS won the number rises on the spot, which is
+  /// the moment worth celebrating. On an ended room the last day is final
+  /// and a miss there ends the streak like any other.
+  int teamStreak(List<RoomParticipant> participants) {
+    var streak = 0;
+    var day = lastCountedDay;
+    final inProgress = !isEnded;
+    while (!day.isBefore(startDate)) {
+      final r = teamDayResult(day.toDateKey(), day, participants);
+      if (r == false && !(inProgress && day == lastCountedDay)) break;
+      if (r == true) streak++;
+      day = day.subtract(const Duration(days: 1));
+    }
+    return streak;
+  }
+
+  /// [teamStreak] as [member] has lived it: the current run of won days
+  /// ending on [lastCountedDay], counting only days the member was asked
+  /// about. What "days to go" on the milestone row counts down from, since
+  /// a milestone is earned by a run WITH this member in it, and a newcomer
+  /// two days into a team streak of six is two days in, not six.
+  int teamStreakWith(
+    RoomParticipant member,
+    List<RoomParticipant> participants,
+  ) {
+    var streak = 0;
+    var day = lastCountedDay;
+    final inProgress = !isEnded;
+    while (!day.isBefore(startDate)) {
+      final key = day.toDateKey();
+      final r = teamDayResult(key, day, participants);
+      if (r == false && !(inProgress && day == lastCountedDay)) break;
+      if (r == true && memberCountsOn(member, key, day)) streak++;
+      day = day.subtract(const Duration(days: 1));
+    }
+    return streak;
+  }
+
+  /// The longest run of won days [member] was part of: the tenure guard
+  /// for milestone claims, in the same spirit as [teamIsPerfect]'s. A
+  /// newcomer inherits nothing from a streak that ran before they joined,
+  /// and a member excused for a day (stood down) neither extends nor
+  /// breaks their own run on it.
+  int teamBestStreakWith(
+    RoomParticipant member,
+    List<RoomParticipant> participants,
+  ) {
+    var best = 0;
+    var run = 0;
+    var day = startDate;
+    final last = lastCountedDay;
+    while (!day.isAfter(last)) {
+      final key = day.toDateKey();
+      final r = teamDayResult(key, day, participants);
+      if (r == false) {
+        run = 0;
+      } else if (r == true && memberCountsOn(member, key, day)) {
+        run++;
+        if (run > best) best = run;
+      }
+      day = day.add(const Duration(days: 1));
+    }
+    return best;
+  }
+
+  /// The longest run of won days the team ever had, member-agnostic: the
+  /// finale's "longest run" pill.
+  int teamBestStreak(List<RoomParticipant> participants) {
+    var best = 0;
+    var run = 0;
+    var day = startDate;
+    final last = lastCountedDay;
+    while (!day.isAfter(last)) {
+      final r = teamDayResult(day.toDateKey(), day, participants);
+      if (r == false) {
+        run = 0;
+      } else if (r == true) {
+        run++;
+        if (run > best) best = run;
+      }
+      day = day.add(const Duration(days: 1));
+    }
+    return best;
+  }
+
+  /// The three team-streak milestones, and what each pays every member,
+  /// once. Sized against the podium prizes (200/120/80 XP for a race):
+  /// thirty days of everyone finishing is harder than winning a race, so
+  /// it pays more than first place.
+  static const List<int> teamMilestones = [7, 14, 30];
+
+  static ({int xp, int gold}) teamMilestonePrize(int days) => switch (days) {
+        7 => (xp: 60, gold: 30),
+        14 => (xp: 120, gold: 60),
+        30 => (xp: 250, gold: 125),
+        _ => (xp: 0, gold: 0),
+      };
+
+  /// The next milestone above [streak], or null past the last one.
+  static int? teamNextMilestone(int streak) {
+    for (final m in teamMilestones) {
+      if (streak < m) return m;
+    }
+    return null;
   }
 }
 

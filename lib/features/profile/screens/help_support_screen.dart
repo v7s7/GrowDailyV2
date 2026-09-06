@@ -165,6 +165,15 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.rooms,
   ),
   FaqEntry(
+    questionEn: 'What is a team room?',
+    questionAr: 'شنو غرفة الفريق؟',
+    answerEn:
+        'A room where nobody beats anybody. The day counts for the team when everyone has finished their habits, and days in a row build the team streak. At 7, 14 and 30 days together every member gets a reward, once each. The ranking is still there under "Show" if you want it.',
+    answerAr:
+        'غرفة ما فيها فائز على أحد. اليوم يُحسب للفريق لما الكل يخلّص عاداته، والأيام المتتالية تسوي سلسلة الفريق. عند 7 و14 و30 يوم مع بعض، كل عضو ياخذ مكافأة مرة وحدة. والترتيب موجود تحت "عرض" لو تبي تشوفه.',
+    group: FaqGroup.rooms,
+  ),
+  FaqEntry(
     questionEn: 'Can the leader add a new habit to a Room later?',
     questionAr: 'هل يمكن للقائد إضافة عادة جديدة للغرفة لاحقًا؟',
     answerEn:

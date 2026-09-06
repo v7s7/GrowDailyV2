@@ -5,45 +5,65 @@
  *
  * Used by both lookup_user.js (writes one standalone report file) and
  * server.js (renders the same report live, on demand, plus a searchable
- * home page) — kept in one module so the two never drift into showing
+ * home page) - kept in one module so the two never drift into showing
  * different things for the same account. Nothing in this file touches
  * Firestore/Auth directly; it only turns already-fetched data into HTML.
  */
 
 // Friendlier section titles for the subcollections known to exist today
 // (see firestore.rules' top-of-file doc comment for the canonical map).
-// Anything not listed here still shows up — just titled with its raw
-// collection name — since the section list itself comes from
+// Anything not listed here still shows up - just titled with its raw
+// collection name - since the section list itself comes from
 // listCollections(), not from this map. Add a new subcollection anywhere
 // in the app and the report picks it up automatically; this map is purely
 // cosmetic, never a filter.
+// These are TAB labels, so they are as short as they can be and still be
+// unambiguous. The strip needs 1370px for its old labels inside a container
+// that is 968px at a 1280px window, so three tabs, Rooms among them, sat off
+// screen behind a horizontal scroll with no affordance, at EVERY window
+// width including full screen. Rooms is where the "the room and the app
+// disagree" question ends, and it was the one you could not reach.
+//
+// 'Daily activity (Grid, intentions, night review)' was a schema tour inside
+// a tab label; that sentence now lives on the title attributes of the
+// ledger's three record columns, which is where someone is actually asking
+// what the fields are. 'habit_history' shipped as a raw collection name.
 const KNOWN_LABELS = {
-  daily: 'Daily activity (Grid, intentions, night review)',
-  custom_habits: 'Custom habits',
-  focus_plans: 'Focus sessions',
-  matrix_tasks: 'Matrix tasks',
-  weekly_challenges: 'Weekly challenges',
-  milestones: 'Milestone events',
+  daily: 'Calendar',
+  custom_habits: 'Habits',
+  focus_plans: 'Focus sessions (removed feature)',
+  matrix_tasks: 'Tasks',
+  weekly_challenges: 'Weekly challenges (removed feature)',
+  milestones: 'Milestones',
+  habit_history: 'Chart mirror',
 };
 
 // Known users/{uid} fields worth pulling into the always-visible header
-// stat row, in display order — everything else on the profile doc (there's
+// stat row, in display order - everything else on the profile doc (there's
 // a lot: per-habit streak maps, notification settings, catalog history...)
 // stays reachable in the "All profile fields" details block instead of
-// crowding this into a wall of numbers. Purely a display allowlist — it
+// crowding this into a wall of numbers. Purely a display allowlist - it
 // never filters what's actually captured, only what's promoted to the
 // header.
+// Nine numbers of equal weight in one undifferentiated row said nothing
+// about which of them belong together, so none of them was findable. Three
+// groups now: where they are, what they have, what they have done. `group`
+// starts a new one; a rule between groups does the separating.
+//
+// 'premiumActive' is gone. firestore.rules' own comment says it used to live
+// on this doc, and there is no write site left anywhere in lib/ or
+// functions/, so the field can only ever render stale, and a stale Premium
+// flag on an admin page is worse than no flag.
 const HIGHLIGHT_FIELDS = [
-  ['level', 'Level'],
-  ['currentStreak', 'Streak'],
+  ['level', 'Level', 'group'],
+  ['currentStreak', 'Day streak'],
   ['longestStreak', 'Best streak'],
-  ['gold', 'Gold'],
+  ['streakFreezes', 'Streak freezes'],
+  ['gold', 'Gold', 'group'],
   ['cumulativeXp', 'Total XP'],
-  ['totalHabitCompletions', 'Completions'],
-  ['totalGreenSquares', 'Green squares'],
-  ['streakFreezes', 'Freezes'],
-  ['themePreset', 'Theme'],
-  ['premiumActive', 'Premium'],
+  ['totalHabitCompletions', 'Completions, all time', 'group'],
+  ['totalGreenSquares', 'Green squares, all time'],
+  ['themePreset', 'Theme', 'group'],
 ];
 
 // Per-collection display metadata, mirroring this app's own enums exactly
@@ -320,6 +340,30 @@ function habitScheduledOnParts(habitData, parts) {
   return weekdays.length === 0 || weekdays.includes(parts.weekday);
 }
 
+// The same three tests as habitScheduledOnParts, but reporting WHICH one
+// said no. The day card used to drop an unscheduled habit in silence, which
+// is unhelpful precisely when the ticket is "my habit disappeared": the one
+// answer the person needs is the one the page refused to give.
+function whyNotScheduled(habitData, parts) {
+  const dayUtc = Date.UTC(parts.year, parts.month - 1, parts.day);
+  const born = toJsDate(habitData.createdAt);
+  if (born) {
+    const bornUtc = Date.UTC(born.getFullYear(), born.getMonth(), born.getDate());
+    if (dayUtc < bornUtc) return `created ${fmtDate(born)}, after this day`;
+  }
+  const died = toJsDate(habitData.archivedAt);
+  if (died) {
+    const diedUtc = Date.UTC(died.getFullYear(), died.getMonth(), died.getDate());
+    if (dayUtc > diedUtc) return `archived ${fmtDate(died)}`;
+  }
+  const weekdays = Array.isArray(habitData.scheduledWeekdays) ? habitData.scheduledWeekdays : [];
+  if (weekdays.length && !weekdays.includes(parts.weekday)) {
+    const names = weekdays.slice().sort((a, b) => a - b).map((d) => WEEKDAY_ABBR[d] || d).join(', ');
+    return `not due that day, ${names} only`;
+  }
+  return '';
+}
+
 // Parses a `daily/{key}` document id (always "YYYY-MM-DD" - see
 // DateTimeGameExt.toDateKey on the Dart side, the exact format every write
 // site uses) into the same {year, month, day, weekday, key} shape
@@ -391,12 +435,18 @@ function dayHeatLevel(done, scheduled) {
 // faithfully reporting the field they read.
 
 const SQUARE_META = {
-  complete: { emoji: '🟩', label: 'done' },
-  bonus: { emoji: '🟦', label: 'bonus' },
-  partial: { emoji: '🟨', label: 'partly done' },
-  failed: { emoji: '🟥', label: 'missed' },
-  skipped: { emoji: '⬛', label: 'skipped' },
-  none: { emoji: '⬜', label: 'empty' },
+  // `label` is the square's own state in the app's words. `cell` is the same
+  // state as the ledger's Square column prints it, where the neighbouring
+  // column is literally headed Completion: calling a green square "done"
+  // there reads as agreement with a Completion of none, which is the exact
+  // confusion the whole table exists to clear up. The square's colour is the
+  // honest name for it, because colour is all a Room reads.
+  complete: { emoji: '🟩', label: 'done', cell: 'green' },
+  bonus: { emoji: '🟦', label: 'bonus', cell: 'bonus, counts green' },
+  partial: { emoji: '🟨', label: 'partly done', cell: 'partly done' },
+  failed: { emoji: '🟥', label: 'missed', cell: 'missed' },
+  skipped: { emoji: '⬛', label: 'skipped', cell: 'skipped' },
+  none: { emoji: '⬜', label: 'empty', cell: 'empty' },
 };
 
 // SquareState.isGreen (square_state.dart) - complete||bonus, nothing else.
@@ -626,7 +676,7 @@ function renderRecordLedger(rows, opts) {
     const tag = ledgerTag(r);
     const disagrees = r.rewarded !== r.roomCounts;
     const meta = SQUARE_META[r.square] || SQUARE_META.none;
-    const label = habitLabel(r.habitId, habitCtx, r.receipt && r.receipt.category);
+    const label = habitLabelParts(r.habitId, habitCtx, r.receipt && r.receipt.category);
     const comp = r.count > 0
       ? escapeHtml(String(r.count)) + (r.target > 1 ? ` of ${escapeHtml(String(r.target))}` : '')
       : null;
@@ -645,7 +695,7 @@ function renderRecordLedger(rows, opts) {
     if (mirrorFor) {
       const mirror = mirrorFor(r.habitId);
       if (mirror != null && mirror !== GREEN_SQUARES.has(r.square)) {
-        subs.push(['warn', `Chart mirror says ${mirror ? 'complete' : 'not complete'}, the square says ${escapeHtml(meta.label)}. Progress and Life Timeline read the mirror.`]);
+        subs.push(['warn', `Chart mirror says ${mirror ? 'complete' : 'not complete'}, the square says ${escapeHtml(meta.cell)}. Progress and Life Timeline read the mirror.`]);
       }
     }
     const note = notesFor && notesFor(r.habitId);
@@ -658,7 +708,7 @@ function renderRecordLedger(rows, opts) {
         <th scope="row" class="lg-habit"><span class="lg-emo">${label.emoji}</span><span class="lg-name">${escapeHtml(label.name)}</span></th>
         ${cell(comp, 'lg-c-comp')}
         ${cell(r.stampedAt === null ? null : escapeHtml(fmtMinutes(r.stampedAt)), 'lg-c-stamp')}
-        ${cell(r.square === 'none' ? null : escapeHtml(meta.label), 'lg-c-sq')}
+        ${cell(r.square === 'none' ? null : escapeHtml(meta.cell), 'lg-c-sq')}
         <td class="lg-where ${tag.cls}">${tag.where}</td>
       </tr>${span}`;
   }).join('');
@@ -863,7 +913,7 @@ const LONG_VALUE_CHARS = 400;
 // well into the dozens) collapse behind their own <details> instead of
 // sprawling inline, so one busy field can't dominate the whole table.
 function renderValue(value) {
-  if (value === null || value === undefined) return '<span class="muted">—</span>';
+  if (value === null || value === undefined) return '<span class="muted">not set</span>';
   if (value && typeof value.toDate === 'function') {
     return escapeHtml(value.toDate().toLocaleString());
   }
@@ -941,8 +991,8 @@ function renderHabitDetail(data) {
     : (data.frequencyType === 'weekly' ? 'any days' : null);
   const goal = data.goalType === 'quit'
     ? (data.reductionType === 'limit'
-        ? `Quit habit — limit to ${data.limitAmount ?? '?'} ${escapeHtml(String(data.customUnitLabel || data.limitUnit || ''))}/day`
-        : 'Quit habit — avoid entirely')
+        ? `Quit habit, limit to ${data.limitAmount ?? '?'} ${escapeHtml(String(data.customUnitLabel || data.limitUnit || ''))}/day`
+        : 'Quit habit, avoid entirely')
     : 'Build habit';
   const swatchColor = safeCssColor(data.iconColorHex);
   const swatch = swatchColor
@@ -1058,80 +1108,43 @@ function renderDailyDetail(id, data, ctx) {
   const sum = summarizeHabitDay(data, [], receipts, id);
   const seen = sum.rows.filter((r) => r.verdict !== 'none' || r.square !== 'none');
 
-  const nameOf = (habitId) => {
-    const r = sum.rows.find((row) => row.habitId === habitId);
-    return habitLabel(habitId, habitCtx, r && r.receipt ? r.receipt.category : null);
-  };
-  const sq = (state) => {
-    const meta = SQUARE_META[state] || SQUARE_META.none;
-    return `${meta.emoji} ${escapeHtml(meta.label)}`;
-  };
+  // This panel and the Day card used to carry two INDEPENDENT write-ups of
+  // the same three-record disagreement, in two vocabularies: one said
+  // "completion recorded", the other "the app credited it"; one said "the
+  // Grid square", the other "the square". Worse, only this one had a calm
+  // variant for a legitimate backfill, so the same account on the same day
+  // read as a bug on one tab and as designed behaviour on the other. Both now
+  // render through renderDayTally and renderRecordLedger, so there is exactly
+  // one wording and it cannot drift again.
+  const why = [
+    sum.gridOnly ? `${sum.gridOnly === 1 ? 'One habit is' : `${sum.gridOnly} habits are`} green with no completion written` : '',
+    sum.undone ? `${sum.undone} ${sum.undone === 1 ? 'was' : 'were'} completed and then un-marked` : '',
+  ].filter(Boolean).join(', and ');
+  const cause = preCutoff && sum.gridOnly > 0
+    ? ` Marked at ${escapeHtml(write.clock)}. This is the pre-cutoff case, a square tapped before the reward day rolled over, not an ordinary backfill.`
+    : backfilled && sum.gridOnly > 0
+      ? ` Last written on ${escapeHtml(write.key)}, so this day was filled in after the fact. A backfilled square never pays, by design.`
+      : '';
+  const tally = (sum.gridOnly > 0 || sum.undone > 0)
+    ? renderDayTally({
+        scheduled: seen.length,
+        paid: sum.done,
+        roomCounted: sum.roomGreens,
+        why: `${why}. A Room reads the square; XP, gold and the streak read the completion, so the two report different numbers for this day.${cause}`,
+        // Loud for the pre-cutoff case, which nobody chose. Calm for a
+        // backfill, which is the rule working.
+        calm: !(preCutoff && sum.gridOnly > 0),
+      })
+    : renderDayTally({ scheduled: seen.length, paid: sum.done, roomCounted: sum.roomGreens });
 
-  const line = (r) => {
-    const name = escapeHtml(nameOf(r.habitId));
-    const at = r.stampedAt !== null ? fmtMinutes(r.stampedAt) : '';
-    const receipt = r.receipt;
-    switch (r.verdict) {
-      case 'completed': {
-        const times = r.count > 1 ? ` &times;${escapeHtml(String(r.count))}` : '';
-        const target = r.target > 1 ? ` of ${escapeHtml(String(r.target))}` : '';
-        const when = at ? ` &middot; marked ${escapeHtml(at)}` : '';
-        // A completion whose square is not green is the mirror of the bug
-        // this section exists for, and just as worth saying out loud.
-        const mismatch = r.roomCounts ? '' :
-          `<div class="stack-note warn">Completion recorded, but the Grid square reads ${sq(r.square)}. Rooms grade off the SQUARE, so this one does not count there.</div>`;
-        return `<div class="stack-item">&#9989; ${name} &mdash; completed${times}${target}${when} &middot; square ${sq(r.square)}</div>${mismatch}`;
-      }
-      case 'undone': {
-        const when = at ? ` at ${escapeHtml(at)}` : '';
-        const bits = [`<div class="stack-item">&#8617;&#65039; ${name} &mdash; completed${when}, then <b>un-marked</b> &middot; square now ${sq(r.square)}</div>`];
-        if (receipt) {
-          const undoneOn = receipt.undoneOn && receipt.undoneOn !== id
-            ? ` on ${escapeHtml(receipt.undoneOn)}` : '';
-          bits.push(`<div class="stack-note undo">Undo receipt still outstanding: took back ${escapeHtml(String(receipt.xp))} XP and ${escapeHtml(String(receipt.gold))} gold${undoneOn}. Marking this habit-day again redeems it rather than paying twice.</div>`);
-        } else {
-          // completedAtMinutes survives forever; the receipt does not. Say
-          // which of the two is speaking so the absence is not read as doubt.
-          bits.push('<div class="stack-note undo">No receipt left (already corrected, or swept after a year). The completion timestamp above is what still proves it happened.</div>');
-        }
-        if (r.roomCounts) {
-          bits.push('<div class="stack-note warn">The Grid square is still green, so a Room will keep counting this day even though the completion is gone.</div>');
-        }
-        return bits.join('');
-      }
-      case 'grid_only': {
-        const why = preCutoff
-          ? ` Tapped at <b>${escapeHtml(write.clock)}</b>, before the ${DAY_CUTOFF_HOUR}:00 cutoff, so the app's reward day was still the day BEFORE. The Grid had already moved on to this date and put the "today" ring on it, so the square shown as today was not the day that pays.`
-          : backfilled
-            ? ` Last written on ${escapeHtml(write.key)}, so this day was filled in after the fact. A backfilled square never pays, by design, or anyone could colour in last month and farm XP.`
-            : '';
-        return `<div class="stack-item">${sq(r.square)} ${name} &mdash; <b>green square, no completion</b></div>`
-          + `<div class="stack-note warn">The person marked it; the app did not credit it. No XP, no gold, no streak, and Today still shows it unchecked. A Room reads the square, so the Room counts it.${why}</div>`;
-      }
-      case 'marked':
-        return `<div class="stack-item">${sq(r.square)} ${name} &mdash; Grid mark only, no completion</div>`;
-      default:
-        return `<div class="stack-item">&#11036; ${name} &mdash; mark cleared (square written back to empty)</div>`;
-    }
-  };
-
-  const habitRows = seen.length
-    ? '<div class="stack">' + seen.map(line).join('') + '</div>'
-    : '<span class="muted">No habit activity logged.</span>';
-
-  const banner = (sum.gridOnly > 0 || sum.undone > 0)
-    ? `<div class="day-warn${preCutoff && sum.gridOnly > 0 ? '' : ' calm'}">
-        <b>The square and the completion disagree on this day.</b> ${
-        [
-          sum.gridOnly ? `${sum.gridOnly === 1 ? 'One habit is' : `${sum.gridOnly} habits are`} green with no completion written` : '',
-          sum.undone ? `${sum.undone} ${sum.undone === 1 ? 'was' : 'were'} completed and then un-marked` : '',
-        ].filter(Boolean).join(', and ')
-      }. A Room reads the square; XP, gold and the streak read the completion, so the two will report different numbers for this day.${
-        preCutoff && sum.gridOnly > 0
-          ? ' This is the pre-cutoff case (tapped before the day rolled over), not an ordinary backfill.'
-          : ''
-      }</div>`
-    : '';
+  const habitRows = renderRecordLedger(seen, {
+    habitCtx,
+    notesFor: (habitId) => {
+      const notes = data.squareNotes;
+      return notes && typeof notes === 'object' && typeof notes[habitId] === 'string'
+        ? notes[habitId] : '';
+    },
+  });
 
   const rows = [
     mood ? detailRow('Mood', `${mood.emoji} ${escapeHtml(mood.label)}`) : '',
@@ -1140,14 +1153,13 @@ function renderDailyDetail(id, data, ctx) {
       : '',
     detailRow('Night review', data.nightReviewDone ? '<span class="bool true">&#10003; Done</span>' : '<span class="muted">Not done</span>'),
     detailRow('Earned', `+${data.totalXpEarned ?? 0} XP &middot; +${data.totalGoldEarned ?? 0} gold`),
-    detailRow('Counted', `${sum.done} completed &middot; ${sum.greens} green square${sum.greens === 1 ? '' : 's'} (what a Room credits)`),
   ].join('');
 
   return `
-    ${banner}
-    <div class="detail-rows">${rows}</div>
-    <h3>Habits that day</h3>
+    ${tally}
     ${habitRows}
+    ${LEDGER_LEGEND}
+    <div class="detail-rows">${rows}</div>
   `;
 }
 
@@ -1171,6 +1183,29 @@ function habitLabel(habitId, habitCtx, category) {
   const cat = category ? CATEGORY_META[category] : null;
   const short = String(habitId).slice(0, 8);
   return `${cat ? cat.emoji + ' ' : ''}(habit no longer in this account · ${short})`;
+}
+
+/**
+ * The same answer as habitLabel, split into its emoji and its name.
+ *
+ * The ledger needs the two apart: the emoji sits in its own span so it never
+ * joins the bidi run of an Arabic habit name, and the name gets
+ * `unicode-bidi: isolate` on its own. Concatenating them into one string, as
+ * habitLabel does for every older caller, puts a neutral character between a
+ * strong-RTL name and whatever follows, which is how a name ends up rendered
+ * beside the wrong thing.
+ */
+function habitLabelParts(habitId, habitCtx, category) {
+  const known = habitCtx && habitCtx[habitId];
+  if (known && known.name) {
+    const cat = CATEGORY_META[known.category];
+    return { emoji: cat ? cat.emoji : '', name: known.name };
+  }
+  const cat = category ? CATEGORY_META[category] : null;
+  return {
+    emoji: cat ? cat.emoji : '',
+    name: `(habit no longer in this account · ${String(habitId).slice(0, 8)})`,
+  };
 }
 
 /**
@@ -1211,7 +1246,7 @@ function renderUndoneSection(profileData, habitCtx) {
       ? ` &middot; undone on ${escapeHtml(r.undoneOn)}` : ' &middot; undone the same day';
     return `<div class="doc">
       <div class="stack-item">&#8617;&#65039; ${escapeHtml(label)}
-        &mdash; completion on <b>${escapeHtml(r.dateKey)}</b> was un-marked${undoneOn}</div>
+        &middot; completion on <b>${escapeHtml(r.dateKey)}</b> was un-marked${undoneOn}</div>
       <div class="stack-note undo">Took back ${escapeHtml(String(r.xp))} XP and ${escapeHtml(String(r.gold))} gold.
         Streak at the time: ${escapeHtml(String(r.streak))} (best ${escapeHtml(String(r.longest))}).
         ${r.finished ? 'The day had reached its target, so the lifetime counters were reversed too.'
@@ -1280,7 +1315,7 @@ function summarizeDoc(collectionId, id, data) {
       if (mood) bits.push(`mood: ${mood.emoji} ${mood.label}`);
       else if (data.mood) bits.push(`mood: ${data.mood}`);
       if (data.nightReviewDone) bits.push('night review done');
-      return `${id} — ${bits.join(' · ')}`;
+      return `${id} · ${bits.join(' · ')}`;
     }
     case 'custom_habits': {
       const cat = CATEGORY_META[data.category];
@@ -1292,7 +1327,7 @@ function summarizeDoc(collectionId, id, data) {
       return `${data.isDone ? '☑' : '☐'} ${data.title || '(untitled task)'}${q ? ' · ' + q.label : ''}`;
     }
     case 'milestones':
-      return `${data.type || 'milestone'} — ${id}`;
+      return `${data.type || 'milestone'}: ${id}`;
     default:
       return id;
   }
@@ -1373,12 +1408,29 @@ function renderHighlights(profileData) {
   if (!profileData) return '';
   const items = HIGHLIGHT_FIELDS
     .filter(([key]) => profileData[key] !== undefined && profileData[key] !== null)
-    .map(([key, label]) => {
+    .map(([key, label, group]) => {
       const raw = profileData[key];
+      // A word is not a quantity. "navy THEME" read backwards because the
+      // value-then-label order is a NUMBER's order; a text value wants its
+      // own weight and its label in front of it.
+      const isText = typeof raw === 'string' && !/^\d+$/.test(raw);
       const display = typeof raw === 'boolean' ? (raw ? 'Yes' : 'No') : escapeHtml(String(raw));
-      return `<div class="stat"><b>${display}</b><span>${escapeHtml(label)}</span></div>`;
-    }).join('');
-  return items ? `<div class="stats">${items}</div>` : '';
+      const cls = `stat${group ? ' group-start' : ''}${isText ? ' text' : ''}`;
+      return isText
+        ? `<div class="${cls}"><span>${escapeHtml(label)}</span><b>${display}</b></div>`
+        : `<div class="${cls}"><b>${display}</b><span>${escapeHtml(label)}</span></div>`;
+    });
+
+  // The one number nobody could get without doing the subtraction by hand,
+  // and the one the ticket is usually about: how many green squares this
+  // account has that no completion ever paid for. Only rendered when the two
+  // lifetime totals actually differ, so an ordinary account is unchanged.
+  const squares = Number(profileData.totalGreenSquares);
+  const comps = Number(profileData.totalHabitCompletions);
+  if (Number.isFinite(squares) && Number.isFinite(comps) && squares > comps) {
+    items.push(`<div class="stat gap"><b>+${squares - comps}</b><span>squares with no completion</span></div>`);
+  }
+  return items.length ? `<div class="stats">${items.join('')}</div>` : '';
 }
 
 // Status filter-chip rows for the two collections it's actually useful to
@@ -1422,79 +1474,70 @@ function renderFilterChips(sectionId) {
 // not creation order or alphabetical.
 const QUADRANT_ORDER = { doFirst: 0, schedule: 1, delegate: 2, eliminate: 3 };
 
-// The account's own "did they do their habits on this day" view, for ANY
-// day, not only today.
-//
-// fetchAccount.js builds the answer with habitScheduledOnParts (the exact
-// scheduling rule the app itself uses) rather than a raw count of every
-// habit that exists, so a habit that wasn't due that day (wrong weekday,
-// not created yet, already archived) never counts against them. This is the
-// FIRST tab in the report (see buildReportBody) precisely so an admin
-// opening any account lands on "what actually happened" before anything
-// else, and the stepper at the top of it is how they walk backwards through
-// the history without leaving the tab.
+/**
+ * The account's own "did they do their habits on this day" view, for ANY
+ * day, not only today.
+ *
+ * fetchAccount.js builds the answer with habitScheduledOnParts (the exact
+ * scheduling rule the app itself uses) rather than a raw count of every
+ * habit that exists, so a habit that wasn't due that day never counts
+ * against them - and, since summarizeHabitDay unions that with every habit
+ * that left a trace, one that WAS marked while off schedule still appears
+ * instead of vanishing. This is the FIRST tab in the report (see
+ * buildReportBody) precisely so an admin opening any account lands on "what
+ * actually happened" before anything else, and the stepper at the top of it
+ * is how they walk backwards through the history without leaving the tab.
+ *
+ * The card is three numbers and a table. It used to be a 54px ring, a
+ * restatement of the ring in words, a restatement of the date, a 113-word
+ * amber paragraph ASSERTING what the three records said, and then a row per
+ * habit with the same paragraph re-stated per habit in slightly different
+ * words. None of that ever printed a single one of the three records'
+ * actual values, which is the one thing a support question needs.
+ */
 function renderDayCard({
   dayKey, isToday, habitRows, mood, nightReviewDone, reflection, triage, rooms,
-  taskDayKey, xp, gold, hasDoc, todayKey, writeNote,
+  taskDayKey, xp, gold, hasDoc, todayKey, writeNote, habitCtx, summary,
+  offSchedule, mirrorFor, notesFor,
 }) {
+  // Older callers (and the tests) still hand over bare rows with no summary
+  // beside them, so derive the same three numbers from the rows themselves
+  // rather than requiring every caller to change at once.
+  const sum = summary || {
+    done: habitRows.filter((h) => h.rewarded).length,
+    roomGreens: habitRows.filter((h) => h.roomCounts).length,
+    gridOnly: habitRows.filter((h) => h.verdict === 'grid_only').length,
+    undone: habitRows.filter((h) => h.verdict === 'undone').length,
+  };
   const total = habitRows.length;
-  const done = habitRows.filter((h) => h.done).length;
-  const pctClass = total === 0 ? 'zero' : done === total ? 'full' : done === 0 ? 'none' : 'partial';
 
-  // A row says which of the three records it came from, because "done" and
-  // "paid for" are not the same claim - see readHabitDay. Falls back to the
-  // old two-state rendering for any caller still passing bare rows.
-  const VERDICT_MARK = {
-    completed: '&#9989;',
-    undone: '&#8617;&#65039;',
-    grid_only: '&#128994;',
-    marked: '&#128993;',
-    none: '&#11036;',
-  };
-  const rowNote = (h) => {
-    if (h.verdict === 'grid_only') {
-      return '<div class="today-habit-note warn">Green square, no completion. The person marked it; the app did not credit it. No XP, no gold, no streak, and Today shows it unchecked. Rooms read the square, so Rooms count it.</div>';
-    }
-    if (h.verdict === 'undone') {
-      const back = h.receipt
-        ? ` Receipt outstanding: ${h.receipt.xp} XP and ${h.receipt.gold} gold taken back.`
-        : '';
-      const still = h.roomCounts
-        ? ' The Grid square is still green, so Rooms keep counting it.'
-        : '';
-      return `<div class="today-habit-note undo">Completed, then un-marked.${escapeHtml(back)}${still}</div>`;
-    }
-    if (h.verdict === 'completed' && h.roomCounts === false) {
-      return '<div class="today-habit-note warn">Completion recorded but the Grid square is not green, so Rooms do not count it.</div>';
-    }
-    return '';
-  };
-  const habitsHtml = total === 0
-    ? `<p class="muted">No habits were scheduled ${isToday ? 'today' : 'that day'}.</p>`
-    : '<div class="today-habits">' + habitRows.map((h) => `
-        <div class="today-habit${h.done ? ' done' : ''}">
-          <span>${VERDICT_MARK[h.verdict] || (h.done ? '&#9989;' : '&#11036;')}</span>
-          <span>${h.emoji}</span>
-          <span class="today-habit-name">${escapeHtml(h.name)}</span>
-          ${h.count > 1 ? `<span class="today-habit-count">×${h.count}</span>` : ''}
-        </div>
-        ${rowNote(h)}
-      `).join('') + '</div>';
+  // The one line that appears only when the records disagree, in the same
+  // two tones the calendar's day panel already used: loud when a mark was
+  // not credited for a reason nobody chose, calm when it is the designed
+  // behaviour. The card used to have only the loud one, and then printed
+  // "by design" inside it.
+  const why = [
+    sum.gridOnly ? `${sum.gridOnly === 1 ? 'One habit is' : `${sum.gridOnly} habits are`} green with no completion written` : '',
+    sum.undone ? `${sum.undone} ${sum.undone === 1 ? 'was' : 'were'} completed and then un-marked` : '',
+  ].filter(Boolean).join(', and ');
+  const disagrees = sum.gridOnly > 0 || sum.undone > 0;
+  const calm = /filled in after the fact/.test(writeNote || '');
+  const tally = renderDayTally({
+    scheduled: total,
+    paid: sum.done,
+    roomCounted: sum.roomGreens,
+    why: disagrees
+      ? `${why}. A Room reads the square; XP, gold and the streak read the completion, so the two report different numbers for this day.${writeNote ? ' ' + writeNote : ''}`
+      : '',
+    calm,
+  });
 
-  // The ring counts green squares; this says how many of them were actually
-  // paid for. Only rendered when they disagree, so an ordinary day is
-  // unchanged.
-  const paid = habitRows.filter((h) => h.rewarded).length;
-  const unpaid = habitRows.filter((h) => h.done && !h.rewarded).length;
-  const dayWarn = unpaid > 0
-    ? `<div class="day-warn">
-        <b>Marked ${done} of ${total}. Completions recorded: ${paid}.</b>
-        Those are two different records, and they disagree here.
-        ${unpaid === 1 ? 'One square is' : `${unpaid} squares are`} green because the person tapped
-        ${unpaid === 1 ? 'it' : 'them'}, but the app never wrote a completion, so
-        ${unpaid === 1 ? 'it' : 'they'} earned no XP, no gold and no streak, and Today still shows
-        ${unpaid === 1 ? 'it' : 'them'} unchecked. A Room reads the SQUARE, so the Room counts this
-        day as done while this account's own XP does not.${writeNote ? ` ${writeNote}` : ''}</div>`
+  const ledger = renderRecordLedger(habitRows, { habitCtx, mirrorFor, notesFor });
+
+  // Named with the reason, rather than dropped in silence.
+  const off = (offSchedule && offSchedule.length)
+    ? `<div class="offsched"><b>Not in the table above</b><ul>${offSchedule.map((o) =>
+        `<li>${escapeHtml(o.name)}: ${escapeHtml(o.why)}${o.marked ? ', but it was marked that day' : ''}</li>`).join('')}</ul></div>`
     : '';
 
   const rows = [
@@ -1507,26 +1550,26 @@ function renderDayCard({
   ].join('');
 
   // The board, in the four states an admin actually asks about. This used to
-  // be two flat lists: "completed today", and "still open" — where "still
+  // be two flat lists: "completed today", and "still open" - where "still
   // open" meant every open task the account had ever made, newest last,
   // truncated at eight. Which is to say the two questions that matter most,
   // what is LATE and what is COMING, were the two you could not answer.
-  const taskCol = (key, label, tone, rows, empty, showWhen) => {
-    const items = rows.length
-      ? rows.slice(0, 12).map((r) => {
-          const t = r.data;
-          const q = QUADRANT_META[t.quadrant];
-          const when = showWhen ? showWhen(r) : '';
-          return `<div class="tk">
-            <span class="tk-dot" style="background:${q ? q.color : 'var(--text-tert)'}"
-                  title="${q ? escapeHtml(q.label) : ''}"></span>
-            <span class="tk-title">${escapeHtml(t.title || '(untitled task)')}</span>
-            ${when ? `<span class="tk-when">${escapeHtml(when)}</span>` : ''}
-          </div>`;
-        }).join('')
-        + (rows.length > 12
-            ? `<div class="tk-more">+${rows.length - 12} more</div>` : '')
-      : `<div class="tk-empty">${escapeHtml(empty)}</div>`;
+  //
+  // The bold count in each column head is the empty state. Four columns each
+  // carrying their own sentence about having nothing in them was four lines
+  // of grey text saying what four zeroes already said.
+  const taskCol = (key, label, tone, rows, showWhen) => {
+    const items = rows.map((r) => {
+      const t = r.data;
+      const q = QUADRANT_META[t.quadrant];
+      const when = showWhen ? showWhen(r) : '';
+      return `<div class="tk">
+        <span class="tk-dot" style="background:${q ? q.color : 'var(--text-tert)'}"
+              title="${q ? escapeHtml(q.label) : ''}"></span>
+        <span class="tk-title">${escapeHtml(t.title || '(untitled task)')}</span>
+        ${when ? `<span class="tk-when">${escapeHtml(when)}</span>` : ''}
+      </div>`;
+    }).join('');
     return `<div class="tcol tone-${tone}">
       <div class="tcol-head"><span>${escapeHtml(label)}</span><b>${rows.length}</b></div>
       <div class="tcol-body">${items}</div>
@@ -1539,84 +1582,82 @@ function renderDayCard({
   const anchorKey = taskDayKey || dayKey;
   const [ay, am, ad] = anchorKey.split('-').map(Number);
   const anchorUtc = Date.UTC(ay, am - 1, ad);
-  const dayDiff = (d) => {
+  const dayDiff = (d, verb) => {
     if (!d) return '';
     const days = Math.round(
       (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - anchorUtc) / 86400000);
-    if (days === 0) return 'that day';
-    if (days === 1) return 'next day';
-    if (days > 1) return `+${days}d`;
-    return `${-days}d earlier`;
+    if (days === 0) return `${verb} that day`;
+    if (days === 1) return `${verb} next day`;
+    if (days > 1) return `${verb} in ${days}d`;
+    return `${verb} ${-days}d earlier`;
   };
 
-  const board = `<div class="tboard">
-    ${taskCol('late', 'Late', 'late', triage.late,
-        'Nothing overdue.',
-        (r) => dayDiff(toJsDate(r.data.createdAt)))}
-    ${taskCol('today', isToday ? 'Today' : 'Added that day', 'today', triage.today,
-        'Nothing added that day.')}
-    ${taskCol('upcoming', 'Upcoming', 'upcoming', triage.upcoming,
-        'Nothing scheduled ahead.',
-        (r) => dayDiff(r.reminder))}
-    ${taskCol('done', isToday ? 'Done today' : 'Finished that day', 'done', triage.done,
-        'Nothing finished.')}
-  </div>
-  ${triage.noDate.length ? `<div class="tk-more" style="margin-top:8px;">${triage.noDate.length} open task${triage.noDate.length === 1 ? '' : 's'} with no creation date, not shown above</div>` : ''}
-  ${isToday ? '' : '<div class="tk-more" style="margin-top:8px;">Rebuilt from each task\'s own created/completed timestamps. A task that was deleted since leaves no record, so it cannot appear here.</div>'}`;
+  const anyTasks = triage.late.length + triage.today.length
+    + triage.upcoming.length + triage.done.length > 0;
+  const board = anyTasks
+    ? `<div class="tboard">
+    ${taskCol('late', 'Carried over', 'late', triage.late, (r) => dayDiff(toJsDate(r.data.createdAt), 'made'))}
+    ${taskCol('today', 'Added', 'today', triage.today)}
+    ${taskCol('upcoming', 'Upcoming', 'upcoming', triage.upcoming, (r) => dayDiff(r.reminder, 'reminder'))}
+    ${taskCol('done', 'Finished', 'done', triage.done)}
+  </div>`
+    : '<p class="muted">No tasks on this day.</p>';
+  const boardNotes = `${triage.noDate.length ? `<div class="tk-more">${triage.noDate.length} open task${triage.noDate.length === 1 ? '' : 's'} with no creation date, not shown above</div>` : ''}
+  ${isToday ? '' : '<div class="tk-more">Rebuilt from each task\'s own timestamps. A task deleted since leaves no trace.</div>'}`;
 
   const roomsHtml = rooms.length
     ? '<div class="today-rooms">' + rooms.map((r) => `
         <div class="today-room${r.allDone ? ' done' : ''}">
-          <span>${r.allDone ? '✅' : '⬜'}</span>
+          <span>${r.known === false ? '·' : r.allDone ? '✅' : '⬜'}</span>
           <span class="today-room-name">${escapeHtml(r.name)}</span>
-          ${r.muted ? '<span class="muted" style="margin-inline-start:auto;">muted</span>' : ''}
+          ${r.code ? `<span class="rm-code">${escapeHtml(r.code)}</span>` : ''}
+          <span class="rm-note${r.known === false ? '' : ' stale'}" style="margin-inline-start:auto;">${
+            r.known === false
+              ? 'the room stores one all-done flag, and it is not about this day'
+              : r.allDone ? 'the room counted this day as done' : 'the room did not count this day'
+          }</span>
+          ${r.muted ? '<span class="muted">muted</span>' : ''}
         </div>
       `).join('') + '</div>'
-    : '<p class="muted">Not in any rooms.</p>';
-
-  const when = isToday ? 'today' : 'that day';
-  const title = total === 0
-    ? `No habits scheduled ${when}`
-    : done === total
-      ? (isToday ? 'All done for today' : 'Everything done')
-      : `${done} of ${total} habit${total === 1 ? '' : 's'} done ${when}`;
+    : '<p class="muted">No rooms.</p>';
 
   const pretty = fmtDate(new Date(`${dayKey}T12:00:00Z`)) || dayKey;
   const canGoForward = !todayKey || dayKey < todayKey;
+  // Printed only when the two days differ, which is the only time it tells
+  // anyone anything. It used to sit on every day, which is how a reader
+  // ended up with two different dates on one screen and no idea why.
+  const taskNote = (taskDayKey && taskDayKey !== dayKey)
+    ? `<span class="h3-note warn">calendar day ${escapeHtml(taskDayKey)}, not the habit day ${escapeHtml(dayKey)}</span>`
+    : '';
 
   return `<div class="day-body">
     <div class="day-stepper" data-day="${escapeHtml(dayKey)}"${todayKey ? ` data-today="${escapeHtml(todayKey)}"` : ''}>
-      <button type="button" class="btn step" data-step="-1" title="Previous day">‹</button>
-      <input type="date" id="dayPick" value="${escapeHtml(dayKey)}"${todayKey ? ` max="${escapeHtml(todayKey)}"` : ''}>
-      <button type="button" class="btn step" data-step="1" title="Next day"${canGoForward ? '' : ' disabled'}>›</button>
-      <button type="button" class="btn" data-step="today"${isToday ? ' disabled' : ''}>Today</button>
-      <span class="day-stepper-label">${escapeHtml(pretty)}${isToday ? ' <b>· today</b>' : ''}</span>
+      <!-- Which day this is has to stay on the page even when the controls
+           for changing it do not. lookup_user.js writes a standalone file
+           with no server behind it, so REPORT_SCRIPT hides .day-controls
+           rather than the whole bar: hiding the bar took the date with it and
+           left a saved report that never said which day it was about. -->
+      <span class="day-stepper-label">${escapeHtml(pretty)}${isToday ? ' <b>· today</b>' : ''}${hasDoc ? '' : ' · nothing was logged'}</span>
+      <span class="day-controls">
+        <button type="button" class="btn step" data-step="-1" title="Previous day">‹</button>
+        <input type="date" id="dayPick" value="${escapeHtml(dayKey)}"${todayKey ? ` max="${escapeHtml(todayKey)}"` : ''}>
+        <button type="button" class="btn step" data-step="1" title="Next day"${canGoForward ? '' : ' disabled'}>›</button>
+        <button type="button" class="btn" data-step="today"${isToday ? ' disabled' : ''}>Today</button>
+      </span>
       <span class="day-stepper-spin" hidden>loading…</span>
     </div>
-    <div class="today-hero">
-      <div class="today-hero-top">
-        <div class="today-ring today-${pctClass}">${total === 0 ? '—' : `${done}/${total}`}</div>
-        <div>
-          <div class="today-hero-title">${escapeHtml(title)}</div>
-          <div class="today-hero-date">${escapeHtml(dayKey)}${hasDoc ? '' : ' · nothing was logged'}</div>
-        </div>
-      </div>
-      ${dayWarn}
-      ${habitsHtml}
-    </div>
-    <h3>Tasks <span class="h3-note">calendar day ${escapeHtml(taskDayKey || dayKey)}</span></h3>
+    ${tally}
+    ${ledger}
+    ${LEDGER_LEGEND}
+    ${off}
+    <h3>Tasks ${taskNote}</h3>
     ${board}
-    <h3>Mood &amp; reflection</h3>
+    ${boardNotes}
+    <h3>Mood and reflection</h3>
     <div class="detail-rows">${rows}</div>
     <h3>Rooms</h3>
     ${roomsHtml}
   </div>`;
-}
-
-/// Today, specifically. Kept so nothing that already asks for a "today card"
-/// has to know about the stepper; renderDayCard is the same view for any day.
-function renderTodayCard(opts) {
-  return renderDayCard({ ...opts, dayKey: opts.todayKey, isToday: true });
 }
 
 // Builds the {title, nav, body} pieces for one account's report - shared by
@@ -1629,35 +1670,30 @@ function renderTodayCard(opts) {
 // document to scroll through; a non-empty search still reveals every
 // section at once (see REPORT_SCRIPT's applyFilters), so nothing becomes
 // harder to find because of this.
-function buildReportBody({ uid, authRecord, profileData, sections, todaySummary, dayKey, isToday }) {
+function buildReportBody({ uid, authRecord, profileData, sections }) {
   const title = authRecord?.email || profileData?.displayName || uid;
-  const nav = sections.map((s) =>
-    `<button type="button" class="tab-btn" data-target="${escapeHtml(s.id)}">${escapeHtml(s.label)}${s.count !== undefined ? ` <span class="tab-count"${s.id === 'today' ? ' id="dayTabCount"' : ''}>${s.count}</span>` : ''}</button>`
-  ).join('');
+  // The Day tab's count goes amber when that day's three records disagree,
+  // so an admin stepping through a month sees which days are worth opening
+  // without opening them. REPORT_SCRIPT's loadDay keeps it in step after
+  // every later switch; this is the first paint.
+  const nav = sections.map((s) => {
+    const isDay = s.id === 'today';
+    const cls = `tab-count${isDay && s.disagree ? ' gap' : ''}`;
+    const count = s.count !== undefined
+      ? ` <span class="${cls}"${isDay ? ' id="dayTabCount"' : ''}>${s.count}</span>` : '';
+    return `<button type="button" class="tab-btn" data-target="${escapeHtml(s.id)}">${escapeHtml(s.label)}${count}</button>`;
+  }).join('');
+  // The <h2> repeated its own tab button, 30px above it, on every section.
+  // It stays in the DOM for the document outline and for a screen reader,
+  // and .sr-only lifts it back into view whenever a search reveals several
+  // sections at once, which is the only moment it distinguishes anything.
   const sectionsHtml = sections.map((s) => `
     <section id="${escapeHtml(s.id)}">
-      <h2>${escapeHtml(s.label)}${s.count !== undefined ? ` <span class="count"${s.id === 'today' ? ' id="dayHeadCount"' : ''}>${s.count}</span>` : ''}</h2>
+      <h2 class="sr-only">${escapeHtml(s.label)}</h2>
       ${renderFilterChips(s.id)}
       ${s.html}
     </section>
   `).join('\n');
-
-  // Named after the day actually being shown, not always "today". Opening a
-  // report from an activity-feed row lands on ?day=<that day>, so this is the
-  // common path into the page rather than an edge case, and a past day
-  // labelled "Today" is a page that states a false fact in its loudest
-  // element. The day stepper keeps this in step on every later switch (see
-  // REPORT_SCRIPT's loadDay); this is the first paint.
-  const pillClass = !todaySummary || todaySummary.total === 0
-    ? 'zero'
-    : todaySummary.done === todaySummary.total
-      ? 'full'
-      : todaySummary.done === 0 ? 'none' : 'partial';
-  const dayIsToday = isToday !== false;
-  const pillWhen = dayIsToday ? 'Today' : (dayKey || 'That day');
-  const pillText = !todaySummary || todaySummary.total === 0
-    ? `No habits scheduled ${dayIsToday ? 'today' : 'on ' + (dayKey || 'that day')}`
-    : `${pillWhen}: ${todaySummary.done}/${todaySummary.total} done`;
 
   // Who this is, kept in the sticky bar rather than scrolled off the top.
   //
@@ -1666,6 +1702,13 @@ function buildReportBody({ uid, authRecord, profileData, sections, todaySummary,
   // section you no longer knew whose data you were reading. On a tool whose
   // whole purpose is opening one account after another, that is the one
   // thing that should never leave the screen.
+  //
+  // The "Today: 3/4 done" pill that used to sit at the end of this line is
+  // gone. It stated the same fraction as the Day tab's own count 20px to its
+  // left, and as the tally at the top of the card below, and as the ring
+  // inside that. Six statements of one number before the first habit name.
+  // The tab count survives because it is the one that stays visible from
+  // every other tab.
   const who = profileData?.displayName
     ? escapeHtml(profileData.displayName)
     : escapeHtml(authRecord?.email || uid);
@@ -1679,7 +1722,6 @@ function buildReportBody({ uid, authRecord, profileData, sections, todaySummary,
       <button type="button" class="uid-copy" data-copy="${escapeHtml(uid)}" title="Copy this uid">
         <span class="uid">${escapeHtml(uid)}</span><span class="uid-copy-ico">⧉</span>
       </button>
-      <div class="today-pill today-${pillClass}" id="dayPill">${escapeHtml(pillText)}</div>
     </div>
   `;
   return { title, nav, header, stats: renderHighlights(profileData), body: sectionsHtml };
@@ -1958,7 +2000,6 @@ const BASE_STYLES = `
   .uid-copy .uid { font-family: var(--mono); font-size: 10.5px; }
   .uid-copy-ico { font-size: 10px; opacity: 0.7; }
   .uid-copy.copied { border-color: var(--success); color: var(--success); }
-  .idline .today-pill { margin: 0; margin-inline-start: auto; }
 
   .toolbar-row { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
   input[type="text"], input[type="search"] { flex: 1; min-width: 160px; padding: 9px var(--s4); border: 1px solid var(--border); border-radius: var(--r-md); font-size: 13.5px; background: var(--surface); color: var(--text); font-family: inherit; }
@@ -2097,8 +2138,6 @@ const BASE_STYLES = `
     .topbar { padding-top: var(--s2); }
     .idline { margin: var(--s1) 0 var(--s2); }
     .idline-name { font-size: 15.5px; }
-    .idline .today-pill { margin-inline-start: 0; }
-    #expandAll, #collapseAll { display: none; }
     .toolbar-row input[type="search"] { padding: var(--s2) var(--s3); }
     nav.toc { margin-top: var(--s2); }
   }
@@ -2135,14 +2174,9 @@ const BASE_STYLES = `
   .tab-btn.active .tab-count.gap { color: var(--accent-ink); }
 
   /* Today pill (header) + Today hero card (first tab) - see
-     renderTodayCard/buildReportBody. Answers "did this account do their
+     buildReportBody. Answers "did this account do their
      habits today" at a glance, using the app's own scheduling rule
      (habitScheduledOnParts), not a raw habit count. */
-  .today-pill { display: inline-block; padding: 4px 12px; border-radius: 100px; font-size: 12px; font-weight: 700; margin: 8px 0 2px; }
-  .today-pill.today-full { background: var(--success-soft); color: var(--success); }
-  .today-pill.today-partial { background: var(--warn-soft); color: var(--warn); }
-  .today-pill.today-none { background: var(--danger-soft); color: var(--danger); }
-  .today-pill.today-zero { background: var(--bg); color: var(--text-tert); border: 1px solid var(--border); }
 
   /* =====================================================================
      THE TALLY and THE LEDGER
@@ -2260,30 +2294,11 @@ const BASE_STYLES = `
   .rmday tr.disagree td.rm-mine, .rmday tr.disagree td.rm-theirs { background: var(--warn-soft); color: var(--warn); }
   .rm-code { font-family: var(--mono); font-size: var(--t-1); color: var(--text-tert); margin-inline-start: var(--s2); }
   .rm-note { color: var(--text-sec); font-size: var(--t-2); }
-  .rm-note.stale { color: var(--warn); }
+  .rm-note.stale { color: var(--text-sec); }
 
   .raw-maps { margin-top: var(--s6); }
   .raw-maps > summary { font-size: var(--t-2); color: var(--text-sec); cursor: pointer; }
 
-  .today-hero { border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 4px; background: var(--surface); }
-  .today-hero-top { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
-  .today-ring { width: 54px; height: 54px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; border: 3px solid var(--border); flex-shrink: 0; }
-  .today-ring.today-full { border-color: var(--success); color: var(--success); }
-  .today-ring.today-partial { border-color: var(--accent); color: var(--accent); }
-  .today-ring.today-none { border-color: var(--danger-line); color: var(--danger); }
-  .today-ring.today-zero { border-color: var(--border); color: var(--text-tert); }
-  .today-hero-title { font-weight: 700; font-size: 15px; }
-  .today-hero-date { color: var(--text-sec); font-size: 12px; margin-top: 1px; }
-  .today-habits { display: flex; flex-direction: column; gap: 4px; }
-  .today-habit { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; font-size: 13px; }
-  .today-habit.done { background: var(--accent-soft); }
-  .today-habit-name { flex: 1; unicode-bidi: isolate; }
-  /* Hangs under its own .today-habit row: indented past the two glyph
-     columns so it reads as that row's footnote, not as another habit. */
-  .today-habit-note { font-size: 11.5px; line-height: 1.5; padding: 0 8px 6px 34px; margin-top: -4px; }
-  .today-habit-note.warn { color: var(--warn); }
-  .today-habit-note.undo { color: var(--undo); }
-  .today-habit-count { color: var(--text-tert); font-size: 11.5px; }
   .today-rooms { display: flex; flex-direction: column; gap: 4px; }
   .today-room { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
   .today-room.done { border-color: var(--success); }
@@ -2373,13 +2388,23 @@ const BASE_STYLES = `
      The control that turns the report's first tab from "today" into "any
      day". Sticky under the toolbar because it is the thing you keep
      reaching for while reading the day below it. */
-  .day-stepper { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); margin-bottom: 12px; }
+  /* Sticky under the top bar, so walking back through a month keeps the
+     controls that do the walking on screen. --topbar-h is measured by
+     REPORT_SCRIPT on load and on resize; the token's literal is the
+     no-JS fallback. */
+  .day-stepper { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); margin-bottom: 12px; position: sticky; top: var(--topbar-h); z-index: 10; }
+  /* On an ar_BH machine this native control printed its date in Arabic-Indic
+     digits beside a Latin-digit label six inches away on the same row. */
+  .day-stepper input[type="date"] { direction: ltr; }
+  .day-controls { display: inline-flex; align-items: center; gap: var(--s3); margin-inline-start: auto; }
   .day-stepper input[type="date"] { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; background: var(--bg); color: var(--text); font-family: inherit; }
   .day-stepper .btn.step { min-width: 34px; font-size: 15px; line-height: 1; padding: 8px 10px; }
   .day-stepper .btn:disabled { opacity: 0.4; cursor: default; }
   .day-stepper .btn:disabled:hover { background: var(--surface); border-color: var(--border); }
-  .day-stepper-label { font-size: 12.5px; color: var(--text-sec); margin-inline-start: auto; }
-  .day-stepper-label b { color: var(--accent); font-weight: 700; }
+  /* The date now LEADS the bar rather than trailing it, and reads as the
+     heading it is: it is the one fact the whole card is about. */
+  .day-stepper-label { font-size: var(--t-4); font-weight: 650; color: var(--text); }
+  .day-stepper-label b { color: var(--text); font-weight: 700; }
   .day-stepper-spin { font-size: 12px; color: var(--text-tert); }
   .day-body.loading { opacity: 0.45; transition: opacity 0.12s; }
 
@@ -2515,7 +2540,7 @@ const BASE_STYLES = `
      uses, shrunk to a table cell so a whole roster reads at a glance. */
   .mini-ring { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; padding: 2px 8px; border-radius: 100px; font-size: 11.5px; font-weight: 700; border: 1.5px solid var(--border); color: var(--text-tert); font-variant-numeric: tabular-nums; }
   .mini-ring.today-full { border-color: var(--success-line); color: var(--success); background: var(--success-soft); }
-  .mini-ring.today-partial { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .mini-ring.today-partial { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
   .mini-ring.today-none { border-color: var(--danger-line); color: var(--danger); }
   .online-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); margin-inline-end: 6px; vertical-align: 1px; }
 `;
@@ -2530,9 +2555,8 @@ const BASE_STYLES = `
 // obvious why it matched instead of just appearing blank.
 const REPORT_SCRIPT = `
 (function () {
-  var expandAll = document.getElementById('expandAll');
-  var collapseAll = document.getElementById('collapseAll');
   var search = document.getElementById('search');
+  var searchCount = document.getElementById('searchCount');
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab-btn'));
   var sections = Array.prototype.slice.call(document.querySelectorAll('section[id]'));
 
@@ -2540,12 +2564,11 @@ const REPORT_SCRIPT = `
     return Array.prototype.slice.call(document.querySelectorAll('details'));
   }
 
-  if (expandAll) expandAll.addEventListener('click', function () {
-    allDetails().forEach(function (d) { d.open = true; });
-  });
-  if (collapseAll) collapseAll.addEventListener('click', function () {
-    allDetails().forEach(function (d) { d.open = false; });
-  });
+  // The top bar's "Expand all" and "Collapse all" are gone. Expand all was
+  // also the one click that could lay the document out two million pixels
+  // wide (see renderValue's LONG_VALUE_CHARS), and neither button had an
+  // answer to "expand all of WHAT" now that one tab is visible at a time.
+  // The dashboard keeps its own pair; only the report page drops them.
 
   // ---- Tabs: exactly one section visible at a time in normal browsing.
   function setActiveTab(id) {
@@ -2574,15 +2597,25 @@ const REPORT_SCRIPT = `
     });
   });
 
-  // ---- Combined visibility: a .doc shows only if it matches BOTH the
-  // current search text and its own section's chip filter (if that
-  // section has one and it isn't "All"). A non-empty search also forces
-  // every section visible, ignoring the active tab, so a match outside
-  // the current tab is never silently hidden.
+  // ---- Search IS the navigation.
+  //
+  // It used to walk only details.doc cards, which meant the box promising to
+  // "search everything on this page" could not see the Day tab, the calendar,
+  // a reflection, a mood or a room: typing a word that was visibly on screen
+  // returned nothing, with no message. It also revealed all ten sections at
+  // once and switched every tab off, so the page went from 1373px to 6035px
+  // tall and you lost the ability to navigate at the moment you were looking
+  // for something.
+  //
+  // Now: sections with no hit stay hidden, their tabs dim rather than die,
+  // every matching card is opened and ringed, and the count beside the box
+  // says how much was found and where.
   var items = allDetails().filter(function (d) { return d.classList.contains('doc'); });
   function applyFilters() {
     var q = search ? search.value.trim().toLowerCase() : '';
     document.body.classList.toggle('searching', !!q);
+
+    // Chip filters are independent of the search and always apply.
     items.forEach(function (el) {
       var parentSection = el.closest('section[id]');
       var scope = parentSection ? parentSection.id : null;
@@ -2591,8 +2624,40 @@ const REPORT_SCRIPT = `
       var textOk = !q || el.textContent.toLowerCase().indexOf(q) !== -1;
       var show = statusOk && textOk;
       el.hidden = !show;
+      el.classList.toggle('hit', !!q && show);
       if (show && q) el.open = true;
     });
+
+    if (!q) {
+      sections.forEach(function (s) { s.classList.remove('has-hits'); });
+      tabs.forEach(function (t) { t.classList.remove('no-hits'); });
+      if (searchCount) searchCount.textContent = '';
+      return;
+    }
+
+    // A section counts as a hit if any visible card in it matched, or, for a
+    // section that has no cards at all (the Day tab, the calendar), if its
+    // own text contains the term.
+    var hitSections = 0, hitItems = 0;
+    sections.forEach(function (s) {
+      var cards = Array.prototype.slice.call(s.querySelectorAll('details.doc'));
+      var n = cards.filter(function (c) { return !c.hidden; }).length;
+      var has = cards.length
+        ? n > 0
+        : s.textContent.toLowerCase().indexOf(q) !== -1;
+      hitItems += n;
+      if (has) hitSections += 1;
+      s.classList.toggle('has-hits', has);
+      tabs.forEach(function (t) {
+        if (t.getAttribute('data-target') === s.id) t.classList.toggle('no-hits', !has);
+      });
+    });
+    if (searchCount) {
+      searchCount.textContent = hitSections === 0
+        ? 'Nothing on this page matches "' + q + '"'
+        : (hitItems ? hitItems + ' match' + (hitItems === 1 ? '' : 'es') + ' in ' : 'found in ')
+          + hitSections + ' section' + (hitSections === 1 ? '' : 's');
+    }
   }
   if (search) search.addEventListener('input', applyFilters);
   applyFilters();
@@ -2626,6 +2691,18 @@ const REPORT_SCRIPT = `
     });
   }
 
+  // ---- The sticky day stepper has to sit exactly under the sticky top bar,
+  // and the top bar's height depends on whether the tab strip wrapped, which
+  // depends on the window. Measured rather than guessed.
+  var topbar = document.querySelector('.topbar');
+  if (topbar && window.ResizeObserver) {
+    var syncTopbar = function () {
+      document.documentElement.style.setProperty('--topbar-h', topbar.offsetHeight + 'px');
+    };
+    syncTopbar();
+    new ResizeObserver(syncTopbar).observe(topbar);
+  }
+
   // ---- Copy buttons (the uid in the top bar, each document's id).
   // Delegated so ids inside sections rendered later, or a day card swapped
   // in by the stepper, work without rebinding.
@@ -2657,7 +2734,9 @@ const REPORT_SCRIPT = `
   // rather than sitting there as a control that silently does nothing.
   var reportUid = document.body.getAttribute('data-uid');
   if (!reportUid) {
-    Array.prototype.forEach.call(document.querySelectorAll('.day-stepper'), function (el) {
+    // Standalone file: nothing to ask for another day, so the controls go
+    // and the date they were labelling stays.
+    Array.prototype.forEach.call(document.querySelectorAll('.day-controls'), function (el) {
       el.hidden = true;
     });
   } else {
@@ -2682,18 +2761,12 @@ const REPORT_SCRIPT = `
         .then(function (d) {
           if (d.error) throw new Error(d.error);
           body.outerHTML = d.html;
-          ['dayTabCount', 'dayHeadCount'].forEach(function (id) {
-            var el = document.getElementById(id);
-            if (el) el.textContent = d.done + '/' + d.total;
-          });
-          var pill = document.getElementById('dayPill');
-          if (pill) {
-            var cls = d.total === 0 ? 'zero'
-              : d.done === d.total ? 'full' : d.done === 0 ? 'none' : 'partial';
-            pill.className = 'today-pill today-' + cls;
-            pill.textContent = d.total === 0
-              ? 'No habits scheduled ' + (d.isToday ? 'today' : 'that day')
-              : (d.isToday ? 'Today: ' : d.dayKey + ': ') + d.done + '/' + d.total + ' done';
+          var tabCount = document.getElementById('dayTabCount');
+          if (tabCount) {
+            tabCount.textContent = d.done + '/' + d.total;
+            // Amber on the tab itself when the day's records disagree, so a
+            // step onto a bad day is visible without reading the card.
+            tabCount.classList.toggle('gap', !!d.disagree);
           }
           // Keep the address bar honest, so a reload or a shared link opens
           // the day being looked at instead of jumping back to today.
@@ -2756,7 +2829,7 @@ const REPORT_SCRIPT = `
 // standalone file), adds a small "back to search" link up top.
 function pageShell({ title, nav, header, stats, body, backHref, uid }) {
   return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <!-- Without this the browser lays the page out at a virtual desktop width
@@ -2771,7 +2844,7 @@ function pageShell({ title, nav, header, stats, body, backHref, uid }) {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<title>GrowDaily — ${escapeHtml(title)}</title>
+<title>GrowDaily: ${escapeHtml(title)}</title>
 <style>${BASE_STYLES}</style>
 </head>
 <body${uid ? ` data-uid="${escapeHtml(uid)}"` : ''}>
@@ -2779,9 +2852,8 @@ function pageShell({ title, nav, header, stats, body, backHref, uid }) {
     ${backHref ? `<a class="back-link" href="${escapeHtml(backHref)}">← Dashboard</a>` : ''}
     ${header}
     <div class="toolbar-row">
-      <input id="search" type="search" placeholder="Search everything on this page…">
-      <button class="btn" id="expandAll">Expand all</button>
-      <button class="btn" id="collapseAll">Collapse all</button>
+      <input id="search" type="search" placeholder="Search this account…">
+      <span id="searchCount"></span>
     </div>
     <div class="toc-wrap"><nav class="toc">${nav}</nav></div>
   </div>
@@ -2790,7 +2862,7 @@ function pageShell({ title, nav, header, stats, body, backHref, uid }) {
 
   ${body}
 
-  <p class="generated">Generated ${new Date().toLocaleString()}</p>
+  ${backHref ? '' : `<p class="generated">Snapshot taken ${new Date().toLocaleString()}. This is a saved file, not a live view.</p>`}
 
 <script>${REPORT_SCRIPT}</script>
 </body>
@@ -2814,6 +2886,7 @@ module.exports = {
   triageTasksForDay,
   earliestReminder,
   habitScheduledOnParts,
+  whyNotScheduled,
   dayKeyParts,
   dayHeatLevel,
   renderCalendarSection,
@@ -2830,6 +2903,7 @@ module.exports = {
   renderRecordLedger,
   LEDGER_LEGEND,
   habitLabel,
+  habitLabelParts,
   dayWriteContext,
   DAY_CUTOFF_HOUR,
   renderUndoneSection,
@@ -2839,7 +2913,6 @@ module.exports = {
   renderTaskDetail,
   renderDailyDetail,
   renderDocDetail,
-  renderTodayCard,
   renderDayCard,
   QUADRANT_ORDER,
   buildHabitContext,

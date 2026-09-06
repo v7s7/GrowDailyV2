@@ -68,7 +68,43 @@ void registerRoomReactions(
 
       final myUid = ref.read(authStateProvider).asData?.value?.uid;
       final prevByUid = {for (final p in prevList) p.uid: p};
-      final todayKey = DateTime.now().effectiveDay.toDateKey();
+      final today = DateTime.now().effectiveDay;
+      final todayKey = today.toDateKey();
+
+      // The team room's own moment: the day just became a team day, because
+      // the last person finished while you were looking. Checked BEFORE the
+      // per-member loop so it is one event, not one per teammate. If the
+      // finisher was you, your own confetti is already in the air from the
+      // habit tap, so only the line is shown; for anyone else it gets the
+      // bigger burst, since this is the win the room is for.
+      if (room.competeMode == RoomCompeteMode.team && room.isLive) {
+        final wonBefore =
+            room.teamDayResult(todayKey, today, prevList) == true;
+        final wonNow = room.teamDayResult(todayKey, today, nextList) == true;
+        if (wonNow && !wonBefore) {
+          final me = nextList.where((p) => p.uid == myUid).firstOrNull;
+          final meBefore = myUid == null ? null : prevByUid[myUid];
+          final iFlippedIt = me != null &&
+              meBefore != null &&
+              me.isFullyDone(todayKey) &&
+              !meBefore.isFullyDone(todayKey);
+          HapticFeedback.heavyImpact();
+          if (!iFlippedIt) {
+            final size = MediaQuery.of(context).size;
+            showVictoryBurst(
+              context,
+              Offset(size.width / 2, size.height * 0.3),
+              particleCount: 24,
+            );
+          }
+          _showRoomReactionSnackBar(
+            context,
+            icon: Icons.groups_rounded,
+            color: GameColors.gold,
+            text: S.of(context).roomTeamDayWon,
+          );
+        }
+      }
 
       for (final p in nextList) {
         // Your own completion already gets its own confetti from

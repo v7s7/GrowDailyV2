@@ -82,6 +82,63 @@ void main() {
     });
   });
 
+  group('the offer card', () {
+    // Reported from a device: "it should show a clear that the message of the
+    // apple health". The title used to say "link it to your steps?" and left
+    // the person to find out at Save which app was meant, which is also what
+    // made the OS permission sheet arrive as a surprise.
+    test('the title names the store, per platform', () {
+      expect(ar.stepLinkTitle(true), contains('Apple Health'));
+      expect(en.stepLinkTitle(true), contains('Apple Health'));
+      expect(ar.stepLinkTitle(false), contains('Health Connect'));
+      expect(en.stepLinkTitle(false), contains('Health Connect'));
+      expect(ar.stepLinkTitle(true), isNot(contains('Health Connect')));
+      expect(ar.stepLinkTitle(false), isNot(contains('Apple')));
+    });
+
+    test('the switch being on promises the permission sheet, and says why', () {
+      // The switch grants nothing by itself. An OS sheet arriving two taps
+      // later with nothing having announced it gets dismissed by reflex, and
+      // on iOS it is shown exactly once, ever.
+      for (final s in [ar, en]) {
+        for (final editing in [true, false]) {
+          expect(s.stepLinkAskNext(editing), isNotEmpty);
+        }
+        expect(s.stepLinkAskNext(true), isNot(s.stepLinkAskNext(false)),
+            reason: 'saving and creating are different next taps');
+      }
+      expect(ar.stepLinkAskNext(false), contains('الإذن'));
+      expect(en.stepLinkAskNext(false), contains('permission'));
+    });
+
+    test('the second step repeats the link above the Create button', () {
+      expect(ar.stepLinkRecap(6000), contains('6000'));
+      expect(en.stepLinkRecap(6000), contains('6000'));
+      expect(ar.stepLinkRecap(6000), isNot(en.stepLinkRecap(6000)));
+    });
+
+    test('every line of the card is answered in both languages', () {
+      for (final pair in [
+        (ar.stepLinkTitle(true), en.stepLinkTitle(true)),
+        (ar.stepLinkBody(true), en.stepLinkBody(true)),
+        (ar.stepLinkBody(false), en.stepLinkBody(false)),
+        (ar.stepLinkAskNext(false), en.stepLinkAskNext(false)),
+        (ar.stepLinkRecap(3000), en.stepLinkRecap(3000)),
+      ]) {
+        expect(pair.$1, isNotEmpty);
+        expect(pair.$2, isNotEmpty);
+        expect(pair.$1, isNot(pair.$2));
+      }
+    });
+
+    test('the body names the store its platform actually reads', () {
+      expect(ar.stepLinkBody(false), contains('Health Connect'));
+      expect(en.stepLinkBody(false), contains('Health Connect'));
+      expect(ar.stepLinkBody(true), isNot(contains('Health Connect')));
+      expect(en.stepLinkBody(true), contains('Apple Watch'));
+    });
+  });
+
   group('the custom goal control', () {
     test('the fourth choice is named, not a number', () {
       // It sits beside 3000 / 6000 / 10000, so it has to read as "type your

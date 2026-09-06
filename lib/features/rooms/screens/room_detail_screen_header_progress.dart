@@ -185,47 +185,107 @@ class _RoomHeaderCard extends StatelessWidget {
 /// widget is actually built — kept as an explicit check anyway (rather
 /// than assumed) so this file still reads correctly on its own, without
 /// having to trust the call site got the gating right.
-class _TeamProgressCard extends ConsumerWidget {
+/// The hero of a team room (RoomCompeteMode.team): today's roster, the
+/// team streak, the days won together, and the next milestone with its
+/// prize. Replaces the old team card, whose one bonus asked for every
+/// member perfect over the whole room and was never paid in practice; the
+/// rules it draws are RoomTeamProgress's team-day rules.
+///
+/// Faces first, on purpose. The daily question in a team room is "who is
+/// still to go", and a row of avatars with a green tick answers it before
+/// any number does. Under it, one status line, then the numbers.
+///
+/// Renders for an ended room too (the milestones stay claimable after the
+/// end), minus the today line, which has nothing to say once the last day
+/// is final.
+class _TeamDayCard extends ConsumerWidget {
   final RoomModel room;
   final List<RoomParticipant> participants;
   final RoomParticipant? mine;
-  const _TeamProgressCard({
+  const _TeamDayCard({
     required this.room,
     required this.participants,
     required this.mine,
   });
 
-  /// Flat per-participant reward for [RoomCompeteMode.team]'s one-time
-  /// bonus (see RoomsController.claimTeamBonus) — same ballpark as Weekly
-  /// Challenge's 200-350 XP / 50-100 gold rewards, deliberately not scaled
-  /// by room length/size to keep the first version simple; easy to tune
-  /// later if a longer room's "everyone, every day" feels like it deserves
-  /// more than a short one.
-  static const int _teamBonusXp = 150;
-  static const int _teamBonusGold = 75;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
-    final ratio = room.teamProgressRatio(participants);
-    final completed = room.teamDaysCompleted(participants);
-    final possible = room.teamMaxPossibleDays(participants);
-    final allDoneToday = room.isLive && room.teamCompletedToday(participants);
+    final today = room.lastCountedDay;
+    final todayKey = today.toDateKey();
+    final counted = [
+      for (final p in participants)
+        if (room.memberCountsOn(p, todayKey, today)) p,
+    ];
+    final waiting = [
+      for (final p in counted)
+        if (!p.isFullyDone(todayKey)) p,
+    ];
+    final wonToday = counted.isNotEmpty && waiting.isEmpty;
+    final streak = room.teamStreak(participants);
+    final days = room.teamDays(participants);
+    final ratio =
+        days.counted == 0 ? 0.0 : (days.won / days.counted).clamp(0.0, 1.0);
     final pct = (ratio * 100).round();
 
-    final isTeamMode = room.competeMode == RoomCompeteMode.team;
-    final isPerfect = isTeamMode && room.teamIsPerfect(participants);
-    final claimed = mine?.teamBonusClaimed ?? false;
+    // Milestones, for THIS member: the first unclaimed one is either
+    // reached (claimable) or the next target. teamBestStreakWith is the
+    // tenure guard; see its doc comment.
+    final me = mine;
+    final best = me == null ? 0 : room.teamBestStreakWith(me, participants);
+    final mine_ = me == null ? 0 : room.teamStreakWith(me, participants);
+    final claims = me?.teamStreakClaims ?? const <int>[];
+    int? claimable;
+    int? next;
+    for (final m in RoomTeamProgress.teamMilestones) {
+      if (claims.contains(m)) continue;
+      if (best >= m) {
+        claimable = m;
+      } else {
+        next = m;
+      }
+      break;
+    }
+    final lastClaimed =
+        claims.isEmpty ? null : claims.reduce((a, b) => a > b ? a : b);
+
+    // The ranked list already hides blocked members; the roster does the
+    // same so a person someone blocked is not smiling at them from here.
+    final blocked = ref.watch(blockedMembersProvider);
+    final roster = [
+      for (final p in participants)
+        if (!blocked.contains(p.uid)) p,
+    ];
+
+    final String? statusText;
+    final Color statusColor;
+    if (!room.isLive || counted.isEmpty) {
+      statusText = null;
+      statusColor = gp.textSec;
+    } else if (wonToday) {
+      statusText = s.roomTeamDayWon;
+      statusColor = GameColors.emerald;
+    } else if (waiting.length == counted.length) {
+      statusText = s.roomTeamNobodyYet;
+      statusColor = GameColors.gold;
+    } else if (waiting.length == 1) {
+      statusText = s.roomTeamWaitingOn(waiting.single.displayName);
+      statusColor = GameColors.gold;
+    } else {
+      statusText = s.roomTeamWaitingCount(waiting.length);
+      statusColor = GameColors.gold;
+    }
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: allDoneToday ? GameColors.emerald.withOpacity(0.08) : gp.surface,
+        color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
         border: Border.all(
-          color:
-              allDoneToday ? GameColors.emerald.withOpacity(0.35) : gp.border,
+          color: wonToday && room.isLive
+              ? GameColors.emerald.withOpacity(0.35)
+              : gp.border,
           width: 0.5,
         ),
       ),
@@ -234,105 +294,130 @@ class _TeamProgressCard extends ConsumerWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.groups_rounded, size: 16, color: GameColors.gold),
-              const SizedBox(width: 6),
+              Icon(Icons.groups_rounded, size: 18, color: GameColors.gold),
+              const SizedBox(width: 8),
               Expanded(
-                child: Text(s.roomTeamProgressTitle,
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: gp.textPrimary)),
-              ),
-              Text('$pct%',
+                child: Text(
+                  s.roomTeamDayTitle,
                   style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: GameColors.gold)),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: GameColors.gold.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.local_fire_department_rounded,
+                        size: 14, color: GameColors.gold),
+                    const SizedBox(width: 4),
+                    Text(
+                      s.roomTeamStreakPill(streak),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: GameColors.gold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 10),
-          XpBar(progress: ratio),
-          const SizedBox(height: 8),
-          Text(
-            s.roomTeamProgressDays(completed, possible),
-            style: TextStyle(
-                fontSize: 11.5, fontWeight: FontWeight.w600, color: gp.textSec),
+          const SizedBox(height: 12),
+          _FacesRow(
+            room: room,
+            roster: roster,
+            meUid: me?.uid,
+            todayKey: todayKey,
+            today: today,
           ),
-          if (allDoneToday) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(Icons.check_circle_rounded,
-                    size: 15, color: GameColors.emerald),
-                const SizedBox(width: 5),
-                Text(
-                  s.roomTeamAllDoneToday,
-                  style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                      color: GameColors.emerald),
-                ),
-              ],
-            ),
-          ],
-          if (isTeamMode) ...[
-            const SizedBox(height: 10),
-            Divider(height: 1, color: gp.border),
-            const SizedBox(height: 10),
-            if (!isPerfect)
-              Row(
+          if (statusText != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: statusColor.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+              ),
+              child: Row(
                 children: [
-                  Icon(Icons.toll_rounded, size: 14, color: GameColors.gold),
+                  Icon(
+                    wonToday
+                        ? Icons.check_circle_rounded
+                        : Icons.schedule_rounded,
+                    size: 15,
+                    color: statusColor,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      s.roomTeamBonusHint(_teamBonusXp, _teamBonusGold),
+                      statusText,
                       style: TextStyle(
-                          fontSize: 11.5, color: gp.textSec, height: 1.35),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: statusColor,
+                      ),
                     ),
                   ),
                 ],
-              )
-            else if (!claimed && mine != null)
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    HapticFeedback.mediumImpact();
-                    ref
-                        .read(roomsControllerProvider)
-                        .claimTeamBonus(
-                          room.code,
-                          mine!,
-                          xp: _teamBonusXp,
-                          gold: _teamBonusGold,
-                        )
-                        .ignore();
-                  },
-                  icon: const Icon(Icons.card_giftcard_rounded, size: 16),
-                  label: Text(s.roomTeamBonusClaimAction),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(42),
-                    backgroundColor: GameColors.gold,
-                    foregroundColor: Colors.black,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  s.roomTeamDaysWon(days.won, days.counted),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: gp.textSec,
                   ),
                 ),
-              )
-            else if (claimed)
-              Row(
-                children: [
-                  Icon(Icons.check_circle_rounded,
-                      size: 15, color: GameColors.emerald),
-                  const SizedBox(width: 6),
-                  Text(
-                    s.roomTeamBonusClaimedLabel,
-                    style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: GameColors.emerald),
-                  ),
-                ],
               ),
+              Text(
+                '$pct%',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: GameColors.gold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          XpBar(progress: ratio),
+          if (me != null) ...[
+            const SizedBox(height: 12),
+            Divider(height: 1, color: gp.border),
+            const SizedBox(height: 10),
+            _MilestoneRow(
+              claimable: claimable,
+              next: next,
+              lastClaimed: lastClaimed,
+              current: mine_,
+              onClaim: claimable == null
+                  ? null
+                  : () {
+                      HapticFeedback.mediumImpact();
+                      ref
+                          .read(roomsControllerProvider)
+                          .claimTeamStreakBonus(room.code, me, claimable!)
+                          .ignore();
+                    },
+            ),
           ],
         ],
       ),
@@ -340,6 +425,209 @@ class _TeamProgressCard extends ConsumerWidget {
         .animate()
         .fadeIn(duration: 300.ms)
         .slideY(begin: 0.05, end: 0, curve: Curves.easeOut);
+  }
+}
+
+/// One face on the team card: the member's character (or a silhouette
+/// initial when their character is unknown), ringed green with a tick once
+/// today is done, plain while they are still to go, dimmed when today asks
+/// nothing of them (stood down, or not yet joined by then).
+class _RosterFace extends StatelessWidget {
+  final RoomParticipant participant;
+  final bool done;
+  final bool excused;
+  final bool isYou;
+
+  /// Avatar only, 36pt and no name under it, for a list row that names the
+  /// person itself (the members sheet).
+  final bool compact;
+  const _RosterFace({
+    required this.participant,
+    required this.done,
+    required this.excused,
+    required this.isYou,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final character = CharacterCatalog.findById(participant.characterId);
+    final accessory = AccessoryCatalog.findById(participant.accessoryId);
+    final ring = done
+        ? GameColors.emerald
+        : excused
+            ? gp.border
+            : gp.textTert;
+    final name = participant.displayName.trim();
+    final s = S.of(context);
+    final shown = isYou ? s.roomYouLabel : name;
+    final size = compact ? 36.0 : 48.0;
+    final avatar = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: gp.surfaceHL,
+            shape: BoxShape.circle,
+            border: Border.all(color: ring, width: done ? 2 : 1.5),
+          ),
+          clipBehavior: Clip.antiAlias,
+          alignment: Alignment.bottomCenter,
+          child: character == null
+              ? Center(
+                  child: Text(
+                    name.isEmpty ? '?' : name.characters.first,
+                    style: TextStyle(
+                      fontSize: compact ? 13 : 15,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                )
+              : CharacterAvatar(
+                  character: character,
+                  accessory: accessory,
+                  height: compact ? 33 : 44,
+                ),
+        ),
+        if (done)
+          PositionedDirectional(
+            bottom: -2,
+            end: -2,
+            child: Container(
+              width: compact ? 15 : 18,
+              height: compact ? 15 : 18,
+              decoration: BoxDecoration(
+                color: GameColors.emerald,
+                shape: BoxShape.circle,
+                border: Border.all(color: gp.surface, width: 2),
+              ),
+              child: Icon(Icons.check_rounded,
+                  size: compact ? 9 : 11, color: Colors.black),
+            ),
+          ),
+      ],
+    );
+    return Semantics(
+      // The tick and the ring are the whole message, and neither speaks.
+      label: '$shown، ${done ? s.roomFaceDone : excused ? s.roomFaceExcused : s.roomFaceWaiting}',
+      excludeSemantics: true,
+      child: Opacity(
+        opacity: excused ? 0.55 : 1,
+        child: compact
+            ? avatar
+            : SizedBox(
+                width: 56,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    avatar,
+                    const SizedBox(height: 5),
+                    Text(
+                      shown,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: isYou ? FontWeight.w700 : FontWeight.w500,
+                        color: done ? gp.textPrimary : gp.textSec,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+/// The card's last row: the next milestone and its prize, a Claim button
+/// the moment one is reached, and "every reward claimed" once the three
+/// are gone. One row for all three states so the card never jumps height
+/// when a milestone lands.
+class _MilestoneRow extends StatelessWidget {
+  final int? claimable;
+  final int? next;
+  final int? lastClaimed;
+
+  /// This member's current run (RoomTeamProgress.teamStreakWith), which is
+  /// what the next milestone is counted down from.
+  final int current;
+  final VoidCallback? onClaim;
+  const _MilestoneRow({
+    required this.claimable,
+    required this.next,
+    required this.lastClaimed,
+    required this.current,
+    required this.onClaim,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final String title;
+    final String sub;
+    if (claimable != null) {
+      final prize = RoomTeamProgress.teamMilestonePrize(claimable!);
+      title = s.roomTeamMilestoneReached(claimable!);
+      sub = s.roomTeamMilestonePrize(prize.xp, prize.gold);
+    } else if (next != null) {
+      final prize = RoomTeamProgress.teamMilestonePrize(next!);
+      title = lastClaimed == null
+          ? s.roomTeamNextMilestone(next!)
+          : s.roomTeamMilestoneClaimed(lastClaimed!);
+      final toGo = (next! - current).clamp(1, next!);
+      sub = lastClaimed == null
+          ? '${s.roomTeamDaysToGo(toGo)}. ${s.roomTeamMilestonePrize(prize.xp, prize.gold)}'
+          : '${s.roomTeamNextMilestone(next!)}. ${s.roomTeamMilestonePrize(prize.xp, prize.gold)}';
+    } else {
+      title = s.roomTeamAllMilestonesDone;
+      sub = s.roomTeamMilestoneClaimed(lastClaimed ?? 30);
+    }
+    return Row(
+      children: [
+        Icon(Icons.card_giftcard_rounded, size: 20, color: GameColors.gold),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                sub,
+                style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.3),
+              ),
+            ],
+          ),
+        ),
+        if (onClaim != null) ...[
+          const SizedBox(width: 10),
+          FilledButton(
+            onPressed: onClaim,
+            style: FilledButton.styleFrom(
+              backgroundColor: GameColors.gold,
+              foregroundColor: GameColors.onGold,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+            ),
+            child: Text(s.roomTeamClaimAction),
+          ),
+        ],
+      ],
+    );
   }
 }
 
@@ -579,6 +867,7 @@ class _MyPlanCard extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final today = DateTime.now().effectiveDay.toDateKey();
+    final collapsed = ref.watch(roomPlanCollapsedProvider);
     final todayCount = mine.dailyDoneCount[today] ?? 0;
     // Not linkedHabitIds.length - a habit with its own weekday schedule
     // that isn't scheduled today shouldn't inflate "how many were due"
@@ -741,8 +1030,24 @@ class _MyPlanCard extends ConsumerWidget {
                         .ignore();
                   },
                 ),
+              // Folds the card to this status line (remembered on the
+              // device): the habits and week lines are detail once you know
+              // your plan; the line is what you check.
+              _PlanIconButton(
+                icon: collapsed
+                    ? Icons.keyboard_arrow_down_rounded
+                    : Icons.keyboard_arrow_up_rounded,
+                color: gp.textTert,
+                tooltip:
+                    collapsed ? s.roomTeamRankingShow : s.roomTeamRankingHide,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setRoomPlanCollapsed(ref, !collapsed);
+                },
+              ),
             ],
           ),
+          if (!collapsed) ...[
           // Index-aware rather than a filtered copy of the names: each
           // chip's POSITION is what maps it back to its shared-plan slot,
           // which is exactly what the skipped/withdrawn states and the
@@ -904,6 +1209,7 @@ class _MyPlanCard extends ConsumerWidget {
             const SizedBox(height: 10),
             _NewHabitBanner(room: room, mine: mine),
           ],
+          ],
           // The add-habit and show/hide rows that used to live here are the
           // two icon buttons on the header row above.
         ],
@@ -1010,6 +1316,528 @@ class _PlanIconButton extends StatelessWidget {
             child: Icon(icon, size: 18, color: color),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Today in a competitive room, in faces: who has finished and who is
+/// still to go. The same _RosterFace the Team Day card uses, so the two
+/// modes read the day the same way; here it sits above the ranked list
+/// rather than replacing it, because the race is still the point.
+/// Public (not underscored) so a widget test can pump it with a fake
+/// roster: the room screen needs a live Firestore stream.
+class RoomTodayCard extends ConsumerWidget {
+  final RoomModel room;
+  final List<RoomParticipant> participants;
+  final RoomParticipant? mine;
+  const RoomTodayCard({
+    super.key,
+    required this.room,
+    required this.participants,
+    required this.mine,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final today = room.lastCountedDay;
+    final todayKey = today.toDateKey();
+    final blocked = ref.watch(blockedMembersProvider);
+    final roster = [
+      for (final p in participants)
+        if (!blocked.contains(p.uid)) p,
+    ];
+    final counted = [
+      for (final p in roster)
+        if (room.memberCountsOn(p, todayKey, today)) p,
+    ];
+    final done = counted.where((p) => p.isFullyDone(todayKey)).length;
+    final allDone = counted.isNotEmpty && done == counted.length;
+    // Folds to its header line on a tap (remembered on the device): the
+    // count stays readable either way, the faces are the detail.
+    final collapsed = ref.watch(roomTodayCollapsedProvider);
+    return Material(
+      color: gp.surface,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        side: BorderSide(
+          color: allDone && room.isLive
+              ? GameColors.emerald.withOpacity(0.35)
+              : gp.border,
+          width: 0.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setRoomTodayCollapsed(ref, !collapsed);
+            },
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(14, 14, 14, collapsed ? 14 : 12),
+              child: Row(
+                children: [
+                  Icon(Icons.today_rounded, size: 16, color: gp.textSec),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      s.navToday,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: gp.textPrimary,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    s.roomTodayFinished(done, counted.length),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: allDone ? GameColors.emerald : gp.textSec,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Semantics(
+                    label: collapsed
+                        ? s.roomTeamRankingShow
+                        : s.roomTeamRankingHide,
+                    child: Icon(
+                      collapsed
+                          ? Icons.keyboard_arrow_down_rounded
+                          : Icons.keyboard_arrow_up_rounded,
+                      size: 18,
+                      color: gp.textTert,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (!collapsed)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: _FacesRow(
+                room: room,
+                roster: roster,
+                meUid: mine?.uid,
+                todayKey: todayKey,
+                today: today,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// How many faces a card draws in its one row.
+const int kRoomFacesPerRow = 5;
+
+/// Everyone when they fit the row; otherwise one fewer than a row, and the
+/// last slot counts the rest. Public for the test.
+({int shown, int hidden}) roomFacesSplit(int count,
+    {int perRow = kRoomFacesPerRow}) {
+  if (count <= perRow) return (shown: count, hidden: 0);
+  return (shown: perRow - 1, hidden: count - (perRow - 1));
+}
+
+/// Today's faces in ONE row. Past [kRoomFacesPerRow] the last slot becomes
+/// a +N circle and the row opens a sheet with everyone. A second row of
+/// faces was the card growing to fit the room rather than the reader
+/// (Aziz, 2026-09-06); the sheet is where a big room's full list lives.
+class _FacesRow extends StatelessWidget {
+  final RoomModel room;
+  final List<RoomParticipant> roster;
+  final String? meUid;
+  final String todayKey;
+  final DateTime today;
+  const _FacesRow({
+    required this.room,
+    required this.roster,
+    required this.meUid,
+    required this.todayKey,
+    required this.today,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final split = roomFacesSplit(roster.length);
+    final shown = roster.take(split.shown).toList();
+    final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final (i, p) in shown.indexed) ...[
+          if (i > 0) const SizedBox(width: 8),
+          _RosterFace(
+            participant: p,
+            done: p.isFullyDone(todayKey),
+            excused: !room.memberCountsOn(p, todayKey, today),
+            isYou: p.uid == meUid,
+          ),
+        ],
+        if (split.hidden > 0) ...[
+          const SizedBox(width: 8),
+          _MoreFacesCircle(count: split.hidden),
+        ],
+      ],
+    );
+    if (split.hidden == 0) return row;
+    return Semantics(
+      button: true,
+      label: s.roomFacesMore(split.hidden),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          showTodayMembersSheet(
+            context,
+            room: room,
+            roster: roster,
+            meUid: meUid,
+            todayKey: todayKey,
+            today: today,
+          );
+        },
+        child: row,
+      ),
+    );
+  }
+}
+
+/// The +N slot at the end of a full faces row.
+class _MoreFacesCircle extends StatelessWidget {
+  final int count;
+  const _MoreFacesCircle({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: 56,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: gp.surfaceHL,
+                shape: BoxShape.circle,
+                border: Border.all(color: gp.textTert, width: 1.5),
+              ),
+              child: Text(
+                '+$count',
+                textDirection: TextDirection.ltr,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: gp.textPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              s.roomFacesAll,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: gp.textSec),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Everyone in the room and where they stand today, for rooms too big for
+/// one row of faces.
+Future<void> showTodayMembersSheet(
+  BuildContext context, {
+  required RoomModel room,
+  required List<RoomParticipant> roster,
+  required String? meUid,
+  required String todayKey,
+  required DateTime today,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    useSafeArea: true,
+    builder: (_) => _TodayMembersSheet(
+      room: room,
+      roster: roster,
+      meUid: meUid,
+      todayKey: todayKey,
+      today: today,
+    ),
+  );
+}
+
+class _TodayMembersSheet extends StatelessWidget {
+  final RoomModel room;
+  final List<RoomParticipant> roster;
+  final String? meUid;
+  final String todayKey;
+  final DateTime today;
+  const _TodayMembersSheet({
+    required this.room,
+    required this.roster,
+    required this.meUid,
+    required this.todayKey,
+    required this.today,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final counted = [
+      for (final p in roster)
+        if (room.memberCountsOn(p, todayKey, today)) p,
+    ];
+    final done = counted.where((p) => p.isFullyDone(todayKey)).length;
+    final maxHeight = MediaQuery.of(context).size.height * 0.8;
+    return Container(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      decoration: BoxDecoration(
+        color: gp.surfaceHigh,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 4),
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+            child: Row(
+              children: [
+                Icon(Icons.today_rounded, size: 18, color: gp.textSec),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    s.navToday,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                ),
+                Text(
+                  s.roomTodayFinished(done, counted.length),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textSec,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
+              itemCount: roster.length,
+              separatorBuilder: (_, __) => Divider(height: 1, color: gp.border),
+              itemBuilder: (context, i) {
+                final p = roster[i];
+                final isDone = p.isFullyDone(todayKey);
+                final excused = !room.memberCountsOn(p, todayKey, today);
+                final status = isDone
+                    ? s.roomFaceDone
+                    : excused
+                        ? s.roomFaceExcused
+                        : s.roomFaceWaiting;
+                final color = isDone
+                    ? GameColors.emerald
+                    : excused
+                        ? gp.textTert
+                        : gp.textSec;
+                final name =
+                    p.uid == meUid ? s.roomYouLabel : p.displayName.trim();
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Row(
+                    children: [
+                      _RosterFace(
+                        participant: p,
+                        done: isDone,
+                        excused: excused,
+                        isYou: p.uid == meUid,
+                        compact: true,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: gp.textPrimary,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        status,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A live room with one member in it. The code IS the screen: shown big,
+/// with Copy and Share, the same two actions the create sheet offered a
+/// moment ago, because the first thing a leader does after creating a room
+/// is realise nobody is in it yet.
+/// Public (not underscored) so a widget test can pump it on its own: the
+/// room screen needs a live Firestore stream, and this card is the only
+/// part of it a one-member room shows that the shared-room trace cannot
+/// reach.
+class RoomInviteCard extends StatelessWidget {
+  final RoomModel room;
+  const RoomInviteCard({super.key, required this.room});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        border: Border.all(color: GameColors.gold.withOpacity(0.35), width: 0.75),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.group_add_rounded, size: 18, color: GameColors.gold),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.roomSoloTitle,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            s.roomShareCode,
+            style: TextStyle(fontSize: 12, color: gp.textSec, height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: GameColors.gold.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+              border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+            ),
+            child: Text(
+              room.code,
+              textAlign: TextAlign.center,
+              // The code is Latin letters either way; pinned LTR so Arabic
+              // shaping never reorders it.
+              textDirection: TextDirection.ltr,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 4,
+                color: GameColors.gold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    Clipboard.setData(ClipboardData(text: room.code));
+                    ScaffoldMessenger.of(context).showOne(
+                      SnackBar(content: Text(s.roomCodeCopied)),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: Text(s.roomCopyAction),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                    foregroundColor: GameColors.gold,
+                    side: BorderSide(color: GameColors.gold.withOpacity(0.55)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    ShareService.shareText(
+                      context,
+                      s.roomShareMessage(room.name, room.code),
+                    );
+                  },
+                  icon: const Icon(Icons.ios_share_rounded, size: 16),
+                  label: Text(s.roomShareAction),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                    backgroundColor: GameColors.gold,
+                    foregroundColor: GameColors.onGold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

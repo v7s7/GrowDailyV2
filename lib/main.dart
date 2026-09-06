@@ -27,6 +27,8 @@ import 'core/providers/first_run_offer_provider.dart';
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/room_finale_seen_provider.dart';
 import 'core/providers/weekly_recap_collapsed_provider.dart';
+import 'core/providers/room_rows_view_provider.dart';
+import 'core/providers/room_cards_collapse_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/bahrain_prayer_table.dart';
 import 'core/services/analytics_service.dart';
@@ -238,6 +240,9 @@ Future<void> main() async {
     final persistedRoomFinaleSeen = await loadPersistedRoomFinaleSeen();
     final persistedAppGuideBadgeSeen = await loadPersistedAppGuideBadgeSeen();
     final persistedRecapCollapsed = await loadPersistedWeeklyRecapCollapsed();
+    final persistedRoomRowsCompact = await loadPersistedRoomRowsCompact();
+    final persistedRoomTodayCollapsed = await loadPersistedRoomTodayCollapsed();
+    final persistedRoomPlanCollapsed = await loadPersistedRoomPlanCollapsed();
     // Whether this device has already been asked "want to see how it works?".
     // See resolveFirstRunOfferAsked for why this derives from the onboarding
     // flag rather than defaulting, and for the test that covers it.
@@ -280,6 +285,9 @@ Future<void> main() async {
         roomFinaleSeenProvider.overrideWith((ref) => persistedRoomFinaleSeen),
         appGuideBadgeSeenProvider.overrideWith((ref) => persistedAppGuideBadgeSeen),
         weeklyRecapCollapsedProvider.overrideWith((ref) => persistedRecapCollapsed),
+        roomRowsCompactProvider.overrideWith((ref) => persistedRoomRowsCompact),
+        roomTodayCollapsedProvider.overrideWith((ref) => persistedRoomTodayCollapsed),
+        roomPlanCollapsedProvider.overrideWith((ref) => persistedRoomPlanCollapsed),
         firstRunOfferAskedProvider.overrideWith((ref) => persistedFirstRunOfferAsked),
         premiumProvider.overrideWith((ref) => PremiumNotifier(
               initial: persistedPremium,

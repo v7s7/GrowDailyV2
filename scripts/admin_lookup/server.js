@@ -1402,6 +1402,10 @@ app.get('/api/account/:uid/day/:dateKey', async (req, res) => {
     const day = await loadDayFragment(uid, authRecord, req.params.dateKey);
     res.json({
       html: day.html, done: day.done, total: day.total,
+      // The room-counted greens travel with the fragment so the Day tab's
+      // own count can go amber the moment a step lands on a day whose
+      // records disagree, without a second request.
+      roomGreens: day.roomGreens, disagree: day.disagree,
       dayKey: day.dayKey, isToday: day.isToday, todayKey: day.todayKey,
     });
   } catch (e) {
