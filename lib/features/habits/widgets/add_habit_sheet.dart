@@ -10,7 +10,8 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/game_constants.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
-import '../../../core/l10n/reminder_copy.dart';
+import '../../../core/providers/alarm_choice_provider.dart';
+import '../../../core/services/alarm_service.dart';
 import '../../../core/services/device_location_service.dart';
 import '../../../core/services/health_steps_service.dart';
 import '../../../core/services/notification_service.dart';
@@ -40,7 +41,10 @@ import '../notifiers/newly_added_habit_provider.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import 'habit_color_picker.dart';
 import 'habit_offset_sheet.dart';
+import '../../matrix/widgets/custom_offset_sheet.dart' show formatOffsetVerbose;
 import '../../../shared/widgets/app_snackbar.dart';
+import '../../../shared/widgets/overlay_notice.dart';
+import '../../../shared/widgets/reminder_style_choice.dart';
 
 part 'add_habit_sheet_small_widgets.dart';
 
@@ -238,6 +242,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// chooses to keep it.
   bool _ignoreQuietHours = false;
 
+  /// Notification or alarm, see IslamicHabitTemplate.alarm. Off until the
+  /// person picks alarm AND the platform grants it; see [_setAlarm].
+  bool _alarm = false;
+
   // ── Reminder offset — signed minutes from the resolved time/prayer
   // moment to when the notification actually fires: negative = before,
   // 0 = on time, positive = after. Only meaningful for Time/Prayer modes
@@ -275,22 +283,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   List<int> get _allReminderOffsets =>
       ({_reminderOffset, ..._extraOffsets}.toList()..sort());
 
-  /// Which direction the number chips currently mean.
-  ///
-  /// Seeded from the habit's own shifts rather than hardcoded, for the reason
-  /// the Tasks picker documents at length: a habit built entirely out of
-  /// "after" shifts that reopened on قبل showed an empty-looking grid with
-  /// every chip it actually had hiding in the other tab. Ties and a plain
-  /// "on time" go to قبل, because a reminder about something almost always
-  /// wants to arrive ahead of it.
-  late bool _offsetIsAfter = _seedOffsetDirection();
-
-  bool _seedOffsetDirection() {
-    final shifts = _allReminderOffsets.where((o) => o != 0);
-    if (shifts.isEmpty) return false;
-    return shifts.every((o) => !o.isNegative);
-  }
-
   /// Why the last chip tap did nothing, shown inline under the grid.
   ///
   /// Inline rather than a SnackBar for the same reason the Tasks picker gives:
@@ -309,15 +301,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       if (mounted) setState(() => _offsetNotice = null);
     });
   }
-
-  /// Whether the offset chip grid is open. Collapsed by default: the
-  /// default shift is "on time", most habits keep it, and six chips plus a
-  /// section label were a third of step-When's surface serving a choice
-  /// most people never make. Collapsed, the section is just the resolved
-  /// preview line plus one worded affordance to open the chips; it seeds
-  /// open when editing a habit that actually carries a shift, so an
-  /// existing choice is never hidden behind a control that looks unset.
-  bool _offsetExpanded = false;
 
   // Where the confetti burst on submit fires from — see _submit().
   final GlobalKey _createButtonKey = GlobalKey();
@@ -414,11 +397,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       final storedOffset = existing.reminderOffsetMinutes;
       _reminderOffset = storedOffset;
       _extraOffsets = {...existing.extraReminderOffsets}..remove(storedOffset);
-      // Opens on its own for a habit that already carries a choice — a stack
-      // hidden behind a collapsed "Adjust reminder timing" line would read as
-      // if the extra reminders had not saved.
-      _offsetExpanded = storedOffset != 0 || _extraOffsets.isNotEmpty;
       _ignoreQuietHours = existing.ignoreQuietHours;
+      _alarm = existing.alarm;
       _category = _canonicalCategory(existing.category);
       _freqType = existing.frequencyType;
       _freqTarget = existing.frequencyTarget;
@@ -711,24 +691,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     }
   }
 
-  /// The signed value a number chip stands for, given the قبل/بعد toggle.
-  int _signedOffset(int magnitude) =>
-      _offsetIsAfter ? magnitude : -magnitude;
-
-  /// Shifts this habit carries that no chip on the CURRENT tab stands for —
-  /// a hand-typed 45, or an hours-scale one.
-  ///
-  /// Scoped to the visible direction, matching the Tasks grid: قبل and بعد
-  /// read as two tabs, so an "after" chip sitting under a selected قبل would
-  /// contradict the tab it is in. Anything in the other direction is still
-  /// scheduled and still named in the preview line below; switching tabs
-  /// brings it back into view.
-  List<int> get _unlistedOffsets => _allReminderOffsets
-      .where((o) => o != 0)
-      .where((o) => o.isNegative != _offsetIsAfter)
-      .where((o) => !kReminderOffsetPresets.contains(o.abs()))
-      .toList();
-
   /// Offset stacks compare as sets, same reasoning as [_sameWeekdays]: both
   /// sides are stored sorted, so this only ever differs from `==` for a
   /// legacy value, and answering "changed" for a reordering would write an
@@ -860,6 +822,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               // catalog never ships a live link, so there is no preset value
               // here for null to be confused with.
               stepGoal: stepGoal,
+              alarm: _alarm == catalogDefault.alarm ? null : _alarm,
               ignoreQuietHours:
                   _ignoreQuietHours == catalogDefault.ignoreQuietHours
                       ? null
@@ -890,6 +853,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         reminderOffsetMinutes: _effectiveReminderOffset,
         extraReminderOffsets: _effectiveExtraOffsets,
         ignoreQuietHours: _ignoreQuietHours,
+        alarm: _alarm,
         stepGoal: stepGoal,
         clearStepGoal: stepGoal == null,
       );
@@ -912,6 +876,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         reminderOffsetMinutes: _effectiveReminderOffset,
         extraReminderOffsets: _effectiveExtraOffsets,
         ignoreQuietHours: _ignoreQuietHours,
+        alarm: _alarm,
         stepGoal: stepGoal,
       );
       // Hand the Grid the new id so the board can scroll the row into view
@@ -1906,6 +1871,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         // reading it assumes. Reported from a two-time habit where the block
         // sat under the second row and read as belonging to it.
         if (!_isMultiTime && _filledTimes.isNotEmpty) _reminderOffsetSection(s),
+        // Several times a day keep their shift inside each row, but the
+        // alarm choice is about the habit, not one of its times, so it
+        // stays here, once, under the list.
+        if (_isMultiTime && _filledTimes.isNotEmpty) _reminderStyleRow(s),
       ],
     );
   }
@@ -2211,192 +2180,296 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// two-chip direction choice, each on its own full-width row so nothing
   /// can overflow on a narrow device) is the escape hatch, mirroring the
   /// LimitUnit.custom pattern elsewhere in this file.
-  Widget _reminderOffsetSection(S s) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 14),
-          // Collapsed (the default — see [_offsetExpanded]): the resolved
-          // preview line plus one worded affordance stand in for the whole
-          // chip grid. The quiet-hours warning below renders in BOTH
-          // states on purpose: a warning must never be behind a disclosure.
-          if (!_offsetExpanded) ...[
-            _reminderTimePreview(s),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() => _offsetExpanded = true);
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+  /// One row per reminder, each naming its shift and the clock time it
+  /// lands on today, then a row that adds another. Tapping a row opens the
+  /// offset sheet with that reminder loaded; the add row opens it empty.
+  /// The chip grid that used to sit here, first behind a link and then in
+  /// the open, was the busiest thing on the step for a choice most people
+  /// leave on «في الوقت»; a list is exactly as long as what was chosen
+  /// (Aziz, 2026-09-06).
+  ///
+  /// Free keeps one row: its add row wears a lock and opens the premium
+  /// gate, the same gate the chips used to send people to. A premium habit
+  /// at its cap keeps the row too, dimmed, and says why on tap.
+  Widget _reminderOffsetSection(S s) {
+    final settings = ref.watch(notificationSettingsProvider);
+    final anchor = _reminderAnchorTime(settings);
+    final offsets = _allReminderOffsets;
+    final gate = canAddHabitReminder(
+      current: offsets.length,
+      isPremium: ref.watch(premiumAccessProvider),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 14),
+        _SectionLabel(s.remindMeSection),
+        const SizedBox(height: 8),
+        for (final offset in offsets) ...[
+          _reminderRow(
+            s,
+            offset,
+            anchor: anchor,
+            removable: offsets.length > 1,
+          ),
+          const SizedBox(height: 6),
+        ],
+        _addReminderRow(s, locked: gate.locked, full: !gate.allowed),
+        _reminderLocationNotice(s),
+        if (_offsetNotice != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded,
+                    size: 13, color: context.gp.textTert),
+                const SizedBox(width: 6),
+                Expanded(
                   child: Text(
-                    s.adjustReminderTiming,
+                    _offsetNotice!,
                     style: TextStyle(
                       fontSize: 11.5,
-                      fontWeight: FontWeight.w800,
-                      color: GameColors.gold,
+                      fontWeight: FontWeight.w600,
+                      color: context.gp.textTert,
+                      height: 1.3,
                     ),
                   ),
                 ),
-              ),
-            ),
-          ] else ...[
-            _SectionLabel(s.remindMeSection),
-            // Says a grid that looks like every single-choice one in this app
-            // can hold more than one answer. Only for the tier that can act
-            // on it: on free the chips really are single-choice, and telling
-            // someone to pick several would be a promise the next tap breaks.
-            if (ref.watch(premiumAccessProvider)) ...[
-              const SizedBox(height: 2),
-              Text(
-                s.matrixExtraRemindersHint,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: context.gp.textTert.withOpacity(0.75),
-                ),
-              ),
-            ],
-            const SizedBox(height: 8),
-            // The same two-cell direction toggle the Tasks picker uses, above
-            // the same three-column number grid: both screens ask "how long
-            // before or after", and a person who has learned one should not
-            // have to learn the other.
-            _ChipGrid(
-              columns: 2,
-              items: [
-                _PlainChoiceChip(
-                  selected: !_offsetIsAfter,
-                  label: s.offsetBeforeLabel,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _offsetIsAfter = false);
-                  },
-                ),
-                _PlainChoiceChip(
-                  selected: _offsetIsAfter,
-                  label: s.offsetAfterLabel,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _offsetIsAfter = true);
-                  },
-                ),
               ],
             ),
-            const SizedBox(height: 8),
-            _ChipGrid(
-              columns: 3,
-              items: [
-                // "On time" belongs to neither direction, which is exactly
-                // why it is a chip rather than a third tab: it is the default
-                // every habit starts on, and burying the default inside a
-                // direction the user has to guess would be the wrong shape.
-                //
-                // It is also what makes a habit's grid different from a
-                // task's, where the anchor row is always a reminder in its
-                // own right. Here the shift IS the reminder, so 0 has to be
-                // selectable — and «قبل ١٥ د» on its own means the habit
-                // fires ONLY then, not then and again on the dot.
-                _PlainChoiceChip(
-                  selected: _allReminderOffsets.contains(0),
-                  label: s.leadAtTime,
-                  onTap: () => _toggleReminderOffset(0),
-                ),
-                for (final magnitude in kReminderOffsetPresets)
-                  _PlainChoiceChip(
-                    selected:
-                        _allReminderOffsets.contains(_signedOffset(magnitude)),
-                    label: reminderOffsetLabel(magnitude, s.isAr),
-                    onTap: () =>
-                        _toggleReminderOffset(_signedOffset(magnitude)),
-                  ),
-                // Anything typed by hand gets its own chip so a stored shift
-                // is never invisible in the grid that is supposed to show it.
-                for (final offset in _unlistedOffsets)
-                  _PlainChoiceChip(
-                    selected: true,
-                    label: countedOffsetPhrase(offset.abs(), s.isAr),
-                    onTap: () => _toggleReminderOffset(offset),
-                  ),
-                // Same sheet the per-occurrence rows open, so "custom" means
-                // one thing in this form regardless of how many times a day
-                // the habit is counted.
-                //
-                // This used to expand three controls inline — a number field,
-                // a before/after pair, and the grid above them — which is the
-                // shape the task sheet was built to replace: entering a shift
-                // needs a number AND a unit AND a direction, and three
-                // controls competing for one column is exactly what a bottom
-                // sheet is for. It also had no unit at all, so "2 hours
-                // before" had to be typed as 120.
-                _PlainChoiceChip(
-                  selected: false,
-                  label: s.leadCustomOption,
-                  onTap: () => _pickSingleOffset(s),
-                ),
-              ],
-            ),
-            if (_offsetNotice != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
+          ),
+        _reminderStyleRow(s),
+        _quietHoursWarning(s),
+      ],
+    );
+  }
+
+  /// A reminder the habit carries: its shift in words («قبل ١٥ دقيقة»),
+  /// and where that lands today once the anchor resolves. Same box as a
+  /// time row so the two lists read as one family. The close mark only
+  /// shows once there is a second row to fall back on; the last reminder
+  /// is edited, never removed, which is the rule HabitReminderStack keeps.
+  Widget _reminderRow(
+    S s,
+    int offset, {
+    required DateTime? anchor,
+    required bool removable,
+  }) {
+    final gp = context.gp;
+    final time = anchor == null
+        ? null
+        : DateFormat('h:mm a', s.isAr ? 'ar' : 'en')
+            .format(anchor.add(Duration(minutes: offset)));
+    return Container(
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => _editReminder(offset),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 13, 6, 13),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline_rounded,
-                        size: 13, color: context.gp.textTert),
-                    const SizedBox(width: 6),
-                    Expanded(
+                    Icon(Icons.notifications_active_rounded,
+                        size: 18, color: GameColors.gold),
+                    const SizedBox(width: 10),
+                    Flexible(
                       child: Text(
-                        _offsetNotice!,
+                        _offsetRowLabel(s, offset),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: context.gp.textTert,
-                          height: 1.3,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: gp.textPrimary,
                         ),
                       ),
                     ),
+                    if (time != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        time,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: gp.textTert,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-            _reminderTimePreview(s),
-            // The one place free hears about stacking. A worded row rather
-            // than locked chips, because the chips above have a real job on
-            // this tier — see _toggleReminderOffset.
-            if (!ref.watch(premiumAccessProvider))
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => showReminderLimitGate(context, ref,
-                      forHabit: true),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.lock_outline_rounded,
-                            size: 13, color: GameColors.gold),
-                        const SizedBox(width: 6),
-                        Text(
-                          s.habitAddAnotherReminder,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w800,
-                            color: GameColors.gold,
-                          ),
-                        ),
-                      ],
-                    ),
+            ),
+          ),
+          if (removable)
+            InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => _toggleReminderOffset(offset),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 14, 12, 14),
+                child:
+                    Icon(Icons.close_rounded, size: 18, color: gp.textTert),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(left: 10, right: 12),
+              child: Icon(Icons.chevron_right_rounded,
+                  size: 18, color: gp.textTert),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The row that grows the list. Gold outline rather than a filled box so
+  /// it reads as an action under the rows, not as one more of them.
+  Widget _addReminderRow(S s, {required bool locked, required bool full}) =>
+      Opacity(
+        opacity: full && !locked ? 0.5 : 1,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: _addReminder,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: GameColors.gold.withOpacity(0.35),
+                width: 0.5,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  locked ? Icons.lock_outline_rounded : Icons.add_rounded,
+                  size: 18,
+                  color: GameColors.gold,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  s.habitAddReminderRow,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: GameColors.gold,
                   ),
                 ),
-              ),
-          ],
-          _quietHoursWarning(s),
-        ],
+              ],
+            ),
+          ),
+        ),
       );
+
+  String _offsetRowLabel(S s, int offset) =>
+      offset == 0 ? s.leadAtTime : formatOffsetVerbose(offset, s.isAr, s);
+
+  /// What the offset sheet shifts from, as a clock time: the picked time,
+  /// or today's prayer once a location is known. Null leaves the sheet
+  /// without its "relative to" line and resolved preview.
+  TimeOfDay? get _sheetAnchor {
+    final anchor = _reminderAnchorTime(ref.read(notificationSettingsProvider));
+    return anchor == null
+        ? null
+        : TimeOfDay(hour: anchor.hour, minute: anchor.minute);
+  }
+
+  /// A row tapped: the sheet opens on that reminder, and whatever comes
+  /// back takes its place. The count never changes here, so no tier rule
+  /// is asked; HabitReminderStack.replace keeps the roles straight.
+  Future<void> _editReminder(int offset) async {
+    final chosen = await showHabitOffsetSheet(
+      context,
+      current: offset,
+      anchor: _sheetAnchor,
+      presets: true,
+    );
+    if (chosen == null || !mounted || chosen == offset) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      final next =
+          HabitReminderStack(primary: _reminderOffset, extras: _extraOffsets)
+              .replace(offset, chosen);
+      _reminderOffset = next.primary;
+      _extraOffsets = next.extras;
+    });
+  }
+
+  /// The add row tapped. The tier is checked BEFORE the sheet opens: a
+  /// free account meets the gate at once rather than after choosing a
+  /// value it cannot keep, and a premium habit at its cap hears why. What
+  /// the sheet returns then goes through the same add rule a typed value
+  /// always did, so a value already on the list is left as it is.
+  Future<void> _addReminder() async {
+    final s = S.of(context);
+    final stack =
+        HabitReminderStack(primary: _reminderOffset, extras: _extraOffsets);
+    final isPremium = ref.read(premiumAccessProvider);
+    final gate =
+        canAddHabitReminder(current: stack.length, isPremium: isPremium);
+    if (gate.locked) {
+      showReminderLimitGate(context, ref, forHabit: true);
+      return;
+    }
+    if (!gate.allowed) {
+      HapticFeedback.lightImpact();
+      _showOffsetNotice(s.habitReminderMaxReached);
+      return;
+    }
+    final chosen = await showHabitOffsetSheet(
+      context,
+      current: null,
+      anchor: _sheetAnchor,
+      presets: true,
+    );
+    if (chosen == null || !mounted) return;
+    _applyOffsetTap(stack.addTyped(chosen, isPremium: isPremium));
+  }
+
+  /// Notification or alarm: the one choice about HOW a reminder arrives,
+  /// under the section that decides WHEN. Two cells, notification first
+  /// because it is the default and the only thing the app did before alarms
+  /// existed, and a one-line hint that says what the other cell buys. Drawn
+  /// only where an alarm can exist at all (alarmChoiceAvailableProvider);
+  /// everywhere else the sheet looks exactly as it did.
+  Widget _reminderStyleRow(S s) {
+    if (ref.watch(alarmChoiceAvailableProvider).value != true) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: ReminderStyleChoice(
+        alarm: _alarm,
+        accent: GameColors.gold,
+        onChanged: _setAlarm,
+      ),
+    );
+  }
+
+  /// Alarm needs the system's permission the first time; a refusal keeps
+  /// the choice on notification and says so where the person is looking,
+  /// through the overlay rather than a SnackBar, which a sheet would hide.
+  Future<void> _setAlarm(bool alarm) async {
+    if (!alarm) {
+      setState(() => _alarm = false);
+      return;
+    }
+    final granted = await AlarmService.instance.requestPermission();
+    if (!mounted) return;
+    if (!granted) {
+      showOverlayNotice(context, S.of(context).alarmPermissionDenied,
+          icon: Icons.alarm_off_rounded);
+      return;
+    }
+    setState(() => _alarm = true);
+  }
 
   /// Asks the OS for notification permission on the way out of [_submit],
   /// for any habit whose cue actually resolves to a scheduled time.
@@ -2516,16 +2589,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return null;
   }
 
-  /// Small "you'll be reminded at ..." line under the lead-time picker —
-  /// [S.remindAtTimePreview] once [_reminderAnchorTime] resolves to
-  /// something, [S.remindPreviewNeedsLocation] instead for Prayer mode with
-  /// no saved location (nothing to calculate against yet, but still worth
-  /// explaining why rather than just showing nothing), or nothing at all
-  /// for Time mode before a time's been picked (the row this sits under
-  /// isn't even shown yet in that case — see _timeModeContent/
-  /// _prayerModeContent's `if (picked != null)`/`if (_selectedPrayer !=
-  /// null)` guards around this whole section).
-  Widget _reminderTimePreview(S s) {
+  /// Under the reminder rows in Prayer mode with no saved location: the
+  /// rows cannot name a clock time yet, and this says why rather than
+  /// leaving them bare. Briefly shows progress while
+  /// _ensureLocationForPrayerCue is off asking for a real location.
+  /// Nothing in any other state; the rows carry their own times.
+  Widget _reminderLocationNotice(S s) {
     final gp = context.gp;
     final settings = ref.watch(notificationSettingsProvider);
     final anchor = _reminderAnchorTime(settings);
@@ -2573,54 +2642,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ),
       );
     }
-    // Signed: added, never subtracted — the exact operation
-    // NotificationService.scheduleSmartReminders performs, which is what
-    // keeps this preview honest.
-    //
-    // Every shift, not just the primary one. A stack whose line named one
-    // time would be the worst version of this control: it would look like
-    // confirmation that the extra reminders had not taken.
-    final locale = s.isAr ? 'ar' : 'en';
-    final shifts = _timingMode == _TimingMode.time && _isMultiTime
-        ? [_effectiveReminderOffset]
-        : _allReminderOffsets;
-    final timeLabel = [
-      for (final shift in shifts)
-        DateFormat('h:mm a', locale)
-            .format(anchor.add(Duration(minutes: shift))),
-      // Joined with the language's own "and" rather than a comma list: two
-      // or three clock times read as a sentence here, and the pill is one
-      // line of running text, not a table.
-    ].join(s.isAr ? ' و' : ', ');
-    return Padding(
-      padding: const EdgeInsets.only(top: 10),
-      child: Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            color: GameColors.gold.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: GameColors.gold.withOpacity(0.25)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.notifications_active_rounded, size: 13, color: GameColors.gold),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  s.remindAtTimePreview(timeLabel),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: GameColors.gold),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   String _offsetPresetLabel(S s, int minutes) => switch (minutes) {
@@ -2628,31 +2650,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         < 0 => s.offsetBeforeMinutes(minutes.abs()),
         _ => s.offsetAfterMinutes(minutes),
       };
-
-  /// Opens the custom-shift sheet for a single-anchor habit and folds what
-  /// comes back into the stack.
-  ///
-  /// A hand-typed value is an ADD on a tier that can stack and a REPLACE on
-  /// one that cannot, which is the same split the chips make — so it is
-  /// routed through [_toggleReminderOffset], with the one guard that makes
-  /// "typed it" different from "tapped it": a value the habit already has
-  /// stays put rather than being toggled back off. Nobody types 45 into a
-  /// field and taps Add meaning "remove my 45-minute reminder".
-  Future<void> _pickSingleOffset(S s) async {
-    final chosen = await showHabitOffsetSheet(
-      context,
-      current: _effectiveReminderOffset,
-      anchor: _timingMode == _TimingMode.time ? _pickedTime : null,
-    );
-    if (chosen == null || !mounted) return;
-    // Follow the value into view: typing "30 after" while the grid is on قبل
-    // would otherwise light a chip on the tab the user cannot see.
-    if (chosen != 0) setState(() => _offsetIsAfter = !chosen.isNegative);
-    _applyOffsetTap(
-      HabitReminderStack(primary: _reminderOffset, extras: _extraOffsets)
-          .addTyped(chosen, isPremium: ref.read(premiumAccessProvider)),
-    );
-  }
 
   /// Shown only when the reminder this form would actually schedule lands
   /// inside the user's quiet-hours window and nothing else already exempts

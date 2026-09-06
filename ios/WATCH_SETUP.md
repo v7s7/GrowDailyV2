@@ -7,12 +7,28 @@ choice, not an assumption.
 ## Already working with NO watch app
 
 **1. Reminders on the watch.** iOS forwards every habit/prayer reminder
-(`flutter_local_notifications`) to a paired watch automatically whenever
-the iPhone is locked or asleep. The notification action buttons (Mark
-Done / Snooze / Slipped — see `NotificationService`) carry over too, and
-they run through the exact same handler in `main.dart`, so completing a
-habit from the wrist already works today. Apple's rule: a notification
-shows on the phone OR the watch, never both — phone unlocked means phone.
+(`flutter_local_notifications`) and every room push to a paired watch
+automatically whenever the iPhone is locked or asleep. Apple's rule: a
+notification shows on the phone OR the watch, never both — phone unlocked
+means phone.
+
+**1b. The action buttons on the watch.** Mark Done / Snooze / On Track /
+Slipped appear on the watch ONLY because they are registered as background
+actions (no `DarwinNotificationActionOption.foreground`). A watch hides
+foreground actions when the app has no watch app, since there is nothing on
+the watch to bring forward; the watch SIMULATOR still draws them, so only a
+real watch proves this. An earlier version of this file claimed the buttons
+carried over while they were foreground actions; they did not. The tap is
+handled in a headless engine and queued for the next app open, see
+`lib/core/services/notification_action_background.dart`; that only works
+because `AppDelegate.swift` makes itself the notification centre delegate
+(otherwise firebase_messaging swallows the tap) and holds a background task
+open while the engine runs (otherwise iOS suspends the process first). Both
+were found on device on 2026-09-06 and are explained in that file. Prayer-anchored
+reminders are also Time Sensitive (entitlement in `Runner.entitlements`),
+so they reach through Focus on both devices. Keep both when adding the
+companion app: with a watch app present, a foreground action would launch
+the WATCH app, which would then have to handle the tap itself.
 
 **2. Steps from the watch.** The walking-habit link
 (`HealthStepsService`, `step_auto_complete.dart`) reads the daily step

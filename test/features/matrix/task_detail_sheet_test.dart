@@ -123,7 +123,7 @@ void main() {
                     onAddVoiceNote: (_, __) {},
                     onRenameVoiceNote: (_, __, ___) {},
                     onRemoveVoiceNote: (_, __) {},
-                    onSetReminders: (_, __, {reminderAnchorAt}) {},
+                    onSetReminders: (_, __, {reminderAnchorAt, alarm}) {},
                     onDelete: () {},
                     onMove: (_) {},
                   ),

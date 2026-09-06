@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/l10n/reminder_copy.dart'
+    show kReminderOffsetPresets, reminderOffsetLabel;
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import '../../matrix/widgets/custom_offset_sheet.dart'
@@ -36,10 +38,17 @@ const int kMaxHabitOffsetMinutes = 12 * 60;
 /// there; a habit repeats every day, so "2 days before" lands on the same
 /// clock time it started from and means nothing. Offering it would be
 /// offering a no-op.
+///
+/// [presets] adds the quick chips (في الوقت, ٥, ١٠, ١٥, ٣٠, ساعة) above
+/// the number field and returns the moment one is tapped; the field stays
+/// for anything else. That is the sheet the reminder rows in AddHabitSheet
+/// open, so a person never has to type to move a reminder by a quarter
+/// hour. [current] may be null there: a row being added has no value yet.
 Future<int?> showHabitOffsetSheet(
   BuildContext context, {
-  required int current,
+  required int? current,
   required TimeOfDay? anchor,
+  bool presets = false,
 }) {
   HapticFeedback.selectionClick();
   return showModalBottomSheet<int>(
@@ -47,14 +56,23 @@ Future<int?> showHabitOffsetSheet(
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (_) => _HabitOffsetSheet(current: current, anchor: anchor),
+    builder: (_) => _HabitOffsetSheet(
+      current: current,
+      anchor: anchor,
+      presets: presets,
+    ),
   );
 }
 
 class _HabitOffsetSheet extends StatefulWidget {
-  final int current;
+  final int? current;
   final TimeOfDay? anchor;
-  const _HabitOffsetSheet({required this.current, required this.anchor});
+  final bool presets;
+  const _HabitOffsetSheet({
+    required this.current,
+    required this.anchor,
+    required this.presets,
+  });
 
   @override
   State<_HabitOffsetSheet> createState() => _HabitOffsetSheetState();
@@ -72,20 +90,23 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
     // largest unit that divides it evenly — so reopening on "2 hours before"
     // shows 2 and Hours rather than 120 and Minutes. Same helper the task
     // sheet uses, so the two can never disagree about which unit a value is.
-    _isAfter = widget.current > 0;
-    final (value, unit) = splitOffsetUnit(widget.current.abs());
+    final current = widget.current ?? 0;
+    _isAfter = current > 0;
+    final (value, unit) = splitOffsetUnit(current.abs());
     // Minutes on a fresh sheet. splitOffsetUnit(0) answers DAYS — zero divides
     // evenly by everything, so the largest unit wins — which would open the
     // most common case (a few minutes early) on the wrong unit and quietly
     // multiply whatever was typed by sixty.
-    _unit = widget.current == 0
+    _unit = current == 0
         ? ReminderUnit.minutes
         : unit == ReminderUnit.days
             ? ReminderUnit.hours
             : unit;
-    _ctrl = TextEditingController(
-      text: widget.current == 0 ? '' : '$value',
-    );
+    // A preset value is a chip below, so the field starts empty for it and
+    // only a hand-typed value comes back into the field.
+    final typed = current != 0 &&
+        !(widget.presets && kReminderOffsetPresets.contains(current.abs()));
+    _ctrl = TextEditingController(text: typed ? '$value' : '');
     _ctrl.addListener(() => setState(() {}));
   }
 
@@ -163,7 +184,7 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
               ),
               const SizedBox(height: 16),
               Text(
-                s.customReminderTitle,
+                widget.presets ? s.remindMeSection : s.customReminderTitle,
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
@@ -208,9 +229,44 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                 ],
               ),
               const SizedBox(height: 10),
+              if (widget.presets) ...[
+                // One tap picks and closes. «في الوقت» belongs to neither
+                // direction, so it is a chip rather than a third toggle
+                // cell, the shape the old inline grid had.
+                ChoiceChipGrid(
+                  columns: 3,
+                  items: [
+                    PlainChoiceChip(
+                      selected: widget.current == 0,
+                      label: s.leadAtTime,
+                      selectedColor: accent,
+                      onTap: () => _pick(0),
+                    ),
+                    for (final m in kReminderOffsetPresets)
+                      PlainChoiceChip(
+                        selected: widget.current == _signed(m),
+                        label: reminderOffsetLabel(m, s.isAr),
+                        selectedColor: accent,
+                        onTap: () => _pick(_signed(m)),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  s.leadCustomOption,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textTert,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               TextField(
                 controller: _ctrl,
-                autofocus: true,
+                // With chips above, the keyboard waits for a tap on the
+                // field instead of covering the chips as the sheet opens.
+                autofocus: !widget.presets,
                 keyboardType: TextInputType.number,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _confirm(),
@@ -312,8 +368,9 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
               // clearing the field and confirming would do it (it would not —
               // an empty field disables the button).
               const SizedBox(height: 6),
+              if (!widget.presets)
               TextButton(
-                onPressed: () => Navigator.of(context).pop(0),
+                onPressed: () => _pick(0),
                 style: TextButton.styleFrom(
                   foregroundColor: gp.textSec,
                   minimumSize: const Size(double.infinity, 44),
@@ -330,7 +387,13 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
   void _confirm() {
     final pending = _pending;
     if (pending == null) return;
+    _pick(pending);
+  }
+
+  int _signed(int magnitude) => _isAfter ? magnitude : -magnitude;
+
+  void _pick(int signed) {
     HapticFeedback.selectionClick();
-    Navigator.of(context).pop(pending);
+    Navigator.of(context).pop(signed);
   }
 }

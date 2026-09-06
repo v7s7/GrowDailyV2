@@ -2077,5 +2077,11 @@ struct GrowDailyWidgetBundle: WidgetBundle {
         GrowDailyRoomRaceLockScreenWidget()
         GrowDailyMatrixWidget()
         GrowDailyMatrixLockScreenWidget()
+        // The ringing screen of an alarm-mode reminder, see
+        // GrowDailyAlarmLiveActivity.swift. iOS 26 only; older systems have
+        // no AlarmKit and never start this activity.
+        if #available(iOS 26.0, *) {
+            GrowDailyAlarmLiveActivity()
+        }
     }
 }

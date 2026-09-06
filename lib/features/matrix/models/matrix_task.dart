@@ -230,6 +230,11 @@ class MatrixTask {
   // stale value left behind by an older build heals itself instead of
   // showing a bold time that never fires.
   final DateTime? reminderAnchorAt;
+
+  /// Whether this task's reminders ring as a real alarm instead of arriving
+  /// as a notification. Same per-item choice, same default and same
+  /// platform meaning as IslamicHabitTemplate.alarm; see that field.
+  final bool alarm;
   // Manual sort rank within a quadrant — a plain double, not an int index,
   // so dragging a task between two others (see MatrixNotifier.reorder) can
   // just average its new neighbors' order values without ever having to
@@ -252,6 +257,7 @@ class MatrixTask {
     this.voiceNotes = const [],
     this.reminderAts = const [],
     this.reminderAnchorAt,
+    this.alarm = false,
     required this.order,
   });
 
@@ -342,6 +348,7 @@ class MatrixTask {
     List<VoiceNote> voiceNotes = const [],
     List<DateTime> reminderAts = const [],
     DateTime? reminderAnchorAt,
+    bool alarm = false,
   }) {
     final now = DateTime.now();
     final reminders = normalizeReminders(reminderAts);
@@ -355,6 +362,7 @@ class MatrixTask {
       voiceNotes: voiceNotes,
       reminderAts: reminders,
       reminderAnchorAt: resolveAnchor(reminderAnchorAt, reminders),
+      alarm: alarm,
       order: now.millisecondsSinceEpoch.toDouble(),
     );
   }
@@ -386,6 +394,7 @@ class MatrixTask {
       voiceNotes: _voiceNotesFromMap(d, createdAt),
       reminderAts: reminders,
       reminderAnchorAt: resolveAnchor(parse(d['reminderAnchorAt']), reminders),
+      alarm: d['alarm'] as bool? ?? false,
       // A task written before `order` existed falls back to its creation
       // time, so an untouched board still reads in the same order it
       // always has.
@@ -419,6 +428,7 @@ class MatrixTask {
       voiceNotes: _voiceNotesFromMap(d, createdAt),
       reminderAts: reminders,
       reminderAnchorAt: resolveAnchor(parse(d['reminderAnchorAt']), reminders),
+      alarm: d['alarm'] as bool? ?? false,
       order: (d['order'] as num?)?.toDouble() ??
           createdAt.millisecondsSinceEpoch.toDouble(),
     );
@@ -496,6 +506,7 @@ class MatrixTask {
         // absent key genuinely means absent. toFirestore below can't do this.
         if (reminderAnchorAt != null)
           'reminderAnchorAt': reminderAnchorAt!.toIso8601String(),
+        'alarm': alarm,
         'order': order,
       };
 
@@ -542,6 +553,7 @@ class MatrixTask {
         'reminderAnchorAt': reminderAnchorAt != null
             ? Timestamp.fromDate(reminderAnchorAt!)
             : FieldValue.delete(),
+        'alarm': alarm,
         'order': order,
       };
 
@@ -565,6 +577,7 @@ class MatrixTask {
     // the same problem clearCompletedAt and clearDescription exist for.
     DateTime? reminderAnchorAt,
     bool clearReminderAnchorAt = false,
+    bool? alarm,
     double? order,
   }) {
     final nextReminders = reminderAts != null
@@ -592,6 +605,7 @@ class MatrixTask {
       // old anchor isn't in re-guesses rather than pointing at a moment the
       // task no longer fires at.
       reminderAnchorAt: resolveAnchor(nextAnchor, nextReminders),
+      alarm: alarm ?? this.alarm,
       order: order ?? this.order,
     );
   }

@@ -32,6 +32,7 @@ import 'core/services/bahrain_prayer_table.dart';
 import 'core/services/analytics_service.dart';
 import 'core/services/app_badge_service.dart';
 import 'core/services/home_widget_service.dart';
+import 'core/services/notification_action_queue.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/services/purchase_service.dart';
@@ -62,7 +63,11 @@ import 'features/habits/notifiers/habit_resume_notifier.dart'
     show habitResumeScheduleProvider;
 import 'features/grid/models/square_state.dart' show SquareState;
 import 'features/grid/notifiers/weekly_grid_notifier.dart'
-    show WeeklyGridState, isQuitAutoCleanEligible, weeklyGridProvider;
+    show
+        WeeklyGridState,
+        isQuitAutoCleanEligible,
+        weeklyGridProvider,
+        willCompleteAllSquaresOn;
 import 'features/grid/screens/grid_journal_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
 import 'features/language/screens/language_picker_screen.dart';
@@ -115,7 +120,7 @@ import 'shared/widgets/app_snackbar.dart';
 typedef _TodayHabitStats = ({
   int completed,
   int total,
-  List<({String id, String name, bool done})> habits,
+  List<({String id, String name, bool done, int count, int perDay})> habits,
 });
 
 Future<void> main() async {
@@ -183,7 +188,19 @@ Future<void> main() async {
       return true;
     };
 
-    await NotificationService.instance.init();
+    // The persisted language is read BEFORE the notification service starts,
+    // so its one-time category registration (the iOS action buttons under a
+    // reminder, «تمت» / «تأجيل ساعة») is made in that language, rather than
+    // in English first and corrected a few awaits later. That gap used to be
+    // harmless, because this function only ever ran with the app coming to
+    // the foreground. A background notification action now launches this
+    // same main() with the app closed, and iOS may suspend the process
+    // before the correction runs, which left the NEXT reminder's buttons in
+    // English on an Arabic account (seen live on 2026-09-06). applyLocale on
+    // a fresh process is init() in the right language; see that method.
+    final persistedLocale = await loadPersistedLocale();
+    await NotificationService.instance
+        .applyLocale(persistedLocale?.languageCode == 'ar');
     // After NotificationService, which is what initialises the timezone
     // database this table converts through. Preloaded here so the one
     // synchronous prayer-time caller (AddHabitSheet's live cue preview)
@@ -209,14 +226,12 @@ Future<void> main() async {
       now: DateTime.now(),
       inGuestMode: persistedGuestMode,
     );
-    final persistedLocale = await loadPersistedLocale();
-    // The iOS buttons under a habit reminder («تمت» / «تأجيل ساعة») belong
-    // to a category that was registered inside init() above, before this
-    // line had read which language to use. See applyLocale: it is a no-op
-    // for English and for Android, and it runs before anything is
-    // scheduled either way.
-    await NotificationService.instance
-        .applyLocale(persistedLocale?.languageCode == 'ar');
+    // The same language, for the headless engine that handles a notification
+    // action tapped with the app closed (see HomeWidgetService.saveLocale).
+    // persistedLocale was read above, before the notification service
+    // registered its buttons.
+    await HomeWidgetService.instance
+        .saveLocale(persistedLocale?.languageCode == 'ar');
     final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
     final persistedGetStartedDismissed = await loadPersistedGetStartedDismissed();
     final persistedAppGuideRoomsSeen = await loadPersistedAppGuideRoomsSeen();
@@ -486,19 +501,24 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       }
     }, fireImmediately: true);
 
-    // Wire Mark Done / Snooze notification taps to the exact same
-    // completion path the UI itself uses — see NotificationService's
-    // "Actionable notifications" doc comment for why this deliberately only
-    // ever runs through the live app rather than a background isolate.
+    // Wire the notification taps that reach the LIVE app to the exact same
+    // completion path the UI itself uses: a body tap, and on Android the
+    // Mark Done / Snooze buttons (which open the app there). On iOS the
+    // buttons are background actions handled in a headless engine and
+    // queued for _processPendingNotificationActions instead; see
+    // NotificationService's "Actionable notifications" doc comment.
     // Assigning this also flushes any tap that already arrived (e.g. the
-    // app was cold-launched by tapping an action) — see NotificationService
+    // app was cold-launched by tapping an action); see NotificationService
     // .onAction.
     NotificationService.instance.onAction = _handleNotificationAction;
 
     // Catch anything the widget queued between the last time the app was
-    // open and this cold start (see _processPendingWidgetCompletions).
+    // open and this cold start (see _processPendingWidgetCompletions), and
+    // any notification action tapped while the app was closed (see
+    // _processPendingNotificationActions).
     _processPendingWidgetCompletions();
     _processPendingWidgetTaskCompletions();
+    _processPendingNotificationActions();
 
     // Catch a growdaily://join/CODE link that cold-launched the app, and
     // keep listening for one arriving while the app's already running (a
@@ -539,6 +559,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // per process rather than on each notification.
         NotificationService.instance
             .applyLocale(next.languageCode == 'ar')
+            .ignore();
+        // The background action handler has no locale provider to read, so
+        // the language it snoozes in is whatever this last wrote.
+        HomeWidgetService.instance
+            .saveLocale(next.languageCode == 'ar')
             .ignore();
         _recomputeNotifications();
       },
@@ -996,6 +1021,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         scheduledWeekdays: habit.scheduledWeekdays.toSet(),
         reminderOffsetMinutes: habit.reminderOffsetMinutes,
         ignoreQuietHours: habit.ignoreQuietHours,
+        alarm: habit.alarm,
         // Only a prayer gets named in the reminder's own text ("باقي ٤٥
         // دقيقة على المغرب"). A clock cue's anchor is a clock, and the
         // notification is already stamped with one.
@@ -1127,6 +1153,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     if (state == AppLifecycleState.resumed) {
       _processPendingWidgetCompletions();
       _processPendingWidgetTaskCompletions();
+      _processPendingNotificationActions();
       ref.read(dashboardProvider.notifier).refresh();
       ref.read(premiumProvider.notifier).refresh();
       // A booked return can fall due while the app sits warm in the switcher
@@ -1432,6 +1459,97 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     }
   }
 
+  /// Drains the taps the background half of a notification action queued
+  /// while the app was closed (see notification_action_background.dart) and
+  /// runs each through [_handleNotificationAction], the same path a tap
+  /// that opened the app has always taken. Same auth-then-data gates as
+  /// [_processPendingWidgetCompletions], for the same reason: the take
+  /// removes the entries, so a drain that ran against the guest store or a
+  /// still-loading account would lose them.
+  ///
+  /// Each entry names the effective day it was tapped on. A day that is
+  /// still open (today, or yesterday inside its grace tail) is paid in full
+  /// on that day, exactly as a Grid tap on it would be. A day that has
+  /// closed gets its record corrected and nothing paid, the same division
+  /// of labour a late step-count read gets (see _creditYesterdayWalks in
+  /// step_auto_complete.dart): setSquare's anti-backdating guard has always
+  /// refused to pay for a day that is over, and a notification button is
+  /// not a way around it.
+  Future<void> _processPendingNotificationActions() async {
+    try {
+      await ref.read(authStateProvider.future);
+    } catch (_) {
+      // Signed out or auth unavailable: the guest providers below are then
+      // the correct target.
+    }
+    if (!mounted) return;
+    if (!await _awaitDashboardLoaded()) return;
+    if (!await _awaitHabitsLoaded()) return;
+    if (!mounted) return;
+    final entries =
+        await HomeWidgetService.instance.takePendingNotificationActions();
+    if (entries.isEmpty) return;
+    debugPrint('[NotificationAction] draining ${entries.length} queued '
+        'tap(s): ${entries.map((e) => '${e.action}:${e.habitId}@${e.day}').join(', ')}');
+    for (final entry in entries) {
+      if (!mounted) return;
+      final day = entry.dayDate;
+      if (day == null) continue;
+      if (day.isOpenDay) {
+        await _handleNotificationAction(entry.action, entry.habitId,
+            day: day);
+      } else {
+        await _recordClosedDayAction(entry.action, entry.habitId, day);
+      }
+    }
+    _syncBadge();
+  }
+
+  /// A queued tap whose day has closed: mark the square it asked for, only
+  /// if nobody has said anything about that habit-day since, and let the
+  /// room follow. No reward, see [_processPendingNotificationActions].
+  Future<void> _recordClosedDayAction(
+      String action, String habitId, DateTime day) async {
+    final habit = _resolveHabit(habitId);
+    if (habit == null) return;
+    final SquareState result;
+    if (action == NotificationService.actionMarkDone ||
+        action == NotificationService.actionStayedClean) {
+      result = SquareState.complete;
+    } else if (action == NotificationService.actionSlipped) {
+      result = SquareState.failed;
+    } else {
+      return;
+    }
+    // The stored day, not the in-memory week: a closed day may be outside
+    // the visible week, where WeeklyGridState answers `none` for everything
+    // it has not loaded. See storedSquaresFor.
+    final marks =
+        await ref.read(weeklyGridProvider.notifier).storedSquaresFor(day);
+    if (!mounted) return;
+    if (marks == null) {
+      // The day could not be read (offline cold start). Deciding anything
+      // about a day the app has not seen is the mistake this guards
+      // against, so the tap goes back in the queue for the next drain.
+      await HomeWidgetService.instance.queueNotificationAction(
+        QueuedNotificationAction(
+          action: action,
+          habitId: habitId,
+          day: day.toDateKey(),
+        ),
+      );
+      return;
+    }
+    // An explicit mark of any kind ends it: a late tap does not overrule
+    // what the person has since said about that day.
+    if ((marks[habit.id] ?? SquareState.none) != SquareState.none) return;
+    await ref
+        .read(weeklyGridProvider.notifier)
+        .setSquareStateOnlyAsync(habit.id, day, result);
+    if (!mounted) return;
+    syncRoomToday(ref, habit.id, day);
+  }
+
   /// Reads whatever link cold-launched the app (if any), then subscribes
   /// for further ones - both paths just hand off to [_handleDeepLink]. See
   /// _OnboardingOrGrid for where a stashed room code turns into navigation,
@@ -1481,11 +1599,20 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     final dash = ref.read(dashboardProvider);
     final isAr = ref.read(localeProvider).languageCode == 'ar';
     var completed = 0;
-    final habits = <({String id, String name, bool done})>[];
+    final habits =
+        <({String id, String name, bool done, int count, int perDay})>[];
     for (final h in scheduled) {
       final done = dash.isCompleted(h.id, h.effectiveDailyTarget);
       if (done) completed++;
-      habits.add((id: h.id, name: h.localName(isAr), done: done));
+      habits.add((
+        id: h.id,
+        name: h.localName(isAr),
+        done: done,
+        // For the background action handler, which has to know whether one
+        // more tap finishes a counted habit; see HomeWidgetService.
+        count: dash.completions[h.id] ?? 0,
+        perDay: h.effectiveDailyTarget,
+      ));
     }
     return (completed: completed, total: habits.length, habits: habits);
   }
@@ -1521,8 +1648,18 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// NotificationService.scheduleSmartReminders) — never set on a bundled
   /// "N habits ready" notification, so this correctly no-ops on a tap
   /// there instead of trying to resolve a habit that isn't specified.
+  ///
+  /// [day] is the effective day the tap belongs to, today when omitted. A
+  /// tap made with the app closed reaches here from the queue in
+  /// _processPendingNotificationActions, possibly the next morning, and
+  /// then names the evening it was made on. The caller only sends a day
+  /// that is still open (see DateTimeGameExt.isOpenDay), so paying it in
+  /// full here is the same thing the Grid does for a grace-day square.
   Future<void> _handleNotificationAction(
-      String actionId, String? habitId) async {
+    String actionId,
+    String? habitId, {
+    DateTime? day,
+  }) async {
     // A plain body tap (no action button) carries an empty actionId — that
     // used to just open the app wherever it last was. Now it lands where
     // the notification actually points: see _handleNotificationBodyTap.
@@ -1531,6 +1668,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       return;
     }
     if (habitId == null || habitId.isEmpty) return;
+    final actionDay = day ?? DateTime.now().effectiveDay;
 
     // Wait for auth before touching ANY uid-keyed provider.
     //
@@ -1585,6 +1723,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // into its slipped-today state.
       await ref.read(dashboardProvider.notifier).uncompleteHabit(
             habitId: habit.id,
+            day: actionDay,
             // Mirrors the completion's boost — see roomBoostedReward.
             xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
             goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
@@ -1593,7 +1732,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             frequencyTarget: habit.effectiveDailyTarget,
             category: habit.category.name,
           );
-      final today = DateTime.now().effectiveDay;
+      final today = actionDay;
       ref.read(weeklyGridProvider.notifier).markResultFromHabit(
           habit.id, today, SquareState.failed);
       // A notification action is a third way to change today's square,
@@ -1614,23 +1753,30 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       final dashState = ref.read(dashboardProvider);
       final todayHabits = ref
           .read(habitListProvider)
-          .where((h) => h.isScheduledFor(DateTime.now().effectiveDay))
+          .where((h) => h.isScheduledFor(actionDay))
           .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
       final mirroredBySingleTap =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
+                day: actionDay,
                 scheduledWeekdays: habit.scheduledWeekdays.toSet(),
                 // 2x while a linked room is live — see roomBoostedReward.
                 xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
                 goldReward:
                     roomBoostedReward(ref, habit.id, habit.goldReward),
                 frequencyTarget: habit.effectiveDailyTarget,
-                allHabitsDoneAfter: willCompleteAllHabitsToday(
-                  state: dashState,
-                  todayHabits: todayHabits,
-                  habitId: habit.id,
-                  frequencyTarget: habit.effectiveDailyTarget,
-                ),
+                // Today's answer comes from `completions`; a grace day's
+                // has to come from that day's own squares, because
+                // `completions` only ever holds today's counts. Same split
+                // the Grid makes, see willCompleteAllSquaresOn.
+                allHabitsDoneAfter: actionDay.isToday
+                    ? willCompleteAllHabitsToday(
+                        state: dashState,
+                        todayHabits: todayHabits,
+                        habitId: habit.id,
+                        frequencyTarget: habit.effectiveDailyTarget,
+                      )
+                    : willCompleteAllSquaresOn(ref, habit, actionDay),
                 // Scales the daily earn ceiling with the roster, see
                 // dailyXpCapFor. Same list the predicate above uses.
                 scheduledHabitCount: todayHabits.length,
@@ -1639,7 +1785,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
               );
       final perDay = habit.effectiveDailyTarget;
       if (mirroredBySingleTap) {
-        final today = DateTime.now().effectiveDay;
+        final today = actionDay;
         ref
             .read(weeklyGridProvider.notifier)
             .markCompleteFromHabit(habit.id, today);
@@ -1653,7 +1799,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // while the day filled up — and the Grid's own "إنجاز اليوم" figure
         // reads the stored square, so the day's percentage was wrong too,
         // not just the picture.
-        final today = DateTime.now().effectiveDay;
+        final today = actionDay;
         final done = ref.read(dashboardProvider).completions[habit.id] ?? 0;
         if (done > 0) {
           ref.read(weeklyGridProvider.notifier).markResultFromHabit(

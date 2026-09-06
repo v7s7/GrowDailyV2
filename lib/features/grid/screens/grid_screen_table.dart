@@ -2,50 +2,6 @@ part of 'grid_screen.dart';
 
 // ─── The grid table itself ────────────────────────────────────────────────────
 
-
-/// "Will this day's whole list be done once this tap lands?", answered from
-/// the day's own SQUARES instead of from `DashboardState.completions`.
-///
-/// [willCompleteAllHabitsToday] reads `completions`, which only ever holds
-/// TODAY's counts — correct for today and meaningless for any other day. A
-/// day inside its grace window (yesterday, before the cutoff) still needs a
-/// real answer, because that answer is what earns its streak point, and
-/// getting it from today's map would either invent a point or withhold one.
-///
-/// The squares are the right source for that day: they are what the Grid is
-/// showing the person, what the yearly strip reports, and what a Room grades
-/// them on. جزئي counts half, exactly as it does everywhere else.
-bool _willCompleteAllSquaresOn(
-  WidgetRef ref,
-  IslamicHabitTemplate habit,
-  DateTime day,
-) {
-  final grid = ref.read(weeklyGridProvider);
-  final dayHabits =
-      ref.read(habitListProvider).where((h) => h.isScheduledFor(day)).toList();
-  var total = 0;
-  var credited = 0.0;
-  var sawTarget = false;
-  for (final h in dayHabits) {
-    total++;
-    if (h.id == habit.id) {
-      sawTarget = true;
-      credited += 1;
-      continue;
-    }
-    final square = grid.squareFor(h.id, day);
-    if (square.isGreen) {
-      credited += 1;
-    } else if (square == SquareState.partial) {
-      credited += 0.5;
-    }
-  }
-  // Same guard as willCompleteAllHabitsToday: a day with nothing scheduled is
-  // a day off, not a completed one.
-  if (total == 0 || !sawTarget) return false;
-  return credited / total >= kStreakDayCompletionThreshold;
-}
-
 class _GridTable extends ConsumerStatefulWidget {
   final List<IslamicHabitTemplate> habits;
   final WeeklyGridState state;
@@ -1100,7 +1056,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 // Today's answer comes from `completions`; a grace day's has
                 // to come from that day's own squares, because `completions`
                 // only ever holds today's counts. See
-                // _willCompleteAllSquaresOn.
+                // willCompleteAllSquaresOn.
                 allHabitsDoneAfter: day.isToday
                     ? willCompleteAllHabitsToday(
                         state: dashState,
@@ -1112,7 +1068,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                         halfDoneHabitIds:
                             ref.read(weeklyGridProvider).halfDoneTodayIds(),
                       )
-                    : _willCompleteAllSquaresOn(ref, habit, day),
+                    : willCompleteAllSquaresOn(ref, habit, day),
                 // Scales the daily earn ceiling with the roster, see
                 // dailyXpCapFor. Same list the predicate above uses.
                 scheduledHabitCount: todayHabits.length,
@@ -1180,7 +1136,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
             xpReward: xpReward,
             goldReward: goldReward,
             frequencyTarget: target,
-            // See _willCompleteAllSquaresOn: `completions` is today's map,
+            // See willCompleteAllSquaresOn: `completions` is today's map,
             // so any other open day has to be answered from its squares.
             allHabitsDoneAfter: day.isToday
                 ? willCompleteAllHabitsToday(
@@ -1191,7 +1147,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                     halfDoneHabitIds:
                         ref.read(weeklyGridProvider).halfDoneTodayIds(),
                   )
-                : _willCompleteAllSquaresOn(ref, habit, day),
+                : willCompleteAllSquaresOn(ref, habit, day),
             // Scales the daily earn ceiling with the roster, see
             // dailyXpCapFor. Same list the predicate above uses.
             scheduledHabitCount: todayHabits.length,
@@ -1269,7 +1225,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
           xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
           goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
           frequencyTarget: target,
-          // See _willCompleteAllSquaresOn.
+          // See willCompleteAllSquaresOn.
           allHabitsDoneAfter: day.isToday
               ? willCompleteAllHabitsToday(
                   state: dashState,
@@ -1279,7 +1235,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   halfDoneHabitIds:
                       ref.read(weeklyGridProvider).halfDoneTodayIds(),
                 )
-              : _willCompleteAllSquaresOn(ref, habit, day),
+              : willCompleteAllSquaresOn(ref, habit, day),
           // Scales the daily earn ceiling with the roster, see
           // dailyXpCapFor. Same list the predicate above uses.
           scheduledHabitCount: todayHabits.length,

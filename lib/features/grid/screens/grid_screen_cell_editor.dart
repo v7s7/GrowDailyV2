@@ -521,7 +521,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               xpReward: xpReward,
               goldReward: goldReward,
               frequencyTarget: target,
-              // See _willCompleteAllSquaresOn: only today can be answered
+              // See willCompleteAllSquaresOn: only today can be answered
               // from `completions`.
               allHabitsDoneAfter: day.isToday
                   ? willCompleteAllHabitsToday(
@@ -534,7 +534,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                       halfDoneHabitIds:
                           ref.read(weeklyGridProvider).halfDoneTodayIds(),
                     )
-                  : _willCompleteAllSquaresOn(ref, habit, day),
+                  : willCompleteAllSquaresOn(ref, habit, day),
               // Scales the daily earn ceiling with the roster, see
               // dailyXpCapFor. Same list the predicate above uses.
               scheduledHabitCount: todayHabits.length,

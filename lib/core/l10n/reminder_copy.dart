@@ -568,6 +568,14 @@ String habitReminderBody({
 /// "Done" for a habit reminder's completion button.
 String markDoneAction(bool isAr) => isAr ? 'تمت' : 'Mark Done';
 
+/// The Done button on a task's ringing alarm. «تم» rather than «تمت»: a
+/// task is masculine where a habit is feminine, and the button sits under
+/// the task's own title.
+String taskDoneAction(bool isAr) => isAr ? 'تم' : 'Done';
+
+/// The Stop button on a ringing alarm, where iOS asks the app for one.
+String alarmStopAction(bool isAr) => isAr ? 'إيقاف' : 'Stop';
+
 /// "Snooze an hour" for a habit reminder's postpone button. Matches what
 /// [snoozedReminderBody] later says about it.
 String snoozeAction(bool isAr) => isAr ? 'تأجيل ساعة' : 'Snooze 1h';

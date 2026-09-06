@@ -224,6 +224,7 @@ void main() {
                           voiceNotes,
                           reminderAts,
                           reminderAnchorAt,
+                          alarm,
                         }) {},
                       ),
                     ),

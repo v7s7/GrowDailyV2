@@ -5,6 +5,7 @@ import 'package:home_widget/home_widget.dart';
 
 import '../extensions/datetime_ext.dart';
 import 'local_store_service.dart';
+import 'notification_action_queue.dart';
 
 /// Dart-side bridge to the iOS home screen + Lock Screen widgets. This is
 /// only half the feature — home_widget explicitly does not let Flutter draw
@@ -87,7 +88,8 @@ class HomeWidgetService {
     required int gold,
     required int completedToday,
     required int totalToday,
-    required List<({String id, String name, bool done})> todayHabits,
+    required List<({String id, String name, bool done, int count, int perDay})>
+        todayHabits,
     required Map<String, int> dailyGreenCounts,
   }) async {
     if (!_supported) return;
@@ -98,9 +100,21 @@ class HomeWidgetService {
       await HomeWidget.saveWidgetData<int>('completedToday', completedToday);
       await HomeWidget.saveWidgetData<int>('totalToday', totalToday);
       await HomeWidget.saveWidgetData<String>(
-        'todayHabitsJson',
+        _todayHabitsKey,
         jsonEncode(todayHabits
-            .map((h) => {'id': h.id, 'name': h.name, 'done': h.done})
+            .map((h) => {
+                  'id': h.id,
+                  'name': h.name,
+                  'done': h.done,
+                  // How far along a counted habit is, for the background
+                  // action handler (NotificationActionRules.markOneDone): one
+                  // tap on a three-a-day habit must not draw it done. The
+                  // Swift side ignores both keys, and its own Mark Done button
+                  // drops them when it re-encodes the list, which the rules
+                  // tolerate by treating a missing pair as one-a-day.
+                  'count': h.count,
+                  'perDay': h.perDay,
+                })
             .toList()),
       );
       await HomeWidget.saveWidgetData<String>(
@@ -244,6 +258,107 @@ class HomeWidgetService {
     }
   }
 
+  // ── Background notification actions ─────────────────────────
+  //
+  // The second consumer of this App Group store, after the widgets: the
+  // headless engine flutter_local_notifications runs for an action button
+  // tapped without opening the app (see notification_action_background.dart).
+  // It reads the today-list the widget already uses, appends to its own
+  // queue, and needs the app's language for the snooze it schedules. The
+  // keys live here so the store keeps one owner.
+
+  static const _pendingActionsKey = 'pendingNotificationActions';
+  static const _localeKey = 'localeIsAr';
+  static const _todayHabitsKey = 'todayHabitsJson';
+
+  /// Whether the app runs in Arabic, for a process that has no locale
+  /// provider to ask. main.dart writes it at boot and on every switch.
+  Future<void> saveLocale(bool isAr) async {
+    if (!_supported) return;
+    try {
+      await HomeWidget.saveWidgetData<bool>(_localeKey, isAr);
+    } catch (e) {
+      debugPrint('[HomeWidgetService] locale write skipped: $e');
+    }
+  }
+
+  /// [saveLocale]'s last answer; English when nothing was ever written.
+  Future<bool> readLocaleIsAr() async {
+    if (!_supported) return false;
+    try {
+      return await HomeWidget.getWidgetData<bool>(_localeKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// The today-list exactly as [updateWidgetData] last wrote it (or as the
+  /// widget's own button last rewrote it), raw, for NotificationActionRules
+  /// to work on.
+  Future<String?> readTodayHabitsJson() async {
+    if (!_supported) return null;
+    try {
+      return await HomeWidget.getWidgetData<String>(_todayHabitsKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> writeTodayHabitsJson(String json) async {
+    if (!_supported) return;
+    try {
+      await HomeWidget.saveWidgetData<String>(_todayHabitsKey, json);
+    } catch (e) {
+      debugPrint('[HomeWidgetService] today-list write skipped: $e');
+    }
+  }
+
+  /// Redraws the two widgets that show the today-list after a background
+  /// tap changed it. The app's own path is [updateWidgetData].
+  Future<void> refreshHabitWidgets() async {
+    if (!_supported) return;
+    try {
+      await HomeWidget.updateWidget(iOSName: _iOSWidgetName);
+      await HomeWidget.updateWidget(iOSName: _iOSLockScreenWidgetName);
+    } catch (e) {
+      debugPrint('[HomeWidgetService] widget refresh skipped: $e');
+    }
+  }
+
+  /// Appends one tap for the app to act on at its next open. A read-modify-
+  /// write behind the same chain the takes use, so two taps landing in one
+  /// engine cannot overwrite each other.
+  Future<void> queueNotificationAction(QueuedNotificationAction entry) {
+    if (!_supported) return Future.value();
+    final result = _takeChain.then((_) async {
+      final raw = await HomeWidget.getWidgetData<String>(_pendingActionsKey);
+      await HomeWidget.saveWidgetData<String>(
+        _pendingActionsKey,
+        NotificationActionRules.appendToQueue(raw, entry),
+      );
+    });
+    _takeChain = result.then<void>((_) {}, onError: (_) {});
+    return result.catchError((Object e) {
+      debugPrint('[HomeWidgetService] action queue write skipped: $e');
+    });
+  }
+
+  /// Every tap queued since the last take, oldest first, cleared as it is
+  /// read. main.dart's _processPendingNotificationActions drains it with
+  /// the same auth-and-data gates as [takePendingCompletions].
+  Future<List<QueuedNotificationAction>>
+      takePendingNotificationActions() async {
+    if (!_supported) return const [];
+    try {
+      return NotificationActionRules.decodeQueue(
+        await _takeRawQueue(_pendingActionsKey),
+      );
+    } catch (e) {
+      debugPrint('[HomeWidgetService] pending-actions read skipped: $e');
+      return const [];
+    }
+  }
+
   /// Serializes every queue take behind one future chain.
   ///
   /// The take is a get-then-clear across two platform-channel awaits, so
@@ -260,19 +375,28 @@ class HomeWidgetService {
   /// what the doc comments above have always promised.
   Future<void> _takeChain = Future.value();
 
-  Future<List<String>> _takeQueue(String key) {
+  /// The get-then-clear itself: the raw JSON under [key], or null when the
+  /// queue was empty. Shared by the id queues and the action queue, whose
+  /// entries decode differently.
+  Future<String?> _takeRawQueue(String key) {
     final result = _takeChain.then((_) async {
       final raw = await HomeWidget.getWidgetData<String>(key);
-      if (raw == null || raw.isEmpty) return const <String>[];
+      if (raw == null || raw.isEmpty) return null;
       await HomeWidget.saveWidgetData<String>(key, '[]');
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const <String>[];
-      return decoded.whereType<String>().toList();
+      return raw;
     });
     // The chain must survive a failed take, or one platform-channel error
     // would wedge every future take behind a rejected future.
     _takeChain = result.then<void>((_) {}, onError: (_) {});
     return result;
+  }
+
+  Future<List<String>> _takeQueue(String key) async {
+    final raw = await _takeRawQueue(key);
+    if (raw == null) return const <String>[];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const <String>[];
+    return decoded.whereType<String>().toList();
   }
 
   /// Name of the Matrix widget's SwiftUI provider struct — must exactly

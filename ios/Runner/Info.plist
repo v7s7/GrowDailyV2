@@ -51,6 +51,10 @@
 	<string>GrowDaily reads your daily step count from Apple Health (including steps recorded by your Apple Watch) so walking habits you link to steps can complete themselves automatically. Steps are only read, never changed, and stay on your device.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>GrowDaily does not write any health data. This permission is part of the health integration used to read your step count for walking habits.</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>GrowDaily rings an alarm for the habits and tasks you choose to be woken for, even when your iPhone is on silent or in a Focus. Only reminders you switch to alarm use this.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

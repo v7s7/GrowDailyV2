@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/alarm_choice_provider.dart';
+import '../../../core/services/alarm_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/voice_note_service.dart';
 import '../../../core/theme/game_theme.dart';
@@ -58,6 +60,10 @@ class AddTaskSheet extends ConsumerStatefulWidget {
     /// it the task can't reproduce the ladder it was built with when it's
     /// reopened.
     DateTime? reminderAnchorAt,
+
+    /// Ring the reminders as an alarm rather than a notification, see
+    /// MatrixTask.alarm.
+    bool? alarm,
   }) onAdd;
 
   const AddTaskSheet({
@@ -106,6 +112,10 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   // disagree. Only _submit flattens them, on the way to MatrixNotifier.
   DateTime? _anchorAt;
   Set<int> _offsets = {};
+
+  /// The reminder style, see MatrixTask.alarm. Off until the person picks
+  /// alarm AND the platform grants it; see [_setAlarm].
+  bool _alarm = false;
 
   List<DateTime> get _reminderAts =>
       remindersFor(anchor: _anchorAt, offsets: _offsets);
@@ -199,6 +209,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       voiceNotes: _pendingNotes,
       reminderAts: reminderAts,
       reminderAnchorAt: _anchorAt,
+      alarm: _alarm,
     );
     if (!mounted) return;
     final now = DateTime.now();
@@ -361,6 +372,23 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
 
   /// The anchor: the moment the task is actually about. Straight to the
   /// full picker, because this is the one value the app can't guess.
+  /// Alarm needs the system's permission the first time; a refusal keeps
+  /// the choice on notification and says so where the person is looking.
+  Future<void> _setAlarm(bool alarm) async {
+    if (!alarm) {
+      setState(() => _alarm = false);
+      return;
+    }
+    final granted = await AlarmService.instance.requestPermission();
+    if (!mounted) return;
+    if (!granted) {
+      showOverlayNotice(context, S.of(context).alarmPermissionDenied,
+          icon: Icons.alarm_off_rounded);
+      return;
+    }
+    setState(() => _alarm = true);
+  }
+
   Future<void> _pickAnchor() async {
     final picked = await pickReminderMoment(context, initial: _anchorAt);
     if (picked == null || !mounted) return;
@@ -573,6 +601,12 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                         onClear: _clearReminders,
                         onToggleOffset: _toggleOffset,
                         onLocked: () => showReminderLimitGate(context, ref),
+                        alarm: _alarm,
+                        alarmChoiceAvailable: ref
+                                .watch(alarmChoiceAvailableProvider)
+                                .value ==
+                            true,
+                        onAlarmChanged: _setAlarm,
                       ),
                     ),
                     const SizedBox(height: 8),

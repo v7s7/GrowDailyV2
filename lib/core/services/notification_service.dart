@@ -12,6 +12,8 @@ import '../../features/settings/models/notification_settings.dart';
 import '../extensions/datetime_ext.dart';
 import '../l10n/reminder_copy.dart';
 import 'local_store_service.dart';
+import 'alarm_service.dart';
+import 'notification_action_background.dart';
 import 'prayer_times_service.dart';
 
 /// One habit's reminder inputs, as read straight off its [HabitCue] by
@@ -97,6 +99,11 @@ typedef HabitReminderInput = ({
   // Lets this habit's reminder through quiet hours (the per-habit "Allow
   // anyway" escape hatch). Mirrors IslamicHabitTemplate.ignoreQuietHours.
   bool ignoreQuietHours,
+  // Ring as a real alarm rather than a notification. Mirrors
+  // IslamicHabitTemplate.alarm; what that means per platform is
+  // AlarmService's business, and a slot that cannot be an alarm falls
+  // back to a Time Sensitive notification (see _scheduleOne).
+  bool alarm,
   /// The weekdays this habit is actually due on (DateTime.weekday values,
   /// 1 = Monday … 7 = Sunday). Empty means every day.
   ///
@@ -170,6 +177,17 @@ typedef _ResolvedReminder = ({
   Set<int> scheduledWeekdays,
   int? weekTarget,
   Set<int>? weekDoneDays,
+  /// Whether this reminder is anchored to a prayer, which makes it Time
+  /// Sensitive on iOS: delivered through Focus and Do Not Disturb, the way
+  /// the app's own quiet hours already step aside for a prayer cue (see
+  /// NotificationSettings.quietHoursAppliesToPrayer). A clock reminder is
+  /// not: a Focus the person set is theirs to keep, and a 9pm habit nudge
+  /// is not the kind of moment that justifies breaking it.
+  bool timeSensitive,
+  /// Mirrors [HabitReminderInput.alarm]: this slot is scheduled through
+  /// AlarmService when it can be, and never bundled with other habits,
+  /// since an alarm has one thing to say and one button to say it with.
+  bool alarm,
 });
 
 /// One quit habit's evening check-in inputs, read off the providers by
@@ -188,6 +206,15 @@ typedef QuitCheckInInput = ({
 /// Real local-notification service backing daily/habit reminders,
 /// prayer-linked reminders, streak-risk nudges, and in-the-moment
 /// celebration pings (habit completed, level up, achievement unlocked).
+///
+/// A habit or task reminder can also ring as a real ALARM instead of a
+/// notification (IslamicHabitTemplate.alarm, MatrixTask.alarm, chosen per
+/// item in the sheets). Those slots go through AlarmService, which is
+/// AlarmKit on iOS 26 and newer; on Android the same choice lands on the
+/// alarm-audio channel below, and anywhere a real alarm cannot be made the
+/// slot falls back to a Time Sensitive notification. The alarm and the
+/// notification for one slot share an id, and every schedule clears the
+/// other system's copy, so a reminder never rings twice.
 /// Uses `flutter_local_notifications` — no remote push server is involved,
 /// everything is scheduled/fired on-device, which is what keeps this
 /// entirely free to run. Prayer-linked reminders resolve their fire time
@@ -232,19 +259,40 @@ class NotificationService {
   static const _channelName = 'Grow Daily';
   static const _channelDesc = 'Habit reminders and progress celebrations';
 
+  // Android's answer to "ring as an alarm": a second channel on the ALARM
+  // audio stream at maximum importance, so a reminder the person switched
+  // to alarm plays at alarm volume and through Do Not Disturb wherever the
+  // person allows alarms, the way a clock app's would. iOS needs no channel:
+  // its alarms are real AlarmKit alarms, see AlarmService.
+  static const _alarmChannelId = 'growdaily_alarm';
+  static const _alarmChannelName = 'Grow Daily alarms';
+  static const _alarmChannelDesc = 'Reminders you chose to ring as alarms';
+
   // ── Actionable notifications ─────────────────────────────────
   //
-  // Both actions are registered with DarwinNotificationActionOption
-  // .foreground / AndroidNotificationAction(showsUserInterface: true) on
-  // purpose — that forces the tap through the normal, already-tested
-  // main-isolate onDidReceiveNotificationResponse path (or a cold-launch
-  // resolved via getNotificationAppLaunchDetails at startup), instead of
-  // iOS/Android's separate background-isolate path. That background path
-  // can act silently without opening the app, but it runs in a fresh
-  // Flutter engine with none of the app's state, and replicating
-  // completeHabit's XP/streak/gold logic there isn't something that can be
-  // verified without a device to test on. This trades a brief app-open for
-  // actions that are guaranteed to run through the real, working code.
+  // The iOS actions are BACKGROUND actions (no DarwinNotificationActionOption
+  // .foreground); Android's still open the app (showsUserInterface: true).
+  //
+  // iOS used to match Android, and the reason it no longer does is a wrist:
+  // a paired Apple Watch hides foreground actions when the app has no watch
+  // app, because there is nothing on the watch to bring forward. So «تمت»
+  // and «تأجيل ساعة» existed on the phone and were simply absent from the
+  // very same reminder on the watch, which showed only Dismiss. (The watch
+  // simulator still draws them, which is how this went unnoticed.) A
+  // background action is shown on both devices and delivered to the phone
+  // either way, and it also means marking a habit done from the lock screen
+  // no longer has to open the app.
+  //
+  // The cost is that the tap arrives in a second, headless Flutter engine
+  // with none of the app's state, so it is not completed there. It is
+  // queued and paid at the next app open, through the exact
+  // _handleNotificationAction path a foreground tap always used; see
+  // notification_action_background.dart for the split and main.dart's
+  // _processPendingNotificationActions for the drain. Snooze is the one
+  // action that acts in the background engine itself. None of it runs
+  // without two lines in ios/Runner/AppDelegate.swift (the notification
+  // centre delegate, and a background task around each response); that
+  // file says why.
   static const _habitCategoryId = 'habitReminderCategory';
   static const actionMarkDone = 'mark_done';
   static const actionSnooze = 'snooze_1h';
@@ -253,8 +301,8 @@ class NotificationService {
   // mean something different from Mark Done/Snooze: "On Track" affirms the
   // day (same reward path as Mark Done), "Slipped" logs today as a
   // slip/over-limit day (red square, any same-day reward reversed) — see
-  // main.dart's _handleNotificationAction. Same foreground-only routing
-  // rationale as the habit category above.
+  // main.dart's _handleNotificationAction. Same background routing as the
+  // habit category above.
   static const _quitCategoryId = 'quitCheckInCategory';
   static const actionStayedClean = 'quit_on_track';
   static const actionSlipped = 'quit_slipped';
@@ -371,12 +419,10 @@ class NotificationService {
               DarwinNotificationAction.plain(
                 actionMarkDone,
                 markDoneAction(isAr),
-                options: {DarwinNotificationActionOption.foreground},
               ),
               DarwinNotificationAction.plain(
                 actionSnooze,
                 snoozeAction(isAr),
-                options: {DarwinNotificationActionOption.foreground},
               ),
             ],
           ),
@@ -389,12 +435,10 @@ class NotificationService {
               DarwinNotificationAction.plain(
                 actionStayedClean,
                 onTrackAction(isAr),
-                options: {DarwinNotificationActionOption.foreground},
               ),
               DarwinNotificationAction.plain(
                 actionSlipped,
                 slippedAction(isAr),
-                options: {DarwinNotificationActionOption.foreground},
               ),
             ],
           ),
@@ -414,6 +458,20 @@ class NotificationService {
   /// and already follow the language, and no-ops when nothing changed.
   Future<void> applyLocale(bool isAr) async {
     if (kIsWeb) return;
+    if (!_initialized) {
+      // A process whose first registration this is registers straight in
+      // the right language, rather than English first and a second
+      // registration to correct it. Both engines take this branch: main()
+      // reads the persisted locale and calls this instead of init(), and the
+      // background action engine (notification_action_background.dart) does
+      // the same before a snooze. The gap between an English registration
+      // and its correction is not academic: a background launch can be
+      // suspended inside it, and the next reminder then shows English
+      // buttons on an Arabic account (seen live on 2026-09-06).
+      _actionsAreAr = isAr;
+      await init();
+      return;
+    }
     await init();
     if (_actionsAreAr == isAr) return;
     _actionsAreAr = isAr;
@@ -424,6 +482,7 @@ class NotificationService {
         iOS: _iosInit(isAr),
       ),
       onDidReceiveNotificationResponse: _dispatch,
+      onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
     );
     debugPrint(
         '[NotificationService] Action buttons now ${isAr ? 'ar' : 'en'}');
@@ -456,6 +515,7 @@ class NotificationService {
       InitializationSettings(
           android: androidInit, iOS: _iosInit(_actionsAreAr)),
       onDidReceiveNotificationResponse: _dispatch,
+      onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
     );
 
     // Create the Android channel up front rather than letting the first
@@ -482,6 +542,18 @@ class NotificationService {
             importance: Importance.defaultImportance,
           ),
         );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _alarmChannelId,
+            _alarmChannelName,
+            description: _alarmChannelDesc,
+            importance: Importance.max,
+            audioAttributesUsage: AudioAttributesUsage.alarm,
+          ),
+        );
 
     // If a notification action cold-launched the app (it was fully
     // terminated when tapped), the tap never reaches
@@ -494,8 +566,44 @@ class NotificationService {
       _pendingResponse = launchResponse;
     }
 
+    // An alarm that rings while the app is in front, see
+    // AlarmService.onForegroundAlarm. The same reminder, as the banner the
+    // notification path would have shown, with the same buttons.
+    AlarmService.instance.onForegroundAlarm = showForegroundAlarm;
+
     _initialized = true;
     debugPrint('[NotificationService] Ready');
+  }
+
+  /// Shows the reminder behind alarm slot [slotId] as an immediate
+  /// notification. iOS presents no alarm over its own app, so this is what
+  /// a person who happens to have the app open gets instead: the banner,
+  /// the sound, and Mark Done / Snooze for a habit. Time Sensitive, since it
+  /// stands in for an alarm the person asked for.
+  Future<void> showForegroundAlarm(int slotId) async {
+    if (kIsWeb) return;
+    final known = AlarmService.instance.scheduledFor(slotId);
+    if (known == null) {
+      // Scheduled by an earlier launch; the words are gone with it. Better
+      // a nameless nudge than silence for an alarm the person set.
+      await _plugin.show(
+        slotId,
+        _actionsAreAr ? 'حان وقت التذكير' : 'Reminder time',
+        null,
+        _taskReminderDetails(alarmStyle: true),
+      );
+      return;
+    }
+    final isAr = _actionsAreAr;
+    await _plugin.show(
+      slotId,
+      known.title,
+      known.subtitle,
+      known.kind == 'habit'
+          ? _habitReminderDetails(isAr, timeSensitive: true, alarmStyle: true)
+          : _taskReminderDetails(alarmStyle: true),
+      payload: known.targetId,
+    );
   }
 
   /// Hive key for "has this device already told us the OS-level
@@ -662,18 +770,35 @@ class NotificationService {
 
   /// Same as [_details] but tagged with the habit-reminder category/actions
   /// so Mark Done + Snooze show up on the notification itself.
+  ///
+  /// [timeSensitive] marks the iOS notification Time Sensitive: delivered
+  /// immediately, through Focus and Do Not Disturb, on the phone and on a
+  /// paired watch. Set for prayer-anchored reminders only (see
+  /// _ResolvedReminder.timeSensitive). It needs the matching entitlement in
+  /// Runner.entitlements, and the person keeps the last word: iOS lets them
+  /// turn Time Sensitive off per app in Settings.
   //
   // Takes the language rather than being a const: Android builds its action
   // labels per notification, so these follow the app's current language for
   // free. (iOS cannot: its buttons belong to a CATEGORY registered once at
   // init, which is what [applyLocale] exists to re-register.)
-  NotificationDetails _habitReminderDetails(bool isAr) => NotificationDetails(
+  NotificationDetails _habitReminderDetails(
+    bool isAr, {
+    bool timeSensitive = false,
+    bool alarmStyle = false,
+  }) =>
+      NotificationDetails(
         android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDesc,
-          importance: Importance.defaultImportance,
-          priority: Priority.defaultPriority,
+          alarmStyle ? _alarmChannelId : _channelId,
+          alarmStyle ? _alarmChannelName : _channelName,
+          channelDescription: alarmStyle ? _alarmChannelDesc : _channelDesc,
+          importance:
+              alarmStyle ? Importance.max : Importance.defaultImportance,
+          priority: alarmStyle ? Priority.max : Priority.defaultPriority,
+          category: alarmStyle ? AndroidNotificationCategory.alarm : null,
+          audioAttributesUsage: alarmStyle
+              ? AudioAttributesUsage.alarm
+              : AudioAttributesUsage.notification,
           actions: [
             AndroidNotificationAction(actionMarkDone, markDoneAction(isAr),
                 showsUserInterface: true),
@@ -681,8 +806,53 @@ class NotificationService {
                 showsUserInterface: true),
           ],
         ),
-        iOS: const DarwinNotificationDetails(
-            categoryIdentifier: _habitCategoryId),
+        iOS: DarwinNotificationDetails(
+          categoryIdentifier: _habitCategoryId,
+          interruptionLevel:
+              timeSensitive ? InterruptionLevel.timeSensitive : null,
+        ),
+      );
+
+  /// [_details] for one task's reminder. [alarmStyle] is the task's alarm
+  /// choice on a platform where an alarm is a notification (Android's alarm
+  /// channel) or where the real alarm could not be made (an iOS refusal):
+  /// then the reminder at least reaches through Focus as Time Sensitive.
+  NotificationDetails _taskReminderDetails({required bool alarmStyle}) =>
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          alarmStyle ? _alarmChannelId : _channelId,
+          alarmStyle ? _alarmChannelName : _channelName,
+          channelDescription: alarmStyle ? _alarmChannelDesc : _channelDesc,
+          importance:
+              alarmStyle ? Importance.max : Importance.defaultImportance,
+          priority: alarmStyle ? Priority.max : Priority.defaultPriority,
+          category: alarmStyle ? AndroidNotificationCategory.alarm : null,
+          audioAttributesUsage: alarmStyle
+              ? AudioAttributesUsage.alarm
+              : AudioAttributesUsage.notification,
+        ),
+        iOS: DarwinNotificationDetails(
+          interruptionLevel:
+              alarmStyle ? InterruptionLevel.timeSensitive : null,
+        ),
+      );
+
+  /// [_details] for a combined 2+ habit ping, Time Sensitive when any member
+  /// is (see [_habitReminderDetails]): a bundle holding a Fajr habit must
+  /// reach through Sleep Focus the way that habit's own reminder would have.
+  NotificationDetails _bundleDetails({required bool timeSensitive}) =>
+      NotificationDetails(
+        android: const AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: _channelDesc,
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+        ),
+        iOS: DarwinNotificationDetails(
+          interruptionLevel:
+              timeSensitive ? InterruptionLevel.timeSensitive : null,
+        ),
       );
 
   /// Same shape as [_habitReminderDetails], tagged with the quit check-in
@@ -1059,9 +1229,45 @@ class NotificationService {
   /// three times a day forever, with nothing left in the app pointing at it.
   Future<void> _cancelAllHabitReminderSlots(String habitId) async {
     for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
-      await _plugin.cancel(_habitReminderId(habitId, slot));
+      await _cancelHabitSlot(habitId, slot);
       await _plugin.cancel(_snoozeId(habitId, slot));
     }
+  }
+
+  /// Clears one habit slot in BOTH systems. A slot is scheduled either as a
+  /// notification or as an alarm under the same id (see AlarmService), and
+  /// a habit switched from one to the other must not keep the old one.
+  Future<void> _cancelHabitSlot(String habitId, int slot) async {
+    final id = _habitReminderId(habitId, slot);
+    await _plugin.cancel(id);
+    await AlarmService.instance.cancel(id);
+  }
+
+  /// [_cancelAllHabitReminderSlots] for the background action handler,
+  /// which has just recorded a habit as done for the day and must not let
+  /// its later slots (a second time, a pending snooze) keep pinging about
+  /// it until the app opens. The next recompute re-arms whatever is still
+  /// owed, so standing down too much costs a reminder for at most one open.
+  Future<void> standDownHabitReminders(String habitId) =>
+      _serialized(() => _cancelAllHabitReminderSlots(habitId));
+
+  /// Reminder schedules and cancels run one after another, in call order.
+  ///
+  /// main.dart recomputes reminders several times in a row on a resume,
+  /// once per provider that settles, and with notifications alone that
+  /// was harmless: zonedSchedule under one id simply replaces. An alarm is
+  /// not like that. Seen live 2026-09-06 15:26: four passes inside 300 ms
+  /// each did cancel-then-schedule on the same AlarmKit id, mobiletimerd
+  /// refused one of them as "a duplicate ID", that pass took the fallback
+  /// path and cancelled the alarm the winning pass had just made, and the
+  /// slot was left with no alarm and, depending on the interleaving, no
+  /// notification either. One lane, so no two passes ever interleave.
+  Future<void> _lane = Future.value();
+
+  Future<T> _serialized<T>(Future<T> Function() work) {
+    final run = _lane.then((_) => work());
+    _lane = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
   }
 
   static const _bundleSlotBase = 7000;
@@ -1096,8 +1302,25 @@ class NotificationService {
     List<HabitReminderInput> habits,
     NotificationSettings settings, {
     required bool isAr,
+  }) {
+    if (kIsWeb) return Future.value();
+    final token = ++_sweepToken;
+    return _serialized(() async {
+      // Overtaken while waiting its turn: a later call holds the newer
+      // habit list and settings, and its own pass is queued behind this
+      // one. Running this one as well would only repeat the work.
+      if (token != _sweepToken) return;
+      await _sweepHabitReminders(habits, settings, isAr: isAr);
+    });
+  }
+
+  int _sweepToken = 0;
+
+  Future<void> _sweepHabitReminders(
+    List<HabitReminderInput> habits,
+    NotificationSettings settings, {
+    required bool isAr,
   }) async {
-    if (kIsWeb) return;
     await init();
 
     final nextHabitIds = habits.map((h) => h.id).toSet();
@@ -1229,13 +1452,15 @@ class NotificationService {
             scheduledWeekdays: habit.scheduledWeekdays,
             weekTarget: habit.weekTarget,
             weekDoneDays: habit.weekDoneDays,
+            timeSensitive: false,
+            alarm: habit.alarm,
           ));
         }
         // Every slot this habit did not keep — dropped for quiet hours,
         // suppressed as done, or beyond a count that just shrank.
         for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
           if (keptSlots.contains(slot)) continue;
-          await _plugin.cancel(_habitReminderId(habit.id, slot));
+          await _cancelHabitSlot(habit.id, slot);
           await _plugin.cancel(_snoozeId(habit.id, slot));
         }
         continue;
@@ -1344,7 +1569,7 @@ class NotificationService {
       // for.
       for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
         if (keptPrayerSlots.contains(slot)) continue;
-        await _plugin.cancel(_habitReminderId(habit.id, slot));
+        await _cancelHabitSlot(habit.id, slot);
         await _plugin.cancel(_snoozeId(habit.id, slot));
       }
       for (final f in awakeFires) {
@@ -1367,6 +1592,8 @@ class NotificationService {
           scheduledWeekdays: habit.scheduledWeekdays,
           weekTarget: habit.weekTarget,
           weekDoneDays: habit.weekDoneDays,
+          timeSensitive: true,
+          alarm: habit.alarm,
         ));
       }
     }
@@ -1462,12 +1689,41 @@ class NotificationService {
     // run log at schedule time instead of waited for on a lock screen.
     debugPrint('[NotificationService] ${r.name} (${r.id}#${r.slot}) '
         'at ${r.fireTime}: $body');
+    final slotId = _habitReminderId(r.id, r.slot);
+    // A habit switched to alarm rings through AlarmService where that
+    // exists (iOS 26+, permission granted). The alarm replaces the
+    // notification for this slot, so the notification under the same id is
+    // cleared; and if the alarm could not be made, the notification below
+    // takes over, Time Sensitive so the person still gets what they asked
+    // for as nearly as the platform allows.
+    if (r.alarm &&
+        await AlarmService.instance.schedule(
+          id: slotId,
+          fireAt: r.fireTime,
+          title: r.name,
+          subtitle: body,
+          kind: 'habit',
+          targetId: r.id,
+          doneLabel: markDoneAction(isAr),
+          stopLabel: alarmStopAction(isAr),
+        )) {
+      await _plugin.cancel(slotId);
+      debugPrint('[NotificationService] ${r.name} (${r.id}#${r.slot}) '
+          'rings as an alarm');
+      return;
+    }
+    // A slot that was an alarm on an earlier pass and is a notification now.
+    await AlarmService.instance.cancel(slotId);
     await _plugin.zonedSchedule(
-      _habitReminderId(r.id, r.slot),
+      slotId,
       r.name,
       body,
       r.fireTime,
-      _habitReminderDetails(isAr),
+      _habitReminderDetails(
+        isAr,
+        timeSensitive: r.timeSensitive || r.alarm,
+        alarmStyle: r.alarm,
+      ),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
@@ -1480,8 +1736,20 @@ class NotificationService {
     bool bundleEnabled,
     bool isAr,
   ) async {
+    // An alarm is one habit ringing with one Done button; folding it into a
+    // «عادتان جاهزتان» bundle would lose both. Alarm slots are scheduled on
+    // their own, first, and only the notification slots go through the
+    // bundling and the 64-request budget below (AlarmKit has no such cap).
+    final alarmed = <_ResolvedReminder>[];
+    final notified = <_ResolvedReminder>[];
+    for (final r in resolved) {
+      (r.alarm ? alarmed : notified).add(r);
+    }
+    for (final r in alarmed) {
+      await _scheduleOne(r, isAr);
+    }
     final rawGroups = groupByFireTimeWindow<_ResolvedReminder>(
-      resolved,
+      notified,
       enabled: bundleEnabled,
       window: _bundleWindow,
       fireTimeOf: (r) => r.fireTime,
@@ -1526,7 +1794,7 @@ class NotificationService {
     for (final group in groups) {
       if (scheduledCount >= kMaxPendingHabitSlots) {
         for (final r in group) {
-          await _plugin.cancel(_habitReminderId(r.id, r.slot));
+          await _cancelHabitSlot(r.id, r.slot);
           trimmed++;
         }
         continue;
@@ -1572,7 +1840,7 @@ class NotificationService {
       // Snoozes (6000 band) are left alone: a pending snooze is something
       // the user explicitly asked for from a delivered reminder.
       for (final r in group) {
-        await _plugin.cancel(_habitReminderId(r.id, r.slot));
+        await _cancelHabitSlot(r.id, r.slot);
       }
       final names = group.map((e) => e.name).join(isAr ? '، ' : ', ');
       await _plugin.zonedSchedule(
@@ -1585,7 +1853,7 @@ class NotificationService {
         ),
         names,
         group.first.fireTime,
-        _details,
+        _bundleDetails(timeSensitive: group.any((r) => r.timeSensitive)),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
@@ -1938,8 +2206,17 @@ class NotificationService {
     String habitId,
     String habitName, {
     bool isAr = false,
+  }) {
+    if (kIsWeb) return Future.value();
+    return _serialized(
+        () => _snoozeHabitReminderNow(habitId, habitName, isAr: isAr));
+  }
+
+  Future<void> _snoozeHabitReminderNow(
+    String habitId,
+    String habitName, {
+    required bool isAr,
   }) async {
-    if (kIsWeb) return;
     await init();
     await _plugin.zonedSchedule(
       _snoozeId(habitId),
@@ -2054,28 +2331,70 @@ class NotificationService {
   /// accumulating stale schedules from whatever it used to hold. That
   /// makes this safe to call on every resync, which is how MatrixNotifier
   /// uses it.
+  ///
+  /// [alarm] is the task's own choice to ring as an alarm (MatrixTask.alarm):
+  /// each slot then goes through AlarmService, with the Done button on the
+  /// ringing screen queueing the completion for the app, and falls back to
+  /// an alarm-style notification where a real alarm cannot be made. Same
+  /// slot ids either way, so switching a task between the two never leaves
+  /// both scheduled; see [_cancelTaskSlot].
   Future<void> scheduleTaskReminders({
     required String id,
     required String taskTitle,
     required List<DateTime> fireTimes,
     required DateTime? anchorAt,
     required bool isAr,
+    bool alarm = false,
+  }) {
+    if (kIsWeb) return Future.value();
+    return _serialized(() => _scheduleTaskRemindersNow(
+          id: id,
+          taskTitle: taskTitle,
+          fireTimes: fireTimes,
+          anchorAt: anchorAt,
+          isAr: isAr,
+          alarm: alarm,
+        ));
+  }
+
+  Future<void> _scheduleTaskRemindersNow({
+    required String id,
+    required String taskTitle,
+    required List<DateTime> fireTimes,
+    required DateTime? anchorAt,
+    required bool isAr,
+    required bool alarm,
   }) async {
-    if (kIsWeb) return;
     await init();
     final wanted = fireTimes.take(kMaxTaskReminderSlots).toList();
     for (var i = 0; i < wanted.length; i++) {
+      final slotId = _taskReminderId(id, i);
+      final title = taskReminderTitle(
+        offsetMinutes:
+            anchorAt == null ? 0 : signedOffsetMinutes(wanted[i], anchorAt),
+        isAr: isAr,
+      );
+      if (alarm &&
+          await AlarmService.instance.schedule(
+            id: slotId,
+            fireAt: wanted[i],
+            title: taskTitle,
+            subtitle: title,
+            kind: 'task',
+            targetId: id,
+            doneLabel: taskDoneAction(isAr),
+            stopLabel: alarmStopAction(isAr),
+          )) {
+        await _plugin.cancel(slotId);
+        continue;
+      }
+      await AlarmService.instance.cancel(slotId);
       await _plugin.zonedSchedule(
-        _taskReminderId(id, i),
-        taskReminderTitle(
-          offsetMinutes: anchorAt == null
-              ? 0
-              : signedOffsetMinutes(wanted[i], anchorAt),
-          isAr: isAr,
-        ),
+        slotId,
+        title,
         taskTitle,
         tz.TZDateTime.from(wanted[i], tz.local),
-        _details,
+        _taskReminderDetails(alarmStyle: alarm),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
@@ -2083,8 +2402,15 @@ class NotificationService {
       );
     }
     for (var i = wanted.length; i < kMaxTaskReminderSlots; i++) {
-      await _plugin.cancel(_taskReminderId(id, i));
+      await _cancelTaskSlot(id, i);
     }
+  }
+
+  /// One task slot out of both systems, see [_cancelHabitSlot].
+  Future<void> _cancelTaskSlot(String taskId, int index) async {
+    final id = _taskReminderId(taskId, index);
+    await _plugin.cancel(id);
+    await AlarmService.instance.cancel(id);
   }
 
   /// Catches up a task reminder whose picked moment already passed without
@@ -2145,11 +2471,13 @@ class NotificationService {
   /// list is usually already empty, so there's nothing left to tell us how
   /// many it used to have. Cancelling an id that was never scheduled is a
   /// no-op, so the fixed sweep costs nothing but guarantees no stragglers.
-  Future<void> cancelTaskReminder(String id) async {
-    if (kIsWeb) return;
-    for (var i = 0; i < kMaxTaskReminderSlots; i++) {
-      await _plugin.cancel(_taskReminderId(id, i));
-    }
+  Future<void> cancelTaskReminder(String id) {
+    if (kIsWeb) return Future.value();
+    return _serialized(() async {
+      for (var i = 0; i < kMaxTaskReminderSlots; i++) {
+        await _cancelTaskSlot(id, i);
+      }
+    });
   }
 
   tz.TZDateTime _nextInstanceOf(int hour, int minute) {

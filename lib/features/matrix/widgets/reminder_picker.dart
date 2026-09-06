@@ -13,6 +13,7 @@ import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import '../models/matrix_task.dart';
 import '../../../shared/widgets/overlay_notice.dart';
+import '../../../shared/widgets/reminder_style_choice.dart';
 import 'custom_offset_sheet.dart';
 
 // arabicDigits moved to core/l10n/reminder_copy.dart, so notification copy
@@ -309,6 +310,18 @@ class ReminderPicker extends StatefulWidget {
   final void Function(int signedMinutes) onToggleOffset;
   final VoidCallback onLocked;
 
+  /// Whether this task's reminders ring as an alarm (MatrixTask.alarm), and
+  /// whether the device can offer that at all (alarmChoiceAvailableProvider,
+  /// read by the sheet). When it cannot, the choice is simply not drawn: a
+  /// notification is the only thing there is, and the picker looks exactly
+  /// as it did before alarms existed.
+  final bool alarm;
+  final bool alarmChoiceAvailable;
+
+  /// The person picked the other style. The sheet owns the permission ask
+  /// that "alarm" needs, so this only reports the wish.
+  final void Function(bool alarm) onAlarmChanged;
+
   const ReminderPicker({
     super.key,
     required this.anchorAt,
@@ -320,7 +333,12 @@ class ReminderPicker extends StatefulWidget {
     required this.onClear,
     required this.onToggleOffset,
     required this.onLocked,
+    this.alarm = false,
+    this.alarmChoiceAvailable = false,
+    this.onAlarmChanged = _ignoreAlarmChange,
   });
+
+  static void _ignoreAlarmChange(bool _) {}
 
   @override
   State<ReminderPicker> createState() => _ReminderPickerState();
@@ -617,6 +635,18 @@ class _ReminderPickerState extends State<ReminderPicker> {
             ),
           ],
         ),
+        if (widget.alarmChoiceAvailable)
+          Padding(
+            padding: const EdgeInsets.only(top: 14),
+            // Notification or alarm, the same switch the habit sheet shows
+            // under its reminder time (see _AddHabitSheetState
+            // ._reminderStyleRow), so the two features read as one.
+            child: ReminderStyleChoice(
+              alarm: widget.alarm,
+              accent: widget.color,
+              onChanged: widget.onAlarmChanged,
+            ),
+          ),
         if (_notice != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),

@@ -973,6 +973,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
           voiceNotes,
           reminderAts,
           reminderAnchorAt,
+          alarm,
         }) {
           HapticFeedback.mediumImpact();
           ref.read(matrixProvider.notifier).add(
@@ -982,6 +983,7 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                 voiceNotes: voiceNotes ?? const [],
                 reminderAts: reminderAts ?? const [],
                 reminderAnchorAt: reminderAnchorAt,
+                alarm: alarm ?? false,
               );
         },
       ),
@@ -1020,11 +1022,12 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
             ref.read(matrixProvider.notifier).renameVoiceNote(id, noteId, name),
         onRemoveVoiceNote: (id, noteId) =>
             ref.read(matrixProvider.notifier).removeVoiceNote(id, noteId),
-        onSetReminders: (id, reminderAts, {reminderAnchorAt}) =>
+        onSetReminders: (id, reminderAts, {reminderAnchorAt, alarm}) =>
             ref.read(matrixProvider.notifier).setReminders(
                   id,
                   reminderAts,
                   reminderAnchorAt: reminderAnchorAt,
+                  alarm: alarm,
                 ),
         onDelete: () => _deleteTask(task.id),
         onMove: (q) => _moveTask(task.id, q),

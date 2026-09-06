@@ -41,6 +41,7 @@ class CatalogHabitOverride {
   /// being absent means untouched.
   final List<int>? extraReminderOffsets;
   final bool? ignoreQuietHours;
+  final bool? alarm;
   final String? iconColorHex;
 
   /// The daily step goal this person linked this preset to, or null for the
@@ -63,6 +64,7 @@ class CatalogHabitOverride {
     this.reminderOffsetMinutes,
     this.extraReminderOffsets,
     this.ignoreQuietHours,
+    this.alarm,
     this.iconColorHex,
     this.stepGoal,
   });
@@ -76,6 +78,7 @@ class CatalogHabitOverride {
       reminderOffsetMinutes == null &&
       extraReminderOffsets == null &&
       ignoreQuietHours == null &&
+      alarm == null &&
       iconColorHex == null &&
       stepGoal == null;
 
@@ -113,6 +116,7 @@ class CatalogHabitOverride {
         extraReminderOffsets:
             extraReminderOffsets ?? t.extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours ?? t.ignoreQuietHours,
+        alarm: alarm ?? t.alarm,
         createdAt: t.createdAt,
         archivedAt: t.archivedAt,
         stepGoal: stepGoal ?? t.stepGoal,
@@ -136,6 +140,7 @@ class CatalogHabitOverride {
         if (extraReminderOffsets != null)
           'extraReminderOffsets': extraReminderOffsets,
         if (ignoreQuietHours != null) 'ignoreQuietHours': ignoreQuietHours,
+        if (alarm != null) 'alarm': alarm,
         if (iconColorHex != null) 'iconColorHex': iconColorHex,
         if (stepGoal != null) 'stepGoal': stepGoal,
       };
@@ -161,6 +166,7 @@ class CatalogHabitOverride {
             .toList()
           ?..sort(),
         ignoreQuietHours: d['ignoreQuietHours'] as bool?,
+        alarm: d['alarm'] as bool?,
         iconColorHex: d['iconColorHex'] as String?,
         stepGoal: (d['stepGoal'] as num?)?.toInt(),
       );

@@ -101,6 +101,15 @@ class IslamicHabitTemplate {
   /// explicitly says otherwise for this specific habit.
   final bool ignoreQuietHours;
 
+  /// Whether this habit's reminders ring as a real alarm rather than arrive
+  /// as a notification: through Silent mode and any Focus, on the full
+  /// screen, on a paired Apple Watch. The person picks it per habit in the
+  /// add-habit sheet, off by default. What "alarm" means per platform is
+  /// AlarmService's business (AlarmKit on iOS 26+, an alarm-audio channel
+  /// on Android); where neither exists the choice is not offered and this
+  /// stays false.
+  final bool alarm;
+
   /// The day this habit came into the user's life — creation day for a
   /// custom habit, activation day for a catalog habit (stamped in by
   /// habitListProvider from ActiveCatalogNotifier.activatedAt). Null for
@@ -175,6 +184,7 @@ class IslamicHabitTemplate {
     this.reminderOffsetMinutes = 0,
     this.extraReminderOffsets = const [],
     this.ignoreQuietHours = false,
+    this.alarm = false,
     this.createdAt,
     this.archivedAt,
     this.stepGoal,
@@ -254,6 +264,7 @@ class IslamicHabitTemplate {
         if (extraReminderOffsets.isNotEmpty)
           'extraReminderOffsets': extraReminderOffsets,
         if (ignoreQuietHours) 'ignoreQuietHours': true,
+        if (alarm) 'alarm': true,
         // ISO string, not a Timestamp, on purpose: this exact map also
         // goes into Hive for guests (see CustomHabitsNotifier._saveGuest),
         // and Hive can't serialize Firestore Timestamps.
@@ -325,6 +336,7 @@ class IslamicHabitTemplate {
         reminderOffsetMinutes: _readReminderOffset(d),
         extraReminderOffsets: _readExtraOffsets(d),
         ignoreQuietHours: d['ignoreQuietHours'] as bool? ?? false,
+        alarm: d['alarm'] as bool? ?? false,
         createdAt: DateTime.tryParse(d['createdAt'] as String? ?? ''),
         archivedAt: DateTime.tryParse(d['archivedAt'] as String? ?? ''),
         stepGoal: d['stepGoal'] as int?,
@@ -434,6 +446,7 @@ class IslamicHabitTemplate {
         reminderOffsetMinutes: reminderOffsetMinutes,
         extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,
+        alarm: alarm,
         createdAt: date,
         stepGoal: stepGoal,
         suggestedStepGoal: suggestedStepGoal,
@@ -471,6 +484,7 @@ class IslamicHabitTemplate {
         reminderOffsetMinutes: minutes,
         extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,
+        alarm: alarm,
         createdAt: createdAt,
         archivedAt: archivedAt,
         stepGoal: stepGoal,
@@ -508,6 +522,7 @@ class IslamicHabitTemplate {
         reminderOffsetMinutes: reminderOffsetMinutes,
         extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,
+        alarm: alarm,
         createdAt: createdAt,
         archivedAt: archivedAt,
         stepGoal: stepGoal,

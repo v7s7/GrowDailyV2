@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/alarm_choice_provider.dart';
+import '../../../core/services/alarm_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/voice_note_service.dart';
 import '../../../core/theme/game_theme.dart';
@@ -63,6 +65,9 @@ class TaskDetailSheet extends ConsumerStatefulWidget {
     String id,
     List<DateTime> reminderAts, {
     DateTime? reminderAnchorAt,
+
+    /// The reminder style, see MatrixTask.alarm. Null leaves it as it was.
+    bool? alarm,
   }) onSetReminders;
   final VoidCallback onDelete;
   final void Function(MatrixQuadrant quadrant) onMove;
@@ -106,6 +111,9 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
   DateTime? _anchorAt;
   Set<int> _offsets = {};
 
+  /// The reminder style, see MatrixTask.alarm and [_setAlarm].
+  bool _alarm = false;
+
   List<DateTime> get _reminderAts =>
       remindersFor(anchor: _anchorAt, offsets: _offsets);
 
@@ -133,6 +141,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     // whatever it hands back is genuinely one of the moments this task fires
     // at — which is what lets the offsets below be honest about direction.
     _anchorAt = widget.task.reminderAnchorAt;
+    _alarm = widget.task.alarm;
     _offsets = offsetsFrom(
       anchor: _anchorAt,
       reminders: widget.task.reminderAts,
@@ -292,6 +301,24 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
 
   /// The anchor: the moment the task is actually about. Straight to the
   /// full picker, because this is the one value the app can't guess.
+  /// Alarm needs the system's permission the first time; a refusal keeps
+  /// the choice on notification and says so where the person is looking.
+  /// A granted switch is committed at once, like every other reminder edit
+  /// in this sheet, so the schedule follows without a save button.
+  Future<void> _setAlarm(bool alarm) async {
+    if (alarm) {
+      final granted = await AlarmService.instance.requestPermission();
+      if (!mounted) return;
+      if (!granted) {
+        showOverlayNotice(context, S.of(context).alarmPermissionDenied,
+            icon: Icons.alarm_off_rounded);
+        return;
+      }
+    }
+    setState(() => _alarm = alarm);
+    await _commit(anchor: _anchorAt, offsets: _offsets);
+  }
+
   Future<void> _pickAnchor() async {
     final picked = await pickReminderMoment(context, initial: _anchorAt);
     if (picked == null || !mounted) return;
@@ -347,6 +374,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
       widget.task.id,
       _reminderAts,
       reminderAnchorAt: _anchorAt,
+      alarm: _alarm,
     );
     if (!granted && mounted) {
       // Overlay, not SnackBar: this sheet is a modal, and a SnackBar
@@ -583,6 +611,11 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       onClear: _clearReminders,
                       onToggleOffset: _toggleOffset,
                       onLocked: () => showReminderLimitGate(context, ref),
+                      alarm: _alarm,
+                      alarmChoiceAvailable:
+                          ref.watch(alarmChoiceAvailableProvider).value ==
+                              true,
+                      onAlarmChanged: _setAlarm,
                     ),
                     const SizedBox(height: 10),
                     // Section label, hint and control all live inside this

@@ -111,6 +111,35 @@ class HabitReminderStack {
   /// The one thing that makes it different from a chip tap: a value the habit
   /// already holds stays put instead of being toggled off. Nobody types 45
   /// into a field and presses Add meaning "remove my 45-minute reminder".
+  /// One reminder edited into another: [old] leaves and [signed] takes its
+  /// place, which is what tapping a reminder row and picking a different
+  /// value means. The count never changes, so no tier rule applies. Roles
+  /// carry over: editing the primary makes [signed] the primary. A value
+  /// the habit already carries is not doubled, the edit then only drops
+  /// [old]; and editing a reminder to what it already is changes nothing.
+  HabitReminderStack replace(int old, int signed) {
+    if (old == signed || !contains(old)) return this;
+    if (contains(signed)) {
+      if (old != primary) {
+        return HabitReminderStack(
+          primary: primary,
+          extras: {...extras}..remove(old),
+        );
+      }
+      final rest = extras.toList()..sort();
+      return HabitReminderStack(primary: rest.first, extras: {...rest.skip(1)});
+    }
+    if (old == primary) {
+      return HabitReminderStack(primary: signed, extras: extras);
+    }
+    return HabitReminderStack(
+      primary: primary,
+      extras: {...extras}
+        ..remove(old)
+        ..add(signed),
+    );
+  }
+
   ({HabitReminderStack stack, HabitOffsetTap outcome}) addTyped(
     int signed, {
     required bool isPremium,

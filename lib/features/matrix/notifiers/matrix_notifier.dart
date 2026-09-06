@@ -360,6 +360,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     List<VoiceNote> voiceNotes = const [],
     List<DateTime> reminderAts = const [],
     DateTime? reminderAnchorAt,
+    bool alarm = false,
   }) {
     if (title.trim().isEmpty) return;
     _mutatedBeforeLoad = true;
@@ -370,6 +371,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       voiceNotes: voiceNotes,
       reminderAts: reminderAts,
       reminderAnchorAt: reminderAnchorAt,
+      alarm: alarm,
     );
     state = MatrixState(
       tasks: [...state.tasks, task],
@@ -522,6 +524,8 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     String id,
     List<DateTime> reminderAts, {
     DateTime? reminderAnchorAt,
+    // Null leaves the task's alarm choice as it was.
+    bool? alarm,
   }) {
     _mutatedBeforeLoad = true;
     final tasks = state.tasks.toList();
@@ -531,6 +535,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       reminderAts: reminderAts,
       reminderAnchorAt: reminderAnchorAt,
       clearReminderAnchorAt: reminderAnchorAt == null,
+      alarm: alarm,
     );
     tasks[idx] = updated;
     state = MatrixState(
@@ -921,6 +926,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
             // missing from the list entirely.
             anchorAt: task.reminderAnchorAt,
             isAr: isAr,
+            alarm: task.alarm,
           )
           .then(
             (_) => _enqueueBookkeeping(

@@ -319,6 +319,7 @@ class CustomHabitsNotifier
     int reminderOffsetMinutes = 0,
     List<int> extraReminderOffsets = const [],
     bool ignoreQuietHours = false,
+    bool alarm = false,
     int? stepGoal,
   }) {
     final rewards = _rewards(category);
@@ -345,6 +346,7 @@ class CustomHabitsNotifier
       reminderOffsetMinutes: reminderOffsetMinutes,
       extraReminderOffsets: extraReminderOffsets,
       ignoreQuietHours: ignoreQuietHours,
+      alarm: alarm,
       stepGoal: stepGoal,
       // Birth date — what stops every history surface from painting the
       // days before this habit existed as misses. effectiveDay so a habit
@@ -384,6 +386,7 @@ class CustomHabitsNotifier
     /// editing a habit back down to one reminder has to be able to say.
     List<int>? extraReminderOffsets,
     bool? ignoreQuietHours,
+    bool? alarm,
     // Distinguishes "leave the current icon color alone" (the default —
     // every other caller that doesn't touch color just omits iconColorHex)
     // from "the user explicitly chose to go back to the default color" —
@@ -454,6 +457,7 @@ class CustomHabitsNotifier
       extraReminderOffsets:
           extraReminderOffsets ?? existing.extraReminderOffsets,
       ignoreQuietHours: ignoreQuietHours ?? existing.ignoreQuietHours,
+      alarm: alarm ?? existing.alarm,
       stepGoal: clearStepGoal ? null : (stepGoal ?? existing.stepGoal),
       // Editing a habit never changes when it was born.
       createdAt: existing.createdAt,

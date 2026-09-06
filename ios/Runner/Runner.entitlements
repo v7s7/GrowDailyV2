@@ -42,5 +42,17 @@
 	     Xcode's automatic signing does that on the next archive. -->
 	<key>com.apple.developer.healthkit</key>
 	<true/>
+	<!-- Time Sensitive notifications - the same entitlement Xcode's
+	     "+ Capability > Time Sensitive Notifications" button would add. No
+	     Apple approval involved, unlike Critical Alerts. Lets a prayer-anchored
+	     reminder (interruptionLevel timeSensitive, see NotificationService.
+	     _habitReminderDetails) be delivered through Focus, Do Not Disturb and
+	     Sleep on the phone and on a paired Apple Watch; without this key iOS
+	     silently downgrades the level to active. Clock-time reminders keep
+	     the default level. The App ID on the developer portal must also have
+	     the capability enabled; Xcode's automatic signing does that on the
+	     next archive, exactly as for HealthKit above. -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 </dict>
 </plist>

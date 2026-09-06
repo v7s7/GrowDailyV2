@@ -5,6 +5,10 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../../habits/catalog/islamic_habit_catalog.dart'
+    show IslamicHabitTemplate;
+import '../../habits/notifiers/custom_habits_notifier.dart'
+    show habitListProvider;
 import '../../milestones/reports/habit_day_marks.dart';
 import '../../premium/notifiers/premium_notifier.dart'
     show canBrowseHistoryMonth, kFreeHistoryMonths;
@@ -960,3 +964,52 @@ final weeklyGridProvider =
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
   return WeeklyGridNotifier(uid, ref);
 });
+
+/// "Will this day's whole list be done once this tap lands?", answered from
+/// the day's own SQUARES instead of from `DashboardState.completions`.
+///
+/// [willCompleteAllHabitsToday] reads `completions`, which only ever holds
+/// TODAY's counts — correct for today and meaningless for any other day. A
+/// day inside its grace window (yesterday, before the cutoff) still needs a
+/// real answer, because that answer is what earns its streak point, and
+/// getting it from today's map would either invent a point or withhold one.
+///
+/// The squares are the right source for that day: they are what the Grid is
+/// showing the person, what the yearly strip reports, and what a Room grades
+/// them on. جزئي counts half, exactly as it does everywhere else.
+///
+/// Lives here, beside the squares it reads, rather than in the Grid screen
+/// where it started: main.dart's notification-action drain pays a tap made
+/// on a grace day (a lock-screen «تمت» at 22:00, app opened at 09:00)
+/// through this same rule, and a `part` of the Grid screen cannot be
+/// imported.
+bool willCompleteAllSquaresOn(
+  WidgetRef ref,
+  IslamicHabitTemplate habit,
+  DateTime day,
+) {
+  final grid = ref.read(weeklyGridProvider);
+  final dayHabits =
+      ref.read(habitListProvider).where((h) => h.isScheduledFor(day)).toList();
+  var total = 0;
+  var credited = 0.0;
+  var sawTarget = false;
+  for (final h in dayHabits) {
+    total++;
+    if (h.id == habit.id) {
+      sawTarget = true;
+      credited += 1;
+      continue;
+    }
+    final square = grid.squareFor(h.id, day);
+    if (square.isGreen) {
+      credited += 1;
+    } else if (square == SquareState.partial) {
+      credited += 0.5;
+    }
+  }
+  // Same guard as willCompleteAllHabitsToday: a day with nothing scheduled is
+  // a day off, not a completed one.
+  if (total == 0 || !sawTarget) return false;
+  return credited / total >= kStreakDayCompletionThreshold;
+}

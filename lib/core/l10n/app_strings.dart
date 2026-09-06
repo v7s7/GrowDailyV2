@@ -880,6 +880,23 @@ class S {
   // labels now covers both directions, so naming one of them in the header
   // would contradict half its own options.
   String get remindMeSection => isAr ? 'ذكّرني' : 'Remind me';
+
+  // ── Reminder style: notification or alarm ──────────────────
+  // One two-cell choice under a reminder time, in both the habit sheet and
+  // the task sheets. Notification is the default; alarm is the one that
+  // rings through silent and Focus (AlarmKit on iOS 26+, an alarm channel
+  // on Android), which the hint says in one line so nobody has to guess.
+  String get reminderStyleSection => isAr ? 'طريقة التنبيه' : 'How to alert';
+  String get reminderStyleNotification => isAr ? 'إشعار' : 'Notification';
+  String get reminderStyleAlarm => isAr ? 'منبّه' : 'Alarm';
+  String get reminderStyleAlarmHint => isAr
+      ? 'المنبّه يرن حتى لو الجوال صامت.'
+      : 'An alarm rings even on silent.';
+  // Shown when the system alarm permission was refused; the choice then
+  // stays on notification.
+  String get alarmPermissionDenied => isAr
+      ? 'المنبّه يحتاج إذن. فعّله من إعدادات الجهاز.'
+      : 'Alarms need permission. Turn it on in Settings.';
   String get leadAtTime => isAr ? 'في الوقت' : 'On time';
   String get leadCustomOption => isAr ? 'مخصص' : 'Custom';
   String get leadCustomMinutesHint => isAr ? 'دقائق' : 'Minutes';
@@ -1303,6 +1320,9 @@ class S {
   /// this is the only place stacking is discoverable.
   String get habitAddAnotherReminder =>
       isAr ? 'أضف أكثر من تذكير' : 'Add another reminder';
+  // Add Habit: the row under the reminder list that opens the offset sheet
+  // for one more reminder (a lock on free, which opens the gate instead).
+  String get habitAddReminderRow => isAr ? 'أضف تذكير' : 'Add a reminder';
 
   /// Shown when the habit already holds kMaxHabitReminders. A ceiling that
   /// applies to Premium too, so it is worded as a limit, not an upsell.
@@ -4287,8 +4307,4 @@ class S {
   /// Spoken label for the location row's search icon.
   String get notifLocationSearchAction =>
       isAr ? 'ابحث عن مدينة' : 'Search for a city';
-
-  /// Add Habit: the collapsed reminder-offset section's affordance.
-  String get adjustReminderTiming =>
-      isAr ? 'قدّم أو أخّر التذكير' : 'Adjust reminder timing';
 }
