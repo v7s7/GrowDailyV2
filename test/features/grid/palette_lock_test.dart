@@ -10,6 +10,7 @@ import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/palette_lock.dart';
 
 void main() {
+  paletteStatesTests();
   bool locked({
     bool isOpenDay = true,
     bool isToday = true,
@@ -80,5 +81,28 @@ void main() {
     ]) {
       expect(locked(current: s), isFalse, reason: '$s');
     }
+  });
+}
+
+// ── Which states the palette offers ──────────────────────────────────
+//
+// Aziz, 2026-09-08, testing the quit side end to end: the palette offered a
+// quit habit «جزئي» and «إنجاز إضافي», and the latter paid more for a clean
+// day than the clean day itself. A quit habit's day is kept, slipped,
+// rested or not recorded, and that is all it is offered.
+void paletteStatesTests() {
+  test('a build habit is offered all six states', () {
+    expect(paletteStatesFor(quit: false), hasLength(6));
+    expect(paletteStatesFor(quit: false), contains(SquareState.bonus));
+    expect(paletteStatesFor(quit: false), contains(SquareState.partial));
+  });
+
+  test('a quit habit is offered kept, slipped, rest and unrecorded only', () {
+    expect(paletteStatesFor(quit: true), [
+      SquareState.complete,
+      SquareState.failed,
+      SquareState.skipped,
+      SquareState.none,
+    ]);
   });
 }

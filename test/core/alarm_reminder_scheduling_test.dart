@@ -256,6 +256,8 @@ void main() {
           timerSeconds: null,
           reminderOffsetMinutes: 0,
           ignoreQuietHours: true,
+          isQuit: false,
+          isLimit: false,
           alarm: true,
           scheduledWeekdays: const {1, 2, 3, 4, 5, 6, 7},
           anchorLabel: null,

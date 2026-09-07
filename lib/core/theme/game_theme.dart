@@ -28,7 +28,7 @@ abstract final class GameColors {
   static Color get success => emerald;
 
   /// Black or white, whichever reads better on top of a *solid* emerald
-  /// fill (e.g. the quit-habit pill in habit_card.dart) — not needed for
+  /// fill (e.g. a quit habit's kept-day mark) — not needed for
   /// emerald used as a translucent tint, text color, or icon color on the
   /// app's own surface, only where emerald itself is the background a
   /// fixed-color glyph/label sits on. Every original green emerald was

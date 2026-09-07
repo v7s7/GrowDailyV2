@@ -861,7 +861,65 @@ class S {
   // where the same chips are not a shortcut but the recommended road.
   String get quickestStart =>
       isAr ? 'أسرع طريقة تبدأ' : 'Quickest way to start';
-  String get orWriteYourOwn => isAr ? 'أو اكتب عادتك' : 'Or write your own';
+  // Add Habit's What step (add_habit_sheet.dart): a two-way switch above the
+  // name box says which kind of habit this is. It was a quiet text link
+  // under the whole form until 2026-09-08, and Aziz found nobody saw it
+  // there. Nominal, not imperative, so neither label has a gender.
+  String get goalTypeBuildOption => isAr ? 'بناء عادة' : 'Build a habit';
+  String get goalTypeQuitOption => isAr ? 'ترك أو تقليل' : 'Quit or cut down';
+  // Under the category label while nothing is picked and nothing typed: the
+  // suggestions wait for a category (2026-09-08), so this says why the space
+  // below is still empty.
+  String get categoryPickHint => isAr
+      ? 'اختر تصنيفًا وتظهر لك اقتراحات جاهزة'
+      : 'Pick a category to see ready suggestions';
+  // Under the limit field while it is empty: a limit habit must have a number,
+  // or every "within the limit" question has nothing to compare against.
+  String get limitAmountRequired =>
+      isAr ? 'مطلوب رقم أكبر من صفر' : 'A number above zero is needed';
+  /// The rule a limit habit lives by, shown wherever the habit is described:
+  /// «الحد: ٣٠ دقائق في اليوم». [unit] is already localized (limitUnitLabel
+  /// or the person's own custom label).
+  String quitLimitRule(int amount, String unit) =>
+      isAr ? 'الحد: $amount $unit في اليوم' : 'Limit: $amount $unit a day';
+
+  /// The palette's names for a QUIT habit's day. A quit habit's green is not
+  /// a task done but a day kept, and its red is a slip, not a failure: the
+  /// build vocabulary («مكتمل», «فشل») read as a verdict on the person. Same
+  /// words the evening check-in's buttons use (reminder_copy.dart's
+  /// onTrackAction / slippedAction), so the two ways of marking a day agree.
+  String quitSquareLabel(SquareState state) => switch (state) {
+        SquareState.complete => isAr ? 'التزام' : 'Kept',
+        SquareState.failed => isAr ? 'زلة' : 'Slipped',
+        SquareState.skipped => isAr ? 'تخطّي' : 'Skipped',
+        SquareState.none => isAr ? 'بدون تسجيل' : 'Not recorded',
+        // Never offered for a quit habit (see paletteStatesFor); named so the
+        // switch stays exhaustive.
+        SquareState.partial => isAr ? 'جزئي' : 'Partial',
+        SquareState.bonus => isAr ? 'إنجاز إضافي' : 'Bonus',
+      };
+
+  /// [squareStateEffect] for a quit habit. The empty day is the one that
+  /// differs in substance: for a quit habit with a kept day on record, a day
+  /// that passes without a slip is marked kept overnight (autoCleanQuitDay),
+  /// so «تُحسب عليك» would state the opposite of what happens.
+  String quitSquareStateEffect(SquareState state) => switch (state) {
+        SquareState.complete =>
+          isAr ? 'يُحسب يوم التزام.' : 'Counts as a clean day.',
+        SquareState.failed => isAr
+            ? 'زلة تُحسب عليك، وتُحفظ في ملاحظات العادات.'
+            : 'A slip, counted against you and kept in Habit Notes.',
+        SquareState.skipped => isAr
+            ? 'راحة باختيارك. لا تُحسب عليك.'
+            : 'A rest you chose. It is not counted against you.',
+        SquareState.none => isAr
+            ? 'بدون تسجيل. بعد أول التزام مسجّل، اليوم الذي يمر بدون زلة يُحسب التزامًا تلقائيًا.'
+            : 'Not recorded. Once a first kept day is on record, a day with no slip counts as kept automatically.',
+        SquareState.partial || SquareState.bonus => squareStateEffect(state),
+      };
+  // Stands in for the hub's Plans pill while a first habit hides the pills.
+  String get readyPlansLink =>
+      isAr ? 'أو اختر خطة جاهزة' : 'Or pick a ready-made plan';
 
   String get timingBuildTitle =>
       isAr ? 'متى وكيف ستتابع؟' : 'When and how often?';
@@ -965,7 +1023,6 @@ class S {
   // IslamicHabitTemplate.customUnitLabel.
   String get customUnitPrompt => isAr ? 'ماذا تحدّ؟' : 'What are you limiting?';
   String get customUnitHint => isAr ? 'مثال: سجائر' : 'e.g. cigarettes';
-  String get whenHardest => isAr ? 'متى يكون أصعب؟' : 'When is it hardest?';
   String get customTriggerOptional =>
       isAr ? 'وقت أو موقف مخصص (اختياري)' : 'Custom time or trigger (optional)';
   String get threeTimesWeek => isAr ? '3 مرات/أسبوع' : '3x/week';
@@ -1118,24 +1175,12 @@ class S {
       ? 'حلقة خفيفة كما تستخدمها تطبيقات الإنتاجية الكبرى.'
       : 'A light Pomodoro-style loop like leading productivity apps use.';
 
-  // ── Habit card ───────────────────────────────────────────────────────────
+  // ── Habit rows ───────────────────────────────────────────────────────────
+  // What survives of the old Today-screen habit card's strings: the Add
+  // Habit sheet still reads these for its frequency labels. The card itself
+  // and its quit-day pills went on 2026-09-08.
   String get habitDaily => isAr ? 'يومياً' : 'Daily';
   String habitWeeklyTimes(int n) => isAr ? '${n}x / أسبوع' : '${n}x / week';
-  String habitAfterCue(String cue) =>
-      isAr ? '  ·  بعد $cue' : '  ·  After $cue';
-  String get habitDone => isAr ? 'تم' : 'DONE';
-  String get habitComplete => isAr ? 'أتمم' : 'COMPLETE';
-  String get habitStayedOnTrack => isAr ? 'بقيت على المسار' : 'STAYED ON TRACK';
-  String get habitWithinLimit => isAr ? 'ضمن الحد' : 'WITHIN LIMIT';
-  // Quit-habit secondary action — deliberately a quieter, plain-text
-  // control next to the primary affirm button (see HabitCard), not another
-  // filled pill: logging a slip should never look as rewarding to tap as
-  // staying clean does.
-  String get habitLogSlip => isAr ? 'سجّل انتكاسة' : 'LOG A SLIP';
-  String get habitLogOverLimit => isAr ? 'سجّل التجاوز' : 'LOG OVER LIMIT';
-  String get habitSlippedToday => isAr ? 'انتكست اليوم' : 'SLIPPED TODAY';
-  String get habitOverLimitToday =>
-      isAr ? 'تجاوزت الحد اليوم' : 'OVER LIMIT TODAY';
 
   // ── Goals Matrix ─────────────────────────────────────────────────────────
   String get goals => isAr ? 'الأهداف' : 'Goals';
@@ -2037,8 +2082,12 @@ class S {
   String get gridSave => isAr ? 'حفظ' : 'Save';
   String get gridFutureDay => isAr ? 'يوم قادم' : 'Future day';
   String get gridSquareDoneFromToday => isAr
-      ? 'أُنجزت هذه المهمة اليوم من صفحة اليوم. اختر لونًا آخر لتصحيحها.'
-      : 'Completed from Today. Pick a different color to correct it.';
+      ? 'أُنجزت هذه العادة اليوم. اختر لونًا آخر لتصحيحها.'
+      : 'Completed today. Pick a different color to correct it.';
+  /// The quit habit's version: a kept day, not a task done.
+  String get gridSquareKeptToday => isAr
+      ? 'سُجّل التزام اليوم. اختر خيارًا آخر لتصحيحه.'
+      : 'Kept today. Pick a different option to correct it.';
   // The counted-habit sibling: the square is locked because real per-tap
   // progress was paid today, but the day is not finished, so calling it
   // "completed" would be false. Says what a correction actually does.
@@ -2083,7 +2132,10 @@ class S {
   String get heatmapLess => isAr ? 'أقل' : 'Less';
   String get heatmapMore => isAr ? 'أكثر' : 'More';
   String get gridSectionBuild => isAr ? 'عادات البناء' : 'Build habits';
-  String get gridSectionQuit => isAr ? 'الإقلاع والتقليل' : 'Quit & reduce';
+  // The same words as the Add Habit switch (goalTypeQuitOption): the board
+  // used to say «الإقلاع والتقليل» while the switch said «ترك أو تقليل», two
+  // names for one thing (2026-09-08).
+  String get gridSectionQuit => isAr ? 'ترك أو تقليل' : 'Quit or cut down';
   String gridFullRow(String name) => isAr
       ? 'صف كامل! أسبوع $name كله أخضر.'
       : 'Full row! A whole green week of $name.';

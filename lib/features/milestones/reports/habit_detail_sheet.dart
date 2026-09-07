@@ -12,7 +12,8 @@ import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show weeklyGridProvider;
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
-import '../../habits/models/habit_model.dart' show GoalType;
+import '../../habits/models/habit_model.dart'
+    show GoalType, LimitUnit, ReductionType;
 import '../../premium/notifiers/premium_notifier.dart';
 import '../notifiers/habit_history_notifier.dart';
 import 'habit_day_marks.dart';
@@ -279,6 +280,22 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
             ),
             const SizedBox(height: 18),
             _Headline(total: total, color: color, isQuit: habit.goalType == GoalType.quit),
+            // The rule a limit habit lives by. The number was stored and shown
+            // nowhere; the check-in asks «بقيت ضمن الحد؟» and this is where
+            // the person can read what the limit was.
+            if (habit.goalType == GoalType.quit &&
+                habit.reductionType == ReductionType.limit &&
+                (habit.limitAmount ?? 0) > 0) ...[
+              const SizedBox(height: 6),
+              Text(
+                s.quitLimitRule(
+                  habit.limitAmount!,
+                  habit.unitLabel(s.limitUnitLabel(
+                      (habit.limitUnit ?? LimitUnit.custom).name)),
+                ),
+                style: TextStyle(fontSize: 12.5, color: gp.textSec),
+              ),
+            ],
             const SizedBox(height: 14),
             Container(height: 0.5, color: gp.divider),
             const SizedBox(height: 14),

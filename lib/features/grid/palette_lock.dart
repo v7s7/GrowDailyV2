@@ -48,3 +48,25 @@ bool paletteLockedFor({
   if (isToday) return doneToday > 0;
   return true;
 }
+
+/// The states the long-press palette offers for a habit.
+///
+/// A build habit gets all six. A quit habit gets four: a day is kept,
+/// slipped, rested, or not recorded. «جزئي» has no meaning for abstinence,
+/// and «إنجاز إضافي» ("more than asked", +15 XP) offered on a quit habit
+/// paid more for a clean day than the clean day itself (2026-09-08).
+List<SquareState> paletteStatesFor({required bool quit}) => quit
+    ? const [
+        SquareState.complete,
+        SquareState.failed,
+        SquareState.skipped,
+        SquareState.none,
+      ]
+    : const [
+        SquareState.complete,
+        SquareState.partial,
+        SquareState.bonus,
+        SquareState.failed,
+        SquareState.skipped,
+        SquareState.none,
+      ];

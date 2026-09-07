@@ -104,6 +104,12 @@ typedef HabitReminderInput = ({
   // AlarmService's business, and a slot that cannot be an alarm falls
   // back to a Time Sensitive notification (see _scheduleOne).
   bool alarm,
+  /// A quit habit («ترك أو تقليل»). Its timed reminder is a check-in with
+  /// التزام / زلة under it, never Mark Done / Snooze, never an alarm, and
+  /// never bundled with build habits (see _scheduleOne).
+  bool isQuit,
+  /// The set-a-limit shape of a quit habit; picks the check-in's question.
+  bool isLimit,
   /// The weekdays this habit is actually due on (DateTime.weekday values,
   /// 1 = Monday … 7 = Sunday). Empty means every day.
   ///
@@ -188,6 +194,9 @@ typedef _ResolvedReminder = ({
   /// AlarmService when it can be, and never bundled with other habits,
   /// since an alarm has one thing to say and one button to say it with.
   bool alarm,
+  /// Mirrors [HabitReminderInput.isQuit] and [HabitReminderInput.isLimit].
+  bool isQuit,
+  bool isLimit,
 });
 
 /// One quit habit's evening check-in inputs, read off the providers by
@@ -1512,6 +1521,8 @@ class NotificationService {
             weekDoneDays: habit.weekDoneDays,
             timeSensitive: false,
             alarm: habit.alarm,
+            isQuit: habit.isQuit,
+            isLimit: habit.isLimit,
           ));
         }
         // Every slot this habit did not keep — dropped for quiet hours,
@@ -1652,6 +1663,8 @@ class NotificationService {
           weekDoneDays: habit.weekDoneDays,
           timeSensitive: true,
           alarm: habit.alarm,
+          isQuit: habit.isQuit,
+          isLimit: habit.isLimit,
         ));
       }
     }
@@ -1735,14 +1748,21 @@ class NotificationService {
       weekDone: facts.weekDone,
       owedToday: facts.owedOnFireDay,
     );
-    final body = habitReminderBody(
-      offsetMinutes: r.offsetMinutes,
-      streak: facts.streak,
-      anchorLabel: r.anchorLabel,
-      isAr: isAr,
-      onTimeLine: onTimeLine,
-      everyDay: facts.everyDay,
-    );
+    // A quit habit's reminder is a check-in, not a call to act: its own
+    // question, with التزام / زلة under it (quitReminderBody). The build
+    // wording ("It's time. Don't let today slip by.") about something the
+    // person is trying not to do was the wrong sentence with the wrong
+    // buttons.
+    final body = r.isQuit
+        ? quitReminderBody(isLimit: r.isLimit, isAr: isAr)
+        : habitReminderBody(
+            offsetMinutes: r.offsetMinutes,
+            streak: facts.streak,
+            anchorLabel: r.anchorLabel,
+            isAr: isAr,
+            onTimeLine: onTimeLine,
+            everyDay: facts.everyDay,
+          );
     // What this slot will say and when, so a wrong line can be read off the
     // run log at schedule time instead of waited for on a lock screen.
     debugPrint('[NotificationService] ${r.name} (${r.id}#${r.slot}) '
@@ -1754,7 +1774,8 @@ class NotificationService {
     // cleared; and if the alarm could not be made, the notification below
     // takes over, Time Sensitive so the person still gets what they asked
     // for as nearly as the platform allows.
-    if (r.alarm &&
+    if (!r.isQuit &&
+        r.alarm &&
         await AlarmService.instance.schedule(
           id: slotId,
           fireAt: r.fireTime,
@@ -1777,11 +1798,13 @@ class NotificationService {
       r.name,
       body,
       r.fireTime,
-      _habitReminderDetails(
-        isAr,
-        timeSensitive: r.timeSensitive || r.alarm,
-        alarmStyle: r.alarm,
-      ),
+      r.isQuit
+          ? _quitCheckInDetails(isAr)
+          : _habitReminderDetails(
+              isAr,
+              timeSensitive: r.timeSensitive || r.alarm,
+              alarmStyle: r.alarm,
+            ),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
@@ -1798,12 +1821,16 @@ class NotificationService {
     // «عادتان جاهزتان» bundle would lose both. Alarm slots are scheduled on
     // their own, first, and only the notification slots go through the
     // bundling and the 64-request budget below (AlarmKit has no such cap).
-    final alarmed = <_ResolvedReminder>[];
+    // A quit habit's check-in is kept out of bundles for the same reason:
+    // it carries التزام / زلة, and a «عادتان جاهزتان» bundle carries Mark
+    // Done. It is scheduled on its own through _scheduleOne, which knows
+    // what a quit reminder says and which buttons it gets.
+    final alone = <_ResolvedReminder>[];
     final notified = <_ResolvedReminder>[];
     for (final r in resolved) {
-      (r.alarm ? alarmed : notified).add(r);
+      (r.alarm || r.isQuit ? alone : notified).add(r);
     }
-    for (final r in alarmed) {
+    for (final r in alone) {
       await _scheduleOne(r, isAr);
     }
     final rawGroups = groupByFireTimeWindow<_ResolvedReminder>(

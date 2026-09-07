@@ -128,14 +128,14 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       flatPaid:
           ref.watch(weeklyGridProvider).flatPaidFor(widget.habit.id, widget.day),
     );
-    final palette = [
-      SquareState.complete,
-      SquareState.partial,
-      SquareState.bonus,
-      SquareState.failed,
-      SquareState.skipped,
-      SquareState.none,
-    ];
+    // A quit habit's day is kept, slipped, rested or unrecorded, in its own
+    // words («التزام», «زلة»): the build vocabulary («مكتمل», «فشل») read as
+    // a verdict on the person, and «إنجاز إضافي» paid more for a clean day
+    // than the clean day itself. See paletteStatesFor and quitSquareLabel.
+    final isQuit = widget.habit.goalType == GoalType.quit;
+    final palette = paletteStatesFor(quit: isQuit);
+    String labelOf(SquareState st) =>
+        isQuit ? s.quitSquareLabel(st) : (isAr ? st.labelAr : st.label);
 
     // The keyboard eats the height this sheet was sized for, and a Column
     // has no way to give ground: it just paints its overflow outside the
@@ -231,7 +231,9 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                     child: Text(
                       current == SquareState.partial
                           ? s.gridSquarePartlyDoneFromToday
-                          : s.gridSquareDoneFromToday,
+                          : isQuit
+                              ? s.gridSquareKeptToday
+                              : s.gridSquareDoneFromToday,
                       style: TextStyle(fontSize: 12, color: gp.textSec),
                     ),
                   ),
@@ -301,7 +303,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             _PaletteGrid(
               palette: palette,
               current: current,
-              isAr: isAr,
+              labelOf: labelOf,
               onPick: (state) => _handlePaletteTap(isLocked, state),
             ),
             const SizedBox(height: 12),
@@ -328,7 +330,9 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                   const SizedBox(width: 7),
                   Expanded(
                     child: Text(
-                      s.squareStateEffect(current),
+                      isQuit
+                          ? s.quitSquareStateEffect(current)
+                          : s.squareStateEffect(current),
                       style: TextStyle(
                         fontSize: 11.5,
                         color: gp.textSec,
@@ -628,13 +632,15 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
 class _PaletteGrid extends StatelessWidget {
   final List<SquareState> palette;
   final SquareState current;
-  final bool isAr;
+  /// The word for each state, chosen by the caller: a quit habit names its
+  /// states differently from a build habit (see quitSquareLabel).
+  final String Function(SquareState) labelOf;
   final ValueChanged<SquareState> onPick;
 
   const _PaletteGrid({
     required this.palette,
     required this.current,
-    required this.isAr,
+    required this.labelOf,
     required this.onPick,
   });
 
@@ -648,7 +654,7 @@ class _PaletteGrid extends StatelessWidget {
     Widget swatch(int i) => _PaletteSwatch(
           state: palette[i],
           selected: palette[i] == current,
-          label: isAr ? palette[i].labelAr : palette[i].label,
+          label: labelOf(palette[i]),
           onTap: () => onPick(palette[i]),
         )
             .animate(delay: (i * 35).ms)

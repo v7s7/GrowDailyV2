@@ -917,7 +917,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     ref
         .read(weeklyGridProvider.notifier)
         .autoCleanQuitDay(ids, yesterday)
-        .ignore();
+        .then((_) {
+      // Rooms grade off the stored squares, so a day marked kept here reached
+      // a room only on its next full resync; until then the room strip showed
+      // the day empty while the Grid showed it green.
+      if (ids.isNotEmpty && mounted) _resyncMyRooms();
+    }).ignore();
   }
 
   /// The one place that turns "habits + today's completions + streaks +
@@ -1043,6 +1048,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         reminderOffsetMinutes: habit.reminderOffsetMinutes,
         ignoreQuietHours: habit.ignoreQuietHours,
         alarm: habit.alarm,
+        isQuit: habit.goalType == GoalType.quit,
+        isLimit: habit.reductionType == ReductionType.limit,
         // Only a prayer gets named in the reminder's own text ("باقي ٤٥
         // دقيقة على المغرب"). A clock cue's anchor is a clock, and the
         // notification is already stamped with one.

@@ -919,3 +919,26 @@ String weeklyDigestBody({
   final run = countedOffsetPhrase(streak * ReminderUnit.days.inMinutes, true);
   return '$line، وسلسلة $run ماشية.';
 }
+
+// ── A quit habit's reminder ─────────────────────────────────────────
+//
+// A quit habit with a clock or prayer cue used to get the build wording:
+// "It's time. Don't let today slip by." about something the person is
+// trying NOT to do, with Mark Done / Snooze under it. The reminder for a
+// quit habit is a check-in, and it carries the check-in's two answers
+// (التزام / زلة, see onTrackAction and slippedAction), so its body names
+// them. Impersonal like everything in this file; «كيف اليوم» asks about the
+// day, not the person.
+
+/// The body of a quit habit's timed reminder. [isLimit] is the set-a-limit
+/// shape, whose question is about the limit rather than about a slip.
+String quitReminderBody({required bool isLimit, required bool isAr}) {
+  if (isAr) {
+    return isLimit
+        ? 'ضمن الحد إلى الآن؟ التزام أو زلة.'
+        : 'كيف اليوم إلى الآن؟ التزام أو زلة.';
+  }
+  return isLimit
+      ? 'Within the limit so far? Kept or slipped.'
+      : 'How is today so far? Kept or slipped.';
+}
