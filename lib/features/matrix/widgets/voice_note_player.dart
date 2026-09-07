@@ -637,15 +637,15 @@ class _SpeedPill extends StatelessWidget {
 
 // ─── Record a new note ─────────────────────────────────────────────────────
 
-/// The "record a voice note" control, shaped as a full-width row rather
-/// than the small pill MicRecordButton is. Used by TaskDetailSheet;
-/// AddTaskSheet still carries the pill, in a section that only appears
-/// once you tap "Add details" and has no card stack around it to match.
+/// The "record a voice note" control, shaped as a full-width card row. Used
+/// by TaskDetailSheet and, since 2026-09-07, by AddTaskSheet's "Add details"
+/// section too: the add sheet kept a small mic pill for a while, and Aziz
+/// asked for the two sheets to look the same.
 ///
 /// The pill's problem was placement, not the button itself: it floated at
 /// the far end of a header row while the "tap to record" line that explains
 /// it sat under the section label at the *opposite* edge of the sheet, and
-/// the pair was the only block in TaskDetailSheet not inside a card. So the
+/// the pair was the only block in either sheet not inside a card. So the
 /// label and its hint move into the row, and the row takes ReminderPicker's
 /// ReminderRow card treatment — the section directly above it — which is
 /// what makes the sheet read as one stack of cards instead of three cards
@@ -1036,6 +1036,7 @@ class _RenameVoiceNoteSheetState extends State<_RenameVoiceNoteSheet> {
             ),
             const SizedBox(height: 16),
             TextField(
+              selectionWidthStyle: GameTextStyles.selectionWidthStyle,
               controller: _controller,
               autofocus: true,
               textCapitalization: TextCapitalization.sentences,

@@ -182,8 +182,8 @@ Future<DateTime?> pickReminderMoment(
 /// Display + tap target for a task's reminder — "Set a reminder" when
 /// unset, or the formatted moment plus a clear (×) button once one's
 /// picked. Purely a dumb display widget driven by callbacks, same shape as
-/// MicRecordButton/VoiceNoteRow (add_task_sheet.dart / voice_note_player.
-/// dart): it never calls [pickReminderMoment] or NotificationService
+/// VoiceNoteRecordRow/VoiceNoteRow (voice_note_player.dart): it never
+/// calls [pickReminderMoment] or NotificationService
 /// itself, so AddTaskSheet (which can't persist anything yet — the task
 /// doesn't exist) and TaskDetailSheet (which persists immediately, see its
 /// own reminder handler) can each decide what picking or clearing actually

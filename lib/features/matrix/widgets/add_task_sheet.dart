@@ -21,7 +21,8 @@ import '../notifiers/matrix_notifier.dart';
 import '../../../shared/widgets/overlay_notice.dart';
 import 'reminder_picker.dart'
     show ReminderPicker, pickReminderMoment, remindersFor;
-import 'voice_note_player.dart' show VoiceNoteRow, showRenameVoiceNoteSheet;
+import 'voice_note_player.dart'
+    show VoiceNoteRecordRow, VoiceNoteRow, showRenameVoiceNoteSheet;
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
@@ -554,6 +555,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                           border: Border.all(color: gp.border, width: 0.5),
                         ),
                         child: TextField(
+                          selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                           controller: _ctrl,
                           focusNode: _focus,
                           onSubmitted: (_) => _submit(),
@@ -661,6 +663,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                             border: Border.all(color: gp.border, width: 0.5),
                           ),
                           child: TextField(
+                            selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                             controller: _descCtrl,
                             textCapitalization: TextCapitalization.sentences,
                             style: TextStyle(
@@ -687,68 +690,36 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                         ),
                       ),
                       const SizedBox(height: 10),
+                      // The same card row TaskDetailSheet uses, so adding a
+                      // task and opening one look like the same control.
+                      // Aziz, 2026-09-07: this used to be a bare label with
+                      // the mic pill floating at the far edge and "tap to
+                      // record" stranded under the label, directly beneath a
+                      // description field that IS a card. Takes stack under
+                      // the row exactly as they do in the detail sheet.
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    s.voiceNotesTitle,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: gp.textTert,
-                                      letterSpacing: isAr ? 0 : 1.0,
-                                    ),
-                                  ),
-                                ),
-                                MicRecordButton(
-                                  recording: _recording,
-                                  elapsed: _elapsed,
-                                  color: _color,
-                                  onTap: _toggleRecording,
-                                  locked: !ref.watch(premiumAccessProvider),
-                                ),
-                              ],
+                            VoiceNoteRecordRow(
+                              recording: _recording,
+                              elapsed: _elapsed,
+                              color: _color,
+                              onTap: _toggleRecording,
+                              locked: !ref.watch(premiumAccessProvider),
                             ),
-                            const SizedBox(height: 8),
-                            if (_recording)
-                              Text(
-                                s.voiceNoteRecording,
-                                style: const TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: GameColors.error,
+                            for (var i = 0; i < _pendingNotes.length; i++)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: VoiceNoteRow(
+                                  note: _pendingNotes[i],
+                                  displayName: _displayName(_pendingNotes[i]),
+                                  color: _color,
+                                  onRename: () => _renameNote(_pendingNotes[i]),
+                                  onDelete: () => _removeNote(_pendingNotes[i]),
                                 ),
-                              )
-                            else if (_pendingNotes.isEmpty)
-                              Text(
-                                s.voiceNoteTapToRecord,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  color: gp.textTert,
-                                ),
-                              )
-                            else
-                              for (var i = 0; i < _pendingNotes.length; i++)
-                                Padding(
-                                  padding: EdgeInsets.only(
-                                    bottom:
-                                        i == _pendingNotes.length - 1 ? 0 : 8,
-                                  ),
-                                  child: VoiceNoteRow(
-                                    note: _pendingNotes[i],
-                                    displayName: _displayName(_pendingNotes[i]),
-                                    color: _color,
-                                    onRename: () =>
-                                        _renameNote(_pendingNotes[i]),
-                                    onDelete: () =>
-                                        _removeNote(_pendingNotes[i]),
-                                  ),
-                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -891,110 +862,3 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   }
 }
 
-/// Mic / stop toggle for recording a voice note. Swaps icon, color, and
-/// (while recording) shows a live mm:ss so there's no ambiguity about
-/// whether it's actually capturing. Used both in AddTaskSheet's "Add
-/// details" section and in TaskDetailSheet — public (no leading
-/// underscore) for exactly that reason.
-class MicRecordButton extends StatelessWidget {
-  final bool recording;
-  final Duration elapsed;
-  final Color color;
-  final VoidCallback onTap;
-
-  /// Draws the small gold lock on the mic for free accounts. The gate
-  /// itself still lives at the tap (showVoiceNoteGate) — this is only the
-  /// missing WARNING: an unlocked-looking mic that upsells after the tap
-  /// reads as a trap, and voice_note_gate.dart's own doc comment has asked
-  /// for a locked affordance all along. The button stays tappable — the
-  /// tap IS the pitch.
-  final bool locked;
-
-  const MicRecordButton({
-    super.key,
-    required this.recording,
-    required this.elapsed,
-    required this.color,
-    required this.onTap,
-    this.locked = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final s = S.of(context);
-    final mm = elapsed.inMinutes.toString().padLeft(2, '0');
-    final ss = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
-    return Semantics(
-      button: true,
-      // A screen reader must not promise recording on a gated control:
-      // announce the premium state, not just "record".
-      hint: locked ? s.premiumBenefitVoiceTitle : null,
-      label: recording ? s.voiceNoteTapToStop : s.voiceNoteTapToRecord,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: GameMotion.quick,
-          padding:
-              EdgeInsets.symmetric(horizontal: recording ? 10 : 8, vertical: 8),
-          decoration: BoxDecoration(
-            color: recording
-                ? GameColors.error.withOpacity(0.14)
-                : color.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (locked && !recording)
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Icon(Icons.mic_rounded, size: 18, color: color),
-                    PositionedDirectional(
-                      end: -5,
-                      bottom: -3,
-                      child: Container(
-                        padding: const EdgeInsets.all(1.5),
-                        decoration: BoxDecoration(
-                          color: GameColors.gold,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: const Color(0xFF14100A),
-                            width: 1,
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.lock_rounded,
-                          size: 8,
-                          color: Color(0xFF14100A),
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Icon(
-                  recording ? Icons.stop_rounded : Icons.mic_rounded,
-                  size: 18,
-                  color: recording ? GameColors.error : color,
-                ),
-              if (recording) ...[
-                const SizedBox(width: 6),
-                Text(
-                  '$mm:$ss',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: GameColors.error,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
