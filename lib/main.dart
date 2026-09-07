@@ -101,8 +101,6 @@ import 'features/rooms/notifiers/rooms_notifier.dart'
         // _resyncMyRooms (didChangeAppLifecycleState) - keeps this account's
         // own room progress fresh for everyone else without needing anyone to
         // open the Rooms tab. See that method's doc comment.
-        myRoomCodesProvider,
-        roomProvider,
         roomsControllerProvider;
 import 'features/rooms/screens/room_detail_screen.dart';
 import 'features/rooms/screens/rooms_hub_screen.dart';
@@ -1237,33 +1235,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// nothing on screen is waiting for, and a failure just means the next
   /// resume tries again.
   void _resyncMyRooms() {
-    final codes = ref.read(myRoomCodesProvider).valueOrNull;
-    if (codes == null || codes.isEmpty) return;
-    final controller = ref.read(roomsControllerProvider);
-    for (final code in codes) {
-      final room = ref.read(roomProvider(code)).valueOrNull;
-      if (room == null) continue;
-      // A lobby whose scheduled moment has arrived starts here, on resume
-      // and cold start, rather than only while somebody happens to have the
-      // room screen open.
-      //
-      // autoStartIfDue's only other caller is _LobbyCard's timer, which
-      // exists solely while that widget is mounted, and no Cloud Function
-      // backs it. So a room scheduled for 20:00 with everyone's app closed
-      // sat in the lobby all night: the hub pill clamps its countdown at
-      // zero and read "starts in <1m" for thirteen hours, and whoever opened
-      // the app next stamped startDate to THAT day — quietly losing the
-      // first day the group had agreed on.
-      if (room.isLobby) {
-        controller.autoStartIfDue(room).ignore();
-        continue;
-      }
-      // Skipped for a room that hasn't started or has already finished -
-      // syncLinkedHabitsProgress would no-op on the first anyway, and the
-      // second can't gain new progress.
-      if (!room.hasStarted || room.isEnded) continue;
-      controller.syncLinkedHabitsProgress(room).ignore();
-    }
+    // Waits for the room streams inside the controller. Reading their
+    // valueOrNull here skipped every room on a cold start, when none had
+    // arrived yet, so the "resume" resync mostly did nothing.
+    ref.read(roomsControllerProvider).resyncAllMyRooms().ignore();
   }
 
   /// Best-effort mirror of two small device facts to `users/{uid}` that

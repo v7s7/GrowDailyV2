@@ -50,6 +50,7 @@ RoomParticipant _participant({
   Map<String, int> dailyDoneCount = const {},
   Map<String, int> dailyScheduledCount = const {},
   String? lastSyncedDay,
+  DateTime? lastSyncedAt,
 }) =>
     RoomParticipant(
       uid: 'member-uid',
@@ -60,6 +61,7 @@ RoomParticipant _participant({
       dailyDoneCount: dailyDoneCount,
       dailyScheduledCount: dailyScheduledCount,
       lastSyncedDay: lastSyncedDay,
+      lastSyncedAt: lastSyncedAt,
       lastUpdated: DateTime(2026, 8, 12),
     );
 
@@ -460,9 +462,44 @@ void main() {
       expect(p.wasObservedOn('2026-07-28'), isFalse);
     });
 
-    test('days up to and including the watermark were observed', () {
+    test('days up to and including the day watermark were observed', () {
+      // With only the day watermark to go on (a doc from before the instant
+      // was recorded), the watermark day itself counts, as it always did.
+      // Whether a still-open day may be CLAMPED is a separate question the
+      // resync now answers with roomDayIsClosedAt, so this inclusive reading
+      // no longer freezes a grace-tail mark.
       final p = _participant(lastSyncedDay: '2026-08-05');
       expect(p.wasObservedOn('2026-08-01'), isTrue);
+      expect(p.wasObservedOn('2026-08-05'), isTrue);
+    });
+
+    test('with the instant recorded, observed means graded after the close',
+        () {
+      // The 5th closes at 10:00 on the 6th (kDayCutoffHour). A resync at
+      // 09:59 on the 6th saw a day still open; one at 10:00 saw it whole.
+      final early = _participant(
+        lastSyncedDay: '2026-08-06',
+        lastSyncedAt: DateTime(2026, 8, 6, 9, 59),
+      );
+      expect(early.wasObservedOn('2026-08-05'), isFalse);
+      expect(early.wasObservedOn('2026-08-04'), isTrue);
+      final late = _participant(
+        lastSyncedDay: '2026-08-06',
+        lastSyncedAt: DateTime(2026, 8, 6, kDayCutoffHour),
+      );
+      expect(late.wasObservedOn('2026-08-05'), isTrue);
+      expect(late.wasObservedOn('2026-08-06'), isFalse,
+          reason: 'the day the sync ran on is still open');
+    });
+
+    test('the instant wins over the day watermark when both are present', () {
+      final p = _participant(
+        lastSyncedDay: '2026-08-09',
+        lastSyncedAt: DateTime(2026, 8, 6, 12),
+      );
+      // The day watermark alone would call the 8th observed; the instant
+      // says the last grading was on the 6th, so the 8th was never seen.
+      expect(p.wasObservedOn('2026-08-08'), isFalse);
       expect(p.wasObservedOn('2026-08-05'), isTrue);
     });
 

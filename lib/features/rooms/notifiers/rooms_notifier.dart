@@ -462,36 +462,13 @@ int roomBoostedReward(WidgetRef ref, String habitId, int base) =>
 /// screen-open sync), not live. Every screen that can flip a habit's today
 /// state must call this right after doing so.
 void syncRoomToday(WidgetRef ref, String habitId, DateTime day) {
-  if (!day.isToday) {
-    // A PAST day just changed - either back-filled, or un-ticked to correct a
-    // mistake. The fast path below only ever rewrites TODAY's entry, so
-    // before this the room kept showing the old number until someone happened
-    // to open the room screen again. That's not theoretical: a square
-    // corrected to `none` sat there crediting a day it shouldn't have,
-    // looking exactly like a counting bug.
-    //
-    // Only a full resync can revise a past day (it's the only thing that
-    // re-reads the day range), so run one for every room this habit is
-    // linked to. Unawaited, same fire-and-forget posture as the fast path.
-    final pastRooms = ref.read(myLinkedRoomHabitsProvider)[habitId];
-    if (pastRooms == null || pastRooms.isEmpty) return;
-    final controller = ref.read(roomsControllerProvider);
-    // That day's squares as this device now holds them, so the resync grades
-    // the tap that just happened rather than the Firestore copy it is racing.
-    final dayRow = ref.read(weeklyGridProvider).states[day.toDateKey()];
-    for (final room in pastRooms) {
-      controller
-          .syncLinkedHabitsProgress(room, todaySquares: dayRow, liveDay: day)
-          .ignore();
-    }
-    return;
-  }
-  final todayRow =
-      ref.read(weeklyGridProvider).states[day.toDateKey()] ?? const {};
-  ref
-      .read(roomsControllerProvider)
-      .syncTodayForHabit(habitId, todayRow)
-      .ignore();
+  // Everything read off the WidgetRef is read HERE, before anything is
+  // awaited: the row is the tap that just happened, and the widget owning
+  // this ref may be gone by the time the room streams have answered. The
+  // controller does the waiting (see RoomsController.syncHabitDay); this
+  // stays fire-and-forget, as every caller expects.
+  final row = ref.read(weeklyGridProvider).states[day.toDateKey()];
+  ref.read(roomsControllerProvider).syncHabitDay(habitId, day, row).ignore();
 }
 
 /// Set the instant a `growdaily://join/CODE` deep link arrives (see
@@ -3370,6 +3347,10 @@ class RoomsController {
       // here keeps "observed" meaning "actually graded", which is what makes
       // extending a finished room safe at all.
       'lastSyncedDay': room.lastCountedDay.toDateKey(),
+      // The instant this grading ran. wasObservedOn reads it to decide which
+      // days were graded after they closed; the fast path deliberately does
+      // not stamp it, since it never grades a past day.
+      'lastSyncedAt': Timestamp.now(),
       ...allDoneTodayUpdate,
     });
 
@@ -3396,12 +3377,93 @@ class RoomsController {
   /// history re-fetch - since it fires on every single tap. A silent no-op
   /// for the (overwhelmingly common) case where [habitId] isn't linked to
   /// any open room at all.
+  /// How long a room stream may take to deliver its first value before a
+  /// sync gives up on it. Generous: this only ever matters on a cold start,
+  /// where the first Grid or Today tap can land before the room documents
+  /// have arrived, and giving up quietly is exactly the silent loss these
+  /// awaits exist to end.
+  static const Duration _roomLoadTimeout = Duration(seconds: 15);
+
+  /// Every room this account is in, waited for rather than read.
+  ///
+  /// The tap paths used to read `myLinkedRoomHabitsProvider` synchronously
+  /// and return when it was still loading, so the first completion after a
+  /// cold start never reached its room and, once a later sync stamped the
+  /// day, could never be added. The streams are not autoDispose, so awaiting
+  /// their first value costs nothing after the first time.
+  Future<List<RoomModel>> myRooms() async {
+    if (_uid == null) return const [];
+    final codes = await _ref
+        .read(myRoomCodesProvider.future)
+        .timeout(_roomLoadTimeout, onTimeout: () => const <String>[]);
+    final rooms = <RoomModel>[];
+    for (final code in codes) {
+      final room = await _ref
+          .read(roomProvider(code).future)
+          .timeout(_roomLoadTimeout, onTimeout: () => null);
+      if (room != null) rooms.add(room);
+    }
+    return rooms;
+  }
+
+  /// The running rooms in which THIS account counts [habitId], waited for.
+  /// The same answer `myLinkedRoomHabitsProvider` gives once loaded.
+  Future<List<RoomModel>> linkedRoomsFor(String habitId) async {
+    final uid = _uid;
+    if (uid == null) return const [];
+    final out = <RoomModel>[];
+    for (final room in await myRooms()) {
+      if (room.isEnded) continue;
+      final participants = await _ref
+          .read(roomParticipantsProvider(room.code).future)
+          .timeout(_roomLoadTimeout, onTimeout: () => const <RoomParticipant>[]);
+      final mine = participants.where((p) => p.uid == uid);
+      if (mine.isEmpty) continue;
+      if (mine.first.countedHabitIdsIn(room).contains(habitId)) out.add(room);
+    }
+    return out;
+  }
+
+  /// One habit's square on one day just changed on this device; tell every
+  /// room that counts it. Today takes the fast path; any other day needs the
+  /// full resync, since that is the only thing that re-reads the day range,
+  /// and it is handed [row], the day's squares as this device holds them, so
+  /// the grade never races the square write still in flight to Firestore.
+  Future<void> syncHabitDay(
+    String habitId,
+    DateTime day,
+    Map<String, SquareState>? row,
+  ) async {
+    if (day.isToday) {
+      await syncTodayForHabit(habitId, row ?? const {});
+      return;
+    }
+    for (final room in await linkedRoomsFor(habitId)) {
+      await syncLinkedHabitsProgress(room, todaySquares: row, liveDay: day);
+    }
+  }
+
+  /// The resume-time freshening main.dart runs: start any lobby whose
+  /// moment has come, regrade every running room. Waits for the room streams
+  /// instead of skipping the rooms that have not arrived yet, which on a cold
+  /// start was all of them.
+  Future<void> resyncAllMyRooms() async {
+    for (final room in await myRooms()) {
+      if (room.isLobby) {
+        await autoStartIfDue(room);
+        continue;
+      }
+      if (!room.hasStarted || room.isEnded) continue;
+      await syncLinkedHabitsProgress(room);
+    }
+  }
+
   Future<void> syncTodayForHabit(
     String habitId,
     Map<String, SquareState> todaySquares,
   ) async {
-    final rooms = _ref.read(myLinkedRoomHabitsProvider)[habitId];
-    if (rooms == null || rooms.isEmpty) return;
+    final rooms = await linkedRoomsFor(habitId);
+    if (rooms.isEmpty) return;
     final uid = _uid;
     if (uid == null) return;
     // The same warm-up guard syncLinkedHabitsProgress carries, and for a

@@ -795,6 +795,19 @@ class RoomParticipant {
   /// watermark so normal anti-backdating resumes from that point on.
   final String? lastSyncedDay;
 
+  /// The instant the last FULL resync ran for this participant, stamped by
+  /// RoomsController.syncLinkedHabitsProgress and nothing else. This is what
+  /// [wasObservedOn] reads first: a day counts as observed only once a
+  /// resync ran AFTER the day closed (kDayCutoffHour the next morning),
+  /// because until then a completion can still legitimately arrive for it,
+  /// paid in full by the Grid. [lastSyncedDay] alone could not say that: a
+  /// sync at 09:00 stamps the same day as one at 23:00, and treating either
+  /// as "observed" froze every grace-tail mark at the zero a midnight sync
+  /// had seen (Aziz's own الوتر on 2026-09-06, traced 2026-09-07). Null for
+  /// a doc written before this field existed; see [wasObservedOn] for the
+  /// fallback.
+  final DateTime? lastSyncedAt;
+
   const RoomParticipant({
     required this.uid,
     required this.displayName,
@@ -821,12 +834,29 @@ class RoomParticipant {
     this.allDoneDate,
     this.notificationsMuted = false,
     this.lastSyncedDay,
+    this.lastSyncedAt,
   });
 
   /// Whether the room was already watching on [dateKey] — i.e. a sync ran on
   /// or after that day, so whatever it recorded for that day is a real
   /// observation rather than an absence of one. See [lastSyncedDay].
   bool wasObservedOn(String dateKey) {
+    final at = lastSyncedAt;
+    if (at != null) {
+      // Observed means graded after the day CLOSED. Under the overlapping-day
+      // window a day is open, markable and paid, until kDayCutoffHour the
+      // next morning, so a resync before that moment saw a day still in
+      // progress and its record of it is not final.
+      final day = DateTime.parse(dateKey);
+      final closes = DateTime(day.year, day.month, day.day + 1, kDayCutoffHour);
+      return !at.isBefore(closes);
+    }
+    // A doc that has only the day watermark, written before the instant was
+    // recorded: the day it lands on counts as observed, as it always did
+    // (see room_quota_rest_after_last_sync_test.dart for why a back-dated
+    // square must not buy that day an excuse). The first full resync after
+    // the update stamps the instant, and from then on the rule above is the
+    // one that decides.
     final through = lastSyncedDay;
     if (through == null) return false;
     return dateKey.compareTo(through) <= 0;
@@ -1470,6 +1500,7 @@ class RoomParticipant {
       // [lastSyncedDay] for why that makes the next sync re-credit real Grid
       // history once instead of trusting the old clamp's zeros.
       lastSyncedDay: d['lastSyncedDay'] as String?,
+      lastSyncedAt: (d['lastSyncedAt'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -1507,6 +1538,8 @@ class RoomParticipant {
         if (allDoneDate != null) 'allDoneDate': allDoneDate,
         'notificationsMuted': notificationsMuted,
         if (lastSyncedDay != null) 'lastSyncedDay': lastSyncedDay,
+        if (lastSyncedAt != null)
+          'lastSyncedAt': Timestamp.fromDate(lastSyncedAt!),
       };
 
   RoomParticipant copyWith({
@@ -1533,6 +1566,7 @@ class RoomParticipant {
     String? allDoneDate,
     bool? notificationsMuted,
     String? lastSyncedDay,
+    DateTime? lastSyncedAt,
   }) =>
       RoomParticipant(
         uid: uid,
@@ -1560,6 +1594,7 @@ class RoomParticipant {
         allDoneDate: allDoneDate ?? this.allDoneDate,
         notificationsMuted: notificationsMuted ?? this.notificationsMuted,
         lastSyncedDay: lastSyncedDay ?? this.lastSyncedDay,
+        lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
       );
 }
 
