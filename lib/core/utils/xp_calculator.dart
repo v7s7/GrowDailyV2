@@ -33,11 +33,20 @@ abstract final class XpCalculator {
     );
   }
 
-  /// Applies an XP change that may be negative (e.g. a red "failed" square).
-  /// Gains delegate to [applyXpGain] for multi-level-up handling. Losses only
-  /// trim progress within the current level and never de-level the player or
-  /// push cumulative XP negative — losing a square should sting, not undo
-  /// genuine earned progress.
+  /// Applies an XP change that may be negative (an undo, a red "failed"
+  /// square). Gains delegate to [applyXpGain] for multi-level-up handling.
+  /// Losses walk back down through level boundaries so that level and
+  /// cumulative XP always describe the same account; cumulative never goes
+  /// below zero.
+  ///
+  /// Exact reversal is Aziz's decision of 2026-09-07. Losses used to trim
+  /// inside the current level only ("losing a square should sting, not undo
+  /// genuine earned progress"), which made every level boundary a free
+  /// level: complete to cross it, undo, and the level stayed while
+  /// cumulative fell back to where it started. Levels gate characters,
+  /// accessories and freeze slots, so that was content for nothing. The gold
+  /// a level-up grants is protected separately by levelGrantPaidThrough and
+  /// is never paid twice however often a boundary is crossed.
   static ({
     int newLevel,
     int newCurrentLevelXp,
@@ -56,11 +65,16 @@ abstract final class XpCalculator {
         xpGained: xpDelta,
       );
     }
-    final trimmedLevelXp = currentLevelXp + xpDelta;
+    var level = currentLevel;
+    var levelXp = currentLevelXp + xpDelta;
+    while (levelXp < 0 && level > 1) {
+      level--;
+      levelXp += xpToNextLevel(level);
+    }
     final trimmedCumulative = cumulativeXp + xpDelta;
     return (
-      newLevel: currentLevel,
-      newCurrentLevelXp: trimmedLevelXp < 0 ? 0 : trimmedLevelXp,
+      newLevel: level,
+      newCurrentLevelXp: levelXp < 0 ? 0 : levelXp,
       newCumulativeXp: trimmedCumulative < 0 ? 0 : trimmedCumulative,
     );
   }

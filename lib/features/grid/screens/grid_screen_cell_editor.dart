@@ -110,13 +110,24 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     // recorded a stranded flat receipt the finishing tap later refunded as
     // a deduction — the exact "counted day loses XP" class the canonical
     // path exists to prevent.
+    //
+    // The rule itself lives in paletteLockedFor (pure, tested). In short: on
+    // an open day, a green, blue or mid-count yellow square that the flat
+    // path did not paint is a canonical completion. This used to be today
+    // only and green only, so a blue steps square, and any green square
+    // during the morning grace, escaped to the flat path and «لم يكتمل»
+    // recoloured them without reversing anything.
     final doneToday =
         ref.watch(dashboardProvider).completions[widget.habit.id] ?? 0;
-    final isLocked = widget.day.isToday &&
-        doneToday > 0 &&
-        (current == SquareState.complete ||
-            (widget.habit.effectiveDailyTarget > 1 &&
-                current == SquareState.partial));
+    final isLocked = paletteLockedFor(
+      isOpenDay: widget.day.isOpenDay,
+      isToday: widget.day.isToday,
+      current: current,
+      doneToday: doneToday,
+      target: widget.habit.effectiveDailyTarget,
+      flatPaid:
+          ref.watch(weeklyGridProvider).flatPaidFor(widget.habit.id, widget.day),
+    );
     final palette = [
       SquareState.complete,
       SquareState.partial,
@@ -426,7 +437,23 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     final habit = widget.habit;
     final day = widget.day;
 
-    if (isLocked && picked != SquareState.complete) {
+    if (isLocked &&
+        (picked == SquareState.complete || picked == SquareState.bonus)) {
+      // Already paid. A green or blue square on an open day IS the canonical
+      // completion (see paletteLockedFor), so re-picking مكتمل, or moving it
+      // to إنجاز إضافي, changes the colour and nothing else: the blue is a
+      // mark on top of a paid day, never a second reward, exactly as the
+      // steps ladder paints it. Before this, blue on a done day went to the
+      // flat path for +5 and left a receipt that later made «لم يكتمل» take
+      // 15 back without touching the completion.
+      ref
+          .read(weeklyGridProvider.notifier)
+          .setSquareStateOnly(habit.id, day, picked);
+      syncRoomToday(ref, habit.id, day);
+      return;
+    }
+
+    if (isLocked) {
       // AWAITED, and the await is the whole fix.
       //
       // The doc comment above has always said "reverse the canonical reward
@@ -483,7 +510,14 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         ref
             .read(dashboardProvider)
             .isCompleted(habit.id, habit.effectiveDailyTarget);
-    if (isSyncable && picked == SquareState.complete && !alreadyDoneToday) {
+    // Blue counts as done, and then some. Picking إنجاز إضافي on an open,
+    // unfinished day used to take the flat path: 15 XP, no completion, no
+    // streak point, no room credit, and the Today list still showing the
+    // habit undone. It is the same canonical completion as مكتمل, painted
+    // blue afterwards (Aziz, 2026-09-07: "do what has no glitches").
+    if (isSyncable &&
+        (picked == SquareState.complete || picked == SquareState.bonus) &&
+        !alreadyDoneToday) {
       final target = habit.effectiveDailyTarget;
       final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward);
       final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward);
@@ -579,7 +613,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       }
       ref
           .read(weeklyGridProvider.notifier)
-          .setSquareStateOnly(habit.id, day, SquareState.complete);
+          .setSquareStateOnly(habit.id, day, picked);
       syncRoomToday(ref, habit.id, day);
       return;
     }

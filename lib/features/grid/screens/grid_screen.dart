@@ -20,6 +20,7 @@ import '../../../shared/widgets/safe_wrap_text.dart';
 import '../../../shared/widgets/week_picker_sheet.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../palette_lock.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
 import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';

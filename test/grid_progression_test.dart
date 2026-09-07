@@ -101,16 +101,52 @@ void main() {
   });
 
   group('XpCalculator.applyXpDelta', () {
-    test('negative delta trims XP but never de-levels', () {
+    test('a loss that crosses the boundary takes the level back with it', () {
+      // Exact reversal (Aziz, 2026-09-07). Level 3 needs 300 to reach, so 2
+      // XP into it minus 10 lands 8 short of the boundary: level 2, with
+      // 192 of the 200 that level asks for. Cumulative simply drops by 10.
       final r = XpCalculator.applyXpDelta(
         currentLevel: 3,
         currentLevelXp: 2,
         cumulativeXp: 302,
         xpDelta: -10,
       );
-      expect(r.newLevel, 3);
-      expect(r.newCurrentLevelXp, 0);
+      expect(r.newLevel, 2);
+      expect(r.newCurrentLevelXp, 192);
       expect(r.newCumulativeXp, 292);
+    });
+
+    test('complete across a boundary, then undo, is a round trip', () {
+      // The free level this closes: at 490 of level 5's 500, a 20 XP
+      // completion promoted to level 6, and the old undo kept the level while
+      // cumulative fell back, at every boundary, for ever.
+      final up = XpCalculator.applyXpDelta(
+        currentLevel: 5,
+        currentLevelXp: 490,
+        cumulativeXp: 1490,
+        xpDelta: 20,
+      );
+      expect((up.newLevel, up.newCurrentLevelXp), (6, 10));
+      final back = XpCalculator.applyXpDelta(
+        currentLevel: up.newLevel,
+        currentLevelXp: up.newCurrentLevelXp,
+        cumulativeXp: up.newCumulativeXp,
+        xpDelta: -20,
+      );
+      expect((back.newLevel, back.newCurrentLevelXp, back.newCumulativeXp),
+          (5, 490, 1490));
+    });
+
+    test('a loss never goes below level 1 or negative XP', () {
+      final r = XpCalculator.applyXpDelta(
+        currentLevel: 1,
+        currentLevelXp: 5,
+        cumulativeXp: 5,
+        xpDelta: -50,
+      );
+      expect(r.newLevel, 1);
+      expect(r.newCurrentLevelXp, 0);
+      expect(r.newCumulativeXp, 0);
     });
 
     test('positive delta still multi-levels through applyXpGain', () {

@@ -128,8 +128,11 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // same split completeHabit makes and for the same reason: an undo on
     // another day must not touch the board on screen.
     Map<String, int> dayCompletions = state.completions;
+    var dayPaid = _paidToday;
     if (isGraceDay) {
-      dayCompletions = (await _readStoredDay(markDay)).completions;
+      final stored = await _readStoredDay(markDay);
+      dayCompletions = stored.completions;
+      dayPaid = stored.paid;
     }
 
     final current = dayCompletions[habitId] ?? 0;
@@ -229,8 +232,36 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
             total: goldReward, target: frequencyTarget, done: current)
         : XpCalculator.rewardSliceForTap(
             total: goldReward, target: frequencyTarget, tapIndex: current - 1);
-    final totalXpReward = xpSlice + (snapshot?.bonusXp ?? 0);
-    final totalGoldReward = goldSlice + (snapshot?.bonusGold ?? 0);
+    // ── Exact reversal ───────────────────────────────────────────
+    //
+    // The ledger on the day (habitPaidXp/habitPaidGold, see _paidToday) says
+    // what this habit was ACTUALLY paid: capped slices, surprise bonuses and
+    // the per-habit milestone, as they landed. Emptying the day gives back
+    // exactly that. A one-tap undo of a counted habit gives back that tap's
+    // nominal slice, never more than the ledger still holds. The nominal
+    // arithmetic above survives only as the fallback for a day recorded by
+    // a build older than the ledger.
+    //
+    // Two defects this closes, both seen on 2026-09-07: a completion the
+    // daily ceiling had clamped was undone at its full nominal price, so the
+    // account lost XP and gold it was never paid; and after a restart the
+    // in-memory snapshot was gone, so the undo left every bonus behind.
+    final nominalXp = xpSlice + (snapshot?.bonusXp ?? 0);
+    final nominalGold = goldSlice + (snapshot?.bonusGold ?? 0);
+    final recorded = dayPaid[habitId];
+    final int totalXpReward;
+    final int totalGoldReward;
+    if (recorded == null) {
+      totalXpReward = nominalXp;
+      totalGoldReward = nominalGold;
+    } else if (emptiesDay) {
+      totalXpReward = recorded.xp;
+      totalGoldReward = recorded.gold;
+    } else {
+      totalXpReward = nominalXp < recorded.xp ? nominalXp : recorded.xp;
+      totalGoldReward =
+          nominalGold < recorded.gold ? nominalGold : recorded.gold;
+    }
 
     // ── What the reversal can actually take back ─────────────────
     //
@@ -261,6 +292,26 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     final newGold = rawGold < 0 ? 0 : rawGold;
     final removedXp = state.cumulativeXp - xpResult.newCumulativeXp;
     final removedGold = state.gold - newGold;
+
+    // What the ledger still holds for this habit after the undo: nothing
+    // once the day empties, the remainder otherwise. Kept in the same two
+    // places the completion wrote it (today's mirror, the day document).
+    final ({int xp, int gold})? remainingPaid =
+        emptiesDay || recorded == null
+            ? null
+            : (
+                xp: recorded.xp - removedXp < 0 ? 0 : recorded.xp - removedXp,
+                gold: recorded.gold - removedGold < 0
+                    ? 0
+                    : recorded.gold - removedGold,
+              );
+    if (!isGraceDay) {
+      if (remainingPaid == null) {
+        _paidToday.remove(habitId);
+      } else {
+        _paidToday[habitId] = remainingPaid;
+      }
+    }
 
     // ── The receipt ──────────────────────────────────────────────
     //
@@ -400,6 +451,8 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
         dayKey: dayKey,
         dayEarnedXp: isGraceDay ? newEarnedXpToday : null,
         dayEarnedGold: isGraceDay ? newEarnedGoldToday : null,
+        habitPaidXp: {habitId: remainingPaid?.xp},
+        habitPaidGold: {habitId: remainingPaid?.gold},
       );
       // No lastActiveDate here — undoing isn't "new activity" and
       // shouldn't disturb the streak-gap-detection logic that field feeds.
@@ -431,6 +484,18 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
         // FieldValue.delete(); this one did not.
         {
           'habitCompletions': habitCompletionDelta(habitId, newCompletions),
+          // The paid ledger, see _paidToday: cleared with the day, trimmed
+          // with a one-tap undo. Nested maps, merged key by key.
+          'habitPaidXp': {
+            habitId: remainingPaid == null
+                ? FieldValue.delete()
+                : remainingPaid.xp,
+          },
+          'habitPaidGold': {
+            habitId: remainingPaid == null
+                ? FieldValue.delete()
+                : remainingPaid.gold,
+          },
           // The grace day's own cap ledger, refunded where it is kept — see
           // _allowedOn. Absolute, like the completion side.
           if (isGraceDay) ...{
@@ -591,6 +656,11 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       xpDelta: receipt.xp,
     );
     final newGold = state.gold + receipt.gold;
+    // The redemption pays exactly what the receipt holds, so that is what
+    // the day's paid ledger records for a later undo (see _paidToday).
+    if (dateKey == _todayKeyNow) {
+      _paidToday[habitId] = (xp: receipt.xp, gold: receipt.gold);
+    }
     // The lifetime counters mirror what the undo actually decremented:
     // uncompleteHabit only takes them back for a FINISHED day, so a receipt
     // minted from an unfinished counted day (its finishedDay is false)
@@ -670,6 +740,15 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
                 {});
         completions[habitId] = 1;
         stored['habitCompletions'] = completions;
+        for (final (field, value) in [
+          ('habitPaidXp', receipt.xp),
+          ('habitPaidGold', receipt.gold),
+        ]) {
+          final m = Map<String, dynamic>.from(
+              (stored[field] as Map?)?.cast<String, dynamic>() ?? {});
+          m[habitId] = value;
+          stored[field] = m;
+        }
       });
       await _saveGuestState();
       return true;
@@ -685,6 +764,8 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
         _userRef.collection('daily').doc(dateKey),
         {
           'habitCompletions': {habitId: 1},
+          'habitPaidXp': {habitId: receipt.xp},
+          'habitPaidGold': {habitId: receipt.gold},
         },
         SetOptions(merge: true),
       );

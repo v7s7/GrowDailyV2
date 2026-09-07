@@ -134,6 +134,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     bool dayStreakEarnedBefore = state.streakEarnedToday;
     var daySpentXp = state.earnedXpOn(dayKey);
     var daySpentGold = state.earnedGoldOn(dayKey);
+    var dayPaid = _paidToday;
     if (isGraceDay) {
       final stored = await _readStoredDay(markDay);
       dayCompletions = stored.completions;
@@ -141,6 +142,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       dayStreakEarnedBefore = stored.streakEarned;
       daySpentXp = stored.earnedXp;
       daySpentGold = stored.earnedGold;
+      dayPaid = stored.paid;
     }
 
     final current = dayCompletions[habitId] ?? 0;
@@ -410,6 +412,24 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       gold: goldSlice + surpriseBonusGold,
       habitCount: scheduledHabitCount,
     );
+
+    // ── The paid ledger ─────────────────────────────────────────
+    //
+    // What this tap actually puts into the account for THIS habit on THIS
+    // day: the capped slice with its surprise bonus, plus the per-habit
+    // milestone. Written to the day (habitPaidXp/habitPaidGold, see
+    // _paidToday) so an undo, today or after a restart, gives back exactly
+    // this and never the nominal price. The app-wide streak milestone and
+    // the comeback bonus are deliberately not in it: they are paid once per
+    // lifetime and undo never touches them (see uncompleteHabit).
+    final paidXp = capped.xp + habitMilestoneBonusXp;
+    final paidGold = capped.gold;
+    final priorPaid = dayPaid[habitId];
+    final newPaid = (
+      xp: (priorPaid?.xp ?? 0) + paidXp,
+      gold: (priorPaid?.gold ?? 0) + paidGold,
+    );
+    if (!isGraceDay) _paidToday[habitId] = newPaid;
 
     final result = XpCalculator.applyXpGain(
       currentLevel: state.level,
@@ -703,6 +723,8 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
             ? null
             : {habitId: minutesSinceMidnight(DateTime.now())},
         // The grace day's own cap ledger — see _allowedOn.
+        habitPaidXp: {habitId: newPaid.xp},
+        habitPaidGold: {habitId: newPaid.gold},
         dayEarnedXp: isGraceDay ? capped.newXpToday : null,
         dayEarnedGold: isGraceDay ? capped.newGoldToday : null,
       );
@@ -736,6 +758,11 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         _dailyRefFor(markDay),
         {
           'habitCompletions': newCompletions,
+          // The paid ledger, see _paidToday: what this habit has actually
+          // been paid on this day, so an undo gives back exactly that.
+          // Nested maps, merged key by key like habitCompletions.
+          'habitPaidXp': {habitId: newPaid.xp},
+          'habitPaidGold': {habitId: newPaid.gold},
           // What this day asked of this habit, stamped on the day itself so a
           // report reading it back years later can tell a finished counted day
           // from a part-done one without guessing from today's settings — see

@@ -44,10 +44,11 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // let a user keep XP by taking a colour back off once the day was full.
     // Gold is untouched here: this path pays gold only through achievement
     // unlocks, which are exempt by design.
+    final todayKey = DashboardNotifier._todayKey;
     final gridCap = xpDelta > 0
         ? _allowedToday(xp: xpDelta, gold: 0, habitCount: 0)
-        : (xp: xpDelta, gold: 0, newXpToday: -1, newGoldToday: -1);
-    final cappedXpDelta = gridCap.xp;
+        : null;
+    final cappedXpDelta = gridCap?.xp ?? xpDelta;
 
     if (cappedXpDelta != 0) {
       final result = XpCalculator.applyXpDelta(
@@ -59,6 +60,25 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       newLevel = result.newLevel;
       newCurrentLevelXp = result.newCurrentLevelXp;
       newCumulativeXp = result.newCumulativeXp;
+    }
+
+    // A reversal gives its room back. What a positive delta banked against
+    // today's ceiling, its negative twin must release, or every recolour
+    // down and back up burns allowance for nothing and the day counter
+    // drifts away from cumulative XP: the residue measured on Aziz's account
+    // on 2026-09-07 (cumulative moved by 5, the day counter by 20) was this
+    // path debiting without releasing. Sized from what actually left the
+    // account, so a debit floored at zero frees no room it did not reclaim,
+    // and clamped at zero like uncompleteHabit's own refund.
+    final int? newXpToday;
+    if (xpDelta > 0) {
+      newXpToday = gridCap!.newXpToday;
+    } else if (xpDelta < 0) {
+      final removed = state.cumulativeXp - newCumulativeXp;
+      final raw = state.earnedXpOn(todayKey) - removed;
+      newXpToday = raw < 0 ? 0 : raw;
+    } else {
+      newXpToday = null;
     }
 
     final rawTotalGreen = state.totalGreenSquares + greenDelta;
@@ -103,8 +123,8 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       currentLevelXp: newCurrentLevelXp,
       cumulativeXp: newCumulativeXp,
       gold: newGold,
-      earnedDayKey: xpDelta > 0 ? DashboardNotifier._todayKey : null,
-      earnedXpToday: xpDelta > 0 ? gridCap.newXpToday : null,
+      earnedDayKey: newXpToday == null ? null : todayKey,
+      earnedXpToday: newXpToday,
       totalGreenSquares: newTotalGreen,
       dailyGreenCounts: newDailyGreenCounts,
       unlockedAchievements: newUnlockedIds,
@@ -142,10 +162,16 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         'levelGrantPaidThrough': newGrantMark,
         'currentLevelXp': newCurrentLevelXp,
         'cumulativeXp': newCumulativeXp,
-        'gold': newGold,
-        if (xpDelta > 0) ...{
-          'earnedDayKey': DashboardNotifier._todayKey,
-          'earnedXpToday': gridCap.newXpToday,
+        // Gold moves on this path only through an achievement's grant, so it
+        // is written only then, and as an increment. The absolute write that
+        // used to sit here on every recolour rewrote the balance with a
+        // locally computed number even when nothing about gold had changed,
+        // clobbering whatever another device had added or spent meanwhile.
+        if (unlocks.bonusGold != 0)
+          'gold': FieldValue.increment(unlocks.bonusGold),
+        if (newXpToday != null) ...{
+          'earnedDayKey': todayKey,
+          'earnedXpToday': newXpToday,
         },
         // arrayUnion of only what was just earned — see completeHabit's
         // identical write for why this must never be a wholesale overwrite.

@@ -16,6 +16,10 @@ extension DashboardNotifierLoading on DashboardNotifier {
       final completions = rawCompletions.map(
         (key, value) => MapEntry(key, (value as num).toInt()),
       );
+      // The paid ledger rides the same day document, see _paidToday.
+      _paidToday
+        ..clear()
+        ..addAll(DashboardNotifier._paidFromStored(daily));
       final streakEarnedToday = (daily['streakEarnedToday'] as bool?) ?? false;
       final intentionsSetToday = (daily['intentionsSet'] as bool?) ?? false;
       // Which habits already banked today's day-counters — see
@@ -285,6 +289,11 @@ extension DashboardNotifierLoading on DashboardNotifier {
     /// today, whose ledger lives in state as it always did.
     int? dayEarnedXp,
     int? dayEarnedGold,
+
+    /// The paid ledger (see DashboardNotifier._paidToday), merged key by
+    /// key; a null value removes that habit's entry.
+    Map<String, int?>? habitPaidXp,
+    Map<String, int?>? habitPaidGold,
   }) async {
     // Inside updateDailyMap, so this read and write cannot interleave with
     // the grid's write to the same day. That interleaving is what let a
@@ -328,6 +337,29 @@ extension DashboardNotifierLoading on DashboardNotifier {
       if (dayCounted != null) day['dayCounted'] = dayCounted;
       if (dayEarnedXp != null) day['dayEarnedXp'] = dayEarnedXp;
       if (dayEarnedGold != null) day['dayEarnedGold'] = dayEarnedGold;
+      void mergePaid(String field, Map<String, int?>? patch) {
+        if (patch == null) return;
+        final merged = <String, int>{
+          ...?(day[field] as Map?)?.map(
+            (key, value) => MapEntry('$key', (value as num).toInt()),
+          ),
+        };
+        for (final e in patch.entries) {
+          final v = e.value;
+          if (v == null) {
+            merged.remove(e.key);
+          } else {
+            merged[e.key] = v;
+          }
+        }
+        if (merged.isEmpty) {
+          day.remove(field);
+        } else {
+          day[field] = merged;
+        }
+      }
+      mergePaid('habitPaidXp', habitPaidXp);
+      mergePaid('habitPaidGold', habitPaidGold);
     });
   }
 
@@ -597,12 +629,15 @@ extension DashboardNotifierLoading on DashboardNotifier {
         }
       }
 
+      _paidToday.clear();
       if (dailySnap != null && dailySnap.exists) {
         final d = dailySnap.data()!;
         final raw =
             (d['habitCompletions'] as Map<String, dynamic>?) ?? {};
         completions =
             raw.map((k, v) => MapEntry(k, (v as num).toInt()));
+        // The paid ledger rides the same day document, see _paidToday.
+        _paidToday.addAll(DashboardNotifier._paidFromStored(d));
         intentionsSetToday = (d['intentionsSet'] as bool?) ?? false;
         streakEarnedToday = (d['streakEarnedToday'] as bool?) ?? false;
         dayCounted = {

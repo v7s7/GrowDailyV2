@@ -195,6 +195,106 @@ void main() {
       expect(after.gold, full.gold, reason: 'no gold may arrive past the cap');
     });
 
+    test('undoing a completion the ceiling clamped returns exactly what it paid',
+        () async {
+      // The overdraw this closes: the completion credited the CAPPED figure
+      // and the undo debited the nominal one, so on a full day a person lost
+      // XP and gold they had never been paid.
+      final container = await launch();
+      final notifier = container.read(dashboardProvider.notifier);
+      await notifier.completeHabit(
+        habitId: 'huge',
+        xpReward: 99999,
+        goldReward: 99999,
+        frequencyTarget: 1,
+        allHabitsDoneAfter: false,
+        category: 'quran',
+      );
+      final full = container.read(dashboardProvider);
+
+      await notifier.completeHabit(
+        habitId: 'another',
+        xpReward: 500,
+        goldReward: 200,
+        frequencyTarget: 1,
+        allHabitsDoneAfter: false,
+        category: 'quran',
+      );
+      await notifier.uncompleteHabit(
+        habitId: 'another',
+        xpReward: 500,
+        goldReward: 200,
+        frequencyTarget: 1,
+        category: 'quran',
+      );
+      final after = container.read(dashboardProvider);
+      expect(after.cumulativeXp, full.cumulativeXp,
+          reason: 'the second completion paid nothing, so undo takes nothing');
+      expect(after.gold, full.gold);
+      expect(after.level, full.level);
+      expect(after.earnedXpToday, full.earnedXpToday);
+      expect(after.earnedGoldToday, full.earnedGoldToday);
+    });
+
+    test('an undo after a restart returns exactly what was paid, level too',
+        () async {
+      // The undo arrives from a fresh launch, with no in-memory snapshot, and
+      // must still bring level, XP and gold back to where they were: the
+      // ledger on the day is what it reads, and exact reversal walks the
+      // level back down.
+      //
+      // A warm-up completion first, so the once-only grants that any FIRST
+      // completion triggers (the green_1 medal, the first level's gold) have
+      // already happened before the baseline is taken. Those are never
+      // reversed by design; this test is about what undo does reverse.
+      final first = await launch();
+      final notifier = first.read(dashboardProvider.notifier);
+      await notifier.completeHabit(
+        habitId: 'warm',
+        xpReward: 40,
+        goldReward: 10,
+        frequencyTarget: 1,
+        allHabitsDoneAfter: false,
+        category: 'quran',
+      );
+      final base = first.read(dashboardProvider);
+
+      // Big enough to cross at least one level boundary from wherever the
+      // warm-up left the account.
+      await notifier.completeHabit(
+        habitId: 'h',
+        xpReward: 400,
+        goldReward: 30,
+        frequencyTarget: 1,
+        allHabitsDoneAfter: false,
+        category: 'quran',
+      );
+      final peak = first.read(dashboardProvider);
+      expect(peak.level, greaterThan(base.level));
+      // A level's gold grant is paid once per lifetime (levelGrantPaidThrough)
+      // and is the one thing the undo below is allowed to leave behind.
+      var grants = 0;
+      for (var l = base.level + 1; l <= peak.level; l++) {
+        grants += DashboardNotifier.levelUpGoldGrants[l] ?? 0;
+      }
+
+      final second = await launch();
+      await second.read(dashboardProvider.notifier).uncompleteHabit(
+        habitId: 'h',
+        xpReward: 400,
+        goldReward: 30,
+        frequencyTarget: 1,
+        category: 'quran',
+      );
+      final after = second.read(dashboardProvider);
+      expect(after.level, base.level, reason: 'exact reversal walks back down');
+      expect(after.currentLevelXp, base.currentLevelXp);
+      expect(after.cumulativeXp, base.cumulativeXp);
+      expect(after.gold, base.gold + grants);
+      expect(after.completions.containsKey('h'), isFalse);
+      expect(after.completions['warm'], 1);
+    });
+
     test('the completion still lands even when the payout is withheld',
         () async {
       // The property that keeps a capped day from reading as a broken app.

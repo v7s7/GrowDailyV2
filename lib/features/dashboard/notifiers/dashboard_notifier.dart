@@ -1103,6 +1103,34 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     );
   }
 
+  /// The paid ledger for today: what each habit has ACTUALLY been paid on
+  /// this day (capped slices with their surprise bonuses, plus the per-habit
+  /// milestone), keyed by habit id. Mirrors the day document's
+  /// `habitPaidXp` / `habitPaidGold`, hydrated by both loaders, so an undo
+  /// gives back exactly what landed rather than the nominal price, today or
+  /// after a restart. A grace day's ledger is read off its own document
+  /// through [_readStoredDay], like everything else about that day.
+  ///
+  /// Why a ledger and not arithmetic: the completion credits the CAPPED
+  /// figure and the undo used to debit the nominal one, so a completion the
+  /// daily ceiling had clamped was undone at full price; and the bonuses
+  /// lived in an in-memory snapshot that a restart erased, so a later undo
+  /// left them behind. Both seen on 2026-09-07.
+  final Map<String, ({int xp, int gold})> _paidToday = {};
+
+  static Map<String, ({int xp, int gold})> _paidFromStored(
+      Map<String, dynamic> d) {
+    final xp = d['habitPaidXp'];
+    final gold = d['habitPaidGold'];
+    final ids = <String>{
+      if (xp is Map) ...xp.keys.map((k) => '$k'),
+      if (gold is Map) ...gold.keys.map((k) => '$k'),
+    };
+    int read(dynamic m, String id) =>
+        m is Map && m[id] is num ? (m[id] as num).toInt() : 0;
+    return {for (final id in ids) id: (xp: read(xp, id), gold: read(gold, id))};
+  }
+
   /// One stored day's own board, for a day that is NOT the one in `state`.
   ///
   /// Only ever called for a grace day (yesterday, still inside its window),
@@ -1121,6 +1149,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         bool streakEarned,
         int earnedXp,
         int earnedGold,
+        Map<String, ({int xp, int gold})> paid,
       })> _readStoredDay(DateTime day) async {
     final key = day.toDateKey();
     Map<String, dynamic> d = const {};
@@ -1149,6 +1178,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       streakEarned: d['streakEarnedToday'] == true,
       earnedXp: (d['dayEarnedXp'] as num?)?.toInt() ?? 0,
       earnedGold: (d['dayEarnedGold'] as num?)?.toInt() ?? 0,
+      paid: _paidFromStored(d),
     );
   }
 
