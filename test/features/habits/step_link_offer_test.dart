@@ -279,12 +279,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(switchIsOn(tester), isTrue);
 
-      await tester.tap(find.text(ar.quitHabitTitle));
+      // The Build / Quit switch sits above the box (2026-09-08), so it is
+      // always on screen and can simply be tapped.
+      await tester.tap(find.text(ar.goalTypeQuitOption));
       await tester.pumpAndSettle();
       expect(cardTitle(ar), findsNothing,
           reason: 'the card is for habits being built');
 
-      await tester.tap(find.text(ar.buildHabitTitle));
+      await tester.tap(find.text(ar.goalTypeBuildOption));
       await tester.pumpAndSettle();
 
       expect(cardTitle(ar), findsOneWidget);

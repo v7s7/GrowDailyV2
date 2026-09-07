@@ -72,11 +72,18 @@ class AddHabitSheet extends ConsumerStatefulWidget {
   /// choice is already made and the pills are just noise above the form.
   final ValueChanged<int>? onStepChanged;
 
+  /// Fires when the first habit's "or pick a ready-made plan" link is
+  /// tapped (see [_AddHabitSheetState._isFirstHabit]). [AddHabitHub] passes
+  /// this so the link can switch the hub to its Plans tab; standalone there
+  /// is no Plans tab, and the link is not drawn.
+  final VoidCallback? onBrowsePlans;
+
   const AddHabitSheet({
     super.key,
     this.existing,
     this.embedded = false,
     this.onStepChanged,
+    this.onBrowsePlans,
   });
 
   @override
@@ -480,6 +487,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _hasName = true;
       _didPickCategory = true;
     }
+    // The Continue button reads the limit field (see _canProceed).
+    _limitCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
     _nameCtrl.addListener(() {
       final text = _nameCtrl.text.trim();
       final has = text.isNotEmpty;
@@ -797,7 +808,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // AddTaskSheet/TaskDetailSheet already use: scheduling still proceeds
     // either way, so a denial degrades to "saved but silent" rather than
     // blocking the habit from being created at all.
-    if (_timingMode != _TimingMode.text) {
+    // A quit habit's only notification is the evening check-in, which the
+    // text mode above never asked permission for: on iOS it silently never
+    // arrived (2026-09-08). Quit habits ask on save regardless of mode.
+    if (_timingMode != _TimingMode.text || _goalType == GoalType.quit) {
       _ensureNotificationPermission();
     }
     final cue = _currentCue().toStorageValue();
@@ -885,9 +899,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         scheduledWeekdays: _selectedWeekdays.toList()..sort(),
         goalType: _goalType,
         reductionType: _reductionType,
-        limitAmount: _reductionType == ReductionType.limit ? limitAmount : null,
-        limitUnit: _reductionType == ReductionType.limit ? _limitUnit : null,
-        customUnitLabel: _reductionType == ReductionType.limit
+        limitAmount: _isLimitHabit ? limitAmount : null,
+        limitUnit: _isLimitHabit ? _limitUnit : null,
+        customUnitLabel: _isLimitHabit
             ? _customUnitCtrl.text.trim()
             : null,
         iconColorHex: _iconColorHex,
@@ -909,9 +923,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         scheduledWeekdays: _selectedWeekdays.toList()..sort(),
         goalType: _goalType,
         reductionType: _reductionType,
-        limitAmount: _reductionType == ReductionType.limit ? limitAmount : null,
-        limitUnit: _reductionType == ReductionType.limit ? _limitUnit : null,
-        customUnitLabel: _reductionType == ReductionType.limit
+        limitAmount: _isLimitHabit ? limitAmount : null,
+        limitUnit: _isLimitHabit ? _limitUnit : null,
+        customUnitLabel: _isLimitHabit
             ? _customUnitCtrl.text.trim()
             : null,
         iconColorHex: _iconColorHex,
@@ -1129,23 +1143,42 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// the minimum to know what's being created. Step 2 (When) is timing and
   /// frequency, with a live preview at the end. Editing always starts on
   /// Step 1 too, so the flow never branches into two different shapes.
+  /// A set-a-limit quit habit needs its number: picking «ضع حدًا» and leaving
+  /// the field blank used to save `reductionType: limit` with no amount, so
+  /// every "within the limit" question had nothing to compare against.
+  bool get _limitMissing =>
+      _isLimitHabit && (int.tryParse(_limitCtrl.text.trim()) ?? 0) < 1;
+
+  /// The limit trio (amount, unit, custom label) belongs to a QUIT habit
+  /// with a limit. Guarding on the reduction type alone let a build habit
+  /// that had briefly been a limit carry a limitAmount in memory.
+  bool get _isLimitHabit =>
+      _goalType == GoalType.quit && _reductionType == ReductionType.limit;
+
+  bool get _canProceed => _hasName && !_limitMissing;
+
   Widget _content(BuildContext context, S s) {
     final gp = context.gp;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-          child: Text(
-            _isEditing ? s.editHabit : s.addGoalTitle,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: gp.textPrimary,
+        // The first habit inside the hub has no heading of its own: the
+        // hub's «إضافة عادة» sits directly above, with nothing between the
+        // two any more (see _isFirstHabit), and «إضافة هدف» right under it
+        // would just be the same title twice.
+        if (!_simpleFirstHabit)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+            child: Text(
+              _isEditing ? s.editHabit : s.addGoalTitle,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+              ),
             ),
           ),
-        ),
         Flexible(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
@@ -1181,7 +1214,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ),
         ),
         Padding(
-          padding: EdgeInsets.fromLTRB(20, 10, 20, _isEditing ? 4 : 20),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            10,
+            20,
+            _isEditing ? 4 : 20 + MediaQuery.of(context).padding.bottom,
+          ),
           child: Row(
             children: [
               if (_step == 1) ...[
@@ -1202,7 +1240,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               Expanded(
                 child: FilledButton(
                   key: _step == 1 ? _createButtonKey : null,
-                  onPressed: !_hasName
+                  onPressed: !_canProceed
                       ? null
                       : _step == 0
                           ? () {
@@ -1227,7 +1265,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ),
         if (_isEditing)
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              0,
+              20,
+              20 + MediaQuery.of(context).padding.bottom,
+            ),
             child: TextButton(
               onPressed: _deleteExisting,
               style: TextButton.styleFrom(
@@ -1246,29 +1289,72 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   Widget _stepWhat(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _goalTypeToggle(s)
-              .animate()
-              .fadeIn(duration: 240.ms)
-              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-          const SizedBox(height: 16),
-          // The steps card used to sit here, under the whole name +
-          // category + suggestions block. It lives inside that section now,
-          // directly under the name field that triggers it. See
-          // _nameAndCategorySection and _revealStepCard for the measurement
-          // that moved it.
+          // The kind of habit, as a two-way switch right above the box it
+          // changes: the box's own question follows it («ما العادة التي
+          // تريد بناءها؟» / «ما الذي تريد تقليله؟»). It was a quiet text link
+          // under the whole form, and Aziz found nobody saw it there
+          // (2026-09-08). With Build already selected it is a mode, not a
+          // question: typing straight into the box works exactly as before.
+          // Not for a catalog preset: its goal type and quit limit are part
+          // of what the preset IS, and the override an edit stores cannot
+          // change them (see _submit). Showing the switch there let an edit
+          // of «غض البصر» appear to turn it into a build habit and do
+          // nothing.
+          if (!_isPresetEdit) ...[
+            _goalTypeToggle(s)
+                .animate()
+                .fadeIn(duration: 240.ms)
+                .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+            const SizedBox(height: 12),
+          ],
+          // The steps card lives inside the name section, directly under the
+          // field that triggers it. See _nameAndCategorySection and
+          // _revealStepCard for the measurement that moved it.
           _nameAndCategorySection(s)
-              .animate(delay: 60.ms)
+              .animate(delay: 40.ms)
               .fadeIn(duration: 240.ms)
               .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-          if (_goalType == GoalType.quit) ...[
+          if (_goalType == GoalType.quit && !_isPresetEdit) ...[
             const SizedBox(height: 16),
             _quitStyleSection(s)
-                .animate(delay: 100.ms)
+                .animate(delay: 60.ms)
                 .fadeIn(duration: 240.ms)
                 .slideY(begin: 0.06, curve: Curves.easeOutCubic),
           ],
+          const SizedBox(height: 8),
+          _belowFormLinks(s)
+              .animate(delay: 100.ms)
+              .fadeIn(duration: 240.ms),
         ],
       );
+
+  /// The one quiet link left under the form: the hub's Plans tab, while a
+  /// first habit hides the hub's pills. The Build / Quit switch that used to
+  /// be the first link here moved above the name box on 2026-09-08 (see
+  /// [_goalTypeToggle]): as a link under everything, it went unseen.
+  Widget _belowFormLinks(S s) {
+    if (widget.onBrowsePlans == null) return const SizedBox.shrink();
+    final gp = context.gp;
+    // shrinkWrap, so the row is 36 tall on screen and in layout: the default
+    // padded target makes it 48, and on a 730-point phone that alone pushed
+    // it below the fold.
+    final style = TextButton.styleFrom(
+      foregroundColor: gp.textSec,
+      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      minimumSize: const Size(0, 36),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+    );
+    return TextButton(
+      style: style,
+      onPressed: () {
+        HapticFeedback.selectionClick();
+        FocusScope.of(context).unfocus();
+        widget.onBrowsePlans!();
+      },
+      child: Text(s.readyPlansLink),
+    );
+  }
 
   /// The "this looks like a walking habit" card — the visible half of the
   /// steps link (step_habit_detector.dart is the detection half). Explains
@@ -1469,6 +1555,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             SizedBox(
               width: 104,
               child: TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _stepGoalCtrl,
                 keyboardType: TextInputType.number,
                 inputFormatters: [
@@ -1547,63 +1634,56 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     );
   }
 
-  Widget _goalTypeToggle(S s) => Row(
-        children: [
-          Expanded(
-            child: _SmallPick(
-              label: s.buildHabitTitle,
-              selected: _goalType == GoalType.build,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() {
-                  _goalType = GoalType.build;
-                  if (!_timingModeTouched) {
-                    _timingMode = _defaultModeFor(_category, _goalType);
-                  }
-                });
-              },
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _SmallPick(
-              label: s.quitHabitTitle,
-              selected: _goalType == GoalType.quit,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() {
-                  _goalType = GoalType.quit;
-                  // The card is build-only (see _stepCardVisible), so this
-                  // tap takes it off screen. Leaving the switch on behind it
-                  // meant _submit's guard skipped the whole resolution and an
-                  // edited habit was written with clearStepGoal: true: the
-                  // link went away with nothing on screen having said so, and
-                  // switching back to Build showed a card claiming it was
-                  // still on. The answer leaves with the card.
-                  if (_stepLinkEnabled) {
-                    _stepLinkEnabled = false;
-                    _stepLinkTouched = true;
-                  }
-                  if (!_timingModeTouched) {
-                    _timingMode = _defaultModeFor(_category, _goalType);
-                  }
-                });
-              },
-            ),
-          ),
-        ],
+  /// The Build / Quit change, from the switch above the box
+  /// ([_goalTypeToggle]); kept apart from the widget so the rules below stay
+  /// in one place if a second caller ever appears.
+  void _setGoalType(GoalType type) {
+    if (type == _goalType) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _goalType = type;
+      // A quit habit is kept or slipped once a day; there is no "three
+      // times a day" to abstain. The stepper is hidden for quit habits (see
+      // _frequencySection), so the count it owns goes back to one here.
+      if (type == GoalType.quit && _freqType == HabitFrequencyType.daily) {
+        _timesPerDay = 1;
+        _freqTarget = 1;
+      }
+      // The card is build-only (see _stepCardVisible), so leaving Build
+      // takes it off screen. Leaving the switch on behind it meant
+      // _submit's guard skipped the whole resolution and an edited habit
+      // was written with clearStepGoal: true: the link went away with
+      // nothing on screen having said so, and switching back to Build
+      // showed a card claiming it was still on. The answer leaves with the
+      // card.
+      if (type == GoalType.quit && _stepLinkEnabled) {
+        _stepLinkEnabled = false;
+        _stepLinkTouched = true;
+      }
+      if (!_timingModeTouched) {
+        _timingMode = _defaultModeFor(_category, _goalType);
+      }
+    });
+  }
+
+  /// Build or Quit, as one joined switch above the name box. Not two
+  /// _SmallPick pills: the hub's tabs sit right above in that shape, and two
+  /// matching rows read as a four-way grid (see _SegmentedPair).
+  Widget _goalTypeToggle(S s) => _SegmentedPair(
+        firstLabel: s.goalTypeBuildOption,
+        firstIcon: Icons.add_circle_outline_rounded,
+        secondLabel: s.goalTypeQuitOption,
+        secondIcon: Icons.do_not_disturb_on_outlined,
+        firstSelected: _goalType == GoalType.build,
+        onChanged: (first) =>
+            _setGoalType(first ? GoalType.build : GoalType.quit),
       );
 
   Widget _nameAndCategorySection(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!_hasName && _isFirstHabit) ...[
-            _suggestionsSection(s, lead: true),
-            const SizedBox(height: 18),
-            _SectionLabel(s.orWriteYourOwn),
-            const SizedBox(height: 8),
-          ],
           TextField(
+            selectionWidthStyle: GameTextStyles.selectionWidthStyle,
             controller: _nameCtrl,
             focusNode: _focus,
             style: TextStyle(
@@ -1613,7 +1693,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             ),
             textCapitalization: TextCapitalization.sentences,
             onSubmitted: (_) {
-              if (_hasName) {
+              if (_canProceed) {
                 HapticFeedback.selectionClick();
                 FocusScope.of(context).unfocus();
                 _goToStep(1, forward: true);
@@ -1676,6 +1756,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ],
           const SizedBox(height: 16),
           _SectionLabel(s.category),
+          // While nothing is picked and nothing typed, say why the space
+          // under the grid is empty: the suggestions wait for a category.
+          if (!_didPickCategory && !_hasName) ...[
+            const SizedBox(height: 4),
+            Text(
+              s.categoryPickHint,
+              style: TextStyle(fontSize: 12, color: context.gp.textTert),
+            ),
+          ],
           const SizedBox(height: 8),
           // Fixed 3-column grid (9 categories = an exact 3×3) instead of a
           // content-hugging Wrap — the old version sized every chip to its
@@ -1685,7 +1774,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           _ChipGrid(
             columns: 3,
             items: _broadCategories.map((cat) {
-              final selected = _category == cat;
+              // No chip lit until the person picks one or the typed name
+              // says which (Aziz, 2026-09-08: unchosen by default). Before
+              // this «مخصص» sat highlighted as if it had been chosen.
+              final selected =
+                  (_didPickCategory || _hasName) && _category == cat;
               return _PlainChoiceChip(
                 selected: selected,
                 label: cat.localizedName(s.isAr),
@@ -1714,24 +1807,40 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               );
             }).toList(),
           ),
-          // Below the categories for anyone who already has habits: by then
-          // they know the form and the suggestions are a shortcut, not the
-          // main road. See _suggestionsSection for why the first habit is
-          // laid out the other way round.
-          if (!_hasName && !_isFirstHabit) _suggestionsSection(s),
+          // Below the categories, and only once one has been picked: the
+          // suggestions are filtered by category, so before a pick they were
+          // six «مخصص» chips nobody had asked for. Typing a name puts them
+          // away as before. On a first habit they are labelled as the
+          // quickest way in rather than as a shortcut (see _isFirstHabit).
+          if (!_hasName && _didPickCategory && _suggestions().isNotEmpty)
+            _suggestionsSection(s, lead: _isFirstHabit),
         ],
       );
 
   /// True when this account has no habits at all yet.
   ///
-  /// The first habit is a different job from the fifth. On an empty account
-  /// this sheet opened on a text field, nine category chips and a greyed-out
-  /// primary button — four levels of choice before anything happens, for
-  /// somebody who has not yet seen a single square get coloured. The
-  /// suggestions are the fastest path to that moment (one tap fills the name,
-  /// picks the category and enables the button), so for a first habit they
-  /// go FIRST and everything else stays available underneath.
+  /// The page reads the same for everyone (name box, categories,
+  /// suggestions, the links; see [_stepWhat]), so this only sets what a
+  /// first habit does differently: the suggestions are labelled as the
+  /// quickest way in rather than as a shortcut, the hub hides its Plans /
+  /// Add Goal pills and its "choose one" card and hands the form a Plans
+  /// link instead (AddHabitHub's `_pillsHidden`), and the form's own heading
+  /// is dropped under the hub's ([_simpleFirstHabit]).
+  ///
+  /// A first habit used to open on a grid of suggestions and an "or write
+  /// your own" label before the box, all under the hub's pills and their
+  /// "choose one" card: three things to answer before the one thing to do,
+  /// on a phone screen the keyboard then halves (reported from Android,
+  /// 2026-09-08). That lead block is gone for good; the Build / Quit switch
+  /// above the box stayed, as a mode rather than a question (Build is
+  /// already selected, so typing straight into the box works). The order is
+  /// the same for every habit now and only the trimmings above differ.
   bool get _isFirstHabit => ref.read(habitListProvider).isEmpty;
+
+  /// Adding (not editing) a first habit inside the hub: the hub's own
+  /// «إضافة عادة» title sits directly above, so the form's own heading is
+  /// dropped rather than stacked under it.
+  bool get _simpleFirstHabit => widget.embedded && !_isEditing && _isFirstHabit;
 
   Widget _suggestionsSection(S s, {bool lead = false}) => Column(
         key: _suggestionsKey,
@@ -1793,9 +1902,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               children: [
                 Expanded(
                   child: TextField(
+                    selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                     controller: _limitCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: InputDecoration(labelText: s.maxAmount),
+                    decoration: InputDecoration(
+                      labelText: s.maxAmount,
+                      // A limit habit without a number has nothing to be
+                      // within; the form waits for one (see _canProceed).
+                      helperText:
+                          _limitMissing ? s.limitAmountRequired : null,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1816,6 +1932,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             if (_limitUnit == LimitUnit.custom) ...[
               const SizedBox(height: 10),
               TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _customUnitCtrl,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
@@ -1991,7 +2108,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         // Several times a day keep their shift inside each row, but the
         // alarm choice is about the habit, not one of its times, so it
         // stays here, once, under the list.
-        if (_isMultiTime && _filledTimes.isNotEmpty) _reminderStyleRow(s),
+        // A quit habit's reminder is a check-in and never rings as an alarm
+        // (see NotificationService._scheduleOne), so it is not offered one.
+        if (_isMultiTime &&
+            _filledTimes.isNotEmpty &&
+            _goalType == GoalType.build)
+          if (_goalType == GoalType.build) _reminderStyleRow(s),
       ],
     );
   }
@@ -2356,7 +2478,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ],
             ),
           ),
-        _reminderStyleRow(s),
+        if (_goalType == GoalType.build) _reminderStyleRow(s),
         _quietHoursWarning(s),
       ],
     );
@@ -2864,6 +2986,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           _relationToggle(s),
           const SizedBox(height: 10),
           TextField(
+            selectionWidthStyle: GameTextStyles.selectionWidthStyle,
             controller: _cueCtrl,
             focusNode: _cueFocus,
             textCapitalization: TextCapitalization.sentences,
@@ -2967,7 +3090,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           // Daily is selected (Option A), including at its resting 1, which
           // is how anyone finds out the setting exists at all.
           if (_freqType == HabitFrequencyType.daily &&
-              _selectedWeekdays.isEmpty) ...[
+              _selectedWeekdays.isEmpty &&
+              _goalType == GoalType.build) ...[
             const SizedBox(height: 12),
             _TimesPerDayRow(
               count: _dailyTargetInRange,
@@ -3341,11 +3465,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     });
   }
 
-  List<GoalSuggestion> _suggestions() {
-    final list = goalSuggestions.where((s) => s.type == _goalType && s.category == _category).toList();
-    if (list.isNotEmpty) return list;
-    return goalSuggestions.where((s) => s.type == _goalType).take(6).toList();
-  }
+  /// The chips for the picked category on the current side, and nothing
+  /// else. This used to fall back to "the first six of this type" when a
+  /// category had none, so a person who had just tapped «التعلّم» was shown
+  /// prayer and sugar (Aziz, 2026-09-08). Every offered category now has
+  /// four on each side (goal_suggestions_test.dart), so the fallback is
+  /// gone; an empty answer simply hides the section.
+  List<GoalSuggestion> _suggestions() => suggestionsFor(_goalType, _category);
 
   /// Splits into whole words, after stripping common punctuation, rather
   /// than the plain substring match this replaced. Deliberately doesn't use

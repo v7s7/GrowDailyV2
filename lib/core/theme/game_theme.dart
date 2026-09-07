@@ -1,3 +1,5 @@
+import 'dart:ui' show BoxWidthStyle;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -315,6 +317,18 @@ abstract final class GameTextStyles {
     'Arial',
     'sans-serif',
   ];
+
+  /// Pinned on every text field in the app (add it to any new one).
+  ///
+  /// Flutter 3.41 (flutter/flutter#167762) changed [EditableText]'s
+  /// default to [BoxWidthStyle.max], and the engine gets that style wrong
+  /// on wrapped RTL lines: a word in the middle of a line comes back with a
+  /// second box that runs from the word to the paragraph edge, so a
+  /// double-tapped Arabic word painted as the whole line while the actual
+  /// selection (and so delete) was correct. Single-line and Latin text were
+  /// unaffected. `tight` is the pre-3.41 default and paints only the glyphs.
+  /// Guarded by test/text_selection_width_style_test.dart.
+  static const BoxWidthStyle selectionWidthStyle = BoxWidthStyle.tight;
 
   static TextStyle get displayLarge => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 34, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.5, height: 1.12).copyWith(fontFamilyFallback: fontFallback);
   static TextStyle get displayMedium => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 28, fontWeight: FontWeight.w800, color: GameColors.textPrimary, letterSpacing: -0.3, height: 1.15).copyWith(fontFamilyFallback: fontFallback);

@@ -87,12 +87,31 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
   /// «تمرين · استئناف» sat above «متى وكيف ستتابع؟» offering to abandon it.
   bool get _onChooserStep => !(_tab == HubTab.addGoal && _addGoalStep > 0);
 
+  /// The first habit opens straight on the form: no Plans / Add Goal pills
+  /// above it and no "choose one" hint, so the page is the name box and the
+  /// categories and nothing before them (AddHabitSheet's `_isFirstHabit` is
+  /// the form's half of this). The form's own "or pick a ready-made plan"
+  /// link is the way to Plans; taking it brings the pills back for the rest
+  /// of the sheet's life, so the way back is the usual one. Opened on Plans
+  /// directly (the Grid's «استعرض الخطط») the pills show as always: the
+  /// person is on the second tab and needs the first.
+  bool _pillsRevealed = false;
+
+  bool get _pillsHidden =>
+      _tab == HubTab.addGoal &&
+      !_pillsRevealed &&
+      ref.watch(habitListProvider).isEmpty;
+
   // A one-time nudge explaining Plans vs. Add Goal — only for App Guide's
   // addHabit lesson, since that's the one moment someone genuinely hasn't
   // decided "custom" is what they want yet. Regular Add Habit taps never
-  // set this, so it doesn't nag anyone who already knows the sheet.
+  // set this, so it doesn't nag anyone who already knows the sheet. Not on
+  // a first habit opened on Add Goal either: there are no pills to explain
+  // there (see _pillsHidden), and the lesson's point is reaching the form.
   late bool _showTabHint =
-      ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addHabit;
+      ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addHabit &&
+          !(widget.initialTab == HubTab.addGoal &&
+              ref.read(habitListProvider).isEmpty);
 
   void _dismissTabHint() {
     if (_showTabHint) setState(() => _showTabHint = false);
@@ -136,16 +155,37 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
     // the bottom of the sheet: present, laid out, and unreachable. Letting the
     // body take what is actually LEFT (see the Flexible below) removes the
     // guess entirely, so no future row added above it can hide the button.
+    // Both tabs stay mounted (their state survives a switch) but only the
+    // visible one takes room: Offstage in a Stack, not an IndexedStack,
+    // because an IndexedStack is as tall as its TALLEST child, and the Plans
+    // list fills whatever it is given, so the Add Goal tab was padded out to
+    // the Plans tab's height and showed a blank band under its own button on
+    // any phone tall enough for the difference. The AnimatedSize turns the
+    // change between the two heights into a slide.
+    final pillsHidden = _pillsHidden;
     final body = AnimatedSize(
       duration: keyboardAnim,
       curve: keyboardCurve,
-      child: IndexedStack(
-        index: _tab.index,
+      child: Stack(
         children: [
-          const PlanPickerSheet(embedded: true),
-          AddHabitSheet(
-            embedded: true,
-            onStepChanged: (step) => setState(() => _addGoalStep = step),
+          Offstage(
+            offstage: _tab != HubTab.plans,
+            child: const PlanPickerSheet(embedded: true),
+          ),
+          Offstage(
+            offstage: _tab != HubTab.addGoal,
+            child: AddHabitSheet(
+              embedded: true,
+              onStepChanged: (step) => setState(() => _addGoalStep = step),
+              // The Plans link only stands in for the pills while they are
+              // hidden; with the pills on screen it would be a second copy.
+              onBrowsePlans: pillsHidden
+                  ? () => setState(() {
+                        _pillsRevealed = true;
+                        _tab = HubTab.plans;
+                      })
+                  : null,
+            ),
           ),
         ],
       ),
@@ -291,8 +331,8 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
             // in global coordinates — wrong here, inside a bottom sheet
             // whose own bounds move with the keyboard.
             // Hidden entirely once Add Goal has moved on — see
-            // [_onChooserStep].
-            if (!_onChooserStep)
+            // [_onChooserStep], and on a first habit, see [_pillsHidden].
+            if (!_onChooserStep || _pillsHidden)
               const SizedBox.shrink()
             else _showTabHint
                 ? Padding(

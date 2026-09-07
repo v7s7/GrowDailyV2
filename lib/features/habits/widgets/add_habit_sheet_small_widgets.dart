@@ -136,6 +136,103 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: context.gp.textTert));
 }
 
+/// One control with two halves, for a choice that is a MODE rather than a
+/// pick from a list: Build or Quit, above the name box (2026-09-08).
+///
+/// Joined on purpose, unlike [_SmallPick]'s two separate pills. The hub's
+/// Add Goal / Plans tabs sit directly above this switch in that very shape,
+/// and two rows of two matching pills read as one four-way grid. A single
+/// track with one filled half cannot be mistaken for the tabs, and says
+/// "this or that" without a label. The first half is the start side, so in
+/// Arabic it sits on the right.
+class _SegmentedPair extends StatelessWidget {
+  final String firstLabel;
+  final IconData firstIcon;
+  final String secondLabel;
+  final IconData secondIcon;
+  final bool firstSelected;
+  final ValueChanged<bool> onChanged;
+  const _SegmentedPair({
+    required this.firstLabel,
+    required this.firstIcon,
+    required this.secondLabel,
+    required this.secondIcon,
+    required this.firstSelected,
+    required this.onChanged,
+  });
+
+  Widget _half(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final gp = context.gp;
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: GameMotion.quick,
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            color: selected
+                ? GameColors.gold.withOpacity(0.14)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon,
+                  size: 15, color: selected ? GameColors.gold : gp.textTert),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? GameColors.gold : gp.textSec,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: gp.surfaceHL,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Row(
+        children: [
+          _half(context,
+              label: firstLabel,
+              icon: firstIcon,
+              selected: firstSelected,
+              onTap: () => onChanged(true)),
+          _half(context,
+              label: secondLabel,
+              icon: secondIcon,
+              selected: !firstSelected,
+              onTap: () => onChanged(false)),
+        ],
+      ),
+    );
+  }
+}
+
 class _SmallPick extends StatelessWidget {
   final String label;
   final bool selected;

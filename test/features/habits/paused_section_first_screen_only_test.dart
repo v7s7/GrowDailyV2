@@ -69,6 +69,11 @@ void main() {
     final c = ProviderContainer(overrides: [
       authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
       pausedHabitsProvider.overrideWithValue([pausedHabit()]),
+      // One active habit too: with none, a first habit hides the switcher
+      // from the start (see first_habit_hub_test.dart), and this test is
+      // about the switcher hiding LATER, together with the resume list.
+      habitListProvider
+          .overrideWithValue([IslamicHabitCatalog.templates.first]),
     ]);
     await c.read(authStateProvider.future);
     return c;
