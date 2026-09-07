@@ -2548,60 +2548,6 @@ class NotificationService {
     return scheduled;
   }
 
-  Future<void> showLevelUp(int newLevel) async {
-    if (kIsWeb || !_celebrationsEnabled) return;
-    await init();
-    await _plugin.show(
-      3000,
-      isArabic ? 'ارتقاء مستوى!' : 'Level up!',
-      isArabic
-          ? 'وصلت للمستوى $newLevel.'
-          : "You've reached level $newLevel.",
-      _details,
-    );
-  }
-
-  /// [achievementName] must already be in the right language — callers pass
-  /// `AchievementModel.localName(NotificationService.instance.isArabic)`.
-  /// This used to receive `a.name`, the English field, unconditionally.
-  Future<void> showAchievementUnlocked(String achievementName) async {
-    if (kIsWeb || !_celebrationsEnabled) return;
-    await init();
-    await _plugin.show(
-      4000 + achievementName.hashCode.abs() % 1000,
-      // Matches the in-app unlock sheet's own headline (S.achievementUnlocked)
-      // so the push and the celebration read as the same event.
-      isArabic ? 'إنجاز مفتوح!' : 'Achievement unlocked',
-      achievementName,
-      _details,
-    );
-  }
-
-  /// One notification for a batch of medals earned in the same instant,
-  /// instead of one per medal.
-  ///
-  /// A single habit completion can genuinely cross several thresholds at
-  /// once — the tap that hits a streak milestone can also be the 50th
-  /// lifetime completion and the 100th colored square. The callers used to
-  /// loop and call [showAchievementUnlocked] per medal, so that one tap
-  /// dealt three or four separate pushes on top of the habit-completed and
-  /// level-up ones already firing. [names] must already be localized.
-  Future<void> showAchievementsUnlocked(List<String> names) async {
-    if (kIsWeb || !_celebrationsEnabled || names.isEmpty) return;
-    if (names.length == 1) return showAchievementUnlocked(names.first);
-    await init();
-    await _plugin.show(
-      4999,
-      isArabic
-          ? '${names.length} إنجازات مفتوحة!'
-          : '${names.length} achievements unlocked',
-      // Listing the names beats a bare count — "3 achievements unlocked"
-      // tells you nothing about which.
-      names.join(isArabic ? ' · ' : ' · '),
-      _details,
-    );
-  }
-
   /// Local notification for this device noticing a room it's in has a new
   /// shared-plan habit to link (see RoomsHubScreen's own per-room check,
   /// and RoomsController.addSharedHabit's doc comment for how it got
@@ -2631,6 +2577,11 @@ class NotificationService {
 
   /// Manually shows the room-finish push's title/body while this device is
   /// in the foreground - see PushNotificationService's own doc comment for
+  /// Since 2026-09-08 this is the FALLBACK only: PushNotificationService
+  /// hands a foreground room push to main.dart first, which shows it as a
+  /// tappable in-app notice (showOverlayNotice) over whatever is on screen;
+  /// this system banner is used when no navigator context exists yet.
+  ///
   /// why: iOS's foreground-presentation option is deliberately left off
   /// for that one push category (unlike every local notification in this
   /// file, which doesn't need the choice - there's nothing else on screen

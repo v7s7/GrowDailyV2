@@ -665,41 +665,11 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       lastCompletionBonusGold: surpriseBonusGold,
     );
 
-    // ── Only the tap that finishes the day announces itself ──────
-    //
-    // The reward banner is an EVENT — "this is done, here is what it paid" —
-    // and a habit counted N times a day would otherwise fire N of them. Four
-    // a day is wrong even when the habit is a happy one, and it is worse than
-    // wrong when it is not: the app does not know whether this habit is
-    // drinking water or taking medicine, and it must not congratulate someone
-    // four times a day for taking medicine. Neutral is the only safe default,
-    // because it is the only one that is never insulting.
-    //
-    // Nothing is taken away from the cheerful case either. The finishing tap
-    // fires exactly the banner the habit fired when it was once a day, so a
-    // water habit still gets its celebration — one a day, the same one it
-    // always had. What the intermediate taps get instead is the square
-    // filling and its count going up, which is a statement of fact and reads
-    // as progress without claiming anything about how the person should feel.
-    //
-    // At frequencyTarget 1 this is unconditionally true, so no habit that
-    // existed before counting did notices any of it.
-    if (finishesDay) {
-      _fireCompletionNotifications(
-        habitId: habitName ?? habitId,
-        // The slice, not the day's price: this is the number the person is
-        // shown, and showing them "+10 XP" on each of four taps that together
-        // paid 10 would be telling them they earned 40.
-        // The CAPPED figures, not the nominal ones. This is the number the
-        // person is shown, and a banner that celebrates XP the ceiling just
-        // withheld is the app lying about their balance.
-        xpEarned: capped.xp + milestoneBonusXp + habitMilestoneBonusXp,
-        goldEarned: capped.gold,
-        didLevelUp: didLevelUp,
-        newLevel: bonusResult.newLevel,
-        newlyUnlocked: newly,
-      );
-    }
+    // No local notification for a completion made inside the app: the
+    // square fills, the reward float shows and the day's total moves. The
+    // level-up and achievement pings went the same way on 2026-09-08, since
+    // the in-app snackbar and the unlock sheet already carry both, and a
+    // system banner about your own tap was noise (Aziz, 2026-09-07).
 
     if (_uid == null) {
       await _saveGuestDaily(

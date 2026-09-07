@@ -807,37 +807,4 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     }
     return true;
   }
-
-  /// Fires local notifications for the rarer things a completion can cause:
-  /// a level-up, and any achievements unlocked by the same tap. On-device
-  /// local notifications (no push server), so they show even if the in-app
-  /// celebration overlay was dismissed or the app is backgrounded.
-  ///
-  /// No "habit completed, +65 XP" ping any more. Aziz, 2026-09-07: the
-  /// person is INSIDE the app, they just tapped the square, and the square
-  /// fills, the reward shows and the day's total moves. A system banner on
-  /// top of that told them what they were looking at. Every notification is
-  /// a claim on attention, and a claim about something the person did
-  /// themselves a second ago is spent for nothing. Level-ups and medals are
-  /// rare enough to keep a record of, so those two stay behind the
-  /// Celebrations toggle.
-  void _fireCompletionNotifications({
-    required String habitId,
-    required int xpEarned,
-    required int goldEarned,
-    required bool didLevelUp,
-    required int newLevel,
-    required List<AchievementModel> newlyUnlocked,
-  }) {
-    if (didLevelUp) {
-      NotificationService.instance.showLevelUp(newLevel);
-    }
-    // One notification for the whole batch — a single completion can cross
-    // three thresholds at once, and this used to deal one push per medal on
-    // top of the habit-completed and level-up ones already going out.
-    NotificationService.instance.showAchievementsUnlocked([
-      for (final a in newlyUnlocked)
-        a.localName(NotificationService.instance.isArabic),
-    ]);
-  }
 }

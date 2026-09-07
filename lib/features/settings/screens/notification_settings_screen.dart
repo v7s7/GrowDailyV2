@@ -201,15 +201,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     ),
                     const _RowDivider(),
                     _SwitchRow(
-                      icon: Icons.celebration_rounded,
-                      label: s.notifCelebrations,
-                      subtitle: s.notifCelebrationsDesc,
-                      value: settings.celebrationsEnabled,
-                      onChanged: (v) =>
-                          update((c) => c.copyWith(celebrationsEnabled: v)),
-                    ),
-                    const _RowDivider(),
-                    _SwitchRow(
                       icon: Icons.grid_view_rounded,
                       label: s.notifMatrixNudge,
                       subtitle: s.notifMatrixNudgeDesc,

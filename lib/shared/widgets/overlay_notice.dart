@@ -17,10 +17,15 @@ import 'package:flutter/material.dart';
 /// of the screen, and the thumb is usually there too), no action button,
 /// auto-dismissing. For feedback that needs an action, use a real SnackBar
 /// on a visible Scaffold instead.
+///
+/// [onTap] makes the notice a button: it runs, and the notice dismisses at
+/// once. Used for a room push arriving while the app is open, where the
+/// tap opens the room the way tapping the system banner would have.
 void showOverlayNotice(
   BuildContext context,
   String message, {
   IconData icon = Icons.info_outline_rounded,
+  VoidCallback? onTap,
 }) {
   final overlay = Overlay.of(context, rootOverlay: true);
   late final OverlayEntry entry;
@@ -28,6 +33,7 @@ void showOverlayNotice(
     builder: (_) => _OverlayNotice(
       message: message,
       icon: icon,
+      onTap: onTap,
       onDone: () => entry.remove(),
     ),
   );
@@ -37,11 +43,13 @@ void showOverlayNotice(
 class _OverlayNotice extends StatefulWidget {
   final String message;
   final IconData icon;
+  final VoidCallback? onTap;
   final VoidCallback onDone;
   const _OverlayNotice({
     required this.message,
     required this.icon,
     required this.onDone,
+    this.onTap,
   });
 
   @override
@@ -64,6 +72,14 @@ class _OverlayNoticeState extends State<_OverlayNotice>
       await _c.reverse();
       widget.onDone();
     });
+  }
+
+  Future<void> _tapped() async {
+    _hide?.cancel();
+    widget.onTap?.call();
+    if (!mounted) return;
+    await _c.reverse();
+    widget.onDone();
   }
 
   @override
@@ -90,7 +106,10 @@ class _OverlayNoticeState extends State<_OverlayNotice>
           // Material, not a bare Container: this lives in the root overlay
           // with no Scaffold ancestor, and Text without Material renders
           // with the yellow-underline fallback.
-          child: Material(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap == null ? null : _tapped,
+            child: Material(
             color: Colors.transparent,
             child: Container(
               padding:
@@ -125,6 +144,7 @@ class _OverlayNoticeState extends State<_OverlayNotice>
                 ],
               ),
             ),
+          ),
           ),
         ),
       ),

@@ -3715,10 +3715,6 @@ class S {
   String get notifStreakRiskDesc => isAr
       ? 'تنبيه مسائي، فقط عندما تكون سلسلة حقيقية على وشك الضياع.'
       : 'An evening nudge, but only when a real streak is actually about to be lost.';
-  String get notifCelebrations => isAr ? 'الاحتفالات' : 'Celebrations';
-  String get notifCelebrationsDesc => isAr
-      ? 'إشعارات الترقية وفتح الإنجازات.'
-      : 'Level up and achievement-unlocked pings.';
   String get notifMatrixNudge =>
       isAr ? 'ذكر المهام العاجلة' : 'Mention urgent tasks';
   String get notifMatrixNudgeDesc => isAr

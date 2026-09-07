@@ -87,7 +87,8 @@ void main() {
       expect(SquareState.complete.xpValue, 10);
       expect(SquareState.partial.xpValue, 5);
       expect(SquareState.bonus.xpValue, 15);
-      expect(SquareState.failed.xpValue, -3);
+      // Red is a record, not a fine (2026-09-08): honest misses cost nothing.
+      expect(SquareState.failed.xpValue, 0);
       expect(SquareState.none.xpValue, 0);
       expect(SquareState.skipped.xpValue, 0);
     });

@@ -37,6 +37,7 @@ import 'core/services/home_widget_service.dart';
 import 'core/services/notification_action_queue.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_notification_service.dart';
+import 'shared/widgets/overlay_notice.dart';
 import 'core/services/purchase_service.dart';
 import 'core/theme/game_theme.dart';
 import 'core/services/local_store_service.dart';
@@ -363,6 +364,31 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // place (see PushNotificationService.registerForUser).
     PushNotificationService.instance.onOpenRoom = (code) {
       ref.read(pendingOpenRoomCodeProvider.notifier).state = code;
+    };
+    // A room push that lands while the app is OPEN is shown inside the app,
+    // as a tappable notice over whatever screen is up, instead of a system
+    // banner on top of the app (Aziz, 2026-09-08: a banner about the app
+    // you are already in is noise; a small card that opens the room is
+    // useful). Same indirection as onOpenRoom: the service has no context,
+    // this has the navigator. Falls back to the banner before the first
+    // frame.
+    PushNotificationService.instance.onForegroundRoomPush =
+        (title, body, code) {
+      final ctx = _navKey.currentContext;
+      if (ctx == null) {
+        NotificationService.instance
+            .showForegroundRoomPush(title: title, body: body);
+        return;
+      }
+      showOverlayNotice(
+        ctx,
+        '$title\n$body',
+        icon: Icons.groups_rounded,
+        onTap: code == null
+            ? null
+            : () =>
+                ref.read(pendingOpenRoomCodeProvider.notifier).state = code,
+      );
     };
 
     // Once sign-in resolves — including "already signed in" on a warm

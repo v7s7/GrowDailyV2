@@ -93,9 +93,12 @@ class NotificationSettings {
   /// unfinished today), never as a blind daily ping.
   final bool streakRiskEnabled;
 
-  /// In-the-moment celebration pings: habit completed, level up,
-  /// achievement unlocked. These fire immediately (not scheduled ahead),
-  /// so "not spam" here means "off means off," not rate-limiting.
+  /// Kept for stored-settings compatibility; no longer shown in Settings.
+  /// The celebration pings it gated (habit completed, level up, achievement
+  /// unlocked) were removed on 2026-09-08: each already has its in-app
+  /// moment, and a system banner about your own tap was noise. It still
+  /// gates the one local ping left on that channel, a room's new shared
+  /// habit (NotificationService.showRoomHabitAdded).
   final bool celebrationsEnabled;
 
   /// Whether the streak-risk nudge also mentions a pending count of

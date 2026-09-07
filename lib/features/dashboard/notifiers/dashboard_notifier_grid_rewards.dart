@@ -132,13 +132,6 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       didJustLevelUp: didLevelUp,
     );
 
-    if (didLevelUp) NotificationService.instance.showLevelUp(newLevel);
-    // One notification for the batch — see _fireCompletionNotifications.
-    NotificationService.instance.showAchievementsUnlocked([
-      for (final a in newly)
-        a.localName(NotificationService.instance.isArabic),
-    ]);
-
     if (_uid == null) {
       await _saveGuestState();
       return;
@@ -838,11 +831,6 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       earnedXpToday: countsTowardDailyCap ? capped.newXpToday : null,
       earnedGoldToday: countsTowardDailyCap ? capped.newGoldToday : null,
     );
-
-    NotificationService.instance.showAchievementsUnlocked([
-      for (final a in unlocks.newly)
-        a.localName(NotificationService.instance.isArabic),
-    ]);
 
     if (_uid == null) {
       // Guests reach this from the Focus timer and Weekly Challenges — it

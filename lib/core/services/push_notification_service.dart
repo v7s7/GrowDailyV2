@@ -125,6 +125,14 @@ class PushNotificationService {
   /// code from a tapped push's data payload.
   void Function(String roomCode)? onOpenRoom;
 
+  /// Set by main.dart: a room push that arrives while the app is OPEN is
+  /// shown as an in-app notice over the current screen instead of a system
+  /// banner on top of the app (Aziz, 2026-09-08). Receives the room code so
+  /// a tap can open the room. Null falls back to
+  /// NotificationService.showForegroundRoomPush.
+  void Function(String title, String body, String? roomCode)?
+      onForegroundRoomPush;
+
   /// The room code this device is currently looking at, if any - set/
   /// cleared by RoomDetailScreen itself. A foreground push about *this*
   /// room is suppressed (see [_onForegroundMessage]): room_reactions.dart's
@@ -436,6 +444,11 @@ class PushNotificationService {
     final title = message.notification?.title;
     final body = message.notification?.body;
     if (title == null || body == null) return;
+    final inApp = onForegroundRoomPush;
+    if (inApp != null) {
+      inApp(title, body, roomCode);
+      return;
+    }
     NotificationService.instance
         .showForegroundRoomPush(title: title, body: body);
   }

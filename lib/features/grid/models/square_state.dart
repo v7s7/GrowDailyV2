@@ -84,14 +84,20 @@ enum SquareState {
   /// Fixed XP contribution of this square color, independent of the habit.
   /// This is the universal reward the whole progression system runs on:
   /// green pays the most reliable reward, blue is the bonus-achievement
-  /// spike, yellow is half credit for partial effort, red is a small sting
-  /// for a logged failure, and white/gray contribute nothing ("ignored").
+  /// spike, yellow is half credit for partial effort, and red, white and
+  /// gray contribute nothing.
+  ///
+  /// Red used to cost 3 XP, "a small sting for a logged failure". Since
+  /// 2026-09-08 it costs nothing (Aziz's call): with exact level reversal a
+  /// sting at a level boundary could take a level away, and a person who
+  /// honestly records a miss is doing the one thing the app asks of them.
+  /// The red square is the record; the day's percentage already carries the
+  /// consequence.
   int get xpValue => switch (this) {
         complete => 10,
         bonus => 15,
         partial => 5,
-        failed => -3,
-        none || skipped => 0,
+        failed || none || skipped => 0,
       };
 
   String get label => switch (this) {
