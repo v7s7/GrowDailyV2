@@ -201,29 +201,16 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
     );
     if (picked == null || !mounted) return;
 
-    // For a room that has already FINISHED, ask when counting should pick up
-    // again. Everything between the old ending and that day is recorded as a
-    // pause and excluded from every score (RoomModel.pausedSpans), so a room
-    // revived after a fortnight costs nobody the fourteen misses it used to.
-    // Skipped entirely for a room still running — there is no gap to place.
-    DateTime? resumeFrom;
-    if (room.isEnded) {
-      final today = DateTime.now().effectiveDay;
-      resumeFrom = await showDatePicker(
-        context: context,
-        initialDate: today,
-        firstDate: today,
-        lastDate: today.add(const Duration(days: 365)),
-        helpText: S.of(context).roomExtendResumeTitle,
-      );
-      // Backing out of the date step cancels the whole extension rather than
-      // silently defaulting to today — the leader was mid-decision.
-      if (resumeFrom == null || !mounted) return;
-    }
-
+    // Counting resumes today, always. For a room that already FINISHED, the
+    // dead days between its old ending and today are recorded as a pause and
+    // excluded from every score (RoomModel.pausedSpans), so a room revived
+    // after a fortnight costs nobody the fourteen misses it used to. There
+    // used to be a calendar here asking the leader when to pick up; one
+    // leader tapped a date four weeks out and paused a live room for every
+    // member. See pausedSpansAfterExtend.
     await ref
         .read(roomsControllerProvider)
-        .extendRoom(room, picked == 0 ? null : picked, resumeFrom: resumeFrom);
+        .extendRoom(room, picked == 0 ? null : picked);
     // This room is about to have a *second* ending, and the finale announcer
     // only ever fires once per room code (see markRoomFinaleSeen). Without
     // this, extending a room that already finished means its next finish is

@@ -1034,6 +1034,46 @@ bool roomHasGradableHabit(
 /// midnight, ten hours before the app did.
 bool roomDayIsClosedAt(DateTime day, DateTime now) => !day.isOpenDayAt(now);
 
+/// The paused spans a room carries once its leader extends it on [today].
+///
+/// Rooms have no pause button. The only pause that exists is the dead time
+/// between a room's old finish line and the day it is extended: nobody was
+/// asked for anything on those days, so they are excluded from every score
+/// rather than counted as misses (RoomModel.pausedSpans, daysElapsedIn).
+///
+/// Until 2026-09-07 the leader was also asked WHEN counting should pick up,
+/// on a bare calendar. The leader of one room picked 30 days and then tapped
+/// the 30th, and the room read موقوف to every member for the rest of the
+/// month with no day counting. Aziz did not know rooms could be paused at
+/// all, and now they cannot: an extension always resumes today, so a span
+/// can never reach into the future. Spans that do (written by the old build)
+/// are clipped to yesterday here, which is also what lets the leader of such
+/// a room repair it from inside the app by extending again.
+List<Map<String, String>> pausedSpansAfterExtend(
+  List<({String from, String to})> existing,
+  DateTime? oldEnd,
+  DateTime today,
+) {
+  final todayKey = today.toDateKey();
+  final yesterday = DateTime(today.year, today.month, today.day - 1);
+  final yesterdayKey = yesterday.toDateKey();
+  final spans = <Map<String, String>>[];
+  for (final sp in existing) {
+    if (sp.from.compareTo(todayKey) >= 0) continue; // wholly ahead: gone
+    final to = sp.to.compareTo(todayKey) >= 0 ? yesterdayKey : sp.to;
+    if (sp.from.compareTo(to) <= 0) spans.add({'from': sp.from, 'to': to});
+  }
+  // The gap: the day after the old end, through yesterday. Empty when the
+  // room has not ended yet, or ended yesterday: nothing was ever dead.
+  if (oldEnd != null) {
+    final gapFrom = DateTime(oldEnd.year, oldEnd.month, oldEnd.day + 1);
+    if (!gapFrom.isAfter(yesterday)) {
+      spans.add({'from': gapFrom.toDateKey(), 'to': yesterdayKey});
+    }
+  }
+  return spans;
+}
+
 bool habitExistedOn(IslamicHabitTemplate habit, DateTime day) {
   final born = habit.createdAt;
   if (born != null && day.isBefore(DateTime(born.year, born.month, born.day))) {
@@ -1976,55 +2016,21 @@ class RoomsController {
   /// toward [RoomModel.daysElapsed], stays exactly as it was; only the
   /// cutoff for *future* progress moves. A no-op for anyone but the room's
   /// own creator.
-  /// Extends a room — never restarts one. History is kept exactly as it is;
+  /// Extends a room, never restarts one. History is kept exactly as it is;
   /// only the finish line moves.
   ///
-  /// [resumeFrom] is the day counting picks up again, defaulting to today.
-  /// Any dead time between the old end and that day is recorded as a paused
-  /// span (see RoomModel.pausedSpans) and excluded from every score, so
-  /// extending a room that finished a week ago costs nobody a single point.
-  /// Before this, those days went straight into the denominator and every
-  /// member's percentage dropped the moment the leader tapped extend.
-  Future<void> extendRoom(
-    RoomModel room,
-    int? lengthDays, {
-    DateTime? resumeFrom,
-  }) async {
+  /// Counting resumes today, always. Any dead time between the old end and
+  /// today is recorded as a paused span (see [pausedSpansAfterExtend]) and
+  /// excluded from every score, so extending a room that finished a week
+  /// ago costs nobody a single point. Before this, those days went straight
+  /// into the denominator and every member's percentage dropped the moment
+  /// the leader tapped extend.
+  Future<void> extendRoom(RoomModel room, int? lengthDays) async {
     final uid = _uid;
     if (uid == null || uid != room.createdBy) return;
 
-    final today = DateTime.now().effectiveDay;
-    final resume = (resumeFrom ?? today).startOfDay;
-    // Never resume before the room's own end, and never before today —
-    // back-dating a resume would re-open days that have already been graded
-    // and settled.
-    final start = resume.isBefore(today) ? today : resume;
-
-    // The gap: the day after the old end, through the day before we resume.
-    // Empty when the room hasn't ended yet, or is being extended the same
-    // day it ended — in both cases nothing was ever dead.
-    final oldEnd = room.endDate;
-    // Existing spans are clipped to end before the new resume point, never
-    // blindly carried forward. A leader who resumes on a FUTURE date leaves
-    // a pause covering days that are about to become live; extending again
-    // before that date arrives used to carry the stale span through intact,
-    // permanently excluding live days of a running room from every score.
-    final startKey = start.toDateKey();
-    final spans = <Map<String, String>>[];
-    for (final sp in room.pausedSpans) {
-      if (sp.from.compareTo(startKey) >= 0) continue; // wholly in the future
-      final to = sp.to.compareTo(startKey) >= 0
-          ? start.subtract(const Duration(days: 1)).toDateKey()
-          : sp.to;
-      if (sp.from.compareTo(to) <= 0) spans.add({'from': sp.from, 'to': to});
-    }
-    if (oldEnd != null) {
-      final gapFrom = oldEnd.add(const Duration(days: 1));
-      final gapTo = start.subtract(const Duration(days: 1));
-      if (!gapFrom.isAfter(gapTo)) {
-        spans.add({'from': gapFrom.toDateKey(), 'to': gapTo.toDateKey()});
-      }
-    }
+    final start = DateTime.now().effectiveDay;
+    final spans = pausedSpansAfterExtend(room.pausedSpans, room.endDate, start);
 
     if (lengthDays == null) {
       // Open-ended. endDate is CLEARED but duration flips to open, which is

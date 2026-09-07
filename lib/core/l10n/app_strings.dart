@@ -3653,11 +3653,6 @@ class S {
       isAr ? 'هذه الغرفة لم تعد موجودة.' : 'This room no longer exists.';
   String get roomExtendAction => isAr ? 'تمديد الغرفة' : 'Extend Room';
   String get roomExtendTitle => isAr ? 'تمديد هذه الغرفة' : 'Extend this room';
-  // Title of the resume-date step, shown only when extending a room that
-  // already finished. Deliberately "resume" and never "restart": nothing is
-  // reset — the history stays, the finish line moves, and the dead days in
-  // between are excluded from everyone's score rather than counted as
-  // misses.
   // Cadence badge under a leaderboard percentage — how demanding THIS
   // member's plan is. Two members in one room can be graded differently
   // (a 4x/week quota converts its untrained days into full credit, a daily
@@ -3675,8 +3670,6 @@ class S {
   // Shown when a member's linked habits don't all share one cadence, so the
   // badge names the count rather than a single misleading number.
   String roomCadenceMixed(int n) => isAr ? '$n عادات' : '$n habits';
-  String get roomExtendResumeTitle =>
-      isAr ? 'متى نكمل؟' : 'When do we pick up?';
   String get roomExtendBody => isAr
       ? 'اختر مدة جديدة تبدأ من اليوم، أو اجعلها بلا نهاية.'
       : 'Pick a new duration starting today, or make it open-ended.';
