@@ -41,7 +41,18 @@ import flutter_local_notifications
     // FlutterAppLifeCycleProvider already installed, firebase_messaging
     // explicitly leaves it alone (see its "shouldReplaceDelegate").
     UNUserNotificationCenter.current().delegate = self
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    // Ask APNs for the device token ourselves. firebase_messaging makes this
+    // same call from its own didFinishLaunching hook, but with this
+    // implicit-engine style of AppDelegate that hook never ran: on
+    // 2026-09-07 a fresh launch on the simulator logged neither APNs callback
+    // below, and three real phones on build 66 had sat at `no-apns-token`
+    // for a day. No token means Firebase Cloud Messaging has nothing to
+    // register, so no room push has ever reached anyone. Idempotent, and
+    // needs no permission: the token is issued regardless, permission only
+    // decides whether a push may be shown.
+    application.registerForRemoteNotifications()
+    return launched
   }
 
   // MARK: - Notification action taps need a moment of background time
@@ -82,6 +93,33 @@ import flutter_local_notifications
       // generous for a debug-mode JIT start and well inside what iOS grants.
       DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: finish)
     }
+  }
+
+  // MARK: - APNs registration, made visible
+
+  /// firebase_messaging asks iOS for the push token at launch and hands the
+  /// result to Firebase, but the outcome was never written anywhere a person
+  /// could read: on 2026-09-07 three real phones on build 66 reported
+  /// `no-apns-token` in users/{uid}.pushStatus and nothing said why. Each
+  /// callback now leaves one line in the unified log
+  /// (`log show --predicate 'process == "Runner"'`) and then hands the result
+  /// on to the plugins exactly as before.
+  override func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    NSLog("[GrowDaily] APNs registered, token of %d bytes", deviceToken.count)
+    super.application(application,
+                      didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    NSLog("[GrowDaily] APNs registration failed: %@", error.localizedDescription)
+    super.application(application,
+                      didFailToRegisterForRemoteNotificationsWithError: error)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

@@ -2503,23 +2503,6 @@ class NotificationService {
     return scheduled;
   }
 
-  Future<void> showHabitCompleted({
-    required String habitName,
-    required int xpEarned,
-    required int goldEarned,
-  }) async {
-    if (kIsWeb || !_celebrationsEnabled) return;
-    await init();
-    await _plugin.show(
-      2000 + habitName.hashCode.abs() % 1000,
-      habitName,
-      isArabic
-          ? '+$xpEarned XP · +$goldEarned ذهب'
-          : '+$xpEarned XP · +$goldEarned Gold',
-      _details,
-    );
-  }
-
   Future<void> showLevelUp(int newLevel) async {
     if (kIsWeb || !_celebrationsEnabled) return;
     await init();

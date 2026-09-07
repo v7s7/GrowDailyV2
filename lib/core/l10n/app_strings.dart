@@ -3724,8 +3724,8 @@ class S {
       : 'An evening nudge, but only when a real streak is actually about to be lost.';
   String get notifCelebrations => isAr ? 'الاحتفالات' : 'Celebrations';
   String get notifCelebrationsDesc => isAr
-      ? 'إشعارات إنجاز العادة، الترقية، وفتح الإنجازات.'
-      : 'Habit completed, level up, and achievement-unlocked pings.';
+      ? 'إشعارات الترقية وفتح الإنجازات.'
+      : 'Level up and achievement-unlocked pings.';
   String get notifMatrixNudge =>
       isAr ? 'ذكر المهام العاجلة' : 'Mention urgent tasks';
   String get notifMatrixNudgeDesc => isAr
