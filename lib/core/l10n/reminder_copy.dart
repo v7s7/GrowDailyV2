@@ -685,12 +685,28 @@ String reminderOffsetLabel(int minutes, bool isAr) {
 // phone that has not opened the app in days and has no fresh state to
 // speak from, and it makes no claim about the day at all.
 //
+// Four decisions Aziz made the same evening, asked one by one:
+//   1. The voice is warm and proud: what is done comes first and is praised
+//      («يومك ماشي عدل»), what is left is small («والباقي عادتين بس»).
+//   2. Variety. The forward-pointed streak line stays, but as one voice
+//      among several, so the same evening does not read the same every
+//      day; some nights it is simply time for your habits.
+//   3. A light Islamic warmth where it falls naturally («ما شاء الله» over
+//      a good day, «بسم الله» over a first square, «الحمد لله» over a good
+//      week), never in every line: a water habit reads the same as أذكار.
+//   4. The fallback keeps coming every day until the app is opened again.
+//
 // Same register as the rest of this file: about the day, never a gendered
 // imperative, and never a loss («لا تكسر», «على المحك») pointed at the
 // reader. Duolingo built a brand on the guilt owl, and in a 2022 survey of
 // its users most felt guilty about a missed day and a third felt anxious
 // about the notifications. These habits are صلاة and أذكار; guilt is the
 // wrong instrument for them.
+//
+// One grammatical trick carries the whole "proud" voice without a gender:
+// «٢ من ٧ خلّصت». An inanimate plural takes the feminine singular, so the
+// verb belongs to the habits, not to the reader. Verb first, «خلّصت ٢ من
+// ٧», would be second person and wrong for half the people reading it.
 
 /// How many habits are still owed, counted the way Arabic counts the noun:
 /// «عادة وحدة», «عادتين», «٣ عادات», «١١ عادة».
@@ -704,17 +720,24 @@ String _countedHabits(int n, bool isAr) {
   };
 }
 
+typedef ReminderLine = ({String title, String body});
+
+ReminderLine _pickLine(List<ReminderLine> pool, int variantIndex) =>
+    pool[variantIndex.abs() % pool.length];
+
 /// Tonight's daily reminder, from where the day actually stands, or null
 /// when nothing is owed (every habit due today is done, or none was due).
 /// Null means the reminder must not fire at all: a ping after a finished
 /// day is the purest form of "you did nothing".
 ///
-/// Three states, most specific first:
-///   1. part of today is done: the number first, then what is left;
-///   2. nothing yet but a streak is live: the streak, pointed at tomorrow
-///      by [habitStreakLine];
+/// Three states, most specific first, each with three voices that
+/// [variantIndex] (the caller's day seed) rotates through:
+///   1. part of today is done: the number first, praised, then what is left;
+///   2. nothing yet but a streak is live: the streak pointed at tomorrow by
+///      [habitStreakLine], with or without «ما شاء الله», or simply that it
+///      is time;
 ///   3. nothing yet and no streak: an open door and one square.
-({String title, String body})? dailyReminderLine({
+ReminderLine? dailyReminderLine({
   required int done,
   required int total,
   required int streak,
@@ -725,67 +748,95 @@ String _countedHabits(int n, bool isAr) {
   if (done > 0) {
     final left = _countedHabits(total - done, isAr);
     if (!isAr) {
-      return (
-        title: 'Almost there today',
-        body: _pick([
-          '$done of $total done today. $left to go.',
-          '$done of $total done today and going well. $left to go.',
-        ], variantIndex),
-      );
+      return _pickLine([
+        (
+          title: 'Your day is going well',
+          body: '$done of $total done, only $left left.',
+        ),
+        (
+          title: 'Ma sha Allah, almost there',
+          body: '$done of $total done. $left to go, and the day is complete.',
+        ),
+        (
+          title: 'Your day is going well',
+          body: '$done of $total done and going strong, only $left left.',
+        ),
+      ], variantIndex);
     }
     final d = arabicDigits(done);
     final t = arabicDigits(total);
-    return (
-      title: 'باقي شوي ويكتمل يومك',
-      body: _pick([
-        '$d من $t اليوم، وباقي $left.',
-        '$d من $t اليوم وماشية عدل، وباقي $left.',
-      ], variantIndex),
-    );
+    return _pickLine([
+      (title: 'يومك ماشي عدل', body: '$d من $t خلّصت، والباقي $left بس.'),
+      (
+        title: 'ما شاء الله، شوي ويكتمل يومك',
+        body: '$d من $t خلّصت. باقي $left واليوم يكتمل.',
+      ),
+      (
+        title: 'يومك ماشي عدل',
+        body: '$d من $t خلّصت وماشية عدل، والباقي $left بس.',
+      ),
+    ], variantIndex);
   }
-  final title = isAr ? 'يومك لسا مفتوح' : 'Today is still open';
   if (streak > 0) {
-    return (
-      title: title,
-      body: habitStreakLine(streak, isAr, variantIndex: variantIndex),
-    );
+    final streakLine = habitStreakLine(streak, isAr);
+    if (!isAr) {
+      return _pickLine([
+        (title: 'Time for your habits', body: streakLine),
+        (title: 'Today is still open', body: 'Ma sha Allah, $streakLine'),
+        (
+          title: 'Time for your habits',
+          body: 'Bismillah. One square opens the day, and the streak carries on.',
+        ),
+      ], variantIndex);
+    }
+    return _pickLine([
+      (title: 'وقت عاداتك', body: streakLine),
+      (title: 'يومك لسا مفتوح', body: 'ما شاء الله، $streakLine'),
+      (
+        title: 'وقت عاداتك',
+        body: 'بسم الله، مربع واحد يفتح اليوم، والسلسلة تكمل.',
+      ),
+    ], variantIndex);
   }
-  return (
-    title: title,
-    body: _pick(
-      isAr
-          ? const ['مربع واحد يكفي للبداية.', 'خطوة صغيرة اليوم تنحسب.']
-          : const [
-              'One square is enough to begin.',
-              'A small step today counts.',
-            ],
-      variantIndex,
-    ),
-  );
+  if (!isAr) {
+    return _pickLine([
+      (title: 'Today is still open', body: 'One square is enough to begin.'),
+      (title: 'Time for your habits', body: 'Bismillah. A small step today counts.'),
+      (
+        title: 'A light reminder',
+        body: 'Which habit fits right now? One square is enough.',
+      ),
+    ], variantIndex);
+  }
+  return _pickLine([
+    (title: 'يومك لسا مفتوح', body: 'مربع واحد يكفي للبداية.'),
+    (title: 'وقت عاداتك', body: 'بسم الله، خطوة صغيرة اليوم تنحسب.'),
+    (title: 'تذكير خفيف', body: 'أي عادة تنفع الحين؟ مربع واحد يكفي.'),
+  ], variantIndex);
 }
 
-/// The recurring fallback copy of the daily reminder, armed from tomorrow
-/// onwards every time the app recomputes so a phone that stays closed for
-/// days still hears something. It knows nothing about the day, so it
+/// The recurring fallback copy of the daily reminder, seven weekly repeats
+/// armed every time the app recomputes so a phone that stays closed for
+/// days still hears something, every day, until it is opened again (Aziz's
+/// choice over letting it fade). It knows nothing about the day, so it
 /// claims nothing about it: no "waiting", no "don't break", no streak.
-/// [dayIndex] is the caller's day seed, so one date always draws one line.
-({String title, String body}) dailyFallbackLine(int dayIndex, bool isAr) {
-  const ar = [
-    (title: 'وقت عاداتك', body: 'شوي وقت الحين يلوّن مربع اليوم.'),
+/// [dayIndex] is the caller's weekday, so one weekday always draws one line.
+ReminderLine dailyFallbackLine(int dayIndex, bool isAr) {
+  const ar = <ReminderLine>[
+    (title: 'وقت عاداتك', body: 'بسم الله، شوي وقت الحين يلوّن مربع اليوم.'),
     (title: 'يومك لسا مفتوح', body: 'خطوة صغيرة اليوم تنحسب.'),
     (title: 'تذكير خفيف', body: 'أي عادة تنفع الحين؟'),
     (title: 'لسا في وقت اليوم', body: 'مربع واحد يكفي، والشبكة تحفظه.'),
     (title: 'عاداتك على بعد لمسة', body: 'دقايق بسيطة، ومربع جديد في الشبكة.'),
   ];
-  const en = [
-    (title: 'Time for your habits', body: "A few minutes now colors today's square."),
+  const en = <ReminderLine>[
+    (title: 'Time for your habits', body: "Bismillah. A few minutes now colors today's square."),
     (title: 'Today is still open', body: 'A small step today counts.'),
     (title: 'A light reminder', body: 'Which habit fits right now?'),
     (title: 'Still time today', body: 'One square is enough, and the grid keeps it.'),
     (title: 'Your habits, one touch away', body: 'A few easy minutes, one new square.'),
   ];
-  final pool = isAr ? ar : en;
-  return pool[dayIndex.abs() % pool.length];
+  return _pickLine(isAr ? ar : en, dayIndex);
 }
 
 /// The evening streak nudge: what is done first, what is left, and the
@@ -793,40 +844,58 @@ String _countedHabits(int n, bool isAr) {
 /// "Your streak is on the line" and list only what was missing, which is a
 /// threat followed by a to-do list. Only ever built for a live streak with
 /// something still owed, which is when the caller fires it at all.
-/// [urgentTasks] adds the Matrix line when the person has opted into it.
-({String title, String body}) streakRiskCopy({
+/// [urgentTasks] adds the Matrix line when the person has opted into it;
+/// [variantIndex] alternates the plain body with one that opens on
+/// «ما شاء الله».
+ReminderLine streakRiskCopy({
   required int done,
   required int total,
   required int streak,
   required int urgentTasks,
   required bool isAr,
+  int variantIndex = 0,
 }) {
   final left = _countedHabits(total - done, isAr);
   final streakLine = habitStreakLine(streak, isAr);
+  final warm = variantIndex.abs() % 2 == 1;
   if (!isAr) {
     final title =
         streak == 1 ? 'Your streak has begun' : 'Your $streak-day streak is going';
-    final today = done > 0 ? '$done of $total done today. $left to go.' : '$left to go today.';
+    final today = done > 0
+        ? '$done of $total done, only $left left.'
+        : '$left to go today.';
     final tasks = urgentTasks > 0
         ? ' · $urgentTasks urgent task${urgentTasks == 1 ? '' : 's'} waiting'
         : '';
-    return (title: title, body: '$today $streakLine$tasks');
+    return (
+      title: title,
+      body: warm
+          ? 'Ma sha Allah, $streakLine $today$tasks'
+          : '$today $streakLine$tasks',
+    );
   }
   final title = streak == 1
       ? 'سلسلتك بدأت'
       : 'سلسلتك ${countedOffsetPhrase(streak * ReminderUnit.days.inMinutes, true)} ماشية';
   final today = done > 0
-      ? '${arabicDigits(done)} من ${arabicDigits(total)} اليوم، وباقي $left.'
+      ? '${arabicDigits(done)} من ${arabicDigits(total)} خلّصت، والباقي $left بس.'
       : 'باقي $left اليوم.';
-  final tasks = urgentTasks > 0 ? ' · ${arabicDigits(urgentTasks)} مهمة عاجلة بانتظارك' : '';
-  return (title: title, body: '$today $streakLine$tasks');
+  final tasks =
+      urgentTasks > 0 ? ' · ${arabicDigits(urgentTasks)} مهمة عاجلة بانتظارك' : '';
+  return (
+    title: title,
+    body: warm
+        ? 'ما شاء الله، $streakLine $today$tasks'
+        : '$today $streakLine$tasks',
+  );
 }
 
 /// The Friday note. A week with nothing coloured used to read «لم يُلوَّن أي
 /// يوم بعد هذا الأسبوع» / "No days colored yet this week", a verdict about
 /// absence in a register nobody here speaks; it is now a quiet week and an
 /// open door. The other lines count the days impersonally («ملوّنة», not
-/// «لوّنت», which is masculine) and point the streak forward.
+/// «لوّنت», which is masculine), point the streak forward, and open on
+/// «الحمد لله» when five or more of the seven were coloured.
 String weeklyDigestBody({
   required int greenDays,
   required int streak,
@@ -837,11 +906,14 @@ String weeklyDigestBody({
         ? 'أسبوع هادي، ويصير. مربع واحد يكفي لبداية جديدة.'
         : 'A quiet week, it happens. One square is enough for a fresh start.';
   }
+  final thanks = greenDays >= 5;
   if (!isAr) {
-    final line = '$greenDays of 7 days colored this week';
+    final line = '${thanks ? 'Alhamdulillah, ' : ''}'
+        '$greenDays of 7 days colored this week';
     return streak > 0 ? '$line, and a $streak-day streak going.' : '$line.';
   }
-  final line = '${arabicDigits(greenDays)} من ٧ أيام ملوّنة هذا الأسبوع';
+  final line = '${thanks ? 'الحمد لله، ' : ''}'
+      '${arabicDigits(greenDays)} من ٧ أيام ملوّنة هذا الأسبوع';
   if (streak <= 0) return '$line.';
   if (streak == 1) return '$line، والسلسلة بدأت.';
   final run = countedOffsetPhrase(streak * ReminderUnit.days.inMinutes, true);

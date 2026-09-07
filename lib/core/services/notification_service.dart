@@ -1999,6 +1999,7 @@ class NotificationService {
       streak: streak,
       urgentTasks: settings.matrixNudgeEnabled ? urgentMatrixCount : 0,
       isAr: isAr,
+      variantIndex: _daySeed,
     );
 
     await _plugin.zonedSchedule(
