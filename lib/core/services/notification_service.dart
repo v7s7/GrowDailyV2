@@ -254,7 +254,15 @@ class NotificationService {
 
   final _plugin = FlutterLocalNotificationsPlugin();
 
-  static const _dailyReminderId = 1001;
+  /// The daily reminder's fallback: seven weekly repeats, ids 1001 to 1007,
+  /// one per DateTime weekday (Monday is 1). See [scheduleDailyReminder].
+  static const _dailyFallbackBase = 1000;
+  /// Tonight's one-shot, worded from where the day stands; see
+  /// [scheduleDailyReminder].
+  static const _dailyTonightId = 1010;
+  /// Today's board as last reported by main.dart's recompute, kept so a
+  /// caller with no state of its own cannot reword tonight's line.
+  ({int done, int total, int streak})? _dailyState;
   static const _channelId = 'growdaily_general';
   static const _channelName = 'Grow Daily';
   static const _channelDesc = 'Habit reminders and progress celebrations';
@@ -876,39 +884,14 @@ class NotificationService {
             categoryIdentifier: _quitCategoryId),
       );
 
-  // ── Rotating copy ────────────────────────────────────────────
+  // ── Daily reminder copy ──────────────────────────────────────
   //
-  // Picked by a fixed day-based index rather than random — varies day to
-  // day but won't visibly flicker between different lines if a reschedule
-  // happens to fire more than once on the same day (habit list edited
-  // twice, reminder time tweaked, etc). English/Arabic pools are kept the
-  // same length so a given day picks the same *story* in either language.
-  static const _dailyLines = [
-    ('Time for your habits', "Don't break the streak. Color today's square."),
-    (
-      'Your habits are waiting',
-      'A few minutes now, one more square colored today.'
-    ),
-    ('Keep the streak alive', "You've come this far. Don't stop now."),
-    ('Quick check-in', 'Which habit can you knock out right now?'),
-    ('Still time today', 'Small steps count. Go color your grid.'),
-  ];
-  static const _dailyLinesAr = [
-    ('حان وقت عاداتك', 'لا تكسر السلسلة. لوّن مربع اليوم.'),
-    ('عاداتك تنتظرك', 'بضع دقائق الآن، ولوّنت مربعًا آخر اليوم.'),
-    ('حافظ على السلسلة', 'وصلت إلى هنا. لا تتوقف الآن.'),
-    ('تسجيل سريع', 'أي عادة يمكنك إنجازها الآن؟'),
-    ('ما زال هناك وقت اليوم', 'خطوات صغيرة تُحتسب. اذهب ولوّن شبكتك.'),
-  ];
-  // The per-habit pool that used to live here is gone. It said the same
-  // four generic things to every habit in every state, which is how a
-  // brand new habit ended up being told «بضع دقائق لهذه العادة اليوم» about
-  // a habit the notification's own title had just named. What a habit
-  // reminder says is now derived from that habit's state in
-  // habitOnTimeLine (core/l10n/reminder_copy.dart), where it is pure and
-  // directly testable; only the daily reminder above still draws from a
-  // fixed pool, because it is about the whole board and has no one habit's
-  // state to speak from.
+  // Lives in core/l10n/reminder_copy.dart (dailyReminderLine and
+  // dailyFallbackLine), pure and tested, next to the per-habit ladder that
+  // replaced the old per-habit pool for the same reason: a fixed pool says
+  // the same thing to every state. The day seed below still picks the
+  // fallback line and the variant of tonight's, so a reschedule that runs
+  // twice on one day does not visibly reword a pending notification.
 
   /// Today's number, for copy that varies by day. Fixed rather than random
   /// so a reschedule that happens to run twice in one day doesn't visibly
@@ -919,44 +902,119 @@ class NotificationService {
     return day.year * 400 + day.month * 31 + day.day;
   }
 
-  int _dayIndex(int poolLength) => _daySeed % poolLength;
 
-  /// Schedules (or reschedules) a repeating daily reminder at [hour]:[minute]
-  /// local time. Safe to call every time the user changes the time — it
-  /// replaces the previous schedule under the same notification id. This is
-  /// the one deliberately-still-recurring schedule in this file (see the
-  /// class doc comment) — it's not tied to any one habit's completion
-  /// state, so there's nothing for it to over-fire about.
+  /// Schedules (or reschedules) the daily reminder at [hour]:[minute] local
+  /// time. Safe to call every time the user changes the time or the day
+  /// moves: it replaces the previous schedules under the same ids.
+  ///
+  /// Two notifications, not one. Tonight ([_dailyTonightId]) is a one-shot
+  /// worded from where the day stands ([dailyReminderLine]): how many of
+  /// today's habits are done, what is left, the streak pointed at tomorrow.
+  /// It is skipped outright when nothing is owed, because "your habits are
+  /// waiting" after a finished day is the exact complaint that led here
+  /// (Aziz, 2026-09-07). The fallback is seven WEEKLY repeats, one per
+  /// weekday ([_dailyFallbackBase] + weekday), each with a line that claims
+  /// nothing about the day ([dailyFallbackLine]), so a phone that stays
+  /// closed for days still hears something. Tonight's weekday is skipped
+  /// whenever today's state is known, so the two never fire on the same
+  /// night; every recompute (habit list, dashboard, settings, app resume)
+  /// re-arms tonight's line and the other six weekdays.
+  ///
+  /// Weekly rather than one daily repeat because a daily repeat cannot be
+  /// told to start tomorrow: iOS keeps only the time from the date it is
+  /// given (DateTimeComponents.time), and on 2026-09-07 the "from tomorrow"
+  /// fallback fired tonight a minute after the state-aware line, two
+  /// reminders for one evening. A weekday repeat carries the weekday, so
+  /// today's can be left out.
+  ///
+  /// [done], [total] and [streak] describe today. When omitted (the
+  /// reminder-time picker's post-permission call has none of them) the last
+  /// reported state is reused, so that call cannot overwrite tonight's line
+  /// with a generic one; with no state ever reported, the fallback simply
+  /// starts tonight.
   Future<void> scheduleDailyReminder({
     int hour = 20,
     int minute = 0,
     bool isAr = false,
+    int? done,
+    int? total,
+    int? streak,
   }) async {
     if (kIsWeb) return;
     await init();
-    final pool = isAr ? _dailyLinesAr : _dailyLines;
-    final (title, body) = pool[_dayIndex(pool.length)];
-    await _plugin.zonedSchedule(
-      _dailyReminderId,
-      title,
-      body,
-      _nextInstanceOf(hour, minute),
-      _details,
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.time,
-      // Body-tap routing: land on Today, where the habits this reminder is
-      // about actually live — see main.dart's _handleNotificationBodyTap.
-      payload: openTodayPayload,
-    );
-    debugPrint(
-        '[NotificationService] Daily reminder set — $hour:${minute.toString().padLeft(2, '0')}');
+    if (done != null && total != null) {
+      _dailyState = (done: done, total: total, streak: streak ?? 0);
+    }
+    final state = _dailyState;
+    final next = _nextInstanceOf(hour, minute);
+    final now = tz.TZDateTime.now(tz.local);
+    final firesTonight = next.year == now.year &&
+        next.month == now.month &&
+        next.day == now.day;
+
+    final tonight = state == null || !firesTonight
+        ? null
+        : dailyReminderLine(
+            done: state.done,
+            total: state.total,
+            streak: state.streak,
+            variantIndex: _daySeed,
+            isAr: isAr,
+          );
+    if (tonight == null) {
+      await _plugin.cancel(_dailyTonightId);
+    } else {
+      await _plugin.zonedSchedule(
+        _dailyTonightId,
+        tonight.title,
+        tonight.body,
+        next,
+        _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        // Body-tap routing: land on Today, where the habits this reminder
+        // is about actually live, see main.dart's _handleNotificationBodyTap.
+        payload: openTodayPayload,
+      );
+    }
+
+    // With today's state in hand, tonight is covered (or deliberately
+    // silent), so today's weekday sits out this week; the next recompute,
+    // on any later day, arms it again. With no state at all every weekday
+    // is armed, tonight included.
+    final skipToday = firesTonight && state != null;
+    for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++) {
+      final id = _dailyFallbackBase + weekday;
+      if (skipToday && weekday == now.weekday) {
+        await _plugin.cancel(id);
+        continue;
+      }
+      final fallback = dailyFallbackLine(weekday, isAr);
+      await _plugin.zonedSchedule(
+        id,
+        fallback.title,
+        fallback.body,
+        _nextInstanceOfWeekday(weekday, hour, minute),
+        _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+        payload: openTodayPayload,
+      );
+    }
+    debugPrint('[NotificationService] Daily reminder set, '
+        '$hour:${minute.toString().padLeft(2, '0')}, tonight: '
+        '${!firesTonight ? 'already passed' : state == null ? 'no state, fallback' : tonight == null ? 'nothing owed, skipped' : 'from today\'s board'}');
   }
 
   Future<void> cancelDailyReminder() async {
     if (kIsWeb) return;
-    await _plugin.cancel(_dailyReminderId);
+    await _plugin.cancel(_dailyTonightId);
+    for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++) {
+      await _plugin.cancel(_dailyFallbackBase + weekday);
+    }
     debugPrint('[NotificationService] Daily reminder cancelled');
   }
 
@@ -1903,6 +1961,7 @@ class NotificationService {
     required NotificationSettings settings,
     required int streak,
     required int pendingHabitCount,
+    required int doneHabitCount,
     required int urgentMatrixCount,
     required bool isAr,
   }) async {
@@ -1932,26 +1991,20 @@ class NotificationService {
       return;
     }
 
-    final habitsPart = isAr
-        ? (pendingHabitCount == 1
-            ? 'عادة واحدة متبقية اليوم'
-            : '$pendingHabitCount عادات متبقية اليوم')
-        : (pendingHabitCount == 1
-            ? '1 habit left today'
-            : '$pendingHabitCount habits left today');
-    final matrixPart = settings.matrixNudgeEnabled && urgentMatrixCount > 0
-        ? (isAr
-            ? ' · $urgentMatrixCount مهمة عاجلة بانتظارك'
-            : ' · $urgentMatrixCount urgent task${urgentMatrixCount == 1 ? '' : 's'} waiting')
-        : '';
-    final body = isAr
-        ? '$habitsPart. حافظ على سلسلة $streak يوم.$matrixPart'
-        : '$habitsPart. Keep your $streak-day streak alive.$matrixPart';
+    // What is done first, then what is left, then the streak pointed at
+    // tomorrow: see streakRiskCopy for why «سلسلتك على المحك» went.
+    final copy = streakRiskCopy(
+      done: doneHabitCount,
+      total: doneHabitCount + pendingHabitCount,
+      streak: streak,
+      urgentTasks: settings.matrixNudgeEnabled ? urgentMatrixCount : 0,
+      isAr: isAr,
+    );
 
     await _plugin.zonedSchedule(
       _streakRiskId,
-      isAr ? 'سلسلتك على المحك' : 'Your streak is on the line',
-      body,
+      copy.title,
+      copy.body,
       fireTime,
       _details,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -1988,17 +2041,8 @@ class NotificationService {
     }
 
     final title = isAr ? 'أسبوعك' : 'Your week';
-    final body = isAr
-        ? (greenDays == 0
-            ? 'لم يُلوَّن أي يوم بعد هذا الأسبوع. لا يزال الوقت متاحًا.'
-            : streak > 0
-                ? 'لوّنت $greenDays من 7 أيام هذا الأسبوع، وسلسلة $streak يوم مستمرة.'
-                : 'لوّنت $greenDays من 7 أيام هذا الأسبوع.')
-        : (greenDays == 0
-            ? "No days colored yet this week. There's still time."
-            : streak > 0
-                ? 'You colored $greenDays of 7 days this week, a $streak-day streak going.'
-                : 'You colored $greenDays of 7 days this week.');
+    final body =
+        weeklyDigestBody(greenDays: greenDays, streak: streak, isAr: isAr);
 
     await _plugin.zonedSchedule(
       _weeklyDigestId,

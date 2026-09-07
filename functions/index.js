@@ -543,6 +543,9 @@ exports.notifyRoomFinish = onCall(async (request) => {
  * per day, only in a two-hour evening window on their own clock, only when
  * not a single member has moved, and worded as an opening rather than a
  * reprimand: "still time to be first", not "nobody has done anything".
+ * The title used to say exactly that («ما خلّص أحد») above a body that
+ * said the opposite; on 2026-09-07 Aziz read it as an accusation, so the
+ * title is now the invitation itself, gendered for the recipient.
  *
  * It also covers the one hole in the three-event model. Those events are
  * claimed once per room per day, so a room whose whole audience happened
@@ -552,14 +555,14 @@ exports.notifyRoomFinish = onCall(async (request) => {
  */
 const EVENING_REMINDER_MESSAGES = {
   en: (roomName) => ({
-    title: `Nobody has finished in "${roomName}" yet`,
-    body: "There's still time to be first today.",
+    title: `Be the first to finish in "${roomName}" today`,
+    body: "There's still time, and one square is enough.",
   }),
   ar: (roomName, gender) => ({
-    title: `ما خلّص أحد في "${roomName}" اليوم`,
-    body: isFem(gender) ?
-      "لسا في وقت تكونين الأولى." :
-      "لسا في وقت تكون الأول.",
+    title: isFem(gender) ?
+      `كوني أول وحدة تخلّص في "${roomName}" اليوم` :
+      `كن أول واحد يخلّص في "${roomName}" اليوم`,
+    body: "لسا في وقت، ومربع واحد يكفي.",
   }),
 };
 

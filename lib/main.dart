@@ -906,17 +906,6 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     final settings = ref.read(notificationSettingsProvider);
     final isAr = ref.read(localeProvider).languageCode == 'ar';
 
-    final reminderTime = ref.read(reminderTimeProvider);
-    if (reminderTime != null && settings.masterEnabled) {
-      NotificationService.instance.scheduleDailyReminder(
-        hour: reminderTime.hour,
-        minute: reminderTime.minute,
-        isAr: isAr,
-      );
-    } else {
-      NotificationService.instance.cancelDailyReminder();
-    }
-
     final dash = ref.read(dashboardProvider);
     final today = DateTime.now().effectiveDay;
     final todayHabits = ref
@@ -1073,9 +1062,26 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         .tasks
         .where((t) => t.quadrant == MatrixQuadrant.doFirst && !t.isDone)
         .length;
+    // The daily reminder is worded from today's board, so it is scheduled
+    // here, once the counts exist, rather than at the top of this method.
+    final reminderTime = ref.read(reminderTimeProvider);
+    if (reminderTime != null && settings.masterEnabled) {
+      NotificationService.instance.scheduleDailyReminder(
+        hour: reminderTime.hour,
+        minute: reminderTime.minute,
+        isAr: isAr,
+        done: todayHabits.length - pendingCount,
+        total: todayHabits.length,
+        streak: dash.streak,
+      );
+    } else {
+      NotificationService.instance.cancelDailyReminder();
+    }
+
     NotificationService.instance.scheduleStreakRiskCheck(
       settings: settings,
       streak: dash.streak,
+      doneHabitCount: todayHabits.length - pendingCount,
       pendingHabitCount: pendingCount,
       urgentMatrixCount: urgentMatrixCount,
       isAr: isAr,

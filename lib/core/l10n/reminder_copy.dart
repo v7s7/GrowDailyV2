@@ -671,3 +671,179 @@ String reminderOffsetLabel(int minutes, bool isAr) {
   if (minutes == 120) return isAr ? 'ساعتان' : '2 hours';
   return isAr ? arabicDigits(minutes) : '$minutes';
 }
+
+// ── The daily reminder, the streak nudge and the weekly note ────────
+//
+// Aziz, 2026-09-07: "some daily reminder talks like you didn't do anything".
+// It did. The تذكير يومي was five fixed lines drawn by the date, so a person
+// who had coloured five of six squares was told at eight o'clock «عاداتك
+// تنتظرك» and «لا تكسر السلسلة», and a person who had finished everything
+// was told the same. The app reschedules that reminder on every change of
+// state (main.dart's _recomputeNotifications), so it knows exactly where
+// the day stands and can say that instead. Tonight's line is derived here
+// from what is done; a fixed pool survives only as the fallback for a
+// phone that has not opened the app in days and has no fresh state to
+// speak from, and it makes no claim about the day at all.
+//
+// Same register as the rest of this file: about the day, never a gendered
+// imperative, and never a loss («لا تكسر», «على المحك») pointed at the
+// reader. Duolingo built a brand on the guilt owl, and in a 2022 survey of
+// its users most felt guilty about a missed day and a third felt anxious
+// about the notifications. These habits are صلاة and أذكار; guilt is the
+// wrong instrument for them.
+
+/// How many habits are still owed, counted the way Arabic counts the noun:
+/// «عادة وحدة», «عادتين», «٣ عادات», «١١ عادة».
+String _countedHabits(int n, bool isAr) {
+  if (!isAr) return n == 1 ? '1 habit' : '$n habits';
+  return switch (n) {
+    1 => 'عادة وحدة',
+    2 => 'عادتين',
+    <= 10 => '${arabicDigits(n)} عادات',
+    _ => '${arabicDigits(n)} عادة',
+  };
+}
+
+/// Tonight's daily reminder, from where the day actually stands, or null
+/// when nothing is owed (every habit due today is done, or none was due).
+/// Null means the reminder must not fire at all: a ping after a finished
+/// day is the purest form of "you did nothing".
+///
+/// Three states, most specific first:
+///   1. part of today is done: the number first, then what is left;
+///   2. nothing yet but a streak is live: the streak, pointed at tomorrow
+///      by [habitStreakLine];
+///   3. nothing yet and no streak: an open door and one square.
+({String title, String body})? dailyReminderLine({
+  required int done,
+  required int total,
+  required int streak,
+  required int variantIndex,
+  required bool isAr,
+}) {
+  if (total <= 0 || done >= total) return null;
+  if (done > 0) {
+    final left = _countedHabits(total - done, isAr);
+    if (!isAr) {
+      return (
+        title: 'Almost there today',
+        body: _pick([
+          '$done of $total done today. $left to go.',
+          '$done of $total done today and going well. $left to go.',
+        ], variantIndex),
+      );
+    }
+    final d = arabicDigits(done);
+    final t = arabicDigits(total);
+    return (
+      title: 'باقي شوي ويكتمل يومك',
+      body: _pick([
+        '$d من $t اليوم، وباقي $left.',
+        '$d من $t اليوم وماشية عدل، وباقي $left.',
+      ], variantIndex),
+    );
+  }
+  final title = isAr ? 'يومك لسا مفتوح' : 'Today is still open';
+  if (streak > 0) {
+    return (
+      title: title,
+      body: habitStreakLine(streak, isAr, variantIndex: variantIndex),
+    );
+  }
+  return (
+    title: title,
+    body: _pick(
+      isAr
+          ? const ['مربع واحد يكفي للبداية.', 'خطوة صغيرة اليوم تنحسب.']
+          : const [
+              'One square is enough to begin.',
+              'A small step today counts.',
+            ],
+      variantIndex,
+    ),
+  );
+}
+
+/// The recurring fallback copy of the daily reminder, armed from tomorrow
+/// onwards every time the app recomputes so a phone that stays closed for
+/// days still hears something. It knows nothing about the day, so it
+/// claims nothing about it: no "waiting", no "don't break", no streak.
+/// [dayIndex] is the caller's day seed, so one date always draws one line.
+({String title, String body}) dailyFallbackLine(int dayIndex, bool isAr) {
+  const ar = [
+    (title: 'وقت عاداتك', body: 'شوي وقت الحين يلوّن مربع اليوم.'),
+    (title: 'يومك لسا مفتوح', body: 'خطوة صغيرة اليوم تنحسب.'),
+    (title: 'تذكير خفيف', body: 'أي عادة تنفع الحين؟'),
+    (title: 'لسا في وقت اليوم', body: 'مربع واحد يكفي، والشبكة تحفظه.'),
+    (title: 'عاداتك على بعد لمسة', body: 'دقايق بسيطة، ومربع جديد في الشبكة.'),
+  ];
+  const en = [
+    (title: 'Time for your habits', body: "A few minutes now colors today's square."),
+    (title: 'Today is still open', body: 'A small step today counts.'),
+    (title: 'A light reminder', body: 'Which habit fits right now?'),
+    (title: 'Still time today', body: 'One square is enough, and the grid keeps it.'),
+    (title: 'Your habits, one touch away', body: 'A few easy minutes, one new square.'),
+  ];
+  final pool = isAr ? ar : en;
+  return pool[dayIndex.abs() % pool.length];
+}
+
+/// The evening streak nudge: what is done first, what is left, and the
+/// streak pointed at tomorrow. It used to open with «سلسلتك على المحك» /
+/// "Your streak is on the line" and list only what was missing, which is a
+/// threat followed by a to-do list. Only ever built for a live streak with
+/// something still owed, which is when the caller fires it at all.
+/// [urgentTasks] adds the Matrix line when the person has opted into it.
+({String title, String body}) streakRiskCopy({
+  required int done,
+  required int total,
+  required int streak,
+  required int urgentTasks,
+  required bool isAr,
+}) {
+  final left = _countedHabits(total - done, isAr);
+  final streakLine = habitStreakLine(streak, isAr);
+  if (!isAr) {
+    final title =
+        streak == 1 ? 'Your streak has begun' : 'Your $streak-day streak is going';
+    final today = done > 0 ? '$done of $total done today. $left to go.' : '$left to go today.';
+    final tasks = urgentTasks > 0
+        ? ' · $urgentTasks urgent task${urgentTasks == 1 ? '' : 's'} waiting'
+        : '';
+    return (title: title, body: '$today $streakLine$tasks');
+  }
+  final title = streak == 1
+      ? 'سلسلتك بدأت'
+      : 'سلسلتك ${countedOffsetPhrase(streak * ReminderUnit.days.inMinutes, true)} ماشية';
+  final today = done > 0
+      ? '${arabicDigits(done)} من ${arabicDigits(total)} اليوم، وباقي $left.'
+      : 'باقي $left اليوم.';
+  final tasks = urgentTasks > 0 ? ' · ${arabicDigits(urgentTasks)} مهمة عاجلة بانتظارك' : '';
+  return (title: title, body: '$today $streakLine$tasks');
+}
+
+/// The Friday note. A week with nothing coloured used to read «لم يُلوَّن أي
+/// يوم بعد هذا الأسبوع» / "No days colored yet this week", a verdict about
+/// absence in a register nobody here speaks; it is now a quiet week and an
+/// open door. The other lines count the days impersonally («ملوّنة», not
+/// «لوّنت», which is masculine) and point the streak forward.
+String weeklyDigestBody({
+  required int greenDays,
+  required int streak,
+  required bool isAr,
+}) {
+  if (greenDays <= 0) {
+    return isAr
+        ? 'أسبوع هادي، ويصير. مربع واحد يكفي لبداية جديدة.'
+        : 'A quiet week, it happens. One square is enough for a fresh start.';
+  }
+  if (!isAr) {
+    final line = '$greenDays of 7 days colored this week';
+    return streak > 0 ? '$line, and a $streak-day streak going.' : '$line.';
+  }
+  final line = '${arabicDigits(greenDays)} من ٧ أيام ملوّنة هذا الأسبوع';
+  if (streak <= 0) return '$line.';
+  if (streak == 1) return '$line، والسلسلة بدأت.';
+  final run = countedOffsetPhrase(streak * ReminderUnit.days.inMinutes, true);
+  return '$line، وسلسلة $run ماشية.';
+}
