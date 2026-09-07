@@ -52,23 +52,23 @@ const goalSuggestions = <GoalSuggestion>[
   GoalSuggestion(GoalType.quit, HabitCategory.learning, 'No scrolling while studying', 'بدون تصفح أثناء الدراسة'),
   GoalSuggestion(GoalType.quit, HabitCategory.learning, 'No postponing revision', 'بدون تأجيل المراجعة'),
   GoalSuggestion(GoalType.quit, HabitCategory.learning, 'No all-nighters before exams', 'بدون سهر قبل الاختبار'),
-  GoalSuggestion(GoalType.quit, HabitCategory.learning, 'No multitasking while learning', 'بدون تشتيت أثناء التعلّم'),
+  GoalSuggestion(GoalType.quit, HabitCategory.learning, 'No distractions', 'بدون تشتيت'),
 
   // ── التركيز ────────────────────────────────────────────────────────
   GoalSuggestion(GoalType.build, HabitCategory.focus, 'Deep work 25 minutes', 'عمل عميق 25 دقيقة'),
   GoalSuggestion(GoalType.build, HabitCategory.focus, "Plan today's top 3", 'تحديد أهم 3 مهام لليوم'),
   GoalSuggestion(GoalType.build, HabitCategory.focus, 'One phone-free hour', 'ساعة بدون جوال'),
-  GoalSuggestion(GoalType.build, HabitCategory.focus, 'One task at a time', 'مهمة واحدة في الوقت الواحد'),
+  GoalSuggestion(GoalType.build, HabitCategory.focus, 'One task at a time', 'مهمة واحدة كل مرة'),
   GoalSuggestion(GoalType.quit, HabitCategory.focus, 'No phone after 10 PM', 'بدون جوال بعد 10 مساءً'),
   GoalSuggestion(GoalType.quit, HabitCategory.focus, 'Reduce scrolling', 'تقليل التصفح'),
   GoalSuggestion(GoalType.quit, HabitCategory.focus, 'No gaming before study', 'بدون ألعاب قبل الدراسة'),
-  GoalSuggestion(GoalType.quit, HabitCategory.focus, 'No social media in bed', 'بدون سوشال ميديا في السرير'),
+  GoalSuggestion(GoalType.quit, HabitCategory.focus, 'No social media in bed', 'بدون سوشال في السرير'),
 
   // ── النوم ──────────────────────────────────────────────────────────
   GoalSuggestion(GoalType.build, HabitCategory.sleep, 'Sleep by 11 PM', 'النوم قبل 11 مساءً'),
   GoalSuggestion(GoalType.build, HabitCategory.sleep, 'Wake up early', 'الاستيقاظ مبكرًا'),
   GoalSuggestion(GoalType.build, HabitCategory.sleep, 'Consistent bedtime', 'موعد نوم ثابت'),
-  GoalSuggestion(GoalType.build, HabitCategory.sleep, 'Wind down 10 minutes', 'استرخاء 10 دقائق قبل النوم'),
+  GoalSuggestion(GoalType.build, HabitCategory.sleep, 'Wind down before bed', 'استرخاء قبل النوم'),
   GoalSuggestion(GoalType.quit, HabitCategory.sleep, 'No phone before bed', 'بدون جوال قبل النوم'),
   GoalSuggestion(GoalType.quit, HabitCategory.sleep, 'No late naps', 'بدون قيلولة متأخرة'),
   GoalSuggestion(GoalType.quit, HabitCategory.sleep, 'No evening caffeine', 'بدون كافيين مساءً'),
@@ -78,7 +78,7 @@ const goalSuggestions = <GoalSuggestion>[
   GoalSuggestion(GoalType.build, HabitCategory.money, 'Track spending', 'تتبّع المصروفات'),
   GoalSuggestion(GoalType.build, HabitCategory.money, 'Save 1 BHD', 'ادّخار 1 د.ب'),
   GoalSuggestion(GoalType.build, HabitCategory.money, 'Review budget', 'مراجعة الميزانية'),
-  GoalSuggestion(GoalType.build, HabitCategory.money, 'Compare prices before buying', 'مقارنة الأسعار قبل الشراء'),
+  GoalSuggestion(GoalType.build, HabitCategory.money, 'Compare prices', 'مقارنة الأسعار'),
   GoalSuggestion(GoalType.quit, HabitCategory.money, 'No impulse buying', 'بدون شراء اندفاعي'),
   GoalSuggestion(GoalType.quit, HabitCategory.money, 'Reduce delivery orders', 'تقليل طلبات التوصيل'),
   GoalSuggestion(GoalType.quit, HabitCategory.money, 'No unnecessary shopping', 'بدون تسوق غير ضروري'),
@@ -90,9 +90,9 @@ const goalSuggestions = <GoalSuggestion>[
   GoalSuggestion(GoalType.build, HabitCategory.mind, 'Breathing exercise', 'تمرين تنفس'),
   GoalSuggestion(GoalType.build, HabitCategory.mind, 'Positive affirmations', 'عبارات إيجابية'),
   GoalSuggestion(GoalType.quit, HabitCategory.mind, 'No complaining', 'بدون تذمّر'),
-  GoalSuggestion(GoalType.quit, HabitCategory.mind, 'No comparing myself to others', 'بدون مقارنة نفسي بغيري'),
+  GoalSuggestion(GoalType.quit, HabitCategory.mind, 'No comparisons', 'بدون مقارنات'),
   GoalSuggestion(GoalType.quit, HabitCategory.mind, 'No overthinking before bed', 'بدون تفكير زائد قبل النوم'),
-  GoalSuggestion(GoalType.quit, HabitCategory.mind, 'No negative news in the morning', 'بدون أخبار سلبية في الصباح'),
+  GoalSuggestion(GoalType.quit, HabitCategory.mind, 'No news in the morning', 'بدون أخبار في الصباح'),
 
   // ── العلاقات ───────────────────────────────────────────────────────
   GoalSuggestion(GoalType.build, HabitCategory.social, 'Call family', 'الاتصال بالعائلة'),
@@ -102,7 +102,7 @@ const goalSuggestions = <GoalSuggestion>[
   GoalSuggestion(GoalType.quit, HabitCategory.social, 'No phone at the table', 'بدون جوال على السفرة'),
   GoalSuggestion(GoalType.quit, HabitCategory.social, 'No arguing in comments', 'بدون جدال في التعليقات'),
   GoalSuggestion(GoalType.quit, HabitCategory.social, 'Less time in group chats', 'تقليل وقت القروبات'),
-  GoalSuggestion(GoalType.quit, HabitCategory.social, 'No interrupting', 'بدون مقاطعة أثناء الحديث'),
+  GoalSuggestion(GoalType.quit, HabitCategory.social, 'No interrupting', 'بدون مقاطعة الآخرين'),
 
   // ── مخصص ───────────────────────────────────────────────────────────
   GoalSuggestion(GoalType.build, HabitCategory.custom, 'Make the bed', 'ترتيب السرير'),
@@ -112,7 +112,7 @@ const goalSuggestions = <GoalSuggestion>[
   GoalSuggestion(GoalType.quit, HabitCategory.custom, 'No snoozing the alarm', 'بدون تأجيل المنبّه'),
   GoalSuggestion(GoalType.quit, HabitCategory.custom, 'No dishes left overnight', 'بدون صحون لليوم الثاني'),
   GoalSuggestion(GoalType.quit, HabitCategory.custom, 'No arriving late', 'بدون تأخير على المواعيد'),
-  GoalSuggestion(GoalType.quit, HabitCategory.custom, 'No postponing the first task', 'بدون تأجيل المهمة الأولى'),
+  GoalSuggestion(GoalType.quit, HabitCategory.custom, 'No postponing the first task', 'بدون تأجيل أول مهمة'),
 ];
 
 /// The suggestions for one side of one category, in list order. Empty is a
