@@ -476,8 +476,13 @@ void syncRoomToday(WidgetRef ref, String habitId, DateTime day) {
     final pastRooms = ref.read(myLinkedRoomHabitsProvider)[habitId];
     if (pastRooms == null || pastRooms.isEmpty) return;
     final controller = ref.read(roomsControllerProvider);
+    // That day's squares as this device now holds them, so the resync grades
+    // the tap that just happened rather than the Firestore copy it is racing.
+    final dayRow = ref.read(weeklyGridProvider).states[day.toDateKey()];
     for (final room in pastRooms) {
-      controller.syncLinkedHabitsProgress(room).ignore();
+      controller
+          .syncLinkedHabitsProgress(room, todaySquares: dayRow, liveDay: day)
+          .ignore();
     }
     return;
   }
@@ -1039,6 +1044,18 @@ bool roomHasGradableHabit(
   Set<String> resolvableIds,
 ) =>
     countedIds.any(resolvableIds.contains);
+
+/// Whether the rooms' anti-backdating clamp applies to [day] at [now].
+///
+/// A room refuses to raise a past day's count once it has observed that day
+/// (see RoomParticipant.wasObservedOn), so nobody colours in last month for
+/// room credit. "Past" has to mean CLOSED: under the overlapping-day window
+/// (DateTimeGameExt.isOpenDayAt) a day stays open until kDayCutoffHour the
+/// next morning, and a mark made in that tail is a completion the app has
+/// already paid, so the room must count it as readily as the Grid did.
+/// Comparing date keys with today, as this used to, closed yesterday at
+/// midnight, ten hours before the app did.
+bool roomDayIsClosedAt(DateTime day, DateTime now) => !day.isOpenDayAt(now);
 
 bool habitExistedOn(IslamicHabitTemplate habit, DateTime day) {
   final born = habit.createdAt;
@@ -2426,6 +2443,7 @@ class RoomsController {
   Future<void> syncLinkedHabitsProgress(
     RoomModel room, {
     Map<String, SquareState>? todaySquares,
+    DateTime? liveDay,
   }) async {
     final uid = _uid;
     if (uid == null) return;
@@ -2618,6 +2636,12 @@ class RoomsController {
       days.map((d) => userRef.collection('daily').doc(d.toDateKey()).get()),
     );
     final todayKey = DateTime.now().effectiveDay.toDateKey();
+    // The day [todaySquares] speaks for: today unless the caller says
+    // otherwise. A Grid tap on a grace day passes that day, because the
+    // square it just set is still in flight to Firestore and the reads
+    // above would grade the day from the moment before the tap. The same
+    // race the today override closes, one day back.
+    final liveKey = (liveDay ?? DateTime.now().effectiveDay).toDateKey();
     bool isGreen(int dayIndex, String habitId) {
       // Today comes from the caller's own already-updated Grid state when it
       // handed us one. [syncTodayForHabit] routes a room with any
@@ -2630,7 +2654,7 @@ class RoomsController {
       // above pinned the 0 in place for good. Passing the tap's own truth
       // through is the same reason the fast path takes `todaySquares` at all.
       final live = todaySquares;
-      if (live != null && days[dayIndex].toDateKey() == todayKey) {
+      if (live != null && days[dayIndex].toDateKey() == liveKey) {
         return (live[habitId] ?? SquareState.none).isGreen;
       }
       final raw = snaps[dayIndex].data()?['squareStates'];
@@ -2644,7 +2668,7 @@ class RoomsController {
     /// habit each. See creditFor for why that is safe on a ranked surface.
     bool isPartial(int dayIndex, String habitId) {
       final live = todaySquares;
-      if (live != null && days[dayIndex].toDateKey() == todayKey) {
+      if (live != null && days[dayIndex].toDateKey() == liveKey) {
         return (live[habitId] ?? SquareState.none) == SquareState.partial;
       }
       final raw = snaps[dayIndex].data()?['squareStates'];
@@ -2660,7 +2684,7 @@ class RoomsController {
     /// RoomParticipant.dailyRestedCount, which nothing that scores may read.
     bool isSkipped(int dayIndex, String habitId) {
       final live = todaySquares;
-      if (live != null && days[dayIndex].toDateKey() == todayKey) {
+      if (live != null && days[dayIndex].toDateKey() == liveKey) {
         return (live[habitId] ?? SquareState.none) == SquareState.skipped;
       }
       final raw = snaps[dayIndex].data()?['squareStates'];
@@ -3069,6 +3093,7 @@ class RoomsController {
     // history to preserve and capping against nothing would zero out a real
     // room's first sync.
     final hasPriorRecord = mineNow.dailyDoneCount.isNotEmpty;
+    final now = DateTime.now();
     for (final d in days) {
       final dateKey = d.toDateKey();
       final scheduled = scheduledCount[dateKey]!;
@@ -3120,7 +3145,14 @@ class RoomsController {
         continue;
       }
       var earned = doneCount[dateKey]!;
-      final isPastDay = dateKey.compareTo(todayKey) < 0;
+      // Closed, not merely past. Under the overlapping-day window yesterday
+      // stays open, markable and paid in full, until kDayCutoffHour, and the
+      // first sync after midnight already stamps lastSyncedDay with the new
+      // day, so "past and observed" was true for every grace-tail mark: the
+      // clamp below held the day at whatever that midnight sync had seen.
+      // Aziz's own account, 2026-09-07 02:13: صلاة الوتر marked for the 6th,
+      // XP and gold paid on the 6th's ledger, both rooms refused the day.
+      final isPastDay = roomDayIsClosedAt(d, now);
       // ── ...but only while the day is asking the SAME thing it asked before ──
       //
       // The clamp compares today's recomputed numerator against the one already
