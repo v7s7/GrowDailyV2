@@ -218,9 +218,14 @@ class WeeklyGridState {
       final state = row[id] ?? SquareState.none;
       if (state == SquareState.skipped) continue;
       owed++;
+      // A step count's measured share of its goal, when the caller knows it.
+      final measured = (partialUnits[id] ?? 0.0).clamp(0.0, 1.0);
       completedUnits += switch (state) {
         SquareState.complete || SquareState.bonus => 1.0,
-        SquareState.partial => 0.5,
+        // The flat half for a hand-marked جزئي, or the real share when the
+        // step count set this square and has walked past half: 9,000 of
+        // 10,000 is a جزئي square that scores 0.9, not 0.5.
+        SquareState.partial => measured > 0.5 ? measured : 0.5,
         // An empty square can still be part done: a walking habit linked to
         // the step count contributes its real fraction of the goal here.
         //
@@ -231,7 +236,7 @@ class WeeklyGridState {
         // screen for carrying the phone to the kitchen. So this one is the
         // true proportion, clamped below 1 by the caller (at the goal the
         // habit is already complete and scores through its square).
-        SquareState.none => (partialUnits[id] ?? 0.0).clamp(0.0, 1.0),
+        SquareState.none => measured,
         SquareState.failed || SquareState.skipped => 0.0,
       };
     }

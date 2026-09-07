@@ -25,13 +25,57 @@ final stepsFailureProvider = StateProvider<HealthStepsFailure?>((ref) => null);
 
 DateTime? _lastRead;
 
+/// The share of the goal from which a walk leaves a جزئي square. Half, in
+/// Aziz's own words (2026-09-07): "if he walked the half, it marks and
+/// saves the half at the end of the day". Below it the day stays empty, so
+/// carrying the phone to the kitchen never colours a square.
+const double kStepPartialShare = 0.5;
+
+/// Twenty percent over the goal earns the blue إنجاز إضافي square, the same
+/// one the long-press palette offers by hand.
+const double kStepBonusShare = 1.2;
+
+/// The square a day's step count has earned on its own: nothing, جزئي at
+/// half the goal, the green square at the goal, the blue one at
+/// [kStepBonusShare] of it. Pure, so the ladder is testable without health
+/// data or a Grid.
+SquareState stepSquareFor({required int steps, required int goal}) {
+  if (goal <= 0 || steps <= 0) return SquareState.none;
+  if (steps >= goal * kStepBonusShare) return SquareState.bonus;
+  if (steps >= goal) return SquareState.complete;
+  if (steps >= goal * kStepPartialShare) return SquareState.partial;
+  return SquareState.none;
+}
+
+/// Where a square sits on the ladder the step count may climb: -1 for the
+/// two marks that are the owner's own word about the day (فشل, تخطّي) and
+/// must never be touched by a count.
+int stepSquareRank(SquareState square) => switch (square) {
+      SquareState.none => 0,
+      SquareState.partial => 1,
+      SquareState.complete => 2,
+      SquareState.bonus => 3,
+      SquareState.failed || SquareState.skipped => -1,
+    };
+
+/// Whether the count may move a square from [from] to [to]: only upwards,
+/// and never off a mark the owner made. Steps only ever grow within a day,
+/// so a downgrade can only mean a stale read, which must not undo anything.
+bool stepCountMayLift(SquareState from, SquareState to) =>
+    stepSquareRank(from) >= 0 && stepSquareRank(to) > stepSquareRank(from);
+
 /// The effective day whose *previous* day has already been checked for a
 /// walk the app was never open to see. One extra health read per day, not
 /// one per trigger — see [_creditYesterdayWalks].
 DateTime? _yesterdayCheckedFor;
 
-/// Reads today's steps and completes every linked habit whose goal is met,
-/// through the exact same canonical path a lock-screen "Mark Done" takes
+/// Reads today's steps and writes what they have earned into every linked
+/// habit's square: جزئي from half the goal, the green square at the goal,
+/// the blue إنجاز إضافي at twenty percent over it, only ever upwards (see
+/// [stepCountMayLift]). The green square is the one that pays; the other
+/// two are marks, exactly as the palette would make them.
+///
+/// The completion goes through the exact same canonical path a lock-screen "Mark Done" takes
 /// (main.dart's notification-action handler is the template): completeHabit
 /// for the reward, then the Grid square, then the room sync. Safe to call
 /// often — it throttles its own health reads to one per two minutes, does
@@ -106,7 +150,12 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
   if (!ref.context.mounted) return;
 
   for (final habit in linked) {
-    if (steps < habit.stepGoal!) continue;
+    final target = stepSquareFor(steps: steps, goal: habit.stepGoal!);
+    final current =
+        ref.read(weeklyGridProvider).squareFor(habit.id, effectiveDay);
+    // Upwards only, and never off فشل or تخطّي: the count set this square
+    // earlier today or the person did, and either way it only ever climbs.
+    if (!stepCountMayLift(current, target)) continue;
     if (!stepHabitAcceptsAutoComplete(
       habit: habit,
       grid: ref.read(weeklyGridProvider),
@@ -115,9 +164,31 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
     )) {
       continue;
     }
+    if (target == SquareState.partial) {
+      // Half the goal: the square says so now, so the day keeps its mark
+      // when it rolls over instead of reading as if nobody moved. A mark,
+      // not a reward: the day is paid only when the goal is reached.
+      await ref
+          .read(weeklyGridProvider.notifier)
+          .setSquareStateOnlyAsync(habit.id, effectiveDay, target);
+      if (!ref.context.mounted) return;
+      syncRoomToday(ref, habit.id, effectiveDay);
+      continue;
+    }
     final done = ref.read(dashboardProvider).completions[habit.id] ?? 0;
     final perDay = habit.effectiveDailyTarget;
-    if (done >= perDay) continue;
+    if (done >= perDay) {
+      // Already paid, from Today or by an earlier read. Only the blue
+      // square can still be owed.
+      if (target == SquareState.bonus && current != SquareState.bonus) {
+        await ref
+            .read(weeklyGridProvider.notifier)
+            .setSquareStateOnlyAsync(habit.id, effectiveDay, target);
+        if (!ref.context.mounted) return;
+        syncRoomToday(ref, habit.id, effectiveDay);
+      }
+      continue;
+    }
 
     // From here down this mirrors main.dart's Mark Done branch line for
     // line — same boost, same all-done predicate, same square mirroring —
@@ -144,18 +215,26 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
               category: habit.category.name,
             );
     if (!ref.context.mounted) return;
-    if (mirroredBySingleTap) {
-      // effectiveDay as captured at the top, not a fresh read. This function
-      // can spend ten seconds waiting for two stores, and somebody who opens
-      // the app in the last moments of a habit-day can cross the cutoff while
-      // it waits: re-reading the clock here would credit the reward to one day
-      // and paint the square on the next one.
-      ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(
-            habit.id,
-            effectiveDay,
-          );
-      syncRoomToday(ref, habit.id, effectiveDay);
+    if (!mirroredBySingleTap) continue;
+    // effectiveDay as captured at the top, not a fresh read. This function
+    // can spend ten seconds waiting for two stores, and somebody who opens
+    // the app in the last moments of a habit-day can cross the cutoff while
+    // it waits: re-reading the clock here would credit the reward to one day
+    // and paint the square on the next one.
+    ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(
+          habit.id,
+          effectiveDay,
+        );
+    if (target == SquareState.bonus) {
+      // Twenty percent over the goal: the blue square, exactly what the
+      // long-press palette gives by hand. A mark on top of the paid day,
+      // not a second reward, same as picking it from the palette.
+      await ref
+          .read(weeklyGridProvider.notifier)
+          .setSquareStateOnlyAsync(habit.id, effectiveDay, target);
+      if (!ref.context.mounted) return;
     }
+    syncRoomToday(ref, habit.id, effectiveDay);
   }
 }
 
@@ -246,7 +325,12 @@ Future<void> _creditYesterdayWalks(
   if (!ref.context.mounted) return;
 
   for (final habit in owed) {
-    if (steps < habit.stepGoal!) continue;
+    final current = marks[habit.id] ?? SquareState.none;
+    final target = stepSquareFor(steps: steps, goal: habit.stepGoal!);
+    // The day's final count, in the day's own square: half stays a جزئي,
+    // the goal a green, twenty percent over a blue. Only ever upwards from
+    // whatever the live reads left there yesterday.
+    if (!stepCountMayLift(current, target)) continue;
     // Awaited, unlike today's equivalent, because the room sync that follows
     // reads a PAST day back out of the store (syncRoomToday's past-day branch
     // runs a full resync rather than the in-memory fast path). Firing the
@@ -254,7 +338,7 @@ Future<void> _creditYesterdayWalks(
     // moment ago and publish a percentage that did not include the walk.
     await ref
         .read(weeklyGridProvider.notifier)
-        .setSquareStateOnlyAsync(habit.id, yesterday, SquareState.complete);
+        .setSquareStateOnlyAsync(habit.id, yesterday, target);
     if (!ref.context.mounted) return;
     syncRoomToday(ref, habit.id, yesterday);
   }
@@ -289,7 +373,8 @@ List<IslamicHabitTemplate> stepHabitsOwedYesterday({
           (h) =>
               h.stepGoal != null &&
               h.isScheduledFor(yesterday) &&
-              (marks[h.id] ?? SquareState.none) == SquareState.none,
+              stepSquareRank(marks[h.id] ?? SquareState.none) >= 0 &&
+              (marks[h.id] ?? SquareState.none) != SquareState.bonus,
         )
         .toList();
 
@@ -297,8 +382,10 @@ List<IslamicHabitTemplate> stepHabitsOwedYesterday({
 /// or whether the person has already said something about that day.
 ///
 /// The step counter is evidence, not a verdict. Someone who marks the day
-/// فشل, تخطّي, جزئي or إنجاز إضافي has made a statement about it, and a
-/// pedometer does not get to overrule a person about their own day. Before
+/// فشل or تخطّي has made a statement about it, and a pedometer does not get
+/// to overrule a person about their own day; إنجاز إضافي is already the top
+/// of the ladder. A جزئي is different since 2026-09-07: the count sets it
+/// itself at half the goal, so it is a rung the count may climb from. Before
 /// this, it did: marking a linked habit فشل and reopening the app turned the
 /// square green again and paid the day's XP for a day its owner had just said
 /// did not happen (seen live on 2026-09-02).
@@ -321,8 +408,10 @@ bool stepHabitAcceptsAutoComplete({
   required DateTime day,
 }) {
   final square = grid.squareFor(habit.id, day);
-  if (square != SquareState.none && square != SquareState.complete) {
-    return false;
-  }
+  // فشل and تخطّي are the owner's word about the day and stay theirs; the
+  // blue square is already more than done. A جزئي is in play: the count
+  // sets it itself at half the goal now, and a person who marked half by
+  // hand and then walked the whole goal is still owed the green square.
+  if (stepSquareRank(square) < 0 || square == SquareState.bonus) return false;
   return dash.undoneFor(habit.id, day.toDateKey()) == null;
 }

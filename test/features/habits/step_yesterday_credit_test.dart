@@ -54,7 +54,7 @@ void main() {
         yesterday: yesterday,
       ).map((h) => h.id).toList();
 
-  group('a blank day is the only day in play', () {
+  group('every square the count may still lift is in play', () {
     test('an untouched square is owed an answer', () {
       expect(owedIds([habit()], const {}), ['walk']);
       expect(
@@ -63,11 +63,12 @@ void main() {
       );
     });
 
-    test('an already green day is left alone', () {
-      // Nothing to add: the walk is on the board already.
+    test('an already green day is still in play, for the blue square', () {
+      // The goal is on the board; twenty percent over it is not yet. The
+      // final count decides, and stepCountMayLift keeps it upwards only.
       expect(
         owedIds([habit()], {'walk': SquareState.complete}),
-        isEmpty,
+        ['walk'],
       );
     });
 
@@ -87,10 +88,12 @@ void main() {
       );
     });
 
-    test('a hand-marked جزئي is somebody\'s own account of the day', () {
+    test('a جزئي is in play: yesterday\'s live reads left it there', () {
+      // Half the goal sets جزئي during the day; the final count may lift it
+      // to the green or the blue square, never lower it.
       expect(
         owedIds([habit()], {'walk': SquareState.partial}),
-        isEmpty,
+        ['walk'],
       );
     });
 
@@ -136,11 +139,18 @@ void main() {
     const grid = {
       'done': SquareState.complete,
       'blank': SquareState.none,
+      'rested': SquareState.skipped,
     };
+    // The green day is still in play for the blue square; the rest day is
+    // its owner's word and is not.
     expect(
-      owedIds([habit(id: 'done'), habit(id: 'blank'), habit(id: 'unseen')],
-          grid),
-      ['blank', 'unseen'],
+      owedIds([
+        habit(id: 'done'),
+        habit(id: 'blank'),
+        habit(id: 'rested'),
+        habit(id: 'unseen'),
+      ], grid),
+      ['done', 'blank', 'unseen'],
     );
   });
 }

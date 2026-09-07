@@ -93,8 +93,12 @@ void main() {
       expect(accepts(square: SquareState.skipped), isFalse);
     });
 
-    test('a hand-marked جزئي is their own account of the day', () {
-      expect(accepts(square: SquareState.partial), isFalse);
+    test('a جزئي is in play: the count can still lift it', () {
+      // The step count sets جزئي itself at half the goal now, so it has to
+      // be allowed to climb from there when the goal is reached. A person
+      // who marked half by hand and then walked the whole goal is owed the
+      // green square all the same.
+      expect(accepts(square: SquareState.partial), isTrue);
     });
 
     test('إنجاز إضافي is already more than done', () {
