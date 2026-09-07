@@ -99,7 +99,7 @@ void main() {
       expect(plain.body, '١٢ يوم ورا بعض، واليوم يخليها ١٣.');
       final warm = dailyReminderLine(
           done: 0, total: 3, streak: 12, variantIndex: 1, isAr: true)!;
-      expect(warm.title, 'يومك لسا مفتوح');
+      expect(warm.title, 'يومك مفتوح إلى الآن');
       expect(warm.body, 'ما شاء الله، ١٢ يوم ورا بعض، واليوم يخليها ١٣.');
       final simple = dailyReminderLine(
           done: 0, total: 3, streak: 12, variantIndex: 2, isAr: true)!;
@@ -112,7 +112,7 @@ void main() {
       expect(
         dailyReminderLine(
             done: 0, total: 3, streak: 0, variantIndex: 0, isAr: true),
-        (title: 'يومك لسا مفتوح', body: 'مربع واحد يكفي للبداية.'),
+        (title: 'يومك مفتوح إلى الآن', body: 'مربع واحد يكفي للبداية.'),
       );
       expect(
         dailyReminderLine(

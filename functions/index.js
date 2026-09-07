@@ -156,8 +156,8 @@ const LAST_ONE_MESSAGES = {
   ar: (finisherName, roomName, gender) => ({
     title: `الكل خلّص في "${roomName}"`,
     body: isFem(gender) ?
-      "باقية أنتِ. لسا في وقت." :
-      "باقي أنت. لسا في وقت.",
+      "باقية أنتِ. إلى الآن فيه وقت." :
+      "باقي أنت. إلى الآن فيه وقت.",
   }),
 };
 
@@ -562,7 +562,7 @@ const EVENING_REMINDER_MESSAGES = {
     title: isFem(gender) ?
       `كوني أول وحدة تخلّص في "${roomName}" اليوم` :
       `كن أول واحد يخلّص في "${roomName}" اليوم`,
-    body: "لسا في وقت، ومربع واحد يكفي.",
+    body: "إلى الآن فيه وقت، ومربع واحد يكفي.",
   }),
 };
 

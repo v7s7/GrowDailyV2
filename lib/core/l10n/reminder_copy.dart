@@ -791,7 +791,7 @@ ReminderLine? dailyReminderLine({
     }
     return _pickLine([
       (title: 'وقت عاداتك', body: streakLine),
-      (title: 'يومك لسا مفتوح', body: 'ما شاء الله، $streakLine'),
+      (title: 'يومك مفتوح إلى الآن', body: 'ما شاء الله، $streakLine'),
       (
         title: 'وقت عاداتك',
         body: 'بسم الله، مربع واحد يفتح اليوم، والسلسلة تكمل.',
@@ -809,7 +809,7 @@ ReminderLine? dailyReminderLine({
     ], variantIndex);
   }
   return _pickLine([
-    (title: 'يومك لسا مفتوح', body: 'مربع واحد يكفي للبداية.'),
+    (title: 'يومك مفتوح إلى الآن', body: 'مربع واحد يكفي للبداية.'),
     (title: 'وقت عاداتك', body: 'بسم الله، خطوة صغيرة اليوم تنحسب.'),
     (title: 'تذكير خفيف', body: 'أي عادة تنفع الحين؟ مربع واحد يكفي.'),
   ], variantIndex);
@@ -824,9 +824,9 @@ ReminderLine? dailyReminderLine({
 ReminderLine dailyFallbackLine(int dayIndex, bool isAr) {
   const ar = <ReminderLine>[
     (title: 'وقت عاداتك', body: 'بسم الله، شوي وقت الحين يلوّن مربع اليوم.'),
-    (title: 'يومك لسا مفتوح', body: 'خطوة صغيرة اليوم تنحسب.'),
+    (title: 'يومك مفتوح إلى الآن', body: 'خطوة صغيرة اليوم تنحسب.'),
     (title: 'تذكير خفيف', body: 'أي عادة تنفع الحين؟'),
-    (title: 'لسا في وقت اليوم', body: 'مربع واحد يكفي، والشبكة تحفظه.'),
+    (title: 'إلى الآن فيه وقت', body: 'مربع واحد يكفي، والشبكة تحفظه.'),
     (title: 'عاداتك على بعد لمسة', body: 'دقايق بسيطة، ومربع جديد في الشبكة.'),
   ];
   const en = <ReminderLine>[

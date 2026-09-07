@@ -3115,10 +3115,10 @@ class S {
       isAr ? 'الكل خلّص اليوم. يوم فريق!' : 'Everyone finished today. Team day!';
   /// One member still to go, by name.
   String roomTeamWaitingOn(String name) =>
-      isAr ? 'باقي $name. لسا فيه وقت' : 'Waiting on $name. Still time.';
+      isAr ? 'باقي $name. إلى الآن فيه وقت' : 'Waiting on $name. Still time.';
   /// Several still to go.
   String roomTeamWaitingCount(int n) =>
-      isAr ? 'باقي $n من الفريق. لسا فيه وقت' : 'Waiting on $n of the team. Still time.';
+      isAr ? 'باقي $n من الفريق. إلى الآن فيه وقت' : 'Waiting on $n of the team. Still time.';
   String get roomTeamNobodyYet =>
       isAr ? 'ما خلّص أحد بعد. ابدأ أنت' : 'Nobody has finished yet. Be the first.';
   /// "12 من 14 يوم فزتوا فيها مع بعض" / "12 of 14 days won together".
@@ -3127,7 +3127,7 @@ class S {
     // read like a scoreboard for a race nobody had started.
     if (won == 0) {
       return isAr
-          ? 'لسا ما فزتوا بيوم مع بعض. خلّوه اليوم'
+          ? 'إلى الآن ما فزتوا بيوم مع بعض. خلّوه اليوم'
           : 'No day won together yet. Make it today.';
     }
     if (counted == 1) {
