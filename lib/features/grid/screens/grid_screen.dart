@@ -41,6 +41,7 @@ import '../../rooms/notifiers/rooms_notifier.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
+import '../models/covered_day.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 import '../widgets/daily_quote_line.dart';

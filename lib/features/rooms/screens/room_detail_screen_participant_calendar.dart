@@ -70,15 +70,14 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     if (day.isBefore(_firstDay) || day.isAfter(_lastDay)) return null;
     final key = day.toDateKey();
     // A day the whole room was paused is not this member's day to answer
-    // for. The strip paints it blank; this sheet used to paint it as a miss
-    // and then label it لم يُنجز beside it.
-    if (widget.room.isPausedOn(key)) return null;
-    // Their whole plan was paused on this day, so nothing was asked and
-    // nothing was earned. Neutral, matching roomStripCellFill's isStoodDown
-    // arm — not the emerald of a structural rest (which is credited) and not
-    // the heat ramp's level-0, which is byte-identical to a miss. See
-    // RoomParticipant.standDownDays.
-    if (widget.participant.isStoodDownOn(key)) {
+    // for, and neither is a day their whole plan stood down: nothing was
+    // asked and nothing was earned. Both take the neutral tone the strip's
+    // dash sits on (roomStripCellFill's isStoodDown arm), not the emerald of
+    // a structural rest (which is credited) and not the heat ramp's level-0,
+    // which is byte-identical to a miss. The paused day used to return null
+    // here and draw as a bare number, the same hole the strip used to leave.
+    if (widget.room.isPausedOn(key) ||
+        widget.participant.isStoodDownOn(key)) {
       return (dark ? Colors.white : Colors.black).withOpacity(0.07);
     }
     // A deliberate تخطّي gets the same gold the strip and the personal
@@ -99,7 +98,7 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     // the colour can never describe two different things about one square.
     // They did, on every rest day, which is most of the week for a 4x quota.
     if (widget.participant.isRestDay(key)) {
-      return GameColors.emerald.withOpacity(0.13);
+      return roomStripRestTone();
     }
     return heatColor(
       heatmapLevelFor(widget.participant.creditFor(key)),

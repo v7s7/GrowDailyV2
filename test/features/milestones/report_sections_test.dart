@@ -114,10 +114,12 @@ void main() {
       expect(states.sublist(0, 5), everyElement(MatrixCellState.missed));
     });
 
-    test('a day the habit was not scheduled for is notDue, not missed', () {
+    test('a day the habit was not scheduled for is covered, not missed', () {
       // A Monday-only habit has six blank cells a week that are not
       // failures. Drawing them as misses is the accusation this exists to
-      // prevent.
+      // prevent; drawing them faint read as missing days all the same
+      // (Aziz, 2026-09-08), so they are covered: the habit's own colour,
+      // soft.
       final stat = HabitPeriodStat(
         habit: habit(scheduledWeekdays: const [DateTime.monday]),
         marks: const {},
@@ -129,7 +131,8 @@ void main() {
         today: DateTime(2026, 8, 21),
       );
       expect(states.where((s) => s == MatrixCellState.missed).length, 1);
-      expect(states.where((s) => s == MatrixCellState.notDue).length, 6);
+      expect(states.where((s) => s == MatrixCellState.covered).length, 6);
+      expect(states.where((s) => s == MatrixCellState.notDue), isEmpty);
     });
 
     test('days before the habit existed are notDue', () {
@@ -144,9 +147,12 @@ void main() {
         today: DateTime(2026, 8, 19),
       );
       expect(states.take(3), everyElement(MatrixCellState.notDue));
+      // Not covered either: a habit cannot have excused days before it was
+      // born, and soft green there would claim a history that never was.
+      expect(states.take(3), isNot(contains(MatrixCellState.covered)));
     });
 
-    test('a quota habit has no missed days, only done and not due', () {
+    test('a quota habit has no missed days, only done and covered', () {
       // The contradiction this pins: a "three times a week, any three"
       // habit hit three times used to render three filled cells beside four
       // "missed" outlines AND a PERFECT badge on the same row.
@@ -173,7 +179,11 @@ void main() {
       );
       expect(states.where((s) => s == MatrixCellState.missed), isEmpty);
       expect(states.where((s) => s == MatrixCellState.done).length, 3);
-      expect(states.where((s) => s == MatrixCellState.notDue).length, 4);
+      // Saturday, Monday, Wednesday done: Sunday and Tuesday were spare and
+      // have passed, Thursday and Friday were earned once the third session
+      // landed. All four are covered, none is merely "not due".
+      expect(states.where((s) => s == MatrixCellState.covered).length, 4);
+      expect(states.where((s) => s == MatrixCellState.notDue), isEmpty);
       // And the row still earns its mark, without contradicting the cells.
       expect(stat.isPerfect, isTrue);
     });

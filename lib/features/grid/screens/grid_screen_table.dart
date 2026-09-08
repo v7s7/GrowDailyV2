@@ -694,6 +694,19 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   // isn't isRealToday either, so it stays correctly locked.
                   isFuture: day.startOfDay.isAfter(today) && !day.isRealToday,
                   isScheduled: habit.isScheduledFor(day),
+                  // A day the habit asked nothing of: an off-day of a
+                  // specific-days schedule, or a quota day that was never
+                  // load-bearing. Painted soft green so a kept week reads
+                  // as whole instead of half empty. See isCoveredDay.
+                  isCovered: isCoveredDay(
+                    habit: habit,
+                    day: day,
+                    today: today,
+                    square: _effectiveSquare(habit, day, doneToday),
+                    demand: demand == null || !days.contains(day)
+                        ? null
+                        : demand[days.indexOf(day)],
+                  ),
                   // A day this flexible quota genuinely owed and that stayed
                   // empty — the week's real miss, and the only empty square the
                   // app is entitled to call one. Rest days stay plain. Never
@@ -1539,6 +1552,15 @@ class _SquareCell extends StatelessWidget {
   /// can never show more red than the person actually fell short by.
   final bool isMissedQuotaDay;
 
+  /// An empty square on a day the habit asked nothing of (see
+  /// [isCoveredDay]). Painted soft green, at full opacity even when the day
+  /// is unscheduled and therefore inert: the dimming that used to apply to
+  /// every off-day is what made a Monday-Wednesday-Friday habit look like
+  /// four misses a week. A covered square is still not tappable when the
+  /// day is off the schedule; on a quota day it stays tappable, because a
+  /// fifth session on a four-a-week habit is not an error.
+  final bool isCovered;
+
   final SquareState square;
 
   /// Today's progress for a habit counted more than once a day, or null for
@@ -1609,6 +1631,7 @@ class _SquareCell extends StatelessWidget {
     required this.isFuture,
     required this.isScheduled,
     this.isMissedQuotaDay = false,
+    this.isCovered = false,
     required this.square,
     this.dayCount,
     this.stepFraction,
@@ -1653,6 +1676,8 @@ class _SquareCell extends StatelessWidget {
         // stays correct automatically in every theme preset and in light mode.
         color: isMissedQuotaDay
             ? SquareState.failed.fill(dark)
+            : isCovered
+                ? coveredDayFill(dark)
             // A counting square is drawn as empty-plus-a-rising-portion. Left
             // as square.fill it painted the partial colour edge to edge, and
             // the proportional overlay — the same colour — was invisible: the
@@ -1832,7 +1857,10 @@ class _SquareCell extends StatelessWidget {
             },
         onLongPress: disabled ? null : onLongPress,
         child: Opacity(
-          opacity: disabled ? 0.35 : 1,
+          // A covered off-day keeps its full opacity: the soft green IS the
+          // information, and dimming it back to the card is exactly the
+          // "dark grey, like a missing day" this state exists to end.
+          opacity: disabled && !isCovered ? 0.35 : 1,
           child: cell,
         ),
       ),

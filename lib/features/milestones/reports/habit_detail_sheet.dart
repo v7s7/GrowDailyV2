@@ -725,6 +725,9 @@ class _DayCell extends StatelessWidget {
             ? Colors.white.withOpacity(0.075)
             : Colors.black.withOpacity(0.075);
         text = gp.textTert;
+      case MatrixCellState.covered:
+        fill = color.withOpacity(0.18);
+        text = gp.textTert;
       case MatrixCellState.notDue:
       case MatrixCellState.future:
         fill = gp.dark

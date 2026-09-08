@@ -89,6 +89,23 @@ void main() {
     });
   });
 
+  test('a rest day is a soft green, apart from both an empty day and a done '
+      'one', () {
+    // Aziz, 2026-09-08: the 0.13 outline a rest day used to get was
+    // indistinguishable from an empty square on a dark card, so a kept
+    // four-a-week week read as three misses. The rest tone now sits between
+    // empty and the ramp's lowest done level, nearer the green.
+    final rest = fill(0, isRest: true);
+    final empty = fill(0);
+    final lowestDone = fill(0.25);
+    expect(rest, isNot(empty));
+    expect(rest, isNot(lowestDone));
+    expect(rest.green - empty.green, greaterThan(20),
+        reason: 'a rest day must visibly carry the green');
+    expect(rest.green, lessThan(lowestDone.green),
+        reason: 'and stay below the faintest real session');
+  });
+
   test('identical credit gives an identical colour', () {
     // 14, 15 and 16 August: 1 of 2 habits each. Only the 14th carried the
     // البداية ring, and only the 14th looked different.

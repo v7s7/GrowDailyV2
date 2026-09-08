@@ -6,9 +6,13 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/bidi_fraction.dart';
 import '../../../core/utils/western_digits.dart';
+import '../../grid/models/covered_day.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
-import '../../habits/models/habit_model.dart' show GoalType;
+import '../../habits/models/habit_model.dart'
+    show GoalType, HabitFrequencyType;
+import '../../habits/models/weekly_quota_plan.dart'
+    show DayDemand, weeklyQuotaDemand;
 import 'report_period.dart';
 
 /// The ‹ label › stepper every tab of the reports hub carries.
@@ -558,7 +562,23 @@ class _RhythmLine extends StatelessWidget {
 ///  - [bonus] and [partial] exist because the Grid already lets people record
 ///    them, and a report that flattens them is throwing away the only detail
 ///    those taps were for.
-enum MatrixCellState { done, bonus, partial, failed, rest, missed, notDue, future }
+/// [covered] is an empty cell on a day the habit asked nothing of: an
+/// off-day of a specific-days schedule, or a quota day that was never owed
+/// (see isCoveredDay). It differs from [notDue], which is an empty cell the
+/// report simply does not accuse (a day before the habit existed, or a
+/// quota week's blank days when nothing says which were owed): covered is
+/// painted soft green, not due stays faint.
+enum MatrixCellState {
+  done,
+  bonus,
+  partial,
+  failed,
+  rest,
+  missed,
+  notDue,
+  covered,
+  future,
+}
 
 /// One habit's week, resolved cell by cell.
 ///
@@ -568,6 +588,9 @@ MatrixCellState cellStateFor({
   required HabitPeriodStat stat,
   required DateTime day,
   required DateTime today,
+  // This day's demand for a flexible weekly quota, when the caller has the
+  // whole week to compute it ([weekCellStates] does); null otherwise.
+  DayDemand? demand,
 }) {
   if (day.isAfter(DateTime(today.year, today.month, today.day))) {
     return MatrixCellState.future;
@@ -585,7 +608,15 @@ MatrixCellState cellStateFor({
     SquareState.none =>
       missIsAttributable(stat.habit) && stat.habit.isScheduledFor(day)
           ? MatrixCellState.missed
-          : MatrixCellState.notDue,
+          : isCoveredDay(
+              habit: stat.habit,
+              day: day,
+              today: today,
+              square: SquareState.none,
+              demand: demand,
+            )
+              ? MatrixCellState.covered
+              : MatrixCellState.notDue,
   };
 }
 
@@ -596,11 +627,34 @@ List<MatrixCellState> weekCellStates({
   required HabitPeriodStat stat,
   required List<DateTime> weekDays,
   required DateTime today,
-}) =>
-    [
-      for (final day in weekDays)
-        cellStateFor(stat: stat, day: day, today: today),
-    ];
+}) {
+  // A flexible quota's covered days can only be told with the whole week
+  // in hand: which days were spare or already earned depends on what was
+  // done before them. Same arithmetic the Grid row uses (weeklyQuotaDemand),
+  // so the report and the board never disagree about a day.
+  final habit = stat.habit;
+  final quota = habit.frequencyType == HabitFrequencyType.weekly &&
+      habit.scheduledWeekdays.isEmpty;
+  final demand = quota
+      ? weeklyQuotaDemand(
+          dayCount: weekDays.length,
+          doneDays: {
+            for (var i = 0; i < weekDays.length; i++)
+              if (stat.markOn(weekDays[i]).isGreen) i,
+          },
+          target: habit.frequencyTarget,
+        )
+      : null;
+  return [
+    for (var i = 0; i < weekDays.length; i++)
+      cellStateFor(
+        stat: stat,
+        day: weekDays[i],
+        today: today,
+        demand: demand?[i],
+      ),
+  ];
+}
 
 /// The habit x weekday grid: the أسبوعي tab's centrepiece.
 ///
@@ -885,6 +939,10 @@ class _MatrixCell extends StatelessWidget {
           false,
         ),
       MatrixCellState.notDue => (faint, null, false),
+      // The habit's own colour, soft: nothing was owed and the week is
+      // whole. Well below partial's half, so a covered day never passes for
+      // a half-done one.
+      MatrixCellState.covered => (color.withOpacity(0.18), null, false),
       // Fainter than notDue, but not invisible: a fully transparent future
       // cell collapsed the visible grid to however many days had already
       // happened, so a Wednesday showed a five-column week under a
@@ -1186,6 +1244,9 @@ class _MonthDayCell extends StatelessWidget {
           fill = gp.dark
               ? Colors.white.withOpacity(0.075)
               : Colors.black.withOpacity(0.075);
+          text = gp.textTert;
+        case MatrixCellState.covered:
+          fill = color.withOpacity(0.18);
           text = gp.textTert;
         case MatrixCellState.notDue:
         case MatrixCellState.future:

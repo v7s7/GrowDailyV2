@@ -12,6 +12,7 @@ import '../../../features/premium/screens/premium_screen.dart';
 import '../../../core/providers/weekly_recap_collapsed_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../models/covered_day.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
@@ -594,8 +595,15 @@ class _HabitWeekRow extends StatelessWidget {
         scheduled++;
         if (sq.isGreen) done++;
       }
+      // An off-day the schedule never asked for is a soft green dot, not a
+      // dim one: the same covered state the Grid's squares paint, so the
+      // recap and the board agree about which days were owed.
+      final covered = !isFuture &&
+          isCoveredDay(habit: habit, day: day, today: today, square: sq);
       final Color color;
-      if (!isScheduled || isFuture) {
+      if (covered) {
+        color = GameColors.emerald.withOpacity(0.45);
+      } else if (!isScheduled || isFuture) {
         color = gp.border.withOpacity(0.45);
       } else if (sq.isGreen) {
         color = GameColors.emerald;

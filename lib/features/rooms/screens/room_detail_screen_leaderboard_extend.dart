@@ -48,6 +48,18 @@ part of 'room_detail_screen.dart';
 /// Pure and top-level so the invariant is testable without building the
 /// whole room screen: same credit must give the same colour whether or not
 /// the day happens to carry a marker.
+/// The tone of a day the room asked nothing of this member: an off-day of
+/// a specific-days habit, or a quota day that was never owed (the rest the
+/// grader excuses, see weeklyQuotaScheduledDays). The system's own emerald,
+/// soft: well under the ramp's lowest done level (0.30) so a rest never
+/// passes for a session, and well over the old 0.13 outline, which on a
+/// dark card was indistinguishable from an empty square. Aziz, 2026-09-08:
+/// "some habits are not daily, the grid looks empty though they did what
+/// they had to", and of specific-days habits, "it is dark grey, like missing
+/// days". A kept week now reads as one green block in two tones. Shared
+/// with the participant calendar sheet so the two agree.
+Color roomStripRestTone() => GameColors.emerald.withOpacity(0.24);
+
 Color roomStripCellFill({
   required double credit,
   required bool isRest,
@@ -92,7 +104,7 @@ Color roomStripCellFill({
   final tone = isDeclaredRest
       ? GameColors.gold.withOpacity(0.16)
       : isRest
-          ? GameColors.emerald.withOpacity(0.13)
+          ? roomStripRestTone()
           : isMissed
               ? Colors.transparent
               : heatColor(heatmapLevelFor(credit), dark);
@@ -1101,11 +1113,10 @@ class RoomStrip extends StatelessWidget {
                         color: (dark ? Colors.white : Colors.black)
                             .withOpacity(0.16),
                       )
-                    : isRest
-                        ? Border.all(
-                            color: GameColors.emerald.withOpacity(0.42),
-                          )
-                        : isMissed
+                    // A rest day is a soft solid fill and nothing else; the
+                    // outline it used to carry read as an empty square with
+                    // a rim, which is the look this state exists to end.
+                    : isMissed
                             ? Border.all(
                                 color: GameColors.error.withOpacity(0.34),
                               )
