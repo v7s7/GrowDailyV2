@@ -59,4 +59,23 @@ void main() {
       }
     }
   });
+
+  group('roomDayMarkedWhileOpen', () {
+    test('a day written inside its grace window holds on-time marks', () {
+      // The Witr mark: the 6th's document last written at 02:13 on the 7th.
+      expect(roomDayMarkedWhileOpen(sixth, DateTime(2026, 9, 7, 2, 13)), isTrue);
+      expect(roomDayMarkedWhileOpen(sixth, DateTime(2026, 9, 6, 22, 0)), isTrue);
+    });
+
+    test('a day written after it closed may hold late marks, so no exemption',
+        () {
+      expect(roomDayMarkedWhileOpen(sixth, DateTime(2026, 9, 7, kDayCutoffHour)),
+          isFalse);
+      expect(roomDayMarkedWhileOpen(sixth, DateTime(2026, 9, 9, 15, 0)), isFalse);
+    });
+
+    test('no stamp, no exemption', () {
+      expect(roomDayMarkedWhileOpen(sixth, null), isFalse);
+    });
+  });
 }

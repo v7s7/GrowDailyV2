@@ -1034,6 +1034,27 @@ bool roomHasGradableHabit(
 /// midnight, ten hours before the app did.
 bool roomDayIsClosedAt(DateTime day, DateTime now) => !day.isOpenDayAt(now);
 
+/// Whether a day's record was last written while that day was still open,
+/// so every mark on it was made on time.
+///
+/// The anti-backdating clamp holds a closed day at the count the room had
+/// already stored, which is right when the new marks were painted late and
+/// wrong when the room simply missed marks made on time: Aziz's الوتر on
+/// 6 September 2026, marked at 02:13 in the grace window, paid by the Grid,
+/// and held at zero by both rooms because the first sync after midnight had
+/// stamped the day as observed. The day document's own `lastUpdated` is a
+/// server timestamp, so it cannot be moved by a device clock, and a day
+/// whose document was last written before kDayCutoffHour the next morning
+/// can only hold on-time marks. Such a day is graded from its squares. Any
+/// later write to that document (a back-painted square, a note) moves the
+/// stamp past the close and the clamp applies again, which is the
+/// conservative side.
+bool roomDayMarkedWhileOpen(DateTime day, DateTime? lastUpdated) {
+  if (lastUpdated == null) return false;
+  final closes = DateTime(day.year, day.month, day.day + 1, kDayCutoffHour);
+  return lastUpdated.isBefore(closes);
+}
+
 /// The paused spans a room carries once its leader extends it on [today].
 ///
 /// Rooms have no pause button. The only pause that exists is the dead time
@@ -3077,9 +3098,18 @@ class RoomsController {
     // room's first sync.
     final hasPriorRecord = mineNow.dailyDoneCount.isNotEmpty;
     final now = DateTime.now();
-    for (final d in days) {
+    for (var di = 0; di < days.length; di++) {
+      final d = days[di];
       final dateKey = d.toDateKey();
       final scheduled = scheduledCount[dateKey]!;
+      // A closed day whose document was last written while it was open holds
+      // only on-time marks, so the clamp below stands aside for it: the room
+      // missed those marks, the person did not make them late. See
+      // roomDayMarkedWhileOpen for the day this is named after.
+      final markedWhileOpen = roomDayMarkedWhileOpen(
+        d,
+        (snaps[di].data()?['lastUpdated'] as Timestamp?)?.toDate(),
+      );
       // ── Back-dating can take credit away, never add it ────────────────
       // Ticking a past day's square in the Grid must not earn room progress
       // after the fact. That's the same stance the rest of the app already
@@ -3168,6 +3198,7 @@ class RoomsController {
       if (hasPriorRecord &&
           isPastDay &&
           !asksMoreThanBefore &&
+          !markedWhileOpen &&
           mineNow.wasObservedOn(dateKey)) {
         final alreadyEarned = mineNow.dailyDoneCount[dateKey] ?? 0;
         if (earned > alreadyEarned) earned = alreadyEarned;
@@ -3211,7 +3242,10 @@ class RoomsController {
       // day the room was watching cannot be improved by back-painting a
       // جزئي onto it, exactly as it cannot by back-painting a green.
       var partial = partialCount[dateKey]!;
-      if (hasPriorRecord && isPastDay && mineNow.wasObservedOn(dateKey)) {
+      if (hasPriorRecord &&
+          isPastDay &&
+          !markedWhileOpen &&
+          mineNow.wasObservedOn(dateKey)) {
         final alreadyPartial = mineNow.dailyPartialCount[dateKey] ?? 0;
         if (partial > alreadyPartial) partial = alreadyPartial;
       }
