@@ -29,6 +29,30 @@ abstract final class GameColors {
       ThemePresets.byId(ThemePresets.defaultId).streakOrangeDim;
   static Color get success => emerald;
 
+  /// The accent and the grid colour moved far enough to be READ on each
+  /// mode's own surfaces: darkened on light, lightened on dark. See
+  /// ThemePreset's note for the measurements and for why no existing token
+  /// could do this job. Where a preset already clears the bar these are the
+  /// raw colour, untouched. Reach for them through `context.gp.goldInk` /
+  /// `.goldEdge` / `.emeraldInk` / `.emeraldEdge`, which pick the right one
+  /// for the current brightness, rather than off this class.
+  static Color goldInkLight =
+      ThemePresets.byId(ThemePresets.defaultId).goldInkLight;
+  static Color goldInkDark =
+      ThemePresets.byId(ThemePresets.defaultId).goldInkDark;
+  static Color goldEdgeLight =
+      ThemePresets.byId(ThemePresets.defaultId).goldEdgeLight;
+  static Color goldEdgeDark =
+      ThemePresets.byId(ThemePresets.defaultId).goldEdgeDark;
+  static Color emeraldInkLight =
+      ThemePresets.byId(ThemePresets.defaultId).emeraldInkLight;
+  static Color emeraldInkDark =
+      ThemePresets.byId(ThemePresets.defaultId).emeraldInkDark;
+  static Color emeraldEdgeLight =
+      ThemePresets.byId(ThemePresets.defaultId).emeraldEdgeLight;
+  static Color emeraldEdgeDark =
+      ThemePresets.byId(ThemePresets.defaultId).emeraldEdgeDark;
+
   /// Black or white, whichever reads better on top of a *solid* emerald
   /// fill (e.g. a quit habit's kept-day mark) — not needed for
   /// emerald used as a translucent tint, text color, or icon color on the
@@ -54,8 +78,83 @@ abstract final class GameColors {
   static Color get onGold =>
       gold.computeLuminance() > 0.1791 ? Colors.black : Colors.white;
 
+  /// The same choice `context.gp.*` makes, for code that has no
+  /// BuildContext to make it with — the colour getters on enums and model
+  /// classes (a mood's face, a milestone's accent, a square's state), which
+  /// are called from a build method that DOES know the brightness and can
+  /// pass it down. Prefer `context.gp.*` wherever a context is in reach.
+  /// Any colour, moved just far enough to be READ in [dark] mode: darkened
+  /// on light, lightened on dark, hue and saturation kept.
+  ///
+  /// The general form of the named `*Ink` tokens, for colours this file
+  /// cannot enumerate — a prestige tier's metal, a Matrix quadrant's accent,
+  /// anything a user or a data model supplies. Use it at the point a colour
+  /// becomes TEXT or a glyph; a fill keeps the true colour, because the
+  /// label on top is what has to be readable, not the fill.
+  static Color inkFor(Color c, bool dark) => _solveInk(c, dark, 4.5);
+
+  /// Same, for something held only to the 3:1 non-text bar (a border, a
+  /// rule, a dot) — closer to the true colour than [inkFor] is.
+  static Color edgeFor(Color c, bool dark) => _solveInk(c, dark, 3.0);
+
+  /// Memoised because the solvers bisect 24 times, and these are called from
+  /// BUILD methods — the Matrix cards and the animated task stack among them,
+  /// which rebuild every frame while a card is moving. Solving a fixed set of
+  /// quadrant colours sixty times a second is exactly the kind of quiet
+  /// per-frame cost that shows up as jank rather than as a bug.
+  ///
+  /// The key set is small and stable in practice (a handful of quadrant,
+  /// tier and habit colours), so the cap is a safety net for a pathological
+  /// case rather than an expected path; clearing wholesale is fine because
+  /// every entry is cheap to recompute.
+  static final Map<int, Color> _inkCache = {};
+
+  static Color _solveInk(Color c, bool dark, double target) {
+    final key = Object.hash(c.toARGB32(), dark, target);
+    final hit = _inkCache[key];
+    if (hit != null) return hit;
+    final solved = dark
+        ? lightenToContrast(c, kDarkSurfaceCeil, target)
+        : darkenToContrast(c, kLightSurfaceFloor, target);
+    if (_inkCache.length >= 512) _inkCache.clear();
+    return _inkCache[key] = solved;
+  }
+
+  static Color goldInkFor(bool dark) => dark ? goldInkDark : goldInkLight;
+  static Color emeraldInkFor(bool dark) =>
+      dark ? emeraldInkDark : emeraldInkLight;
+  static Color iconGoldFor(bool dark) => dark ? iconGold : iconGoldInkLight;
+  static Color iconStreakFor(bool dark) =>
+      dark ? iconStreak : iconStreakInkLight;
+  static Color iconXpFor(bool dark) => dark ? iconXp : iconXpInkLight;
+  static Color iconSuccessFor(bool dark) =>
+      dark ? iconSuccess : iconSuccessInkLight;
+
   static const Color error = Color(0xFFFF5A52);
   static const Color warning = Color(0xFFF7C948);
+
+  /// "Something is wrong" and "careful" as INK, per mode.
+  ///
+  /// The pair above is chosen to alarm, not to read: on light surfaces they
+  /// measure **1.98:1** and **1.01:1** — warning is very nearly invisible on
+  /// cream — and error only reaches 4.34:1 even on dark. Same fixed-constant
+  /// treatment as the `icon*` set, for the same reason: a warning has to
+  /// look like a warning under every preset, so its ink cannot be
+  /// preset-derived either. Read through `context.gp.errorInk` /
+  /// `.warningInk`. The raw pair stays for FILLS (a destructive button's
+  /// background, an error banner's tint), where the label on top carries the
+  /// contrast instead.
+  static final Color errorInkLight =
+      darkenToContrast(error, kLightSurfaceFloor, 4.5);
+  static final Color errorInkDark =
+      lightenToContrast(error, kDarkSurfaceCeil, 4.5);
+  static final Color warningInkLight =
+      darkenToContrast(warning, kLightSurfaceFloor, 4.5);
+  static final Color warningInkDark =
+      lightenToContrast(warning, kDarkSurfaceCeil, 4.5);
+  static Color errorInkFor(bool dark) => dark ? errorInkDark : errorInkLight;
+  static Color warningInkFor(bool dark) =>
+      dark ? warningInkDark : warningInkLight;
 
   // Fixed semantic icon colors — never swapped by a preset, unlike
   // gold/xpBlue/streakOrange above (which are now just tint/shade touches
@@ -83,6 +182,41 @@ abstract final class GameColors {
   // dedicated fixed color, same fixed-not-preset-driven treatment as the
   // icon* set above, so Sleep reads as its own category at a glance.
   static const Color iconSleep = Color(0xFF6C7BDB);
+
+  // The same five colours, deep enough to be READ on a light surface.
+  //
+  // The set above is tuned for the dark theme's near-black, where it
+  // measures 5.5..7.0 and is fine. On light it measures **1.71..2.46**,
+  // failing even the 3:1 an icon is held to, and nine of the call sites
+  // put these in a TextStyle, where the bar is 4.5.
+  //
+  // Note what did NOT work, because the palette looks like it already has
+  // the answer: the `*Dim` variants above clear 3:1 on the PALE presets but
+  // bottom out at 2.70..3.50 on Nour Violet's tinted surfaces, so they fix
+  // the default look and quietly fail the moody ones. (They stay as they
+  // are; `iconXpDim` is a gradient tone in the XP bar, not an ink.)
+  //
+  // These are single fixed constants rather than per-preset derivations,
+  // which is the point: the doc comment above promises a Gold stat looks
+  // gold under every preset, so the light variant has to be equally fixed.
+  // Each is its own hue darkened until it clears 4.5:1 against luminance
+  // 0.613 — the darkest light surface ANY preset can produce, including a
+  // custom accent's re-hued neutrals — so one constant is legible
+  // everywhere. Measured worst case on a real preset surface: 4.59..4.63.
+  // Read them through `context.gp.iconGold` and friends, never directly.
+  ///
+  /// Computed rather than written out as hexes, so they cannot drift if one
+  /// of the source colours above is ever retuned.
+  static final Color iconGoldInkLight =
+      darkenToContrast(iconGold, kLightSurfaceFloor, 4.5);
+  static final Color iconStreakInkLight =
+      darkenToContrast(iconStreak, kLightSurfaceFloor, 4.5);
+  static final Color iconXpInkLight =
+      darkenToContrast(iconXp, kLightSurfaceFloor, 4.5);
+  static final Color iconSuccessInkLight =
+      darkenToContrast(iconSuccess, kLightSurfaceFloor, 4.5);
+  static final Color iconSleepInkLight =
+      darkenToContrast(iconSleep, kLightSurfaceFloor, 4.5);
 
   static const Color rarityCommon = Color(0xFF8C9A92);
   static Color get rarityUncommon => emerald;
@@ -195,8 +329,16 @@ abstract final class GameColors {
   static void applyPreset(ThemePreset preset) {
     gold = preset.gold;
     goldDim = preset.goldDim;
+    goldInkLight = preset.goldInkLight;
+    goldInkDark = preset.goldInkDark;
+    goldEdgeLight = preset.goldEdgeLight;
+    goldEdgeDark = preset.goldEdgeDark;
     emerald = preset.emerald;
     emeraldDim = preset.emeraldDim;
+    emeraldInkLight = preset.emeraldInkLight;
+    emeraldInkDark = preset.emeraldInkDark;
+    emeraldEdgeLight = preset.emeraldEdgeLight;
+    emeraldEdgeDark = preset.emeraldEdgeDark;
     xpBlue = preset.xpBlue;
     xpBlueDim = preset.xpBlueDim;
     streakOrange = preset.streakOrange;
@@ -242,6 +384,46 @@ class _GamePalette {
       dark ? GameColors.textTertiary : GameColors.lightTextTertiary;
   Color get border => dark ? GameColors.border : GameColors.lightBorder;
   Color get divider => dark ? GameColors.divider : GameColors.lightDivider;
+
+  /// The accent as a LABEL or icon (AA 4.5:1 on this mode's surfaces).
+  Color get goldInk =>
+      dark ? GameColors.goldInkDark : GameColors.goldInkLight;
+
+  /// The accent as a BORDER, rule or focus ring (AA 3:1). Closer to the raw
+  /// accent than [goldInk] is, because a border is held to the lower bar.
+  Color get goldEdge =>
+      dark ? GameColors.goldEdgeDark : GameColors.goldEdgeLight;
+
+  /// [GameColors.inkFor] / [GameColors.edgeFor] against the current mode —
+  /// for a colour that arrives from data rather than the palette.
+  Color ink(Color c) => GameColors.inkFor(c, dark);
+  Color edge(Color c) => GameColors.edgeFor(c, dark);
+
+  /// "Something is wrong" and "careful" as a label or icon. The raw
+  /// [GameColors.error] / [GameColors.warning] stay for fills.
+  Color get errorInk => GameColors.errorInkFor(dark);
+  Color get warningInk => GameColors.warningInkFor(dark);
+
+  /// The grid colour as a label or icon, same rule as [goldInk].
+  Color get emeraldInk =>
+      dark ? GameColors.emeraldInkDark : GameColors.emeraldInkLight;
+
+  /// The grid colour as a border, same rule as [goldEdge].
+  Color get emeraldEdge =>
+      dark ? GameColors.emeraldEdgeDark : GameColors.emeraldEdgeLight;
+
+  /// The fixed semantic stat colours, legible in the current mode: the
+  /// vivid original in dark, its darkened ink in light. See the
+  /// `icon*InkLight` block in [GameColors] for why the `*Dim` values could
+  /// not do this job.
+  Color get iconGold => dark ? GameColors.iconGold : GameColors.iconGoldInkLight;
+  Color get iconStreak =>
+      dark ? GameColors.iconStreak : GameColors.iconStreakInkLight;
+  Color get iconXp => dark ? GameColors.iconXp : GameColors.iconXpInkLight;
+  Color get iconSuccess =>
+      dark ? GameColors.iconSuccess : GameColors.iconSuccessInkLight;
+  Color get iconSleep =>
+      dark ? GameColors.iconSleep : GameColors.iconSleepInkLight;
 }
 
 extension BuildContextGameTheme on BuildContext {
@@ -343,13 +525,10 @@ abstract final class GameTextStyles {
   static TextStyle get labelSmall => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 11, fontWeight: FontWeight.w600, color: GameColors.textSecondary, letterSpacing: 0.5, height: 1.25).copyWith(fontFamilyFallback: fontFallback);
 
   static TextStyle get xpLabel => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.xpBlue, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get goldLabel => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 13, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: 0.5, height: 1.2).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get levelDisplay => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 40, fontWeight: FontWeight.w800, color: GameColors.gold, letterSpacing: -1.0, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
   static TextStyle get streakDisplay => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 32, fontWeight: FontWeight.w800, color: GameColors.streakOrange, letterSpacing: -0.8, height: 1.05).copyWith(fontFamilyFallback: fontFallback);
 
   static TextStyle get arabicTitle => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 24, fontWeight: FontWeight.w700, color: GameColors.textPrimary, height: 1.55).copyWith(fontFamilyFallback: fontFallback);
   static TextStyle get arabicBody => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 16, fontWeight: FontWeight.w400, color: GameColors.textPrimary, height: 1.65).copyWith(fontFamilyFallback: fontFallback);
-  static TextStyle get arabicLabel => GoogleFonts.getFont(_active.googleFontsFamily, fontSize: 13, fontWeight: FontWeight.w700, color: GameColors.gold, height: 1.45).copyWith(fontFamilyFallback: fontFallback);
 }
 // ─── Spacing & Radii ─────────────────────────────────────────────────────────
 
@@ -411,13 +590,18 @@ InputDecorationTheme _inputTheme(bool dark) {
   final bd = dark ? GameColors.border : GameColors.lightBorder;
   final hint = dark ? GameColors.textTertiary : GameColors.lightTextTertiary;
   final label = dark ? GameColors.textSecondary : GameColors.lightTextSecondary;
+  // The focus ring is a border (3:1) and the floating label is text (4.5:1),
+  // so in light mode they take the accent's edge and ink rather than the
+  // accent itself, which is 1.86:1 there. Dark mode keeps the raw accent.
+  final focus = dark ? GameColors.goldEdgeDark : GameColors.goldEdgeLight;
+  final focusLabel = dark ? GameColors.goldInkDark : GameColors.goldInkLight;
   return InputDecorationTheme(
     filled: true,
     fillColor: fill,
     contentPadding: const EdgeInsets.symmetric(horizontal: GameSpacing.lg, vertical: GameSpacing.md),
     border: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: BorderSide(color: bd, width: 0.5)),
     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: BorderSide(color: bd, width: 0.5)),
-    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: BorderSide(color: GameColors.gold)),
+    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: BorderSide(color: focus)),
     errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: const BorderSide(color: GameColors.error)),
     focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius), borderSide: const BorderSide(color: GameColors.error)),
     hintStyle: TextStyle(
@@ -434,7 +618,7 @@ InputDecorationTheme _inputTheme(bool dark) {
     ),
     floatingLabelStyle: TextStyle(
       fontSize: 12,
-      color: GameColors.gold,
+      color: focusLabel,
       fontFamily: GameTextStyles.fontFamily,
       fontFamilyFallback: GameTextStyles.fontFallback,
     ),
@@ -478,7 +662,7 @@ abstract final class GameTheme {
         ),
         titleTextStyle: GameTextStyles.titleLarge,
         iconTheme: IconThemeData(color: GameColors.textPrimary),
-        actionsIconTheme: IconThemeData(color: GameColors.gold),
+        actionsIconTheme: IconThemeData(color: GameColors.goldEdgeDark),
       ),
       cardTheme: CardThemeData(
         color: GameColors.surface,
@@ -504,8 +688,12 @@ abstract final class GameTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: GameColors.gold,
-          side: BorderSide(color: GameColors.gold),
+          // Dark needed this after all: the accent is 7.00:1 on the
+          // default preset's surfaces, but only 3.16:1 on Navy's and
+          // 3.99 on Rose & Ink's. For every preset that already cleared
+          // the bar these hand back the raw accent untouched.
+          foregroundColor: GameColors.goldInkDark,
+          side: BorderSide(color: GameColors.goldEdgeDark),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
           textStyle: GameTextStyles.labelLarge,
@@ -513,7 +701,7 @@ abstract final class GameTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: GameColors.gold,
+          foregroundColor: GameColors.goldInkDark,
           textStyle: GameTextStyles.labelLarge,
         ),
       ),
@@ -522,10 +710,10 @@ abstract final class GameTheme {
         surfaceTintColor: Colors.transparent,
         indicatorColor: GameColors.gold.withAlpha(46),
         iconTheme: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? IconThemeData(color: GameColors.gold, size: 24)
+            ? IconThemeData(color: GameColors.goldInkDark, size: 24)
             : IconThemeData(color: GameColors.textTertiary, size: 24)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)
+            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.goldInkDark, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)
             : TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: GameColors.textTertiary, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)),
         elevation: 0,
         height: 72,
@@ -542,7 +730,7 @@ abstract final class GameTheme {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: GameColors.surfaceElevated,
         contentTextStyle: GameTextStyles.bodyMedium,
-        actionTextColor: GameColors.gold,
+        actionTextColor: GameColors.goldInkDark,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.chipRadius)),
         behavior: SnackBarBehavior.floating,
       ),
@@ -593,7 +781,11 @@ abstract final class GameTheme {
       scaffoldBackgroundColor: lBg,
       colorScheme: ColorScheme.light(
         primary: GameColors.gold,
-        onPrimary: lTp,
+        // Same reason as filledButtonTheme's: whatever Material paints on
+        // top of `primary` (a picker's selected chip, say) needs an ink
+        // chosen by the accent's luminance, not the body ink, which is
+        // only 3.75:1 on Navy's accent.
+        onPrimary: GameColors.onGold,
         secondary: GameColors.xpBlue,
         onSecondary: Colors.white,
         tertiary: GameColors.streakOrange,
@@ -618,7 +810,7 @@ abstract final class GameTheme {
         ),
         titleTextStyle: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: lTp, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback),
         iconTheme: IconThemeData(color: lTp),
-        actionsIconTheme: IconThemeData(color: GameColors.gold),
+        actionsIconTheme: IconThemeData(color: GameColors.goldEdgeLight),
       ),
       cardTheme: CardThemeData(
         color: lCard,
@@ -633,7 +825,10 @@ abstract final class GameTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: GameColors.gold,
-          foregroundColor: lTp,
+          // `onGold` rather than `lTp`: black-or-white by the accent's own
+          // luminance. The near-black body ink only measured 3.75:1 on
+          // Navy's comparatively dark accent, and clears 4.97:1 this way.
+          foregroundColor: GameColors.onGold,
           disabledBackgroundColor: lHL,
           disabledForegroundColor: lTt,
           elevation: 0,
@@ -644,8 +839,13 @@ abstract final class GameTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: GameColors.gold,
-          side: BorderSide(color: GameColors.gold),
+          // Not `gold` for either of these, and the gap is not small: the
+          // accent is 1.86:1 on this background, so an outlined button used
+          // to render its label, its icon AND its border below the 3:1 that
+          // is the LOWER of the two bars it has to clear. Dark mode keeps
+          // the raw accent, where the same pair measures 10.09:1.
+          foregroundColor: GameColors.goldInkLight,
+          side: BorderSide(color: GameColors.goldEdgeLight),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
           textStyle: GameTextStyles.labelLarge,
@@ -653,7 +853,10 @@ abstract final class GameTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: GameColors.gold,
+          // A text button is nothing but its label, so the accent's 1.86:1
+          // is the whole widget. Ink keeps the hue and clears AA; going
+          // neutral here instead would have cost the affordance too.
+          foregroundColor: GameColors.goldInkLight,
           textStyle: GameTextStyles.labelLarge,
         ),
       ),
@@ -662,10 +865,10 @@ abstract final class GameTheme {
         surfaceTintColor: Colors.transparent,
         indicatorColor: GameColors.gold.withAlpha(46),
         iconTheme: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? IconThemeData(color: GameColors.gold, size: 24)
+            ? IconThemeData(color: GameColors.goldInkLight, size: 24)
             : IconThemeData(color: lTt, size: 24)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.gold, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)
+            ? TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: GameColors.goldInkLight, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)
             : TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: lTt, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback)),
         elevation: 0,
         shadowColor: Colors.black12,
@@ -685,7 +888,7 @@ abstract final class GameTheme {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: lBg,
         contentTextStyle: TextStyle(fontSize: 15, color: lTp, fontFamily: GameTextStyles.fontFamily, fontFamilyFallback: GameTextStyles.fontFallback),
-        actionTextColor: GameColors.gold,
+        actionTextColor: GameColors.goldInkLight,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
           side: BorderSide(color: lBd, width: 0.5),

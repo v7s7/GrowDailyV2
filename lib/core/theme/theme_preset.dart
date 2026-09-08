@@ -126,6 +126,88 @@ class ThemePreset {
     required this.darkTextTertiary,
   });
 
+  // ─── Light-mode ink ────────────────────────────────────────────────────
+  //
+  // The accent is chosen to look right as a FILL and to read on the dark
+  // theme's near-black, and those two jobs leave it far too pale to be text
+  // on the light theme's cream. Not marginally: the default gold measures
+  // 1.86:1 on its own light background, against the 4.5:1 AA needs for a
+  // label and the 3:1 it needs for a border, and every other preset fails
+  // the same way (the best of the eleven is navy at 4.01:1).
+  //
+  // No existing token rescues it either, and it is worth being precise about
+  // why, because "just use goldDim" is the obvious wrong answer: goldDim
+  // does clear 3:1 for all eleven BUILT-IN presets, but a custom accent is
+  // any colour inside [kAccentLuminanceMin]..[kAccentLuminanceMax], and a
+  // pale cyan one drags goldDim down to 2.36:1. More fundamentally, the
+  // accent band's own FLOOR (luminance 0.26, the darkest accent the guard
+  // even admits) still only reaches 3.35:1 on cream — so no rule that paints
+  // light-mode text in the accent itself can ever pass, for any preset,
+  // present or future. The accent has to be darkened, and that is what these
+  // are.
+  //
+  // Same convention, and the same reasoning, as the hand-tuned
+  // `GameColors.tier*InkLight` values: an `Ink` variant per mode, read
+  // through `context.gp.*`, never off the raw token.
+
+  /// Luminance of the DARKEST surface this preset paints in light mode.
+  ///
+  /// Ink is solved against this rather than against [lightBg] because
+  /// [lightSurface] and [lightSurfaceHL] are both darker than the background
+  /// in most presets — cards and highlight rows are tinted, the page behind
+  /// them is nearly white. Anchoring to the background instead would look
+  /// correct on a screenshot of an empty page and quietly fail the moment
+  /// the same button sat on a card: the default preset's ink measures
+  /// 4.50:1 on its background and 4.03:1 on its own card.
+  double get lightInkFloor => [
+        lightBg,
+        lightSurface,
+        lightSurfaceHigh,
+        lightSurfaceHL,
+      ].map((c) => c.computeLuminance()).reduce((a, b) => a < b ? a : b);
+
+  /// The mirror of [lightInkFloor] for dark mode: the LIGHTEST surface this
+  /// preset paints there. In dark the ink is lighter than the ground, so the
+  /// hardest ground is the palest one, not the deepest.
+  double get darkInkCeil => [
+        darkBg,
+        darkSurface,
+        darkSurfaceElevated,
+        darkSurfaceHighlight,
+      ].map((c) => c.computeLuminance()).reduce((a, b) => a > b ? a : b);
+
+  /// The accent as a LABEL or icon (AA text, 4.5:1) in each mode.
+  ///
+  /// Dark needs this too, which was not obvious and is worth stating: the
+  /// default preset's accent measures 7.00:1 on its dark surfaces, so dark
+  /// looked fine and was left alone at first. It is the SIGNATURE-colour
+  /// presets that fail — Navy's accent is 3.16:1 on its own dark card,
+  /// Rose & Ink's 3.99, Amber Dusk's 4.35 — and the grid colour is worse
+  /// still, down to 1.76:1 on Nour Violet. For every preset that already
+  /// clears the bar the lift is a no-op and the colour is handed back
+  /// untouched, so only the presets that were actually broken change.
+  Color get goldInkLight => darkenToContrast(gold, lightInkFloor, 4.5);
+  Color get goldInkDark => lightenToContrast(gold, darkInkCeil, 4.5);
+
+  /// The accent as a BORDER, rule or focus ring (AA non-text, 3:1). Kept
+  /// separate from the ink because a border is held to the lower bar, and
+  /// stopping there leaves it visibly closer to the accent proper.
+  Color get goldEdgeLight => darkenToContrast(gold, lightInkFloor, 3.0);
+  Color get goldEdgeDark => lightenToContrast(gold, darkInkCeil, 3.0);
+
+  /// [emerald] given the same treatment, for the places that use the grid
+  /// colour as ink rather than as a filled square.
+  Color get emeraldInkLight => darkenToContrast(emerald, lightInkFloor, 4.5);
+  Color get emeraldInkDark => lightenToContrast(emerald, darkInkCeil, 4.5);
+
+  /// The grid colour's border-weight sibling. It exists because the obvious
+  /// shortcut does not work: softening the 4.5:1 ink with an alpha to make a
+  /// lighter border lands at 2.977:1 on the default preset's highlight
+  /// surface, under the bar by less than it looks like it should be. Solving
+  /// for 3:1 directly is both correct and one fewer number to guess.
+  Color get emeraldEdgeLight => darkenToContrast(emerald, lightInkFloor, 3.0);
+  Color get emeraldEdgeDark => lightenToContrast(emerald, darkInkCeil, 3.0);
+
   /// Builds a preset from the only two decisions a preset actually contains:
   /// the **accent** and the **grid/success** colour. Everything else — the
   /// four accent touches, the dim variants, and all eighteen structural
@@ -921,6 +1003,65 @@ Color _fitLuminance(Color c, double lo, double hi) {
   // just corrected into, which is the whole thing this function exists to
   // prevent.
   return hsl.withLightness(l < lo ? high : low).toColor();
+}
+
+/// The darkest surface ANY preset paints in light mode, and the lightest it
+/// paints in dark — the two bounds a FIXED colour has to survive.
+///
+/// Measured, not guessed: swept over every built-in preset and over the
+/// whole space of custom accents the guard admits (12,324 in-band colours,
+/// every hue). The light floor is Nour Violet's tinted highlight surface at
+/// 0.626, undercut only by a custom near-grey accent at 0.613; the dark
+/// ceiling is 0.032. Anything solved against these reads on every preset,
+/// which is what lets the semantic colours stay single constants instead of
+/// being derived per preset.
+const double kLightSurfaceFloor = 0.613;
+const double kDarkSurfaceCeil = 0.032;
+
+/// The luminance a foreground may not exceed if it is to clear [target]:1
+/// against a background at [bgLuminance] — the WCAG ratio definition,
+/// (Lhi + 0.05) / (Llo + 0.05), solved for the darker of the two sides.
+double _maxLuminanceFor(double bgLuminance, double target) =>
+    (bgLuminance + 0.05) / target - 0.05;
+
+/// [c] darkened until it clears [target]:1 against a background sitting at
+/// [bgLuminance], or handed back untouched if it already does.
+///
+/// This is [_fitLuminance] with no floor, and deliberately so: the correction
+/// an accent needs on a light background is only ever downwards, and reusing
+/// the one bisection in this file is the whole point — a second copy of this
+/// maths would be a second copy to get subtly wrong, and the wrong one would
+/// be silent. Hue and saturation survive, so what comes back is still
+/// recognisably the preset's own colour, just deep enough to read as ink.
+Color darkenToContrast(Color c, double bgLuminance, double target) =>
+    _fitLuminance(c, 0.0, _maxLuminanceFor(bgLuminance, target));
+
+/// The luminance a foreground must REACH to clear [target]:1 against a
+/// background at [bgLuminance] — the same WCAG definition solved for the
+/// lighter of the two sides instead.
+double _minLuminanceFor(double bgLuminance, double target) =>
+    (bgLuminance + 0.05) * target - 0.05;
+
+/// [c] lightened until it clears [target]:1 against a background at
+/// [bgLuminance], or handed back untouched if it already does.
+///
+/// The dark-mode mirror of [darkenToContrast]: there the correction is only
+/// ever downwards, here only ever upwards, and both run through the one
+/// bisection in this file so there is a single place to get the maths
+/// wrong. Hue and saturation survive, so a grid green that is too deep to
+/// read on a dark card comes back a lighter green, not a grey.
+Color lightenToContrast(Color c, double bgLuminance, double target) =>
+    _fitLuminance(c, _minLuminanceFor(bgLuminance, target), 1.0);
+
+/// WCAG relative-contrast ratio between two OPAQUE colours, 1.0..21.0.
+/// Translucent colours have to be flattened over their background first —
+/// this cannot do it for you, because it cannot know what is underneath.
+double contrastRatio(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  final hi = la > lb ? la : lb;
+  final lo = la > lb ? lb : la;
+  return (hi + 0.05) / (lo + 0.05);
 }
 
 abstract final class ThemePresets {

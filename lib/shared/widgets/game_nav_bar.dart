@@ -156,7 +156,7 @@ class _MaterialNavBar extends StatelessWidget {
           destinations: [
             for (final item in items)
               NavigationDestination(
-                icon: _materialIcon(item),
+                icon: _materialIcon(context, item),
                 label: item.label,
               ),
           ],
@@ -274,7 +274,7 @@ class _GlassNavBar extends StatelessWidget {
   }
 }
 
-class _GlassNavItem extends StatelessWidget {
+class _GlassNavItem extends StatefulWidget {
   final _NavItem item;
   final bool selected;
   final Color unselectedColor;
@@ -288,8 +288,55 @@ class _GlassNavItem extends StatelessWidget {
   });
 
   @override
+  State<_GlassNavItem> createState() => _GlassNavItemState();
+}
+
+/// Stateful for one reason: the pill and the ink have to move together.
+///
+/// The pill was already an AnimatedContainer, but the icon colour, the label
+/// colour and the label's weight all snapped on the same tap. Switching tabs
+/// therefore looked like two events — a pill that eased over 160ms and a
+/// letterform that changed instantly — which reads as a glitch rather than
+/// as a transition.
+///
+/// One controller drives all three, so there is a single source of truth for
+/// "how selected is this tab right now", and nothing can drift. An explicit
+/// controller rather than TweenAnimationBuilder because that one animates
+/// from its tween's begin on FIRST build, so every tab would have faded in
+/// on launch; `value:` seeds this one at its resting position instead.
+class _GlassNavItemState extends State<_GlassNavItem>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: GameMotion.quick,
+    value: widget.selected ? 1 : 0,
+  );
+  late final Animation<double> _t =
+      CurvedAnimation(parent: _c, curve: Curves.easeOut);
+
+  @override
+  void didUpdateWidget(covariant _GlassNavItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected != oldWidget.selected) {
+      widget.selected ? _c.forward() : _c.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final color = selected ? GameColors.gold : unselectedColor;
+    // Ink, not the raw accent. This bar is a custom widget, so it never
+    // read navigationBarTheme and the theme's own light-mode fix could not
+    // reach it: the selected tab measured 2.24:1 on the light background,
+    // on the one control that is on screen for the whole session.
+    final selectedColor = context.gp.goldInk;
+    final item = widget.item;
+    final selected = widget.selected;
     return Expanded(
       // The label is already on screen as text, so `container: true` is what
       // matters here: without it the icon and the word announced as two
@@ -302,13 +349,20 @@ class _GlassNavItem extends StatelessWidget {
         selected: selected,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: AnimatedContainer(
-          duration: GameMotion.quick,
-          curve: Curves.easeOut,
+          onTap: widget.onTap,
+          child: AnimatedBuilder(
+            animation: _t,
+            builder: (context, child) {
+              final t = _t.value;
+              // One value, three properties. The pill's own fill is driven
+              // from it too rather than from `selected`, so the wash, the
+              // ink and the weight cannot come apart mid-transition.
+              final color =
+                  Color.lerp(widget.unselectedColor, selectedColor, t)!;
+              return Container(
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 3),
           decoration: BoxDecoration(
-            color: selected ? GameColors.gold.withOpacity(0.16) : Colors.transparent,
+            color: GameColors.gold.withValues(alpha: 0.16 * t),
             borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
@@ -338,12 +392,18 @@ class _GlassNavItem extends StatelessWidget {
                     .clamp(maxScaleFactor: 1.4),
                 style: TextStyle(
                   fontSize: 10,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  // Lerped, not switched. FontWeight.lerp still lands on
+                  // whole weights, but it steps through them over the same
+                  // 160ms as the wash instead of jumping on the tap frame.
+                  fontWeight:
+                      FontWeight.lerp(FontWeight.w500, FontWeight.w700, t),
                   color: color,
                 ),
               ),
               ],
             ),
+              );
+            },
           ),
         ),
       ),
@@ -353,14 +413,14 @@ class _GlassNavItem extends StatelessWidget {
 
 /// Material's own Badge in the app's colours, so the Android bar says the
 /// same thing as the glass bar in its platform's native voice.
-Widget _materialIcon(_NavItem item) {
+Widget _materialIcon(BuildContext context, _NavItem item) {
   final badge = item.badge;
   final icon = Icon(item.icon);
   if (badge == null || badge.isEmpty) return icon;
   if (badge.dot) {
     return Badge(
       smallSize: 7,
-      backgroundColor: GameColors.iconXp,
+      backgroundColor: context.gp.iconXp,
       child: icon,
     );
   }
@@ -393,7 +453,7 @@ class _GlassBadgedIcon extends StatelessWidget {
               width: 7,
               height: 7,
               decoration: BoxDecoration(
-                color: GameColors.iconXp,
+                color: context.gp.iconXp,
                 shape: BoxShape.circle,
               ),
             ),
