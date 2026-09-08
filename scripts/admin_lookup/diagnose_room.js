@@ -97,6 +97,12 @@ function weekStart(d) {
   console.log(`  status      : ${room.status || '(none)'}   mode: ${room.habitMode || '?'}`);
   console.log(`  startDate   : ${keyOf(start)}`);
   console.log(`  counts thru : ${keyOf(last)}   -> ${days.length} day(s) elapsed`);
+  // The one field that explains a blank run of days on the strip: while a
+  // span covers a day, nobody is graded on it and the app draws it stood
+  // down. PBYAS5 (2026-09-08) kept a 3-6 September span after its pause was
+  // clipped, and without this line the table below looked complete.
+  const spans = Array.isArray(room.pausedSpans) ? room.pausedSpans : [];
+  console.log(`  pausedSpans : ${spans.length ? JSON.stringify(spans) : 'none'}`);
   if (Array.isArray(room.sharedHabits) && room.sharedHabits.length) {
     console.log('  shared plan :');
     room.sharedHabits.forEach((h, i) => {

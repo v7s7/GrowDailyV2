@@ -42,7 +42,7 @@ part of 'room_detail_screen.dart';
 ///
 /// [backdrop] must be the opaque colour actually behind the cell, so that
 /// an UNMARKED cell is pixel-identical to what it drew before — see
-/// _MiniHeatmapStrip._cellBackdrop, which resolves the gold-tinted "you"
+/// RoomStrip._cellBackdrop, which resolves the gold-tinted "you"
 /// card separately from everyone else's.
 ///
 /// Pure and top-level so the invariant is testable without building the
@@ -64,11 +64,12 @@ Color roomStripCellFill({
   // RoomParticipant.standDownDays: the day is excluded from both sides of the
   // ratio, so the honest drawing is a neutral one.
   //
-  // A tone rather than a blank, unlike a ROOM-level pause (which draws nothing
-  // at all, see _cellFor). The room not running is a fact about the room, and
-  // every strip on the card has the same hole in the same place. A member
-  // standing their own habit down is a fact about THEM, one row out of
-  // several, and a blank there would read as a rendering gap.
+  // A tone rather than a blank. A ROOM-level pause takes this arm too (see
+  // _cellFor): it used to draw nothing, on the theory that a hole every strip
+  // shares reads as "the room was off", but in practice four empty slots in
+  // the middle of a month read as missing days. Whether the room stood down
+  // or the member did, the day happened and nothing was owed, and one faint
+  // dash says that for both.
   if (isStoodDown) {
     return Color.alphaBlend(
       (dark ? Colors.white : Colors.black).withOpacity(0.07),
@@ -179,37 +180,29 @@ List<RoomStripColumn> roomStripColumns(int lead, List<DateTime> days) {
   );
 }
 
-/// The month labels for one run of week columns, each with how many columns
-/// it spans.
+/// The month labels across the strip, each with how many columns it spans.
 ///
 /// [leadingBreak] marks a segment that follows a month change, so the header
 /// inserts the same wider gap the column row inserts there
-/// (roomStripMonths.starts → `_gap * 5`). Both are read off the SAME
+/// (roomStripMonths.starts → `_breakGap`). Both are read off the SAME
 /// per-column [monthKey], which is what keeps a label centred over its own
 /// weeks: a segment of n columns is laid out exactly `n * _cell + (n - 1) *
 /// _gap` wide, so the moment the two disagreed about which column a month
 /// owns, every label after that boundary drifted.
 ///
-/// The first segment of a run never carries a break, matching the column
-/// row, which only inserts a gap for `c > 0`.
+/// The first segment never carries a break, matching the column row, which
+/// only opens a gap for `c > 0`. There is exactly one row of columns (the
+/// strip scrolls sideways instead of wrapping, see [RoomStrip]), so the
+/// segments run from the first column to the last with nothing left over.
 List<({String label, int span, bool leadingBreak})> roomStripMonthSegments(
-  int run,
-  int perRun,
-  int weekCount,
   List<int> monthKey,
   List<String> monthLabel,
 ) {
   final out = <({String label, int span, bool leadingBreak})>[];
-  var lastKey = -1;
-  for (var c = 0; c < perRun && run * perRun + c < weekCount; c++) {
-    final w = run * perRun + c;
-    if (out.isEmpty || monthKey[w] != lastKey) {
+  for (var w = 0; w < monthKey.length; w++) {
+    if (out.isEmpty || monthKey[w] != monthKey[w - 1]) {
       out.add(
-        (
-          label: monthLabel[w],
-          span: 1,
-          leadingBreak: out.isNotEmpty,
-        ),
+        (label: monthLabel[w], span: 1, leadingBreak: out.isNotEmpty),
       );
     } else {
       final last = out.removeLast();
@@ -221,69 +214,8 @@ List<({String label, int span, bool leadingBreak})> roomStripMonthSegments(
         ),
       );
     }
-    lastKey = monthKey[w];
   }
   return out;
-}
-
-/// How many week columns fit on one line, given the width available and where
-/// the month breaks fall.
-///
-/// This used to be a single division — `(maxWidth + gap) / (cell + gap)` —
-/// which priced EVERY inter-column gap at [_MiniHeatmapStrip._gap]. But both
-/// rows widen a gap to `_gap * 5` at each month break ([roomStripMonths]'s
-/// starts), so a run holding B breaks is `4 * _gap * B` wider than that
-/// division allowed: 12pt per break. On a four-month room at a 402pt phone
-/// width the division chose 15 columns, whose run carried four breaks and
-/// needed 315pt against 274pt available. The `Row` overflowed the card, and
-/// in release there is no warning stripe — RenderFlex only paints that under
-/// an assert and clipBehavior is Clip.none — so it spilled silently, the same
-/// failure the leaderboard row had.
-///
-/// The answer can't be computed in one step, because it is circular: [perRun]
-/// decides which breaks land inside a run, and those breaks decide the width
-/// [perRun] needs. So start at the division's answer — always an upper bound,
-/// since breaks only ever cost width — and step down until every run fits.
-/// [starts] is small (one entry per month), so this is a handful of passes
-/// over a list of at most ~13 columns.
-///
-/// Pure and top-level for the same reason [roomStripMonths] is: the invariant
-/// is that no run is ever laid out wider than the width it was chosen for,
-/// and that must be testable without building the whole room screen.
-int roomStripPerRun(double maxWidth, int weekCount, List<int> starts) {
-  const cell = _MiniHeatmapStrip._cell;
-  const gap = _MiniHeatmapStrip._gap;
-  // What one month break costs over an ordinary gap. Both rows open the same
-  // `_gap * 5` there, so one number prices the cell row and the header band.
-  const breakExtra = gap * 5 - gap;
-  final breaks = starts.toSet();
-
-  /// Exactly what the rows lay out: [n] cells, an ordinary gap between each,
-  /// widened at any column that starts a month. Column [first] never carries
-  /// one, matching both rows, which only open a gap for `c > 0`.
-  double runWidth(int first, int n) {
-    var w = n * cell + (n - 1) * gap;
-    for (var c = 1; c < n; c++) {
-      if (breaks.contains(first + c)) w += breakExtra;
-    }
-    return w;
-  }
-
-  var perRun = ((maxWidth + gap) / (cell + gap)).floor().clamp(1, weekCount);
-  while (perRun > 1) {
-    var fits = true;
-    for (var first = 0; first < weekCount; first += perRun) {
-      final remaining = weekCount - first;
-      final n = perRun < remaining ? perRun : remaining;
-      if (runWidth(first, n) > maxWidth) {
-        fits = false;
-        break;
-      }
-    }
-    if (fits) break;
-    perRun--;
-  }
-  return perRun;
 }
 
 /// One month's name, centred on the block of week columns it owns.
@@ -348,7 +280,141 @@ class RoomStripMonthLabel extends StatelessWidget {
   }
 }
 
-class _MiniHeatmapStrip extends StatelessWidget {
+/// The strip's sideways viewport: one line of week columns that opens on
+/// the newest month and slides back through the older ones, with a fade on
+/// whichever edge still hides more.
+///
+/// Aziz, 2026-09-08, on the wrapped layout (a second line of columns under
+/// the first): "it should never be like this double row, keep it scrollable
+/// right and left for the months, and when the user enters the room it must
+/// be scrolled to the recent month, Arabic or English, and slide back to the
+/// previous months".
+///
+/// `reverse: true` is what makes "opens on today" free in both directions:
+/// offset zero of a reversed viewport is the END of the content, so the
+/// newest column and its «اليوم» label are on screen at first build, with
+/// no controller, no post-frame jump and no locale check. Older months lie
+/// past the leading edge (the right, in Arabic) and a finger slide brings
+/// them in.
+///
+/// When the columns fit, the content is stretched to the viewport (minWidth)
+/// and start-aligned inside it, so a short room keeps the shape it always
+/// had: first column at the leading edge, «البداية» beside it, nothing to
+/// scroll. Nothing is pinned outside the viewport on purpose: the strip has
+/// no weekday letters, and the two labels belong beside the squares they
+/// name, so there is nothing that should stay put while the months move.
+class _RoomStripScroller extends StatefulWidget {
+  /// The width the viewport is laid out at.
+  final double viewportWidth;
+
+  /// The content's laid-out width, computed by the strip from the same
+  /// constants its rows use, so the first frame already knows whether an
+  /// edge hides anything without waiting for scroll metrics.
+  final double contentWidth;
+
+  /// The opaque colour the fades dissolve into, i.e. the card behind the
+  /// cells (see RoomStrip._cellBackdrop).
+  final Color backdrop;
+
+  final Widget child;
+
+  const _RoomStripScroller({
+    required this.viewportWidth,
+    required this.contentWidth,
+    required this.backdrop,
+    required this.child,
+  });
+
+  @override
+  State<_RoomStripScroller> createState() => _RoomStripScrollerState();
+}
+
+class _RoomStripScrollerState extends State<_RoomStripScroller> {
+  /// Which edges still hide content. Before the first scroll the viewport
+  /// rests at offset zero, the newest end, so everything hidden lies past
+  /// the leading edge.
+  late bool _moreAtStart = widget.contentWidth > widget.viewportWidth + 0.5;
+  bool _moreAtEnd = false;
+
+  /// Re-reads both edges from the live metrics. Called for every scroll
+  /// frame and for the metrics notification the viewport sends after a
+  /// layout, which is what corrects the initial guess above if a rebuild
+  /// changed the content width under a kept scroll offset.
+  bool _onMetrics(ScrollMetrics m) {
+    if (!m.hasContentDimensions || !m.hasPixels) return false;
+    final start = m.pixels < m.maxScrollExtent - 0.5;
+    final end = m.pixels > m.minScrollExtent + 0.5;
+    if (start != _moreAtStart || end != _moreAtEnd) {
+      setState(() {
+        _moreAtStart = start;
+        _moreAtEnd = end;
+      });
+    }
+    return false;
+  }
+
+  Widget _fade({required bool atStart}) {
+    return IgnorePointer(
+      child: Container(
+        width: RoomStrip._fadeWidth,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: atStart
+                ? AlignmentDirectional.centerStart
+                : AlignmentDirectional.centerEnd,
+            end: atStart
+                ? AlignmentDirectional.centerEnd
+                : AlignmentDirectional.centerStart,
+            colors: [widget.backdrop, widget.backdrop.withOpacity(0)],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationListener<ScrollMetricsNotification>(
+      onNotification: (n) => _onMetrics(n.metrics),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (n) => _onMetrics(n.metrics),
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              reverse: true,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: widget.viewportWidth),
+                child: widget.child,
+              ),
+            ),
+            if (_moreAtStart)
+              PositionedDirectional(
+                start: 0,
+                top: 0,
+                bottom: 0,
+                child: _fade(atStart: true),
+              ),
+            if (_moreAtEnd)
+              PositionedDirectional(
+                end: 0,
+                top: 0,
+                bottom: 0,
+                child: _fade(atStart: false),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One participant's record in a room: their days as Saturday-start week
+/// columns under month names, in a single line that scrolls sideways and
+/// opens on the newest month (see [_RoomStripScroller]). Public so the
+/// layout can be pumped in a test with a real room and participant; the
+/// leaderboard row is its only caller in the app.
+class RoomStrip extends StatelessWidget {
   final RoomModel room;
   final RoomParticipant participant;
 
@@ -366,7 +432,8 @@ class _MiniHeatmapStrip extends StatelessWidget {
   /// row honest (a miss is still a red cross) while a tap keeps the record.
   final bool compact;
 
-  const _MiniHeatmapStrip({
+  const RoomStrip({
+    super.key,
     required this.room,
     required this.participant,
     required this.isYou,
@@ -416,29 +483,53 @@ class _MiniHeatmapStrip extends StatelessWidget {
   /// length is a number the leader chose up front, so it can't surprise
   /// anyone, and seeing the whole thing is the entire point.
   ///
-  /// An open room has no such bound - left running it would add a line every
-  /// few weeks forever, growing every participant's card without limit. The
-  /// old code capped this at 30 for the same reason, just in the other
-  /// dimension (an unbounded *row*). Roughly a season of history, three or
-  /// four lines at typical phone widths.
-  static const int _maxOpenRoomDays = 90;
+  /// An open room has no such bound. While the strip wrapped its weeks into
+  /// lines this was 90, because every extra month grew every participant's
+  /// card by a line, forever. The strip scrolls sideways now (2026-09-08),
+  /// so history costs no height and a year of it is a few slides away
+  /// instead of cut off. Still capped: every day is a widget in every
+  /// expanded row, and an open room left running for years should not build
+  /// thousands of them per member.
+  static const int _maxOpenRoomDays = 366;
 
   /// 12pt cells on a 15pt pitch, up from 9 on 11.5.
   ///
-  /// The strip is `IntrinsicWidth`-centred inside a full-width card, so at
-  /// the old size a 20-day room drew three columns — about 35pt of grid —
+  /// At the old size a 20-day room drew three columns, about 35pt of grid,
   /// floating in ~270pt of empty card. It read as an afterthought rather
-  /// than as this participant's record. The extra 3pt per cell is spent on
-  /// width that was already there and doing nothing; a 15pt pitch still
-  /// fits ~18 columns (four months) on one line at phone widths before any
-  /// wrapping kicks in.
+  /// than as this participant's record. The pitch is fixed whatever the
+  /// room's length: the strip never shrinks or wraps to fit, it scrolls.
   static const double _cell = 15;
   static const double _gap = 3;
 
-  /// Width reserved beside the grid for a pinned cell label, and the width
-  /// those labels are laid out at. One constant so the inset and the label
-  /// can never disagree — if they do, the label clips.
+  /// The wider gap that opens between two months' columns, in the header
+  /// band and in the cell row alike.
+  static const double _breakGap = _gap * 5;
+
+  /// Width reserved beside the first column for its pinned label
+  /// («البداية 07/28»), and the width that label is laid out at. One
+  /// constant so the reserve and the label can never disagree; if they do,
+  /// the label clips. The reserve is part of the scrolling content, so the
+  /// label travels with the cell it names.
   static const double _labelInset = 64;
+
+  /// The same, beside the last column, for «اليوم» / "Today". Narrower on
+  /// purpose: the word is a third the width of the dated start label, and
+  /// the two reserves come straight off the room the columns have before
+  /// the strip has to scroll. At 64 on both sides a six-week room no
+  /// longer fit the 245pt the leaderboard card leaves on a 402pt phone, and
+  /// the viewport, resting on the newest end, cut the first letter off
+  /// «البداية».
+  static const double _todayInset = 32;
+
+  /// Breathing room between a pinned label and its cell. At 4pt the two
+  /// touched and read as one smudged object rather than a label and its
+  /// subject.
+  static const double _labelGap = 7;
+
+  /// How far an edge fade reaches over the cells when more months are
+  /// hidden past that edge. Wide enough to soften a cut column, narrow
+  /// enough never to dim a whole one.
+  static const double _fadeWidth = 22;
 
   /// Fixed, theme-independent marker tones for the first cell — deliberately
   /// NOT GameColors.*, permanently. Same rule as the icon*/tier*Shine consts
@@ -577,21 +668,26 @@ class _MiniHeatmapStrip extends StatelessWidget {
       }
     }
 
-    // Dead since the single strip-wide title was replaced by per-column
-    // month segments (roomStripMonthSegments), which label each column run with
-    // its own month instead of naming the whole span once. Removed rather
-    // than left dangling: it still formatted two dates on every rebuild of
-    // every row.
+    // Exactly what the two rows below lay out, so the scroller knows before
+    // its first frame whether anything is hidden: the label reserve on each
+    // side, one cell per column, an ordinary gap between neighbours, widened
+    // at every column that opens a month.
+    final contentWidth = (_labelInset + _labelGap) +
+        (_todayInset + _labelGap) +
+        columnCount * _cell +
+        (columnCount - 1) * _gap +
+        monthStarts.length * (_breakGap - _gap);
 
     // The whole strip is the tap target, and the only one. Its rendered
-    // height (11pt label slot + 7 cells + 6 gaps ≈ 89pt) and full card width
-    // clear HIG's 44pt several times over, which no individual 9pt cell can
+    // height (header band + 7 cells + 6 gaps ≈ 130pt) and full card width
+    // clear HIG's 44pt several times over, which no individual 12pt cell can
     // ever do — see _ParticipantCalendarSheet's doc comment for why per-day
     // tapping is not solvable here at any size.
     //
-    // Plain onTap, deliberately: it loses the gesture arena to a vertical
-    // drag, so the enclosing ListView still scrolls and pull-to-refresh
-    // still works. onPanDown/onLongPress would each steal that.
+    // Plain onTap, deliberately: it loses the gesture arena to a drag, so a
+    // sideways slide scrolls the months, a vertical one still scrolls the
+    // enclosing ListView and pull-to-refresh still works. onPanDown or
+    // onLongPress would each steal one of those.
     return Semantics(
       button: true,
       label: s.roomStripOpenCalendar,
@@ -603,160 +699,123 @@ class _MiniHeatmapStrip extends StatelessWidget {
           participant: participant,
           isYou: isYou,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Reserved room for the "البداية" label, which is pinned to the
-            // leading side of column 0. The grid is start-aligned, so in Arabic
-            // column 0 sits hard against the card's right edge and that label
-            // had nowhere to go — it clipped. Insetting the grid by the label's
-            // own width guarantees the space instead of hoping the card is wide
-            // enough, and costs nothing visually: the strip is a few columns
-            // wide inside a full-width card either way.
-            Padding(
-              padding: const EdgeInsetsDirectional.only(start: _labelInset),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // How many columns fit on one line — counting the wider
-                  // gap a month break opens, which a flat division does not.
-                  // See roomStripPerRun.
-                  final perRun = roomStripPerRun(
-                    constraints.maxWidth,
-                    columnCount,
-                    monthStarts,
-                  );
-
-                  // IntrinsicWidth so the Column is exactly as wide as its widest
-                  // run — which is what lets the title centre over the SQUARES
-                  // rather than over the card, the thing that made it look
-                  // randomly placed before.
-                  return IntrinsicWidth(
-                    child: Column(
-                      children: [
-                        for (var run = 0; run * perRun < columnCount; run++) ...[
-                          if (run > 0) const SizedBox(height: _gap * 2),
-                          // The merged-header band: one label per month,
-                          // centred over exactly the columns that belong to
-                          // it and no others — the spreadsheet shape, where
-                          // "أغسطس" spans its own five week columns and stops.
-                          //
-                          // Replaces a single "يوليو – أغسطس" centred over
-                          // everything, which named a span without saying
-                          // where one month ended, so the week numbers under
-                          // it (they restart at 1 each month) looked like a
-                          // counter resetting for no reason. Segment widths
-                          // are derived from the very same _cell/_gap
-                          // constants the row below uses, so the header can
-                          // never drift out of alignment with its columns.
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              for (final seg in roomStripMonthSegments(
-                                run,
-                                perRun,
-                                columnCount,
-                                months.keys,
-                                months.labels,
-                              )) ...[
-                                if (seg.leadingBreak)
-                                  const SizedBox(width: _gap * 5),
-                                RoomStripMonthLabel(
-                                  label: seg.label,
-                                  width: seg.span * _cell +
-                                      (seg.span - 1) * _gap,
+        child: LayoutBuilder(
+          builder: (context, constraints) => _RoomStripScroller(
+            viewportWidth: constraints.maxWidth,
+            contentWidth: contentWidth,
+            backdrop: backdrop,
+            child: Padding(
+              // The reserve for the pinned labels sits INSIDE the scrolling
+              // content, on both sides: «البداية» beside column 0, «اليوم»
+              // beside the last. Each travels with its own cell, and the
+              // viewport's edge clips it with the cells it names rather than
+              // leaving a label floating beside squares from another month.
+              // The 2pt below keep a bottom-row label's box, which is taller
+              // than its cell, inside the clip.
+              padding: const EdgeInsetsDirectional.only(
+                start: _labelInset + _labelGap,
+                end: _todayInset + _labelGap,
+                bottom: 2,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                // Start, so a strip shorter than the card keeps its first
+                // column at the leading edge, the shape it always had.
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // The merged-header band: one label per month, centred
+                  // over exactly the columns that belong to it and no
+                  // others — the spreadsheet shape, where "أغسطس" spans its
+                  // own five week columns and stops. Segment widths are
+                  // derived from the very same _cell/_gap constants the row
+                  // below uses, so the header can never drift out of
+                  // alignment with its columns.
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final seg in roomStripMonthSegments(
+                        months.keys,
+                        months.labels,
+                      )) ...[
+                        if (seg.leadingBreak)
+                          const SizedBox(width: _breakGap),
+                        RoomStripMonthLabel(
+                          label: seg.label,
+                          width: seg.span * _cell + (seg.span - 1) * _gap,
+                          color: gp.textTert,
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  // Row, not Wrap — it follows the ambient Directionality,
+                  // so column 0 (the oldest week, and therefore the first
+                  // month) sits on the RIGHT in Arabic and time runs right
+                  // to left, the same way the Grid's days do. One row,
+                  // always: however long the room, the columns never wrap
+                  // onto a second line. The viewport around it scrolls.
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var c = 0; c < columnCount; c++) ...[
+                        if (c > 0)
+                          SizedBox(
+                            width: monthStarts.contains(c) ? _breakGap : _gap,
+                          ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: _cell,
+                              child: Text(
+                                '${weekIndex[c]}',
+                                textAlign: TextAlign.center,
+                                textDirection: TextDirection.ltr,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  height: 1,
+                                  fontWeight: FontWeight.w700,
                                   color: gp.textTert,
                                 ),
-                              ],
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            // How the week went, in the one channel a 12pt
+                            // column has room for: green once every day in
+                            // it is settled, amber for a closed week that
+                            // fell short, faint while it is still running.
+                            // Reads the same creditFor the percentage reads,
+                            // so it can never contradict the number at the
+                            // top of the card.
+                            Container(
+                              width: _cell,
+                              height: 2.5,
+                              decoration: BoxDecoration(
+                                color: _weekTone(columns[c], days, gp.border),
+                                borderRadius: BorderRadius.circular(1.5),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            for (var ri = 0; ri < usedRows.length; ri++) ...[
+                              if (ri > 0) const SizedBox(height: _gap),
+                              _cellFor(
+                                columns[c].dayIndex[usedRows[ri]],
+                                days,
+                                dark,
+                                s,
+                                gp.textPrimary,
+                                backdrop,
+                              ),
                             ],
-                          ),
-                          const SizedBox(height: 4),
-                          // Row, not Wrap — it follows the ambient
-                          // Directionality, so column 0 (the oldest week, and
-                          // therefore the first month) sits hard against the
-                          // RIGHT edge in Arabic and time runs right to left,
-                          // the same way the Grid's days do.
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              for (var c = 0;
-                                  c < perRun && run * perRun + c < columnCount;
-                                  c++) ...[
-                                if (c > 0)
-                                  SizedBox(
-                                    width:
-                                        monthStarts.contains(run * perRun + c)
-                                            ? _gap * 5
-                                            : _gap,
-                                  ),
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    SizedBox(
-                                      width: _cell,
-                                      child: Text(
-                                        weekIndex[run * perRun + c] == 0
-                                            ? ''
-                                            : '${weekIndex[run * perRun + c]}',
-                                        textAlign: TextAlign.center,
-                                        textDirection: TextDirection.ltr,
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          height: 1,
-                                          fontWeight: FontWeight.w700,
-                                          color: gp.textTert,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    // How the week went, in the one channel a
-                                    // 12pt column has room for: green once
-                                    // every day in it is settled, amber for a
-                                    // closed week that fell short, faint while
-                                    // it is still running. Reads the same
-                                    // creditFor the percentage reads, so it
-                                    // can never contradict the number at the
-                                    // top of the card.
-                                    Container(
-                                      width: _cell,
-                                      height: 2.5,
-                                      decoration: BoxDecoration(
-                                        color: _weekTone(
-                                          columns[run * perRun + c],
-                                          days,
-                                          gp.border,
-                                        ),
-                                        borderRadius:
-                                            BorderRadius.circular(1.5),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    for (var ri = 0;
-                                        ri < usedRows.length;
-                                        ri++) ...[
-                                      if (ri > 0) const SizedBox(height: _gap),
-                                      _cellFor(
-                                        columns[run * perRun + c]
-                                            .dayIndex[usedRows[ri]],
-                                        days,
-                                        dark,
-                                        s,
-                                        gp.textPrimary,
-                                        backdrop,
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ],
-                    ),
-                  );
-                },
+                    ],
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -791,10 +850,6 @@ class _MiniHeatmapStrip extends StatelessWidget {
         ),
       ),
     );
-    // Real breathing room between the text and the cell it names. At 4pt
-    // the two touched and read as one smudged object rather than a label
-    // and its subject.
-    const gapFromCell = 7.0;
     // Taller than the 9pt cell, and centred on it. Constraining the box to
     // the cell's own height was the other half of the cropping: 9pt is less
     // than one line of 9.5pt Arabic needs, so the text was clipped top and
@@ -804,17 +859,17 @@ class _MiniHeatmapStrip extends StatelessWidget {
     const topOffset = (_cell - labelHeight) / 2;
     return towardsStart
         ? PositionedDirectional(
-            start: -(_labelInset + gapFromCell),
+            start: -(_labelInset + _labelGap),
             top: topOffset,
             height: labelHeight,
             width: _labelInset,
             child: label,
           )
         : PositionedDirectional(
-            end: -(_labelInset + gapFromCell),
+            end: -(_todayInset + _labelGap),
             top: topOffset,
             height: labelHeight,
-            width: _labelInset,
+            width: _todayInset,
             child: label,
           );
   }
@@ -844,6 +899,9 @@ class _MiniHeatmapStrip extends StatelessWidget {
       if (i < 0) continue;
       final day = days[i];
       if (day.isAfter(room.lastCountedDay)) continue;
+      // A paused day is outside the score on both sides (daysElapsedIn skips
+      // it), so it must not make a week of finished days read as short.
+      if (room.isPausedOn(day.toDateKey())) continue;
       real++;
       if (participant.creditFor(day.toDateKey()) >= 1.0) settled++;
       if (!_weekIsClosed(day)) open = true;
@@ -931,20 +989,20 @@ class _MiniHeatmapStrip extends StatelessWidget {
     }
     final day = days[index];
     final key = day.toDateKey();
-    // Dead time between an ending and an extension draws nothing: the room
-    // did not exist those days, so they are neither a miss nor a rest day,
-    // and they are excluded from the score too (RoomModel.pausedSpans).
+    // Dead time between an ending and an extension (RoomModel.pausedSpans):
+    // the room was not running those days, so they are neither a miss nor a
+    // rest day, and they are excluded from the score too. They stay in
+    // `days` because the column maths is `w * 7 + r - lead`, which only
+    // holds while `days` is a contiguous calendar run; dropping days from
+    // the middle would slide every later cell onto the wrong weekday row.
     //
-    // A blank placeholder, NOT a removal from `days`. The column maths below
-    // is `w * 7 + r - lead`, which only holds while `days` is a contiguous
-    // calendar run — dropping days from the middle would slide every later
-    // cell onto the wrong weekday row and quietly destroy the one property
-    // the week-column layout exists for. So the gap stays in the list and
-    // simply paints nothing, which also reads correctly: a visible break
-    // where the room was paused.
-    if (room.isPausedOn(key)) {
-      return const SizedBox(width: _cell, height: _cell);
-    }
+    // Drawn as a stood-down cell, not left blank. Until 2026-09-08 a paused
+    // day painted nothing at all, and Aziz read the result on PBYAS5 as
+    // "some days are missing in September, this should never happen": four
+    // empty slots in the middle of two week columns, indistinguishable from
+    // a rendering gap. A day the room did not count is still a day, and the
+    // dash says exactly that (the participant calendar names it «موقوف»).
+    final isRoomPaused = room.isPausedOn(key);
     // Four states, not two, and the reason is that "empty" used to mean
     // both "nothing was owed" and "you missed it".
     //
@@ -968,9 +1026,9 @@ class _MiniHeatmapStrip extends StatelessWidget {
     // and miss. Taken first: every flag below is computed from counts this
     // day deliberately does not have (see RoomParticipant.standDownDays), so
     // reading them here would describe an absence as an outcome.
-    final isStoodDown = participant.isStoodDownOn(key);
+    final isStoodDown = isRoomPaused || participant.isStoodDownOn(key);
     final isRest = participant.isRestDay(key);
-    final credit = participant.creditFor(key);
+    final credit = isRoomPaused ? 0.0 : participant.creditFor(key);
     // A declared rest is settled the instant it is marked, so it bypasses the
     // _missIsFinal week gate entirely: there is nothing left to rescue on a
     // day somebody has already said they are resting.
@@ -980,6 +1038,10 @@ class _MiniHeatmapStrip extends StatelessWidget {
         !isDeclaredRest &&
         credit <= 0 &&
         _missIsFinal(day);
+    // Day 1 keeps its ring even when the room was paused on it (a span can
+    // only start after the room's own start, so this is theoretical), and a
+    // paused today keeps the gold border: the marker says where, the dash
+    // says what.
     final isStart = markStart && index == 0;
     // isRealToday, not isToday: purely the "today" marker — see
     // DateTimeGameExt.isRealToday's doc comment.
@@ -1466,7 +1528,7 @@ class _LeaderboardRow extends ConsumerWidget {
                   ),
                 ],
                 const SizedBox(height: 7),
-                _MiniHeatmapStrip(
+                RoomStrip(
                   room: room,
                   participant: participant,
                   isYou: isYou,
@@ -1888,8 +1950,10 @@ class _ExtendRoomSheetState extends State<_ExtendRoomSheet> {
     final gp = context.gp;
     final s = S.of(context);
     return SafeArea(
+      bottom: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        padding: EdgeInsets.fromLTRB(
+            20, 16, 20, 24 + MediaQuery.of(context).padding.bottom),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
@@ -1947,6 +2011,7 @@ class _ExtendRoomSheetState extends State<_ExtendRoomSheet> {
             if (_customSelected) ...[
               const SizedBox(height: 12),
               TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _customCtrl,
                 autofocus: true,
                 keyboardType: TextInputType.number,

@@ -17,7 +17,9 @@
 //
 // These tests pin the split itself, and the invariant that makes the labels
 // centre: the boxes roomStripMonthSegments lays out must cover EXACTLY the
-// columns that month owns, at every wrap width.
+// columns that month owns. The strip is one line that scrolls sideways
+// (room_strip_scroll_test.dart), so there is a single run of columns and the
+// segments have to account for every one of them.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -82,17 +84,15 @@ void main() {
           if (cols.columns[c].dayIndex[r] >= 0) r,
       ];
 
-  /// Where the CELL row puts each column of one run, in the run's own space.
+  /// Where the CELL row puts each column, in the strip's own space.
   List<({double start, double end})> columnBoxes(
-    int run,
-    int perRun,
     int columnCount,
     List<int> starts,
   ) {
     final out = <({double start, double end})>[];
     var x = 0.0;
-    for (var c = 0; c < perRun && run * perRun + c < columnCount; c++) {
-      if (c > 0) x += starts.contains(run * perRun + c) ? breakGap : gap;
+    for (var c = 0; c < columnCount; c++) {
+      if (c > 0) x += starts.contains(c) ? breakGap : gap;
       out.add((start: x, end: x + cell));
       x += cell;
     }
@@ -119,55 +119,46 @@ void main() {
   void expectLabelsCentredOverTheirColumns(
     DateTime windowStart,
     DateTime lastDay, {
-    required int perRun,
     required String reason,
   }) {
     final cols = columnsFor(windowStart, lastDay);
     final count = cols.columns.length;
     final months = roomStripMonths(cols.columns, monthFmt);
 
-    for (var run = 0; run * perRun < count; run++) {
-      final segments = roomStripMonthSegments(
-        run,
-        perRun,
-        count,
-        months.keys,
-        months.labels,
-      );
-      final columns = columnBoxes(run, perRun, count, months.starts);
-      final labels = labelBoxes(segments);
+    final segments = roomStripMonthSegments(months.keys, months.labels);
+    final columns = columnBoxes(count, months.starts);
+    final labels = labelBoxes(segments);
 
-      // Every column of the run is claimed by exactly one label.
+    // Every column is claimed by exactly one label.
+    expect(
+      segments.fold<int>(0, (a, s) => a + s.span),
+      columns.length,
+      reason: '$reason: labels must span every column',
+    );
+
+    var c = 0;
+    for (var i = 0; i < labels.length; i++) {
+      final first = columns[c];
+      final last = columns[c + segments[i].span - 1];
       expect(
-        segments.fold<int>(0, (a, s) => a + s.span),
-        columns.length,
-        reason: '$reason: run $run labels must span every column',
+        labels[i].start,
+        first.start,
+        reason: '$reason: "${labels[i].label}" must start where '
+            'its first column starts',
       );
-
-      var c = 0;
-      for (var i = 0; i < labels.length; i++) {
-        final first = columns[c];
-        final last = columns[c + segments[i].span - 1];
-        expect(
-          labels[i].start,
-          first.start,
-          reason: '$reason: "${labels[i].label}" (run $run) must start where '
-              'its first column starts',
-        );
-        expect(
-          labels[i].end,
-          last.end,
-          reason: '$reason: "${labels[i].label}" (run $run) must end where '
-              'its last column ends',
-        );
-        expect(
-          (labels[i].start + labels[i].end) / 2,
-          (first.start + last.end) / 2,
-          reason: '$reason: "${labels[i].label}" (run $run) must be centred '
-              'over its own columns',
-        );
-        c += segments[i].span;
-      }
+      expect(
+        labels[i].end,
+        last.end,
+        reason: '$reason: "${labels[i].label}" must end where '
+            'its last column ends',
+      );
+      expect(
+        (labels[i].start + labels[i].end) / 2,
+        (first.start + last.end) / 2,
+        reason: '$reason: "${labels[i].label}" must be centred '
+            'over its own columns',
+      );
+      c += segments[i].span;
     }
   }
 
@@ -218,7 +209,6 @@ void main() {
       expectLabelsCentredOverTheirColumns(
         start,
         last,
-        perRun: 18,
         reason: 'August into September',
       );
     });
@@ -248,7 +238,6 @@ void main() {
       expectLabelsCentredOverTheirColumns(
         start,
         last,
-        perRun: 18,
         reason: 'NO STOOOOP',
       );
     });
@@ -298,35 +287,28 @@ void main() {
     });
   });
 
-  group('holds at every wrap width', () {
+  group('a long room, many boundaries inside weeks', () {
     final start = DateTime(2026, 3, 4);
     final last = DateTime(2026, 9, 5);
 
-    for (final perRun in [1, 2, 3, 5, 7, 11, 18]) {
-      test('perRun $perRun', () {
-        expectLabelsCentredOverTheirColumns(
-          start,
-          last,
-          perRun: perRun,
-          reason: 'perRun $perRun',
-        );
+    test('centres every label over its own columns', () {
+      expectLabelsCentredOverTheirColumns(
+        start,
+        last,
+        reason: 'March to September',
+      );
+    });
 
-        // A run never opens with a break: the column row only inserts a gap
-        // for c > 0, so a leading break would push the header off by 15pt.
-        final cols = columnsFor(start, last);
-        final months = roomStripMonths(cols.columns, monthFmt);
-        for (var run = 0; run * perRun < cols.columns.length; run++) {
-          final segments = roomStripMonthSegments(
-            run,
-            perRun,
-            cols.columns.length,
-            months.keys,
-            months.labels,
-          );
-          expect(segments.first.leadingBreak, isFalse);
-        }
-      });
-    }
+    test('the header never opens with a break', () {
+      // The column row only inserts a gap for c > 0, so a leading break
+      // would push the whole header off by 15pt.
+      final cols = columnsFor(start, last);
+      final months = roomStripMonths(cols.columns, monthFmt);
+      final segments = roomStripMonthSegments(months.keys, months.labels);
+      expect(segments.first.leadingBreak, isFalse);
+      expect(segments.skip(1).every((s) => s.leadingBreak), isTrue,
+          reason: 'every later segment follows a month change');
+    });
   });
 
   // Laying the block out in the right place is only half of it: the name
@@ -397,7 +379,6 @@ void main() {
       expectLabelsCentredOverTheirColumns(
         DateTime(2026, 9, 2),
         DateTime(2026, 9, 4),
-        perRun: 18,
         reason: 'three-day room',
       );
     });
@@ -416,7 +397,6 @@ void main() {
       expectLabelsCentredOverTheirColumns(
         start,
         last,
-        perRun: 18,
         reason: 'trailing part-month',
       );
     });
@@ -427,13 +407,7 @@ void main() {
       final cols = columnsFor(DateTime(2026, 7, 28), DateTime(2026, 9, 5));
       expect(rowsIn(cols, 0), [3, 4, 5, 6]);
       final months = roomStripMonths(cols.columns, monthFmt);
-      final segments = roomStripMonthSegments(
-        0,
-        cols.columns.length,
-        cols.columns.length,
-        months.keys,
-        months.labels,
-      );
+      final segments = roomStripMonthSegments(months.keys, months.labels);
       expect(
         segments.map((s) => '${s.label}:${s.span}').toList(),
         ['Jul:1', 'Aug:5', 'Sep:2'],
@@ -445,18 +419,11 @@ void main() {
       // them into a single nine-column month.
       final cols = columnsFor(DateTime(2026, 12, 1), DateTime(2027, 12, 31));
       final months = roomStripMonths(cols.columns, monthFmt);
-      final segments = roomStripMonthSegments(
-        0,
-        cols.columns.length,
-        cols.columns.length,
-        months.keys,
-        months.labels,
-      );
+      final segments = roomStripMonthSegments(months.keys, months.labels);
       expect(segments.where((s) => s.label == 'Dec').length, 2);
       expectLabelsCentredOverTheirColumns(
         DateTime(2026, 12, 1),
         DateTime(2027, 12, 31),
-        perRun: 18,
         reason: 'two Decembers',
       );
     });

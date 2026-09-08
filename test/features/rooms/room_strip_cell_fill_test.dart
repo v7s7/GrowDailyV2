@@ -80,9 +80,11 @@ void main() {
     });
 
     test('is not the bare card either, so the cell is still visible', () {
-      // A ROOM-level pause draws nothing at all, because that hole is in
-      // every row of the card at once. One member standing down is one row,
-      // and a blank there reads as a rendering fault rather than as a fact.
+      // A blank cell reads as a rendering fault rather than as a fact. That
+      // is as true of a ROOM-level pause as of one member standing down:
+      // PBYAS5's 3-6 September span used to draw nothing, and Aziz read the
+      // four empty slots as "days missing", so a paused day takes this same
+      // tone now (see RoomStrip._cellFor).
       expect(fill(0, isStoodDown: true), isNot(card));
     });
   });
