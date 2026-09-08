@@ -50,6 +50,13 @@ const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const {roomEventFor} = require("./room_events");
 const {claimQuota, isQuietHoursNow, pushKindFor} = require("./push_policy");
+const {
+  clipSpansToPast,
+  closedDaysToCheck,
+  countingHabitIds,
+  todayKeyIn,
+  undercountedDays,
+} = require("./room_health");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -673,5 +680,114 @@ exports.roomEveningReminder = onSchedule(
       logger.info("roomEveningReminder swept", {
         rooms: roomsSnap.size,
         sent,
+      });
+    });
+
+// ── Rooms health sweep ─────────────────────────────────────────────────────
+//
+// Once a day, every active room is checked for the two ways a room quietly
+// stops telling the truth (room_health.js has the rules and the story):
+//
+//  1. A pause span that reaches today or later. Clipped to yesterday on
+//     the spot and logged as a warning, since nothing in the current app
+//     can write one and it stops every member's days from counting.
+//  2. A member whose stored count on a closed day is lower than their own
+//     squares say. Logged only, with the exact admin command that fixes
+//     it: the member's phone regrades the day itself on its next open, and
+//     a server write would fight that sync.
+//
+// The sweep is a scheduled function rather than a Firestore trigger for
+// the reason at the top of this file: this project cannot create Eventarc
+// resources in me-central2, so nothing can watch rooms/{code} for writes.
+// Daily at 04:00 in Bahrain, the app's home timezone, when yesterday is
+// still open (the day rolls at midnight and stays payable until 10:00) and
+// the day before is fully closed, which is why the undercount check stops
+// two days back.
+const HEALTH_TZ = "Asia/Bahrain";
+const HEALTH_LOOKBACK_DAYS = 10;
+
+/**
+ * "YYYY-MM-DD" of a Firestore Timestamp (or anything with toDate), read in
+ * the app's timezone, or null.
+ * @param {*} v
+ * @return {?string}
+ */
+function healthKeyOf(v) {
+  if (!v || typeof v.toDate !== "function") return null;
+  return todayKeyIn(v.toDate().getTime(), HEALTH_TZ);
+}
+
+exports.roomsHealthSweep = onSchedule(
+    {schedule: "every day 04:00", timeZone: HEALTH_TZ},
+    async () => {
+      const todayKey = todayKeyIn(Date.now(), HEALTH_TZ);
+      // The newest day that has fully closed: not today, not yesterday
+      // (still payable until 10:00), the day before.
+      const lastClosed = todayKeyIn(Date.now() - 2 * DAY_MS, HEALTH_TZ);
+      const roomsSnap = await db
+          .collection("rooms").where("status", "==", "active").get();
+
+      let clippedRooms = 0;
+      let undercounts = 0;
+      for (const roomDoc of roomsSnap.docs) {
+        const room = roomDoc.data() || {};
+        const code = roomDoc.id;
+
+        // 1. Spans.
+        const {spans, clipped} = clipSpansToPast(room.pausedSpans, todayKey);
+        if (clipped.length > 0) {
+          await roomDoc.ref.set({pausedSpans: spans}, {merge: true});
+          clippedRooms++;
+          logger.warn("roomsHealthSweep clipped a pause that reached the " +
+              "future", {room: code, name: room.name, was: clipped, now: spans});
+        }
+
+        // 2. Counts, on closed days only.
+        const startKey = healthKeyOf(room.startDate);
+        if (!startKey) continue;
+        const days = closedDaysToCheck({
+          startKey,
+          endKey: healthKeyOf(room.endDate),
+          pausedSpans: spans,
+        }, lastClosed, HEALTH_LOOKBACK_DAYS);
+        if (days.length === 0) continue;
+
+        const partsSnap = await roomDoc.ref.collection("participants").get();
+        for (const partDoc of partsSnap.docs) {
+          const part = partDoc.data() || {};
+          const countingIds = countingHabitIds(room, part);
+          if (countingIds.length === 0) continue;
+          const daySnaps = await Promise.all(days.map((d) => db
+              .collection("users").doc(partDoc.id)
+              .collection("daily").doc(d).get()));
+          const squaresByDay = {};
+          days.forEach((d, i) => {
+            if (daySnaps[i].exists) {
+              squaresByDay[d] = (daySnaps[i].data() || {}).squareStates || {};
+            }
+          });
+          const short = undercountedDays({days, countingIds, squaresByDay,
+            part});
+          for (const u of short) {
+            undercounts++;
+            logger.warn("roomsHealthSweep found a closed day whose stored " +
+                "count trails the member's squares", {
+              room: code,
+              name: room.name,
+              member: part.displayName || partDoc.id,
+              uid: partDoc.id,
+              day: u.day,
+              stored: u.stored,
+              real: u.real,
+              fix: `node set_room_day.js --room=${code} --user=${partDoc.id} ` +
+                  `--date=${u.day} --done=${u.real} --confirm`,
+            });
+          }
+        }
+      }
+      logger.info("roomsHealthSweep swept", {
+        rooms: roomsSnap.size,
+        clippedRooms,
+        undercounts,
       });
     });
