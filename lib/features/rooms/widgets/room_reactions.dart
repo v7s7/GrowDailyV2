@@ -119,7 +119,7 @@ void registerRoomReactions(
           _showRoomReactionSnackBar(
             context,
             icon: Icons.person_add_alt_1_rounded,
-            color: GameColors.iconXp,
+            color: context.gp.iconXp,
             text: S.of(context).roomReactionJoined(p.displayName),
           );
           continue;

@@ -48,7 +48,9 @@ class PrestigePickerSheet extends ConsumerWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
@@ -216,7 +218,10 @@ class _PrestigeRow extends StatelessWidget {
                   ),
                   child: Center(
                     child: mark == null
-                        ? Icon(icon, size: 26, color: color)
+                        // Ink for the glyph; the 10%/14% washes and
+                        // the 50% border above keep the tier's own
+                        // metal, which is what identifies it.
+                        ? Icon(icon, size: 26, color: gp.ink(color))
                         // Deliberately NO flat colour. The base ink is the
                         // same either way — this row already passes the
                         // mark's own pinned ladder colour, and PrestigeMark

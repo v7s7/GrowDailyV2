@@ -41,7 +41,7 @@ class _EqualPill extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                color: selected ? GameColors.gold : gp.textSec,
+                color: selected ? context.gp.goldInk : gp.textSec,
               ),
             ),
           ),
@@ -118,7 +118,7 @@ class _PlainActionChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: GameColors.gold,
+                  color: context.gp.goldInk,
                 ),
               ),
             ],
@@ -187,14 +187,14 @@ class _SegmentedPair extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon,
-                  size: 15, color: selected ? GameColors.gold : gp.textTert),
+                  size: 15, color: selected ? context.gp.goldInk : gp.textTert),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                  color: selected ? GameColors.gold : gp.textSec,
+                  color: selected ? context.gp.goldInk : gp.textSec,
                 ),
               ),
             ],
@@ -259,7 +259,7 @@ class _SmallPick extends StatelessWidget {
             border: Border.all(color: selected ? GameColors.gold.withOpacity(0.5) : gp.border),
           ),
           alignment: Alignment.center,
-          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.w800 : FontWeight.w600, color: selected ? GameColors.gold : gp.textSec)),
+          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.w800 : FontWeight.w600, color: selected ? context.gp.goldInk : gp.textSec)),
         ),
       ),
     );
@@ -370,7 +370,7 @@ class _TimesPerDayRow extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                   // Gold only once it is actually saying something — at 1
                   // this row is describing the default, not a choice.
-                  color: isMulti ? GameColors.gold : gp.textPrimary,
+                  color: isMulti ? context.gp.goldInk : gp.textPrimary,
                 ),
               ),
             ),

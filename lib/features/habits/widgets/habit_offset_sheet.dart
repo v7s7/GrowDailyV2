@@ -160,7 +160,12 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          10,
+          20,
+          20 + MediaQuery.of(context).padding.bottom,
+        ),
         decoration: BoxDecoration(
           color: gp.bg,
           borderRadius: const BorderRadius.vertical(
@@ -263,6 +268,7 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                 const SizedBox(height: 8),
               ],
               TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _ctrl,
                 // With chips above, the keyboard waits for a tap on the
                 // field instead of covering the chips as the sheet opens.
@@ -335,7 +341,7 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                           ? Icons.notifications_active_rounded
                           : Icons.error_outline_rounded,
                       size: 14,
-                      color: blocked == null ? accent : GameColors.error,
+                      color: blocked == null ? accent : context.gp.errorInk,
                     ),
                     const SizedBox(width: 6),
                     Flexible(
@@ -347,7 +353,7 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                           fontWeight: FontWeight.w800,
                           color: blocked == null
                               ? gp.textPrimary
-                              : GameColors.error,
+                              : context.gp.errorInk,
                         ),
                       ),
                     ),

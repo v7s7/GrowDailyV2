@@ -62,8 +62,8 @@ class _TierDetailSheet extends StatelessWidget {
     final remaining = (a.threshold - current).clamp(0, a.threshold);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-          GameSpacing.lg, 0, GameSpacing.lg, GameSpacing.xxxl),
+      padding: EdgeInsets.fromLTRB(GameSpacing.lg, 0, GameSpacing.lg,
+          GameSpacing.xxxl + MediaQuery.of(context).padding.bottom),
       child: Container(
         padding: const EdgeInsets.fromLTRB(GameSpacing.xxl, GameSpacing.md,
             GameSpacing.xxl, GameSpacing.xxl),
@@ -177,7 +177,7 @@ class _TierDetailSheet extends StatelessWidget {
                     _RewardChip(
                       icon: Icons.bolt_rounded,
                       label: '+${a.xpReward} XP',
-                      color: GameColors.iconXp,
+                      color: context.gp.iconXp,
                     ),
                     const SizedBox(width: GameSpacing.sm),
                   ],
@@ -185,7 +185,7 @@ class _TierDetailSheet extends StatelessWidget {
                     _RewardChip(
                       icon: Icons.toll_rounded,
                       label: '+${a.goldReward}',
-                      color: GameColors.iconGold,
+                      color: context.gp.iconGold,
                     ),
                 ],
               ),

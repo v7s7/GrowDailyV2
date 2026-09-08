@@ -1625,7 +1625,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             style: TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w600,
-              color: GameColors.error,
+              color: context.gp.errorInk,
               height: 1.35,
             ),
           ),
@@ -2179,7 +2179,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                         Icon(
                           Icons.schedule_rounded,
                           size: 18,
-                          color: picked == null ? gp.textTert : GameColors.gold,
+                          color: picked == null ? gp.textTert : context.gp.goldInk,
                         ),
                         const SizedBox(width: 10),
                         if (count > 1) ...[
@@ -2239,7 +2239,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                             fontWeight: FontWeight.w700,
                             color: offset == 0
                                 ? gp.textTert
-                                : GameColors.gold,
+                                : context.gp.goldInk,
                           ),
                         ),
                         const SizedBox(width: 4),
@@ -2268,7 +2268,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               child: Row(
                 children: [
                   Icon(Icons.error_outline_rounded,
-                      size: 13, color: GameColors.error),
+                      size: 13, color: context.gp.errorInk),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -2276,7 +2276,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                       style: TextStyle(
                         fontSize: 10.5,
                         height: 1.4,
-                        color: GameColors.error,
+                        color: context.gp.errorInk,
                       ),
                     ),
                   ),
@@ -2517,7 +2517,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 child: Row(
                   children: [
                     Icon(Icons.notifications_active_rounded,
-                        size: 18, color: GameColors.gold),
+                        size: 18, color: context.gp.goldInk),
                     const SizedBox(width: 10),
                     Flexible(
                       child: Text(
@@ -2590,7 +2590,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 Icon(
                   locked ? Icons.lock_outline_rounded : Icons.add_rounded,
                   size: 18,
-                  color: GameColors.gold,
+                  color: context.gp.goldInk,
                 ),
                 const SizedBox(width: 10),
                 Text(
@@ -2598,7 +2598,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: GameColors.gold,
+                    color: context.gp.goldInk,
                   ),
                 ),
               ],
@@ -2940,7 +2940,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.bedtime_outlined, size: 14, color: GameColors.error),
+            Icon(Icons.bedtime_outlined, size: 14, color: context.gp.errorInk),
             const SizedBox(width: 7),
             Expanded(
               child: Column(
@@ -2967,7 +2967,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                       style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w800,
-                        color: GameColors.gold,
+                        color: context.gp.goldInk,
                       ),
                     ),
                   ),
@@ -3222,7 +3222,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Center(
-                  child: CategoryIcon(category: _category, size: 17, color: color),
+                  // Ink for the glyph only - the 8% wash and 22% border
+                  // above keep the true colour, so the card still reads as
+                  // one unit.
+                  child: CategoryIcon(
+                      category: _category, size: 17, color: gp.ink(color)),
                 ),
               ),
               const SizedBox(width: 12),

@@ -334,7 +334,7 @@ class _DayCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final mood = entry?.mood;
-    final color = mood?.visual.$2;
+    final color = mood?.visual(gp.dark).$2;
     return AspectRatio(
       aspectRatio: 1,
       child: Opacity(
@@ -366,13 +366,13 @@ class _DayCell extends StatelessWidget {
                       fontWeight:
                           day.isRealToday ? FontWeight.w800 : FontWeight.w600,
                       color: day.isRealToday
-                          ? GameColors.gold
+                          ? context.gp.goldInk
                           : (color ?? gp.textSec),
                     ),
                   ),
                   if (mood != null) ...[
                     const SizedBox(height: 2),
-                    Icon(mood.visual.$1, size: 12, color: color),
+                    Icon(mood.visual(gp.dark).$1, size: 12, color: color),
                   ] else if (entry?.hasAnything ?? false) ...[
                     // Activity happened but no review was saved — a quiet
                     // emerald dot instead of a mood icon, so the calendar
@@ -502,7 +502,8 @@ class _DayDetailSheet extends StatelessWidget {
             if (mood != null)
               Row(
                 children: [
-                  Icon(mood.visual.$1, size: 22, color: mood.visual.$2),
+                  Icon(mood.visual(gp.dark).$1,
+                      size: 22, color: mood.visual(gp.dark).$2),
                   const SizedBox(width: 8),
                   Text(
                     mood.label(s.isAr),
@@ -541,7 +542,7 @@ class _DayDetailSheet extends StatelessWidget {
                   ),
                   _SheetStat(
                     icon: Icons.task_alt_rounded,
-                    color: GameColors.iconXp,
+                    color: context.gp.iconXp,
                     value: '$tasksDone',
                     label: s.nightReviewTasksDoneLabel,
                   ),

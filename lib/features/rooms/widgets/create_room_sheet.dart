@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/analytics_service.dart';
 import '../../../core/utils/text_moderation.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/share_service.dart';
@@ -364,6 +365,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TextField(
+          selectionWidthStyle: GameTextStyles.selectionWidthStyle,
           controller: _nameCtrl,
           // No autofocus. It used to open the keyboard before the sheet had
           // finished appearing, which covered two thirds of the form with
@@ -503,6 +505,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
         if (_customDurationSelected) ...[
           const SizedBox(height: 10),
           TextField(
+            selectionWidthStyle: GameTextStyles.selectionWidthStyle,
             controller: _customDurationCtrl,
             autofocus: true,
             keyboardType: TextInputType.number,
@@ -598,7 +601,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                   style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
-                      color: GameColors.gold),
+                      color: context.gp.goldInk),
                 ),
               ),
             ],
@@ -625,7 +628,8 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
     final blocker = _step == 0 ? _stepOneBlocker(s) : _stepTwoBlocker(s);
     final enabled = blocker == null && !_isSubmitting;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+      padding: EdgeInsets.fromLTRB(
+          20, 10, 20, 20 + MediaQuery.of(context).padding.bottom),
       child: FilledButton(
         onPressed:
             enabled ? (_step == 0 ? _goToHabits : _submit) : null,
@@ -652,7 +656,8 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
     final code = _createdCode!;
     return Flexible(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+        padding: EdgeInsets.fromLTRB(
+            24, 12, 24, 28 + MediaQuery.of(context).padding.bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -666,7 +671,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.emoji_events_rounded,
-                    size: 28, color: GameColors.gold),
+                    size: 28, color: context.gp.goldInk),
               ),
             ),
             const SizedBox(height: 14),
@@ -702,7 +707,7 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                       fontSize: 30,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 6,
-                      color: GameColors.gold,
+                      color: context.gp.goldInk,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -763,6 +768,8 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
                   child: FilledButton.icon(
                     onPressed: () {
                       HapticFeedback.selectionClick();
+                      AnalyticsService.instance.track('room_code_shared',
+                          props: {'surface': 'create_success'});
                       ShareService.shareText(
                         context,
                         s.roomShareMessage(_nameCtrl.text.trim(), code),
@@ -971,7 +978,7 @@ class _ChoiceCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(choice.icon,
-                        size: 20, color: selected ? GameColors.gold : gp.textSec),
+                        size: 20, color: selected ? context.gp.goldInk : gp.textSec),
                   ),
                   const Spacer(),
                   AnimatedOpacity(
@@ -1062,7 +1069,7 @@ class _DurationChip extends StatelessWidget {
               style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                  color: selected ? GameColors.gold : gp.textSec)),
+                  color: selected ? context.gp.goldInk : gp.textSec)),
         ),
       ),
     );
@@ -1165,7 +1172,7 @@ class _PlanHabitPickerState extends ConsumerState<_PlanHabitPicker> {
             ),
             child: Row(
               children: [
-                Icon(Icons.add_circle_rounded, size: 18, color: GameColors.gold),
+                Icon(Icons.add_circle_rounded, size: 18, color: context.gp.goldInk),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -1175,7 +1182,7 @@ class _PlanHabitPickerState extends ConsumerState<_PlanHabitPicker> {
                           style: TextStyle(
                               fontSize: 13.5,
                               fontWeight: FontWeight.w700,
-                              color: GameColors.gold)),
+                              color: context.gp.goldInk)),
                       // Inside the row it describes, not floating under it.
                       if (widget.isSharedTemplate) ...[
                         const SizedBox(height: 2),

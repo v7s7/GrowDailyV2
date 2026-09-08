@@ -598,7 +598,7 @@ class _GridMock extends StatelessWidget {
           child: Row(
             children: [
               Icon(Icons.local_fire_department_rounded,
-                  size: 18, color: GameColors.iconStreak),
+                  size: 18, color: context.gp.iconStreak),
               const SizedBox(width: 10),
               _MockLabel(sample.streak, size: 12.5, color: gp.textSec),
             ],
@@ -738,7 +738,7 @@ class _TodayMockRow extends StatelessWidget {
             ),
             child: done
                 ? Icon(Icons.check_rounded,
-                    size: 14, color: GameColors.gold)
+                    size: 14, color: context.gp.goldInk)
                 : null,
           ),
         ],
@@ -869,7 +869,7 @@ class _ProfileMock extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w900,
-                        color: GameColors.gold,
+                        color: context.gp.goldInk,
                       ),
                     ),
                   ],
@@ -900,10 +900,14 @@ class _ProfileMock extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: _ProfileMockStat(
+                    // Ink, because the real profile stat row this mocks
+                    // draws its icons with the same accessor. The middle
+                    // swatch stays the raw accent, matching its own
+                    // original.
                     color: [
-                      GameColors.iconStreak,
+                      context.gp.iconStreak,
                       GameColors.gold,
-                      GameColors.iconXp,
+                      context.gp.iconXp,
                     ][i],
                     value: sample.stats[i],
                   ),

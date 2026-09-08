@@ -34,7 +34,9 @@ class _HeaderIconButton extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(7),
-          child: Icon(icon, size: 15, color: color),
+          // The 16% disc keeps the quadrant's true colour; the glyph on
+          // top takes its edge, which is the 3:1 an icon is held to.
+          child: Icon(icon, size: 15, color: context.gp.edge(color)),
         ),
       ),
     );

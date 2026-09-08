@@ -4,8 +4,8 @@ import '../../../core/constants/game_constants.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 
-/// The little "+20 XP · +8" that rises off a task's checkbox the first
-/// time it is completed.
+/// The little two-line "+10 XP / +4 gold" («+10 خبرة / +4 ذهب») that rises off
+/// a task's checkbox the first time it is completed.
 ///
 /// Tasks pay a real reward (GameConstants.matrixTaskXpReward/GoldReward,
 /// once per task ever via MatrixTask.rewarded) and the page never said so:
@@ -70,7 +70,9 @@ class _RewardFloatState extends State<_RewardFloat>
       animation: _c,
       builder: (context, child) => Positioned(
         left: widget.anchor.dx - 70,
-        top: widget.anchor.dy - 14 - 26 * rise.value,
+        // The pill is two lines tall now, so it starts higher: at -14 the
+        // bottom line sat on top of the very row it is rewarding.
+        top: widget.anchor.dy - 26 - 26 * rise.value,
         width: 140,
         child: Opacity(opacity: 1.0 - fade.value, child: child),
       ),
@@ -78,27 +80,44 @@ class _RewardFloatState extends State<_RewardFloat>
         color: Colors.transparent,
         child: Center(
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: const Color(0xE61A2129),
               borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               border: Border.all(color: GameColors.gold.withOpacity(0.45)),
             ),
-            child: Text(
-              s.matrixRewardFloat(
-                GameConstants.matrixTaskXpReward,
-                GameConstants.matrixTaskGoldReward,
-              ),
-              maxLines: 1,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w800,
-                color: GameColors.gold,
-              ),
+            // One reward per line, never both on one line: a single line
+            // mixing two Latin-digit amounts with Arabic words is exactly
+            // the case the bidi algorithm is free to reorder, and it did.
+            // A line holding one number and one word cannot come out wrong
+            // in either language.
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _line(
+                  s.matrixRewardFloatXp(GameConstants.matrixTaskXpReward),
+                ),
+                const SizedBox(height: 1),
+                _line(
+                  s.matrixRewardFloatGold(GameConstants.matrixTaskGoldReward),
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
   }
+
+  Widget _line(String text) => Text(
+        text,
+        maxLines: 1,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          height: 1.25,
+          color: context.gp.goldInk,
+        ),
+      );
 }

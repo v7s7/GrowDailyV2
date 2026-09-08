@@ -962,8 +962,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      // Without this, the sheet ignores the iPhone home-indicator inset and
-      // its footer button can render flush with (or under) the gesture bar.
+      // Keeps the sheet's top clear of the status bar and notch. The bottom
+      // inset is the sheet's own job: the card's outer margin adds MediaQuery
+      // padding.bottom, so the footer button clears the gesture bar.
       useSafeArea: true,
       builder: (_) => AddTaskSheet(
         quadrant: quadrant,
@@ -1003,8 +1004,9 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      // Without this, the sheet ignores the iPhone home-indicator inset and
-      // its footer button can render flush with (or under) the gesture bar.
+      // Keeps the sheet's top clear of the status bar and notch. The bottom
+      // inset is the sheet's own job: the card's outer margin adds MediaQuery
+      // padding.bottom, so the footer button clears the gesture bar.
       useSafeArea: true,
       builder: (_) => TaskDetailSheet(
         task: task,
@@ -1221,7 +1223,9 @@ class _CarriedOverChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.history_rounded, size: 13, color: color),
+              // The chip's wash and border keep the true colour; only the
+              // glyph takes ink, because only the glyph has to be read.
+              Icon(Icons.history_rounded, size: 13, color: gp.ink(color)),
               const SizedBox(width: 5),
               Text(
                 s.matrixCarriedOverCount(count),
@@ -1291,7 +1295,9 @@ class _UpcomingChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.update_rounded, size: 13, color: color),
+              // The chip's wash and border keep the true colour; only the
+              // glyph takes ink, because only the glyph has to be read.
+              Icon(Icons.update_rounded, size: 13, color: gp.ink(color)),
               const SizedBox(width: 5),
               Text(
                 s.matrixUpcomingCount(count),
@@ -1323,7 +1329,8 @@ class _FilterSegment extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final color = active ? GameColors.gold : gp.textSec;
+    // The pill below keeps the accent as its wash; the label takes ink.
+    final color = active ? gp.goldInk : gp.textSec;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(GameSpacing.pillRadius),

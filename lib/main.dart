@@ -37,6 +37,7 @@ import 'core/services/home_widget_service.dart';
 import 'core/services/notification_action_queue.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_notification_service.dart';
+import 'shared/widgets/app_logo.dart';
 import 'shared/widgets/overlay_notice.dart';
 import 'core/services/purchase_service.dart';
 import 'core/theme/game_theme.dart';
@@ -73,7 +74,6 @@ import 'features/grid/notifiers/weekly_grid_notifier.dart'
         willCompleteAllSquaresOn;
 import 'features/grid/screens/grid_journal_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
-import 'features/language/screens/language_picker_screen.dart';
 import 'features/matrix/models/matrix_task.dart' show MatrixQuadrant;
 import 'features/matrix/notifiers/matrix_notifier.dart'
     show MatrixState, isMatrixQuickAddLink, matrixProvider;
@@ -200,8 +200,19 @@ Future<void> main() async {
     // English on an Arabic account (seen live on 2026-09-06). applyLocale on
     // a fresh process is init() in the right language; see that method.
     final persistedLocale = await loadPersistedLocale();
+    final persistedLanguageChosen = await loadPersistedLanguageChosen();
+    // Nothing stored means a fresh install, and until now that meant English
+    // no matter what the phone itself is set to: the app read the device
+    // locale nowhere, so the language picker was the only code path in the
+    // whole app that could produce Arabic. An Arabic phone now opens in
+    // Arabic — the notification categories registered a few lines down
+    // included, which is the part a later correction cannot fix on a process
+    // iOS may suspend. See resolveInitialLocale for the matching rules.
+    final bootLocale = persistedLocale ??
+        resolveInitialLocale(
+            WidgetsBinding.instance.platformDispatcher.locales);
     await NotificationService.instance
-        .applyLocale(persistedLocale?.languageCode == 'ar');
+        .applyLocale(bootLocale.languageCode == 'ar');
     // After NotificationService, which is what initialises the timezone
     // database this table converts through. Preloaded here so the one
     // synchronous prayer-time caller (AddHabitSheet's live cue preview)
@@ -229,10 +240,10 @@ Future<void> main() async {
     );
     // The same language, for the headless engine that handles a notification
     // action tapped with the app closed (see HomeWidgetService.saveLocale).
-    // persistedLocale was read above, before the notification service
+    // bootLocale was resolved above, before the notification service
     // registered its buttons.
     await HomeWidgetService.instance
-        .saveLocale(persistedLocale?.languageCode == 'ar');
+        .saveLocale(bootLocale.languageCode == 'ar');
     final persistedOnboardingSeen = await loadPersistedOnboardingSeen();
     final persistedGetStartedDismissed = await loadPersistedGetStartedDismissed();
     final persistedAppGuideRoomsSeen = await loadPersistedAppGuideRoomsSeen();
@@ -277,7 +288,10 @@ Future<void> main() async {
     runApp(ProviderScope(
       overrides: [
         guestModeProvider.overrideWith((ref) => persistedGuestMode),
-        ...localeProviderOverrides(persistedLocale),
+        ...localeProviderOverrides(
+          locale: bootLocale,
+          chosen: persistedLanguageChosen,
+        ),
         onboardingSeenProvider.overrideWith((ref) => persistedOnboardingSeen),
         getStartedDismissedProvider.overrideWith((ref) => persistedGetStartedDismissed),
         appGuideRoomsSeenProvider.overrideWith((ref) => persistedAppGuideRoomsSeen),
@@ -390,6 +404,21 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 ref.read(pendingOpenRoomCodeProvider.notifier).state = code,
       );
     };
+    // Start listening NOW, with both callbacks above already assigned.
+    //
+    // This used to happen inside PushNotificationService
+    // .requestPermissionAndInit, whose only call site is RoomsHubScreen, so
+    // nothing was listening until the person opened the Rooms tab — and a
+    // room-finish push that arrived before they ever did was drawn by the
+    // system (the Cloud Function sends a `notification` block), shown in the
+    // tray, tapped, and handled by nobody. Especially visible on Android,
+    // where the FCM SDK always draws it.
+    //
+    // Attaching a stream listener needs no permission and no account, so it
+    // belongs at startup; only the PROMPT still waits for Rooms to mean
+    // something. Order matters: onOpenRoom above must already be set, or a
+    // tap that cold-launched the app resolves against null and is lost.
+    unawaited(PushNotificationService.instance.attachListeners());
 
     // Once sign-in resolves — including "already signed in" on a warm
     // boot — pull each of these settings' account-level value, if the
@@ -431,7 +460,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         ref.read(notificationSettingsProvider.notifier).pullFromAccount(uid);
         ref.read(navLayoutProvider.notifier).pullFromAccount(uid);
         ref.read(navBadgesEnabledProvider.notifier).pullFromAccount(uid);
-        _syncAmbientAccountFacts(uid);
+        _hydrateLocaleFromAccount(uid);
         // Keeps this device's FCM token mirrored to this account for the
         // room-finish push (see PushNotificationService's own doc comment)
         // - a no-op token-wise if nothing's changed since the last sync,
@@ -1215,11 +1244,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // Saturday grid-week boundary, would keep showing the old week until
       // a full restart without this.
       ref.read(weeklyGridProvider.notifier).refresh();
-      // Local notifications can only ever be scheduled one occurrence
-      // ahead (see NotificationService's class doc comment) — re-running
-      // this on every resume, not just on explicit state changes, is what
-      // keeps reminders self-healing for a day-cutoff rollover or a
-      // yesterday-completed habit that happened while the app was closed.
+      // Reminders are armed a few occurrences ahead, not indefinitely (see
+      // NotificationService's class doc comment) — re-running this on every
+      // resume, not just on explicit state changes, is what refills the
+      // window and keeps reminders self-healing for a day-cutoff rollover
+      // or a yesterday-completed habit that happened while the app was
+      // closed.
       //
       // The timezone refresh runs FIRST: tz.local is otherwise resolved
       // once per process, so a device that travelled while the app stayed
@@ -1235,7 +1265,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // require a fresh sign-in.
       final uid = ref.read(authStateProvider).asData?.value?.uid;
       if (uid != null) {
-        _syncAmbientAccountFacts(uid);
+        // Not while a hydration read is in flight — see the flag's doc.
+        if (!_localeHydrationInFlight) _syncAmbientAccountFacts(uid);
         // Same self-healing idea as _syncAmbientAccountFacts right above -
         // catches a token that rotated while this device was backgrounded
         // (registerForUser's onTokenRefresh listener already catches one
@@ -1296,6 +1327,59 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// offline write here just leaves the function's copy stale until the
   /// next successful sync, exactly like every other pullFromAccount-
   /// adjacent call in this listener.
+  /// Restores this account's language onto a device that hasn't chosen one,
+  /// then syncs the ambient facts.
+  ///
+  /// The two are sequenced rather than fired side by side, and that ordering
+  /// is the whole trick: [_syncAmbientAccountFacts] WRITES `users/{uid}.locale`
+  /// from whatever this device is currently showing. Run them concurrently and
+  /// a fresh install on an English phone overwrites an Arabic account's stored
+  /// language with `en` before the read that was meant to restore it ever
+  /// lands, so the account quietly forgets its own language instead of
+  /// teaching it to the new device.
+  ///
+  /// A device that HAS chosen skips the read entirely and syncs straight away
+  /// - the person's own pick is not something an old value on the server gets
+  /// to overrule, and it's the pick that should be teaching the account.
+  void _hydrateLocaleFromAccount(String uid) {
+    if (ref.read(languageChosenProvider)) {
+      _syncAmbientAccountFacts(uid);
+      return;
+    }
+    _localeHydrationInFlight = true;
+    unawaited(fetchAccountLocale(uid).then((accountLocale) async {
+      // A network round trip, so unlike the synchronous pullFromAccount
+      // calls at the call site this really can land after teardown.
+      if (!mounted) return;
+      final adopt = localeToAdoptFromAccount(
+        deviceHasChosen: ref.read(languageChosenProvider),
+        current: ref.read(localeProvider),
+        account: accountLocale,
+      );
+      if (adopt != null) {
+        await adoptAccountLocale(ref, adopt);
+        if (!mounted) return;
+      }
+      _syncAmbientAccountFacts(uid);
+    }).whenComplete(() => _localeHydrationInFlight = false));
+  }
+
+  /// True from the moment [_hydrateLocaleFromAccount] starts its read until
+  /// it has finished writing back, and read only by the resume handler.
+  ///
+  /// The resume handler calls [_syncAmbientAccountFacts] on every foreground,
+  /// which WRITES `users/{uid}.locale` from whatever this device currently
+  /// shows. Foreground the app during hydration's network read and that write
+  /// lands first, so the read either returns the value it just clobbered or is
+  /// overtaken by it — either way the account forgets the language hydration
+  /// existed to restore, permanently, because nothing reads it again once the
+  /// device has synced its own.
+  ///
+  /// Skipping that one sync costs nothing: hydration ends by calling
+  /// [_syncAmbientAccountFacts] itself, and it writes the timezone offset the
+  /// resume path wanted refreshed in the same call.
+  bool _localeHydrationInFlight = false;
+
   void _syncAmbientAccountFacts(String uid) {
     final locale = ref.read(localeProvider).languageCode;
     final tzOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
@@ -1601,6 +1685,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _handleDeepLink(Uri uri) {
     final code = parseRoomJoinLink(uri);
     if (code != null) {
+      // The middle of the invite funnel: shared, then opened, then joined.
+      // Fired here rather than in the join sheet because this is the only
+      // point that knows the person arrived from a link at all, and most
+      // of the drop-off is between here and joinRoom.
+      AnalyticsService.instance.track('room_code_opened', props: {
+        'scheme': uri.scheme,
+      });
       ref.read(pendingJoinCodeProvider.notifier).state = code;
       return;
     }
@@ -1929,7 +2020,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       title: 'Grow Daily',
       navigatorKey: _navKey,
       debugShowCheckedModeBanner: false,
-      supportedLocales: const [Locale('en'), Locale('ar')],
+      supportedLocales: kSupportedLocales,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -1979,7 +2070,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       ),
       initialRoute: '/',
       routes: {
-        '/': (_) => const _LanguageGate(),
+        '/': (_) => const _AuthGate(),
         '/heatmap': (_) => const MonthlyHeatmapScreen(),
         '/night-review': (_) => const NightReviewScreen(),
         '/tasbih': (_) => const TasbihScreen(),
@@ -2023,28 +2114,22 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   }
 }
 
-/// Shown once per device, before auth: picks a language on first launch,
-/// then hands off to [_AuthGate]. Crossfades rather than snapping straight
-/// to the auth/grid screen once a language is chosen.
-class _LanguageGate extends ConsumerWidget {
-  const _LanguageGate();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final chosen = ref.watch(languageChosenProvider);
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 450),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      child: chosen
-          ? const _AuthGate(key: ValueKey('auth-gate'))
-          : const LanguagePickerScreen(key: ValueKey('language-picker')),
-    );
-  }
-}
+// A _LanguageGate used to sit here, in front of _AuthGate: a full-screen
+// first-launch language picker, shown once per device. It is gone, and what
+// replaced it is nothing — the app reads the phone's own language at boot
+// (see resolveInitialLocale) and restores the account's at sign-in (see
+// _hydrateLocaleFromAccount), so for almost everyone the question the screen
+// asked is already answered before it could have been shown. The minority it
+// gets wrong correct it with the LanguageToggle on the auth screen, from
+// Profile once signed in, or from the per-app Language row iOS offers.
+//
+// languageChosenProvider outlived it and still matters: it is now only the
+// record of whether a language was DECIDED, which is what stops detection and
+// the account's own value from overruling a person who picked. Nothing gates
+// on it any more.
 
 class _AuthGate extends ConsumerWidget {
-  const _AuthGate({super.key});
+  const _AuthGate();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2208,8 +2293,11 @@ class _SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.grid_view_rounded,
-                size: 48, color: GameColors.gold),
+            // The real app icon, matching the auth screen this splash hands
+            // off to. They used to draw two different marks at two different
+            // sizes, so a cold start flashed a gold grid glyph and then
+            // replaced it with the seedling one frame later.
+            const AppLogo(size: 64),
             const SizedBox(height: 16),
             Text(
               'Grow Daily',

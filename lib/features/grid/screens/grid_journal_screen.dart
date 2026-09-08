@@ -9,10 +9,12 @@ import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
-    show habitListProvider;
+    show allHabitsEverProvider;
 import '../../premium/notifiers/premium_notifier.dart';
 import '../models/square_state.dart';
 import '../notifiers/grid_journal_notifier.dart';
+import '../notifiers/note_index_notifier.dart';
+import '../widgets/habit_note_block.dart';
 import '../../../shared/widgets/month_picker_sheet.dart';
 
 /// Read-only "browse everything I've ever written or skipped, later,
@@ -33,11 +35,53 @@ class GridJournalScreen extends ConsumerStatefulWidget {
   ConsumerState<GridJournalScreen> createState() => _GridJournalScreenState();
 }
 
+/// What the journal is being narrowed to.
+///
+/// This used to be a bare `SquareState?`, which gave a screen called
+/// «ملاحظات العادات» three STATE chips and no NOTE chip. The feed is mixed
+/// on purpose (a note-less تخطّي, فشل or إنجاز إضافي mark is worth browsing
+/// back to on its own, see isJournalWorthy), so the one filter the screen is
+/// named after was the one filter it did not have.
+enum _Lens {
+  all,
+  hasNote,
+  skipped,
+  failed,
+  bonus;
+
+  SquareState? get state => switch (this) {
+        _Lens.skipped => SquareState.skipped,
+        _Lens.failed => SquareState.failed,
+        _Lens.bonus => SquareState.bonus,
+        _ => null,
+      };
+
+  /// trim() because clearing a note used to store '' rather than deleting
+  /// the key, so old days carry tombstones.
+  bool matches(GridJournalEntry e) => switch (this) {
+        _Lens.all => true,
+        _Lens.hasNote => e.note.trim().isNotEmpty,
+        _ => e.state == state,
+      };
+
+  String label(S s) => switch (this) {
+        _Lens.all => s.gridJournalFilterAll,
+        _Lens.hasNote => s.gridJournalFilterHasNote,
+        _ => s.isAr ? state!.labelAr : state!.label,
+      };
+
+  /// A selected chip is readable because of its accent, so "All" and the new
+  /// note chip take emerald, the app's own selected-state colour, rather
+  /// than falling back to textSec and rendering as grey on grey.
+  Color accent(bool dark) =>
+      state?.accent(dark) ?? GameColors.emeraldInkFor(dark);
+}
+
 class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
   // null means "All" - transient UI-only filter, never persisted, same
   // treatment PlanPickerSheet's _expandedPlanId gives its own local-only
   // selection state.
-  SquareState? _filter;
+  _Lens _filter = _Lens.all;
 
   // Same transient, never-persisted treatment as _filter above — search text
   // AND-combines with the state-type chip filter rather than replacing it,
@@ -45,11 +89,12 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
   final _searchController = TextEditingController();
   String _query = '';
 
-  static const List<SquareState?> _filterOptions = [
-    null,
-    SquareState.skipped,
-    SquareState.failed,
-    SquareState.bonus,
+  static const List<_Lens> _filterOptions = [
+    _Lens.all,
+    _Lens.hasNote,
+    _Lens.skipped,
+    _Lens.failed,
+    _Lens.bonus,
   ];
 
   @override
@@ -70,11 +115,37 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
     // numbers, the counts — was ASCII. Arabic month name, Western year.
     final monthLabel = westernDate(journal.monthStart, 'MMMM y', locale);
     final habitById = {
-      for (final h in ref.watch(habitListProvider)) h.id: h,
+      // allHabitsEverProvider, not habitListProvider: the active list drops
+      // archived and paused habits, so a merely paused habit's notes were
+      // being labelled «عادة محذوفة». The heatmap day sheet already resolves
+      // names this way.
+      for (final h in ref.watch(allHabitsEverProvider)) h.id: h,
     };
-    final stateFiltered = _filter == null
-        ? journal.entries
-        : journal.entries.where((e) => e.state == _filter).toList();
+    // Months that actually hold writing, newest first, and only ones this
+    // account may open. Newest first so the results read in the same
+    // direction the month view does, and so the likeliest hit lands first.
+    // A free account is told 3 and never teased with 30.
+    final isPremium = ref.watch(premiumAccessProvider);
+    final today = DateTime.now().effectiveDay;
+    final searchableMonths = (ref.watch(noteIndexProvider).valueOrNull ??
+            const <String, Set<int>>{})
+        .keys
+        .map(monthFromKey)
+        .whereType<DateTime>()
+        .where((m) => canBrowseHistoryMonth(
+              monthStart: m,
+              now: today,
+              isPremium: isPremium,
+            ))
+        .toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    // The all-months results when a walk is running or done, otherwise the
+    // browsed month. The browsed month stays loaded underneath either way.
+    final source = journal.allMonths ?? journal.entries;
+    final stateFiltered = _filter == _Lens.all
+        ? source
+        : source.where(_filter.matches).toList();
     final query = _query.trim().toLowerCase();
     final visible = query.isEmpty
         ? stateFiltered
@@ -95,7 +166,7 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
         groups.add((day: entry.day, entries: [entry]));
       }
     }
-    final hasActiveSearch = query.isNotEmpty || _filter != null;
+    final hasActiveSearch = query.isNotEmpty || _filter != _Lens.all;
 
     return Scaffold(
       backgroundColor: gp.bg,
@@ -183,6 +254,7 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
               child: TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _searchController,
                 textInputAction: TextInputAction.search,
                 onChanged: (v) => setState(() => _query = v),
@@ -196,44 +268,89 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                           onPressed: () {
                             _searchController.clear();
                             setState(() => _query = '');
+                            // Clearing the query ends the walk with it: the
+                            // results are only meaningful as an answer to a
+                            // question that is no longer being asked.
+                            ref
+                                .read(gridJournalProvider.notifier)
+                                .exitAllMonths();
                           },
                         ),
                 ),
               ),
             ),
+            // The scope of the search, whenever one is running.
+            //
+            // Persistent, NOT only shown when a month comes back empty. One
+            // hit in September reads as "that is everything I ever wrote"
+            // unless the screen says otherwise, and a reflections search that
+            // quietly under-reports is worse than none.
+            if (query.isNotEmpty && searchableMonths.isNotEmpty)
+              _SearchScopeLine(
+                allMonths: journal.isSearchingAllMonths,
+                done: journal.searchedMonths,
+                total: journal.totalSearchMonths,
+                monthCount: searchableMonths.length,
+                onSearchAll: () {
+                  HapticFeedback.selectionClick();
+                  ref
+                      .read(gridJournalProvider.notifier)
+                      .searchAllMonths(searchableMonths);
+                },
+                onBackToMonth: () {
+                  HapticFeedback.selectionClick();
+                  ref.read(gridJournalProvider.notifier).exitAllMonths();
+                },
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              // Wrap, not a horizontal ListView pinned to 34pt.
+              // ONE row, always, and never a scrolling one.
               //
-              // Four chips whose widths depend entirely on how long the
-              // words happen to be in the active language: "إنجاز إضافي"
-              // and "Bonus" are not the same size, and the row was one
-              // translation away from scrolling. A scrolling filter row is
-              // the worst kind — the chips that don't fit are simply
-              // invisible, with no scrollbar and nothing to suggest there
-              // are more, so a filter can exist and never be found. Wrap
-              // keeps all four on screen at every text size and drops to a
-              // second line rather than hiding anything.
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
+              // Five chips whose widths depend entirely on how long the words
+              // happen to be in the active language: «إنجاز إضافي» and
+              // "Bonus" are not the same size. At natural size they need
+              // about 435pt against the 370 a 402pt phone actually has, so
+              // they cannot simply be made smaller and left at that: they
+              // would fit this phone in Arabic and overflow the next one, or
+              // the same phone in English.
+              //
+              // A horizontal ListView is the wrong answer, and was rejected
+              // before: the chips that do not fit are simply invisible, with
+              // no scrollbar and nothing to suggest there are more, so a
+              // filter can exist and never be found. Wrapping to a second
+              // line was the previous answer and is what this replaces.
+              //
+              // FittedBox is the one that keeps every promise. It lays the
+              // row out at its natural size and only scales when it has to,
+              // so the metrics below are what you see on a normal phone;
+              // when the words are longer, the screen narrower or the system
+              // font larger, the WHOLE row scales together. That keeps one
+              // font size across all five chips (per-chip scaling would give
+              // «الكل» and «فيها ملاحظة» visibly different text), keeps the
+              // proportions deliberate, and above all never hides a chip.
+              child: SizedBox(
+                width: double.infinity,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  // Start, not centre: the row reads from the same edge as
+                  // the search field above it in both directions.
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    spacing: 6,
+                    children: [
                   for (final option in _filterOptions)
                     _FilterChip(
-                      label: option == null
-                          ? s.gridJournalFilterAll
-                          : (isAr ? option.labelAr : option.label),
+                      label: option.label(s),
                       // How many entries of this kind the month holds,
                       // counted before any filtering so the numbers don't
                       // move as you tap between them. Answers "is there
                       // anything under Failed this month" without making
                       // you tap Failed and find out — and makes an empty
                       // month legible as empty rather than as broken.
-                      count: option == null
-                          ? journal.entries.length
-                          : journal.entries
-                              .where((e) => e.state == option)
-                              .length,
+                      count: option == _Lens.all
+                          ? source.length
+                          : source.where(option.matches).length,
                       // The three state filters carry their own accent
                       // (Skipped amber, Failed red, Bonus teal), which is
                       // what makes a selected one readable at a glance.
@@ -243,14 +360,16 @@ class _GridJournalScreenState extends ConsumerState<GridJournalScreen> {
                       // as the one chip that's disabled. GameColors.emerald
                       // is the app's own selected-state colour everywhere
                       // else (nav bar, choice chips).
-                      color: option?.accent ?? GameColors.emerald,
+                      color: option.accent(gp.dark),
                       selected: _filter == option,
                       onTap: () {
                         HapticFeedback.selectionClick();
                         setState(() => _filter = option);
                       },
                     ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
             Expanded(
@@ -351,12 +470,28 @@ Future<void> _pickMonth(
 ) async {
   final now = DateTime.now().effectiveDay;
   final currentMonth = DateTime(now.year, now.month, 1);
-  // The journal loads one month at a time, so the visible month is the
-  // only floor it can prove. Anything earlier is still reachable by
-  // arrowing, and the picker grows as they go.
-  final earliest = journal.monthStart.isBefore(currentMonth)
+  // The note index knows every month that holds writing, which is the one
+  // thing the journal itself could never work out: it loads a month at a
+  // time, so its floor used to be a literal guess at today minus 365 days
+  // and every unvisited month rendered as "no story yet".
+  final indexed = (ref.read(noteIndexProvider).valueOrNull ??
+          const <String, Set<int>>{})
+      .keys
+      .map(monthFromKey)
+      .whereType<DateTime>()
+      .toSet();
+  final earliestIndexed = indexed.isEmpty
+      ? null
+      : indexed.reduce((a, b) => a.isBefore(b) ? a : b);
+  // Still floored by the visible month and the old year window, so a month
+  // reached by arrowing never drops out of the picker just because nothing
+  // was written in it.
+  var earliest = journal.monthStart.isBefore(currentMonth)
       ? journal.monthStart
       : currentMonth.subtract(const Duration(days: 365));
+  if (earliestIndexed != null && earliestIndexed.isBefore(earliest)) {
+    earliest = earliestIndexed;
+  }
   final picked = await showMonthPicker(
     context,
     months: monthsBetween(earliest, currentMonth),
@@ -366,11 +501,13 @@ Future<void> _pickMonth(
       now: now,
       isPremium: ref.read(premiumAccessProvider),
     ),
-    // Only the loaded month's entries are known here, so every other month
-    // renders in the neutral "no story yet" style rather than claiming to
-    // be empty.
+    // Honest for every month now, not just the loaded one. The index is
+    // day-level and note-only, so it cannot see a note-less تخطّي / فشل /
+    // إنجاز إضافي mark; the loaded month still answers for itself, which
+    // keeps the month you are looking at exactly as truthful as before.
     hasStory: (month) =>
-        month.isSameMonthAs(journal.monthStart) && journal.entries.isNotEmpty,
+        indexed.any((m) => m.isSameMonthAs(month)) ||
+        (month.isSameMonthAs(journal.monthStart) && journal.entries.isNotEmpty),
   );
   if (picked == null || !context.mounted) return;
   ref.read(gridJournalProvider.notifier).goToMonth(picked);
@@ -442,7 +579,11 @@ class _FilterChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: GameMotion.quick,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        // Tightened from 12/8 so all five chips fit a 402pt phone at their
+        // natural size, leaving the FittedBox above with nothing to do in the
+        // common case. Anything smaller starts to read as a tag rather than
+        // a control.
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
           color: selected ? color.withOpacity(0.16) : gp.surface,
           borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
@@ -462,13 +603,19 @@ class _FilterChip extends StatelessWidget {
           children: [
             Text(
               label,
+              // Never wraps or ellipsises: the row's FittedBox is what
+              // absorbs a size the chips cannot take, so a label losing its
+              // own tail here would be a second, silent answer to the same
+              // problem.
+              maxLines: 1,
+              softWrap: false,
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w700,
                 color: fg,
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 5),
             Text(
               '$count',
               textDirection: TextDirection.ltr,
@@ -505,7 +652,7 @@ class _JournalEntryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final accent = entry.state.accent;
+    final accent = entry.state.accent(gp.dark);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -529,6 +676,7 @@ class _JournalEntryCard extends StatelessWidget {
                 child: Center(
                   child: entry.state.glyph(
                       size: 18,
+                      dark: gp.dark,
                       color: accent,
                       fallback: Icons.circle_outlined),
                 ),
@@ -569,11 +717,86 @@ class _JournalEntryCard extends StatelessWidget {
           ),
           if (entry.note.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text(
-              entry.note,
-              style: TextStyle(fontSize: 13.5, color: gp.textSec, height: 1.45),
-            ),
+            HabitNoteBlock(note: entry.note, day: entry.day),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The one line that tells the truth about what was searched.
+///
+/// It sits under the field for the whole time a query is active rather than
+/// appearing only on zero results, because the dangerous case is the opposite
+/// one: a search that DOES find something in this month, while four more hits
+/// sit unread in March.
+class _SearchScopeLine extends StatelessWidget {
+  final bool allMonths;
+  final int done;
+  final int total;
+  final int monthCount;
+  final VoidCallback onSearchAll;
+  final VoidCallback onBackToMonth;
+
+  const _SearchScopeLine({
+    required this.allMonths,
+    required this.done,
+    required this.total,
+    required this.monthCount,
+    required this.onSearchAll,
+    required this.onBackToMonth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final walking = allMonths && done < total;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+      child: Row(
+        children: [
+          if (walking) ...[
+            SizedBox(
+              width: 11,
+              height: 11,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.6,
+                color: GameColors.emerald,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              allMonths
+                  ? s.gridJournalSearchProgress(done, total)
+                  : s.gridJournalSearchThisMonth,
+              style: TextStyle(fontSize: 11.5, color: gp.textSec),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: allMonths ? onBackToMonth : onSearchAll,
+            borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: Text(
+                allMonths
+                    ? s.gridJournalSearchBackToMonth
+                    : s.gridJournalSearchAllMonths(monthCount),
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  // The app's own selected-state colour, not gold: gold
+                  // already means premium on this screen.
+                  color: context.gp.emeraldInk,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

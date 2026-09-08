@@ -117,7 +117,9 @@ class _PauseUntilSheetState extends State<_PauseUntilSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -278,7 +280,7 @@ class _Choice extends StatelessWidget {
                     ? Icons.radio_button_checked_rounded
                     : Icons.radio_button_unchecked_rounded,
                 size: 18,
-                color: selected ? GameColors.gold : gp.textTert,
+                color: selected ? context.gp.goldInk : gp.textTert,
               ),
               const SizedBox(width: 12),
               Expanded(

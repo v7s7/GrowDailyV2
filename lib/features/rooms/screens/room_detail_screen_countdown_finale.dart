@@ -38,7 +38,7 @@ class _CountdownBox extends StatelessWidget {
               style: TextStyle(
                 fontSize: 19,
                 fontWeight: FontWeight.w800,
-                color: GameColors.gold,
+                color: context.gp.goldInk,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
@@ -128,8 +128,10 @@ class _ScheduleStartSheet extends StatelessWidget {
     final gp = context.gp;
     final s = S.of(context);
     return SafeArea(
+      bottom: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        padding: EdgeInsets.fromLTRB(
+            20, 16, 20, 24 + MediaQuery.of(context).padding.bottom),
         decoration: BoxDecoration(
           color: gp.surfaceHigh,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
@@ -208,7 +210,7 @@ class _CountdownCard extends StatelessWidget {
       child: Row(
         children: [
           Icon(Icons.hourglass_top_rounded,
-              size: 20, color: GameColors.gold),
+              size: 20, color: context.gp.goldInk),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -227,12 +229,69 @@ class _CountdownCard extends StatelessWidget {
   }
 }
 
+/// The columns the finale podium draws, best place first, at most three.
+///
+/// Three, because there are three plinths and a card this size cannot grow
+/// one. That was a safe limit while places were unique. It stopped being
+/// safe when places started being SHARED: four members level at the top are
+/// all rank 1, all four are paid a first prize, and only three of them fit.
+/// The one cut off was chosen by uid order, and then offered a first prize
+/// by the claim button directly underneath the podium they were missing
+/// from.
+///
+/// So the viewer takes the last column when they hold a place the podium is
+/// already drawing. Note what that does NOT change: the set of places on
+/// screen is identical either way (a co-holder replaces a co-holder), the
+/// silhouette is identical, and nobody is promoted past anybody. Only which
+/// of several equals occupies the last plinth changes, and it changes in
+/// favour of the person reading the card.
+///
+/// It is the same principle _LeaderboardList already applies one card down,
+/// where your own row always renders however far down the board it is:
+/// being the one who cannot see themselves is exactly when seeing yourself
+/// matters. The leaderboard below is the full record, with every member and
+/// every place in it; this card is the highlight. Which is also the honest
+/// limit of this function: somebody ELSE's cut co-holder is still not drawn
+/// here, and the row for them is one scroll down.
+///
+/// A member with no place ([RoomStanding.rank] 0, still reading 0%) never
+/// stands on a podium, so a room that ended with somebody at zero leaves
+/// their plinth off rather than handing them a bronze for nothing.
+List<RoomStanding> roomPodiumColumns(
+  List<RoomStanding> standings,
+  String? myUid,
+) {
+  final ranked = [for (final m in standings) if (m.rank > 0) m];
+  final top = ranked.take(3).toList();
+  // Nothing was cut, or there is nobody to cut in for.
+  if (top.length < 3 || myUid == null) return top;
+  if (top.any((m) => m.participant.uid == myUid)) return top;
+  for (final m in ranked) {
+    if (m.participant.uid != myUid) continue;
+    // Only a co-holder of the last place the podium is already drawing. A
+    // genuine fourth place is not on this podium and must not appear on it:
+    // there is no contradiction to fix there, because there is no prize
+    // underneath it either.
+    if (m.rank == top.last.rank) return [...top.take(2), m];
+    break;
+  }
+  return top;
+}
+
 /// The ending the room deserves: a real podium for the top three (center
 /// column tallest, crown on first), one confetti burst on first build, and
-/// a warm closing line. Ties and small rooms degrade gracefully — with 2
-/// members there are 2 podium spots, with 1 there's just the winner.
+/// a warm closing line. Small rooms degrade gracefully: with 2 members
+/// there are 2 podium spots, with 1 there's just the winner. Ties are not a
+/// degraded case at all any more, they are a result: members who finished
+/// level share a place and stand on equally tall gold columns, cup and all
+/// (see RoomLeaderboard.standings).
 class _FinaleCard extends ConsumerStatefulWidget {
-  final List<RoomParticipant> sorted;
+  /// The board, ordered and NUMBERED (see RoomLeaderboard.standings).
+  /// Numbered matters here: the podium used to hard-code 1/2/3 onto its
+  /// three slots and the prize used to count list positions, so two
+  /// members who finished dead level were shown, and paid, as first and
+  /// second on the strength of uid order.
+  final List<RoomStanding> standings;
   final RoomModel room;
   final RoomParticipant? mine;
 
@@ -250,7 +309,7 @@ class _FinaleCard extends ConsumerStatefulWidget {
   final VoidCallback onExtend;
 
   const _FinaleCard({
-    required this.sorted,
+    required this.standings,
     required this.room,
     required this.mine,
     required this.isLeader,
@@ -278,13 +337,21 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final top = widget.sorted.take(3).toList();
-    // Visual order: 2nd, 1st, 3rd — the classic podium silhouette. RTL
-    // flips the Row automatically, which keeps 1st in the middle either way.
+    final top = roomPodiumColumns(widget.standings, widget.mine?.uid);
+    // Visual order: second slot, first slot, third slot — the classic
+    // podium silhouette. RTL flips the Row automatically, which keeps the
+    // first column in the middle either way.
+    //
+    // The number on each plinth is the member's OWN place now, not the
+    // slot's. A shared first therefore draws two gold columns of the same
+    // height side by side, which is the result, and the plinths read 1, 1,
+    // 3 with no silver, which is also the result. Only the three widest
+    // places fit; a tie group larger than the podium is cut off by the
+    // same take(3) that has always bounded it.
     final order = [
-      if (top.length > 1) (top[1], 2),
-      if (top.isNotEmpty) (top[0], 1),
-      if (top.length > 2) (top[2], 3),
+      if (top.length > 1) top[1],
+      if (top.isNotEmpty) top[0],
+      if (top.length > 2) top[2],
     ];
     return Container(
       padding: const EdgeInsets.all(16),
@@ -319,12 +386,13 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                for (final (p, rank) in order)
+                for (final standing in order)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: _PodiumColumn(
-                      participant: p,
-                      rank: rank,
+                      participant: standing.participant,
+                      rank: standing.rank,
+                      sharedPlace: standing.shared,
                       room: widget.room,
                     ),
                   ),
@@ -361,15 +429,16 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
   List<Widget> _teamSummary(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final days = widget.room.teamDays(widget.sorted);
-    final best = widget.room.teamBestStreak(widget.sorted);
+    final roster = [for (final m in widget.standings) m.participant];
+    final days = widget.room.teamDays(roster);
+    final best = widget.room.teamBestStreak(roster);
     return [
       Text(
         s.roomTeamFinaleScore(days.won, days.counted),
         style: TextStyle(
           fontSize: 34,
           fontWeight: FontWeight.w800,
-          color: GameColors.gold,
+          color: context.gp.goldInk,
           height: 1.1,
         ),
       ),
@@ -394,7 +463,7 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
           style: TextStyle(
             fontSize: 11.5,
             fontWeight: FontWeight.w700,
-            color: GameColors.emerald,
+            color: context.gp.emeraldInk,
           ),
         ),
       ),
@@ -426,8 +495,15 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
           onPressed: widget.onExtend,
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(46),
-            foregroundColor: GameColors.gold,
-            side: BorderSide(color: GameColors.gold.withOpacity(0.55)),
+            // Ink, not the raw accent: this overrides the theme's own
+            // outlined style, so it would have kept the 1.86:1 label the
+            // theme was just fixed for. Dark keeps its softened border.
+            foregroundColor: gp.goldInk,
+            side: BorderSide(
+              color: gp.dark
+                  ? GameColors.gold.withValues(alpha: 0.55)
+                  : gp.goldEdge,
+            ),
           ),
           icon: const Icon(Icons.more_time_rounded, size: 18),
           label: Text(s.roomFinaleExtendAction),
@@ -452,11 +528,28 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
   List<Widget> _prizeSection(BuildContext context) {
     final mine = widget.mine;
     if (mine == null) return const [];
-    final rank =
-        widget.sorted.indexWhere((p) => p.uid == mine.uid) + 1; // 0 -> not found
+    // The place the podium above just drew, not a count of rows above this
+    // one. Two members who finished level are both first here, so the card
+    // cannot show two cups and then pay one of them a second place prize.
+    // 0 covers both "not on this board" and "still at 0%", and
+    // podiumPrizeFor has nothing to pay for either.
+    var rank = 0;
+    var shared = false;
+    for (final m in widget.standings) {
+      if (m.participant.uid == mine.uid) {
+        rank = m.rank;
+        shared = m.shared;
+        break;
+      }
+    }
     if (rank < 1) return const [];
     final prize = RoomsController.podiumPrizeFor(rank);
     if (prize == null) return const [];
+    // The same "no competition, no prize" rule the controller enforces, asked
+    // here so the button is never drawn for a claim that would be refused.
+    // Both counts come from this one list rather than from RoomModel's stored
+    // counter, which drifts (see claimPodiumBonus).
+    if (widget.standings.length < 2) return const [];
 
     final s = S.of(context);
     final gp = context.gp;
@@ -483,11 +576,36 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
               ? null
               : () async {
                   HapticFeedback.mediumImpact();
+                  // Captured before the await, not looked up after it: the
+                  // context this method was handed is a parameter, so a
+                  // later `mounted` check does not prove it is still valid.
+                  final messenger = ScaffoldMessenger.of(context);
                   setState(() => _claiming = true);
-                  await ref
-                      .read(roomsControllerProvider)
-                      .claimPodiumBonus(widget.room, mine, rank: rank);
-                  if (mounted) setState(() => _claiming = false);
+                  // try/finally, because the lock above is not a spinner: it
+                  // is the button's only enabled state. A claim that threw,
+                  // which is what one tap with no connection does, skipped
+                  // the line that released it and left the button dead and
+                  // silent for the rest of the screen's life, with the
+                  // prize still unclaimed underneath. The finally releases
+                  // it and the catch says something happened, so the answer
+                  // is "try again" rather than nothing at all.
+                  try {
+                    await ref.read(roomsControllerProvider).claimPodiumBonus(
+                          widget.room,
+                          mine,
+                          rank: rank,
+                          shared: shared,
+                          memberCount: widget.standings.length,
+                        );
+                  } catch (_) {
+                    if (mounted) {
+                      messenger.showOne(
+                        SnackBar(content: Text(s.roomGenericError)),
+                      );
+                    }
+                  } finally {
+                    if (mounted) setState(() => _claiming = false);
+                  }
                 },
           icon: const Icon(Icons.card_giftcard_rounded, size: 18),
           label: Text(s.roomClaimPrize(prize.xp, prize.gold)),

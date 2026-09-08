@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/analytics_service.dart';
 import '../../../core/utils/text_moderation.dart';
 import '../../../core/constants/deep_links.dart';
 import '../../../core/extensions/datetime_ext.dart';
@@ -113,7 +114,11 @@ final roomParticipantsProvider =
 /// view of a single participant. See [myRoomRaceSnapshotProvider].
 class RoomRaceRow {
   final String name;
-  final int rank; // 1-based
+  /// 1-based, SHARED between members who are level, and 0 for a member
+  /// with no place yet (see RoomLeaderboard.standings). The widget renders
+  /// this straight, so both halves of a tie show #1 and a member still at
+  /// 0% shows a dash instead of a position.
+  final int rank;
   final int percent; // 0-100, rounded RoomParticipant.progressRatio
   final bool isMe;
 
@@ -260,14 +265,12 @@ final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
           const [];
   if (participants.isEmpty) return null;
 
-  final ranked = [...participants]..sort((a, b) {
-    final byProgress =
-        b.progressRatio(bestRoom).compareTo(a.progressRatio(bestRoom));
-    // Same deterministic tie-break the lobby leaderboard uses, so the two
-    // ranked views never disagree on the order of tied members. List.sort is
-    // unstable above 32 elements; uid is stable and unique.
-    return byProgress != 0 ? byProgress : a.uid.compareTo(b.uid);
-  });
+  // The same function the room screen's own leaderboard is built from, so
+  // the widget and the screen can never disagree about who is where. It
+  // also carries the places rather than leaving them to be re-derived from
+  // position: members who are level share a place here too, which is what
+  // stops the widget crowning one of two equal racers.
+  final ranked = bestRoom.standings(participants);
 
   // Same trailing window every row's heatmap is built from - computed once
   // here rather than per-row, since it only depends on the room, not the
@@ -288,16 +291,19 @@ final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
     rows: [
       for (var i = 0; i < ranked.length; i++)
         RoomRaceRow(
-          name: ranked[i].displayName,
-          rank: i + 1,
-          percent: (ranked[i].progressRatio(bestRoom) * 100).round(),
-          isMe: ranked[i].uid == uid,
-          uid: ranked[i].uid,
-          daysDone: ranked[i].daysCompleted(bestRoom).round(),
+          name: ranked[i].participant.displayName,
+          rank: ranked[i].rank,
+          percent:
+              (ranked[i].participant.progressRatio(bestRoom) * 100).round(),
+          isMe: ranked[i].participant.uid == uid,
+          uid: ranked[i].participant.uid,
+          daysDone: ranked[i].participant.daysCompleted(bestRoom).round(),
           daysTotal: bestRoom.daysElapsed,
           heatmap: [
             for (final day in heatmapDays)
-              heatmapLevelFor(ranked[i].creditFor(day.toDateKey())),
+              heatmapLevelFor(
+                ranked[i].participant.creditFor(day.toDateKey()),
+              ),
           ],
         ),
     ],
@@ -504,13 +510,19 @@ String? parseRoomJoinLink(Uri uri) {
   // Universal Link: https://<host>/join/CODE — what every newly shared invite
   // now looks like (see roomJoinUrl).
   //
-  // Deliberately NOT checking the host. iOS only ever hands this app an https
-  // URL that already matched the associated-domains entitlement, so the host
-  // has been verified by the OS before we ever see it — re-checking it here
-  // would add nothing except a second place to update on the day the app
-  // moves to a custom domain, and would silently break every invite already
-  // sitting in someone's chat history from the old host. The path shape is
-  // the real signal, and it is ours.
+  // Deliberately NOT checking the host, and safe on both platforms because
+  // the HOST IS SCOPED BY THE PLATFORM CONFIG, not by this function. iOS only
+  // ever hands this app an https URL that already matched the
+  // associated-domains entitlement; Android only ever hands it one that
+  // matched the App Link intent-filter's android:host (see
+  // AndroidManifest.xml). Either way the host has been checked before we see
+  // it. Re-checking here would add nothing except a second place to update on
+  // the day the app moves to a custom domain, and would silently break every
+  // invite already sitting in someone's chat history from the old host. The
+  // path shape is the real signal, and it is ours.
+  //
+  // The safety argument is the filter's, so do not widen either platform's
+  // host to a wildcard without adding a host check here.
   if (scheme == 'https' || scheme == 'http') {
     final segments = uri.pathSegments;
     if (segments.length < 2) return null;
@@ -1353,6 +1365,18 @@ class RoomsController {
     if (participant.linkedHabitIds.isNotEmpty) {
       await syncLinkedHabitsProgress(room);
     }
+    // The top of the only loop that reaches a stranger. Nothing about
+    // Rooms was measured before this, and a share that never happened
+    // cannot be reconstructed later from Firestore.
+    AnalyticsService.instance.track('room_created', props: {
+      'compete_mode': competeMode.name,
+      'habit_mode': habitMode.name,
+      'duration': duration.name,
+      'length_days': lengthDays,
+      'habit_count': habitMode == RoomHabitMode.shared
+          ? planHabitIds.length
+          : leaderLinkedHabitIds.length,
+    });
     return code;
   }
 
@@ -1472,6 +1496,15 @@ class RoomsController {
         SetOptions(merge: true),
       );
       await syncLinkedHabitsProgress(room);
+      // Not a conversion: this arm is a re-tap of an invite for a room the
+      // person is already in. Flagged rather than dropped so the join
+      // funnel can exclude it and still show how often invites get
+      // re-opened.
+      AnalyticsService.instance.track('room_joined', props: {
+        'compete_mode': room.competeMode.name,
+        'habit_mode': room.habitMode.name,
+        'rejoined': true,
+      });
       return true;
     }
 
@@ -1505,6 +1538,12 @@ class RoomsController {
       SetOptions(merge: true),
     );
     if (resolvedIds.isNotEmpty) await syncLinkedHabitsProgress(room);
+    AnalyticsService.instance.track('room_joined', props: {
+      'compete_mode': room.competeMode.name,
+      'habit_mode': room.habitMode.name,
+      'rejoined': false,
+      'member_count': room.memberCount,
+    });
     return true;
   }
 
@@ -2137,6 +2176,11 @@ class RoomsController {
     // Cheap early-out on the snapshot the UI already has; the real guard is
     // the transaction below.
     if (mine.teamBonusClaimed) return;
+    // Same reason as claimPodiumBonus: the flag below is one-way and
+    // awardBonus refuses outright after a failed dashboard load, so asking
+    // first is the difference between "try again later" and a bonus that is
+    // marked claimed and was never paid.
+    if (_ref.read(dashboardProvider).loadFailed) return;
 
     // ── Claim the flag first, and only pay out if THIS call won ──────────
     // This used to check `mine.teamBonusClaimed`, award the XP and gold, and
@@ -2191,6 +2235,9 @@ class RoomsController {
     if (mine.teamStreakClaims.contains(milestone)) return;
     final prize = RoomTeamProgress.teamMilestonePrize(milestone);
     if (prize.xp <= 0) return;
+    // See claimPodiumBonus: never spend a one-way claim on a payout that
+    // awardBonus is going to refuse.
+    if (_ref.read(dashboardProvider).loadFailed) return;
     final participantRef = _rooms.doc(code).collection('participants').doc(uid);
     final didClaim =
         await FirebaseFirestore.instance.runTransaction<bool>((txn) async {
@@ -2240,10 +2287,19 @@ class RoomsController {
   /// Refuses on a room that hasn't ended, so a leaderboard position mid-race
   /// can never be cashed in; and refuses off the podium, where there is no
   /// prize to claim.
+  /// [memberCount] is the LIVE roster the finale card was drawn from, not
+  /// [RoomModel.memberCount]. That stored counter is incremented on join and
+  /// decremented on leave, and the decrement swallows its own failures (see
+  /// [leaveRoom]'s `.catchError`), so it drifts. This method used to read it
+  /// while the card that draws the claim button counted real participants,
+  /// which meant a drifted counter left a gold, tappable button that did
+  /// nothing at all, silently, forever. Both now come from the same list.
   Future<void> claimPodiumBonus(
     RoomModel room,
     RoomParticipant mine, {
     required int rank,
+    required bool shared,
+    required int memberCount,
   }) async {
     final uid = _uid;
     if (uid == null) return;
@@ -2256,9 +2312,19 @@ class RoomsController {
     // but nothing caps rooms per account, so it was repeatable by simply
     // making another. Mirrors the "no competition, no prize" rule the
     // leaderboard already implies.
-    if (room.memberCount < 2) return;
+    if (memberCount < 2) return;
     final prize = podiumPrizeFor(rank);
     if (prize == null) return;
+    // Never burn the flag on a payout that cannot land.
+    //
+    // awardBonus refuses outright after a failed dashboard load, because it
+    // writes absolute totals computed from a state that is DashboardState
+    // .initial() at that point (see its own comment). The flag below is
+    // one-way and there is no second chance at it, so claiming first and
+    // discovering that afterwards costs the prize permanently, with the
+    // card then reading "prize claimed" over currency that never moved.
+    // Asking the same question first turns that into "try again later".
+    if (_ref.read(dashboardProvider).loadFailed) return;
 
     final participantRef =
         _rooms.doc(room.code).collection('participants').doc(uid);
@@ -2269,7 +2335,30 @@ class RoomsController {
       if (snap.data()?['podiumBonusClaimed'] == true) return false;
       txn.set(
         participantRef,
-        {'podiumBonusClaimed': true},
+        {
+          'podiumBonusClaimed': true,
+          // What the app DECIDED to pay, written in the same breath as the
+          // flag that says a prize was settled. Named for the decision
+          // rather than for the payment: awardBonus runs after this
+          // transaction commits, so this is not proof the currency moved.
+          //
+          // Worth keeping because the flag alone is unreadable after the
+          // fact. Places are shared on a tie now, so more than one member
+          // can hold rank 1 and be paid a first prize (a deliberate
+          // decision, 2026-09-08); and extendRoom moves endDate without
+          // ever clearing this flag, with the extend button sitting one tap
+          // from the claim button on the same card. Both leave questions
+          // that "true" cannot answer and these four fields can.
+          //
+          // Deliberately NOT in RoomParticipant.toFirestore, for the reason
+          // teamStreakClaims is not: this transaction is the only writer,
+          // so no whole-document write built from a stale snapshot can
+          // carry an older value back over a claim that just landed.
+          'podiumRank': rank,
+          'podiumShared': shared,
+          'podiumXp': prize.xp,
+          'podiumGold': prize.gold,
+        },
         SetOptions(merge: true),
       );
       return true;

@@ -137,7 +137,7 @@ void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
   ScaffoldMessenger.of(context).showOne(
     SnackBar(
       content: Row(children: [
-        Icon(Icons.ac_unit_rounded, color: GameColors.iconXp, size: 18),
+        Icon(Icons.ac_unit_rounded, color: context.gp.iconXp, size: 18),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
@@ -171,7 +171,7 @@ void showPerfectDaySnackBar(BuildContext context) {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.auto_awesome_rounded,
-              color: GameColors.emerald, size: 18),
+              color: context.gp.emeraldInk, size: 18),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -179,7 +179,7 @@ void showPerfectDaySnackBar(BuildContext context) {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w800,
-                color: GameColors.emerald,
+                color: context.gp.emeraldInk,
               ),
             ),
           ),
@@ -206,13 +206,13 @@ void showLevelUpSnackBar(BuildContext context, int level) {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.arrow_upward_rounded,
-              color: GameColors.gold, size: 18),
+              color: context.gp.goldInk, size: 18),
           const SizedBox(width: 8),
           Text('${s.levelUpMsg}  ·  LVL $level',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: GameColors.gold,
+                  color: context.gp.goldInk,
                   letterSpacing: 1)),
         ],
       ),
@@ -236,8 +236,9 @@ Future<void> showAchievementUnlockSheet(BuildContext context, AchievementModel a
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Without this, the sheet ignores the iPhone home-indicator inset and
-    // its Claim button can render flush with (or under) the gesture bar.
+    // Keeps the sheet's top clear of the status bar and notch. The bottom
+    // inset is the sheet's own job: the card's outer margin adds MediaQuery
+    // padding.bottom, so the Claim button clears the gesture bar.
     useSafeArea: true,
     builder: (_) => AchievementUnlockSheet(achievement: a),
   );
@@ -300,7 +301,7 @@ class MilestoneCelebration extends StatelessWidget {
                   ],
                 ),
                 child: Icon(Icons.local_fire_department_rounded,
-                    size: 56, color: GameColors.iconStreak),
+                    size: 56, color: context.gp.iconStreak),
               )
                   .animate()
                   .scale(
@@ -314,7 +315,7 @@ class MilestoneCelebration extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: GameColors.iconStreak,
+                  color: context.gp.iconStreak,
                   // Wide/negative letter-spacing is a Latin-typography trick
                   // (all-caps eyebrow labels, tight display numerals) — on
                   // Arabic's cursive, joined script it forces gaps between
@@ -362,13 +363,13 @@ class MilestoneCelebration extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.bolt_rounded, size: 16, color: GameColors.iconXp),
+                      Icon(Icons.bolt_rounded, size: 16, color: context.gp.iconXp),
                       const SizedBox(width: 6),
                       Text(s.milestoneBonusXp(bonus),
                           style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
-                              color: GameColors.iconXp)),
+                              color: context.gp.iconXp)),
                     ],
                   ),
                 ).animate(delay: 480.ms).fadeIn().slideY(begin: 0.2),
@@ -477,7 +478,7 @@ class HabitMilestoneCelebration extends StatelessWidget {
                       ],
                     ),
                     child: Icon(Icons.local_fire_department_rounded,
-                        size: 40, color: GameColors.iconStreak),
+                        size: 40, color: context.gp.iconStreak),
                   )
                       .animate()
                       .scale(
@@ -492,7 +493,7 @@ class HabitMilestoneCelebration extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: GameColors.iconStreak,
+                    color: context.gp.iconStreak,
                     letterSpacing: s.isAr ? 0 : 2.5,
                   ),
                 ).animate(delay: 120.ms).fadeIn(),
@@ -534,13 +535,13 @@ class HabitMilestoneCelebration extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.bolt_rounded,
-                            size: 16, color: GameColors.iconXp),
+                            size: 16, color: context.gp.iconXp),
                         const SizedBox(width: 6),
                         Text(s.milestoneBonusXp(event.bonusXp),
                             style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
-                                color: GameColors.iconXp)),
+                                color: context.gp.iconXp)),
                       ],
                     ),
                   ).animate(delay: 300.ms).fadeIn().slideY(begin: 0.2),
@@ -582,7 +583,8 @@ class AchievementUnlockSheet extends StatelessWidget {
     // white sheet at roughly 1.6:1. See TierPalette.
     final c = TierPalette.from(context, achievement.tier).ink;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+      padding: EdgeInsets.fromLTRB(
+          16, 0, 16, 40 + MediaQuery.of(context).padding.bottom),
       child: Container(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
         decoration: BoxDecoration(
@@ -678,7 +680,7 @@ class AchievementUnlockSheet extends StatelessWidget {
                   _RewardChip(
                     icon: Icons.bolt_rounded,
                     label: '+${achievement.xpReward} XP',
-                    color: GameColors.iconXp,
+                    color: context.gp.iconXp,
                   ),
                   const SizedBox(width: 10),
                 ],

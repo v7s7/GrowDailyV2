@@ -141,7 +141,7 @@ class _HeroHeader extends ConsumerWidget {
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w900,
-                                color: GameColors.gold,
+                                color: context.gp.goldInk,
                                 height: 1,
                               ),
                             ),
@@ -359,7 +359,7 @@ class _StatsRow extends StatelessWidget {
             icon: Icons.local_fire_department_rounded,
             color: streakIsCold
                 ? context.gp.textTert
-                : GameColors.iconStreak,
+                : context.gp.iconStreak,
             value: fig(state.streak),
             label: s.streak,
             infoTitle: s.statInfoStreakTitle,
@@ -367,7 +367,7 @@ class _StatsRow extends StatelessWidget {
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.emoji_events_rounded,
-            color: GameColors.iconGold,
+            color: context.gp.iconGold,
             value: fig(state.longestStreak),
             label: s.best,
             infoTitle: s.statInfoBestTitle,
@@ -375,7 +375,7 @@ class _StatsRow extends StatelessWidget {
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.check_circle_rounded,
-            color: GameColors.iconSuccess,
+            color: context.gp.iconSuccess,
             value: fig(state.totalCompletions),
             label: s.total,
             infoTitle: s.statInfoTotalTitle,
@@ -383,7 +383,7 @@ class _StatsRow extends StatelessWidget {
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.toll_rounded,
-            color: GameColors.iconGold,
+            color: context.gp.iconGold,
             value: fig(state.gold),
             label: s.gold,
             infoTitle: s.statInfoGoldTitle,
@@ -391,7 +391,7 @@ class _StatsRow extends StatelessWidget {
         const SizedBox(width: 8),
         _StatCell(
             icon: Icons.bolt_rounded,
-            color: GameColors.iconXp,
+            color: context.gp.iconXp,
             value: fig(state.cumulativeXp),
             label: s.totalXp,
             infoTitle: s.statInfoXpTitle,

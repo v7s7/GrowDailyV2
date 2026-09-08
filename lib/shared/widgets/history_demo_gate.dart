@@ -46,7 +46,9 @@ class _HistoryDemoGateSheet extends StatelessWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -155,7 +157,7 @@ class _DemoMonthCard extends StatelessWidget {
                 Row(
                   children: [
                     Icon(Icons.auto_awesome_rounded,
-                        size: 16, color: GameColors.gold),
+                        size: 16, color: context.gp.goldInk),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -215,7 +217,7 @@ class _DemoMonthCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w800,
-                          color: GameColors.gold,
+                          color: context.gp.goldInk,
                         ),
                       ),
                     ),
@@ -226,7 +228,7 @@ class _DemoMonthCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
-                        color: GameColors.emerald,
+                        color: context.gp.emeraldInk,
                       ),
                     ),
                   ],

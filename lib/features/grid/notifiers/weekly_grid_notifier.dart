@@ -13,6 +13,8 @@ import '../../milestones/reports/habit_day_marks.dart';
 import '../../premium/notifiers/premium_notifier.dart'
     show canBrowseHistoryMonth, kFreeHistoryMonths;
 import '../models/square_state.dart';
+import 'note_index_notifier.dart'
+    show dayStillHasWriting, monthKeyOf, noteIndexRef;
 
 /// Returns the Saturday that starts the week containing [d].
 ///
@@ -724,7 +726,12 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   }
 
   /// Attach (or clear) a daily reflection note for a habit's square.
-  void setNote(String habitId, DateTime day, String note) {
+  ///
+  /// Returns the persist future so the editor can raise a failure bar. The
+  /// in-memory write above it is synchronous and is never rolled back: the
+  /// note is the user's own sentence, and deleting it to punish a bad
+  /// network is a worse outcome than a stale-until-refresh square.
+  Future<void> setNote(String habitId, DateTime day, String note) {
     final key = day.toDateKey();
     final trimmed = note.trim();
     final notes = {
@@ -732,7 +739,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     };
     (notes[key] ??= {})[habitId] = trimmed;
     state = state.copyWith(notes: notes);
-    _persistNote(habitId, day, trimmed);
+    return _persistNote(habitId, day, trimmed, notes[key]!);
   }
 
   Future<void> _persistSquare(
@@ -821,23 +828,83 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     });
   }
 
+  /// Writes the note AND the day's entry in the note index as one batch.
+  ///
+  /// Atomic on purpose. A second copy of "this day has writing" has always
+  /// been unsafe here, but not because it is a copy: because the write it
+  /// copies was unobserved. This used to be `.ignore()`d, so the app could
+  /// not tell a saved note from a lost one, index or no index. A batch
+  /// commits both documents or neither, so the index inherits the note's own
+  /// reliability instead of adding a second, worse one, and the returned
+  /// future finally gives the editor something to show a failure from.
+  ///
+  /// [dayNotes] is the day's whole note row after this edit, which is what
+  /// makes the index exact: clearing one of two notes on a day correctly
+  /// leaves the day marked.
   Future<void> _persistNote(
-      String habitId, DateTime day, String note) async {
+    String habitId,
+    DateTime day,
+    String note,
+    Map<String, String> dayNotes,
+  ) async {
     if (_uid != null) {
-      _dayRef(day).set(
+      // Clearing DELETES the key rather than writing ''. The old behaviour
+      // left a permanent tombstone on every note ever cleared, which any
+      // presence check built on key existence would count as writing. Same
+      // shape as _persistFlatPaid's `paid == 0 ? FieldValue.delete() : paid`.
+      //
+      // Built INSIDE this branch: FieldValue is a Firestore platform call,
+      // and the guest path must not touch Firestore at all (in a widget test
+      // there is no Firebase app, so constructing one here threw and took
+      // every guest note write with it).
+      final value = note.isEmpty ? FieldValue.delete() : note;
+      final batch = FirebaseFirestore.instance.batch();
+      batch.set(
+        _dayRef(day),
         {
-          'squareNotes': {habitId: note},
+          'squareNotes': {habitId: value},
           'lastUpdated': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
-      ).ignore();
+      );
+      // Adding is unconditional: a day that now carries writing carries it
+      // whatever else is in the row. REMOVING depends on knowing the whole
+      // row, and _goToWeek wipes `notes` to const {} while a week loads, so
+      // a clear landing in that window would see a one-entry row, conclude
+      // the day is empty, and arrayRemove a day another habit still writes
+      // on. Skipping the index write there leaves the previous, correct
+      // value for the healer, which is the safe direction to fail in.
+      final still = dayStillHasWriting(dayNotes, habitId, note);
+      if (still || !state.isLoading) {
+        batch.set(
+          noteIndexRef(_uid),
+          {
+            'months': {
+              monthKeyOf(day.toDateKey()): still
+                  ? FieldValue.arrayUnion([day.day])
+                  : FieldValue.arrayRemove([day.day]),
+            },
+          },
+          SetOptions(merge: true),
+        );
+      }
+      await batch.commit();
       return;
     }
+    // The guest keeps no index: allDailyMaps() folds the truth for free.
     await _mergeGuestDaily(day, (map) {
       final notes = Map<String, dynamic>.from(
           (map['squareNotes'] as Map?)?.cast<String, dynamic>() ?? {});
-      notes[habitId] = note;
-      map['squareNotes'] = notes;
+      if (note.isEmpty) {
+        notes.remove(habitId);
+      } else {
+        notes[habitId] = note;
+      }
+      if (notes.isEmpty) {
+        map.remove('squareNotes');
+      } else {
+        map['squareNotes'] = notes;
+      }
     });
   }
 

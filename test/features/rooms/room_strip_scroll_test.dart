@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
+import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/rooms/models/room_model.dart';
 import 'package:grow_daily_v2/features/rooms/screens/room_detail_screen.dart'
@@ -333,5 +334,29 @@ void main() {
     final names = find.byType(RoomStripMonthLabel).evaluate().length;
     expect(names, inInclusiveRange(12, 13),
         reason: '366 days touch twelve or thirteen months');
+  });
+
+  testWidgets('the strip is one button, and it does not read out its own axis',
+      (tester) async {
+    // The strip is a picture of days wrapped in a Semantics button. Without
+    // excludeSemantics every descendant merged into that button's label, so
+    // it announced its caption and then every month name and every week
+    // number on the row: on this 400-day room that is a year of digits
+    // standing between a listener and the next member on the board. None of
+    // it is usable spoken, and the numbers it draws are already said by the
+    // row around it (day count, percentage, streak).
+    final handle = tester.ensureSemantics();
+    await pumpStrip(tester, days: 400, isAr: true);
+    // The button still says what tapping it does.
+    expect(
+      find.bySemanticsLabel(const S(Locale('ar')).roomStripOpenCalendar),
+      findsOneWidget,
+    );
+    // And says nothing else. The markers are still DRAWN, they are just not
+    // part of the button's announcement.
+    expect(startLabel(true), findsWidgets, reason: 'still on screen');
+    expect(find.bySemanticsLabel(RegExp('البداية')), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('اليوم')), findsNothing);
+    handle.dispose();
   });
 }

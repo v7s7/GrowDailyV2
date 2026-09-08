@@ -191,6 +191,7 @@ class _ReportSheetState extends State<_ReportSheet> {
         ),
         const SizedBox(height: 8),
         TextField(
+          selectionWidthStyle: GameTextStyles.selectionWidthStyle,
           controller: _note,
           maxLines: 3,
           maxLength: 500,
@@ -281,7 +282,9 @@ class _SheetShell extends StatelessWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         constraints:
@@ -351,7 +354,7 @@ class _ActionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final tint = destructive ? GameColors.error : gp.textPrimary;
+    final tint = destructive ? gp.errorInk : gp.textPrimary;
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();

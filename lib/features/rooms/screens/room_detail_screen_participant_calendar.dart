@@ -484,7 +484,7 @@ class _ParticipantHeader extends StatelessWidget {
               _HeaderStat(
                 value: '$streak',
                 label: s.habitStatsCurrentStreak,
-                color: GameColors.iconStreak,
+                color: context.gp.iconStreak,
               ),
             ],
           ),

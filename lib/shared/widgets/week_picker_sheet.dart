@@ -122,7 +122,19 @@ class _WeekPickerSheet extends StatelessWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        // viewInsets for the keyboard, padding.bottom for the Android
+        // navigation bar. This sheet is a FLOATING card (16 on every side),
+        // so the rule is to lift the margin clear of the bar rather than pad
+        // inside it — the same two-term sum MonthPickerSheet uses.
+        //
+        // The 2026-09-08 edge-to-edge sweep went through 45 files and this
+        // one kept only the keyboard term, so on Android 15/16, where the app
+        // targets SDK 36 and cannot opt out, the card's bottom edge sat under
+        // the three-button navigation bar. useSafeArea: true above does not
+        // help: Flutter implements it as SafeArea(bottom: false).
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         constraints:
@@ -160,6 +172,12 @@ class _WeekPickerSheet extends StatelessWidget {
             Flexible(
               child: ListView(
                 shrinkWrap: true,
+                // Not auto-padded: the margin below the card carries the
+                // inset. A ListView inside a sheet otherwise inherits the
+                // system bottom padding through MediaQuery and adds it a
+                // second time, so the list would sit clear of the nav bar
+                // and the card would not. Same line as MonthPickerSheet.
+                padding: EdgeInsets.zero,
                 physics: const BouncingScrollPhysics(),
                 children: [
                   for (final month in orderedMonths) ...[

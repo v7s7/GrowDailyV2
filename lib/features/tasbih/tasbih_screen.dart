@@ -139,6 +139,7 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
       builder: (context) => AlertDialog(
         title: Text(s.tasbihCustomTitle),
         content: TextField(
+          selectionWidthStyle: GameTextStyles.selectionWidthStyle,
           controller: controller,
           autofocus: true,
           keyboardType: TextInputType.number,
@@ -360,7 +361,7 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
                       Icon(
                         Icons.check_circle_rounded,
                         size: 16,
-                        color: GameColors.emerald,
+                        color: context.gp.emeraldInk,
                       ),
                       const SizedBox(width: 6),
                       Text(
@@ -368,7 +369,7 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: GameColors.emerald,
+                          color: context.gp.emeraldInk,
                         ),
                       ),
                     ],
@@ -446,7 +447,7 @@ class _TargetChip extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: selected ? GameColors.emerald : gp.textSec,
+              color: selected ? context.gp.emeraldInk : gp.textSec,
             ),
           ),
         ),

@@ -50,14 +50,16 @@ enum MilestoneType {
   /// here once the duplication was spotted, same reasoning as [icon] and
   /// [localizedName] already living on the enum rather than on whichever
   /// widget happens to render first.
-  Color get color => switch (this) {
-        joined => GameColors.emerald,
-        levelUp => GameColors.gold,
-        streakMilestone => GameColors.iconStreak,
-        perfectDay => GameColors.success,
-        perfectWeek => GameColors.iconXp,
-        achievementUnlocked => GameColors.gold,
-        roomChallengeComplete => GameColors.iconXp,
+  /// Takes the brightness for the same reason [Mood.visual] does: the
+  /// accent and the fixed stat colours are not legible in both modes as-is.
+  Color color(bool dark) => switch (this) {
+        joined => GameColors.emeraldInkFor(dark),
+        levelUp => GameColors.goldInkFor(dark),
+        streakMilestone => GameColors.iconStreakFor(dark),
+        perfectDay => GameColors.emeraldInkFor(dark),
+        perfectWeek => GameColors.iconXpFor(dark),
+        achievementUnlocked => GameColors.goldInkFor(dark),
+        roomChallengeComplete => GameColors.iconXpFor(dark),
       };
 
   /// Generic per-type label — [milestoneHeadline] below builds the richer,

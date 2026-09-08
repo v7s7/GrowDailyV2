@@ -118,7 +118,9 @@ class _YearPickerSheet extends StatelessWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         constraints:
@@ -274,7 +276,9 @@ class _MonthPickerSheet extends StatelessWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         constraints:
@@ -312,6 +316,8 @@ class _MonthPickerSheet extends StatelessWidget {
             Flexible(
               child: ListView(
                 shrinkWrap: true,
+                // Not auto-padded: the margin below the card carries the inset.
+                padding: EdgeInsets.zero,
                 physics: const BouncingScrollPhysics(),
                 children: [
                   for (final year in orderedYears) ...[

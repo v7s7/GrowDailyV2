@@ -181,7 +181,7 @@ class _JourneyHeaderCard extends StatelessWidget {
               color: GameColors.gold.withOpacity(0.14),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(Icons.auto_awesome_rounded, color: GameColors.gold),
+            child: Icon(Icons.auto_awesome_rounded, color: context.gp.goldInk),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -253,7 +253,7 @@ class _MilestoneRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final color = event.type.color;
+    final color = event.type.color(gp.dark);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(

@@ -206,7 +206,7 @@ class WeeklyRecapCard extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(9),
                       ),
                       child: Icon(Icons.insights_rounded,
-                          size: 16, color: GameColors.gold),
+                          size: 16, color: context.gp.goldInk),
                     ),
                     const SizedBox(width: 10),
                     Text(
@@ -228,7 +228,7 @@ class WeeklyRecapCard extends ConsumerWidget {
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w900,
-                          color: GameColors.gold,
+                          color: context.gp.goldInk,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -520,7 +520,7 @@ class _RecapDepth extends ConsumerWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.lock_rounded,
-                        size: 13, color: GameColors.gold),
+                        size: 13, color: context.gp.goldInk),
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
@@ -531,7 +531,7 @@ class _RecapDepth extends ConsumerWidget {
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
-                          color: GameColors.gold,
+                          color: context.gp.goldInk,
                         ),
                       ),
                     ),
@@ -784,7 +784,7 @@ class _TrendBar extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w700,
-            color: isCurrent ? GameColors.gold : gp.textPrimary,
+            color: isCurrent ? context.gp.goldInk : gp.textPrimary,
           ),
         ),
         const SizedBox(height: 1),
@@ -793,7 +793,7 @@ class _TrendBar extends StatelessWidget {
           style: TextStyle(
             fontSize: 8.5,
             fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
-            color: isCurrent ? GameColors.gold : gp.textTert,
+            color: isCurrent ? context.gp.goldInk : gp.textTert,
           ),
         ),
       ],

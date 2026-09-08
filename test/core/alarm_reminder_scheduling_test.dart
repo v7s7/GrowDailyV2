@@ -272,9 +272,14 @@ void main() {
           .scheduleSmartReminders([habit('fresh')], settings, isAr: false),
     ]);
     expect(
-      alarmSchedules().map((a) => a['targetId']),
-      ['fresh'],
+      alarmSchedules().map((a) => a['targetId']).toSet(),
+      {'fresh'},
       reason: 'the older pass was overtaken before it ran',
+    );
+    expect(
+      alarmSchedules().length,
+      NotificationService.kOccurrencesPerSlot,
+      reason: 'the surviving pass arms its whole window, one alarm per day',
     );
   });
 }

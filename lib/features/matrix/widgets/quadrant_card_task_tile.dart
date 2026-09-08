@@ -35,7 +35,9 @@ class _EmptyQuadrantBody extends StatelessWidget {
                   color: color.withOpacity(0.12),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.add_rounded, size: 16, color: color),
+                // 12% disc keeps the quadrant colour, glyph takes its edge.
+                child: Icon(Icons.add_rounded,
+                    size: 16, color: context.gp.edge(color)),
               )
                   .animate(onPlay: (c) => c.repeat(reverse: true))
                   .scaleXY(
@@ -207,8 +209,8 @@ class _TaskTileState extends State<_TaskTile>
           color: GameColors.error.withOpacity(0.12),
           borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
         ),
-        child: const Icon(Icons.delete_outline_rounded,
-            color: GameColors.error, size: 16),
+        child: Icon(Icons.delete_outline_rounded,
+            color: context.gp.errorInk, size: 16),
       ),
       child: GestureDetector(
         onTapDown: (_) => setState(() => _pressed = true),

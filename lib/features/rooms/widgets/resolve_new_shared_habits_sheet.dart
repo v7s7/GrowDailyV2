@@ -183,7 +183,8 @@ class _ResolveNewHabitsSheetState
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            padding: EdgeInsets.fromLTRB(
+                20, 10, 20, 20 + MediaQuery.of(context).padding.bottom),
             child: FilledButton(
               onPressed: pending.isEmpty || _isSaving ? null : _save,
               style: FilledButton.styleFrom(
@@ -242,7 +243,7 @@ class _NewHabitRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.flag_rounded, size: 15, color: GameColors.gold),
+          Icon(Icons.flag_rounded, size: 15, color: context.gp.goldInk),
           const SizedBox(width: 8),
           Expanded(
             flex: 4,
@@ -261,12 +262,12 @@ class _NewHabitRow extends StatelessWidget {
                 isExpanded: true,
                 isDense: true,
                 hint: Text(s.roomPlanAddAsNew,
-                    style: TextStyle(fontSize: 12, color: GameColors.gold)),
+                    style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
                 items: [
                   DropdownMenuItem<String?>(
                     value: null,
                     child: Text(s.roomPlanAddAsNew,
-                        style: TextStyle(fontSize: 12, color: GameColors.gold)),
+                        style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
                   ),
                   ...myHabits.map((h) => DropdownMenuItem<String?>(
                         value: h.id,

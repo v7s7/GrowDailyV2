@@ -10,7 +10,7 @@
 <meta property="og:title" content="انضم إلى تحدّي في Grow Daily">
 <meta property="og:description" content="لوّن حياتك، مربّعًا كل يوم.">
 <meta property="og:type" content="website">
-<meta name="apple-itunes-app" content="app-id=REPLACE_WITH_APPSTORE_ID">
+<meta name="apple-itunes-app" content="app-id=6788149393">
 
 <style>
   :root{
@@ -67,7 +67,15 @@
     <p class="code-label">رمز الغرفة</p>
     <div class="code" id="code">—</div>
 
-    <a class="btn" id="store" href="https://apps.apple.com/app/idREPLACE_WITH_APPSTORE_ID">
+    <!-- Two stores, one shown. The page picks by user agent below; if the
+         sniff is inconclusive both stay visible, which is the right failure
+         since a wrong single button is a dead end and two buttons is only a
+         question. This used to be the App Store alone, so every Android
+         recipient of an invite landed here and had nowhere to go. -->
+    <a class="btn" id="store-ios" href="https://apps.apple.com/app/id6788149393">
+      حمّل التطبيق
+    </a>
+    <a class="btn" id="store-android" href="https://play.google.com/store/apps/details?id=com.growdaily.v2">
       حمّل التطبيق
     </a>
     <a class="btn secondary" id="open" href="#">فتح في التطبيق</a>
@@ -93,14 +101,28 @@
   if (code) {
     document.getElementById('code').textContent = code;
     // Legacy custom scheme as the manual "open" escape hatch. This page is
-    // only ever REACHED when the Universal Link did not open the app — either
-    // it is not installed, or the user previously chose "open in browser" from
-    // the Safari banner, which iOS then remembers. This button is the way back
-    // from that second case, and it is a no-op for anyone without the app.
+    // only ever REACHED when the app link did not open the app — either it is
+    // not installed, or the user previously chose "open in browser" (Safari
+    // remembers that choice; on Android the equivalent is the per-app "open
+    // supported links" setting). This button is the way back from that second
+    // case on BOTH platforms — growdaily:// is still declared in the Android
+    // manifest and in Info.plist — and it is a no-op for anyone without the
+    // app.
     document.getElementById('open').href = 'growdaily://join/' + code;
   } else {
     document.getElementById('code').textContent = '—';
     document.getElementById('open').style.display = 'none';
+  }
+
+  // Show the store the visitor can actually install from. Deliberately a
+  // narrow sniff and a generous fallback: an Android UA hides the App Store
+  // button, an iOS one hides Play, and anything else (a laptop, a UA this
+  // does not recognise) keeps both rather than guessing wrong.
+  var ua = navigator.userAgent || '';
+  if (/Android/i.test(ua)) {
+    document.getElementById('store-ios').style.display = 'none';
+  } else if (/iPhone|iPad|iPod/i.test(ua)) {
+    document.getElementById('store-android').style.display = 'none';
   }
 </script>
 </body>

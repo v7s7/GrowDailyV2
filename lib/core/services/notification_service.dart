@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show TimeOfDay;
+import 'package:flutter/material.dart' show Color, TimeOfDay;
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -152,6 +152,17 @@ typedef _ResolvedReminder = ({
   /// Which of this habit's reminder slots this is — the index of its time in
   /// [HabitReminderInput.clockTimes]. See [NotificationService._habitReminderId].
   int slot,
+  /// How many occurrences ahead of the next one this is: 0 is the very next
+  /// time this slot comes round, 1 the one after that, and so on up to
+  /// [NotificationService.kOccurrencesPerSlot] - 1.
+  ///
+  /// A slot used to hold exactly one pending notification, which meant a
+  /// phone that was not opened for a day had nothing left armed for the day
+  /// after. Keeping the next few occurrences of every slot in the scheduler
+  /// at once is what closes that, and depth is the extra dimension the id
+  /// needs so the copies can be scheduled and cancelled independently — see
+  /// [NotificationService._habitReminderId].
+  int depth,
   /// Signed minutes from the moment this reminder is ABOUT to the moment it
   /// actually fires: negative = early, 0 = on the dot, positive = late.
   ///
@@ -238,18 +249,34 @@ typedef QuitCheckInInput = ({
 /// worked here — but a recurring schedule fires unconditionally, with no
 /// way to skip just *today's* occurrence. That's a real problem for
 /// "smart, not spammy": it means still nagging about a habit that's
-/// already been marked done for the day. There's no backend here to push a
-/// last-second cancel, so the only way to actually respect same-day
-/// completion (or quiet hours, or a settings change) is to schedule only
-/// the *next* single occurrence, then re-decide and reschedule every time
-/// something relevant changes — a habit gets completed, the habit list
-/// changes, settings change, or the app simply comes back to the
-/// foreground (see main.dart's `_recomputeNotifications`, which is wired
-/// to all of those). The trade-off: if the app genuinely never reopens for
-/// more than a day, that one habit's reminders go quiet until it does —
-/// judged an acceptable trade for a habit-tracking app (which assumes
-/// fairly regular opens) against the alternative of reminding someone
-/// about something they already finished.
+/// already been marked done for the day. A fixed clock time is also simply
+/// the WRONG time for a prayer-anchored habit, which is the other half of
+/// the argument: "fifteen minutes before Fajr" is a different moment every
+/// morning, and a recurring schedule would freeze it at whatever it was
+/// the day it was armed — about twenty minutes out by the end of a month.
+/// So each occurrence is scheduled individually, computed for the day it
+/// lands on, and re-decided every time something relevant changes: a habit
+/// gets completed, the habit list changes, settings change, or the app
+/// comes back to the foreground (see main.dart's
+/// `_recomputeNotifications`, which is wired to all of those).
+///
+/// ── How far ahead ────────────────────────────────────────────────────
+/// One occurrence per slot was the original answer, and it left a hole: a
+/// phone that was not opened for a day had nothing armed for the day after,
+/// so the reminders went quiet until it was. Each slot now keeps its next
+/// [kOccurrencesPerSlot] occurrences armed at once, each one resolved
+/// against its OWN day — a prayer-anchored habit reads that day's prayer
+/// times (PrayerTimesService.calculateDays, one request per month for any
+/// country, and Bahrain's bundled official table with no request at all),
+/// and a clock habit is rebuilt from that day's wall clock so a daylight
+/// saving change does not shift it by an hour. Same-day completion still
+/// stands down only the copies that belong to today, so finishing a habit
+/// silences today and leaves tomorrow morning armed.
+///
+/// The window is bounded by iOS's hard 64-pending limit rather than by
+/// appetite — see [kMaxPendingHabitSlots] and _scheduleResolved's trim,
+/// which drops the latest-firing entries first, so a heavy user loses the
+/// far end of the window and never the next reminder.
 ///
 /// One-time native setup still required after `flutter create .` generates
 /// the ios/ and android/ folders on your Mac:
@@ -272,15 +299,59 @@ class NotificationService {
   /// Today's board as last reported by main.dart's recompute, kept so a
   /// caller with no state of its own cannot reword tonight's line.
   ({int done, int total, int streak})? _dailyState;
-  static const _channelId = 'growdaily_general';
+  /// The channel every ordinary reminder and celebration posts to.
+  ///
+  /// ── Why the id has a v2 on it ────────────────────────────────────────
+  /// Android FREEZES a channel's importance the moment it is first created.
+  /// createNotificationChannel on an existing id updates its name and
+  /// description and nothing else, deliberately, so that a person's own
+  /// choice about how loud an app is allowed to be cannot be overwritten by
+  /// an update. The only way to change the importance the app SHIPS with is
+  /// a new id.
+  ///
+  /// It had to change because the old channel was IMPORTANCE_DEFAULT, and on
+  /// Android that means the reminder makes a sound and slides into the shade
+  /// without ever appearing on screen. No heads-up banner, at all. The same
+  /// reminder on iOS arrives as a banner, and the alarm channel below was
+  /// already IMPORTANCE_MAX, so a habit reminder was the one thing in this
+  /// app that quietly did not show up — for a reminder the person explicitly
+  /// asked for, at a time they chose.
+  ///
+  /// IMPORTANCE_HIGH, not MAX: high is a banner, max additionally overrides
+  /// Do Not Disturb and is what an alarm the person set to wake them uses
+  /// (see [_alarmChannelId]). A reminder should be seen, not force its way
+  /// past a Focus.
+  static const _channelId = 'growdaily_reminders_v2';
   static const _channelName = 'Grow Daily';
   static const _channelDesc = 'Habit reminders and progress celebrations';
+
+  /// The pre-v2 id, kept only so [init] can clean it out of the person's
+  /// notification settings, where it would otherwise sit forever as a second
+  /// empty entry for the same app.
+  static const _legacyChannelId = 'growdaily_general';
 
   // Android's answer to "ring as an alarm": a second channel on the ALARM
   // audio stream at maximum importance, so a reminder the person switched
   // to alarm plays at alarm volume and through Do Not Disturb wherever the
   // person allows alarms, the way a clock app's would. iOS needs no channel:
   // its alarms are real AlarmKit alarms, see AlarmService.
+  /// The accent Android tints a notification's small icon and app name
+  /// with, on the notifications this app posts ITSELF.
+  ///
+  /// The same value as `@color/notification_color` in
+  /// android/app/src/main/res/values/colors.xml, which the manifest already
+  /// points FCM at. That meta-data only covers notifications the Firebase
+  /// SDK builds from a tray push; anything posted through
+  /// flutter_local_notifications carries no colour unless it is set here, so
+  /// a room push arrived brand green and the habit reminder beside it
+  /// arrived grey — one app looking like two in the same shade.
+  ///
+  /// Deliberately a constant and not the live theme preset, for the same
+  /// reason colors.xml gives: a person who switches to Ocean or Nour Violet
+  /// changes GameColors at runtime, and a notification already handed to the
+  /// system cannot follow. The default brand green is the honest constant.
+  static const _notificationAccent = Color(0xFF2ECF8F);
+
   static const _alarmChannelId = 'growdaily_alarm';
   static const _alarmChannelName = 'Grow Daily alarms';
   static const _alarmChannelDesc = 'Reminders you chose to ring as alarms';
@@ -548,29 +619,39 @@ class NotificationService {
     // this same id, so creating it here is what makes that push land.
     //
     // No-op on iOS: resolvePlatformSpecificImplementation returns null.
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(
-          const AndroidNotificationChannel(
-            _channelId,
-            _channelName,
-            description: _channelDesc,
-            importance: Importance.defaultImportance,
-          ),
-        );
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(
-          const AndroidNotificationChannel(
-            _alarmChannelId,
-            _alarmChannelName,
-            description: _alarmChannelDesc,
-            importance: Importance.max,
-            audioAttributesUsage: AudioAttributesUsage.alarm,
-          ),
-        );
+    final androidChannels = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    await androidChannels?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _channelId,
+        _channelName,
+        description: _channelDesc,
+        // See _channelId: high is a heads-up banner, which is what a
+        // reminder the person asked for should be, and what the same
+        // reminder already is on iOS.
+        importance: Importance.high,
+      ),
+    );
+    // The pre-v2 channel, removed rather than left behind. Android keeps a
+    // channel until the app deletes it or is uninstalled, so without this
+    // every upgrading device would show two Grow Daily entries in its
+    // notification settings, one of them permanently empty.
+    //
+    // Best-effort and repeated on every launch on purpose: a reminder that
+    // was already sitting in the OS scheduler names the old channel in its
+    // own stored payload, and the plugin recreates a named channel lazily
+    // when it posts, so one can come back. The next recompute replaces
+    // those with v2 reminders and the next launch clears it again.
+    await androidChannels?.deleteNotificationChannel(_legacyChannelId);
+    await androidChannels?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _alarmChannelId,
+        _alarmChannelName,
+        description: _alarmChannelDesc,
+        importance: Importance.max,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+      ),
+    );
 
     // If a notification action cold-launched the app (it was fully
     // terminated when tapped), the tap never reaches
@@ -714,7 +795,25 @@ class NotificationService {
     }
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-    if (android != null) return android.areNotificationsEnabled();
+    if (android != null) {
+      final appLevel = await android.areNotificationsEnabled();
+      if (appLevel != true) return appLevel;
+      // The app-level switch is not how notifications actually get turned
+      // off on Android. Long-press a reminder, "turn off notifications", and
+      // the shade silences THAT CHANNEL while the app-level flag stays true
+      // — so this returned "enabled", the banner that exists to explain
+      // missing reminders never appeared, and the one thing the person had
+      // done to cause it was invisible to the app. That banner is the whole
+      // reason this method exists.
+      //
+      // IMPORTANCE_NONE on the channel is the off state. A channel that is
+      // not in the list yet has simply never been created (init makes it, so
+      // in practice only before the first init) and is not "off".
+      final channels = await android.getNotificationChannels();
+      final reminders = channels?.where((c) => c.id == _channelId);
+      if (reminders == null || reminders.isEmpty) return true;
+      return reminders.first.importance != Importance.none;
+    }
     return null;
   }
 
@@ -779,8 +878,9 @@ class NotificationService {
           _channelId,
           _channelName,
           channelDescription: _channelDesc,
-          importance: Importance.defaultImportance,
-          priority: Priority.defaultPriority,
+          color: _notificationAccent,
+          importance: Importance.high,
+          priority: Priority.high,
         ),
         iOS: DarwinNotificationDetails(),
       );
@@ -809,9 +909,9 @@ class NotificationService {
           alarmStyle ? _alarmChannelId : _channelId,
           alarmStyle ? _alarmChannelName : _channelName,
           channelDescription: alarmStyle ? _alarmChannelDesc : _channelDesc,
-          importance:
-              alarmStyle ? Importance.max : Importance.defaultImportance,
-          priority: alarmStyle ? Priority.max : Priority.defaultPriority,
+          color: _notificationAccent,
+          importance: alarmStyle ? Importance.max : Importance.high,
+          priority: alarmStyle ? Priority.max : Priority.high,
           category: alarmStyle ? AndroidNotificationCategory.alarm : null,
           audioAttributesUsage: alarmStyle
               ? AudioAttributesUsage.alarm
@@ -840,9 +940,9 @@ class NotificationService {
           alarmStyle ? _alarmChannelId : _channelId,
           alarmStyle ? _alarmChannelName : _channelName,
           channelDescription: alarmStyle ? _alarmChannelDesc : _channelDesc,
-          importance:
-              alarmStyle ? Importance.max : Importance.defaultImportance,
-          priority: alarmStyle ? Priority.max : Priority.defaultPriority,
+          color: _notificationAccent,
+          importance: alarmStyle ? Importance.max : Importance.high,
+          priority: alarmStyle ? Priority.max : Priority.high,
           category: alarmStyle ? AndroidNotificationCategory.alarm : null,
           audioAttributesUsage: alarmStyle
               ? AudioAttributesUsage.alarm
@@ -863,8 +963,9 @@ class NotificationService {
           _channelId,
           _channelName,
           channelDescription: _channelDesc,
-          importance: Importance.defaultImportance,
-          priority: Priority.defaultPriority,
+          color: _notificationAccent,
+          importance: Importance.high,
+          priority: Priority.high,
         ),
         iOS: DarwinNotificationDetails(
           interruptionLevel:
@@ -880,8 +981,9 @@ class NotificationService {
           _channelId,
           _channelName,
           channelDescription: _channelDesc,
-          importance: Importance.defaultImportance,
-          priority: Priority.defaultPriority,
+          color: _notificationAccent,
+          importance: Importance.high,
+          priority: Priority.high,
           actions: [
             AndroidNotificationAction(actionStayedClean, onTrackAction(isAr),
                 showsUserInterface: true),
@@ -1155,46 +1257,92 @@ class NotificationService {
     /// Days this habit runs — see HabitReminderInput.scheduledWeekdays.
     /// Defaults to every day so existing callers and tests are unchanged.
     Set<int> scheduledWeekdays = const {},
+  }) =>
+      [
+        for (final o in resolveClockOccurrences(times, offsets, now,
+            scheduledWeekdays: scheduledWeekdays, occurrences: 1))
+          (slot: o.slot, fireTime: o.fireTime),
+      ];
+
+  /// The next [occurrences] moments each of [times] falls at, one entry per
+  /// (slot, depth) pair.
+  ///
+  /// Depth 0 is the next occurrence — exactly what [resolveClockSlots]
+  /// always returned, which is why that method is now a one-occurrence call
+  /// into this one rather than a second copy of the same arithmetic.
+  /// Depth 1 and up are the ones after it, on the habit's own days, and
+  /// they exist so a phone that is not opened tomorrow still has tomorrow's
+  /// reminder armed (see [kOccurrencesPerSlot]).
+  ///
+  /// The slot is the index in [times], NEVER the position in fire-time
+  /// order — see [resolveClockSlots]' own doc comment for why that
+  /// distinction is load-bearing for ids.
+  ///
+  /// Each day's moment is BUILT from that day's wall clock rather than by
+  /// adding 24 hours to the previous one. The two are the same number
+  /// everywhere without daylight saving, and an hour apart across a
+  /// transition — "every day at 07:00" means seven in the morning on each
+  /// of those days, not a fixed number of hours after the first. This
+  /// matters now that a window of days is armed at once in zones the app
+  /// has always supported.
+  @visibleForTesting
+  static List<({int slot, int depth, tz.TZDateTime fireTime})>
+      resolveClockOccurrences(
+    List<TimeOfDay> times,
+    List<int> offsets,
+    tz.TZDateTime now, {
+    Set<int> scheduledWeekdays = const {},
+    int occurrences = 1,
   }) {
-    final out = <({int slot, tz.TZDateTime fireTime})>[];
-    for (var slot = 0; slot < times.length && slot < _maxHabitReminderSlots; slot++) {
+    final out = <({int slot, int depth, tz.TZDateTime fireTime})>[];
+    for (var slot = 0;
+        slot < times.length && slot < _maxHabitReminderSlots;
+        slot++) {
       final offset =
           Duration(minutes: slot < offsets.length ? offsets[slot] : 0);
       final t = times[slot];
-      var fire = tz.TZDateTime(
-              tz.local, now.year, now.month, now.day, t.hour, t.minute)
-          .add(offset);
-      // The offset is applied BEFORE any day roll, then the whole shifted
-      // moment rolls forward until it is in the future. Rolling the bare
-      // clock time first (as this used to) breaks every "after" shift: at
-      // 09:10 a habit set for 09:00 with +30 was rolled to tomorrow 09:00
-      // and then shifted, silently skipping today's still-future 09:30 —
-      // any recompute inside the anchor→anchor+offset window lost the
-      // reminder. Shift-then-roll also covers the two cases the old pair of
-      // rolls handled: a bare time already passed, and an offset dragging an
-      // imminent time into the past (8:58, habit at 9:00, -15). The loop
-      // (not a single if) is for a negative offset landing before now
-      // across midnight, where one roll can still leave the moment behind
-      // `now`, and for custom offsets larger than a day.
-      //
-      // The roll also has to land on a day the habit RUNS. Without the
-      // second condition a habit set to specific weekdays fired on the
-      // wrong ones: Sun/Tue/Thu at 20:00, recomputed at 21:00 on Thursday,
-      // rolled one day to Friday 20:00 and pinged about a day it was never
-      // due. Rolling on to the next scheduled weekday instead is also what
-      // keeps the NEXT real occurrence armed while the app stays closed,
-      // rather than relying on it being opened that morning.
-      //
-      // Bounded at 8 extra days so a corrupt weekday set (values outside
-      // 1-7, which no UI can produce) can never spin forever; the guard
-      // then leaves the moment on its natural next occurrence.
-      var rolls = 0;
-      while (!fire.isAfter(now) ||
-          (!_fireDayIsScheduled(fire, scheduledWeekdays) && rolls < 8)) {
-        if (fire.isAfter(now)) rolls++;
-        fire = fire.add(const Duration(days: 1));
+      var depth = 0;
+      // The first future moment regardless of what weekdays say, kept as
+      // the answer for a corrupt weekday set (values outside 1-7, which no
+      // UI can produce). Without it such a habit resolves to NOTHING and
+      // loses its reminder silently; the single-occurrence version handled
+      // the same case by giving up its weekday check after eight rolls and
+      // leaving the moment on its natural next occurrence.
+      tz.TZDateTime? unrestricted;
+      // Bounded so that corrupt set can never spin forever, and generous
+      // enough that a once-a-week habit still reaches its full window: a
+      // whole week per occurrence, plus the slack the single-occurrence
+      // version already allowed for an offset larger than a day.
+      final lastDay = 8 + 7 * occurrences;
+      for (var dayOffset = 0;
+          dayOffset <= lastDay && depth < occurrences;
+          dayOffset++) {
+        // The offset is applied AFTER the day's wall clock is built, never
+        // before a day roll. Rolling the bare clock time first (as this
+        // used to) breaks every "after" shift: at 09:10 a habit set for
+        // 09:00 with +30 was rolled to tomorrow 09:00 and then shifted,
+        // silently skipping today's still-future 09:30 — any recompute
+        // inside the anchor→anchor+offset window lost the reminder.
+        // Walking days and shifting each also covers the two cases the old
+        // pair of rolls handled: a bare time already passed, and an offset
+        // dragging an imminent time into the past (8:58, habit at 9:00,
+        // -15), as well as custom offsets larger than a day.
+        final fire = tz.TZDateTime(tz.local, now.year, now.month,
+                now.day + dayOffset, t.hour, t.minute)
+            .add(offset);
+        if (!fire.isAfter(now)) continue;
+        unrestricted ??= fire;
+        // The moment also has to land on a day the habit RUNS. Without this
+        // a habit set to specific weekdays fired on the wrong ones:
+        // Sun/Tue/Thu at 20:00, recomputed at 21:00 on Thursday, rolled one
+        // day to Friday 20:00 and pinged about a day it was never due.
+        if (!_fireDayIsScheduled(fire, scheduledWeekdays)) continue;
+        out.add((slot: slot, depth: depth, fireTime: fire));
+        depth++;
       }
-      out.add((slot: slot, fireTime: fire));
+      if (depth == 0 && unrestricted != null) {
+        out.add((slot: slot, depth: 0, fireTime: unrestricted));
+      }
     }
     return out;
   }
@@ -1283,8 +1431,45 @@ class NotificationService {
     );
   }
 
-  int _habitReminderId(String habitId, [int slot = 0]) =>
-      5000 + reminderSlotOffset(habitId, slot);
+  /// How many upcoming occurrences of each slot are kept armed at once.
+  ///
+  /// One was the old number, and it is the reason a phone left untouched
+  /// went quiet: the scheduler held the NEXT Fajr and nothing else, so the
+  /// morning after it fired there was nothing left and no recompute due
+  /// until the app was opened. Four keeps a long weekend, and for a
+  /// prayer-anchored habit each of those four is computed from its OWN
+  /// day's prayer times (see PrayerTimesService.calculateDays), so the
+  /// reminder tracks the twenty-odd minutes Fajr moves in a month rather
+  /// than freezing at whatever it was when it was armed.
+  ///
+  /// Not larger, because every extra day multiplies how much of iOS's hard
+  /// 64-pending budget one habit takes (see [kMaxPendingHabitSlots]), and
+  /// the value of a further day falls away fast — a habit app is opened
+  /// often, and each open re-arms the whole window anyway.
+  static const int kOccurrencesPerSlot = 4;
+
+  /// Where depth 1 and up live: 400000, 401000, 402000, one 1000-wide band
+  /// per depth, matching the existing bands' shape.
+  ///
+  /// Depth 0 deliberately keeps the exact 5000-band id it has always had.
+  /// Ids are the only handle the OS has on an already-scheduled
+  /// notification, so moving depth 0 would strand every reminder currently
+  /// sitting in the system scheduler on every device that upgrades —
+  /// uncancellable and unreplaceable until it fired. The same argument the
+  /// slot scheme itself made for slot 0.
+  ///
+  /// Far above every band this file already uses (5000 habit, 6000 snooze,
+  /// 7000 bundle, 8000 streak, 9000 digest, 60000 room, plus the task
+  /// bands) and far below the 32-bit ceiling Android notification ids are
+  /// bounded by, with 12 slots x 3 extra depths reaching 402999 at most.
+  static const int _aheadBandBase = 400000;
+
+  int _habitReminderId(String habitId, [int slot = 0, int depth = 0]) =>
+      depth == 0
+          ? 5000 + reminderSlotOffset(habitId, slot)
+          : _aheadBandBase +
+              (depth - 1) * 1000 +
+              reminderSlotOffset(habitId, slot);
 
   int _snoozeId(String habitId, [int slot = 0]) =>
       6000 + reminderSlotOffset(habitId, slot);
@@ -1294,29 +1479,96 @@ class NotificationService {
   /// Every cancel site has to use this: cancelling slot 0 alone is how a
   /// habit that was counted four times a day and then deleted keeps pinging
   /// three times a day forever, with nothing left in the app pointing at it.
+  /// Every DEPTH of every slot, for the same reason one level down: a habit
+  /// deleted after its window was armed has three more days of copies in
+  /// the scheduler behind the one that is about to fire.
   Future<void> _cancelAllHabitReminderSlots(String habitId) async {
     for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
-      await _cancelHabitSlot(habitId, slot);
+      await _cancelHabitSlotAllDepths(habitId, slot);
       await _plugin.cancel(_snoozeId(habitId, slot));
+    }
+  }
+
+  /// Every armed copy this habit is NOT keeping after a resolution pass,
+  /// plus the snooze of every slot that has nothing left to fire today.
+  ///
+  /// One pass over the whole (slot, depth) grid rather than the old loop
+  /// over slots: a habit edited from four times a day to two, or from daily
+  /// to once a week, leaves copies behind in both dimensions, and anything
+  /// this does not cancel keeps firing forever with nothing in the app
+  /// pointing at it.
+  ///
+  /// [liveTodaySlots] is the slots that still have a reminder due TODAY.
+  /// The snooze band is keyed by slot alone — it is a one-off the person
+  /// asked for from a reminder that already arrived, so it belongs to no
+  /// depth — and it is cleared exactly when today's reason for it is gone:
+  /// the habit was completed, or that slot was dropped. A slot whose only
+  /// remaining copies are for later days keeps its snooze, because that
+  /// snooze is still about today.
+  Future<void> _sweepUnkeptSlots(
+    String habitId,
+    Set<({int slot, int depth})> kept, {
+    required Set<int> liveTodaySlots,
+  }) async {
+    for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
+      for (var depth = 0; depth < kOccurrencesPerSlot; depth++) {
+        if (kept.contains((slot: slot, depth: depth))) continue;
+        await _cancelHabitSlot(habitId, slot, depth);
+      }
+      if (!liveTodaySlots.contains(slot)) {
+        await _plugin.cancel(_snoozeId(habitId, slot));
+      }
+    }
+  }
+
+  /// Every armed copy of one slot. The snooze id is deliberately NOT
+  /// touched — a pending snooze is something the person asked for from a
+  /// reminder that already arrived, and it belongs to no depth.
+  Future<void> _cancelHabitSlotAllDepths(String habitId, int slot) async {
+    for (var depth = 0; depth < kOccurrencesPerSlot; depth++) {
+      await _cancelHabitSlot(habitId, slot, depth);
     }
   }
 
   /// Clears one habit slot in BOTH systems. A slot is scheduled either as a
   /// notification or as an alarm under the same id (see AlarmService), and
   /// a habit switched from one to the other must not keep the old one.
-  Future<void> _cancelHabitSlot(String habitId, int slot) async {
-    final id = _habitReminderId(habitId, slot);
+  Future<void> _cancelHabitSlot(String habitId, int slot,
+      [int depth = 0]) async {
+    final id = _habitReminderId(habitId, slot, depth);
     await _plugin.cancel(id);
     await AlarmService.instance.cancel(id);
   }
 
-  /// [_cancelAllHabitReminderSlots] for the background action handler,
-  /// which has just recorded a habit as done for the day and must not let
-  /// its later slots (a second time, a pending snooze) keep pinging about
-  /// it until the app opens. The next recompute re-arms whatever is still
-  /// owed, so standing down too much costs a reminder for at most one open.
+  /// The background action handler's stand-down: a habit just recorded as
+  /// done for the day must not let its later slots (a second time, a
+  /// pending snooze) keep pinging about it until the app opens.
+  ///
+  /// TODAY's copies only — depth 0 of every slot, and the snoozes. The
+  /// headless engine has no habit list, no cue and no location, so it
+  /// cannot resolve fire times and cannot tell which day a given copy
+  /// belongs to; depth 0 is the next occurrence of each slot, which is the
+  /// one that has just fired or is still to come today. Everything further
+  /// out stays armed.
+  ///
+  /// It used to cancel every armed copy, and that was right when a slot
+  /// held exactly one: "the next recompute re-arms whatever is still owed,
+  /// so standing down too much costs a reminder for at most one open."
+  /// With a window it would cost the whole window — mark a habit done from
+  /// the lock screen, leave the phone alone for three days, and every one
+  /// of those days would have been silent.
+  ///
+  /// Worst case now is the mirror of the old one and much smaller: if a
+  /// slot's depth 0 had already rolled to tomorrow, tomorrow loses its
+  /// reminder and the day after still has one, instead of the person
+  /// hearing nothing at all until they next open the app.
   Future<void> standDownHabitReminders(String habitId) =>
-      _serialized(() => _cancelAllHabitReminderSlots(habitId));
+      _serialized(() async {
+        for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
+          await _cancelHabitSlot(habitId, slot);
+          await _plugin.cancel(_snoozeId(habitId, slot));
+        }
+      });
 
   /// Reminder schedules and cancels run one after another, in call order.
   ///
@@ -1338,7 +1590,14 @@ class NotificationService {
   }
 
   static const _bundleSlotBase = 7000;
-  static const _maxBundleSlots = 6;
+  /// Six bundles' worth of distinct fire-time groups PER DAY of the armed
+  /// window (see [kOccurrencesPerSlot]) — the same per-day capacity this
+  /// had when a slot held one moment, now that a day's groups repeat for
+  /// every day in the window. Past the last one, members fall back to
+  /// their own individual reminders rather than being dropped (see
+  /// _scheduleResolved), so the cap costs tidiness and never a reminder.
+  /// The 7000 band is 1000 wide, so this stays inside it many times over.
+  static const _maxBundleSlots = 6 * kOccurrencesPerSlot;
   static const _bundleWindow = Duration(minutes: 15);
   static const _streakRiskId = 8000;
   static const _weeklyDigestId = 9000;
@@ -1406,38 +1665,53 @@ class NotificationService {
 
     final resolved = <_ResolvedReminder>[];
     final now = tz.TZDateTime.now(tz.local);
-    // Computed at most once each per call (not once per habit) — every
-    // prayer-linked habit shares the same location/method/madhab, so
-    // there's exactly one "today" and, only if needed, one "tomorrow" set
-    // of prayer times for the whole batch.
-    // Prayer times per day offset from now, computed at most once each and
-    // shared across every prayer-linked habit in this pass. Was a pair of
-    // today/tomorrow locals; it became a map when the resolver had to be
-    // able to walk to the next SCHEDULED day rather than assuming the
-    // habit runs tomorrow.
-    final prayerDays = <int, PrayerDayTimes>{};
+    // Prayer times for the whole window, resolved at most ONCE per call
+    // (not once per habit, and not once per day): every prayer-linked habit
+    // shares the same location, method and madhab, so one run of days
+    // answers all of them. Was a per-day map filled lazily, which became
+    // the wrong shape the moment a slot wanted several days at once — that
+    // would have been one Aladhan round trip per day per recompute, and a
+    // recompute runs on every resume. PrayerTimesService.calculateDays
+    // takes the whole run in a single request instead.
+    //
+    // Null until the first prayer-linked habit actually needs it, so a
+    // person with no prayer-anchored habit never pays for any of this.
+    List<PrayerDayTimes>? prayerDays;
+    // How far the window has to reach. A habit that runs every day needs
+    // one day per occurrence plus today; one pinned to specific weekdays
+    // can need a whole week per occurrence, so it is only paid for when
+    // such a habit is actually present.
+    final prayerWindowDays = habits.any((h) =>
+            h.prayerKey != null && h.scheduledWeekdays.isNotEmpty)
+        ? 1 + 7 * kOccurrencesPerSlot
+        : 1 + kOccurrencesPerSlot;
 
     for (final habit in habits) {
-      // Slots this habit will hold after this pass. Everything NOT in here is
-      // swept below, which is what makes shrinking a habit from four times a
-      // day to two actually disarm slots 2 and 3 instead of leaving them
-      // armed with nothing in the app pointing at them any more.
-      final keptSlots = <int>{};
+      // The (slot, depth) pairs this habit will hold after this pass.
+      // Everything NOT in here is swept below, which is what makes shrinking
+      // a habit from four times a day to two actually disarm slots 2 and 3
+      // instead of leaving them armed with nothing in the app pointing at
+      // them any more — and, now that a slot holds a window of days rather
+      // than a single moment, what disarms the days that fell out of it.
+      final keptSlots = <({int slot, int depth})>{};
 
-      // Every moment a PRAYER-anchored habit fires at, one per shift it
-      // carries, in slot order. A habit with no stack resolves exactly one
-      // entry — slot 0, the id this habit has always used.
+      // Every moment a PRAYER-anchored habit fires at: one per shift it
+      // carries, times the next few days of each (see
+      // [kOccurrencesPerSlot]), in slot then depth order. A habit with no
+      // stack resolves slot 0 at depths 0..3 — depth 0 keeping the id this
+      // habit has always used.
       final prayerFires =
-          <({int slot, tz.TZDateTime at, int offsetMinutes})>[];
+          <({int slot, int depth, tz.TZDateTime at, int offsetMinutes})>[];
       var isPrayerLinked = false;
 
       if (habit.clockTimes.isNotEmpty) {
         // ── The multi-time path ──────────────────────────────────────────
-        final candidates = resolveClockSlots(
+        final candidates = resolveClockOccurrences(
           habit.clockTimes,
           habit.clockOffsets,
           now,
           scheduledWeekdays: habit.scheduledWeekdays,
+          occurrences: kOccurrencesPerSlot,
         );
         final exempt = habit.ignoreQuietHours;
         // Quiet hours are judged PER TIME, not per habit. The old rule
@@ -1464,8 +1738,8 @@ class NotificationService {
         // at 2pm is tomorrow's midnight; cancelling it because today's count
         // is met would silently disarm tomorrow morning, and nothing would
         // re-arm it until the app was next opened.
-        final today = <({int slot, tz.TZDateTime fireTime})>[];
-        final later = <({int slot, tz.TZDateTime fireTime})>[];
+        final today = <({int slot, int depth, tz.TZDateTime fireTime})>[];
+        final later = <({int slot, int depth, tz.TZDateTime fireTime})>[];
         // "Today" here must mean the same day the completion count is keyed
         // to — the EFFECTIVE day that rolls at kDayCutoffHour, not the
         // calendar date. Between midnight and the cutoff the two disagree in
@@ -1492,13 +1766,14 @@ class NotificationService {
         final suppress =
             (habit.completedCount * perOccurrence).clamp(0, today.length);
         for (final c in [...today.skip(suppress), ...later]) {
-          keptSlots.add(c.slot);
+          keptSlots.add((slot: c.slot, depth: c.depth));
           resolved.add((
             id: habit.id,
             name: habit.name,
             fireTime: c.fireTime,
             streak: habit.streak,
             slot: c.slot,
+            depth: c.depth,
             // Read back off the same index-aligned list resolveClockSlots
             // consumed, rather than widening that function's return type:
             // it is a @visibleForTesting static with its own pinned
@@ -1525,13 +1800,16 @@ class NotificationService {
             isLimit: habit.isLimit,
           ));
         }
-        // Every slot this habit did not keep — dropped for quiet hours,
-        // suppressed as done, or beyond a count that just shrank.
-        for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
-          if (keptSlots.contains(slot)) continue;
-          await _cancelHabitSlot(habit.id, slot);
-          await _plugin.cancel(_snoozeId(habit.id, slot));
-        }
+        // Every armed copy this habit did not keep — dropped for quiet
+        // hours, suppressed as done, beyond a count that just shrank, or a
+        // depth left over from a window that used to reach further (a habit
+        // edited from daily to once a week resolves fewer occurrences, and
+        // the copies it no longer wants are still in the scheduler).
+        await _sweepUnkeptSlots(
+          habit.id,
+          keptSlots,
+          liveTodaySlots: {for (final c in today.skip(suppress)) c.slot},
+        );
         continue;
       } else if (habit.prayerKey != null && settings.location != null) {
         isPrayerLinked = true;
@@ -1548,49 +1826,59 @@ class NotificationService {
           habit.reminderOffsetMinutes,
           ...habit.extraReminderOffsets,
         ].take(_maxHabitReminderSlots).toList();
+        final days = prayerDays ??= await PrayerTimesService.calculateDays(
+          latitude: loc.lat,
+          longitude: loc.lng,
+          from: now,
+          days: prayerWindowDays,
+          madhab: settings.madhab,
+          countryCode: settings.resolvedCountryCode,
+        );
         for (var slot = 0; slot < shifts.length; slot++) {
           final offset = Duration(minutes: shifts[slot]);
-          // Walk forward to the next occurrence of this prayer that is both
-          // still ahead and on a day the habit actually runs.
+          // Walk forward collecting the next [kOccurrencesPerSlot]
+          // occurrences of this prayer that are both still ahead and on a
+          // day the habit actually runs.
           //
-          // Day 0 and day 1 are the old today/tomorrow pair, unchanged for
-          // the overwhelmingly common case of a prayer habit with no weekday
-          // restriction: the loop exits on the first or second pass and asks
-          // PrayerTimesService for exactly what it always did. The extra days
-          // only ever run for a habit pinned to specific weekdays, which
-          // otherwise had the same wrong-day bug the clock path had — its
-          // reminder rolled to tomorrow's prayer whether or not the habit ran
-          // tomorrow. Bounded at 7, so any non-empty weekday set is covered.
+          // Each one reads its OWN day's prayer times, which is the whole
+          // point of arming a window: Fajr moves by about a minute every
+          // other day, so four copies of one frozen moment would be four
+          // reminders drifting away from the prayer they name. Day 0 is
+          // today (its prayer may already have passed, in which case it is
+          // simply skipped) and the days after it are the ones a phone left
+          // untouched would otherwise have nothing armed for.
+          //
+          // A weekday-restricted habit walks the same list and takes only
+          // the days it runs on, which is why the window is a week per
+          // occurrence for those (see prayerWindowDays).
           //
           // Resolved per shift rather than once and offset afterwards,
           // because two shifts around one prayer can land on different DAYS:
           // recomputed just after Maghrib, a −10 nudge belongs to tomorrow's
-          // Maghrib while a +30 one is still ahead today. The prayerDays
-          // cache means the extra passes cost no extra computation.
-          for (var dayOffset = 0; dayOffset <= 7; dayOffset++) {
-            final day = prayerDays[dayOffset] ??=
-                await PrayerTimesService.calculate(
-              latitude: loc.lat,
-              longitude: loc.lng,
-              date: now.add(Duration(days: dayOffset)),
-              madhab: settings.madhab,
-              countryCode: settings.resolvedCountryCode,
-            );
+          // Maghrib while a +30 one is still ahead today.
+          var depth = 0;
+          for (var dayOffset = 0;
+              dayOffset < days.length && depth < kOccurrencesPerSlot;
+              dayOffset++) {
             // Written as an explicit null-check + reassignment rather than a
             // `?.add(...)` chain — Dart's "null-shorting" would make that
             // chain correct too (a `?.` shorts every plain `.` call chained
             // after it, not just the very next one), but that's a
             // sharp-edged-enough corner of the language to avoid leaning on.
-            var candidate = day.forKey(habit.prayerKey!);
+            var candidate = days[dayOffset].forKey(habit.prayerKey!);
             if (candidate == null) break;
             candidate = candidate.add(offset);
             if (!candidate.isAfter(now)) continue;
             if (!_fireDayIsScheduled(candidate, habit.scheduledWeekdays)) {
               continue;
             }
-            prayerFires
-                .add((slot: slot, at: candidate, offsetMinutes: shifts[slot]));
-            break;
+            prayerFires.add((
+              slot: slot,
+              depth: depth,
+              at: candidate,
+              offsetMinutes: shifts[slot],
+            ));
+            depth++;
           }
         }
       }
@@ -1623,32 +1911,54 @@ class NotificationService {
             f,
       ];
 
-      // Done for today stands the whole stack down: every entry is about the
-      // same single prayer moment, so one completion answers all of them.
-      final keptPrayerSlots = habit.completedCount >= habit.dailyTarget
-          ? const <int>{}
-          : {for (final f in awakeFires) f.slot};
-      // Every slot this habit did not keep — dropped for quiet hours, done
-      // for today, beyond a stack that just shrank, or left armed by a
+      // Done for today stands down TODAY's entries only.
+      //
+      // Every shift in a stack is about the same single prayer moment, so
+      // one completion does answer all of them — but only for the day it
+      // was logged on. Standing the whole habit down was right when a slot
+      // held exactly one moment and that moment was always the next one;
+      // with a window armed it silently disarmed tomorrow morning's Fajr
+      // too, and nothing re-armed it until the app was next opened. It also
+      // fixes the same bug in the old single-occurrence behaviour: complete
+      // a Fajr habit after Fajr and the one thing armed was TOMORROW's, and
+      // completing today cancelled it.
+      //
+      // Effective days, not calendar ones, for the same reason the clock
+      // branch above uses them: the app's day runs to kDayCutoffHour, so an
+      // 04:00 reminder belongs to the night before.
+      final doneToday = habit.completedCount >= habit.dailyTarget;
+      final keptFires = [
+        for (final f in awakeFires)
+          if (!(doneToday && f.at.effectiveDay.isSameDayAs(now.effectiveDay)))
+            f,
+      ];
+      final keptPrayerSlots = {
+        for (final f in keptFires) (slot: f.slot, depth: f.depth),
+      };
+      // Every armed copy this habit did not keep — dropped for quiet hours,
+      // done for today, beyond a stack that just shrank, or left armed by a
       // multi-time clock cue this habit was edited AWAY from (the clock
       // branch sweeps only its own non-kept slots, and the stale sweep below
       // only covers habits that LEFT the list, so without this those higher
       // slots kept firing daily forever). Runs before _scheduleResolved,
       // preserving the cancel-first ordering the sweep comment below argues
       // for.
-      for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
-        if (keptPrayerSlots.contains(slot)) continue;
-        await _cancelHabitSlot(habit.id, slot);
-        await _plugin.cancel(_snoozeId(habit.id, slot));
-      }
-      for (final f in awakeFires) {
-        if (!keptPrayerSlots.contains(f.slot)) continue;
+      await _sweepUnkeptSlots(
+        habit.id,
+        keptPrayerSlots,
+        liveTodaySlots: {
+          for (final f in keptFires)
+            if (f.at.effectiveDay.isSameDayAs(now.effectiveDay)) f.slot,
+        },
+      );
+      for (final f in keptFires) {
         resolved.add((
           id: habit.id,
           name: habit.name,
           fireTime: f.at,
           streak: habit.streak,
           slot: f.slot,
+          depth: f.depth,
           // This entry's own shift — the number the notification's wording
           // reads to say «باقي ١٠ دقائق على المغرب» rather than the habit's
           // primary one, which for slots 1 and up is a different reminder.
@@ -1765,9 +2075,9 @@ class NotificationService {
           );
     // What this slot will say and when, so a wrong line can be read off the
     // run log at schedule time instead of waited for on a lock screen.
-    debugPrint('[NotificationService] ${r.name} (${r.id}#${r.slot}) '
-        'at ${r.fireTime}: $body');
-    final slotId = _habitReminderId(r.id, r.slot);
+    debugPrint('[NotificationService] ${r.name} (${r.id}#${r.slot}'
+        '${r.depth == 0 ? '' : '+${r.depth}'}) at ${r.fireTime}: $body');
+    final slotId = _habitReminderId(r.id, r.slot, r.depth);
     // A habit switched to alarm rings through AlarmService where that
     // exists (iOS 26+, permission granted). The alarm replaces the
     // notification for this slot, so the notification under the same id is
@@ -1787,8 +2097,8 @@ class NotificationService {
           stopLabel: alarmStopAction(isAr),
         )) {
       await _plugin.cancel(slotId);
-      debugPrint('[NotificationService] ${r.name} (${r.id}#${r.slot}) '
-          'rings as an alarm');
+      debugPrint('[NotificationService] ${r.name} (${r.id}#${r.slot}'
+          '${r.depth == 0 ? '' : '+${r.depth}'}) rings as an alarm');
       return;
     }
     // A slot that was an alarm on an earlier pass and is a notification now.
@@ -1860,26 +2170,46 @@ class NotificationService {
       }
       if (head.isNotEmpty) groups.add(head);
     }
-    groups.sort((a, b) => a.first.fireTime.compareTo(b.first.fireTime));
+    // Shallowest depth first, then by moment. NOT fire time alone, which
+    // is what this used to be and what quietly broke the promise the trim
+    // below makes: a Sun/Tue/Thu habit recomputed on a Wednesday has its
+    // NEXT reminder six days out, so on absolute time it sorts behind every
+    // daily habit's fourth-day copy and is the first thing dropped when the
+    // budget runs out. Depth is exactly the "how much does losing this
+    // cost" ordering — every habit's next reminder is spent before anyone's
+    // day after, and the far end of the window is what a heavy user loses.
+    //
+    // The group's own minimum, because a bundle is scheduled as one
+    // notification and is worth the most valuable thing in it.
+    int shallowest(List<_ResolvedReminder> g) =>
+        g.map((r) => r.depth).reduce((a, b) => a < b ? a : b);
+    groups.sort((a, b) {
+      final byDepth = shallowest(a).compareTo(shallowest(b));
+      if (byDepth != 0) return byDepth;
+      return a.first.fireTime.compareTo(b.first.fireTime);
+    });
 
     final usedBundleIds = <int>{};
     var slot = 0;
     // iOS keeps only the 64 soonest pending notification requests and
-    // SILENTLY discards the rest — reachable here (6 habits at 12 times a
-    // day is 72 slots before the daily reminder, nudges, snoozes and task
-    // reminders join in). Groups are already sorted by fire time, so once
-    // the budget is spent the remaining (latest-firing) entries are exactly
-    // the ones iOS would have dropped anyway; dropping them OURSELVES means
-    // their possibly-stale previous schedules get cancelled instead of
-    // lingering, and the next recompute re-creates them once earlier slots
-    // have fired. Headroom under 64 is reserved for everything that is not
-    // a habit slot.
+    // SILENTLY discards the rest — easily reachable now that each slot
+    // holds a window of days (6 habits at 12 times a day is 72 slots at
+    // depth 0 alone, before the daily reminder, nudges, snoozes and task
+    // reminders join in). Groups are sorted shallowest-depth-first above,
+    // so the budget is spent on every habit's NEXT reminder before anyone's
+    // day after, and what is dropped is the far end of the window.
+    //
+    // Dropping them OURSELVES rather than letting iOS do it means their
+    // possibly-stale previous schedules get cancelled instead of lingering,
+    // and the next recompute re-creates them once earlier slots have fired.
+    // Headroom under 64 is reserved for everything that is not a habit
+    // slot.
     var scheduledCount = 0;
     var trimmed = 0;
     for (final group in groups) {
       if (scheduledCount >= kMaxPendingHabitSlots) {
         for (final r in group) {
-          await _cancelHabitSlot(r.id, r.slot);
+          await _cancelHabitSlot(r.id, r.slot, r.depth);
           trimmed++;
         }
         continue;
@@ -1925,7 +2255,7 @@ class NotificationService {
       // Snoozes (6000 band) are left alone: a pending snooze is something
       // the user explicitly asked for from a delivered reminder.
       for (final r in group) {
-        await _cancelHabitSlot(r.id, r.slot);
+        await _cancelHabitSlot(r.id, r.slot, r.depth);
       }
       final names = group.map((e) => e.name).join(isAr ? '، ' : ', ');
       await _plugin.zonedSchedule(
@@ -1972,6 +2302,12 @@ class NotificationService {
   /// under iOS's hard 64-pending limit so the daily reminder, streak-risk
   /// nudge, quit check-ins, snoozes and task reminders always have room.
   /// See _scheduleResolved for how the latest-firing overflow is trimmed.
+  ///
+  /// This is what actually bounds [kOccurrencesPerSlot]: the window
+  /// multiplies how many of these one habit takes, so a heavy user spends
+  /// the budget on the near days and simply gets a shorter window. Which is
+  /// the right way round — the trim drops the LATEST-firing groups, never
+  /// the next reminder.
   static const kMaxPendingHabitSlots = 48;
 
   /// The evening "you're about to lose your streak" nudge. Re-evaluated

@@ -317,7 +317,7 @@ class _InsightsBody extends ConsumerWidget {
                   child: Row(
                     children: [
                       Icon(Icons.lock_rounded,
-                          size: 13, color: GameColors.gold),
+                          size: 13, color: context.gp.goldInk),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
@@ -325,7 +325,7 @@ class _InsightsBody extends ConsumerWidget {
                           style: TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.w700,
-                            color: GameColors.gold,
+                            color: context.gp.goldInk,
                           ),
                         ),
                       ),

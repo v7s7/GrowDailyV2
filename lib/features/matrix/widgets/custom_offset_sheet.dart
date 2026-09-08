@@ -393,6 +393,7 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
               ),
               const SizedBox(height: 10),
               TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _ctrl,
                 autofocus: true,
                 keyboardType: TextInputType.number,
@@ -462,7 +463,7 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
                           ? Icons.notifications_active_rounded
                           : Icons.error_outline_rounded,
                       size: 14,
-                      color: blocked == null ? widget.color : GameColors.error,
+                      color: blocked == null ? widget.color : context.gp.errorInk,
                     ),
                     const SizedBox(width: 6),
                     Flexible(
@@ -474,7 +475,7 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
                           fontWeight: FontWeight.w800,
                           color: blocked == null
                               ? gp.textPrimary
-                              : GameColors.error,
+                              : context.gp.errorInk,
                         ),
                       ),
                     ),

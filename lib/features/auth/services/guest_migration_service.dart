@@ -282,6 +282,17 @@ class GuestMigrationService {
       }
       await batch.commit();
     }
+    // Days arriving here carry squareNotes with them, and these batches do
+    // not touch the note index. Clearing the stamp makes the next open fold
+    // the freshly migrated days in. Without it, reconnecting into an account
+    // that was already stamped would silently lose the whole index: every
+    // note the guest ever wrote would stop being marked on the heatmap.
+    if (entries.isNotEmpty) {
+      await _userRef(uid).set(
+        {'noteIndexV1BackfilledAt': FieldValue.delete()},
+        SetOptions(merge: true),
+      );
+    }
     return entries.length;
   }
 

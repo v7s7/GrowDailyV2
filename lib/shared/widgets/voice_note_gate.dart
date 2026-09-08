@@ -60,7 +60,7 @@ void showVoiceNoteGate(BuildContext context, WidgetRef ref) {
                 color: GameColors.gold.withOpacity(0.14),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.mic_rounded, size: 28, color: GameColors.gold),
+              child: Icon(Icons.mic_rounded, size: 28, color: context.gp.goldInk),
             ),
             const SizedBox(height: 16),
             Text(

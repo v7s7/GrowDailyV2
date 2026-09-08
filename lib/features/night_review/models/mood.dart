@@ -34,14 +34,17 @@ enum Mood {
   /// definition so a new screen can't quietly drift out of sync with what
   /// the picker itself uses. Icon-based, not emoji, to stay crisp at any
   /// size and theme consistently with the rest of the app's iconography.
-  (IconData, Color) get visual => switch (this) {
+  /// Takes the brightness because these colours are mode-aware: the fixed
+  /// stat palette and the grid colour are both tuned for dark and have to
+  /// darken on light. Callers are build methods, which know it.
+  (IconData, Color) visual(bool dark) => switch (this) {
         Mood.great =>
-          (Icons.sentiment_very_satisfied_rounded, GameColors.emerald),
-        Mood.good => (Icons.sentiment_satisfied_rounded, GameColors.iconXp),
+          (Icons.sentiment_very_satisfied_rounded, GameColors.emeraldInkFor(dark)),
+        Mood.good => (Icons.sentiment_satisfied_rounded, GameColors.iconXpFor(dark)),
         Mood.neutral =>
           (Icons.sentiment_neutral_rounded, GameColors.warning),
         Mood.sad =>
-          (Icons.sentiment_dissatisfied_rounded, GameColors.iconStreak),
+          (Icons.sentiment_dissatisfied_rounded, GameColors.iconStreakFor(dark)),
         Mood.exhausted =>
           (Icons.sentiment_very_dissatisfied_rounded, GameColors.error),
       };

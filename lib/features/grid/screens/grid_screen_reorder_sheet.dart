@@ -67,7 +67,8 @@ class _HabitReorderSheetState extends ConsumerState<_HabitReorderSheet> {
     final maxHeight = MediaQuery.of(context).size.height * 0.7;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: EdgeInsets.fromLTRB(
+          16, 0, 16, 16 + MediaQuery.of(context).padding.bottom),
       child: Container(
         constraints: BoxConstraints(maxHeight: maxHeight),
         padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
@@ -115,7 +116,7 @@ class _HabitReorderSheetState extends ConsumerState<_HabitReorderSheet> {
                 ),
                 itemBuilder: (context, index) {
                   final habit = _habits[index];
-                  final (_, categoryColor) = categoryVisual(habit.category);
+                  final (_, categoryColor) = categoryVisual(context, habit.category);
                   final color = habit.customColor ?? categoryColor;
                   return Padding(
                     key: ValueKey(habit.id),

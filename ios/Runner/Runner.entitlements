@@ -54,5 +54,27 @@
 	     next archive, exactly as for HealthKit above. -->
 	<key>com.apple.developer.usernotifications.time-sensitive</key>
 	<true/>
+	<!-- Sign in with Apple - the same entitlement Xcode's "+ Capability >
+	     Sign In with Apple" button would add. Not optional the moment the
+	     auth screen offers Google: App Store Review Guideline 4.8 requires an
+	     equivalent privacy-preserving login option wherever a third-party or
+	     social login is offered, and Sign in with Apple is the one Apple
+	     accepts. Without this key the ASAuthorization request fails
+	     immediately at runtime with error 1000 (unknown), which reads like a
+	     code bug and is not one.
+
+	     Two things outside this file must also be true, and neither is
+	     something the repo can do for itself:
+	       - the App ID com.growdaily.v2 on the Apple Developer portal must
+	         have the "Sign In with Apple" capability enabled (Xcode's
+	         automatic signing does this on the next archive, exactly as it
+	         does for HealthKit above);
+	       - Firebase Console > Authentication > Sign-in method must have the
+	         Apple provider enabled, or Firebase rejects the credential with
+	         operation-not-allowed even though Apple returned a valid one. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 </dict>
 </plist>

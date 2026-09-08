@@ -768,7 +768,7 @@ class _StreakFreezeShopCard extends ConsumerWidget {
               color: GameColors.iconXp.withOpacity(0.13),
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(Icons.ac_unit_rounded, color: GameColors.iconXp, size: 20),
+            child: Icon(Icons.ac_unit_rounded, color: context.gp.iconXp, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -853,7 +853,7 @@ class _StreakFreezeShopCard extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(13),
                 ),
                 child: Icon(Icons.add_rounded,
-                    color: GameColors.iconXp, size: 20),
+                    color: context.gp.iconXp, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(

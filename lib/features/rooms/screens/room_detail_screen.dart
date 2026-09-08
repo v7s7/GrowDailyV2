@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 // RoomStripMonthLabel needs deferToChild so the strip's header band keeps
 // the text's own height instead of the parent's unbounded one.
 import 'package:flutter/rendering.dart' show OverflowBoxFit;
+import 'package:flutter/semantics.dart' show OrdinalSortKey;
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,6 +21,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../../core/providers/room_rows_view_provider.dart';
 import '../../../core/providers/room_cards_collapse_provider.dart';
+import '../../../core/services/analytics_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/share_service.dart';
 import '../../../core/theme/game_theme.dart';

@@ -32,6 +32,30 @@
 				<string>growdaily</string>
 			</array>
 		</dict>
+		<!-- Google Sign-In callback. Google's SDK opens the account chooser in
+		     an ASWebAuthenticationSession and hands the result back by opening
+		     this scheme; with no entry here iOS has nothing registered to open,
+		     the session closes with no result, and authenticate() fails with a
+		     bare "canceled" that looks exactly like the user tapping Cancel.
+
+		     The value is REVERSED_CLIENT_ID from ios/Runner/GoogleService-Info.plist
+		     verbatim (that file's CLIENT_ID reversed). It has to be literal:
+		     Info.plist cannot read another plist at build time. If the Firebase
+		     iOS app is ever recreated, its CLIENT_ID changes and this string
+		     must be updated with it.
+
+		     Note the plugin itself does NOT need a GIDClientID key here: with no
+		     clientId passed from Dart, FLTGoogleSignInPlugin falls back to
+		     reading CLIENT_ID out of GoogleService-Info.plist, which is already
+		     in the bundle. Only this URL scheme is missing. -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.googleusercontent.apps.googlesignin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.508215311979-qrr5nrjcl6til44peg3k3jmdv0smub7e</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>

@@ -17,7 +17,22 @@ import '../../../shared/widgets/app_snackbar.dart';
 /// lifetime (one-time, non-consumable purchase). Both map to the same
 /// RevenueCat entitlement (see PurchaseService.entitlementId), so nothing
 /// past this screen ever needs to know which one someone bought.
-enum _PlanKind { monthly, lifetime }
+enum _PlanKind { annual, monthly, lifetime }
+
+/// The plan this paywall leads with: listed first, badged, and pre-selected,
+/// so the card order, the badge and the selection always agree.
+///
+/// Annual when the store has it, otherwise lifetime, otherwise monthly.
+/// That ordering matters right now: no annual product exists in either store
+/// yet, so this resolves to lifetime and the paywall behaves exactly as it
+/// did before annual was added. Without it, adding annual would have quietly
+/// shipped a paywall that led with the cheapest plan and carried no badge at
+/// all, until the day the annual product went live.
+_PlanKind _leadPlanFor(Offering? offering) {
+  if (offering?.annual != null) return _PlanKind.annual;
+  if (offering?.lifetime != null) return _PlanKind.lifetime;
+  return _PlanKind.monthly;
+}
 
 /// Apple's standard EULA - used as-is since GrowDaily hasn't set a custom
 /// License Agreement in App Store Connect (App Information -> License
@@ -86,11 +101,13 @@ class PremiumScreen extends ConsumerStatefulWidget {
 }
 
 class _PremiumScreenState extends ConsumerState<PremiumScreen> {
-  // Lifetime is the plan this app leads with (see the strings' doc
-  // comment): pre-selected AND listed first, so the badge, the selection
-  // and the card order all agree instead of badging lifetime "best value"
-  // while pre-selecting monthly.
-  _PlanKind _selected = _PlanKind.lifetime;
+  // Annual is the plan this paywall leads with: pre-selected AND listed
+  // first, so the badge, the selection and the card order all agree.
+  // It used to be lifetime. That sold a single payment well but left the
+  // ladder with no middle rung and no recurring revenue, and a zero-review
+  // app opening with its most expensive ask suppresses the whole funnel.
+  // Lifetime is still offered, just not the default ask.
+  _PlanKind _selected = _PlanKind.annual;
   bool _loadingOffering = true;
   Offering? _offering;
   bool _isPurchasing = false;
@@ -128,18 +145,23 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     setState(() {
       _offering = offering;
       _loadingOffering = false;
-      // Default to whichever plan actually exists, in case only one of
-      // the two was configured — see [_selectedPackage].
-      if (offering?.lifetime == null && offering?.monthly != null) {
-        _selected = _PlanKind.monthly;
-      }
+      // Select whichever plan actually leads, since not all three are
+      // configured — see [_leadPlanFor]. The preferred plan being absent is
+      // a real state, not a guard: neither store has an annual product yet,
+      // and Android reaches this with no packages at all until the Play
+      // products go live.
+      _selected = _leadPlanFor(offering);
     });
   }
 
   Package? get _selectedPackage {
     final offering = _offering;
     if (offering == null) return null;
-    return _selected == _PlanKind.monthly ? offering.monthly : offering.lifetime;
+    return switch (_selected) {
+      _PlanKind.annual => offering.annual,
+      _PlanKind.monthly => offering.monthly,
+      _PlanKind.lifetime => offering.lifetime,
+    };
   }
 
   /// Days left in the new-install trial, zero when there is none. Read
@@ -170,12 +192,38 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     return months;
   }
 
+  /// How much the annual plan saves against twelve months of the monthly
+  /// one, as a whole percent. Null whenever the math has nothing sound to
+  /// stand on: either package missing, a zero monthly price, mixed
+  /// currencies, or an annual price that is not actually a saving. Same
+  /// shape and same guards as [_breakEvenMonths].
+  int? get _annualSavePercent {
+    final monthly = _offering?.monthly?.storeProduct;
+    final annual = _offering?.annual?.storeProduct;
+    if (monthly == null || annual == null) return null;
+    if (monthly.currencyCode != annual.currencyCode) return null;
+    if (monthly.price <= 0) return null;
+    final twelveMonths = monthly.price * 12;
+    if (annual.price >= twelveMonths) return null;
+    final pct = ((1 - annual.price / twelveMonths) * 100).round();
+    // Below 5% is not worth a badge; above 95% means the prices are
+    // misconfigured and the caption would advertise the mistake.
+    if (pct < 5 || pct > 95) return null;
+    return pct;
+  }
+
   Future<void> _startPurchase() async {
     final package = _selectedPackage;
     if (package == null || _isPurchasing) return;
+    // Freeze the plan alongside the package. _isPurchasing only disables the
+    // buy button; the plan cards stay tappable, and the store sheet uncovers
+    // the app as soon as payment clears while receipt validation is still in
+    // flight. Reading _selected after the await can therefore describe a plan
+    // the buyer never bought.
+    final kind = _selected;
     HapticFeedback.mediumImpact();
     AnalyticsService.instance.track('premium_purchase_intent', props: {
-      'plan': _selected == _PlanKind.monthly ? 'monthly' : 'lifetime',
+      'plan': kind.name,
     });
     setState(() => _isPurchasing = true);
     final outcome = await PurchaseService.instance.purchase(package);
@@ -196,10 +244,15 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
         // cross-device logins and cache corrections: this one is a real
         // purchase with its plan, i.e. the number a conversion rate needs.
         AnalyticsService.instance.track('premium_purchase_success', props: {
-          'plan': _selected == _PlanKind.monthly ? 'monthly' : 'lifetime',
+          'plan': kind.name,
           'source': widget.source,
         });
-        setState(() => _isLifetimeBuyer = _selected == _PlanKind.lifetime);
+        // From the entitlement the store just handed back, not from the
+        // selection: isLifetimeEntitled reads the real productIdentifier, so
+        // this stays right even if the store resolved a different package.
+        setState(() {
+          _isLifetimeBuyer = PurchaseService.instance.isLifetimeEntitled(info);
+        });
       }
       // A cleared purchase whose CustomerInfo does not actually carry the
       // entitlement used to return here silently: applyCustomerInfo would
@@ -248,6 +301,12 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     // immediately instead of on whatever the listener's timing happens to be.
     if (info != null) {
       ref.read(premiumProvider.notifier).applyCustomerInfo(info);
+      // A restore is the other way a lifetime buyer arrives on this screen.
+      // Without this the flag stayed false and they were offered "manage
+      // subscription" for a purchase that has nothing to manage.
+      setState(() {
+        _isLifetimeBuyer = PurchaseService.instance.isLifetimeEntitled(info);
+      });
     }
     final message = !outcome.success
         ? s.premiumPurchaseError
@@ -313,9 +372,62 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     final gp = context.gp;
     final s = S.of(context);
     final isPremium = ref.watch(premiumProvider);
+    final annual = _offering?.annual;
     final monthly = _offering?.monthly;
     final lifetime = _offering?.lifetime;
-    final hasPlans = monthly != null || lifetime != null;
+    final hasPlans = annual != null || monthly != null || lifetime != null;
+    final leadPlan = _leadPlanFor(_offering);
+    final presentPlans = <_PlanKind>[
+      if (annual != null) _PlanKind.annual,
+      if (monthly != null) _PlanKind.monthly,
+      if (lifetime != null) _PlanKind.lifetime,
+    ];
+    final orderedPlans = <_PlanKind>[
+      if (presentPlans.contains(leadPlan)) leadPlan,
+      ...presentPlans.where((k) => k != leadPlan),
+    ];
+    // One builder for all three cards: the label, period and caption are the
+    // only things that differ, and the badge follows [leadPlan]. Only called
+    // for kinds in [presentPlans], so the package is never null here.
+    Widget cardFor(_PlanKind kind) {
+      final (Package pkg, String label, String period, String? caption) =
+          switch (kind) {
+        _PlanKind.annual => (
+            annual!,
+            s.premiumYearly,
+            s.premiumPerYear,
+            _annualSavePercent == null
+                ? null
+                : s.premiumSave('${_annualSavePercent!}%'),
+          ),
+        _PlanKind.monthly => (
+            monthly!,
+            s.premiumMonthly,
+            s.premiumPerMonth,
+            null,
+          ),
+        _PlanKind.lifetime => (
+            lifetime!,
+            s.premiumLifetime,
+            s.premiumOneTime,
+            _breakEvenMonths == null
+                ? null
+                : s.premiumLifetimeBreakEven(_breakEvenMonths!),
+          ),
+      };
+      return _PlanCard(
+        label: label,
+        price: pkg.storeProduct.priceString,
+        period: period,
+        badge: kind == leadPlan ? s.premiumBestValueBadge : null,
+        caption: caption,
+        selected: _selected == kind,
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _selected = kind);
+        },
+      );
+    }
     // Keeps the trial banner live while this screen is open: the access
     // provider self-invalidates when the window closes.
     ref.watch(premiumAccessProvider);
@@ -356,7 +468,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                         shape: BoxShape.circle,
                       ),
                       child: Icon(Icons.workspace_premium_rounded,
-                          size: 32, color: GameColors.gold),
+                          size: 32, color: context.gp.goldInk),
                     )
                         .animate()
                         .scale(curve: Curves.elasticOut, duration: 700.ms)
@@ -405,7 +517,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   child: Row(
                     children: [
                       Icon(Icons.hourglass_bottom_rounded,
-                          size: 18, color: GameColors.emerald),
+                          size: 18, color: context.gp.emeraldInk),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -453,14 +565,14 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   child: Row(
                     children: [
                       Icon(Icons.verified_rounded,
-                          color: GameColors.emerald),
+                          color: context.gp.emeraldInk),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           s.premiumActive,
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
-                            color: GameColors.emerald,
+                            color: context.gp.emeraldInk,
                           ),
                         ),
                       ),
@@ -529,46 +641,18 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   ),
                 ),
               ] else ...[
-                // Plan picker. Lifetime leads: first in the row, carrying
-                // the badge, and pre-selected — this paywall's job is to
-                // sell the one-time purchase, with monthly beside it as the
-                // yardstick that shows why (see premiumLifetimeBreakEven).
-                Row(
+                // Plan picker: the lead plan first and badged, then the
+                // rest in ladder order. Built from a list rather than three
+                // guarded widgets so the separators cannot get out of step
+                // with which cards actually exist.
+                Column(
                   children: [
-                    if (lifetime != null)
-                      Expanded(
-                        child: _PlanCard(
-                          label: s.premiumLifetime,
-                          price: lifetime.storeProduct.priceString,
-                          period: s.premiumOneTime,
-                          badge: s.premiumBestValueBadge,
-                          caption: _breakEvenMonths == null
-                              ? null
-                              : s.premiumLifetimeBreakEven(_breakEvenMonths!),
-                          selected: _selected == _PlanKind.lifetime,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() => _selected = _PlanKind.lifetime);
-                          },
-                        ),
-                      ),
-                    if (monthly != null && lifetime != null)
-                      const SizedBox(width: 12),
-                    if (monthly != null)
-                      Expanded(
-                        child: _PlanCard(
-                          label: s.premiumMonthly,
-                          price: monthly.storeProduct.priceString,
-                          period: s.premiumPerMonth,
-                          selected: _selected == _PlanKind.monthly,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() => _selected = _PlanKind.monthly);
-                          },
-                        ),
-                      ),
+                    for (var i = 0; i < orderedPlans.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 10),
+                      cardFor(orderedPlans[i]),
+                    ],
                   ],
-                ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.1),
+                                ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.1),
                 const SizedBox(height: 18),
                 FilledButton(
                   onPressed:
@@ -608,10 +692,13 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   // Per plan: a renewing subscription and a one-time
                   // purchase owe the buyer different sentences, and saying
                   // "cancel anytime" over a non-consumable is a promise the
-                  // product cannot keep. See premiumFinePrintMonthly.
-                  _selected == _PlanKind.monthly
-                      ? s.premiumFinePrintMonthly
-                      : s.premiumFinePrintLifetime,
+                  // product cannot keep. See premiumFinePrintMonthly, whose
+                  // wording is period-agnostic in both languages ("the end
+                  // of the period", not "of the month"), so annual and
+                  // monthly share it and only lifetime differs.
+                  _selected == _PlanKind.lifetime
+                      ? s.premiumFinePrintLifetime
+                      : s.premiumFinePrintMonthly,
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: gp.textTert, height: 1.35),
                 ),
@@ -753,7 +840,7 @@ class _BenefitRow extends StatelessWidget {
             color: GameColors.gold.withOpacity(0.12),
             borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
           ),
-          child: Icon(icon, size: 20, color: GameColors.gold),
+          child: Icon(icon, size: 20, color: context.gp.goldInk),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -807,10 +894,10 @@ class _PlanCard extends StatelessWidget {
   final String period;
   final String? badge;
 
-  /// One extra line under the period — the lifetime card's break-even
-  /// sentence ("less than N months of monthly"). The anchor math is the
-  /// argument for the one-time price, so it lives on the card itself,
-  /// not in fine print.
+  /// One extra line under the label — the annual card's saving ("SAVE
+  /// 63%") or the lifetime card's break-even sentence ("less than N months
+  /// of monthly"). The anchor math is the argument for the price beside it,
+  /// so it lives on the card itself, not in fine print.
   final String? caption;
   final bool selected;
   final VoidCallback onTap;
@@ -842,69 +929,95 @@ class _PlanCard extends StatelessWidget {
             width: selected ? 1.6 : 0.5,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: selected ? GameColors.gold : gp.textSec,
-                      letterSpacing: 0.4,
-                    ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: selected ? context.gp.goldInk : gp.textSec,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ),
+                      if (badge != null) ...[
+                        const SizedBox(width: 7),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: GameColors.emerald.withOpacity(0.15),
+                            borderRadius:
+                                BorderRadius.circular(GameSpacing.pillRadius),
+                          ),
+                          child: Text(
+                            badge!,
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: context.gp.emeraldInk,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                ),
-                if (badge != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 7, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: GameColors.emerald.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-                    ),
-                    child: Text(
-                      badge!,
+                  if (caption != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      caption!,
                       style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        color: GameColors.emerald,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        color: context.gp.emeraldInk,
+                        height: 1.3,
                       ),
                     ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Flexible, not a bare Column: a non-flex Row child takes
+            // unbounded width, so a long price string ("SAR 129.99") would
+            // overflow the card rather than squeeze the label beside it.
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    price,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: gp.textPrimary,
+                      letterSpacing: -0.8,
+                      height: 1,
+                    ),
                   ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              price,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-                color: gp.textPrimary,
-                letterSpacing: -0.8,
-                height: 1,
+                  const SizedBox(height: 3),
+                  Text(
+                    period,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: gp.textTert),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 3),
-            Text(
-              period,
-              style: TextStyle(fontSize: 11, color: gp.textTert),
-            ),
-            if (caption != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                caption!,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: GameColors.emerald,
-                  height: 1.3,
-                ),
-              ),
-            ],
           ],
         ),
       ),

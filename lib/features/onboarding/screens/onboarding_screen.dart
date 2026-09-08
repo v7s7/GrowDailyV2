@@ -442,7 +442,7 @@ class _MockLeaderboard extends StatelessWidget {
               ),
               child: crowned
                   ? Icon(Icons.emoji_events_rounded,
-                      size: 13, color: GameColors.gold)
+                      size: 13, color: context.gp.goldInk)
                   : Text(
                       '$rank',
                       style: TextStyle(
@@ -463,14 +463,14 @@ class _MockLeaderboard extends StatelessWidget {
             ),
             const Spacer(),
             Icon(Icons.local_fire_department_rounded,
-                size: 14, color: GameColors.iconStreak),
+                size: 14, color: context.gp.iconStreak),
             const SizedBox(width: 4),
             Text(
               '${streaks[rank - 1]}',
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.w800,
-                color: GameColors.iconStreak,
+                color: context.gp.iconStreak,
               ),
             ),
           ],

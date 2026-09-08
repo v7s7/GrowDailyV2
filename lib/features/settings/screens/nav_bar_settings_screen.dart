@@ -347,7 +347,7 @@ class _LockedCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(Icons.workspace_premium_rounded,
-                  size: 26, color: GameColors.gold),
+                  size: 26, color: context.gp.goldInk),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

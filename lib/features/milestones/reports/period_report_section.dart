@@ -256,7 +256,7 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
-                        color: GameColors.emerald,
+                        color: context.gp.emeraldInk,
                       ),
                     ),
                   ],
@@ -1119,7 +1119,7 @@ List<Widget> milestoneChips(BuildContext context, MonthlyStoryData story) {
     if (story.streakMilestones > 0)
       (
         Icons.local_fire_department_rounded,
-        GameColors.iconStreak,
+        context.gp.iconStreak,
         story.streakMilestones,
         MilestoneType.streakMilestone.localizedName(s.isAr)
       ),
@@ -1133,7 +1133,7 @@ List<Widget> milestoneChips(BuildContext context, MonthlyStoryData story) {
     if (story.perfectWeeks > 0)
       (
         Icons.auto_awesome_rounded,
-        GameColors.iconXp,
+        context.gp.iconXp,
         story.perfectWeeks,
         MilestoneType.perfectWeek.localizedName(s.isAr)
       ),

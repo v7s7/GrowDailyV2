@@ -89,6 +89,11 @@ class QuadrantCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    // The quadrant's colour is DATA - the user can change it, and
+    // MatrixQuadrant.defaultColor is only its unset value - so the card's
+    // washes and its dot keep it exactly. Only the label and the count take
+    // ink: the header measured 2.02:1 on light with the raw colour.
+    final ink = gp.ink(color);
     final s = S.of(context);
     final isAr = s.isAr;
     // Still-pending tasks are sorted by their manual `order` rank (see
@@ -167,7 +172,7 @@ class QuadrantCard extends StatelessWidget {
                                 style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w800,
-                                    color: color,
+                                    color: ink,
                                     // Letter-spacing disconnects Arabic
                                     // glyphs (the script is cursive/joined)
                                     // — only the Latin small-caps label
@@ -189,7 +194,7 @@ class QuadrantCard extends StatelessWidget {
                                     style: TextStyle(
                                         fontSize: 9,
                                         fontWeight: FontWeight.w700,
-                                        color: color)),
+                                        color: ink)),
                               ),
                             ],
                           ],

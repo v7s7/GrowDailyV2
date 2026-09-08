@@ -131,13 +131,17 @@ void main() {
       ]);
       await handleBackgroundNotificationAction(
           actionId: 'mark_done', habitId: 'fajr', now: DateTime(2026, 9, 6));
-      // 12 slots, each with a reminder id and a snooze id: see
-      // NotificationService._cancelAllHabitReminderSlots.
+      // 12 slots, each with TODAY's reminder id and a snooze id: see
+      // NotificationService.standDownHabitReminders.
       expect(cancels().length, 24);
       final ids = cancels().map((c) => c.arguments as int).toSet();
       expect(ids.length, 24, reason: 'every slot has its own id');
       expect(ids.every((id) => id >= 5000 && id < 7000), isTrue,
           reason: 'only the habit reminder (5000) and snooze (6000) bands');
+      expect(ids.any((id) => id >= 400000), isFalse,
+          reason: 'the days AHEAD stay armed — a habit marked done from the '
+              'lock screen must not go silent for the rest of the window '
+              'when the app is not opened again');
     });
 
     test('leaves the reminders of a counted habit with slices still owed',

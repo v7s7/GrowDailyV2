@@ -592,6 +592,351 @@ class PrayerTimesService {
     );
   }
 
+  /// [calculate] for a RUN of consecutive days, at one request instead of
+  /// one per day.
+  ///
+  /// This exists because reminders stopped being armed one occurrence at a
+  /// time. NotificationService now keeps the next few days of a
+  /// prayer-anchored habit in the OS scheduler at once (see
+  /// `_maxOccurrencesPerSlot` there), so that a phone left untouched over a
+  /// weekend still rings at each morning's OWN Fajr rather than going quiet
+  /// after the first one. Asking [calculate] for each of those days would
+  /// have meant one Aladhan round trip per day per recompute — and a
+  /// recompute runs on every resume — so the live path here is Aladhan's
+  /// month CALENDAR endpoint: one request covers every day of a month, for
+  /// every country, and a four-day window spans at most two months.
+  ///
+  /// Same three-tier answer per day as [calculate], in the same order, so a
+  /// day resolved here and the same day resolved there agree:
+  ///   1. Bahrain's bundled official table ([BahrainPrayerTable]) — offline,
+  ///      exact, and the only tier that costs nothing at all.
+  ///   2. The live month calendar, memoized per (place, method, madhab,
+  ///      zone, month) in [_monthCache] so the several recomputes a single
+  ///      resume triggers share ONE fetch rather than racing several.
+  ///   3. [calculateOfflineCorrected] for any day the first two could not
+  ///      answer — no connection, a malformed response, or a day the
+  ///      calendar simply did not contain.
+  ///
+  /// Tier 3 is the one that makes the multi-day window honest offline: a
+  /// day armed from the offline calculation can sit a minute or two off the
+  /// figure the same day would get online, which is exactly the margin
+  /// [calculateOfflineCorrected]'s own doc comment describes. It is also
+  /// self-correcting — the next time the app opens, that day is re-armed
+  /// from whichever tier is available then, and only the days beyond the
+  /// window are ever left on the approximation.
+  ///
+  /// Returns exactly [days] entries, index 0 being [from]'s calendar day.
+  /// Never throws.
+  static Future<List<PrayerDayTimes>> calculateDays({
+    required double latitude,
+    required double longitude,
+    required DateTime from,
+    required int days,
+    required PrayerMadhab madhab,
+    String? countryCode,
+  }) async {
+    if (days <= 0) return const [];
+    await BahrainPrayerTable.ensureLoaded();
+    final region = resolveRegion(latitude, longitude, countryCode: countryCode);
+    // Each date is BUILT from an incremented day-of-month (DateTime
+    // normalizes the overflow into the next month), never by adding 24
+    // hours to the one before it. Across a daylight-saving fall-back that
+    // difference is a real one: adding a fixed day to a local midnight can
+    // land back on the same calendar date, so the window would hold one day
+    // twice and drop another. Bahrain has no such transition; half the
+    // countries this now serves do.
+    final dates = [
+      for (var i = 0; i < days; i++)
+        DateTime(from.year, from.month, from.day + i),
+    ];
+
+    // Tier 1 first, and NOT just as an optimization: inside Bahrain's table
+    // range every day is already answered, so the months below are never
+    // fetched and the whole multi-day window stays free and offline.
+    final out = <DateTime, PrayerDayTimes>{};
+    for (final date in dates) {
+      final official = _bahrainOfficial(
+        latitude,
+        longitude,
+        date,
+        madhab,
+        countryCode: countryCode,
+      );
+      if (official != null) out[date] = official;
+    }
+    final missing = [for (final d in dates) if (!out.containsKey(d)) d];
+
+    if (missing.isNotEmpty) {
+      // At most two entries for any window shorter than a month, and one
+      // for the overwhelmingly common case of a window that doesn't cross
+      // a month boundary.
+      final months = <({int year, int month})>{
+        for (final d in missing) (year: d.year, month: d.month),
+      };
+      for (final m in months) {
+        final table = await _monthTimings(
+          latitude: latitude,
+          longitude: longitude,
+          year: m.year,
+          month: m.month,
+          method: region.method,
+          madhab: madhab,
+          fajrCorrectionMinutes: region.fajrCorrectionMinutes,
+        );
+        if (table == null) continue;
+        for (final d in missing) {
+          if (d.year != m.year || d.month != m.month) continue;
+          final hit = table[_dateKey(d)];
+          if (hit != null) out[d] = hit;
+        }
+      }
+    }
+
+    return [
+      for (final date in dates)
+        out[date] ??
+            calculateOfflineCorrected(
+              latitude: latitude,
+              longitude: longitude,
+              date: date,
+              madhab: madhab,
+              countryCode: countryCode,
+            ),
+    ];
+  }
+
+  /// `yyyy-mm-dd`, the key both [_monthTimings]' parsed table and
+  /// [BahrainPrayerTable]'s asset use, so the two are directly comparable.
+  static String _dateKey(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  /// One month of live timings, memoized.
+  ///
+  /// The value is the FUTURE, not the resolved map, which is what makes
+  /// concurrent callers share a single request instead of each starting
+  /// their own: main.dart recomputes reminders several times in a row on a
+  /// resume (once per provider that settles), and every one of those passes
+  /// asks for the same month.
+  ///
+  /// A failure resolves to null and is remembered in [_monthFailedAt] for
+  /// [_failureCooldown] rather than cached forever — long enough that a
+  /// burst of recomputes with no connection doesn't sit through an 8-second
+  /// timeout each, short enough that the next real open retries.
+  static final Map<String, Future<Map<String, PrayerDayTimes>?>> _monthCache =
+      {};
+  static final Map<String, DateTime> _monthFailedAt = {};
+  static const _failureCooldown = Duration(minutes: 5);
+
+  /// How many months of live timings are kept. A four-day window touches at
+  /// most two, and a person who travels enough to change zone or place
+  /// several times in one session is the only way to reach the bound; the
+  /// oldest inserted entry is dropped past it so this can never grow
+  /// without limit in a long-lived process.
+  static const _monthCacheLimit = 6;
+
+  static Future<Map<String, PrayerDayTimes>?> _monthTimings({
+    required double latitude,
+    required double longitude,
+    required int year,
+    required int month,
+    required PrayerCalcMethod method,
+    required PrayerMadhab madhab,
+    required int fajrCorrectionMinutes,
+  }) {
+    // The zone is part of the key because the parsed times are wall-clock
+    // moments in tz.local: a device that travelled and had its zone
+    // refreshed (see NotificationService.refreshTimezone) must not be
+    // handed the previous zone's copy of the same month.
+    final key = '${latitude.toStringAsFixed(3)},'
+        '${longitude.toStringAsFixed(3)},'
+        '${method.name},${madhab.name},${tz.local.name},$year-$month';
+    final failedAt = _monthFailedAt[key];
+    if (failedAt != null) {
+      if (DateTime.now().difference(failedAt) < _failureCooldown) {
+        return Future.value();
+      }
+      _monthFailedAt.remove(key);
+    }
+    final cached = _monthCache[key];
+    if (cached != null) return cached;
+
+    final pending = _fetchMonth(
+      latitude: latitude,
+      longitude: longitude,
+      year: year,
+      month: month,
+      method: method,
+      madhab: madhab,
+      fajrCorrectionMinutes: fajrCorrectionMinutes,
+    ).then((table) {
+      if (table == null) {
+        // Dropped from the cache, not kept as a null: a cached failure
+        // would outlive the connection that caused it.
+        _monthCache.remove(key);
+        _monthFailedAt[key] = DateTime.now();
+      }
+      return table;
+    });
+    _monthCache[key] = pending;
+    if (_monthCache.length > _monthCacheLimit) {
+      _monthCache.remove(_monthCache.keys.first);
+    }
+    return pending;
+  }
+
+  /// Stands in for the live month request in tests.
+  ///
+  /// Tests must not reach the network — the existing ones avoid it by only
+  /// ever calling the offline and pure entry points, which is not an option
+  /// for [calculateDays]' own month path. Given the request Uri, this
+  /// returns the body Aladhan would have answered with (or null for a
+  /// failure), so the caching, the per-day mapping and the offline fallback
+  /// can all be exercised exactly as they run in the app. Null in the app
+  /// itself, where the real request is made.
+  @visibleForTesting
+  static Future<String?> Function(Uri uri)? debugMonthResponder;
+
+  /// The live half of [calculateDays] — Aladhan's month calendar, parsed
+  /// into `yyyy-mm-dd` -> times. Returns null (never throws) on any
+  /// failure, exactly like [_fetchOnline].
+  static Future<Map<String, PrayerDayTimes>?> _fetchMonth({
+    required double latitude,
+    required double longitude,
+    required int year,
+    required int month,
+    required PrayerCalcMethod method,
+    required PrayerMadhab madhab,
+    required int fajrCorrectionMinutes,
+  }) async {
+    final uri = aladhanCalendarUri(
+      latitude: latitude,
+      longitude: longitude,
+      year: year,
+      month: month,
+      method: method,
+      madhab: madhab,
+      fajrCorrectionMinutes: fajrCorrectionMinutes,
+    );
+    try {
+      final String body;
+      final responder = debugMonthResponder;
+      if (responder != null) {
+        final answered = await responder(uri);
+        if (answered == null) return null;
+        body = answered;
+      } else {
+        final response = await http
+            .get(uri)
+            // Longer than [_fetchOnline]'s 8 seconds because the payload is
+            // a whole month rather than one day, and this request stands in
+            // for thirty of those.
+            .timeout(const Duration(seconds: 15));
+        if (response.statusCode != 200) return null;
+        body = response.body;
+      }
+      final parsed = parseAladhanCalendar(body, year, month);
+      return parsed.isEmpty ? null : parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Aladhan's `/v1/calendar/{year}/{month}` — the same place, method,
+  /// madhab and zone [aladhanRequestUri] asks for a single day with, so a
+  /// day answered from the calendar and the same day answered from the
+  /// per-day endpoint are the same figures.
+  @visibleForTesting
+  static Uri aladhanCalendarUri({
+    required double latitude,
+    required double longitude,
+    required int year,
+    required int month,
+    required PrayerCalcMethod method,
+    required PrayerMadhab madhab,
+    int fajrCorrectionMinutes = 0,
+  }) =>
+      Uri.https('api.aladhan.com', '/v1/calendar/$year/$month', {
+        'latitude': '$latitude',
+        'longitude': '$longitude',
+        'method': '${method._aladhanMethodId}',
+        'tune': '0,$fajrCorrectionMinutes,0,0,0,0,0,0,0',
+        'school': madhab == PrayerMadhab.hanafi ? '1' : '0',
+        'timezonestring': tz.local.name,
+      });
+
+  /// Reads a calendar response body into `yyyy-mm-dd` -> times.
+  ///
+  /// `data` is a LIST of days there, unlike the single-day endpoint's
+  /// object. Each entry's own gregorian date is read rather than the list
+  /// index being trusted as day-of-month, and any entry that doesn't parse
+  /// is skipped instead of failing the month — a single malformed day
+  /// costs that day the live figure and nothing else, since
+  /// [calculateDays] falls straight back to the offline calculation for
+  /// whatever is missing.
+  ///
+  /// A response whose days belong to some other month is dropped entirely:
+  /// [year]/[month] are what the caller asked for and what its cache key
+  /// names, so silently storing a different month under it would hand
+  /// every later lookup the wrong days.
+  @visibleForTesting
+  static Map<String, PrayerDayTimes> parseAladhanCalendar(
+    String body,
+    int year,
+    int month,
+  ) {
+    final out = <String, PrayerDayTimes>{};
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic>) return out;
+    final data = decoded['data'];
+    if (data is! List) return out;
+    for (final entry in data) {
+      if (entry is! Map) continue;
+      final timings = entry['timings'];
+      // "DD-MM-YYYY", the same shape aladhanRequestUri sends.
+      final gregorian = entry['date']?['gregorian']?['date'];
+      if (timings is! Map || gregorian is! String) continue;
+      final parts = gregorian.split('-');
+      if (parts.length != 3) continue;
+      final day = int.tryParse(parts[0]);
+      final m = int.tryParse(parts[1]);
+      final y = int.tryParse(parts[2]);
+      if (day == null || m != month || y != year) continue;
+      final on = DateTime(year, month, day);
+      final fajr = parseAladhanTime(timings['Fajr'] as String?, on);
+      final sunrise = parseAladhanTime(timings['Sunrise'] as String?, on);
+      final dhuhr = parseAladhanTime(timings['Dhuhr'] as String?, on);
+      final asr = parseAladhanTime(timings['Asr'] as String?, on);
+      final maghrib = parseAladhanTime(timings['Maghrib'] as String?, on);
+      final isha = parseAladhanTime(timings['Isha'] as String?, on);
+      if (fajr == null ||
+          sunrise == null ||
+          dhuhr == null ||
+          asr == null ||
+          maghrib == null ||
+          isha == null) {
+        continue;
+      }
+      out[_dateKey(on)] = PrayerDayTimes(
+        fajr: fajr,
+        sunrise: sunrise,
+        dhuhr: dhuhr,
+        asr: asr,
+        maghrib: maghrib,
+        isha: isha,
+      );
+    }
+    return out;
+  }
+
+  /// Drops every memoized month. Only for tests, which must not inherit a
+  /// previous case's fetched month or failure cooldown.
+  @visibleForTesting
+  static void resetMonthCache() {
+    _monthCache.clear();
+    _monthFailedAt.clear();
+  }
+
   /// [calculateOffline]'s result with [resolveRegion]'s fajr correction
   /// already applied — the exact offline path [calculate] itself falls
   /// back to on any network failure, factored out into its own method so a

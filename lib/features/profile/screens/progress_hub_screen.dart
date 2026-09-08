@@ -24,6 +24,7 @@ import '../../../features/grid/models/square_state.dart';
 import '../../../features/grid/notifiers/grid_journal_notifier.dart';
 import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/grid/screens/grid_journal_screen.dart';
+import '../../../features/grid/widgets/habit_note_block.dart';
 import '../../../features/grid/screens/grid_screen.dart' show categoryVisual;
 import '../../../features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
@@ -703,6 +704,11 @@ class _DayHabitRow extends StatelessWidget {
   final String name;
   final int completions;
   final String note;
+
+  /// The day the note belongs to, which the note block measures the
+  /// free-history window against. This surface rendered notes with no
+  /// premium check at all, the same leak the heatmap day sheet had.
+  final DateTime day;
   final SquareState state;
 
   /// A habit that owed this day and recorded nothing. Rendered dimmed with
@@ -712,6 +718,7 @@ class _DayHabitRow extends StatelessWidget {
   final bool isSilent;
 
   const _DayHabitRow({
+    required this.day,
     required this.name,
     required this.completions,
     required this.note,
@@ -733,9 +740,9 @@ class _DayHabitRow extends StatelessWidget {
   (IconData, Color) _visual(BuildContext context) => (
         markRowIcon(state),
         switch (state) {
-          SquareState.complete => GameColors.success,
+          SquareState.complete => context.gp.emeraldInk,
           SquareState.none => context.gp.textTert,
-          _ => state.accent,
+          _ => state.accent(context.gp.dark),
         },
       );
 
@@ -841,24 +848,7 @@ class _DayHabitRow extends StatelessWidget {
                 ],
                 if (hasNote) ...[
                   const SizedBox(height: 5),
-                  Container(
-                    width: double.infinity,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: gp.surfaceHigh,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: gp.border, width: 0.5),
-                    ),
-                    child: Text(
-                      note.trim(),
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: gp.textSec,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
+                  HabitNoteBlock(note: note, day: day),
                 ],
               ],
             ),
@@ -936,7 +926,11 @@ class _DayDetailSheet extends ConsumerWidget {
         (
           name: habit.localName(isAr),
           completions: 0,
-          note: '',
+          // A silent day can still have been WRITTEN about, and
+          // progressDayDetailProvider already fetched that note: hardcoding
+          // '' here threw it away, so a reflection on a habit the user did
+          // not mark was invisible on this surface alone.
+          note: detail?.notes[habit.id] ?? '',
           state: SquareState.none,
           isSilent: true,
         ),
@@ -960,7 +954,9 @@ class _DayDetailSheet extends ConsumerWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -1074,6 +1070,7 @@ class _DayDetailSheet extends ConsumerWidget {
                       name: r.name,
                       completions: r.completions,
                       note: r.note,
+                      day: score.day,
                       state: r.state,
                       isSilent: r.isSilent,
                     );
@@ -1381,7 +1378,7 @@ class _InsightsPreviewSection extends ConsumerWidget {
                   style: TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.w800,
-                    color: GameColors.gold,
+                    color: context.gp.goldInk,
                   ),
                 ),
               ),
@@ -1506,7 +1503,11 @@ class _JournalPreviewSection extends ConsumerWidget {
     final locale = Localizations.localeOf(context).languageCode;
     final journal = ref.watch(gridJournalProvider);
     final habitById = {
-      for (final h in ref.watch(habitListProvider)) h.id: h,
+      // allHabitsEverProvider, not the active list: this preview shows the
+      // same entries as GridJournalScreen, and the active list drops archived
+      // and paused habits, so a merely PAUSED habit's notes were labelled
+      // «عادة محذوفة» here while the screen it previews named them correctly.
+      for (final h in ref.watch(allHabitsEverProvider)) h.id: h,
     };
     final preview = journal.entries.take(3).toList();
 
@@ -1621,7 +1622,7 @@ class _MiniJournalRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final accent = entry.state.accent;
+    final accent = entry.state.accent(gp.dark);
 
     return Material(
       color: Colors.transparent,
@@ -1647,6 +1648,7 @@ class _MiniJournalRow extends StatelessWidget {
                 ),
                 child: Center(
                   child: entry.state.glyph(
+                    dark: gp.dark,
                       size: 15,
                       color: accent,
                       fallback: Icons.circle_outlined),
@@ -1800,7 +1802,7 @@ class _CategoryBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final (icon, color) = categoryVisual(category);
+    final (icon, color) = categoryVisual(context, category);
     // The bar and the number now measure the SAME thing: share of total.
     //
     // They used to disagree. The bar was drawn relative to the biggest

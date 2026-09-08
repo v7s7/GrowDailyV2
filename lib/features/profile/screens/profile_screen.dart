@@ -66,8 +66,14 @@ class ProfileScreen extends ConsumerWidget {
     final state = ref.watch(dashboardProvider);
     final user = FirebaseAuth.instance.currentUser;
     final savedName = state.displayName.trim();
-    final displayName =
-        savedName.isNotEmpty ? savedName : (user?.email?.split('@').first ?? 'Warrior');
+    // The fallback goes through the same rule that names a brand-new
+    // account, rather than splitting the email here a second time. Its own
+    // copy of that logic would put a private-relay address's random hex
+    // (`a1b2c3d4e5@privaterelay.appleid.com`) on the profile of any Apple
+    // account whose document has not loaded yet.
+    final displayName = savedName.isNotEmpty
+        ? savedName
+        : AuthNotifier.initialDisplayName(user?.email ?? '');
 
     return Scaffold(
       backgroundColor: gp.bg,

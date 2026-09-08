@@ -247,7 +247,7 @@ class ReportHeaderCard extends StatelessWidget {
               _SummaryCell(
                 value: toWesternDigits('${summary.longestRun}'),
                 label: s.reportsLongestRun,
-                color: GameColors.iconStreak,
+                color: context.gp.iconStreak,
               ),
             ],
           ),
@@ -383,7 +383,7 @@ class WeekdayRhythmCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.insights_rounded, size: 15, color: GameColors.gold),
+              Icon(Icons.insights_rounded, size: 15, color: context.gp.goldInk),
               const SizedBox(width: 7),
               Text(
                 s.reportsRhythmTitle,
@@ -860,7 +860,7 @@ class _MatrixRow extends StatelessWidget {
                 if (stat.isPerfect) ...[
                   const SizedBox(width: 5),
                   Icon(Icons.verified_rounded,
-                      size: 12, color: GameColors.gold),
+                      size: 12, color: context.gp.goldInk),
                 ],
               ],
             ),
@@ -1173,7 +1173,7 @@ class HabitMonthCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 8.5,
                       fontWeight: FontWeight.w900,
-                      color: GameColors.gold,
+                      color: context.gp.goldInk,
                       letterSpacing: 0.4,
                     ),
                   ),
@@ -1236,10 +1236,10 @@ class _MonthDayCell extends StatelessWidget {
         case MatrixCellState.failed:
           fill = GameColors.warning.withOpacity(0.14);
           border = GameColors.warning.withOpacity(0.7);
-          text = GameColors.warning;
+          text = gp.warningInk;
         case MatrixCellState.rest:
           fill = GameColors.gold.withOpacity(0.16);
-          text = GameColors.gold.withOpacity(0.9);
+          text = gp.goldInk;
         case MatrixCellState.missed:
           fill = gp.dark
               ? Colors.white.withOpacity(0.075)

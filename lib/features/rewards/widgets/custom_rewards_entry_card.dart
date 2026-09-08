@@ -91,9 +91,9 @@ class CustomRewardsEntryCard extends ConsumerWidget {
                 color: GameColors.iconGold.withValues(alpha: 0.13),
                 borderRadius: BorderRadius.circular(13),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.card_giftcard_rounded,
-                color: GameColors.iconGold,
+                color: context.gp.iconGold,
                 size: 20,
               ),
             ),

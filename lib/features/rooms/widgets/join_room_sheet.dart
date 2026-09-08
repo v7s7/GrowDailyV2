@@ -234,6 +234,7 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
                       children: [
                         Expanded(
                           child: TextField(
+                            selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                             controller: _codeCtrl,
                             autofocus: widget.initialCode == null,
                             textCapitalization: TextCapitalization.characters,
@@ -285,7 +286,7 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
                               style: TextStyle(
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w700,
-                                  color: GameColors.gold)),
+                                  color: context.gp.goldInk)),
                         ],
                       ] else if (_foundRoom!.sharedHabits.isNotEmpty) ...[
                         const SizedBox(height: 14),
@@ -303,7 +304,8 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
             ),
             if (_foundRoom != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+                padding: EdgeInsets.fromLTRB(
+                    20, 10, 20, 20 + MediaQuery.of(context).padding.bottom),
                 child: FilledButton(
                   onPressed: _canJoin ? _join : null,
                   style: FilledButton.styleFrom(
@@ -320,7 +322,7 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
                 ),
               )
             else
-              const SizedBox(height: 20),
+              SizedBox(height: 20 + MediaQuery.of(context).padding.bottom),
           ],
         ),
       ),
@@ -348,7 +350,7 @@ class _RoomPreviewCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.emoji_events_rounded, size: 18, color: GameColors.gold),
+              Icon(Icons.emoji_events_rounded, size: 18, color: context.gp.goldInk),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -435,7 +437,7 @@ class _RoomPreviewCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
-                        color: GameColors.emerald,
+                        color: context.gp.emeraldInk,
                       ),
                     ),
                   ],
@@ -469,7 +471,7 @@ class _InlineNotice extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline_rounded, size: 16, color: GameColors.error),
+          Icon(Icons.info_outline_rounded, size: 16, color: context.gp.errorInk),
           const SizedBox(width: 8),
           Expanded(
             child: Text(text,
@@ -578,12 +580,12 @@ class _PlanReviewRow extends StatelessWidget {
                 isExpanded: true,
                 isDense: true,
                 hint: Text(s.roomPlanAddAsNew,
-                    style: TextStyle(fontSize: 12, color: GameColors.gold)),
+                    style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
                 items: [
                   DropdownMenuItem<String?>(
                     value: null,
                     child: Text(s.roomPlanAddAsNew,
-                        style: TextStyle(fontSize: 12, color: GameColors.gold)),
+                        style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
                   ),
                   ...myHabits.map((h) => DropdownMenuItem<String?>(
                         value: h.id,

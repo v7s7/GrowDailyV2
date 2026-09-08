@@ -161,8 +161,8 @@ class _Header extends StatelessWidget {
               ),
             ],
           ),
-          child: const Icon(Icons.wb_twilight_rounded,
-              color: GameColors.iconXp, size: 23),
+          child: Icon(Icons.wb_twilight_rounded,
+              color: context.gp.iconXp, size: 23),
         )
             .animate()
             .scaleXY(
@@ -219,7 +219,7 @@ class _BonusRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.bolt_rounded, size: 16, color: GameColors.iconXp),
+          Icon(Icons.bolt_rounded, size: 16, color: context.gp.iconXp),
           const SizedBox(width: 8),
           Expanded(
             child: Text(s.comebackBonusLabel,
@@ -235,10 +235,10 @@ class _BonusRow extends StatelessWidget {
             textDirection: TextDirection.ltr,
             child: Text(
               s.comebackBonusAmount(xp),
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w900,
-                  color: GameColors.iconXp,
+                  color: context.gp.iconXp,
                   letterSpacing: -0.3),
             ),
           )
@@ -280,7 +280,7 @@ class _PrimaryAction extends StatelessWidget {
             icon: Icon(icon, size: 16),
             label: Text(label),
             style: FilledButton.styleFrom(
-                backgroundColor: GameColors.iconXp,
+                backgroundColor: context.gp.iconXp,
                 foregroundColor: Colors.white),
           );
     return SizedBox(

@@ -22,6 +22,9 @@ import '../../milestones/reports/habit_day_marks.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/month_picker_sheet.dart';
 import '../models/square_state.dart';
+import '../notifiers/note_index_notifier.dart';
+import '../widgets/habit_note_block.dart';
+import '../widgets/note_corner.dart';
 import '../notifiers/weekly_grid_notifier.dart'
     show startOfGridWeek, weeklyGridProvider, WeeklyGridState;
 
@@ -190,6 +193,16 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
           orElse: () => {...dash.dailyGreenCounts, todayKey: todayDone},
         );
 
+    // One document, covering every month section on this screen. The list
+    // below builds all its sections eagerly, so reading ground truth per
+    // month would mean dozens of range queries on every open. While it loads,
+    // or if it cannot be read, the screen is exactly what it is today:
+    // correct, minus the corner marks. See noteIndexProvider.
+    final noteDays = ref.watch(noteIndexProvider).maybeWhen(
+          data: (m) => m,
+          orElse: () => const <String, Set<int>>{},
+        );
+
     final today = DateTime.now().effectiveDay;
     final currentMonth = DateTime(today.year, today.month, 1);
     final months = _visibleMonths(
@@ -292,6 +305,9 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
                           habits: habits,
                           today: today,
                           dark: dark,
+                          noteDays: noteDays[monthKeyOf(
+                                  ordered[i].toDateKey())] ??
+                              const {},
                           onTapDay: (day, count) =>
                               _showDayInfo(context, day, count),
                           onTapMonth: () => _pickMonth(ordered, counts),
@@ -591,6 +607,9 @@ class _MonthSection extends StatelessWidget {
   /// Opens the month picker. Every section's header calls the same one.
   final VoidCallback onTapMonth;
 
+  /// Days of THIS month that carry writing, from the note index.
+  final Set<int> noteDays;
+
   const _MonthSection({
     super.key,
     required this.month,
@@ -598,6 +617,7 @@ class _MonthSection extends StatelessWidget {
     required this.habits,
     required this.today,
     required this.dark,
+    required this.noteDays,
     required this.onTapDay,
     required this.onTapMonth,
   });
@@ -702,14 +722,14 @@ class _MonthSection extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.grid_view_rounded,
-                          size: 11, color: GameColors.emerald),
+                          size: 11, color: context.gp.emeraldInk),
                       const SizedBox(width: 4),
                       Text(
                         '$monthGreens',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
-                          color: GameColors.emerald,
+                          color: context.gp.emeraldInk,
                         ),
                       ),
                     ],
@@ -777,6 +797,7 @@ class _MonthSection extends StatelessWidget {
       // during the window right after midnight isn't "future" just because
       // effectiveDay hasn't caught up yet — see DateTimeGameExt.isRealToday.
       isFuture: day.isAfter(today) && !day.isRealToday,
+      hasNote: noteDays.contains(day.day),
       onTap: onTapDay,
     );
   }
@@ -881,12 +902,17 @@ class _HeatCell extends StatelessWidget {
   final bool isFuture;
   final void Function(DateTime day, int count) onTap;
 
+  /// Whether this day carries writing, from the note index. Day level, not
+  /// per habit: this cell is a picture of the whole day.
+  final bool hasNote;
+
   const _HeatCell({
     required this.day,
     required this.count,
     required this.totalHabits,
     required this.dark,
     required this.isFuture,
+    required this.hasNote,
     required this.onTap,
   });
 
@@ -1013,6 +1039,33 @@ class _HeatCell extends StatelessWidget {
                         ),
                       ),
                     ),
+                    // The same folded corner the Grid square uses, so "there
+                    // is writing here" is one mark across the app rather than
+                    // two things to learn.
+                    //
+                    // The cell is 42 to 45pt, so a 9pt wedge is unmissable and
+                    // still cannot collide with anything: the bar is capped at
+                    // `zone = side - 12` so its top edge never rises above
+                    // y = 12, and the day number is centred while this sits in
+                    // the trailing 9pt. The enclosing ClipRRect(7) trims the
+                    // sliver that would fall outside the arc, and the 1.5pt
+                    // inset keeps it off the 1.4pt gold today ring.
+                    //
+                    // Ink is the day number's own rule minus the today-gold
+                    // case, since gold means "today" and not "note": a
+                    // contrast decision that was already measured, correct in
+                    // every preset and in light mode, and needing no new token.
+                    if (hasNote)
+                      Positioned(
+                        top: 1.5,
+                        right: 1.5,
+                        child: NoteCorner(
+                          size: 9,
+                          ink: isFull
+                              ? _onBar
+                              : (isRest ? gp.textTert : gp.textPrimary),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -1087,12 +1140,13 @@ class _HeatDayDetailSheet extends ConsumerWidget {
     // or completion on record" — the record half is what keeps a
     // since-deleted habit's history honest instead of silently vanishing
     // from past days.
-    // Only habits that still exist, matching the cell above exactly. Marks
+    // Only habits that still exist, matching the cell above exactly. MARKS
     // left behind by deleted habits are ignored rather than listed as
     // «عادة محذوفة»: this account held 24 such ids from a habit list that
     // was being rebuilt, and eleven of them landed on a single day. They
     // are not history the user recognises, and the cell no longer counts
-    // them, so the sheet must not either.
+    // them, so the sheet must not either. NOTES are the one exception, and
+    // for the opposite reason: see the rawNotes branch below.
     final known = {for (final h in habits) h.id};
     final ids = <String>{
       for (final h in habits)
@@ -1103,6 +1157,24 @@ class _HeatDayDetailSheet extends ConsumerWidget {
             (e.value as num) > 0 &&
             known.contains(e.key.toString()))
           e.key.toString(),
+      // A habit that was only WRITTEN about that day: no square state, no
+      // completion, not on the schedule. It was invisible here, which is a
+      // hole the day cell's new corner mark would otherwise point straight
+      // into. GridJournalNotifier._parseInto has always unioned the note
+      // keys; the two surfaces simply disagreed about what a note-bearing
+      // day is. trim() because clearing a note used to leave a permanent ''
+      // tombstone behind rather than deleting the key.
+      //
+      // Deliberately NOT filtered by `known`, unlike every branch above it.
+      // A leftover MARK from a hard-deleted habit is noise the user would
+      // not recognise, which is why those are dropped. A NOTE is a sentence
+      // they wrote, and the day-level index that put a corner on this cell
+      // does not know about habits at all: filtering here would send them to
+      // a sheet showing nothing, on a screen that has no healer to correct
+      // the mark. It shows as «عادة محذوفة», which is what deletedLabel has
+      // been waiting to be used for.
+      ...rawNotes.keys.map((k) => k.toString()).where(
+          (id) => (rawNotes[id] as String?)?.trim().isNotEmpty ?? false),
     };
 
     final byId = {for (final h in habits) h.id: h};
@@ -1231,7 +1303,7 @@ class _HeatDayDetailSheet extends ConsumerWidget {
                       child: Container(height: 0.5, color: gp.border),
                     ),
                     itemBuilder: (context, i) =>
-                        _OutcomeRow(outcome: outcomes[i]),
+                        _OutcomeRow(outcome: outcomes[i], day: day),
                   );
                 },
               ),
@@ -1245,14 +1317,18 @@ class _HeatDayDetailSheet extends ConsumerWidget {
 
 class _OutcomeRow extends StatelessWidget {
   final _DayHabitOutcome outcome;
-  const _OutcomeRow({required this.outcome});
+
+  /// The day this row belongs to, which the note block measures the
+  /// free-history window against.
+  final DateTime day;
+  const _OutcomeRow({required this.outcome, required this.day});
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
     final state = outcome.state;
-    final accent = state.accent;
+    final accent = state.accent(gp.dark);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1270,6 +1346,7 @@ class _OutcomeRow extends StatelessWidget {
               // Icon centres itself internally and hid this).
               child: Center(
                 child: state.glyph(
+                  dark: gp.dark,
                   size: 15,
                   color: accent,
                   fallback: Icons.circle_outlined,
@@ -1312,14 +1389,16 @@ class _OutcomeRow extends StatelessWidget {
         if (outcome.note.isNotEmpty)
           Padding(
             // Indented under the name, aligned past the icon tile.
-            padding: const EdgeInsetsDirectional.only(start: 40, top: 4),
-            child: Text(
-              outcome.note,
-              style: TextStyle(
-                fontSize: 12.5,
-                color: gp.textSec,
-                height: 1.4,
-              ),
+            padding: const EdgeInsetsDirectional.only(start: 40, top: 6),
+            // Was an unlabelled grey subtitle styled exactly like metadata,
+            // with nothing telling the reader it was their own writing, and
+            // with no premium check at all: it was legal only because
+            // _freeMonthsToShow happens to equal kFreeHistoryMonths. The
+            // block carries the label and the wall.
+            child: HabitNoteBlock(
+              note: outcome.note,
+              day: day,
+              label: s.heatDayNoteLabel,
             ),
           ),
       ],
@@ -1418,7 +1497,7 @@ class _UpgradeForFullHistoryCard extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.lock_clock_rounded,
-                  size: 20, color: GameColors.gold),
+                  size: 20, color: context.gp.goldInk),
             ),
             const SizedBox(width: 12),
             Expanded(

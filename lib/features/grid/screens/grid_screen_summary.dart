@@ -106,7 +106,8 @@ class _GridHeader extends ConsumerWidget {
       backgroundColor: Colors.transparent,
       useSafeArea: true,
       builder: (sheetContext) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: EdgeInsets.fromLTRB(
+            16, 0, 16, 16 + MediaQuery.of(sheetContext).padding.bottom),
         child: Container(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
           decoration: BoxDecoration(
@@ -134,6 +135,30 @@ class _GridHeader extends ConsumerWidget {
                 onTap: () {
                   Navigator.pop(sheetContext);
                   onStartSelection?.call();
+                },
+              ),
+              Divider(color: gp.divider, height: 1),
+              // The Grid is where notes are written and, until now, the one
+              // screen with no way back to them: reading them meant Profile,
+              // then Progress, then scrolling past four sections to one that
+              // is below the fold on every phone. Two taps instead.
+              //
+              // Not a reversal of the header-icon removal documented below.
+              // That removed an ICON from a row with no space; this is a row
+              // in a Column(mainAxisSize: min), which costs no layout
+              // anywhere.
+              _ListActionRow(
+                icon: Icons.edit_note_rounded,
+                label: s.gridJournalTitle,
+                subtitle: s.gridNotesMenuHint,
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const GridJournalScreen(),
+                    ),
+                  );
                 },
               ),
             ],
@@ -254,7 +279,7 @@ class _GridHeader extends ConsumerWidget {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.add_rounded,
-                                  size: 21, color: GameColors.gold),
+                                  size: 21, color: context.gp.goldInk),
                               const SizedBox(width: 6),
                               Flexible(
                                 child: Text(
@@ -264,7 +289,7 @@ class _GridHeader extends ConsumerWidget {
                                   style: TextStyle(
                                     fontSize: 14.5,
                                     fontWeight: FontWeight.w800,
-                                    color: GameColors.gold,
+                                    color: context.gp.goldInk,
                                     height: 1.1,
                                   ),
                                 ),
@@ -430,7 +455,7 @@ class _GridHeader extends ConsumerWidget {
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
-                            color: GameColors.gold,
+                            color: context.gp.goldInk,
                             letterSpacing: 0.5,
                           ),
                         ),
@@ -739,7 +764,7 @@ class _SummaryCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 40,
                           fontWeight: FontWeight.w900,
-                          color: GameColors.emerald,
+                          color: context.gp.emeraldInk,
                           height: 1,
                           letterSpacing: -1.5,
                         ),
@@ -778,7 +803,7 @@ class _SummaryCard extends StatelessWidget {
                     ),
                     style: TextStyle(
                       fontSize: 12,
-                      color: perfectDay ? GameColors.emerald : gp.textTert,
+                      color: perfectDay ? context.gp.emeraldInk : gp.textTert,
                       fontWeight:
                           perfectDay ? FontWeight.w700 : FontWeight.w400,
                     ),
@@ -812,7 +837,7 @@ class _SummaryCard extends StatelessWidget {
                         icon: Icons.percent_rounded,
                         value: '${(ratio * 100).round()}%',
                         label: s.gridComplete,
-                        color: GameColors.iconXp,
+                        color: context.gp.iconXp,
                       ),
                     ),
                   ],
@@ -887,7 +912,7 @@ class _RingStat extends StatelessWidget {
             ratio >= 1.0
                 ? Icons.emoji_events_rounded
                 : Icons.grid_view_rounded,
-            color: GameColors.emerald,
+            color: context.gp.emeraldInk,
             size: 24,
           ),
         ],

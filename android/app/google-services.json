@@ -14,6 +14,30 @@
       },
       "oauth_client": [
         {
+          "client_id": "508215311979-0p4cqq7vbu9ancmc3rob9euho5no57e5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.growdaily.v2",
+            "certificate_hash": "1d2b629af7f62ec450e16c086c7f30d77f574a25"
+          }
+        },
+        {
+          "client_id": "508215311979-9j6o3cf865ngkvo29g5sa3pnlbikm3dr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.growdaily.v2",
+            "certificate_hash": "6b7c23833d2c2b09f9a867ed82abe79942477ba2"
+          }
+        },
+        {
+          "client_id": "508215311979-nds91obhfute5jqsc8j1v7pk7a0a13h6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.growdaily.v2",
+            "certificate_hash": "a849f358f03d40dc5b293a46e72579509fb3c9b0"
+          }
+        },
+        {
           "client_id": "508215311979-56pq3q1h9l3s9fbgfegomud8o0mi734o.apps.googleusercontent.com",
           "client_type": 3
         }

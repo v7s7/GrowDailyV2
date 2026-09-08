@@ -56,7 +56,8 @@ class _MoveTaskSheet extends ConsumerWidget {
         MatrixQuadrant.values.where((q) => q != task.quadrant).toList();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: EdgeInsets.fromLTRB(
+          12, 0, 12, 12 + MediaQuery.of(context).padding.bottom),
       child: Container(
         decoration: BoxDecoration(
           color: gp.surfaceHigh,

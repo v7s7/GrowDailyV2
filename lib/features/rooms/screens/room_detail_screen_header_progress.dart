@@ -3,70 +3,114 @@ part of 'room_detail_screen.dart';
 class _PodiumColumn extends StatelessWidget {
   final RoomParticipant participant;
   final int rank;
+
+  /// Whether this column shares its place with another. Same job as
+  /// _LeaderboardRow's own sharedPlace: it names the tie for anyone who
+  /// cannot see that two columns are the same height.
+  final bool sharedPlace;
   final RoomModel room;
   const _PodiumColumn({
     required this.participant,
     required this.rank,
+    required this.sharedPlace,
     required this.room,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
+    // Height and colour both come from the member's own place, so two
+    // members who finished level get two identical gold columns rather
+    // than a tall winner and a short runner-up chosen by uid order. See
+    // RoomLeaderboard.standings.
     final (height, color) = switch (rank) {
       1 => (64.0, GameColors.gold),
       2 => (46.0, const Color(0xFFB9C0C7)),
       _ => (34.0, const Color(0xFFC98A5E)),
     };
     final pct = (participant.progressRatio(room) * 100).round();
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (rank == 1)
-          Icon(Icons.emoji_events_rounded, size: 20, color: GameColors.gold),
-        const SizedBox(height: 3),
-        SizedBox(
-          width: 72,
-          child: Text(
-            participant.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: rank == 1 ? FontWeight.w800 : FontWeight.w600,
-              color: gp.textPrimary,
+    // The plinth keeps the medal's true metal; the two labels take its ink.
+    // All three metals are pale on a light surface - gold measured 2.03:1
+    // here on device - and silver and bronze are no better, so this goes
+    // through the generic primitive rather than the accent-only tokens.
+    final ink = gp.ink(color);
+    // One finisher, one stop, spoken in the order they finished.
+    //
+    // Two separate problems, and a tie made both worse. The column's four
+    // pieces (cup, name, percent, plinth number) were four unrelated stops,
+    // so the plinth's bare "2" arrived detached from the name it belongs
+    // to; MergeSemantics makes the column one announcement. And the visual
+    // order is second, first, third, the classic silhouette, which
+    // semantics traversal reads geometrically, so the runner-up was
+    // announced before the winner; the sort key restores the podium's own
+    // order without moving a pixel. On a shared first the old behaviour put
+    // two "tied for first place" labels either side of a name that belonged
+    // to neither of them.
+    return Semantics(
+      sortKey: OrdinalSortKey(rank.toDouble()),
+      child: MergeSemantics(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (rank == 1)
+              Icon(
+                Icons.emoji_events_rounded,
+                size: 20,
+                color: context.gp.goldInk,
+                semanticLabel:
+                    sharedPlace ? s.roomPlaceFirstTied : s.roomPlaceFirst,
+              ),
+            const SizedBox(height: 3),
+            SizedBox(
+              width: 72,
+              child: Text(
+                participant.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: rank == 1 ? FontWeight.w800 : FontWeight.w600,
+                  color: gp.textPrimary,
+                ),
+              ),
             ),
-          ),
-        ),
-        Text(
-          '$pct%',
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          width: 64,
-          height: height,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.18),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-            border: Border.all(color: color.withOpacity(0.5), width: 0.5),
-          ),
-          child: Text(
-            '$rank',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: color,
+            Text(
+              '$pct%',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: ink,
+              ),
             ),
-          ),
+            const SizedBox(height: 4),
+            Container(
+              width: 64,
+              height: height,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.18),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                border: Border.all(color: color.withOpacity(0.5), width: 0.5),
+              ),
+              child: Text(
+                '$rank',
+                // Only for the places without a cup above them: on a shared
+                // first the icon has already said it, and saying it twice
+                // inside one merged announcement is worse than not saying it.
+                semanticsLabel:
+                    sharedPlace && rank > 1 ? s.roomPlaceTied(rank) : null,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: ink,
+                ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -120,7 +164,7 @@ class _RoomHeaderCard extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
-                        color: GameColors.gold)),
+                        color: context.gp.goldInk)),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -294,7 +338,7 @@ class _TeamDayCard extends ConsumerWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.groups_rounded, size: 18, color: GameColors.gold),
+              Icon(Icons.groups_rounded, size: 18, color: context.gp.goldInk),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -317,14 +361,14 @@ class _TeamDayCard extends ConsumerWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.local_fire_department_rounded,
-                        size: 14, color: GameColors.gold),
+                        size: 14, color: context.gp.goldInk),
                     const SizedBox(width: 4),
                     Text(
                       s.roomTeamStreakPill(streak),
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
-                        color: GameColors.gold,
+                        color: context.gp.goldInk,
                       ),
                     ),
                   ],
@@ -392,7 +436,7 @@ class _TeamDayCard extends ConsumerWidget {
                 style: TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w800,
-                  color: GameColors.gold,
+                  color: context.gp.goldInk,
                 ),
               ),
             ],
@@ -591,7 +635,7 @@ class _MilestoneRow extends StatelessWidget {
     }
     return Row(
       children: [
-        Icon(Icons.card_giftcard_rounded, size: 20, color: GameColors.gold),
+        Icon(Icons.card_giftcard_rounded, size: 20, color: context.gp.goldInk),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
@@ -755,7 +799,7 @@ class _PlanSlotChip extends ConsumerWidget {
             style: TextStyle(
               fontSize: 9.5,
               fontWeight: FontWeight.w700,
-              color: muted ? gp.textTert : GameColors.gold,
+              color: muted ? gp.textTert : context.gp.goldInk,
               decoration: _isSkipped ? TextDecoration.lineThrough : null,
             ),
           ),
@@ -1082,7 +1126,7 @@ class _MyPlanCard extends ConsumerWidget {
                       ? Icons.local_fire_department_rounded
                       : Icons.event_repeat_rounded,
                   size: 13,
-                  color: q.neededToday ? GameColors.warning : gp.textTert,
+                  color: q.neededToday ? context.gp.warningInk : gp.textTert,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -1097,7 +1141,7 @@ class _MyPlanCard extends ConsumerWidget {
                       fontSize: 11,
                       fontWeight:
                           q.neededToday ? FontWeight.w800 : FontWeight.w600,
-                      color: q.neededToday ? GameColors.warning : gp.textTert,
+                      color: q.neededToday ? context.gp.warningInk : gp.textTert,
                     ),
                   ),
                 ),
@@ -1192,7 +1236,7 @@ class _MyPlanCard extends ConsumerWidget {
                     style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
-                        color: GameColors.gold)),
+                        color: context.gp.goldInk)),
               ),
             ),
           ],
@@ -1252,7 +1296,7 @@ class _NewHabitBanner extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.fiber_new_rounded, size: 16, color: GameColors.gold),
+            Icon(Icons.fiber_new_rounded, size: 16, color: context.gp.goldInk),
             const SizedBox(width: 7),
             Expanded(
               child: Column(
@@ -1272,7 +1316,7 @@ class _NewHabitBanner extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            Icon(Icons.chevron_right_rounded, size: 16, color: GameColors.gold),
+            Icon(Icons.chevron_right_rounded, size: 16, color: context.gp.goldInk),
           ],
         ),
       ),
@@ -1399,7 +1443,7 @@ class RoomTodayCard extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
-                      color: allDone ? GameColors.emerald : gp.textSec,
+                      color: allDone ? context.gp.emeraldInk : gp.textSec,
                     ),
                   ),
                   const SizedBox(width: 4),
@@ -1662,7 +1706,8 @@ class _TodayMembersSheet extends StatelessWidget {
           Flexible(
             child: ListView.separated(
               shrinkWrap: true,
-              padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
+              padding: EdgeInsets.fromLTRB(
+                  20, 6, 20, 24 + MediaQuery.of(context).padding.bottom),
               itemCount: roster.length,
               separatorBuilder: (_, __) => Divider(height: 1, color: gp.border),
               itemBuilder: (context, i) {
@@ -1753,7 +1798,7 @@ class RoomInviteCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.group_add_rounded, size: 18, color: GameColors.gold),
+              Icon(Icons.group_add_rounded, size: 18, color: context.gp.goldInk),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1791,7 +1836,7 @@ class RoomInviteCard extends StatelessWidget {
                 fontSize: 24,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 4,
-                color: GameColors.gold,
+                color: context.gp.goldInk,
               ),
             ),
           ),
@@ -1811,8 +1856,14 @@ class RoomInviteCard extends StatelessWidget {
                   label: Text(s.roomCopyAction),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(44),
-                    foregroundColor: GameColors.gold,
-                    side: BorderSide(color: GameColors.gold.withOpacity(0.55)),
+                    // See the finale's extend button: a local override has
+                    // to take the ink itself, the theme cannot reach it.
+                    foregroundColor: gp.goldInk,
+                    side: BorderSide(
+                      color: gp.dark
+                          ? GameColors.gold.withValues(alpha: 0.55)
+                          : gp.goldEdge,
+                    ),
                   ),
                 ),
               ),
@@ -1821,6 +1872,8 @@ class RoomInviteCard extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: () {
                     HapticFeedback.selectionClick();
+                    AnalyticsService.instance.track('room_code_shared',
+                        props: {'surface': 'room_header'});
                     ShareService.shareText(
                       context,
                       s.roomShareMessage(room.name, room.code),

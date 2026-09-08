@@ -69,6 +69,38 @@ dependencies:
   # taking (see the firebase_core comment above).
   cloud_functions: ^5.6.2
 
+  # ── Social sign-in ───────────────────────────────────────────
+  # Google and Apple sign-in on the auth screen. Both hand a provider
+  # credential to the firebase_auth already pinned above; neither pulls a
+  # newer firebase_core, so the deliberate ^3.x line (see the firebase_core
+  # comment) is untouched. Versions below are what `flutter pub add
+  # --dry-run` actually resolved against this exact constraint set on the
+  # installed SDK (Dart 3.11.3), not versions read off pub.dev.
+  #
+  # 7.x, NOT 6.x, and the API is completely different: 6.x's
+  # `GoogleSignIn().signIn()` is gone. 7.x is singleton-based
+  # (`GoogleSignIn.instance.initialize()` once, then `authenticate()`),
+  # and on Android it is backed by Credential Manager rather than the
+  # retired Google Sign-In library. `authenticate()` throws
+  # GoogleSignInException(code: canceled) when the user dismisses the
+  # sheet instead of returning null, which is why SocialAuthService
+  # translates that into a silent no-op rather than an error banner.
+  google_sign_in: ^7.2.0
+  # Sign in with Apple. Required on iOS by App Store guideline 4.8 the
+  # moment any other third-party sign-in is offered, which Google above
+  # now does. Used on iOS only here: on Android the plugin falls back to a
+  # web flow that needs an Apple Services ID and a hosted redirect URL,
+  # infrastructure this project does not have, and Android users all have
+  # Google anyway. See SocialAuthService.appleAvailable.
+  sign_in_with_apple: ^8.1.0
+  # Nonce hashing for the Apple credential. Apple's flow is only safe
+  # against replay if the nonce sent to Apple is the SHA-256 of a random
+  # string and Firebase is handed the RAW string to compare, so a hash is
+  # not optional decoration here. `crypto` is already in the tree as a
+  # transitive dependency; this promotes it to a direct one because we
+  # import it directly.
+  crypto: ^3.0.3
+
   # ── Offline-first caching ────────────────────────────────────
   hive: ^2.2.3
   hive_flutter: ^1.1.0

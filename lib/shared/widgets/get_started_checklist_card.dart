@@ -97,7 +97,7 @@ class GetStartedChecklistCard extends ConsumerWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.flag_rounded, size: 17, color: GameColors.gold),
+                    Icon(Icons.flag_rounded, size: 17, color: context.gp.goldInk),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -292,7 +292,7 @@ class _GuideStepRow extends StatelessWidget {
           key: ValueKey(done),
           size: 19,
           color: done
-              ? GameColors.emerald
+              ? context.gp.emeraldInk
               : (isNext ? GameColors.gold : gp.textTert.withOpacity(0.55)),
         )
             .animate(key: ValueKey('tick-$lesson-$done'))

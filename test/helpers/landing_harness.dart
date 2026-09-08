@@ -85,9 +85,15 @@ class LandingHarness {
   /// hosts Grid/Profile/Matrix as pages of one PageView (see its doc
   /// comment), so a test pumping GridScreen alone has no nav bar in the tree
   /// at all — which is exactly why nav_bar_labels_test could never find one.
-  Widget app({Widget? home}) => UncontrolledProviderScope(
+  /// [locale] pins the app's language. Without it MaterialApp resolves to
+  /// English, and a test that only wraps the tree in `Directionality` gets
+  /// RTL layout with English words: S reads Localizations.localeOf, not the
+  /// text direction, so «إنجاز إضافي» silently renders as "Bonus" and any
+  /// measurement of Arabic is measuring the wrong string.
+  Widget app({Widget? home, Locale? locale}) => UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
+          locale: locale,
           // Mirror production: the localization delegates initialize intl's
           // date symbols, which DateFormat('EEE', …) in the grid depends on.
           supportedLocales: const [Locale('en'), Locale('ar')],

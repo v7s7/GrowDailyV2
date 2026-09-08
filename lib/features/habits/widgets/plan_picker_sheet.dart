@@ -147,7 +147,7 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
                     borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                   ),
                   child: Icon(Icons.auto_awesome_rounded,
-                      color: GameColors.gold, size: 20),
+                      color: context.gp.goldInk, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -737,7 +737,7 @@ class _ReminderRow extends StatelessWidget {
                     ? Icons.notifications_active_rounded
                     : Icons.notifications_none_rounded,
                 size: 18,
-                color: hasReminder ? GameColors.gold : gp.textSec,
+                color: hasReminder ? context.gp.goldInk : gp.textSec,
               ),
             ),
             const SizedBox(width: 12),
@@ -759,7 +759,7 @@ class _ReminderRow extends StatelessWidget {
                         : s.tapToSetReminder,
                     style: TextStyle(
                         fontSize: 12,
-                        color: hasReminder ? GameColors.gold : gp.textTert),
+                        color: hasReminder ? context.gp.goldInk : gp.textTert),
                   ),
                 ],
               ),

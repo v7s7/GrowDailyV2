@@ -18,17 +18,23 @@
 ///
 /// ── What has to line up for that to work ───────────────────────────────────
 ///
-///  1. [linkHost] must serve `/.well-known/apple-app-site-association` over
-///     HTTPS, as `application/json`, with no redirect. See `public/` and the
-///     `hosting` block in firebase.json.
-///  2. That file names `<TEAM_ID>.com.growdaily.v2`, and the app carries a
+///  1. [linkHost] must serve `/.well-known/apple-app-site-association` AND
+///     `/.well-known/assetlinks.json` over HTTPS, as `application/json`, with
+///     no redirect. See `public/` and the `hosting` block in firebase.json.
+///  2. The AASA names `<TEAM_ID>.com.growdaily.v2`, and the app carries a
 ///     matching `com.apple.developer.associated-domains` entitlement
 ///     (`applinks:<linkHost>`) — see ios/Runner/Runner.entitlements.
-///  3. The paths in the AASA must match what [roomJoinUrl] actually builds.
+///  3. assetlinks.json names `com.growdaily.v2` with the SHA-256 of every
+///     certificate a shipped build can be signed by — the upload key AND the
+///     Play App Signing key, which is a different key and only readable from
+///     Play Console (see ANDROID_RELEASE.md) — and the app carries a matching
+///     `autoVerify="true"` intent-filter in AndroidManifest.xml.
+///  4. The paths in both files must match what [roomJoinUrl] actually builds.
 ///
-/// If any of those three drift apart the link silently degrades to opening
-/// the web page instead of the app — which is why they are commented in all
-/// three files as a set.
+/// If any of those drift apart the link silently degrades to opening the web
+/// page instead of the app — which is why they are commented in every one of
+/// those files as a set. Silently is the operative word on both platforms:
+/// nothing throws, nothing logs, the app is simply never offered.
 library;
 
 /// The host that serves the association file and the fallback pages.
@@ -41,7 +47,11 @@ library;
 ///   1. Add it in Firebase Console → Hosting → Add custom domain.
 ///   2. Change this one constant.
 ///   3. Change `applinks:` in ios/Runner/Runner.entitlements to match.
-///   4. Re-deploy hosting and ship a build.
+///   4. Change `android:host` on the App Link intent-filter in
+///      android/app/src/main/AndroidManifest.xml to match.
+///   5. Re-deploy hosting — both public/.well-known/apple-app-site-association
+///      AND public/.well-known/assetlinks.json have to be reachable on the new
+///      host — and ship a build.
 /// Old links keep working as long as the old host stays connected, because
 /// [parseRoomJoinLink] matches on the PATH, not on the host — see its own
 /// doc comment for why that matters for anyone who already shared a link.

@@ -45,6 +45,9 @@ import '../models/covered_day.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 import '../widgets/daily_quote_line.dart';
+import '../widgets/note_corner.dart';
+import '../notifiers/grid_journal_notifier.dart';
+import 'grid_journal_screen.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
 // This screen used to be one ~2,160-line file. It's now split by UI concern
@@ -120,7 +123,11 @@ part 'grid_screen_reorder_sheet.dart'; // _HabitReorderSheet (drag-to-reorder ro
 // grid_screen_table.dart/grid_screen_cell_editor.dart) read as the same
 // amber "Money" color as a savings habit, which is exactly backwards for
 // an Islamic-habits app treating charity as worship, not budgeting.
-(IconData, Color) categoryVisual(HabitCategory category) => switch (category) {
+// Takes a [context] because three of these colours are mode-aware: the
+// fixed stat palette is tuned for the dark theme and has to darken on
+// light (see GameColors' icon*InkLight block).
+(IconData, Color) categoryVisual(BuildContext context, HabitCategory category) =>
+    switch (category) {
       // Kept in lockstep with HabitCategory.icon — see the comment there for
       // why faith, fasting and health each earned their own glyph. Colors
       // deliberately unchanged: the split is about telling habits apart at a
@@ -133,19 +140,19 @@ part 'grid_screen_reorder_sheet.dart'; // _HabitReorderSheet (drag-to-reorder ro
       HabitCategory.sadaqah =>
         (Icons.menu_book_rounded, GameColors.emerald),
       HabitCategory.health =>
-        (Icons.favorite_rounded, GameColors.iconStreak),
+        (Icons.favorite_rounded, context.gp.iconStreak),
       HabitCategory.fitness =>
-        (Icons.fitness_center_rounded, GameColors.iconStreak),
-      HabitCategory.learning => (Icons.school_rounded, GameColors.iconXp),
+        (Icons.fitness_center_rounded, context.gp.iconStreak),
+      HabitCategory.learning => (Icons.school_rounded, context.gp.iconXp),
       HabitCategory.focus =>
-        (Icons.center_focus_strong_rounded, GameColors.iconXp),
+        (Icons.center_focus_strong_rounded, context.gp.iconXp),
       HabitCategory.money => (Icons.savings_rounded, GameColors.warning),
       HabitCategory.mind => (Icons.psychology_rounded, GameColors.rarityEpic),
       HabitCategory.social => (Icons.groups_rounded, GameColors.gold),
       // Own fixed color (see GameColors.iconSleep's doc comment) instead of
       // reusing rarityEpic, which Mind already sits on - the two used to
       // be visually identical apart from icon shape.
-      HabitCategory.sleep => (Icons.bedtime_rounded, GameColors.iconSleep),
+      HabitCategory.sleep => (Icons.bedtime_rounded, context.gp.iconSleep),
       HabitCategory.custom => (Icons.star_rounded, GameColors.gold),
     };
 

@@ -1598,6 +1598,126 @@ class RoomParticipant {
       );
 }
 
+/// One member's place on a room's board: the participant, the number their
+/// row shows, and whether anybody else is holding that same number.
+///
+/// [rank] is 1-based, and 0 means UNRANKED: a member the board has nothing
+/// to say about yet, because their own percentage still reads 0%. See
+/// [RoomLeaderboard.standings] for why that case is drawn as a dash rather
+/// than as a position.
+///
+/// [shared] is what a tie is CALLED rather than just drawn as. First place
+/// is the one place the board shows as a picture instead of a number, so a
+/// shared first is two identical cups and a missing 2, with nothing saying
+/// why. It is what the cup announces to a screen reader (see
+/// S.roomPlaceFirstTied). Always false for an unranked member: nobody
+/// shares a place that nobody has.
+typedef RoomStanding = ({RoomParticipant participant, int rank, bool shared});
+
+/// The one place a room decides who is ahead of whom, and by which number.
+///
+/// This used to be three separate derivations that each turned a list
+/// POSITION into a rank: the leaderboard's `indexOf + 1`, the finale
+/// podium's hard-coded 2/1/3 slots, and the prize section's `indexWhere +
+/// 1`. All three read the same ordered list, so all three agreed only by
+/// coincidence, and none of them could express the one thing a board most
+/// needs to say: that two people are level.
+extension RoomLeaderboard on RoomModel {
+  /// [participants] ordered best first, each carrying the place its row
+  /// should show.
+  ///
+  /// Places are COMPETITION places: members who are level share a place,
+  /// and the next distinct score takes the place its position already gave
+  /// it. Two people level at the top read 1, 1, 3, never 1, 1, 2. That is
+  /// the whole point of this function: a shared first place is what puts
+  /// the cup on both rows instead of handing one of them a silver 2 on the
+  /// strength of an alphabetically smaller uid.
+  ///
+  /// LEVEL MEANS "THE SAME NUMBER ON SCREEN", and that is a deliberate
+  /// choice rather than a shortcut. Every ranked surface prints
+  /// `(progressRatio * 100).round()`, and each member divides by their own
+  /// elapsed window ([RoomParticipant.daysElapsedIn]), so two people whose
+  /// rows both read 86% are routinely 19/22 and 6/7: equal to the eye,
+  /// unequal in the fourth decimal. Ranking on the raw double would have
+  /// left exactly the reported bug in place, one cup between two rows
+  /// showing the same percentage. The percentage is the number the board
+  /// makes its promise with, so it is the number the places are grouped
+  /// by. The raw ratio still breaks the order INSIDE a group, so the
+  /// stronger of two equal-reading members is still drawn first.
+  ///
+  /// 0% IS NOT A PLACE. A member whose percentage still reads 0 is
+  /// unranked (rank 0), whether that is the whole room on day one or one
+  /// member who has not started. Without this, the shared-place rule turns
+  /// the two most-viewed states of a room, the lobby and day one, into a
+  /// column of identical trophies for work nobody has done yet. It also
+  /// closes a payout that should never have existed: an ended room where
+  /// nobody did anything has no rank 1, so
+  /// [RoomsController.podiumPrizeFor] has nothing to pay.
+  ///
+  /// The uid tie-break is kept from the sort this replaces. List.sort is
+  /// unstable above 32 elements and level members are the common case, so
+  /// without a stable last key the rows, and any number derived from their
+  /// order, visibly reshuffle on every participants-stream rebuild with
+  /// nobody's score having changed.
+  List<RoomStanding> standings(List<RoomParticipant> participants) {
+    // Scored once per member rather than once per comparison. progressRatio
+    // walks every counted day of the room and a sort asks for it O(n log n)
+    // times, but the real reason is agreement: the ordering and the "are
+    // these two level" test read the same two numbers, so they cannot
+    // disagree about who is level with whom.
+    final percents = <String, int>{};
+    final ratios = <String, double>{};
+    for (final p in participants) {
+      final ratio = p.progressRatio(this);
+      ratios[p.uid] = ratio;
+      percents[p.uid] = (ratio * 100).round();
+    }
+    int percentOf(RoomParticipant p) => percents[p.uid] ?? 0;
+    double ratioOf(RoomParticipant p) => ratios[p.uid] ?? 0;
+
+    final sorted = [...participants]..sort((a, b) {
+      final byPercent = percentOf(b).compareTo(percentOf(a));
+      if (byPercent != 0) return byPercent;
+      final byRatio = ratioOf(b).compareTo(ratioOf(a));
+      return byRatio != 0 ? byRatio : a.uid.compareTo(b.uid);
+    });
+
+    final placed = <({RoomParticipant participant, int rank})>[];
+    var place = 0;
+    int? previous;
+    for (var i = 0; i < sorted.length; i++) {
+      final percent = percentOf(sorted[i]);
+      if (percent <= 0) {
+        placed.add((participant: sorted[i], rank: 0));
+        continue;
+      }
+      // Only a genuinely different percentage moves the number on, and it
+      // moves it to the position, not to the next integer: that is what
+      // makes the place after a two-way tie for first a 3.
+      if (percent != previous) place = i + 1;
+      placed.add((participant: sorted[i], rank: place));
+      previous = percent;
+    }
+
+    // Who is sharing. Counted over the finished list rather than tracked
+    // inside the loop above, because a tie is only visible once the LAST
+    // member of it has been seen: the first of two equals is level with
+    // somebody who has not been reached yet.
+    final held = <int, int>{};
+    for (final m in placed) {
+      held[m.rank] = (held[m.rank] ?? 0) + 1;
+    }
+    return [
+      for (final m in placed)
+        (
+          participant: m.participant,
+          rank: m.rank,
+          shared: m.rank > 0 && (held[m.rank] ?? 0) > 1,
+        ),
+    ];
+  }
+}
+
 /// Room-wide "everyone together" numbers — layered on top of the existing
 /// per-participant leaderboard rather than replacing it. Nothing here needs
 /// its own sync/storage: every input ([RoomParticipant.daysCompleted]/

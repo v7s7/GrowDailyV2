@@ -118,13 +118,18 @@ enum SquareState {
         skipped => 'تخطّي',
       };
 
-  /// The accent color that identifies this state (theme-invariant hue).
-  Color get accent => switch (this) {
+  /// The accent color that identifies this state. The HUE is
+  /// theme-invariant - complete is always green, failed always red - but the
+  /// exact shade is not, because the vivid versions are tuned for the dark
+  /// theme and drop under AA on the light one. Same rule as
+  /// [Mood.visual]; the sibling method below already took [dark] for its
+  /// fills.
+  Color accent(bool dark) => switch (this) {
         none => const Color(0xFF9AA397),
         partial => GameColors.warning,
-        complete => GameColors.emerald,
+        complete => GameColors.emeraldInkFor(dark),
         failed => GameColors.error,
-        bonus => GameColors.iconXp,
+        bonus => GameColors.iconXpFor(dark),
         skipped => const Color(0xFF8C9A92),
       };
 
@@ -167,7 +172,7 @@ enum SquareState {
   /// Border color for the square.
   Color border(bool dark) => switch (this) {
         none => dark ? GameColors.border : GameColors.lightBorder,
-        _ => accent.withOpacity(dark ? 0.55 : 0.5),
+        _ => accent(dark).withOpacity(dark ? 0.55 : 0.5),
       };
 
   /// Small glyph drawn inside a marked square (null for the empty state).
@@ -241,8 +246,13 @@ enum SquareState {
   /// square in miniature — instead of an icon. A circle was the problem: a
   /// half-filled circle is a clock face, and every attempt to say "half" with
   /// one lands back where this started.
-  Widget glyph({required double size, Color? color, IconData? fallback}) {
-    final ink = color ?? accent;
+  Widget glyph({
+    required double size,
+    required bool dark,
+    Color? color,
+    IconData? fallback,
+  }) {
+    final ink = color ?? accent(dark);
     if (this == partial) return HalfFullMark(size: size, color: ink);
     final data = icon ?? fallback;
     return data == null

@@ -703,6 +703,19 @@ class RoomStrip extends StatelessWidget {
     return Semantics(
       button: true,
       label: s.roomStripOpenCalendar,
+      // excludeSemantics, or this button reads out the whole strip.
+      //
+      // Without it every descendant merges into the button's own label: the
+      // month headers, the week number over each column, and the pinned
+      // «البداية» / «اليوم» markers. On the full-strip view an open room is
+      // capped at 366 days, which is up to 53 columns, so one row's button
+      // announced its caption and then 53 digits before the next member on
+      // the board could be reached. None of it is information a listener
+      // can use, either: it is the axis of a picture, and the numbers the
+      // strip draws are already spoken by the row around it (the day count,
+      // the percentage, the streak). What is left is what a button should
+      // say, which is what tapping it does.
+      excludeSemantics: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => showParticipantSheet(
@@ -1249,8 +1262,109 @@ class _StandDownBarPainter extends CustomPainter {
   bool shouldRepaint(_StandDownBarPainter old) => old.color != color;
 }
 
+/// Gold, silver, bronze, and null for every other place.
+///
+/// A place of 0 is the unranked case (a member still reading 0%, see
+/// RoomLeaderboard.standings) and falls through to null with the rest.
+///
+/// Places are SHARED on a tie, so the medal set can have gaps: two members
+/// level at the top read 1, 1, 3, which is two cups and a bronze with no
+/// silver anywhere. That is the shape of the result, not a missing case.
+///
+/// Top level and public for the same reason [roomStripCellFill] is: the row
+/// needs a room, a participant and three providers to build, so a rule left
+/// inside it cannot be asserted by anything.
+Color? roomPlaceMedalColor(int rank) => switch (rank) {
+      1 => GameColors.gold,
+      2 => const Color(0xFFB0B7C3),
+      3 => const Color(0xFFC98A4B),
+      _ => null,
+    };
+
+/// The 22pt slot at the start of a leaderboard row: the one thing on the row
+/// that states a member's place rather than their work.
+///
+/// Three states, checked in this order deliberately:
+///
+///  - NO PLACE (rank 0). A dash, because this member's own percentage still
+///    reads 0% and the board has nothing to say about where they stand. On
+///    day one that is everybody, and printing a place there would be a
+///    podium for work nobody has done. It is the FIRST arm so that
+///    [S.roomPlaceTied] can never be handed a 0, and so the dash cannot
+///    inherit a "tied" label from a caller that passed shared: true.
+///  - FIRST (rank 1). The cup, and first place can be SHARED: two members
+///    level at the top are both rank 1, so both take this branch. Nothing
+///    here decides that, which is the point. RoomLeaderboard.standings does.
+///  - Any other place. The number, in its medal colour.
+///
+/// Every branch carries a spoken label, and that is the whole reason this
+/// widget exists as a widget. This slot holds a NUMBER on most rows, so
+/// swapping it for a picture made first place the one position a screen
+/// reader could not hear; a shared first made that two rows at once; and a
+/// bare dash is settled by each listener's punctuation setting, which
+/// usually means silence. The label is null only where the number itself is
+/// already the right thing to say.
+///
+/// Public, and separate from _LeaderboardRow, for the reason
+/// [roomStripCellFill] is: see test/features/rooms/room_place_badge_test.dart,
+/// which pins every branch above.
+class RoomPlaceBadge extends StatelessWidget {
+  final int rank;
+
+  /// Whether somebody else holds this same place. Only ever reaches a person
+  /// through the spoken label: a shared place is already drawn as two
+  /// identical badges, and this is what says so out loud.
+  final bool shared;
+
+  const RoomPlaceBadge({super.key, required this.rank, required this.shared});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    if (rank < 1) {
+      return Text(
+        '–',
+        semanticsLabel: s.roomPlaceNone,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+          color: gp.textTert,
+        ),
+      );
+    }
+    if (rank == 1) {
+      return Icon(
+        Icons.emoji_events_rounded,
+        size: 20,
+        color: context.gp.goldInk,
+        semanticLabel: shared ? s.roomPlaceFirstTied : s.roomPlaceFirst,
+      );
+    }
+    return Text(
+      '$rank',
+      // Null falls back to the number itself, which is exactly what an
+      // unshared place should say. A shared one cannot: "2" read out twice,
+      // with no 3 anywhere after it, is the same silence the cup had.
+      semanticsLabel: shared ? s.roomPlaceTied(rank) : null,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w800,
+        color: roomPlaceMedalColor(rank) ?? gp.textTert,
+      ),
+    );
+  }
+}
+
 class _LeaderboardRow extends ConsumerWidget {
   final int rank;
+
+  /// Whether somebody else is on this same place. Only reaches the screen
+  /// through the cup's spoken label: a shared first is already drawn as two
+  /// cups, and this is what says so out loud.
+  final bool sharedPlace;
   final RoomParticipant participant;
   final RoomModel room;
   final bool isYou;
@@ -1258,18 +1372,12 @@ class _LeaderboardRow extends ConsumerWidget {
 
   const _LeaderboardRow({
     required this.rank,
+    required this.sharedPlace,
     required this.participant,
     required this.room,
     required this.isYou,
     required this.isLeader,
   });
-
-  Color? get _medalColor => switch (rank) {
-        1 => GameColors.gold,
-        2 => const Color(0xFFB0B7C3),
-        3 => const Color(0xFFC98A4B),
-        _ => null,
-      };
 
   /// How demanding this member's plan is — "4× a week", "Daily", or a count
   /// when their linked habits don't agree.
@@ -1323,7 +1431,7 @@ class _LeaderboardRow extends ConsumerWidget {
     // "Seeker" tier both render nothing here rather than a chip everyone
     // would have from day one.
     final prestigeTier = PrestigeCatalog.findById(participant.prestigeTierId);
-    final medalColor = _medalColor;
+    final medalColor = roomPlaceMedalColor(rank);
     final streak = participant.currentStreak(room);
     // lastCountedDay, not today: on an ended room those differ, and the
     // question this answers is "is this member stood down on the last day the
@@ -1366,21 +1474,7 @@ class _LeaderboardRow extends ConsumerWidget {
             width: 22,
             child: Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: rank == 1
-                  ? Icon(
-                      Icons.emoji_events_rounded,
-                      size: 20,
-                      color: GameColors.gold,
-                    )
-                  : Text(
-                      '$rank',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: medalColor ?? gp.textTert,
-                      ),
-                    ),
+              child: RoomPlaceBadge(rank: rank, shared: sharedPlace),
             ),
           ),
           const SizedBox(width: 6),
@@ -1549,16 +1643,27 @@ class _LeaderboardRow extends ConsumerWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: ClipRRect(
-                        borderRadius:
-                            BorderRadius.circular(GameSpacing.pillRadius),
-                        child: LinearProgressIndicator(
-                          value: ratio,
-                          backgroundColor: gp.border,
-                          valueColor: AlwaysStoppedAnimation(
-                            medalColor ?? GameColors.gold,
+                      // ExcludeSemantics because the whole row merges into
+                      // one announcement: a progress bar contributes its
+                      // value as a bare, unitless "86" on the end of it,
+                      // after the row has already said "86%" in words. Two
+                      // numbers, one of them corresponding to nothing on
+                      // screen, on a board where the numbers ARE the
+                      // content. The bar is a second drawing of the
+                      // percentage beside it, so it has nothing of its own
+                      // to say.
+                      child: ExcludeSemantics(
+                        child: ClipRRect(
+                          borderRadius:
+                              BorderRadius.circular(GameSpacing.pillRadius),
+                          child: LinearProgressIndicator(
+                            value: ratio,
+                            backgroundColor: gp.border,
+                            valueColor: AlwaysStoppedAnimation(
+                              medalColor ?? GameColors.gold,
+                            ),
+                            minHeight: 6,
                           ),
-                          minHeight: 6,
                         ),
                       ),
                     ),
@@ -1580,18 +1685,27 @@ class _LeaderboardRow extends ConsumerWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
+                            // Labelled for the same reason the cup is:
+                            // inside the row's merged announcement its
+                            // number is otherwise an orphan quantity
+                            // wedged between the badges and the day
+                            // count, and on a ranked board a loose number
+                            // reads as another score. Reuses the existing
+                            // word rather than inventing copy, so it
+                            // lands as "السلسلة، 4".
+                            Icon(
                               Icons.local_fire_department_rounded,
                               size: 12,
-                              color: GameColors.iconStreak,
+                              color: context.gp.iconStreak,
+                              semanticLabel: s.streak,
                             ),
                             const SizedBox(width: 2),
                             Text(
                               '$streak',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 10.5,
                                 fontWeight: FontWeight.w800,
-                                color: GameColors.iconStreak,
+                                color: context.gp.iconStreak,
                               ),
                             ),
                           ],
@@ -1725,7 +1839,7 @@ class _WarningRow extends StatelessWidget {
                   ? Icons.pause_circle_outline_rounded
                   : Icons.warning_amber_rounded,
               size: 15,
-              color: tone),
+              color: gp.ink(tone)),
           const SizedBox(width: 7),
           Expanded(
             child: Text(
@@ -2041,7 +2155,7 @@ class _ExtendRoomSheetState extends State<_ExtendRoomSheet> {
                     // disabledColor has to be set explicitly too, or Flutter
                     // falls back to its own theme grey instead of this app's
                     // textTert the moment the field is empty/invalid.
-                    color: GameColors.gold,
+                    color: context.gp.goldInk,
                     disabledColor: gp.textTert,
                     onPressed: _customDays != null ? _applyCustom : null,
                   ),
@@ -2099,7 +2213,7 @@ class _ExtendOptionChip extends StatelessWidget {
           style: TextStyle(
             fontSize: 12.5,
             fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
-            color: selected ? GameColors.gold : gp.textPrimary,
+            color: selected ? context.gp.goldInk : gp.textPrimary,
           ),
         ),
       ),
@@ -2121,11 +2235,11 @@ class _ExtendOptionChip extends StatelessWidget {
 /// appears in its true rank position when it falls inside the visible slice,
 /// and pinned below the fold with a divider when it doesn't.
 class _LeaderboardList extends ConsumerStatefulWidget {
-  final List<RoomParticipant> sorted;
+  final List<RoomStanding> standings;
   final RoomModel room;
   final String? myUid;
   const _LeaderboardList({
-    required this.sorted,
+    required this.standings,
     required this.room,
     required this.myUid,
   });
@@ -2151,28 +2265,33 @@ class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
     // Ranks are computed BEFORE filtering, deliberately: blocking someone
     // hides their row, it does not promote you past them. A leaderboard
     // that silently renumbered itself per viewer would make blocking a way
-    // to fake your own standing.
-    final all = widget.sorted;
-    final hiddenCount =
-        blocked.isEmpty ? 0 : all.where((p) => blocked.contains(p.uid)).length;
+    // to fake your own standing. Each row now carries the place it was
+    // given over the whole roster (see RoomLeaderboard.standings), so
+    // filtering can no longer renumber anything even by accident.
+    final all = widget.standings;
+    final hiddenCount = blocked.isEmpty
+        ? 0
+        : all.where((m) => blocked.contains(m.participant.uid)).length;
     final sorted = (blocked.isEmpty || _showBlocked)
         ? all
-        : all.where((p) => !blocked.contains(p.uid)).toList();
+        : all.where((m) => !blocked.contains(m.participant.uid)).toList();
     final showAll = _expanded || sorted.length <= _initialRows;
     final visibleCount = showAll ? sorted.length : _initialRows;
 
     Widget rowAt(int i) => Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: _LeaderboardRow(
-            rank: all.indexOf(sorted[i]) + 1,
-            participant: sorted[i],
+            rank: sorted[i].rank,
+            sharedPlace: sorted[i].shared,
+            participant: sorted[i].participant,
             room: widget.room,
-            isYou: sorted[i].uid == widget.myUid,
-            isLeader: sorted[i].uid == widget.room.createdBy,
+            isYou: sorted[i].participant.uid == widget.myUid,
+            isLeader: sorted[i].participant.uid == widget.room.createdBy,
           ),
         );
 
-    final myIndex = sorted.indexWhere((p) => p.uid == widget.myUid);
+    final myIndex =
+        sorted.indexWhere((m) => m.participant.uid == widget.myUid);
     final myRowIsHidden = !showAll && myIndex >= visibleCount;
 
     return Column(

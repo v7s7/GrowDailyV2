@@ -166,14 +166,14 @@ class _PickOwnHabitSheet extends ConsumerWidget {
                     child: Row(
                       children: [
                         Icon(Icons.add_circle_rounded,
-                            size: 18, color: GameColors.gold),
+                            size: 18, color: context.gp.goldInk),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(s.roomCreateNewHabitAction,
                               style: TextStyle(
                                   fontSize: 13.5,
                                   fontWeight: FontWeight.w700,
-                                  color: GameColors.gold)),
+                                  color: context.gp.goldInk)),
                         ),
                       ],
                     ),
@@ -190,7 +190,8 @@ class _PickOwnHabitSheet extends ConsumerWidget {
           Flexible(
             child: habits.isEmpty
                 ? Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                    padding: EdgeInsets.fromLTRB(
+                        20, 4, 20, 24 + MediaQuery.of(context).padding.bottom),
                     child: Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
@@ -213,7 +214,8 @@ class _PickOwnHabitSheet extends ConsumerWidget {
                     ),
                   )
                 : SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                    padding: EdgeInsets.fromLTRB(
+                        20, 4, 20, 24 + MediaQuery.of(context).padding.bottom),
                     child: Container(
                       decoration: BoxDecoration(
                         color: gp.surface,

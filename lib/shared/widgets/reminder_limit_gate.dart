@@ -79,7 +79,7 @@ void showReminderLimitGate(
               child: Icon(
                 Icons.notifications_active_rounded,
                 size: 28,
-                color: GameColors.gold,
+                color: context.gp.goldInk,
               ),
             ),
             const SizedBox(height: 16),

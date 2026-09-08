@@ -9,17 +9,26 @@ import '../../auth/notifiers/auth_notifier.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
 /// Confirmation sheet for permanently deleting the signed-in account.
-/// Requires the user to re-enter their password (Firebase needs a recent
-/// sign-in before it will delete a user, and re-entering a password is also
-/// a reasonable "are you sure" gate for a destructive, irreversible action).
+///
+/// Firebase needs a recent sign-in before it will delete a user, so the sheet
+/// re-verifies first. HOW it re-verifies depends on the account: a password
+/// account types its password, which doubles as a reasonable "are you sure"
+/// gate for a destructive, irreversible action; a Google or Apple account has
+/// no password to type and runs its provider's sheet again instead.
+///
+/// The password field used to be unconditional, and that was not merely
+/// untidy. A Google or Apple account cannot satisfy it at all, so the sheet
+/// was a dead end for those users and the app did not really offer in-app
+/// account deletion to them, which App Store guideline 5.1.1(v) requires.
 void showDeleteAccountSheet(BuildContext context, WidgetRef ref) {
   HapticFeedback.mediumImpact();
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Without this, the sheet ignores the iPhone home-indicator inset and
-    // its footer button can render flush with (or under) the gesture bar.
+    // Keeps the sheet's top clear of the status bar and notch. The bottom
+    // inset is the sheet's own job: the card's outer margin adds MediaQuery
+    // padding.bottom, so the footer button clears the gesture bar.
     useSafeArea: true,
     builder: (ctx) => const _DeleteAccountSheet(),
   );
@@ -38,6 +47,13 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
   bool _submitting = false;
   String? _error;
 
+  /// Resolved once, here, rather than on every build: nothing can change the
+  /// signed-in account's providers while this sheet is up, and re-reading it
+  /// mid-flow could swap the field out from under a half-typed password.
+  late final AuthMethod _method = AuthNotifier.currentAuthMethod();
+
+  bool get _needsPassword => _method == AuthMethod.password;
+
   @override
   void dispose() {
     _passwordController.dispose();
@@ -45,18 +61,29 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
   }
 
   Future<void> _confirm() async {
+    if (_submitting) return;
     final password = _passwordController.text;
-    if (password.isEmpty || _submitting) return;
+    if (_needsPassword && password.isEmpty) return;
     setState(() {
       _submitting = true;
       _error = null;
     });
 
     final s = S.of(context);
-    await ref.read(authNotifierProvider.notifier).deleteAccount(password);
+    final completed = await ref
+        .read(authNotifierProvider.notifier)
+        .deleteAccount(password: _needsPassword ? password : null);
     final result = ref.read(authNotifierProvider);
 
     if (!mounted) return;
+
+    // The person backed out of Google's or Apple's sheet. That is an answer,
+    // not a failure: drop back to the idle sheet with no error showing, so
+    // they can either try again or close it.
+    if (!completed) {
+      setState(() => _submitting = false);
+      return;
+    }
 
     final failure = result.hasError ? result.error : null;
     if (failure != null) {
@@ -65,7 +92,11 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
         _error = failure is FirebaseAuthException &&
                 (failure.code == 'wrong-password' ||
                     failure.code == 'invalid-credential')
-            ? s.deleteAccountWrongPassword
+            // Only a password account can get this wrong by typing. For a
+            // social account the same codes mean the provider handed back
+            // something Firebase would not accept, which is not a
+            // "wrong password" and must not be described as one.
+            ? (_needsPassword ? s.deleteAccountWrongPassword : s.errGeneric)
             : s.errGeneric;
       });
       return;
@@ -101,7 +132,9 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
@@ -133,8 +166,8 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
                   color: GameColors.error.withOpacity(0.14),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.warning_rounded,
-                    size: 28, color: GameColors.error),
+                child: Icon(Icons.warning_rounded,
+                    size: 28, color: context.gp.errorInk),
               ),
             ),
             const SizedBox(height: 16),
@@ -154,40 +187,83 @@ class _DeleteAccountSheetState extends ConsumerState<_DeleteAccountSheet> {
               style: TextStyle(fontSize: 13.5, color: gp.textSec, height: 1.4),
             ),
             const SizedBox(height: 20),
-            Text(
-              s.deleteAccountPasswordLabel,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: gp.textSec,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _passwordController,
-              obscureText: true,
-              autofocus: false,
-              enabled: !_submitting,
-              onSubmitted: (_) => _confirm(),
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: gp.surface,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
-                  borderSide: BorderSide(color: gp.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
-                  borderSide: BorderSide(color: gp.border),
+            if (_needsPassword) ...[
+              Text(
+                s.deleteAccountPasswordLabel,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: gp.textSec,
                 ),
               ),
-            ),
+              const SizedBox(height: 8),
+              TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
+                controller: _passwordController,
+                obscureText: true,
+                autofocus: false,
+                enabled: !_submitting,
+                onSubmitted: (_) => _confirm(),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: gp.surface,
+                  border: OutlineInputBorder(
+                    borderRadius:
+                        BorderRadius.circular(GameSpacing.buttonRadius),
+                    borderSide: BorderSide(color: gp.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius:
+                        BorderRadius.circular(GameSpacing.buttonRadius),
+                    borderSide: BorderSide(color: gp.border),
+                  ),
+                ),
+              ),
+            ] else
+              // No password to ask for. Say plainly what the confirm button
+              // is about to do, so the provider's own sheet appearing over
+              // the top of this one is expected rather than alarming at the
+              // exact moment someone is deleting everything they have.
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: gp.surface,
+                  borderRadius:
+                      BorderRadius.circular(GameSpacing.buttonRadius),
+                  border: Border.all(color: gp.border, width: 0.5),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.lock_outline_rounded,
+                      size: 15,
+                      color: gp.textTert,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _method == AuthMethod.apple
+                            ? s.deleteAccountVerifyApple
+                            : s.deleteAccountVerifyGoogle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: gp.textSec,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(
                 _error!,
-                style: const TextStyle(
-                    fontSize: 12.5, color: GameColors.error),
+                style: TextStyle(
+                    fontSize: 12.5, color: context.gp.errorInk),
               ),
             ],
             const SizedBox(height: 20),

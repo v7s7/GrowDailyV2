@@ -20,8 +20,9 @@ void showEditNameSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Without this, the sheet ignores the iPhone home-indicator inset and
-    // its footer button can render flush with (or under) the gesture bar.
+    // Keeps the sheet's top clear of the status bar and notch. The bottom
+    // inset is the sheet's own job: the card's outer margin adds MediaQuery
+    // padding.bottom, so the footer button clears the gesture bar.
     useSafeArea: true,
     builder: (_) => _EditNameSheet(currentName: currentName),
   );
@@ -77,7 +78,9 @@ class _EditNameSheetState extends ConsumerState<_EditNameSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
@@ -112,7 +115,7 @@ class _EditNameSheetState extends ConsumerState<_EditNameSheet> {
                 // Not `const` — GameColors.gold is a mutable `static Color`
                 // (preset-driven), not a compile-time constant.
                 child: Icon(Icons.badge_rounded,
-                    size: 28, color: GameColors.gold),
+                    size: 28, color: context.gp.goldInk),
               ),
             ),
             const SizedBox(height: 16),
@@ -133,6 +136,7 @@ class _EditNameSheetState extends ConsumerState<_EditNameSheet> {
             ),
             const SizedBox(height: 20),
             TextField(
+              selectionWidthStyle: GameTextStyles.selectionWidthStyle,
               controller: _controller,
               autofocus: true,
               enabled: !_submitting,
@@ -158,7 +162,7 @@ class _EditNameSheetState extends ConsumerState<_EditNameSheet> {
               const SizedBox(height: 8),
               Text(
                 _error!,
-                style: const TextStyle(fontSize: 12.5, color: GameColors.error),
+                style: TextStyle(fontSize: 12.5, color: context.gp.errorInk),
               ),
             ],
             const SizedBox(height: 20),

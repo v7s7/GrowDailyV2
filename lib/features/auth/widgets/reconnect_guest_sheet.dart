@@ -130,7 +130,8 @@ class _ReconnectSheetState extends ConsumerState<_ReconnectSheet> {
     final snapshot = _snapshot;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+      padding: EdgeInsets.fromLTRB(
+          16, 0, 16, 40 + MediaQuery.of(context).padding.bottom),
       child: Container(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
         decoration: BoxDecoration(
@@ -149,7 +150,7 @@ class _ReconnectSheetState extends ConsumerState<_ReconnectSheet> {
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.cloud_upload_rounded,
-                  size: 28, color: GameColors.gold),
+                  size: 28, color: context.gp.goldInk),
             ),
             const SizedBox(height: 16),
             Text(

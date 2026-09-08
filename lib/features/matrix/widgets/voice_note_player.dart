@@ -688,7 +688,7 @@ class VoiceNoteRecordRow extends StatelessWidget {
     final s = S.of(context);
     final mm = elapsed.inMinutes.toString().padLeft(2, '0');
     final ss = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
-    final accent = recording ? GameColors.error : color;
+    final accent = recording ? gp.errorInk : color;
     return Semantics(
       button: true,
       // A screen reader must not promise recording on a gated control:
@@ -766,7 +766,7 @@ class VoiceNoteRecordRow extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: recording ? GameColors.error : gp.textPrimary,
+                        color: recording ? context.gp.errorInk : gp.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -786,10 +786,10 @@ class VoiceNoteRecordRow extends StatelessWidget {
                   padding: const EdgeInsetsDirectional.only(end: 4),
                   child: Text(
                     '$mm:$ss',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: GameColors.error,
+                      color: context.gp.errorInk,
                       fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
@@ -955,8 +955,9 @@ void showRenameVoiceNoteSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Without this, the sheet ignores the iPhone home-indicator inset and
-    // its footer button can render flush with (or under) the gesture bar.
+    // Keeps the sheet's top clear of the status bar and notch. The bottom
+    // inset is the sheet's own job: the card's outer margin adds MediaQuery
+    // padding.bottom, so the footer button clears the gesture bar.
     useSafeArea: true,
     builder: (_) =>
         _RenameVoiceNoteSheet(currentName: currentName, onSave: onSave),
@@ -1001,7 +1002,9 @@ class _RenameVoiceNoteSheetState extends State<_RenameVoiceNoteSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),

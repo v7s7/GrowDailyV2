@@ -13,7 +13,9 @@ class _LanguageSheet extends ConsumerWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -84,7 +86,9 @@ void _showThemePresetSheet(BuildContext context) {
     // fit (small phones, split-screen, a future 8th/9th preset).
     isScrollControlled: true,
     // See _showLanguageSheet above for why every bottom sheet here sets
-    // this — without it the sheet ignores the home-indicator inset.
+    // this: it keeps the sheet's top clear of the notch. The home-indicator
+    // inset is the sheet's own job (the card's outer margin adds MediaQuery
+    // padding.bottom).
     useSafeArea: true,
     builder: (ctx) => const _ThemePresetSheet(),
   );
@@ -140,7 +144,9 @@ class _ThemePresetSheet extends ConsumerWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -356,7 +362,9 @@ void _showFontSheet(BuildContext context) {
     context: context,
     backgroundColor: Colors.transparent,
     // See _showLanguageSheet above for why every bottom sheet here sets
-    // this — without it the sheet ignores the home-indicator inset.
+    // this: it keeps the sheet's top clear of the notch. The home-indicator
+    // inset is the sheet's own job (the card's outer margin adds MediaQuery
+    // padding.bottom).
     useSafeArea: true,
     builder: (ctx) => const _FontSheet(),
   );
@@ -375,7 +383,9 @@ class _FontSheet extends ConsumerWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -493,7 +503,7 @@ class _FontTile extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             if (selected)
-              Icon(Icons.check_circle_rounded, size: 18, color: GameColors.gold),
+              Icon(Icons.check_circle_rounded, size: 18, color: context.gp.goldInk),
           ],
         ),
       ),
@@ -743,7 +753,9 @@ class _CustomThemeSheetState extends ConsumerState<_CustomThemeSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.viewInsetsOf(context).bottom,
+        bottom: 24 +
+            MediaQuery.viewInsetsOf(context).bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -1478,6 +1490,7 @@ class _HexField extends StatelessWidget {
           const SizedBox(width: 4),
           Expanded(
             child: TextField(
+              selectionWidthStyle: GameTextStyles.selectionWidthStyle,
               controller: controller,
               focusNode: focusNode,
               onChanged: onChanged,
@@ -1745,7 +1758,7 @@ class _CustomThemeCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.palette_rounded, size: 17, color: GameColors.gold),
+                Icon(Icons.palette_rounded, size: 17, color: context.gp.goldInk),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -1771,13 +1784,13 @@ class _CustomThemeCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
-                        color: GameColors.gold,
+                        color: context.gp.goldInk,
                       ),
                     ),
                   )
                 else if (selected)
                   Icon(Icons.check_circle_rounded,
-                      size: 18, color: GameColors.gold),
+                      size: 18, color: context.gp.goldInk),
               ],
             ),
             const SizedBox(height: 9),
@@ -1832,7 +1845,7 @@ class _CustomThemeCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,
-                    color: GameColors.gold,
+                    color: context.gp.goldInk,
                   ),
                 ),
                 const Spacer(),

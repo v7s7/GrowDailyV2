@@ -65,7 +65,8 @@ class NotificationSettingsScreen extends ConsumerWidget {
       builder: (sheetContext) {
         final gp = sheetContext.gp;
         return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          padding: EdgeInsets.fromLTRB(
+              16, 0, 16, 16 + MediaQuery.of(sheetContext).padding.bottom),
           child: Container(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
             decoration: BoxDecoration(
@@ -118,7 +119,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                           ),
                           if (option == current)
                             Icon(Icons.check_rounded,
-                                size: 18, color: GameColors.gold),
+                                size: 18, color: context.gp.goldInk),
                         ],
                       ),
                     ),
@@ -781,7 +782,7 @@ class _RoomPushStatusState extends ConsumerState<_RoomPushStatus>
         child: Row(
           children: [
             Icon(Icons.check_circle_rounded,
-                size: 14, color: GameColors.emerald),
+                size: 14, color: context.gp.emeraldInk),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
@@ -813,7 +814,7 @@ class _RoomPushStatusState extends ConsumerState<_RoomPushStatus>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(Icons.info_outline_rounded,
-                  size: 14, color: GameColors.warning),
+                  size: 14, color: context.gp.warningInk),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -838,9 +839,9 @@ class _RoomPushStatusState extends ConsumerState<_RoomPushStatus>
                 style: TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w700,
-                  color: GameColors.gold,
+                  color: context.gp.goldInk,
                   decoration: TextDecoration.underline,
-                  decorationColor: GameColors.gold,
+                  decorationColor: context.gp.goldInk,
                 ),
               ),
             ),
@@ -913,7 +914,7 @@ class _SystemPermissionBannerState extends State<_SystemPermissionBanner>
             Row(
               children: [
                 Icon(Icons.notifications_off_rounded,
-                    size: 18, color: GameColors.error),
+                    size: 18, color: context.gp.errorInk),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -922,7 +923,7 @@ class _SystemPermissionBannerState extends State<_SystemPermissionBanner>
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
                       height: 1.4,
-                      color: GameColors.error,
+                      color: context.gp.errorInk,
                     ),
                   ),
                 ),
@@ -954,7 +955,7 @@ class _SystemPermissionBannerState extends State<_SystemPermissionBanner>
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
-                    color: GameColors.error,
+                    color: context.gp.errorInk,
                   ),
                 ),
               ),

@@ -78,7 +78,9 @@ class _Segment extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final color = active ? GameColors.gold : gp.textSec;
+    // Ink, not the raw accent: the pill's own 16% wash below keeps the
+    // accent, but the label on top of it measured 1.82:1 on light.
+    final color = active ? gp.goldInk : gp.textSec;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(GameSpacing.pillRadius),

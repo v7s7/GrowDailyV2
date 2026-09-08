@@ -447,7 +447,8 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     return AnimatedPadding(
       duration: GameMotion.standard,
       curve: Curves.easeOut,
-      padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
+      padding: EdgeInsets.fromLTRB(
+          12, 0, 12, 12 + bottom + MediaQuery.of(context).padding.bottom),
       child: AnimatedContainer(
         duration: GameMotion.standard,
         curve: Curves.easeOut,
@@ -530,6 +531,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                         border: Border.all(color: gp.border, width: 0.5),
                       ),
                       child: TextField(
+                        selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                         controller: _titleCtrl,
                         textCapitalization: TextCapitalization.sentences,
                         style: TextStyle(
@@ -576,6 +578,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                         border: Border.all(color: gp.border, width: 0.5),
                       ),
                       child: TextField(
+                        selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                         controller: _descCtrl,
                         textCapitalization: TextCapitalization.sentences,
                         style: TextStyle(

@@ -41,11 +41,12 @@ Future<String?> showHabitColorPicker(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    // Without this, the sheet ignores the iPhone home-indicator inset —
-    // its internal padding only accounts for the keyboard (viewInsets),
-    // not the safe area, so the footer button can render under the
-    // gesture bar. Reached directly from Add Habit, so this is likely
-    // part of what the reported "button moves" bug was seeing.
+    // Keeps the sheet's top clear of the status bar and notch. The bottom
+    // inset is the sheet's own job: the margin below the card adds MediaQuery
+    // padding.bottom on top of the keyboard inset (viewInsets), so the
+    // footer button clears the gesture bar. Before that margin, the button
+    // could sit under the bar; reached directly from Add Habit, that was
+    // likely part of what the reported "button moves" bug was seeing.
     useSafeArea: true,
     builder: (ctx) => _HabitColorPickerSheet(
       initialHex: initialHex,
@@ -151,7 +152,9 @@ class _HabitColorPickerSheetState extends State<_HabitColorPickerSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 20 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -317,6 +320,7 @@ class _HabitColorPickerSheetState extends State<_HabitColorPickerSheet> {
                 const SizedBox(width: 4),
                 Expanded(
                   child: TextField(
+                    selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                     controller: _hexCtrl,
                     onChanged: _onHexChanged,
                     textCapitalization: TextCapitalization.characters,

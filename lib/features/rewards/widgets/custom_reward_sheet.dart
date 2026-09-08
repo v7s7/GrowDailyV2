@@ -28,7 +28,9 @@ Future<void> showCustomRewardSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Without this the footer button renders under the home indicator.
+    // Keeps the sheet's top clear of the status bar and notch. The bottom
+    // inset is the sheet's own job: the card's outer margin adds MediaQuery
+    // padding.bottom, so the footer button clears the home indicator.
     useSafeArea: true,
     builder: (_) => _CustomRewardSheet(
       existing: existing,
@@ -107,7 +109,9 @@ class _CustomRewardSheetState extends ConsumerState<_CustomRewardSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
@@ -135,10 +139,10 @@ class _CustomRewardSheetState extends ConsumerState<_CustomRewardSheet> {
                 color: GameColors.iconGold.withValues(alpha: 0.14),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.card_giftcard_rounded,
                 size: 26,
-                color: GameColors.iconGold,
+                color: context.gp.iconGold,
               ),
             ),
             const SizedBox(height: 16),
@@ -163,6 +167,7 @@ class _CustomRewardSheetState extends ConsumerState<_CustomRewardSheet> {
             ),
             const SizedBox(height: 20),
             TextField(
+              selectionWidthStyle: GameTextStyles.selectionWidthStyle,
               controller: _name,
               autofocus: _name.text.isEmpty,
               textCapitalization: TextCapitalization.sentences,
@@ -202,6 +207,7 @@ class _CustomRewardSheetState extends ConsumerState<_CustomRewardSheet> {
             ),
             const SizedBox(height: 8),
             TextField(
+              selectionWidthStyle: GameTextStyles.selectionWidthStyle,
               controller: _price,
               keyboardType: TextInputType.number,
               textDirection: TextDirection.ltr,

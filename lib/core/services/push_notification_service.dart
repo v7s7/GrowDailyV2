@@ -174,7 +174,43 @@ class PushNotificationService {
       // permission granted; it just won't show a visible alert until
       // permission is granted some other way, e.g. via Settings later).
     }
-    if (_listenersAttached) return;
+    // Listeners are attached from main.dart at startup, not here — see
+    // [attachListeners]. Calling it again is a no-op and costs nothing, and
+    // it keeps this method correct on its own for anyone who reaches it
+    // first.
+    await attachListeners();
+
+    // Sync the token now that permission actually exists. On iOS the APNs
+    // token, and so the FCM token, can only follow the permission grant, so
+    // this is the moment a first registration most often succeeds. Safe to
+    // call unconditionally: _syncToken no-ops without a uid, and no-ops
+    // again if the token is unchanged.
+    _failedAttempts = 0;
+    await _syncToken('permission');
+  }
+
+  /// Starts listening for pushes: one arriving while the app is open, one
+  /// tapped from the background, and one that cold-launched the app.
+  ///
+  /// Split out of [requestPermissionAndInit] because being bundled with the
+  /// permission prompt tied it to the prompt's one call site — RoomsHubScreen
+  /// — and a person who never opens the Rooms tab in a session therefore had
+  /// nothing listening at all. The push still ARRIVED: the Cloud Function
+  /// sends a `notification` block (see functions/index.js notifyRoomFinish),
+  /// so the system draws the tray notification itself with no app code
+  /// involved, and Android draws it whether or not this app is listening.
+  /// The tap then reached nobody, and the room never opened.
+  ///
+  /// None of this needs notification permission, which is why it can and
+  /// should run at startup: a listener on a stream costs nothing, and
+  /// getInitialMessage answers null when there is no push to answer with.
+  /// The prompt itself stays behind Rooms, where asking for it means
+  /// something — see [requestPermissionAndInit].
+  ///
+  /// Call AFTER assigning [onOpenRoom], or a tap that cold-launched the app
+  /// resolves against a null callback and is swallowed.
+  Future<void> attachListeners() async {
+    if (kIsWeb || _listenersAttached) return;
     _listenersAttached = true;
     FirebaseMessaging.onMessage.listen(_onForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
@@ -184,14 +220,6 @@ class PushNotificationService {
     // main.dart's _initDeepLinks uses for a cold-start growdaily:// link.
     final initial = await FirebaseMessaging.instance.getInitialMessage();
     if (initial != null) _onMessageOpenedApp(initial);
-
-    // Sync the token now that permission actually exists. On iOS the APNs
-    // token, and so the FCM token, can only follow the permission grant, so
-    // this is the moment a first registration most often succeeds. Safe to
-    // call unconditionally: _syncToken no-ops without a uid, and no-ops
-    // again if the token is unchanged.
-    _failedAttempts = 0;
-    await _syncToken('permission');
   }
 
   /// Registers (or re-registers) this device's FCM token for [uid] and

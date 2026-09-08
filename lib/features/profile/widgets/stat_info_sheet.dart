@@ -54,7 +54,8 @@ class _StatInfoSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      padding: EdgeInsets.fromLTRB(
+          16, 0, 16, 24 + MediaQuery.of(context).padding.bottom),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
         decoration: BoxDecoration(

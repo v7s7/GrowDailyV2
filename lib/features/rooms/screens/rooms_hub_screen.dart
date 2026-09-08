@@ -200,7 +200,7 @@ class _GuestGate extends ConsumerWidget {
                 color: GameColors.gold.withOpacity(0.14),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.emoji_events_rounded, size: 30, color: GameColors.gold),
+              child: Icon(Icons.emoji_events_rounded, size: 30, color: context.gp.goldInk),
             ),
             const SizedBox(height: 16),
             Text(
@@ -438,7 +438,7 @@ class _RoomListTile extends ConsumerWidget {
                       icon: Icon(
                         isStarred ? Icons.star_rounded : Icons.star_border_rounded,
                         size: 20,
-                        color: isStarred ? GameColors.gold : gp.textTert,
+                        color: isStarred ? context.gp.goldInk : gp.textTert,
                       ),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -512,6 +512,9 @@ class _StatusPill extends StatelessWidget {
                     ? s.roomEnded
                     : s.roomDaysLeft(room.daysRemaining);
     final color = room.isLobby ? GameColors.emerald : GameColors.gold;
+    // The chip keeps its 14% wash in the true colour; the label on top
+    // takes ink, which is the only part that has to be read.
+    final ink = context.gp.ink(color);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -520,7 +523,7 @@ class _StatusPill extends StatelessWidget {
       ),
       child: Text(label,
           style: TextStyle(
-              fontSize: 10.5, fontWeight: FontWeight.w700, color: color)),
+              fontSize: 10.5, fontWeight: FontWeight.w700, color: ink)),
     );
   }
 }

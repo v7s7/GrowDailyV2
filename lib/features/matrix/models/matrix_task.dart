@@ -123,6 +123,15 @@ enum MatrixQuadrant {
   /// duplicated across five separate widget files, which is exactly the
   /// kind of copy that quietly drifts; consolidated here once so every
   /// call site reads the same value by construction.
+  /// Deliberately NOT mode-aware, unlike the other colour getters in this
+  /// app (see [SquareState.accent], [Mood.visual]). This one is a DEFAULT
+  /// VALUE, not a rendering choice: `MatrixNotifier.colorFor` returns either
+  /// the user's own stored hex or this, and the two have to be the same kind
+  /// of thing. Shifting the default per mode would mean the colour the
+  /// picker shows and the colour the app paints could disagree, and would
+  /// make a stored colour behave differently from an unstored one.
+  /// Legibility is applied where the colour becomes a glyph instead, via
+  /// `context.gp.ink(...)`.
   Color get defaultColor => switch (this) {
         MatrixQuadrant.doFirst => GameColors.error,
         MatrixQuadrant.schedule => GameColors.iconXp,

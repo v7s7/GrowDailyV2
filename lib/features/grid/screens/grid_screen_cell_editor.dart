@@ -151,7 +151,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + viewInsets,
+        bottom: 24 + viewInsets + MediaQuery.paddingOf(context).bottom,
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxSheetHeight),
@@ -182,7 +182,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               children: [
                 Builder(builder: (_) {
                   final (_, categoryColor) =
-                      categoryVisual(widget.habit.category);
+                      categoryVisual(context, widget.habit.category);
                   final color = widget.habit.customColor ?? categoryColor;
                   return Container(
                     width: 34,
@@ -371,7 +371,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                   child: Row(
                     children: [
                       Icon(Icons.lock_rounded,
-                          size: 16, color: GameColors.gold),
+                          size: 16, color: context.gp.goldInk),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -384,13 +384,14 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                       ),
                       Icon(Icons.chevron_right_rounded,
                           size: 16,
-                          color: GameColors.gold.withOpacity(0.7)),
+                          color: context.gp.goldInk),
                     ],
                   ),
                 ),
               )
             else ...[
               TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _noteCtrl,
                 maxLines: 3,
                 minLines: 2,
@@ -402,16 +403,38 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    ref.read(weeklyGridProvider.notifier).setNote(
-                          widget.habit.id,
-                          widget.day,
-                          _noteCtrl.text,
-                        );
-                    Navigator.pop(context);
-                  },
+                  onPressed: _saveNote,
                   child: Text(s.gridSave),
+                ),
+              ),
+              const SizedBox(height: 4),
+              // The highest-intent moment in the product: someone is looking
+              // at a note while thinking about their notes. Inside the `else`
+              // deliberately, since the walled branch above already funnels
+              // into showHistoryDemoGate.
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    // Pushed OVER the sheet rather than replacing it. Popping
+                    // first threw away whatever was typed and not yet saved,
+                    // silently, on a link sitting directly under the note
+                    // field. This way the sheet, and the draft in it, are
+                    // still there on the way back.
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const GridJournalScreen(),
+                      ),
+                    );
+                  },
+                  icon: Icon(Icons.edit_note_rounded,
+                      size: 16, color: gp.textSec),
+                  label: Text(
+                    s.gridNoteSeeAll,
+                    style: TextStyle(fontSize: 12.5, color: gp.textSec),
+                  ),
                 ),
               ),
             ],
@@ -419,6 +442,116 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         ),
         ),
       ),
+      ),
+    );
+  }
+
+  /// Saves the note and says so.
+  ///
+  /// Until now this was the quietest write on the screen: one light haptic
+  /// and a pop, while clearing a MARK got a six-second bar with an Undo. The
+  /// app was louder about a checkbox than about a paragraph someone wrote.
+  ///
+  /// The saved bar fires on the synchronous in-memory write, NOT on the
+  /// server acknowledgement. Nothing in this app configures Firestore
+  /// `Settings`, so offline persistence is on and `commit()` neither resolves
+  /// nor rejects while the device is offline: gating the bar on it would give
+  /// the person on a bad connection less feedback than they had before. The
+  /// commit future is used only to raise a failure bar if it actually
+  /// rejects.
+  void _saveNote() {
+    // Captured BEFORE the pop. This is a ConsumerState and its `ref` and
+    // `context` are dead once the sheet leaves, but weeklyGridProvider is not
+    // autoDispose, so the notifier itself outlives this widget.
+    final messenger = ScaffoldMessenger.of(context);
+    final s = S.of(context);
+    final grid = ref.read(weeklyGridProvider.notifier);
+    // The journal provider is not autoDispose and never re-reads, so without
+    // this a note written here left the Habit Notes screen and the Progress
+    // hub's preview stale for the rest of the session.
+    final journal = ref.read(gridJournalProvider.notifier);
+    final before =
+        ref.read(weeklyGridProvider).noteFor(widget.habit.id, widget.day);
+    // Captured here too, for the same reason: _write runs AFTER the pop, and
+    // on Undo it runs seconds later, by which time this State is disposed and
+    // its `ref` throws. The square cannot change while the sheet is closed,
+    // so the value read now is the value the journal wants.
+    final squareState =
+        ref.read(weeklyGridProvider).squareFor(widget.habit.id, widget.day);
+    final after = _noteCtrl.text.trim();
+
+    Navigator.pop(context);
+    if (after == before) return; // Nothing happened, so say nothing.
+
+    HapticFeedback.lightImpact();
+    _write(messenger, s, grid, journal, squareState, after, undoTo: before);
+  }
+
+  /// One write plus its bar, shared by Save, Undo and Retry.
+  ///
+  /// Everything it needs is passed IN. Nothing in here may touch `ref` or
+  /// `context`: it runs after the sheet has popped, and Undo runs seconds
+  /// later against a State that is long disposed.
+  void _write(
+    ScaffoldMessengerState messenger,
+    S s,
+    WeeklyGridNotifier grid,
+    GridJournalNotifier journal,
+    SquareState squareState,
+    String text, {
+    required String undoTo,
+  }) {
+    journal.noteChanged(
+      widget.day,
+      widget.habit.id,
+      text,
+      // The square's real colour, so a note written on a green day is not
+      // filed in the journal as «لم يكتمل».
+      squareState: squareState,
+    );
+    grid.setNote(widget.habit.id, widget.day, text).catchError((_) {
+      messenger.showOne(
+        SnackBar(
+          content: Text(s.gridNoteSaveFailed),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          dismissDirection: DismissDirection.down,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          // Never pin the bar open. See AppSnackBar.
+          persist: false,
+          action: SnackBarAction(
+            label: s.statsUnavailableRetry,
+            onPressed: () => _write(
+                messenger, s, grid, journal, squareState, text,
+                undoTo: undoTo),
+          ),
+        ),
+      );
+    });
+
+    final cleared = text.isEmpty;
+    messenger.showOne(
+      SnackBar(
+        content: Text(cleared ? s.gridNoteCleared : s.gridNoteSaved),
+        // A clear is the only one worth waiting on: it is the only one that
+        // took words away, so it gets the six seconds Undo needs to be
+        // noticed and reached.
+        duration: Duration(seconds: cleared ? 6 : 3),
+        behavior: SnackBarBehavior.floating,
+        dismissDirection: DismissDirection.down,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        // Never pin the bar open. See AppSnackBar.
+        persist: false,
+        action: cleared && undoTo.isNotEmpty
+            ? SnackBarAction(
+                label: s.undo,
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  _write(messenger, s, grid, journal, squareState, undoTo,
+                      undoTo: '');
+                },
+              )
+            : null,
       ),
     );
   }
@@ -722,7 +855,7 @@ class _PaletteSwatch extends StatelessWidget {
                   borderRadius:
                       BorderRadius.circular(GameSpacing.buttonRadius),
                   border: Border.all(
-                    color: selected ? state.accent : state.border(dark),
+                    color: selected ? state.accent(dark) : state.border(dark),
                     width: selected ? 2 : 0.8,
                   ),
                 ),
@@ -785,7 +918,7 @@ class _PaletteSwatch extends StatelessWidget {
                         size: 20,
                         color: state == SquareState.none
                             ? gp.textTert
-                            : state.accent,
+                            : state.accent(dark),
                       ),
               ),
             ),
@@ -803,7 +936,7 @@ class _PaletteSwatch extends StatelessWidget {
               fontSize: 9.5,
               height: 1.2,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-              color: selected ? state.accent : gp.textSec,
+              color: selected ? state.accent(dark) : gp.textSec,
             ),
           ),
         ],

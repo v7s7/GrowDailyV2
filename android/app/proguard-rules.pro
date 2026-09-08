@@ -63,3 +63,19 @@
 -keep class io.flutter.** { *; }
 -keep class io.flutter.plugins.** { *; }
 -dontwarn io.flutter.embedding.**
+
+# ── Google Sign-In / Credential Manager ──────────────────────────────────
+# google_sign_in 7.x on Android is backed by androidx.credentials rather
+# than the retired Google Sign-In library, and Credential Manager finds its
+# Play Services provider by reflection. R8 cannot see that reference, strips
+# the provider, and the sign-in then fails at runtime with a
+# NoCredentialException in RELEASE ONLY, exactly like the Gson TypeToken
+# case above: a debug build never runs R8, so nothing looks wrong until the
+# APK is in someone's hands.
+#
+# These are Android's own documented rules for Credential Manager, and the
+# -if guard means they cost nothing in a build that does not use it.
+-if class androidx.credentials.CredentialManager
+-keep class androidx.credentials.playservices.** {
+  *;
+}

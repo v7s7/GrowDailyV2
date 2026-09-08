@@ -6,6 +6,7 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../grid/models/square_state.dart';
+import '../../grid/notifiers/note_index_notifier.dart';
 import '../reports/habit_day_marks.dart';
 
 /// Per-habit day history: which habit was DONE on which day, across the
@@ -100,6 +101,16 @@ final habitYearHistoryProvider =
   final historyCol = userRef.collection('habit_history');
 
   final userSnap = await userRef.get();
+
+  // Independently gated, and that is the whole point. Every existing account
+  // is already stamped habitHistoryMarksV3BackfilledAt, so a note fold
+  // tucked inside the block below would be a silent no-op for the entire
+  // installed base while its unit test happily passed. Its own stamp is the
+  // only shape that reaches them. Placed here so it runs on both of this
+  // function's return paths, and it costs nothing on an account already
+  // stamped: the guard is a field on a snapshot we already hold.
+  await _backfillNoteIndex(userRef, userSnap);
+
   // ── Why there are three stamps ────────────────────────────────────────
   // Each one is a generation of this mirror, and the gate always reads the
   // NEWEST, so adding a generation is how a fix reaches accounts that were
@@ -424,4 +435,67 @@ Future<Map<String, Map<String, SquareState>>> _readMirror(
           entry.key.toString(): markFromStored(entry.value),
       },
   };
+}
+
+/// Builds the day-level note index once per account.
+///
+/// The index answers "which days carry writing", which is otherwise
+/// unanswerable without one document read per day of range. See
+/// note_index_notifier.dart. From here on the index is maintained by the note
+/// writer itself, in the same batch as the note, so this pass only has to
+/// recover what was written before it existed.
+///
+/// Costs one full `daily` collection read, once, ever. It cannot ride the
+/// marks backfill's snapshot, because that backfill has already run and
+/// stamped every existing account.
+Future<void> _backfillNoteIndex(
+  DocumentReference<Map<String, dynamic>> userRef,
+  DocumentSnapshot<Map<String, dynamic>> userSnap,
+) async {
+  if (userSnap.data()?['noteIndexV1BackfilledAt'] != null) return;
+  try {
+    final dailySnap = await userRef.collection('daily').get();
+    // Persistence is on (nothing configures Settings), so an offline
+    // collection query does NOT throw: it resolves from the local cache,
+    // which on a fresh install or a second device is empty. Folding that
+    // would write an empty index AND stamp the account in the same batch,
+    // and the stamp is permanent: the only repair in this feature heals one
+    // browsed journal month at a time, and the heatmap has no healer at all.
+    // So a reinstall on a plane would silently cost every past month's
+    // corner mark, forever. Bail and try again next open.
+    if (dailySnap.metadata.isFromCache) return;
+    final months = noteMonthIndexFrom({
+      for (final d in dailySnap.docs) d.id: d.data(),
+    });
+    final batch = FirebaseFirestore.instance.batch();
+    // A whole-month set rather than arrayUnion: this runs once, before any
+    // other writer has touched the document, so there is nothing to merge.
+    batch.set(
+      userRef.collection(kNoteIndexCollection).doc(kNoteIndexDoc),
+      {
+        'months': {
+          for (final e in months.entries) e.key: (e.value.toList()..sort()),
+        },
+      },
+      SetOptions(merge: true),
+    );
+    // The stamp rides the same batch, so a failure retries the whole thing on
+    // the next open rather than half-indexing forever.
+    batch.set(
+      userRef,
+      {'noteIndexV1BackfilledAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+    debugPrint(
+      '[noteIndex] backfill indexed '
+      '${months.values.fold<int>(0, (n, d) => n + d.length)} written days '
+      'across ${months.length} months from ${dailySnap.docs.length} daily docs',
+    );
+  } catch (e) {
+    // NON-FATAL, same reasoning as the marks backfill. An unbuilt index costs
+    // corner marks on old months, never a broken screen, and an unstamped
+    // account simply tries again next open.
+    debugPrint('[noteIndex] backfill deferred: $e');
+  }
 }

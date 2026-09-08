@@ -175,7 +175,8 @@ class QuadrantExpandedScreen extends ConsumerWidget {
                       child: Padding(
                         padding: const EdgeInsets.all(10),
                         child:
-                            Icon(Icons.add_rounded, size: 20, color: color),
+                            Icon(Icons.add_rounded,
+                                size: 20, color: gp.edge(color)),
                       ),
                     ),
                   ),

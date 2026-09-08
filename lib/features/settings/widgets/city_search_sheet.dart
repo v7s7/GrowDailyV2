@@ -19,10 +19,10 @@ Future<NotificationLocation?> showCitySearchSheet(BuildContext context) {
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    // Without this, the sheet ignores the iPhone home-indicator inset —
-    // its internal padding only accounts for the keyboard (viewInsets),
-    // not the safe area, so the footer button can render under the
-    // gesture bar when the keyboard isn't showing.
+    // Keeps the sheet's top clear of the status bar and notch. The bottom
+    // inset is the sheet's own job: the card's outer margin adds MediaQuery
+    // padding.bottom on top of the keyboard inset (viewInsets), so the
+    // footer button clears the gesture bar when the keyboard isn't showing.
     useSafeArea: true,
     builder: (ctx) => const _CitySearchSheet(),
   );
@@ -126,7 +126,9 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 24 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
@@ -166,6 +168,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
             const SizedBox(height: 16),
             if (!_manualMode) ...[
               TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _queryController,
                 autofocus: true,
                 textInputAction: TextInputAction.search,
@@ -238,6 +241,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
               ),
             ] else ...[
               TextField(
+                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _labelController,
                 decoration: InputDecoration(hintText: s.locationLabelHint),
               ),
@@ -246,6 +250,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
                 children: [
                   Expanded(
                     child: TextField(
+                      selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                       controller: _latController,
                       keyboardType:
                           const TextInputType.numberWithOptions(decimal: true, signed: true),
@@ -255,6 +260,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: TextField(
+                      selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                       controller: _lngController,
                       keyboardType:
                           const TextInputType.numberWithOptions(decimal: true, signed: true),

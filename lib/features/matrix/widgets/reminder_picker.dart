@@ -1,5 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart'
+    show
+        CupertinoDatePicker,
+        CupertinoDatePickerMode,
+        CupertinoTextThemeData,
+        CupertinoTheme,
+        CupertinoThemeData;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -110,13 +117,20 @@ Set<int> offsetsFrom({
 String normalizeArabicDigits(String input) => toWesternDigits(input);
 
 
-/// Two native dialogs (date, then time), not one bespoke combined widget —
-/// this app has no custom date+time picker anywhere yet, and
-/// showDatePicker/showTimePicker back to back is the same interaction a
-/// user already knows from Settings' quiet-hours pickers
-/// (notification_settings_screen.dart's _TimeRow) and Add Habit's time step
-/// (add_habit_sheet.dart's _pickTime). Introducing a third, bespoke
-/// combined picker just for this one row isn't worth the inconsistency.
+/// Two pickers back to back (the Material calendar, then a time wheel), not
+/// one bespoke combined widget. The calendar is the same one Settings'
+/// quiet-hours pickers and Add Habit's time step already use, and it
+/// refuses past days on its own (`firstDate`).
+///
+/// The time used to be the Material dial too, and that is what changed: the
+/// dial has no way to refuse a time, so at 4:00 PM it happily let somebody
+/// choose 3:00 PM, closed, and only THEN the guard at the bottom said the
+/// moment had passed, leaving them to start the whole thing over. The wheel
+/// in [showReminderTimeSheet] carries a floor instead ([reminderWheelFloor]),
+/// so on today's date the hours that have gone are greyed out and a spin
+/// that lands on one rolls back to the earliest time still to come. Habit
+/// reminders keep the dial: theirs is a recurring wall-clock time where
+/// "3:00 PM" is never wrong, only late.
 ///
 /// A task reminder is an absolute, one-off moment (see MatrixTask.
 /// reminderAt's doc comment) rather than a recurring wall-clock time, which
@@ -125,11 +139,12 @@ String normalizeArabicDigits(String input) => toWesternDigits(input);
 /// over for days (see MatrixScreen._carriedOverOnly), so "remind me" has to
 /// be able to point at a day other than today or tomorrow.
 ///
-/// Returns null if the user backs out of either dialog, or if the combined
-/// result isn't actually in the future — a plain SnackBar explains the
-/// second case rather than silently discarding it, but either way the
-/// caller can treat null as "nothing changed," same as a cancelled
-/// showTimePicker anywhere else in this app.
+/// Returns null if the user backs out of either picker, or if the combined
+/// result isn't actually in the future. With the floor that can only
+/// happen when the clock crosses the picked minute while the wheel is still
+/// open, and an overlay notice explains it rather than silently discarding
+/// the pick. Either way the caller can treat null as "nothing changed,"
+/// same as a cancelled showTimePicker anywhere else in this app.
 Future<DateTime?> pickReminderMoment(
   BuildContext context, {
   DateTime? initial,
@@ -152,13 +167,18 @@ Future<DateTime?> pickReminderMoment(
   );
   if (date == null || !context.mounted) return null;
 
-  final time = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.fromDateTime(suggested),
-    builder: (context, child) => MediaQuery(
-      data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
-      child: child!,
+  // Read the clock again: the calendar can stay open for a while, and the
+  // floor has to be measured from the moment the wheel appears.
+  final floor = reminderWheelFloor(day: date, now: DateTime.now());
+  final time = await showReminderTimeSheet(
+    context,
+    day: date,
+    initial: reminderWheelInitial(
+      day: date,
+      suggested: suggested,
+      floor: floor,
     ),
+    floor: floor,
   );
   if (time == null || !context.mounted) return null;
 
@@ -177,6 +197,243 @@ Future<DateTime?> pickReminderMoment(
     return null;
   }
   return picked;
+}
+
+/// The first whole minute after [now]: 3:04:30 PM becomes 3:05:00 PM, and
+/// so does 3:04:00 PM exactly. A reminder is scheduled to the minute, so
+/// "the earliest time still to come" is the next minute boundary, never
+/// the one the clock is already inside.
+DateTime reminderTimeFloor(DateTime now) =>
+    DateTime(now.year, now.month, now.day, now.hour, now.minute + 1);
+
+/// The earliest time the wheel may land on when the reminder is for [day],
+/// or null when every time on that day is fair game.
+///
+/// Only today has a floor. A later day has no past hours, and an earlier
+/// day cannot be picked at all (the calendar's `firstDate`). The one gap is
+/// the last minute of the day: at 11:59 PM the floor rolls into tomorrow,
+/// no time left today is valid, and rather than pin the wheel to a floor
+/// on the wrong day this returns null and lets [pickReminderMoment]'s guard
+/// say so.
+DateTime? reminderWheelFloor({required DateTime day, required DateTime now}) {
+  if (!day.isSameDayAs(now)) return null;
+  final floor = reminderTimeFloor(now);
+  return floor.isSameDayAs(day) ? floor : null;
+}
+
+/// Where the wheel starts: [suggested]'s clock time placed on [day], lifted
+/// to [floor] when it would otherwise start on a time that has passed. The
+/// wheel would roll a too-early start up to the floor by itself, but only
+/// after animating there in front of the person; starting where it will end
+/// reads as intended rather than corrected.
+DateTime reminderWheelInitial({
+  required DateTime day,
+  required DateTime suggested,
+  required DateTime? floor,
+}) {
+  final onDay =
+      DateTime(day.year, day.month, day.day, suggested.hour, suggested.minute);
+  if (floor != null && onDay.isBefore(floor)) return floor;
+  return onDay;
+}
+
+/// The day the wheel is choosing a time for, as a person would say it:
+/// "اليوم", "غدًا", or the date. Same day-naming as [formatReminderMoment],
+/// minus the time, which is what the wheel is there to supply.
+String formatReminderDay(DateTime day, bool isAr, {DateTime? now}) {
+  final today = now ?? DateTime.now();
+  if (day.isSameDayAs(today)) return isAr ? 'اليوم' : 'Today';
+  if (day.isSameDayAs(today.add(const Duration(days: 1)))) {
+    return isAr ? 'غدًا' : 'Tomorrow';
+  }
+  return DateFormat('EEEE، d MMMM', isAr ? 'ar' : 'en').format(day);
+}
+
+/// The time half of [pickReminderMoment]: an hour / minute / AM-PM wheel in
+/// one of this app's own sheets, with an optional [floor] below which the
+/// wheel will not settle.
+///
+/// A wheel rather than the Material dial because the dial cannot carry a
+/// floor at all (see [pickReminderMoment] for the mistake that let
+/// through). CupertinoDatePicker greys out every hour, minute and meridiem
+/// that would land before `minimumDate` and scrolls itself back to the
+/// nearest valid time when a spin stops on one, which is exactly the
+/// "locked" behaviour wanted, and it renders the same on Android.
+/// [initial] must already be on [day] and at or after [floor]
+/// ([reminderWheelInitial] guarantees both).
+///
+/// Returns the time behind Done, or null on a swipe-down / tap outside.
+Future<TimeOfDay?> showReminderTimeSheet(
+  BuildContext context, {
+  required DateTime day,
+  required DateTime initial,
+  required DateTime? floor,
+}) {
+  HapticFeedback.selectionClick();
+  return showModalBottomSheet<TimeOfDay>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => _ReminderTimeSheet(
+      day: day,
+      initial: initial,
+      floor: floor,
+    ),
+  );
+}
+
+class _ReminderTimeSheet extends StatefulWidget {
+  final DateTime day;
+  final DateTime initial;
+  final DateTime? floor;
+
+  const _ReminderTimeSheet({
+    required this.day,
+    required this.initial,
+    required this.floor,
+  });
+
+  @override
+  State<_ReminderTimeSheet> createState() => _ReminderTimeSheetState();
+}
+
+class _ReminderTimeSheetState extends State<_ReminderTimeSheet> {
+  late DateTime _selected = widget.initial;
+
+  /// What Done hands back. The wheel reports every position it passes
+  /// through, including a too-early one it is about to roll back from, so
+  /// a Done tapped mid-roll is clamped to the floor rather than trusted.
+  TimeOfDay get _result {
+    final floor = widget.floor;
+    final at = floor != null && _selected.isBefore(floor) ? floor : _selected;
+    return TimeOfDay.fromDateTime(at);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final floor = widget.floor;
+    final locale = s.isAr ? 'ar' : 'en';
+    final wheelStyle = TextStyle(
+      fontSize: 21,
+      fontWeight: FontWeight.w600,
+      color: gp.textPrimary,
+      fontFamily: GameTextStyles.fontFamily,
+      fontFamilyFallback: GameTextStyles.fontFallback,
+    );
+    final sheet = Container(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        10,
+        20,
+        20 + MediaQuery.of(context).padding.bottom,
+      ),
+      decoration: BoxDecoration(
+        color: gp.surfaceHigh,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: gp.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            s.matrixReminderTimeTitle,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: gp.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            formatReminderDay(widget.day, s.isAr),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: gp.textSec,
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 200,
+            // The wheel reads its type from CupertinoTheme, which inside a
+            // MaterialApp is the platform default, not this app's font or
+            // ink. Only the picker text style is overridden; the greyed-out
+            // (invalid) entries keep Cupertino's own inactive grey, which
+            // is the cue that makes the floor visible.
+            child: CupertinoTheme(
+              data: CupertinoThemeData(
+                brightness: Theme.of(context).brightness,
+                textTheme: CupertinoTextThemeData(
+                  dateTimePickerTextStyle: wheelStyle,
+                ),
+              ),
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.time,
+                initialDateTime: widget.initial,
+                minimumDate: floor,
+                // 12-hour (the default), as every other time in this app
+                // is shown (formatReminderMoment's 'h:mm a').
+                backgroundColor: Colors.transparent,
+                onDateTimeChanged: (at) => setState(() => _selected = at),
+              ),
+            ),
+          ),
+          if (floor != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              s.matrixReminderEarliest(
+                DateFormat('h:mm a', locale).format(floor),
+              ),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: gp.textTert,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          FilledButton(
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              Navigator.pop(context, _result);
+            },
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            child: Text(s.matrixDone),
+          ),
+        ],
+      ),
+    );
+    // Lifts the sheet clear of the keyboard when one is still up (the
+    // task's title field usually holds it), same as every other sheet
+    // here: a modal sheet is not moved by the keyboard on its own, and
+    // Done would otherwise sit behind it.
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: sheet,
+    );
+  }
 }
 
 /// Display + tap target for a task's reminder — "Set a reminder" when

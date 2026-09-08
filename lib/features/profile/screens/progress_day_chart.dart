@@ -283,7 +283,7 @@ class _DayScoreChartState extends State<DayScoreChart> {
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                               color: i == todayIndex
-                                  ? GameColors.gold
+                                  ? context.gp.goldInk
                                   : scores[i].done > 0
                                       ? gp.textPrimary
                                       : gp.textTert,
@@ -315,7 +315,7 @@ class _DayScoreChartState extends State<DayScoreChart> {
                       selectedIndex: selected,
                       lineColor: GameColors.success,
                       todayColor: GameColors.gold,
-                      restColor: SquareState.skipped.accent,
+                      restColor: SquareState.skipped.accent(context.gp.dark),
                       failedColor: GameColors.warning,
                       // The relative tint, never gp.surfaceHL: every
                       // preset's surface-highlight is green-leaning and a

@@ -332,7 +332,7 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay> {
                         Padding(
                           padding: const EdgeInsets.only(top: 1),
                           child: Icon(Icons.touch_app_rounded,
-                              size: 18, color: GameColors.gold),
+                              size: 18, color: context.gp.goldInk),
                         ),
                         const SizedBox(width: 8),
                         Expanded(

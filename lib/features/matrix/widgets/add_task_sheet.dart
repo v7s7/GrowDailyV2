@@ -448,7 +448,8 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     return AnimatedPadding(
       duration: GameMotion.standard,
       curve: Curves.easeOut,
-      padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
+      padding: EdgeInsets.fromLTRB(
+          12, 0, 12, 12 + bottom + MediaQuery.of(context).padding.bottom),
       // AnimatedContainer, not Container, and on the same duration/curve as
       // the padding above: the keyboard moves both the sheet's offset and
       // its height, and animating only one of them makes the card snap while

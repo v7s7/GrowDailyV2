@@ -883,7 +883,10 @@ struct RoomAvatarCircle: View {
     var body: some View {
         ZStack {
             Circle().fill(Color.gdSurface)
-            Circle().stroke(ringColor, lineWidth: rank <= 3 ? 2 : 1)
+            Circle().stroke(
+                ringColor,
+                lineWidth: rank >= 1 && rank <= 3 ? 2 : 1
+            )
             Text(initial.isEmpty ? "?" : initial)
                 .font(.system(size: size * 0.42, weight: .bold))
                 .foregroundColor(.white)
@@ -961,6 +964,17 @@ struct RoomRaceFeaturedRow: View {
     }
 }
 
+/// A place, or a dash when there isn't one yet.
+///
+/// The Dart side leaves a member unranked (rank 0) until their own
+/// percentage reads above 0%, so a room on day one has no positions to
+/// show rather than a leader who has done nothing. See
+/// RoomLeaderboard.standings. Every "#" in this file goes through here so
+/// none of them can print "#0".
+func rankLabel(_ rank: Int) -> String {
+    rank > 0 ? "#\(rank)" : "#-"
+}
+
 /// Same "shifting tone, no new art" idea as [statusLine] above, for the
 /// Room Race face — leading feels different from mid-pack, worth saying
 /// out loud rather than just showing a number and leaving the reaction to
@@ -980,7 +994,7 @@ struct RoomRaceRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text("#\(row.rank)")
+            Text(rankLabel(row.rank))
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(.white.opacity(0.5))
                 .frame(width: 18, alignment: .leading)
@@ -1053,7 +1067,7 @@ struct RoomRaceSmallView: View {
                         .foregroundColor(.white.opacity(0.6))
                         .lineLimit(1)
                     Spacer()
-                    Text("#\(mine.rank)")
+                    Text(rankLabel(mine.rank))
                         .font(.system(size: 26, weight: .heavy))
                         .foregroundColor(.gdGold)
                         .contentTransition(.numericText())
@@ -1246,7 +1260,7 @@ struct RoomRaceCircularView: View {
             Gauge(value: Double(mine.percent), in: 0...100) {
                 Image(systemName: "flag.checkered")
             } currentValueLabel: {
-                Text("#\(mine.rank)")
+                Text(rankLabel(mine.rank))
                     .font(.system(size: 14, weight: .bold))
                     .contentTransition(.numericText())
             }
@@ -1267,14 +1281,22 @@ struct RoomRaceRectangularView: View {
     private var mine: RoomRaceRow? { entry.rows.first(where: { $0.isMe }) }
 
     // The one racer worth showing next to yourself, so this reads as a
-    // head-to-head instead of just a solo scoreboard: whoever's in 1st if
-    // that isn't you (the gap you're closing), or whoever's in 2nd if it
-    // is (the gap someone else is closing on you). Never both at once —
-    // there's only room for one rival line here.
+    // head-to-head instead of just a solo scoreboard: whoever's at the top
+    // if that isn't you (the gap you're closing), or whoever's directly
+    // behind you if it is (the gap someone else is closing on you). Never
+    // both at once, there's only room for one rival line here.
+    //
+    // Picked by POSITION, not by rank number. Ranks are shared on the Dart
+    // side now (RoomLeaderboard.standings): two members who are level are
+    // both rank 1 and no row carries rank 2 at all, so the old
+    // `first(where: { $0.rank == 2 })` found nobody and told a member who
+    // was tied for the lead that they were racing alone. rows already
+    // arrive in rank order, so "the first row that isn't me" is the same
+    // racer in every case that used to work, and the right one in the case
+    // that didn't.
     private var rival: RoomRaceRow? {
-        guard let mine else { return nil }
-        let rivalRank = mine.rank == 1 ? 2 : 1
-        return entry.rows.first(where: { $0.rank == rivalRank })
+        guard mine != nil else { return nil }
+        return entry.rows.first(where: { !$0.isMe })
     }
 
     // One racer's line: "#2 mohdabo…            4/6".
@@ -1293,7 +1315,7 @@ struct RoomRaceRectangularView: View {
         isMine: Bool
     ) -> some View {
         HStack(spacing: 4) {
-            Text("#\(rank)")
+            Text(rankLabel(rank))
                 .fontWeight(.bold)
                 .layoutPriority(2)
             Text(name)

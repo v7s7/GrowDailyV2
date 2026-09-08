@@ -157,7 +157,7 @@ class GoldPurse extends StatelessWidget {
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: GameColors.iconGold,
+              color: context.gp.iconGold,
               letterSpacing: 0.2,
             ),
           ),
@@ -213,7 +213,7 @@ class GoldPrice extends StatelessWidget {
             style: TextStyle(
               fontSize: dense ? 11.5 : 13.5,
               fontWeight: FontWeight.w700,
-              color: affordable ? GameColors.iconGold : gp.textTert,
+              color: affordable ? context.gp.iconGold : gp.textTert,
             ),
           ),
         ],

@@ -6,7 +6,7 @@
 // timer ScaffoldMessenger arms fires once, sees persist, and returns without
 // clearing itself, so nothing ever arms a second one. Since the messenger
 // lives above the Navigator, that pinned bar then follows the person onto
-// every screen they open next. It shipped that way: a "شيلنا العلامة"
+// every screen they open next. It shipped that way: a "شلنا العلامة"
 // with تراجع, raised on the Grid, was still sitting over Room Detail
 // minutes later.
 //

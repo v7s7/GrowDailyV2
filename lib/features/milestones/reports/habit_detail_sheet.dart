@@ -56,9 +56,10 @@ Future<void> showHabitDetailSheet(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    // See add_habit_hub_sheet's showAddHabitHub for why every sheet in this
-    // app sets this: without it the bottom edge renders flush with the
-    // literal screen edge instead of clearing the home indicator.
+    // Same setting as add_habit_hub_sheet's showAddHabitHub: every sheet in
+    // this app sets it so its top stays clear of the status bar and notch.
+    // The home indicator is the sheet's own job: the list's bottom padding
+    // adds MediaQuery padding.bottom.
     useSafeArea: true,
     builder: (_) => _HabitDetailSheet(habit: habit),
   );
@@ -235,7 +236,8 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
         ),
         child: ListView(
           controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+          padding: EdgeInsets.fromLTRB(
+              18, 10, 18, 28 + MediaQuery.of(context).padding.bottom),
           children: [
             Center(
               child: Container(
@@ -278,8 +280,6 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                       size: 16, color: gp.textTert),
               ],
             ),
-            const SizedBox(height: 18),
-            _Headline(total: total, color: color, isQuit: habit.goalType == GoalType.quit),
             // The rule a limit habit lives by. The number was stored and shown
             // nowhere; the check-in asks «بقيت ضمن الحد؟» and this is where
             // the person can read what the limit was.
@@ -296,6 +296,8 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                 style: TextStyle(fontSize: 12.5, color: gp.textSec),
               ),
             ],
+            const SizedBox(height: 18),
+            _Headline(total: total, color: color, isQuit: habit.goalType == GoalType.quit),
             const SizedBox(height: 14),
             Container(height: 0.5, color: gp.divider),
             const SizedBox(height: 14),
@@ -309,7 +311,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                 _Stat(
                   value: toWesternDigits('$streak'),
                   label: s.habitStatsCurrentStreak,
-                  color: GameColors.iconStreak,
+                  color: context.gp.iconStreak,
                 ),
                 _Stat(
                   value: toWesternDigits('$best'),
@@ -716,10 +718,10 @@ class _DayCell extends StatelessWidget {
       case MatrixCellState.failed:
         fill = GameColors.warning.withOpacity(0.14);
         border = GameColors.warning.withOpacity(0.7);
-        text = GameColors.warning;
+        text = gp.warningInk;
       case MatrixCellState.rest:
         fill = GameColors.gold.withOpacity(0.16);
-        text = GameColors.gold.withOpacity(0.9);
+        text = gp.goldInk;
       case MatrixCellState.missed:
         fill = gp.dark
             ? Colors.white.withOpacity(0.075)

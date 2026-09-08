@@ -152,7 +152,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                           // Open book, not a moon — see grid_screen.dart's
                           // matching IconButton for why.
                           child: Icon(Icons.auto_stories_rounded,
-                              color: GameColors.iconXp, size: 22),
+                              color: context.gp.iconXp, size: 22),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -192,7 +192,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
-                                color: GameColors.emerald,
+                                color: context.gp.emeraldInk,
                               ),
                             ),
                           ),
@@ -236,6 +236,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                     ),
                     const SizedBox(height: 10),
                     TextField(
+                      selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                       controller: _reflectionCtrl,
                       maxLines: 4,
                       minLines: 3,
@@ -279,7 +280,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                               _SummaryDivider(),
                               _SummaryStat(
                                 icon: Icons.task_alt_rounded,
-                                color: GameColors.iconXp,
+                                color: context.gp.iconXp,
                                 value: '$tasksDoneToday',
                                 label: s.nightReviewTasksDoneLabel,
                               ),
@@ -302,14 +303,14 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                             children: [
                               _SummaryStat(
                                 icon: Icons.bolt_rounded,
-                                color: GameColors.iconXp,
+                                color: context.gp.iconXp,
                                 value: '$totalXpToday',
                                 label: s.nightReviewXpEarned,
                               ),
                               _SummaryDivider(),
                               _SummaryStat(
                                 icon: Icons.local_fire_department_rounded,
-                                color: GameColors.iconStreak,
+                                color: context.gp.iconStreak,
                                 value: '${dash.streak}',
                                 label: s.nightReviewStreak,
                               ),
@@ -365,7 +366,7 @@ class _MoodButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final (icon, color) = mood.visual;
+    final (icon, color) = mood.visual(gp.dark);
     return GestureDetector(
       onTap: onTap,
       child: Column(

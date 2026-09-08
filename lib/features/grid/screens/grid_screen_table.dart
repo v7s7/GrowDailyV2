@@ -185,8 +185,12 @@ class _GridTableState extends ConsumerState<_GridTable> {
             style: TextStyle(
               fontSize: primary ? 10 : 8,
               fontWeight: primary ? FontWeight.w700 : FontWeight.w600,
+              // No alpha on the accent branch any more. The ink sits
+              // exactly on 4.5:1, so ANY alpha drops it back under - the
+              // secondary line measured 2.03:1 on device. The size and
+              // weight above already carry the hierarchy the alpha did.
               color: isToday
-                  ? GameColors.gold.withOpacity(primary ? 1 : 0.8)
+                  ? context.gp.goldInk
                   : gp.textTert.withOpacity(primary ? 1 : 0.75),
               letterSpacing: 0.2,
             ),
@@ -240,7 +244,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                         fontWeight: day.isRealToday
                             ? FontWeight.w800
                             : FontWeight.w600,
-                        color: day.isRealToday ? GameColors.gold : gp.textSec,
+                        color: day.isRealToday ? context.gp.goldInk : gp.textSec,
                       ),
                     ),
                   ),
@@ -402,7 +406,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                               : null,
                         );
                       }
-                      final (_, categoryColor) = categoryVisual(habit.category);
+                      final (_, categoryColor) = categoryVisual(context, habit.category);
                       final color = habit.customColor ?? categoryColor;
                       // Only ever true for a habit paused *today*: the row
                       // is kept for the rest of the day so pausing at 9pm
@@ -632,6 +636,11 @@ class _GridTableState extends ConsumerState<_GridTable> {
                           SquareState.none)
                   ? null
                   : steps / stepGoal;
+              // Hoisted so the marker and the spoken label cannot disagree.
+              // trim() because clearing a note used to store '' rather than
+              // deleting the key, so old days carry tombstones.
+              final hasNote =
+                  widget.state.noteFor(habit.id, day).trim().isNotEmpty;
               return Padding(
                 padding: const EdgeInsets.only(left: _gap),
                 child: _SquareCell(
@@ -665,6 +674,10 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       isAr ? 'يوم قادم' : 'future day'
                     else if (!habit.isScheduledFor(day))
                       isAr ? 'غير مجدول' : 'not scheduled',
+                    // container: true on the cell stops the corner mark
+                    // announcing itself, so this is the only way a screen
+                    // reader learns the day carries writing.
+                    if (hasNote) S.of(context).gridNoteSemantics,
                   ].join(isAr ? '، ' : ', '),
                   // Only ever non-null for one cell in the whole table: row
                   // 0's real-today square (see _GridTableState._buildTable
@@ -726,7 +739,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       ? (done: doneToday, target: habit.effectiveDailyTarget)
                       : null,
                   stepFraction: stepFraction,
-                  hasNote: widget.state.noteFor(habit.id, day).isNotEmpty,
+                  hasNote: hasNote,
                   onTap: widget.selectionMode
                       ? null
                       : () => _handleSquareTap(ref, habit, day),
@@ -1338,10 +1351,10 @@ class _GridTableState extends ConsumerState<_GridTable> {
             onPressed: () => Navigator.pop(dialogContext, true),
             child: Text(
               s.gridClearMarkConfirm,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
-                color: GameColors.error,
+                color: context.gp.errorInk,
               ),
             ),
           ),
@@ -1377,7 +1390,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.grid_view_rounded,
-                color: GameColors.emerald, size: 18),
+                color: context.gp.emeraldInk, size: 18),
             const SizedBox(width: 8),
             Flexible(
               child: Text(
@@ -1385,7 +1398,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w800,
-                  color: GameColors.emerald,
+                  color: context.gp.emeraldInk,
                 ),
               ),
             ),
@@ -1409,10 +1422,10 @@ class _GridTableState extends ConsumerState<_GridTable> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      // Without this, the sheet's bottom edge (and whatever sits near it)
-      // renders flush with the literal bottom of the screen instead of
-      // clearing the home-indicator bar — see _editSelected above for the
-      // full explanation.
+      // Keeps the sheet's top clear of the status bar and notch, the same
+      // setting _editSelected above uses. The bottom inset is the sheet's
+      // own job: the card's outer margin adds MediaQuery padding.bottom, so
+      // nothing near the bottom edge sits under the home-indicator bar.
       useSafeArea: true,
       builder: (_) => _CellEditorSheet(habit: habit, day: day),
     );
@@ -1657,6 +1670,35 @@ class _SquareCell extends StatelessWidget {
   bool get _isHalfFill =>
       square == SquareState.partial && !_isCounting && !isMissedQuotaDay;
 
+  /// The ink for the note corner, one branch per fill it can land on.
+  ///
+  /// The rule this replaces had three branches and no case for
+  /// [isMissedQuotaDay] or [isCovered], so a note on either was drawn in
+  /// `textTert`, the lowest ink in the palette, on red and on covered
+  /// emerald. It also fell to `textTert` on the ordinary empty square, which
+  /// is where most notes actually land: 3.17:1 in dark and 1.98:1 in light,
+  /// against 7.24:1 and 3.88:1 for `textSec`. That is a step up a ladder that
+  /// already exists, not a new colour.
+  Color _noteInk(BuildContext context) {
+    // Anything drawing a risen band: the band can reach the top corner, and
+    // levelLine is the one ink measured to read on it (in light mode the
+    // band's own accent on that band is 1.13:1, i.e. gone).
+    if (_isHalfFill || _isCounting || stepFraction != null) {
+      return SquareState.partial.levelLine(context.gp.dark);
+    }
+    if (isMissedQuotaDay) return SquareState.failed.accent(context.gp.dark);
+    // NOT complete.accent. A covered day is emerald-on-emerald: the fill is
+    // emerald at 0.12 and the accent is the same hue at full strength, which
+    // measures 1.63:1 in light mode, BELOW the 1.98:1 this method exists to
+    // escape. It is also the worst square to lose the mark on, because a
+    // covered day is empty by definition: the corner is the only thing drawn
+    // in it, with no glyph beside it to say the day is special. textSec on
+    // that fill is 4.13:1.
+    if (isCovered) return context.gp.textSec;
+    if (square.isMarked) return square.accent(context.gp.dark);
+    return context.gp.textSec;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = context.gp.dark;
@@ -1758,7 +1800,7 @@ class _SquareCell extends StatelessWidget {
                 style: TextStyle(
                   fontSize: size * 0.42,
                   fontWeight: FontWeight.w800,
-                  color: SquareState.partial.accent,
+                  color: SquareState.partial.accent(dark),
                 ),
               ),
             ),
@@ -1767,30 +1809,33 @@ class _SquareCell extends StatelessWidget {
               child: Icon(
                 square.icon,
                 size: size * 0.5,
-                color: square.accent,
+                color: square.accent(dark),
               ),
             ),
-          // A tiny note glyph instead of a bare 4x4 dot - at the smallest
-          // cell size (34px) the old plain dot was easy to miss entirely
-          // and read as a stray pixel rather than "there's a note here".
-          // Same color logic as before, just a shape that actually says
-          // "note" instead of "something is different about this square".
+          // The folded corner that says "you wrote here". It replaced a 9pt
+          // sticky-note glyph in the BOTTOM-right whose paper-and-lines
+          // interior was illegible at the 30pt cell floor and whose box
+          // overlapped the centred state glyph. A solid triangle survives the
+          // shrink, and the top-right corner is the one region of a square no
+          // fill, count, waterline or glyph ever occupies.
+          //
+          // Clipped to the square's own inner radius, the way _levelFill is:
+          // there is no ambient clip here (the AnimatedContainer sets a
+          // decoration, and a BoxDecoration's borderRadius does not clip
+          // children), so without this the triangle paints a hard nub outside
+          // the 9pt silhouette and over the inner edge of the border,
+          // including the gold today ring.
           if (hasNote)
-            Positioned(
-              right: 2,
-              bottom: 2,
-              child: Icon(
-                Icons.sticky_note_2_rounded,
-                size: 9,
-                // On a half-filled square this 9pt glyph sits ON the risen
-                // half, which is the same hue it used to be drawn in — in
-                // light mode `accent` on that band measures 1.13:1, i.e. gone.
-                // The waterline's own ink is the one yellow that reads there.
-                color: _isHalfFill
-                    ? SquareState.partial.levelLine(context.gp.dark)
-                    : square.isMarked
-                        ? square.accent
-                        : context.gp.textTert,
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(_squareInnerRadius),
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: NoteCorner(
+                    size: (size * 0.30).clamp(9.0, 16.0),
+                    ink: _noteInk(context),
+                  ),
+                ),
               ),
             ),
         ],
@@ -1855,12 +1900,18 @@ class _SquareCell extends StatelessWidget {
               }
               tap();
             },
-        onLongPress: disabled ? null : onLongPress,
+        // A past day carrying a note stays openable even once the habit
+        // stopped asking for it. Change a habit's weekdays or archive it and
+        // every note on a now-unscheduled day used to become permanently
+        // unreachable from the Grid while its marker kept painting, with no
+        // surface in the app able to open it except the journal.
+        onLongPress: (!isFuture && (isScheduled || hasNote)) ? onLongPress : null,
         child: Opacity(
           // A covered off-day keeps its full opacity: the soft green IS the
           // information, and dimming it back to the card is exactly the
-          // "dark grey, like a missing day" this state exists to end.
-          opacity: disabled && !isCovered ? 0.35 : 1,
+          // "dark grey, like a missing day" this state exists to end. A day
+          // someone wrote on is information for the same reason.
+          opacity: disabled && !isCovered && !hasNote ? 0.35 : 1,
           child: cell,
         ),
       ),

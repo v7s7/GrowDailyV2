@@ -101,7 +101,7 @@ Future<bool?> _showFinaleDialog(BuildContext context, RoomModel room) {
     context: context,
     builder: (ctx) => AlertDialog(
       backgroundColor: gp.surfaceHigh,
-      icon: Icon(Icons.emoji_events_rounded, color: GameColors.gold, size: 32),
+      icon: Icon(Icons.emoji_events_rounded, color: context.gp.goldInk, size: 32),
       title: Text(
         s.roomEndedTitle,
         textAlign: TextAlign.center,

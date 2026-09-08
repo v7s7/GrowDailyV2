@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart'
+    show CupertinoLocalizations, DefaultCupertinoLocalizations;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -251,13 +253,19 @@ void main() {
 
       // Set an anchor, which is what makes the section grow at all: until
       // one exists the picker is a single row and nothing can overflow.
-      // Two native dialogs, each accepted at its default (the time picker
-      // starts an hour out, so it's comfortably in the future).
+      // The calendar, then the time wheel, each accepted at its default
+      // (the wheel starts an hour out, so it's comfortably in the future).
+      // The calendar's button reads "OK" because the stand-in delegates
+      // above are English; the wheel's Done is the app's own string.
       await tester.tap(find.text(ar.matrixReminderLabel));
       await tester.pump(const Duration(milliseconds: 400));
       await tester.tap(find.text('OK'));
       await tester.pump(const Duration(milliseconds: 400));
-      await tester.tap(find.text('OK'));
+      // The wheel is a bottom sheet, pushed only once the calendar's future
+      // has completed, so its slide-in starts a frame later than the dial's
+      // fade used to: one more frame before Done is on screen to tap.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text(ar.matrixDone));
       await tester.pump(const Duration(milliseconds: 400));
       expect(
         find.text(ar.matrixExtraRemindersSection),
@@ -428,7 +436,22 @@ class GlobalMaterialLocalizationsCompat {
   static const delegates = <LocalizationsDelegate<dynamic>>[
     _AnyLocaleMaterial(),
     _AnyLocaleWidgets(),
+    // The task reminder's time wheel is a CupertinoDatePicker, which reads
+    // CupertinoLocalizations the way the dial read MaterialLocalizations;
+    // the app's MaterialApp supplies both, so this stand-in must too.
+    _AnyLocaleCupertino(),
   ];
+}
+
+class _AnyLocaleCupertino extends LocalizationsDelegate<CupertinoLocalizations> {
+  const _AnyLocaleCupertino();
+  @override
+  bool isSupported(Locale locale) => true;
+  @override
+  Future<CupertinoLocalizations> load(Locale locale) =>
+      DefaultCupertinoLocalizations.load(locale);
+  @override
+  bool shouldReload(_) => false;
 }
 
 class _AnyLocaleMaterial extends LocalizationsDelegate<MaterialLocalizations> {

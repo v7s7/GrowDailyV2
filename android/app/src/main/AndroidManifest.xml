@@ -71,6 +71,36 @@
         android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
         tools:node="remove" />
 
+    <!-- HARDWARE, ALL OPTIONAL.
+         Play reads permissions as implied hardware requirements and filters
+         the app off any device that lacks them, silently: ACCESS_FINE_LOCATION
+         implies android.hardware.location, RECORD_AUDIO implies
+         android.hardware.microphone, and an implied feature defaults to
+         required="true". Confirmed by dumping the built APK:
+
+           uses-implied-feature: name='android.hardware.location'
+             reason='requested android.permission.ACCESS_COARSE_LOCATION
+             permission, and requested android.permission.ACCESS_FINE_LOCATION
+             permission'
+           uses-implied-feature: name='android.hardware.microphone'
+             reason='requested android.permission.RECORD_AUDIO permission'
+
+         Neither is anywhere near required to USE this app. Location is one of
+         two ways to set the prayer-time city and the other is a plain search
+         box (CitySearchSheet); the microphone is for a task's optional voice
+         note. Both already degrade on their own — DeviceLocationService
+         returns null on any failure, and VoiceNoteService.start no-ops when
+         hasPermission() is false — so a device without either loses one
+         optional path and nothing else, which is not a reason to hide the
+         whole app from it.
+
+         Declaring them explicitly with required="false" is the only way to
+         say so; a permission cannot be qualified on its own. -->
+    <uses-feature android:name="android.hardware.location" android:required="false"/>
+    <uses-feature android:name="android.hardware.location.gps" android:required="false"/>
+    <uses-feature android:name="android.hardware.location.network" android:required="false"/>
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
+
     <!-- android:label is "Grow Daily" with the space, matching
          CFBundleDisplayName in ios/Runner/Info.plist, the Play Store
          listing, and the wordmark the app itself renders. This is the
@@ -105,12 +135,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
-            <!-- growdaily://join/CODE - the room invite link built by
-                 roomShareMessage in app_strings.dart and handled by app_links
-                 in main.dart. Custom scheme only, mirroring
-                 ios/Runner/Info.plist's CFBundleURLSchemes; App Links over
-                 HTTPS would additionally need an assetlinks.json hosted on a
-                 real domain and the Play signing certificate's fingerprint. -->
+            <!-- growdaily://... - the LEGACY scheme. Still declared because
+                 links shared before invites moved to https are sitting in
+                 people's chat histories, and because the home screen widget's
+                 own growdaily://matrix/add link never leaves the device and
+                 has no reason to be a web URL (see
+                 lib/core/constants/deep_links.dart's legacyScheme). Mirrors
+                 ios/Runner/Info.plist's CFBundleURLSchemes. -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
@@ -118,10 +149,56 @@
                 <data android:scheme="growdaily"/>
             </intent-filter>
 
+            <!-- Android App Links: the https room invite.
+                 https://grow-daily-339ef.web.app/join/CODE is what
+                 roomShareMessage actually shares now (see
+                 lib/core/constants/deep_links.dart) — a real URL, because
+                 messengers only auto-linkify http/https and the old custom
+                 scheme arrived as untappable grey text with no fallback for
+                 anyone who did not have the app yet.
+
+                 iOS got the matching half of that change (the AASA in
+                 public/.well-known/ and the associated-domains entitlement)
+                 and Android did not, so every invite opened a browser and
+                 the app was never offered the link at all. This is the
+                 Android half.
+
+                 THREE THINGS MUST AGREE, exactly as the iOS comment says of
+                 its own three:
+                   1. this filter's host and pathPrefix,
+                   2. public/.well-known/assetlinks.json, served from that
+                      same host as application/json,
+                   3. what roomJoinUrl() builds.
+
+                 autoVerify="true" makes Android fetch assetlinks.json at
+                 install time and, on a match, hand the link straight to the
+                 app with no chooser. On a MISMATCH it does not fail loudly:
+                 the app simply stops being offered, and the link opens the
+                 browser again — the same silent degradation the iOS side
+                 documents. Verify a build with
+                 `adb shell pm get-app-links com.growdaily.v2`.
+
+                 pathPrefix, not a bare host: the host also serves the privacy
+                 policy, the support page and the /join fallback web page, and
+                 nothing but an invite should pull the app forward. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="https"
+                    android:host="grow-daily-339ef.web.app"
+                    android:pathPrefix="/join"/>
+            </intent-filter>
+
             <!-- Health Connect shows the app's permission rationale through
                  this intent (Android 13 and below use the androidx action,
-                 14+ rewrites it to ACTION_SHOW_PERMISSIONS_RATIONALE at the
-                 alias below). Both roads lead back into the app. -->
+                 14+ goes through the activity-alias below). Both roads lead
+                 back into the app, and MainActivity.maybeShowPrivacyPolicy
+                 is what makes them arrive somewhere: declaring the filter
+                 without handling the action put anyone who tapped "privacy
+                 policy" inside Health Connect's own sheet on the habit grid
+                 instead. -->
             <intent-filter>
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
             </intent-filter>
@@ -140,6 +217,83 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- flutter_local_notifications' own components. The plugin's AAR
+             ships NONE of these: its library manifest
+             (~/.pub-cache/.../flutter_local_notifications-18.0.1/android/src/
+             main/AndroidManifest.xml) contains two <uses-permission> lines and
+             no <application> block at all, so nothing is merged in and the
+             app has to declare them by class name. Its README says so
+             directly ("Specify the following between the <application> tags
+             so that the plugin can actually show the scheduled
+             notification(s)").
+
+             Without them the failure is silent and total, which is why it
+             survived this long: zonedSchedule succeeds, the AlarmManager
+             entry is created, the alarm fires, and Android finds no
+             component registered to receive the broadcast, so the
+             notification is simply never posted. Nothing throws, nothing
+             logs, and the Dart side has no way to tell. Verified against the
+             built manifest before this change:
+             build/app/intermediates/packaged_manifests/debug/.../
+             AndroidManifest.xml contained zero com.dexterous entries.
+
+             All three are android:exported="false" — they are only ever
+             triggered by the plugin's own PendingIntents and by the system
+             broadcasts named below, so nothing outside the app has any
+             business reaching them. -->
+
+        <!-- Posts a scheduled notification when its alarm fires. This is the
+             one that makes every habit reminder, quit check-in and task
+             reminder actually appear. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false"/>
+
+        <!-- Re-arms everything after a restart. AlarmManager entries do not
+             survive a reboot, and neither does an app update that replaces
+             the package, so without this a phone restarted at night loses
+             every armed reminder — including the whole multi-day window
+             NotificationService arms ahead (see kOccurrencesPerSlot) — until
+             the app is opened again. RECEIVE_BOOT_COMPLETED is already
+             declared above; the permission alone does nothing without a
+             receiver listening for the broadcast.
+
+             QUICKBOOT_POWERON and its HTC spelling are the OEM fast-boot
+             equivalents some devices send INSTEAD of BOOT_COMPLETED; they
+             cost nothing and are what the plugin's own example declares. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Delivers a tap on a notification's action BUTTON, for the
+             BACKGROUND kind only.
+
+             Not currently on any path this app takes, and declared anyway.
+             Every Android action here is built with showsUserInterface: true
+             (see NotificationService's _habitReminderDetails), and the plugin
+             branches on exactly that: showsUserInterface true builds a launch
+             intent for MainActivity, false builds an Intent for this receiver
+             (FlutterLocalNotificationsPlugin.java:302-310). So «تمت» and
+             «تأجيل ساعة» reach the app through the activity today and this
+             component is never used.
+
+             It stays because the moment anyone gives Android the background
+             actions iOS already has — marking a habit done from the shade
+             without the app coming forward, which is what
+             notification_action_background.dart exists for — the buttons
+             would silently do nothing without it, and nothing in the Dart
+             code would hint at why. One line now, or an afternoon later. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false"/>
+
         <!-- The status-bar icon for every notification. Android draws this as
              a pure alpha mask, so a full-colour @mipmap/ic_launcher renders as
              a solid grey/white blob; ic_notification is the flat white
@@ -156,10 +310,16 @@
              same channel flutter_local_notifications creates, so a room push
              and a habit reminder share one entry in Android's per-channel
              notification settings instead of appearing as two. Must stay in
-             sync with _channelId in notification_service.dart. -->
+             sync with _channelId in notification_service.dart — which is why
+             this string carries the same _v2 the Dart constant does: an
+             Android channel's importance is frozen at creation, so raising
+             reminders from IMPORTANCE_DEFAULT (no heads-up banner, ever) to
+             IMPORTANCE_HIGH needed a new id, and a stale value here would
+             quietly send every room push to a channel the app deletes at
+             launch. -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="growdaily_general"/>
+            android:value="growdaily_reminders_v2"/>
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

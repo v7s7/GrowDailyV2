@@ -289,3 +289,57 @@ track, two Console forms need touching, or review will bounce it:
 
 Build 64 predates the permission, so nothing already in review is
 affected; this gates build 65+ only.
+
+## App Links: the https room invite (added 2026-09-08)
+
+Room invites are `https://grow-daily-339ef.web.app/join/CODE`, not the old
+`growdaily://join/CODE` (see `lib/core/constants/deep_links.dart` for why).
+iOS got the matching half of that change on the day; Android did not, so
+every invite opened a browser and the app was never offered the link.
+
+Three files now have to agree, the same way the iOS AASA comment says of its
+own three:
+
+1. `android/app/src/main/AndroidManifest.xml` — the `autoVerify="true"`
+   intent-filter on `https://grow-daily-339ef.web.app/join`.
+2. `public/.well-known/assetlinks.json` — the association file, served from
+   that host as `application/json` (the header is in `firebase.json`).
+3. `roomJoinUrl()` — what the app actually builds.
+
+### The fingerprint list is INCOMPLETE until Play App Signing is added
+
+`assetlinks.json` currently lists ONE SHA-256: the upload keystore's
+(`D0:13:13:...:83:94`, read from `~/growdaily-upload.jks`). That is the key
+this machine signs with, and it is NOT the key users install.
+
+Play App Signing re-signs every artifact with Google's own key, so the
+certificate on a Play-installed build is different, verification fails
+against a file that does not list it, and the link silently goes back to
+opening the browser. Nothing errors; the app is just never offered.
+
+**Get it from Play Console → the app → Setup → App integrity → App signing
+key certificate → SHA-256 certificate fingerprint**, and add it as a second
+entry in the `sha256_cert_fingerprints` array. Both fingerprints should stay:
+the upload one keeps locally-signed release builds working, the Play one is
+what real users need.
+
+Then `firebase deploy --only hosting`, and check with
+
+    curl -sI https://grow-daily-339ef.web.app/.well-known/assetlinks.json
+
+that it is 200 and `application/json` with no redirect.
+
+### Verifying on a device
+
+    adb shell pm get-app-links com.growdaily.v2
+
+`verified` on the domain means it worked. `1024` (or `legacy_failure`) means
+the fingerprint list does not include the certificate this build was signed
+with — the case above. To test the filter itself before hosting is deployed,
+approve the domain by hand:
+
+    adb shell pm set-app-links --package com.growdaily.v2 1 grow-daily-339ef.web.app
+    adb shell am start -a android.intent.action.VIEW \
+      -d "https://grow-daily-339ef.web.app/join/ABC123"
+
+The app should open on the join sheet rather than Chrome.

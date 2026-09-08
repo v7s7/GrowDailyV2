@@ -58,7 +58,7 @@ void showHabitLimitGate(BuildContext context, WidgetRef ref) {
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.workspace_premium_rounded,
-                  size: 28, color: GameColors.gold),
+                  size: 28, color: context.gp.goldInk),
             ),
             const SizedBox(height: 16),
             Text(

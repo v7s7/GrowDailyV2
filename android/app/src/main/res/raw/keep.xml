@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Resources the R8 resource shrinker (isShrinkResources = true in
+  android/app/build.gradle.kts) cannot see a reference to, because the only
+  references are STRINGS resolved at runtime rather than R.drawable lookups
+  it can follow.
+
+  ic_notification is named as a bare string in two places, neither of which
+  the shrinker reads:
+    - AndroidInitializationSettings('ic_notification') in
+      lib/core/services/notification_service.dart, compiled into Dart, not
+      into any Java/Kotlin symbol table;
+    - the FCM default_notification_icon meta-data in the manifest, which IS a
+      root today and is the only thing currently keeping the drawable alive.
+
+  So the icon survives on one thread of reference that has nothing to do
+  with the code that actually uses it. Remove or rename that meta-data and
+  every notification silently falls back to a grey square — in release
+  builds only, where the shrinker runs, which is the class of bug this
+  repo's proguard-rules.pro already exists to prevent.
+
+  notification_color is kept for the same reason: it is referenced from the
+  manifest and, since 2026-09-08, passed as a Color from Dart rather than
+  looked up by name, so nothing in Kotlin points at it either.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification,@color/notification_color"/>

@@ -240,7 +240,7 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
                                     style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w800,
-                                        color: GameColors.gold)),
+                                        color: context.gp.goldInk)),
                               ),
                             ],
                           ],
@@ -524,7 +524,7 @@ class _EmptyHistory extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.check_circle_outline_rounded,
-                  size: 30, color: GameColors.gold),
+                  size: 30, color: context.gp.goldInk),
             ),
             const SizedBox(height: 16),
             Text(
@@ -600,7 +600,7 @@ class _HistoryRow extends ConsumerWidget {
           borderRadius: BorderRadius.circular(14),
         ),
         child:
-            const Icon(Icons.delete_outline_rounded, color: GameColors.error),
+            Icon(Icons.delete_outline_rounded, color: context.gp.errorInk),
       ),
       child: Container(
         padding: const EdgeInsets.all(14),

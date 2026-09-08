@@ -69,7 +69,7 @@ class LanguageOptionCard extends StatelessWidget {
                     opacity: selected ? 1 : 0,
                     duration: GameMotion.standard,
                     child: Icon(Icons.check_circle_rounded,
-                        size: 22, color: GameColors.gold),
+                        size: 22, color: context.gp.goldInk),
                   ),
                 ],
               ),

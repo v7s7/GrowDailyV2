@@ -16,11 +16,27 @@ class AppBadgeService {
   static const _channel = MethodChannel('com.growdaily.v2/badge');
 
   /// Safe to call often — cheap, no network, silently no-ops on any
-  /// platform without the native handler (Android, web). [count] is however
-  /// many habits scheduled for today are still incomplete; 0 clears the
-  /// badge.
+  /// platform without the native handler. [count] is however many habits
+  /// scheduled for today are still incomplete; 0 clears the badge.
+  ///
+  /// iOS only, and checked BEFORE the call rather than caught after it.
+  /// There is no Android half of this and there is no reason for one:
+  /// Android draws its own launcher badge from the app's active
+  /// notifications, with no equivalent "set it to N" API for an app to call.
+  /// The catch below used to be the whole Android story, which worked but
+  /// meant every dashboard change paid a platform-channel round trip to a
+  /// channel with no handler and then threw and swallowed a
+  /// MissingPluginException — twice per change, visible in logcat on every
+  /// habit completion:
+  ///
+  ///   [AppBadgeService] set skipped: MissingPluginException(No
+  ///   implementation found for method setBadgeCount on channel
+  ///   com.growdaily.v2/badge)
+  ///
+  /// The try/catch stays for the case it was actually written for: an iOS
+  /// build whose AppDelegate handler is missing or older than this call.
   Future<void> setCount(int count) async {
-    if (kIsWeb) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
     try {
       await _channel.invokeMethod<void>('setBadgeCount', {'count': count});
     } catch (e) {

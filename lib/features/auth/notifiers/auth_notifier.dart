@@ -3,9 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/analytics_service.dart';
+import '../../../core/services/local_store_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/utils/text_moderation.dart';
-import '../../../core/services/local_store_service.dart';
+import '../services/social_auth_service.dart';
+import 'guest_reconnect_provider.dart';
 
 final authStateProvider = StreamProvider<User?>((ref) {
   return FirebaseAuth.instance.authStateChanges();
@@ -43,8 +45,43 @@ Future<bool> loadPersistedGuestMode() async {
   return (box.get(_kGuestModeKey) as bool?) ?? false;
 }
 
+/// How the signed-in account authenticates, as far as anything that needs to
+/// re-verify it is concerned.
+///
+/// Deliberately coarser than Firebase's provider list: the only question the
+/// delete sheet asks is "what do I have to put in front of this person to
+/// prove it is them", and that has exactly these answers.
+enum AuthMethod {
+  /// Email and password. Re-verified by typing the password.
+  password,
+
+  /// Google. Re-verified by running the account chooser again.
+  google,
+
+  /// Apple. Re-verified by running Apple's sheet again, which also produces
+  /// the authorization code needed to revoke the token.
+  apple,
+
+  /// Nobody is signed in, or the account carries a provider this app does
+  /// not offer.
+  none,
+}
+
 class AuthNotifier extends StateNotifier<AsyncValue<void>> {
-  AuthNotifier() : super(const AsyncData(null));
+  AuthNotifier(this._ref) : super(const AsyncData(null));
+
+  /// Held so the social sign-in path can arm [justRegisteredProvider]
+  /// itself.
+  ///
+  /// Email registration arms that flag from the screen, before its await,
+  /// because the screen is the only place that knows a registration is
+  /// about to happen. Social sign-in cannot copy that: whether the account
+  /// is new is only knowable AFTER the credential comes back, by which time
+  /// authStateChanges has already fired and torn the auth screen down, so
+  /// there is no widget left to do it. This notifier outlives the screen,
+  /// and [GuestReconnectPrompt] *watches* the flag rather than listening to
+  /// it, so a value written this late is still picked up.
+  final Ref _ref;
 
   Future<void> signIn(String email, String password) async {
     state = const AsyncLoading();
@@ -113,6 +150,91 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     });
   }
 
+  /// Signs in with Google or Apple, creating the account on first use.
+  ///
+  /// One method for both providers and for both "sign in" and "sign up",
+  /// because with an OAuth provider those are not separate acts: the person
+  /// taps one button and Firebase decides whether a uid already exists. The
+  /// tab the auth screen happens to be showing is irrelevant here, which is
+  /// why neither the caller nor this method reads it.
+  ///
+  /// Cancelling the provider's sheet returns quietly to the idle state
+  /// rather than surfacing an error, so the screen shows no red banner for
+  /// something the person deliberately did. That is why the provider call
+  /// sits OUTSIDE [AsyncValue.guard]: guard turns every throw into an
+  /// AsyncError, and the screen's listener renders any AsyncError as a
+  /// failure message.
+  Future<void> signInWithSocial(SocialProvider provider) async {
+    state = const AsyncLoading();
+
+    final SocialCredential social;
+    try {
+      social = provider == SocialProvider.google
+          ? await SocialAuthService.instance.google()
+          : await SocialAuthService.instance.apple();
+    } on SocialSignInCancelled {
+      state = const AsyncData(null);
+      return;
+    } catch (e, st) {
+      state = AsyncError<void>(e, st);
+      return;
+    }
+
+    state = await AsyncValue.guard<void>(() async {
+      final cred =
+          await FirebaseAuth.instance.signInWithCredential(social.credential);
+      final user = cred.user!;
+      // Apple can withhold the address entirely on a second device, and a
+      // relay address is still an address; either way the user doc's `email`
+      // field is descriptive only (see _createUserDoc), so an empty string
+      // is a truthful value rather than a hole.
+      final email = user.email ?? '';
+      final isNewAccount = cred.additionalUserInfo?.isNewUser ?? false;
+
+      if (!isNewAccount) {
+        await _ensureUserDoc(user.uid, email);
+        // A returning Apple account has no name to re-learn (Apple hands the
+        // full name over once and never again), but a returning Google
+        // account can have had its Google name or photo changed since, and
+        // this is the only moment we see them.
+        await _refreshSocialProfile(user.uid, social);
+        AnalyticsService.instance.track(
+          'auth_signed_in',
+          props: {'method': provider.name},
+        );
+        return;
+      }
+
+      try {
+        await _createUserDoc(
+          user.uid,
+          email,
+          freshRegistration: true,
+          providerName: social.displayName,
+          photoUrl: social.photoUrl,
+        );
+      } catch (_) {
+        // Same all-or-nothing rollback as register(): an Auth account with
+        // no profile doc drops the user into a broken Grid with no way back.
+        await user.delete();
+        rethrow;
+      }
+      await LocalStoreService.markReconnectCandidate(user.uid);
+
+      // The guest-data offer, armed here rather than on the auth screen.
+      // See [_ref]: by this line the screen has already been disposed by
+      // authStateChanges, so it could not do this for itself, and only now
+      // is it known that this sign-in created an account at all.
+      if (await LocalStoreService.hasGuestProgress()) {
+        _ref.read(justRegisteredProvider.notifier).state = true;
+      }
+      AnalyticsService.instance.track(
+        'auth_registered',
+        props: {'method': provider.name},
+      );
+    });
+  }
+
   Future<void> signOut() async {
     // The FCM token doc has to go while this account is still signed in:
     // users/{uid}/fcmTokens/* is owner-only in firestore.rules, so the
@@ -122,37 +244,132 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     // account's room pushes. The listener's call stays as a harmless no-op
     // backstop.
     await PushNotificationService.instance.clearForSignOut();
+    // Google keeps its own session alongside Firebase's. Left signed in, the
+    // next tap of the Google button silently reuses the account that just
+    // signed out instead of showing the chooser, so a shared or handed-over
+    // device could not switch accounts at all.
+    await SocialAuthService.instance.signOutProviders();
     await FirebaseAuth.instance.signOut();
     AnalyticsService.instance.track('auth_signed_out');
     state = const AsyncData(null);
   }
 
-  /// Permanently deletes the signed-in account: re-authenticates with the
-  /// given password (Firebase requires a recent sign-in before it will let
-  /// you delete a user), wipes every document under `users/{uid}` — the
-  /// profile doc plus the daily/custom_habits/focus_plans/matrix_tasks/
-  /// weekly_challenges subcollections — then deletes the Firebase Auth
-  /// account itself. Required by App Store review guideline 5.1.1(v): any
-  /// app that supports account creation must support in-app account
-  /// deletion, not just sign-out/deactivation.
-  Future<void> deleteAccount(String password) async {
+  /// How the signed-in account proves who it is, which decides what the
+  /// delete sheet has to ask for.
+  ///
+  /// Reads `providerData` rather than assuming: an account can carry more
+  /// than one, and the sheet must not ask a Google-only user for a password
+  /// they were never given the chance to set.
+  static AuthMethod currentAuthMethod() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return AuthMethod.none;
+    final ids = user.providerData.map((p) => p.providerId).toSet();
+    // Password first: an account that has one can always re-authenticate
+    // with it, and typing it is a better "are you sure" gate for an
+    // irreversible action than a one-tap provider sheet.
+    if (ids.contains(passwordProviderId)) return AuthMethod.password;
+    if (ids.contains(appleProviderId)) return AuthMethod.apple;
+    if (ids.contains(googleProviderId)) return AuthMethod.google;
+    return AuthMethod.none;
+  }
+
+  /// Permanently deletes the signed-in account: re-authenticates (Firebase
+  /// requires a recent sign-in before it will let you delete a user), wipes
+  /// every document under `users/{uid}` — the profile doc plus the
+  /// daily/custom_habits/focus_plans/matrix_tasks/weekly_challenges
+  /// subcollections — then deletes the Firebase Auth account itself.
+  /// Required by App Store review guideline 5.1.1(v): any app that supports
+  /// account creation must support in-app account deletion, not just
+  /// sign-out/deactivation.
+  ///
+  /// [password] is required for, and only used by, a password account. A
+  /// Google or Apple account re-authenticates by running its provider's
+  /// sheet again, which is the only credential it has. Before this took
+  /// providers into account, a social account could not be deleted at all:
+  /// reauthentication was hard-wired to EmailAuthProvider, so it failed with
+  /// invalid-credential no matter what was typed, and 5.1.1(v) was not
+  /// actually satisfied for those users.
+  ///
+  /// An Apple account additionally has its token REVOKED before deletion.
+  /// Apple has required that of every app offering Sign in with Apple since
+  /// June 2022: without it the app stays listed under the person's Apple ID
+  /// settings after they deleted their account here.
+  ///
+  /// Returns false when the person dismissed the provider sheet, so the
+  /// caller can go back to idle instead of reporting a failure.
+  Future<bool> deleteAccount({String? password}) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard<void>(() async {
-      final user = FirebaseAuth.instance.currentUser;
-      final email = user?.email;
-      if (user == null || email == null) {
-        throw FirebaseAuthException(
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      state = AsyncError<void>(
+        FirebaseAuthException(
           code: 'no-current-user',
           message: 'No signed-in account to delete.',
-        );
+        ),
+        StackTrace.current,
+      );
+      return true;
+    }
+
+    // Re-authentication runs outside AsyncValue.guard for the same reason as
+    // signInWithSocial: a dismissed provider sheet is a decision, not an
+    // error, and guard would turn it into one.
+    String? appleAuthorizationCode;
+    try {
+      switch (currentAuthMethod()) {
+        case AuthMethod.password:
+          final email = user.email;
+          if (email == null || password == null || password.isEmpty) {
+            throw FirebaseAuthException(
+              code: 'invalid-credential',
+              message: 'A password is required to delete this account.',
+            );
+          }
+          await user.reauthenticateWithCredential(
+            EmailAuthProvider.credential(email: email, password: password),
+          );
+        case AuthMethod.google:
+          final social = await SocialAuthService.instance.google();
+          await user.reauthenticateWithCredential(social.credential);
+        case AuthMethod.apple:
+          final social = await SocialAuthService.instance.apple();
+          await user.reauthenticateWithCredential(social.credential);
+          // Captured from THIS authorization: the code is single-use and
+          // only ever handed out at the moment Apple's sheet completes.
+          appleAuthorizationCode = social.appleAuthorizationCode;
+        case AuthMethod.none:
+          throw FirebaseAuthException(
+            code: 'no-current-user',
+            message: 'This account has no sign-in method to verify.',
+          );
       }
-      final credential =
-          EmailAuthProvider.credential(email: email, password: password);
-      await user.reauthenticateWithCredential(credential);
+    } on SocialSignInCancelled {
+      state = const AsyncData(null);
+      return false;
+    } catch (e, st) {
+      state = AsyncError<void>(e, st);
+      return true;
+    }
+
+    state = await AsyncValue.guard<void>(() async {
+      if (appleAuthorizationCode != null) {
+        try {
+          await FirebaseAuth.instance
+              .revokeTokenWithAuthorizationCode(appleAuthorizationCode);
+        } catch (_) {
+          // Best-effort, and deliberately not fatal. Someone who asked to be
+          // deleted and got an error instead is the worse outcome, and the
+          // same reasoning already governs _leaveAllRooms below. The Apple
+          // ID keeps a stale entry in its settings list; the account here
+          // still goes.
+        }
+      }
       await _deleteAllUserData(user.uid);
       await user.delete();
       AnalyticsService.instance.track('account_deleted');
     });
+    return true;
   }
 
   // ── Helpers ─────────────────────────────────────────────────
@@ -267,10 +484,19 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
   /// case the fallback exists to rescue.
   ///
   /// See test/features/habits/guest_signup_catalog_carryover_test.dart.
+  ///
+  /// [providerName] and [photoUrl] are what Google or Apple handed over.
+  /// Both are absent for an email registration, and [providerName] is absent
+  /// for every Apple sign-in after the very first, which is precisely why it
+  /// has to be written here and now: Apple releases the full name once per
+  /// Apple ID and Firebase does not keep it, so a name not persisted during
+  /// that first authorization is gone for good.
   static Future<void> _createUserDoc(
     String uid,
     String email, {
     bool freshRegistration = false,
+    String? providerName,
+    String? photoUrl,
   }) async {
     final ref =
         FirebaseFirestore.instance.collection('users').doc(uid);
@@ -281,13 +507,8 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       // collection by email or signup date directly - Firebase Auth's own
       // user list supports neither, and doesn't join with this collection.
       'email': email.trim(),
-      // The email local-part is a convenient default name, and it is also
-      // the one path a display name could reach Rooms leaderboards without
-      // ever meeting isObjectionable — setDisplayName guards every EDIT,
-      // but nobody types this value, so nothing else screens it. A neutral
-      // fallback beats seeding a slur@-address straight onto a public row.
-      'displayName':
-          isObjectionable(email.split('@')[0]) ? 'Warrior' : email.split('@')[0],
+      'displayName': initialDisplayName(email, providerName: providerName),
+      if (photoUrl != null && photoUrl.isNotEmpty) 'photoUrl': photoUrl,
       'level': 1,
       'currentLevelXp': 0,
       'cumulativeXp': 0,
@@ -300,6 +521,85 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       if (freshRegistration) 'activeCatalogIds': <String>[],
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  /// The name a brand-new account starts life with.
+  ///
+  /// Order matters. A real name from Google or Apple is always the best
+  /// answer and is used when there is one. Failing that the email local-part
+  /// is a convenient default, and it is also the one path a display name
+  /// could reach Rooms leaderboards without ever meeting isObjectionable:
+  /// setDisplayName guards every EDIT, but nobody types this value, so
+  /// nothing else screens it. A neutral fallback beats seeding a
+  /// slur@-address, or a provider-supplied name someone set to a slur,
+  /// straight onto a public row.
+  ///
+  /// The private-relay clause is what stops Apple accounts being named after
+  /// a random hex string. Someone who hides their address gets an email like
+  /// `a1b2c3d4e5@privaterelay.appleid.com`, and the old local-part rule
+  /// would have put `a1b2c3d4e5` on their profile and on every leaderboard
+  /// they joined.
+  ///
+  /// Public because the Profile screen needs the identical rule for its own
+  /// fallback when the user document has not loaded yet. Two copies of it
+  /// would drift, and the private-relay clause is exactly the sort of clause
+  /// that gets fixed in one copy only.
+  static String initialDisplayName(String email, {String? providerName}) {
+    final fromProvider = providerName?.trim();
+    if (fromProvider != null &&
+        fromProvider.isNotEmpty &&
+        !isObjectionable(fromProvider)) {
+      return fromProvider;
+    }
+    final local = email.contains('@') ? email.split('@')[0] : '';
+    if (local.isEmpty ||
+        email.toLowerCase().endsWith('@privaterelay.appleid.com') ||
+        isObjectionable(local)) {
+      return 'Warrior';
+    }
+    return local;
+  }
+
+  /// Writes back a Google name or photo that changed since last time.
+  ///
+  /// Only ever fills gaps or updates the photo; it never overwrites a
+  /// display name the person has since set for themselves in this app, which
+  /// is why it reads the doc first and compares against what registration
+  /// would have written. Apple contributes nothing here, since it withholds
+  /// the name on every sign-in after the first.
+  static Future<void> _refreshSocialProfile(
+    String uid,
+    SocialCredential social,
+  ) async {
+    final photoUrl = social.photoUrl;
+    final name = social.displayName?.trim();
+    if ((photoUrl == null || photoUrl.isEmpty) &&
+        (name == null || name.isEmpty)) {
+      return;
+    }
+    final ref = FirebaseFirestore.instance.collection('users').doc(uid);
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    final data = snap.data() ?? const <String, dynamic>{};
+    final update = <String, Object?>{};
+
+    if (photoUrl != null &&
+        photoUrl.isNotEmpty &&
+        data['photoUrl'] != photoUrl) {
+      update['photoUrl'] = photoUrl;
+    }
+    // Only when there is no usable name on the doc at all. Someone who
+    // renamed themselves here must not be silently renamed back to whatever
+    // their Google account says every time they sign in.
+    final existing = (data['displayName'] as String?)?.trim();
+    if ((existing == null || existing.isEmpty || existing == 'Warrior') &&
+        name != null &&
+        name.isNotEmpty &&
+        !isObjectionable(name)) {
+      update['displayName'] = name;
+    }
+    if (update.isEmpty) return;
+    await ref.set(update, SetOptions(merge: true));
   }
 
   static Future<void> _ensureUserDoc(String uid, String email) async {
@@ -315,7 +615,13 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     // field, so createdAt and everything else already on the doc is left
     // exactly as-is. Runs at most once per account: every sign-in after
     // this either finds the field already set, or just set it.
-    if ((snap.data()?['email'] as String?)?.isNotEmpty != true) {
+    //
+    // The empty-[email] guard is for Apple: it can withhold the address on a
+    // second device, and without this the backfill would write an empty
+    // string over and over on every sign-in, once per launch forever,
+    // without ever setting the field it is trying to set.
+    if (email.trim().isNotEmpty &&
+        (snap.data()?['email'] as String?)?.isNotEmpty != true) {
       await ref.set({'email': email.trim()}, SetOptions(merge: true));
     }
   }
@@ -323,4 +629,5 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
 
 final authNotifierProvider =
     StateNotifierProvider<AuthNotifier, AsyncValue<void>>(
-        (ref) => AuthNotifier());
+  (ref) => AuthNotifier(ref),
+);

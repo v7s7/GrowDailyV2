@@ -83,7 +83,8 @@ class PurchaseOutcome {
 ///    explicitly; it's a 10-second toggle, not something worth hand-
 ///    editing project.pbxproj for).
 ///
-/// ── The Android half of the same setup (still outstanding) ──
+/// ── The Android half of the same setup (DONE 2026-09-08, except step 9's
+///    service-account upload - see the note under step 10) ──
 /// 7. In Play Console, create the app under package `com.growdaily.v2` and
 ///    upload a build to any track. Play will not let you create products
 ///    until a release with the Billing library in it has been uploaded
@@ -100,11 +101,25 @@ class PurchaseOutcome {
 ///    same default Offering used for iOS. Reusing one entitlement is what
 ///    makes Premium bought on one platform recognised on the other.
 /// 10. Copy the Android public API key (`goog_...`) into [_androidApiKey].
+///     Done. Steps 7 and 8 are done too: `growdaily_monthly` is a
+///     subscription with the single base plan `monthly-autorenew` at
+///     USD 4.99, and `growdaily_lifetime` is a one-time product at
+///     USD 29.99, both Active across 177 regions and both matching the
+///     App Store prices exactly. Note Play rejects underscores in base
+///     plan and purchase option ids, hence the hyphen in
+///     `monthly-autorenew`.
+///
+///     STILL OUTSTANDING from step 9: the Google Cloud service-account
+///     JSON has not been uploaded to RevenueCat. Without it RevenueCat
+///     cannot verify Play receipts server-side, so an Android purchase
+///     will not grant the entitlement even though the paywall now loads
+///     and the products resolve. That upload is a credential handover and
+///     has to be done by hand in the RevenueCat dashboard.
 ///
 /// Until a real key is in place, [configure] deliberately no-ops (see
 /// [isConfigured]) so the app still boots and PremiumScreen shows an
-/// honest "not available yet" state instead of crashing. That is currently
-/// the state on Android, by design, until step 10 is done.
+/// honest "not available yet" state instead of crashing. Both platforms
+/// now carry a real key, so that path is only reachable on web.
 class PurchaseService {
   PurchaseService._();
   static final instance = PurchaseService._();
@@ -132,17 +147,15 @@ class PurchaseService {
   /// RevenueCat project -> Project Settings -> API keys, but issued only
   /// once a Play Store app has been added to that project.
   ///
-  /// Deliberately empty, not a guess: unlike the iOS key above, this string
-  /// cannot be known until the one-time Play setup in the class doc comment
-  /// is done. While it is empty [configure] no-ops on Android exactly as it
-  /// used to before a real iOS key existed, so PremiumScreen shows its
-  /// honest "not available yet" state rather than an empty paywall - see
-  /// [isConfigured].
+  /// The real production key, from the "Grow Daily (Play Store)" app added
+  /// to the same RevenueCat project on 2026-09-08 (app39b323bf0c, package
+  /// com.growdaily.v2). Public by design, exactly like [_iosApiKey]: the
+  /// RevenueCat SDK key ships inside every binary and is not a secret.
   ///
-  /// Filling this in is the ONLY code change the Android paywall needs; the
-  /// offering/entitlement/package wiring below is platform-agnostic and
-  /// already correct.
-  static const String _androidApiKey = '';
+  /// This was an empty string until that app existed, which meant
+  /// [configure] no-opped on Android and PremiumScreen showed its honest
+  /// "not available yet" state rather than an empty paywall.
+  static const String _androidApiKey = 'goog_egxJzSahAoRaipMjLhPFhrTJhdR';
 
   /// The key for the platform this build is running on, or null where
   /// purchases are not supported at all (web).

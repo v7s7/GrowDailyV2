@@ -398,7 +398,7 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
                           Padding(
                             padding: const EdgeInsets.only(top: 1),
                             child: Icon(Icons.touch_app_rounded,
-                                size: 18, color: GameColors.gold),
+                                size: 18, color: context.gp.goldInk),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -452,7 +452,7 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
                               style: TextStyle(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w800,
-                                color: GameColors.gold,
+                                color: context.gp.goldInk,
                                 fontFamily: GameTextStyles.fontFamily,
                                 fontFamilyFallback: GameTextStyles.fontFallback,
                               ),
@@ -535,7 +535,7 @@ class _TabPill extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-              color: selected ? GameColors.gold : gp.textSec,
+              color: selected ? context.gp.goldInk : gp.textSec,
               fontFamily: GameTextStyles.fontFamily,
               fontFamilyFallback: GameTextStyles.fontFallback,
             ),
@@ -658,7 +658,7 @@ class _PausedHabitsSectionState extends ConsumerState<_PausedHabitsSection> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(Icons.event_repeat_rounded,
-                                      size: 11, color: GameColors.gold),
+                                      size: 11, color: context.gp.goldInk),
                                   const SizedBox(width: 4),
                                   Flexible(
                                     child: Text(
@@ -671,7 +671,7 @@ class _PausedHabitsSectionState extends ConsumerState<_PausedHabitsSection> {
                                       style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
-                                        color: GameColors.gold,
+                                        color: context.gp.goldInk,
                                       ),
                                     ),
                                   ),
@@ -731,7 +731,7 @@ class _PausedHabitsSectionState extends ConsumerState<_PausedHabitsSection> {
                             style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w800,
-                              color: GameColors.gold,
+                              color: context.gp.goldInk,
                             ),
                           ),
                         ),

@@ -436,10 +436,10 @@ class _RewardRow extends ConsumerWidget {
                   color: GameColors.iconGold.withValues(alpha: 0.14),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.card_giftcard_rounded,
                   size: 30,
-                  color: GameColors.iconGold,
+                  color: context.gp.iconGold,
                 ),
               ),
               const SizedBox(height: 14),

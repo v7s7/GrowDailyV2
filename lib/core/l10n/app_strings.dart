@@ -24,13 +24,57 @@ class _LocaleNotifier extends StateNotifier<Locale> {
   void set(Locale locale) => state = locale;
 }
 
+/// The languages the app actually ships strings for, in the order a device
+/// that asks for neither should be offered them. [S] switches on `ar` and
+/// treats everything else as English, so this list and that switch are the
+/// same fact written twice - keep them together if a third language is ever
+/// added, along with MaterialApp's `supportedLocales` in main.dart, which
+/// reads this list directly.
+const kSupportedLocales = <Locale>[Locale('en'), Locale('ar')];
+
+/// Picks a starting language from the device's own preference list, used at
+/// boot when this device has nothing persisted (see [loadPersistedLocale]).
+///
+/// [deviceLocales] is `platformDispatcher.locales` — the full ordered list
+/// the person set in iOS/Android Settings, not just the first entry, so
+/// someone whose phone reads "Spanish, then Arabic, then English" lands in
+/// Arabic rather than in English. Falls back to English when the device asks
+/// for nothing this app speaks.
+///
+/// Country and script are deliberately ignored: `ar-BH`, `ar-EG` and bare
+/// `ar` are all served by the same strings, and matching on the full tag
+/// would drop every one of them to English.
+Locale resolveInitialLocale(List<Locale> deviceLocales) {
+  for (final device in deviceLocales) {
+    for (final supported in kSupportedLocales) {
+      if (device.languageCode == supported.languageCode) return supported;
+    }
+  }
+  return const Locale('en');
+}
+
 const _kLocaleKey = 'selected_locale_v1';
 
-/// Whether this device has completed the first-launch language picker at
-/// least once. Seeded from Hive at boot (see main.dart) — a fresh install
-/// has no persisted locale key yet, so this starts `false` and the picker
-/// gate shows; once a language is chosen it's `true` forever after on this
-/// device, so the picker never shows again.
+/// Whether the person has ever picked a language *in the app*, as opposed to
+/// the app having inferred one from the device or from their account. Stored
+/// separately from [_kLocaleKey] because the two answer different questions:
+/// the locale key says what language is active, this says whether that
+/// language is a decision anything else is allowed to overrule.
+const _kLanguageChosenKey = 'language_chosen_v1';
+
+/// Whether the person has picked a language *in the app* — the first-launch
+/// picker, or the Profile switch. Seeded from Hive at boot (see main.dart)
+/// and, on a fresh install, `false`, which is what makes the picker gate
+/// show; once a language is chosen it's `true` forever after on this device,
+/// so the picker never shows again.
+///
+/// Deliberately NOT set by the two ways a language can arrive without anyone
+/// picking it — [resolveInitialLocale] reading the device's settings, and
+/// [adoptAccountLocale] restoring the account's language after sign-in. Both
+/// of those are guesses, and this flag is what marks a guess as overrulable:
+/// a detected language keeps following the OS until the person says
+/// otherwise, and an account's language is only ever adopted onto a device
+/// that hasn't made a choice of its own.
 final languageChosenProvider = StateProvider<bool>((ref) => false);
 
 /// Sets the active locale and persists it, marking the language picker as
@@ -41,6 +85,9 @@ Future<void> setLocale(WidgetRef ref, Locale locale) async {
   ref.read(languageChosenProvider.notifier).state = true;
   final box = await LocalStoreService.settingsBox();
   await box.put(_kLocaleKey, locale.languageCode);
+  // Marks this as a decision rather than a guess, so neither the device's
+  // language settings nor the account's stored language overrules it later.
+  await box.put(_kLanguageChosenKey, true);
 
   // Best-effort mirror to Firestore for signed-in accounts - the room-finish
   // push Cloud Function (functions/index.js) reads this to pick AR vs EN for
@@ -69,12 +116,106 @@ Future<Locale?> loadPersistedLocale() async {
   return code == null ? null : Locale(code);
 }
 
-/// Provider overrides that seed locale state from [persisted] at boot,
-/// mirroring the `guestModeProvider.overrideWith(...)` pattern in main.dart.
-List<Override> localeProviderOverrides(Locale? persisted) => [
-      if (persisted != null)
-        localeProvider.overrideWith((ref) => _LocaleNotifier(persisted)),
-      languageChosenProvider.overrideWith((ref) => persisted != null),
+/// Whether this device has an explicit in-app language choice on record.
+///
+/// The flag key only exists on installs that have chosen a language since it
+/// was introduced. Before it, the ONLY writer of [_kLocaleKey] was an
+/// explicit pick, so an install with a stored locale and no flag chose that
+/// locale — which is what the fallback reproduces, rather than demoting
+/// every existing user's settled language back to a guess.
+Future<bool> loadPersistedLanguageChosen() async {
+  final box = await LocalStoreService.settingsBox();
+  final flag = box.get(_kLanguageChosenKey) as bool?;
+  if (flag != null) return flag;
+  return box.get(_kLocaleKey) != null;
+}
+
+/// Whether the language recorded on an account should be adopted onto this
+/// device, and which one — null meaning leave this device alone.
+///
+/// Split out of the caller in main.dart so the rule can be tested without a
+/// Firestore round trip and without a widget: everything above it is I/O and
+/// everything below it is a provider write, and this is the only part with a
+/// decision in it.
+///
+/// [deviceHasChosen] is the veto. A person who picked a language is not
+/// corrected by a value on the server, however old, and it is their pick that
+/// should be teaching the account instead.
+Locale? localeToAdoptFromAccount({
+  required bool deviceHasChosen,
+  required Locale current,
+  required Locale? account,
+}) {
+  if (deviceHasChosen) return null;
+  if (account == null) return null;
+  if (account == current) return null;
+  return account;
+}
+
+/// Adopts the language recorded on the signed-in account as this device's
+/// active one, without marking it as a choice (see [languageChosenProvider]).
+///
+/// Persisted locally as well as applied, so the next cold start opens
+/// straight in this language instead of rendering a frame or two of the
+/// device's language and then swapping once sign-in resolves.
+///
+/// The chosen flag is written `false` rather than left absent, and it has to
+/// be. [loadPersistedLanguageChosen]'s migration reads "a locale is stored
+/// and no flag is set" as an old install that picked that language — true of
+/// every device from before the flag existed, and exactly wrong here. Leave
+/// the flag out and the next cold start promotes this guess to a decision,
+/// which freezes the device on it: a language changed later on another
+/// device would never reach this one again.
+Future<void> adoptAccountLocale(WidgetRef ref, Locale locale) async {
+  ref.read(localeProvider.notifier).set(locale);
+  final box = await LocalStoreService.settingsBox();
+  await box.put(_kLocaleKey, locale.languageCode);
+  await box.put(_kLanguageChosenKey, false);
+}
+
+/// Reads the language recorded on `users/{uid}`, or null when the account
+/// has none, the stored value isn't a language this app speaks, or the read
+/// fails.
+///
+/// The field is written by `_syncAmbientAccountFacts` in main.dart and by
+/// [setLocale] above, and until now was only ever read by the room-finish
+/// Cloud Function. Reading it back here is what lets a reinstall — or a
+/// second device — come up in the language the account already reads,
+/// instead of asking again for something the backend already knows.
+///
+/// Deliberately returns rather than applies: the caller lives in a widget
+/// that may be gone by the time this network round trip lands, so the
+/// decision to touch provider state stays on the caller's side of the await.
+Future<Locale?> fetchAccountLocale(String uid) async {
+  try {
+    final snap =
+        await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final code = snap.data()?['locale'] as String?;
+    if (code == null) return null;
+    for (final supported in kSupportedLocales) {
+      if (supported.languageCode == code) return supported;
+    }
+    return null;
+  } catch (_) {
+    // Offline or blocked - keep whatever's already active on this device.
+    return null;
+  }
+}
+
+/// Provider overrides that seed locale state at boot, mirroring the
+/// `guestModeProvider.overrideWith(...)` pattern in main.dart.
+///
+/// [locale] is the language the first frame renders in, whatever its origin
+/// — a stored choice, a language adopted from the account, or one detected
+/// from the device. [chosen] is only whether the person picked it, which is
+/// a separate question and the one the picker gate asks.
+List<Override> localeProviderOverrides({
+  required Locale locale,
+  required bool chosen,
+}) =>
+    [
+      localeProvider.overrideWith((ref) => _LocaleNotifier(locale)),
+      languageChosenProvider.overrideWith((ref) => chosen),
     ];
 
 // ─── Strings ──────────────────────────────────────────────────────────────────
@@ -91,19 +232,81 @@ class S {
 
   // ── App ──────────────────────────────────────────────────────────────────
   String get appTitle => isAr ? 'Grow Daily' : 'Grow Daily';
+  // The line under the wordmark, on the splash and the signed-out screen.
+  //
+  // Three rules it has to pass, and the old line failed two of them.
+  // 1. LENGTH. The App Store subtitle budget, 30 characters, is the industry
+  //    setting for exactly this slot. "Color your life, one square at a
+  //    time." was 38 characters and 8 words.
+  // 2. THE FIRST TWO WORDS. People take in about two words of a line under a
+  //    logo. The Arabic opened on «لوّن», which alone says "colouring app",
+  //    and the English opened on "Color", which says the same. Both now open
+  //    on the thing being tracked.
+  // 3. It should name what the app holds and what you get, not make a claim
+  //    nobody would ever make the opposite of.
+  //
+  // The square survives because it is the product's own mechanic rather than
+  // decoration: one square is one day.
   String get tagline => isAr
-      ? 'لوّن حياتك، مربّعًا كل يوم.'
-      : 'Color your life, one square at a time.';
+      ? 'عاداتك، مربّع كل يوم.'
+      : 'Your habits, one square a day.';
 
   // ── Auth ─────────────────────────────────────────────────────────────────
-  String get signIn => isAr ? 'تسجيل الدخول' : 'Sign In';
-  String get createAccount => isAr ? 'إنشاء حساب' : 'Create Account';
-  String get signInAction => isAr ? 'دخول' : 'SIGN IN';
-  String get createAccountAction => isAr ? 'إنشاء الحساب' : 'CREATE ACCOUNT';
+  String get signIn => isAr ? 'تسجيل الدخول' : 'Sign in';
+  String get createAccount => isAr ? 'إنشاء حساب' : 'Create account';
+  String get signInAction => isAr ? 'دخول' : 'Sign in';
+  String get createAccountAction =>
+      isAr ? 'إنشاء الحساب' : 'Create account';
   String get email => isAr ? 'البريد الإلكتروني' : 'Email';
   String get password => isAr ? 'كلمة المرور' : 'Password';
   String get confirmPassword => isAr ? 'تأكيد كلمة المرور' : 'Confirm Password';
-  String get tryAsGuest => isAr ? 'جرّب 3 عادات كضيف' : 'TRY 3 HABITS AS GUEST';
+  // The two provider buttons. These deliberately break this file's
+  // easy-spoken-Arabic house style, and the exception is not laziness.
+  // Apple requires the Sign in with Apple button to carry one of its OWN
+  // approved localized strings, and "المتابعة باستخدام Apple" is Apple's
+  // Arabic for "Continue with Apple". Google's button is worded to match so
+  // the two read as a pair rather than as two different voices stacked on
+  // top of each other. Both brand names stay in Latin script on purpose:
+  // neither company permits its name being transliterated.
+  String get continueWithGoogle =>
+      isAr ? 'المتابعة باستخدام Google' : 'Continue with Google';
+  String get continueWithApple =>
+      isAr ? 'المتابعة باستخدام Apple' : 'Continue with Apple';
+  String get authOrDivider => isAr ? 'أو' : 'or';
+  // The third button in the provider stack. Deliberately a button and not a
+  // text link: a large minority still sign in with a password, and a bare
+  // link would also miss the 44pt/48dp tap-target minimum.
+  String get continueWithEmail =>
+      isAr ? 'المتابعة بالبريد الإلكتروني' : 'Continue with email';
+  // Closes the email form again. Worded as what it reveals rather than as
+  // "back", because nothing was navigated away from: the form opens in
+  // place, under the buttons it belongs with.
+  String get authOtherWays => isAr ? 'طرق دخول ثانية' : 'Other ways to sign in';
+
+  // The two lines under the buttons. They answer the one question this
+  // screen never answered: what each path does with your progress. That is
+  // also the only sign-in-adjacent complaint that shows up in real app
+  // reviews, and it always arrives after the fact, from someone who used
+  // guest mode and then lost it.
+  //
+  // The lead is a separate string from the rest because it is set in a
+  // heavier weight: people take in about two words of a line like this, so
+  // the two that have to land are "with account" and "without account".
+  //
+  // DRAFT wording. Aziz writes the final Arabic.
+  String get authAccountLead => isAr ? 'مع حساب:' : 'With an account:';
+  String get authAccountFact => isAr
+      ? 'عاداتك محفوظة وتنتقل معك لأي جهاز.'
+      : 'synced to all your devices.';
+  String get authGuestLead => isAr ? 'بدون حساب:' : 'Without an account:';
+  String get authGuestFact => isAr
+      ? '3 عادات، محفوظة على هذا الجهاز.'
+      : '3 habits, on this phone.';
+  // Parallel with the three buttons above it in BOTH languages: every one
+  // now opens on «المتابعة» / "Continue". The "3 habits" it used to carry is
+  // stated in the line underneath instead, in both languages, so the button
+  // was saying it twice.
+  String get tryAsGuest => isAr ? 'المتابعة كضيف' : 'Continue as guest';
   String get guestDescription => isAr
       ? 'لا حاجة لحساب. ابدأ أولى انتصاراتك الآن.'
       : 'No account needed. Complete your first Quran, athkar, or focus win now.';
@@ -271,6 +474,29 @@ class S {
       : 'Password is too weak (min 6 characters)';
   String get errNetwork =>
       isAr ? 'تحقق من اتصالك بالإنترنت' : 'Check your internet connection';
+  // Social sign-in only. Firebase raises account-exists-with-different-
+  // credential when the address behind a Google or Apple account already
+  // belongs to an account made with a password, and the fix is entirely in
+  // the person's hands, so the message says what to do rather than what
+  // went wrong.
+  String get errAccountExistsWithEmail => isAr
+      ? 'عندك حساب بنفس الإيميل. سجّل دخول بالإيميل وكلمة المرور.'
+      : 'You already have an account with this email. Sign in with your '
+          'email and password instead.';
+  // Raised as operation-not-allowed when the provider is switched off in the
+  // Firebase console, so it is a configuration fault rather than anything
+  // the person did. Worded so it does not blame them or ask them to retry
+  // something that will fail again.
+  String get errSignInMethodUnavailable => isAr
+      ? 'طريقة الدخول هذي مو متاحة حالياً. جرّب طريقة ثانية.'
+      : 'That sign-in method is unavailable right now. Try another one.';
+  // The device has no Apple Account signed in, so Apple's flow cannot run.
+  // Says where to fix it instead of "try again", which would send someone
+  // back into a prompt that fails the same way every time.
+  String get errAppleAccountRequired => isAr
+      ? 'الدخول بـ Apple يحتاج حساب Apple على الجهاز. تقدر تضيفه من الإعدادات.'
+      : 'Signing in with Apple needs an Apple Account on this device. You can '
+          'add one in Settings.';
   String get errGeneric =>
       isAr ? 'حدث خطأ. حاول مجدداً.' : 'Something went wrong. Try again.';
 
@@ -291,6 +517,15 @@ class S {
       : "This permanently deletes your habits, streaks, achievements, and all your data. This can't be undone.";
   String get deleteAccountPasswordLabel =>
       isAr ? 'أدخل كلمة المرور للتأكيد' : 'Enter your password to confirm';
+  // Shown instead of the password field to an account that signed in with a
+  // provider and therefore has no password. Says what the confirm button is
+  // about to do, so the provider's own sheet appearing is expected.
+  String get deleteAccountVerifyGoogle => isAr
+      ? 'بنطلب منك تسجّل دخول بجوجل مرة ثانية، عشان نتأكد إنه أنت.'
+      : "You'll sign in with Google once more, so we know it's you.";
+  String get deleteAccountVerifyApple => isAr
+      ? 'بنطلب منك تسجّل دخول بآبل مرة ثانية، عشان نتأكد إنه أنت.'
+      : "You'll sign in with Apple once more, so we know it's you.";
   String get deleteAccountConfirmCta =>
       isAr ? 'حذف حسابي نهائيًا' : 'Delete my account';
   String get deleteAccountWrongPassword =>
@@ -840,15 +1075,6 @@ class S {
   String get addGoalTitle => isAr ? 'إضافة هدف' : 'Add Goal';
   String get whatImprove =>
       isAr ? 'ما الذي تريد تحسينه؟' : 'What do you want to improve?';
-  String get buildHabitTitle => isAr ? 'أبني عادة' : 'Build a habit';
-  String get buildHabitSubtitle => isAr
-      ? 'أنشئ شيئًا تريد فعله أكثر.'
-      : 'Create something you want to do more.';
-  String get quitHabitTitle =>
-      isAr ? 'أترك أو أقلل عادة' : 'Quit / reduce something';
-  String get quitHabitSubtitle => isAr
-      ? 'تحكّم في شيء تريد فعله أقل.'
-      : 'Control something you want to do less.';
   String get whatHabitBuild =>
       isAr ? 'ما العادة التي تريد بناءها؟' : 'What habit do you want to build?';
   String get whatReduce =>
@@ -1263,6 +1489,13 @@ class S {
   String get matrixReminderPast => isAr
       ? 'اختر وقتًا في المستقبل'
       : 'Pick a time that hasn\'t already passed';
+  // The time wheel that follows the date picker (reminder_picker.dart's
+  // showReminderTimeSheet). The wheel carries a floor when the day is
+  // today, so a time that has already passed cannot be landed on; this
+  // line names that floor, and is not shown for any other day.
+  String get matrixReminderTimeTitle => isAr ? 'الوقت' : 'Time';
+  String matrixReminderEarliest(String time) =>
+      isAr ? 'أقرب وقت: $time' : 'Earliest: $time';
   // ReminderList's add row (reminder_picker.dart). Same label whether the
   // row is unlocked or showing the Premium lock — what changes is the icon
   // and colour, not the wording, so a free user reads what the feature
@@ -1926,9 +2159,12 @@ class S {
       : 'Perfect day: every square is filled!';
   String gridGreensToday(int n) =>
       isAr ? 'كسبت $n مربّعًا اليوم' : 'You earned $n squares today';
+  /// The only place the app ever mentions the long-press, and until now it
+  /// advertised colours only, so the note field behind it was a feature
+  /// nobody was told about.
   String get gridTapHint => isAr
-      ? 'اضغط لتلوين المربّع · اضغط مطولاً للمزيد من الألوان'
-      : 'Tap to color · long-press for more colors';
+      ? 'اضغط لتلوين المربّع · اضغط مطولاً للألوان والكتابة'
+      : 'Tap to color · long-press for colors and writing';
 
   // ── Tasbih ──────────────────────────────────────────────────────────
   //
@@ -1973,7 +2209,7 @@ class S {
   // stop after the refund, so Arabic users answered this dialog without
   // being told their streak was part of the price.
   String gridClearMarkBody(String habitName, int xp, int gold) => isAr
-      ? '«$habitName» منجزة اليوم. لو شيلتها بيرجع منك $xp خبرة و$gold ذهب وترجع سلسلتها يوم ورا. علّمها من جديد ويرجع كل شي.'
+      ? '«$habitName» منجزة اليوم. لو شلتها بيرجع منك $xp خبرة و$gold ذهب وترجع سلسلتها يوم ورا. علّمها من جديد ويرجع كل شي.'
       : '"$habitName" is marked done today. Clearing it takes back $xp XP and $gold gold, and this habit\'s streak steps back a day. Marking it again restores all of it.';
   /// The same confirmation, for a day that has already passed.
   ///
@@ -1987,16 +2223,16 @@ class S {
   String get gridClearPastMarkTitle =>
       isAr ? 'تشيل علامة هذا اليوم؟' : "Clear this day's mark?";
   String gridClearPastMarkBody(String habitName, String dayLabel) => isAr
-      ? '«$habitName» منجزة يوم $dayLabel. لو شيلتها بيصير المربّع فاضي.'
+      ? '«$habitName» منجزة يوم $dayLabel. لو شلتها بيصير المربّع فاضي.'
       : '"$habitName" is marked done on $dayLabel. Clearing it empties the square. If that was a mistake, mark the same day again and it comes back as it was.';
   /// Today, for a mark that carries no completion behind it — a blue "bonus"
   /// square, or a green one whose completion is not in memory. There is no
   /// XP or gold to name, so this says what is actually at stake and no more.
   String gridClearMarkBodyNoReward(String habitName) => isAr
-      ? '«$habitName» منجزة اليوم. لو شيلتها بتختفي العلامة.'
+      ? '«$habitName» منجزة اليوم. لو شلتها بتختفي العلامة.'
       : '"$habitName" is marked today. Clearing it removes the mark. You can mark it again any time.';
   String get gridClearMarkConfirm => isAr ? 'شيلها' : 'Clear';
-  String get gridMarkCleared => isAr ? 'شيلنا العلامة' : 'Mark cleared';
+  String get gridMarkCleared => isAr ? 'شلنا العلامة' : 'Mark cleared';
   // Distinct from gridPastDayHint on purpose: shown for the real calendar
   // day during the flex window right after midnight, which isn't a past
   // day at all (it just isn't the official rewarded day yet) — see
@@ -2081,6 +2317,7 @@ class S {
       isAr ? 'اكتب انعكاسًا قصيرًا…' : 'Write a short reflection…';
   String get gridSave => isAr ? 'حفظ' : 'Save';
   String get gridFutureDay => isAr ? 'يوم قادم' : 'Future day';
+  // "From the Today page" went with that page; the square is simply done.
   String get gridSquareDoneFromToday => isAr
       ? 'أُنجزت هذه العادة اليوم. اختر لونًا آخر لتصحيحها.'
       : 'Completed today. Pick a different color to correct it.';
@@ -2314,6 +2551,37 @@ class S {
   String get roomEndedBody => isAr
       ? 'ما قصرتوا. هذه النتيجة النهائية.'
       : 'Well done, all of you. Here is the final result.';
+  // ── The cup, said out loud ───────────────────────────────────────────
+  //
+  // First place is the one row a screen reader cannot hear: every other
+  // place is a number in the rank slot, and first place swaps that number
+  // for a picture. These two are what the icon announces instead, on the
+  // leaderboard row while the room is running and on the podium's middle
+  // column once it has finished. A shared first says so rather than
+  // reading as first place twice with no explanation for the missing 2.
+  String get roomPlaceFirst => isAr ? 'المركز الأول' : 'First place';
+  String get roomPlaceFirstTied =>
+      isAr ? 'تعادل في المركز الأول' : 'Tied for first place';
+  /// The same sentence, for the places that are still drawn as a number. A
+  /// shared second is two rows both reading 2 with no 3 after them, which
+  /// is as unexplained by itself as two cups was.
+  ///
+  /// A digit rather than an ordinal word on purpose: every other number on
+  /// this board (percentages, day counts, the plinth) is a western digit in
+  /// both languages. First place keeps its own wording above because it is
+  /// the one place drawn as a picture instead of a number.
+  String roomPlaceTied(int rank) =>
+      isAr ? 'تعادل في المركز $rank' : 'Tied for place $rank';
+  /// The third state of the same slot: a member whose own percentage still
+  /// reads 0%, drawn as a dash. A bare dash is handed to the platform and
+  /// settled by each listener's punctuation setting, which usually means
+  /// silence, so on day one a whole board announced no places at all while
+  /// the sighted board clearly showed a dash on every row.
+  ///
+  /// Deliberately a two word noun phrase, matching [roomPlaceFirst] rather
+  /// than reading as a sentence: it is spoken BEFORE the member's name on
+  /// every unranked row, and day one is a board where that is every row.
+  String get roomPlaceNone => isAr ? 'بدون مركز' : 'No place';
   String get notifLocationResolving =>
       isAr ? 'جاري التعرف على موقعك…' : 'Finding your location…';
   String get notifLocationSetGeneric =>
@@ -3979,10 +4247,18 @@ class S {
 
   // ── Monthly Story (shareable month-in-review) ──────────────────────────
 
-  /// The first-completion reward float on a task row. ASCII digits and the
-  /// Latin "XP" in both languages, matching every other stat in the app.
-  String matrixRewardFloat(int xp, int gold) =>
-      isAr ? '‎+$xp XP · +$gold ذهب' : '+$xp XP · +$gold gold';
+  /// The first-completion reward float on a task row, one reward per line.
+  ///
+  /// Every earlier version put both rewards on one line and every one of them
+  /// read badly in Arabic: «+10 XP · +4 ذهب» behind a left-to-right mark
+  /// pinned the whole pill LTR on an RTL screen, and even the all-Arabic
+  /// «+10 خبرة و+4 ذهب» hands the bidi algorithm two Latin-digit runs
+  /// inside one Arabic sentence, so the two numbers can swap places.
+  /// One number and one word per line leaves nothing to reorder: each line
+  /// is a single digit run followed by a single word, in both languages.
+  String matrixRewardFloatXp(int xp) => isAr ? '+$xp خبرة' : '+$xp XP';
+  String matrixRewardFloatGold(int gold) =>
+      isAr ? '+$gold ذهب' : '+$gold gold';
   /// Shown in the add sheet after adding a task whose reminder anchors on a
   /// later day: under the default Today lens the new task is legitimately
   /// not visible, which read as the add having silently failed.
@@ -4486,4 +4762,77 @@ class S {
   /// Spoken label for the location row's search icon.
   String get notifLocationSearchAction =>
       isAr ? 'ابحث عن مدينة' : 'Search for a city';
+
+  // ── Habit notes: saving, marking, finding ──────────────────────────────
+  //
+  // One word for one thing. A note is «ملاحظة» on the editor label, the lock
+  // card, the journal title and every string below; never a second noun for
+  // the same object, which would make a filter chip read as a different
+  // feature from the screen it filters.
+
+  /// The bar after a note is saved. «انحفظت» matches habitSavedConfirmation.
+  String get gridNoteSaved => isAr ? 'انحفظت الملاحظة' : 'Note saved';
+
+  /// The bar after a save emptied an existing note. Carries the Undo, and
+  /// «شلنا» is the verb gridMarkCleared already uses for taking something
+  /// away.
+  String get gridNoteCleared => isAr ? 'شلنا الملاحظة' : 'Note removed';
+
+  /// Raised only when the write actually rejects. The note itself is never
+  /// rolled back, so this asks for a retry rather than announcing a loss.
+  String get gridNoteSaveFailed =>
+      isAr ? 'ما انحفظت. جرّب مرة ثانية.' : 'Not saved. Try again.';
+
+  /// Spoken into a square's semantic label. The corner mark is painted, so
+  /// this is the only way a screen reader learns the day carries writing.
+  String get gridNoteSemantics => isAr ? 'فيها ملاحظة' : 'has a note';
+
+  /// The door under the note field, at the moment someone is looking at a
+  /// note and therefore thinking about their notes.
+  String get gridNoteSeeAll =>
+      isAr ? 'شوف كل ملاحظاتك' : 'See all your notes';
+
+  /// Subtitle on the Grid overflow row that opens the journal.
+  String get gridNotesMenuHint => isAr
+      ? 'كل اللي كتبته على المربّعات'
+      : 'Everything you wrote on your squares';
+
+  /// The chip that finally makes ملاحظات العادات show only notes: the feed
+  /// also carries note-less skipped, failed and bonus marks.
+  String get gridJournalFilterHasNote => isAr ? 'فيها ملاحظة' : 'Has a note';
+
+  /// Labels the note in the heatmap day sheet, where it used to render as an
+  /// unlabelled grey subtitle with nothing saying it was the user's own
+  /// writing.
+  String get heatDayNoteLabel => isAr ? 'اللي كتبته' : 'What you wrote';
+
+  /// Shown under the search field whenever a query is active, NOT only when a
+  /// month returns nothing. One hit in September reads as "that is everything
+  /// I ever wrote" unless the screen says otherwise, and a reflections search
+  /// that quietly under-reports is worse than no search at all.
+  String get gridJournalSearchThisMonth =>
+      isAr ? 'دوّرنا في هذا الشهر بس' : 'Searched this month only';
+
+  /// The tappable half of that line. [n] counts only months the account may
+  /// actually open, so a free user is told 3 and never teased with 30.
+  String gridJournalSearchAllMonths(int n) => isAr
+      ? (n == 1
+          ? 'دوّر في الشهر اللي فيه ملاحظات'
+          : (n == 2
+              ? 'دوّر في الشهرين اللي فيهم ملاحظات'
+              : (n <= 10
+                  ? 'دوّر في $n شهور فيها ملاحظات'
+                  : 'دوّر في $n شهر فيها ملاحظات')))
+      : (n == 1
+          ? 'Search the 1 month with notes'
+          : 'Search all $n months with notes');
+
+  /// Progress while the walk is still running.
+  String gridJournalSearchProgress(int done, int total) => isAr
+      ? 'بحثنا في $done من $total'
+      : 'Searched $done of $total';
+
+  /// Leaves the all-months results and goes back to the browsed month.
+  String get gridJournalSearchBackToMonth =>
+      isAr ? 'رجّعنا لهذا الشهر' : 'Back to this month';
 }

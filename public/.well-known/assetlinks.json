@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.growdaily.v2",
+      "sha256_cert_fingerprints": [
+        "D0:13:13:2F:C4:D5:85:02:47:9A:75:94:DB:AF:D6:36:8C:27:D0:06:33:29:4B:20:36:DA:F4:55:7B:04:83:94"
+      ]
+    }
+  }
+]

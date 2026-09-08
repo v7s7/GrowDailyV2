@@ -102,7 +102,7 @@ class _SettingsSection extends ConsumerWidget {
               child: Row(
                 children: [
                   Icon(Icons.workspace_premium_rounded,
-                      size: 22, color: GameColors.gold),
+                      size: 22, color: context.gp.goldInk),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -122,7 +122,7 @@ class _SettingsSection extends ConsumerWidget {
                     ),
                   ),
                   Icon(Icons.chevron_right_rounded,
-                      size: 18, color: GameColors.gold),
+                      size: 18, color: context.gp.goldInk),
                 ],
               ),
             ),
@@ -302,7 +302,7 @@ class _SettingsSection extends ConsumerWidget {
                     s.deleteAccount,
                     style: TextStyle(
                         fontSize: 12.5,
-                        color: GameColors.error.withOpacity(0.8),
+                        color: context.gp.errorInk,
                         fontWeight: FontWeight.w500),
                   ),
                 ),
@@ -506,7 +506,7 @@ class _ProPill extends StatelessWidget {
         style: TextStyle(
           fontSize: 9,
           fontWeight: FontWeight.w800,
-          color: GameColors.gold,
+          color: context.gp.goldInk,
         ),
       ),
     );

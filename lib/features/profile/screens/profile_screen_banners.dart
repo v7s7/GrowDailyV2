@@ -54,7 +54,7 @@ class _LoadFailedBannerState extends ConsumerState<_LoadFailedBanner> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(Icons.cloud_off_rounded,
-                color: GameColors.warning, size: 22),
+                color: context.gp.warningInk, size: 22),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -144,7 +144,7 @@ class _GuestReconnectBannerState
             Row(
               children: [
                 Icon(Icons.cloud_upload_rounded,
-                    color: GameColors.gold, size: 24),
+                    color: context.gp.goldInk, size: 24),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -246,7 +246,7 @@ class _StreakAtRiskBanner extends ConsumerWidget {
         child: Row(
           children: [
             Icon(Icons.local_fire_department_rounded,
-                    color: GameColors.iconStreak, size: 26)
+                    color: context.gp.iconStreak, size: 26)
                 .animate(onPlay: (c) => c.repeat(reverse: true))
                 .scaleXY(
                   begin: 0.88,
@@ -264,7 +264,7 @@ class _StreakAtRiskBanner extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w800,
-                      color: GameColors.iconStreak,
+                      color: context.gp.iconStreak,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -327,7 +327,7 @@ class _NightReviewPromptCard extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
                 ),
                 child: Icon(Icons.auto_stories_rounded,
-                    color: GameColors.iconXp),
+                    color: context.gp.iconXp),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -352,7 +352,7 @@ class _NightReviewPromptCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: GameColors.iconXp),
+              Icon(Icons.chevron_right_rounded, color: context.gp.iconXp),
             ],
           ),
         ),
@@ -614,7 +614,7 @@ class _ProfileLinksSection extends ConsumerWidget {
                             style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
-                                color: GameColors.gold),
+                                color: context.gp.goldInk),
                           ),
                         ),
                         const SizedBox(width: 6),
@@ -642,11 +642,11 @@ void _showLanguageSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
-    // See add_habit_hub_sheet.dart's showAddHabitHub for why every bottom
-    // sheet in this app should set this: without it, the sheet's bottom
-    // edge renders flush with the literal screen edge instead of clearing
-    // the home-indicator bar, so content near the bottom sits in a
-    // different spot device to device.
+    // Same setting as add_habit_hub_sheet.dart's showAddHabitHub: every
+    // bottom sheet in this app sets it so its top stays clear of the status
+    // bar and notch. The bottom inset is the sheet's own job: the card's
+    // outer margin adds MediaQuery padding.bottom, which is what keeps
+    // content near the bottom in the same spot device to device.
     useSafeArea: true,
     builder: (ctx) => const _LanguageSheet(),
   );

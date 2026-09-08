@@ -14,8 +14,9 @@ void showGuestLimitSheet(BuildContext context, WidgetRef ref) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Without this, the sheet ignores the iPhone home-indicator inset and
-    // its footer button can render flush with (or under) the gesture bar.
+    // Keeps the sheet's top clear of the status bar and notch. The bottom
+    // inset is the sheet's own job: the card's outer margin adds MediaQuery
+    // padding.bottom, so the footer button clears the gesture bar.
     useSafeArea: true,
     builder: (_) => const _GuestLimitSheet(),
   );
@@ -29,7 +30,8 @@ class _GuestLimitSheet extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+      padding: EdgeInsets.fromLTRB(
+          16, 0, 16, 40 + MediaQuery.of(context).padding.bottom),
       child: Container(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
         decoration: BoxDecoration(
@@ -57,7 +59,7 @@ class _GuestLimitSheet extends ConsumerWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.lock_open_rounded,
-                  size: 28, color: GameColors.gold),
+                  size: 28, color: context.gp.goldInk),
             ),
             const SizedBox(height: 18),
             Text(

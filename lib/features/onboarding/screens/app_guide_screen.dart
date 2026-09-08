@@ -77,7 +77,7 @@ class AppGuideScreen extends ConsumerWidget {
         _Lesson(
           id: step.lesson,
           icon: _iconFor(step.lesson),
-          color: _colorFor(step.lesson),
+          color: _colorFor(context, step.lesson),
           title: appGuideLessonTitle(step.lesson, isAr),
           subtitle: appGuideLessonSubtitle(step.lesson, isAr),
           done: step.done,
@@ -198,7 +198,7 @@ class _LessonRow extends StatelessWidget {
             Icon(
               lesson.done ? Icons.check_circle_rounded : Icons.circle_outlined,
               size: 18,
-              color: lesson.done ? GameColors.emerald : gp.textTert,
+              color: lesson.done ? context.gp.emeraldInk : gp.textTert,
             ),
             const SizedBox(width: 6),
             Icon(
@@ -294,9 +294,10 @@ IconData _iconFor(AppGuideLesson lesson) => switch (lesson) {
       AppGuideLesson.discoverRooms => Icons.groups_rounded,
     };
 
-Color _colorFor(AppGuideLesson lesson) => switch (lesson) {
+Color _colorFor(BuildContext context, AppGuideLesson lesson) =>
+    switch (lesson) {
       AppGuideLesson.addHabit => GameColors.emerald,
       AppGuideLesson.colorSquare => GameColors.gold,
       AppGuideLesson.addTask => GameColors.error,
-      AppGuideLesson.discoverRooms => GameColors.iconStreak,
+      AppGuideLesson.discoverRooms => context.gp.iconStreak,
     };

@@ -23,7 +23,7 @@ import 'package:flutter/material.dart';
 /// `persist`, and returns WITHOUT clearing itself, so no second timer is ever
 /// armed. The bar is pinned to the bottom of the screen for the rest of the
 /// session, and because the messenger sits above the Navigator it rides along
-/// on top of every screen opened next: a "شيلنا العلامة" from the Grid was
+/// on top of every screen opened next: a "شلنا العلامة" from the Grid was
 /// still sitting over Room Detail minutes later.
 ///
 /// So every SnackBar in this app that carries an action passes

@@ -251,7 +251,7 @@ class LifeTimelineScreen extends ConsumerWidget {
               child: Row(
                 children: [
                   Icon(Icons.lock_clock_rounded,
-                      size: 20, color: GameColors.gold),
+                      size: 20, color: context.gp.goldInk),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
@@ -261,7 +261,7 @@ class LifeTimelineScreen extends ConsumerWidget {
                     ),
                   ),
                   Icon(Icons.chevron_right_rounded,
-                      size: 18, color: GameColors.gold.withOpacity(0.7)),
+                      size: 18, color: context.gp.goldInk),
                 ],
               ),
             ),
@@ -347,7 +347,7 @@ class _LifetimeHeader extends StatelessWidget {
           if (since != null) ...[
             Row(
               children: [
-                Icon(Icons.flag_rounded, size: 15, color: GameColors.gold),
+                Icon(Icons.flag_rounded, size: 15, color: context.gp.goldInk),
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
@@ -403,7 +403,7 @@ class _LifetimeStat extends StatelessWidget {
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w800,
-                color: gold ? GameColors.gold : gp.textPrimary,
+                color: gold ? context.gp.goldInk : gp.textPrimary,
               ),
             ),
           ),
@@ -513,7 +513,7 @@ class _YearSection extends StatelessWidget {
                   child: Text(
                     s.lifeTimelineYearTotal(yearTotal),
                     style: TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.w800, color: GameColors.emerald),
+                        fontSize: 11, fontWeight: FontWeight.w800, color: context.gp.emeraldInk),
                   ),
                 ),
             ],
@@ -529,7 +529,7 @@ class _YearSection extends StatelessWidget {
                 for (final entry in tally.entries)
                   MilestoneTallyChip(
                     icon: entry.key.icon,
-                    color: entry.key.color,
+                    color: entry.key.color(context.gp.dark),
                     count: entry.value,
                     label: entry.key.localizedName(S.of(context).isAr),
                   ),

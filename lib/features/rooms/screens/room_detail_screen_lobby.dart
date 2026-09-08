@@ -72,6 +72,8 @@ class _RoomBody extends ConsumerWidget {
             tooltip: s.roomShareAction,
             onPressed: () {
               HapticFeedback.selectionClick();
+              AnalyticsService.instance
+                  .track('room_code_shared', props: {'surface': 'lobby'});
               ShareService.shareText(
                 context,
                 s.roomShareMessage(room.name, room.code),
@@ -106,7 +108,7 @@ class _RoomBody extends ConsumerWidget {
                 PopupMenuItem(
                   value: 'delete',
                   child: Text(s.roomDeleteAction,
-                      style: const TextStyle(color: GameColors.error)),
+                      style: TextStyle(color: context.gp.errorInk)),
                 ),
             ],
           ),
@@ -124,17 +126,13 @@ class _RoomBody extends ConsumerWidget {
           // takes the place of the one-row ranking (see below).
           final soloLive =
               !room.isLobby && !room.isEnded && participants.length == 1;
-          final sorted = [...participants]..sort((a, b) {
-            final byProgress =
-                b.progressRatio(room).compareTo(a.progressRatio(room));
-            // Deterministic tie-break. List.sort is unstable above 32 elements
-            // and ties are the common case (day one, and everyone at 100% in an
-            // active room), so without a secondary key the tied rows — and the
-            // rank numbers derived from their order — visibly reshuffle on every
-            // participants-stream rebuild, with nobody's score having changed.
-            // uid is stable and unique.
-            return byProgress != 0 ? byProgress : a.uid.compareTo(b.uid);
-          });
+          // Ordered AND numbered in one pass, by the one function that
+          // decides both (see RoomLeaderboard.standings). Every card below
+          // is handed the places rather than the bare order: three of them
+          // used to re-derive a rank from a list position, which is how two
+          // members who were dead level ended up with one cup and one
+          // silver 2 between them.
+          final standings = room.standings(participants);
 
           return RefreshIndicator(
             onRefresh: () => onManualSync(room, mine),
@@ -155,7 +153,7 @@ class _RoomBody extends ConsumerWidget {
                   const SizedBox(height: 14),
                 ] else if (room.isEnded) ...[
                   _FinaleCard(
-                    sorted: sorted,
+                    standings: standings,
                     room: room,
                     mine: mine,
                     isLeader: isLeader,
@@ -212,10 +210,18 @@ class _RoomBody extends ConsumerWidget {
                     participants.length > 1 &&
                     room.competeMode == RoomCompeteMode.team) ...[
                   const SizedBox(height: 14),
-                  _CollapsedRanking(sorted: sorted, room: room, myUid: uid),
+                  _CollapsedRanking(
+                    standings: standings,
+                    room: room,
+                    myUid: uid,
+                  ),
                 ] else if (!soloLive) ...[
                   const SizedBox(height: 14),
-                  _LeaderboardList(sorted: sorted, room: room, myUid: uid),
+                  _LeaderboardList(
+                    standings: standings,
+                    room: room,
+                    myUid: uid,
+                  ),
                 ],
               ],
             ),
@@ -463,7 +469,7 @@ class _EmptyLobbyCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.groups_rounded, size: 20, color: GameColors.emerald),
+              Icon(Icons.groups_rounded, size: 20, color: context.gp.emeraldInk),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -514,9 +520,15 @@ class _EmptyLobbyCard extends StatelessWidget {
               width: double.infinity,
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: GameColors.emerald,
+                  // The grid colour is even paler than the accent on cream
+                  // (1.96:1 by default), so it needs the same treatment.
+                  foregroundColor: gp.emeraldInk,
                   minimumSize: const Size.fromHeight(44),
-                  side: BorderSide(color: GameColors.emerald.withOpacity(0.45)),
+                  side: BorderSide(
+                    color: gp.dark
+                        ? GameColors.emerald.withValues(alpha: 0.45)
+                        : gp.emeraldEdge,
+                  ),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
@@ -576,7 +588,7 @@ class _ScheduledLobbyCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.bolt_rounded, size: 15, color: GameColors.gold)
+              Icon(Icons.bolt_rounded, size: 15, color: context.gp.goldInk)
                   .animate(onPlay: (c) => c.repeat(reverse: true))
                   .fadeIn(duration: 700.ms, begin: 0.4),
               const SizedBox(width: 6),
@@ -658,11 +670,11 @@ class _ScheduledLobbyCard extends StatelessWidget {
 /// under it would quietly turn the room back into a race. Open is
 /// session-local, not persisted: it is a glance, not a setting.
 class _CollapsedRanking extends StatefulWidget {
-  final List<RoomParticipant> sorted;
+  final List<RoomStanding> standings;
   final RoomModel room;
   final String? myUid;
   const _CollapsedRanking({
-    required this.sorted,
+    required this.standings,
     required this.room,
     required this.myUid,
   });
@@ -730,7 +742,10 @@ class _CollapsedRankingState extends State<_CollapsedRanking> {
         if (_open) ...[
           const SizedBox(height: 8),
           _LeaderboardList(
-              sorted: widget.sorted, room: widget.room, myUid: widget.myUid),
+            standings: widget.standings,
+            room: widget.room,
+            myUid: widget.myUid,
+          ),
         ],
       ],
     );

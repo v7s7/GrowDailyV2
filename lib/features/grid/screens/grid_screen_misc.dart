@@ -182,7 +182,7 @@ class _GridEmptyState extends ConsumerWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.grid_view_rounded,
-                  size: 36, color: GameColors.emerald),
+                  size: 36, color: context.gp.emeraldInk),
             )
                 .animate()
                 .scale(curve: Curves.elasticOut, duration: 700.ms)

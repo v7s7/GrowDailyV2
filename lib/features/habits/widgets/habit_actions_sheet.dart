@@ -93,7 +93,9 @@ class _HabitActionsSheet extends StatelessWidget {
       padding: EdgeInsets.only(
         left: 16,
         right: 16,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -221,7 +223,7 @@ class _ActionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final tint = destructive ? GameColors.error : gp.textPrimary;
+    final tint = destructive ? gp.errorInk : gp.textPrimary;
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -303,10 +305,10 @@ Future<bool> confirmDeleteForever(
           onPressed: () => Navigator.pop(dialogContext, true),
           child: Text(
             s.habitDeleteForeverConfirm,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w800,
-              color: GameColors.error,
+              color: context.gp.errorInk,
             ),
           ),
         ),
