@@ -2105,5 +2105,13 @@ struct GrowDailyWidgetBundle: WidgetBundle {
         if #available(iOS 26.0, *) {
             GrowDailyAlarmLiveActivity()
         }
+        // The Lock Screen's bottom slots, Control Center and the Action
+        // Button, see GrowDailyControls.swift. iOS 18 only; before that
+        // there are no controls to put anywhere.
+        if #available(iOS 18.0, *) {
+            GrowDailyHabitsControl()
+            GrowDailyTasksControl()
+            GrowDailyAddTaskControl()
+        }
     }
 }

@@ -81,6 +81,42 @@ const String legacyScheme = 'growdaily';
 /// a browser gets when the app is not installed).
 const String resetPath = '/reset';
 
+/// Path for a plain "open the app here" link: `growdaily://open?tab=grid`.
+///
+/// What the iOS Lock Screen / Control Center controls use (see
+/// ios/GrowDailyWidget/GrowDailyControls.swift). One parameterised link
+/// rather than a path per page, because the destinations are exactly
+/// [NavTab]'s ids and a second list of names that has to agree with that
+/// enum is a list that will eventually disagree with it.
+const String openPath = '/open';
+
+/// The tab id from an "open the app here" link, or null.
+///
+/// Returns the raw id rather than a NavTab: this file is in core/constants
+/// and the enum lives in core/providers, so resolving it here would point a
+/// constant at a provider. The caller maps it, and an id this build does not
+/// know simply opens the app on its usual tab.
+///
+/// Accepts both shapes for the same reason [parsePasswordResetLink] does: a
+/// custom scheme puts "open" in the host, an https link puts it in the path.
+String? parseOpenTabLink(Uri uri) {
+  final scheme = uri.scheme.toLowerCase();
+  final isWeb = scheme == 'https' || scheme == 'http';
+  if (!isWeb && scheme != legacyScheme) return null;
+
+  final first = uri.pathSegments.isEmpty ? '' : uri.pathSegments.first;
+  final target = isWeb ? first : (uri.host.isEmpty ? first : uri.host);
+  if (target.toLowerCase() != 'open') return null;
+
+  final tab = uri.queryParameters['tab']?.trim().toLowerCase() ?? '';
+  return tab.isEmpty ? null : tab;
+}
+
+/// The link a control taps. Kept here so the Swift side has one spelling to
+/// copy and the test can assert the round trip.
+Uri openTabUrl(String tabId) =>
+    Uri(scheme: legacyScheme, host: 'open', queryParameters: {'tab': tabId});
+
 /// Parses a password-reset link into its Firebase `oobCode`, or null.
 ///
 /// Two shapes reach the app, and both mean the same thing:

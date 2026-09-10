@@ -1762,11 +1762,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   }
 
   /// Every `growdaily://...` link this app currently recognizes, in one
-  /// place — a room invite (see [parseRoomJoinLink]) or the Matrix widget's
-  /// "+" button (see [isMatrixQuickAddLink]). A link matching neither is
-  /// just ignored, same as before this was split out of [_initDeepLinks]:
-  /// some other feature, or the OS itself, can hand this app a link for a
-  /// reason unrelated to either of these, and that's fine.
+  /// place — a room invite (see [parseRoomJoinLink]), the Matrix widget's
+  /// "+" button (see [isMatrixQuickAddLink]), a password reset (see
+  /// [parsePasswordResetLink]) or a Lock Screen control (see
+  /// [parseOpenTabLink]). A link matching none of them is just ignored, same
+  /// as before this was split out of [_initDeepLinks]: some other feature, or
+  /// the OS itself, can hand this app a link for a reason unrelated to any of
+  /// these, and that's fine.
   void _handleDeepLink(Uri uri) {
     final code = parseRoomJoinLink(uri);
     if (code != null) {
@@ -1786,7 +1788,23 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       return;
     }
     final resetCode = parsePasswordResetLink(uri);
-    if (resetCode != null) _openPasswordReset(resetCode);
+    if (resetCode != null) {
+      _openPasswordReset(resetCode);
+      return;
+    }
+    // A Lock Screen / Control Center control. Deliberately last and
+    // deliberately forgiving: an id this build does not know (a control left
+    // on the lock screen after the tab it pointed at was removed) opens the
+    // app on its usual tab rather than doing nothing, which is the difference
+    // between a stale control feeling slow and feeling broken.
+    final tabId = parseOpenTabLink(uri);
+    if (tabId != null) {
+      final tab = NavTab.byId(tabId);
+      if (tab != null) {
+        ref.read(requestedHomeTabProvider.notifier).state = tab;
+      }
+      AnalyticsService.instance.track('control_opened', props: {'tab': tabId});
+    }
   }
 
   /// The code from a reset link, held only until there is a Navigator to
