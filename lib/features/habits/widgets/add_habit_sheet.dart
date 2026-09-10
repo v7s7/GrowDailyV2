@@ -2300,7 +2300,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 ),
               ),
             ),
-            Switch(value: on, onChanged: _setTimingEnabled),
+            Switch.adaptive(
+              value: on,
+              activeTrackColor: GameColors.emerald,
+              onChanged: _setTimingEnabled,
+            ),
           ],
         ),
       ),

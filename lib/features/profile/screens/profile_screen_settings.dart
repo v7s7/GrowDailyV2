@@ -144,8 +144,9 @@ class _SettingsSection extends ConsumerWidget {
                 // toggle deserves. shrinkWrap + the smaller padding is what
                 // keeps this row the same height as its siblings; see
                 // _SettingsRow.verticalPadding.
-                trailing: Switch(
+                trailing: Switch.adaptive(
                   value: isDark,
+                  activeTrackColor: GameColors.emerald,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   onChanged: (_) {
                     HapticFeedback.selectionClick();

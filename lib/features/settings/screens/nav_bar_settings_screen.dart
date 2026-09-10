@@ -309,8 +309,9 @@ class _BadgesSwitchRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Switch(
+              Switch.adaptive(
                 value: enabled,
+                activeTrackColor: GameColors.emerald,
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 onChanged: onChanged,
               ),

@@ -1055,8 +1055,9 @@ class _SwitchRow extends StatelessWidget {
               ],
             ),
           ),
-          Switch(
+          Switch.adaptive(
             value: value,
+            activeTrackColor: GameColors.emerald,
             onChanged: (v) {
               HapticFeedback.selectionClick();
               onChanged(v);
