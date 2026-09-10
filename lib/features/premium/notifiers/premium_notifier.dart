@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purchases_flutter/purchases_flutter.dart' show CustomerInfo;
 
@@ -269,6 +271,22 @@ Future<String?> loadPersistedPremiumUid() async {
 class PremiumNotifier extends StateNotifier<bool> {
   StreamSubscription<CustomerInfo>? _sub;
 
+  /// WEB ONLY: the server-written entitlement mirror on `users/{uid}`.
+  ///
+  /// RevenueCat has no Flutter web SDK, so PurchaseService.configure()
+  /// returns null on kIsWeb and [customerInfoUpdates] never emits there.
+  /// Someone who bought Premium on their iPhone therefore read as FREE on
+  /// the web app, with no way to prove otherwise. The revenueCatWebhook
+  /// Cloud Function mirrors the entitlement onto the user doc and this
+  /// listens to it.
+  ///
+  /// Deliberately NOT used on iOS or Android. The SDK is the authority
+  /// there: it is fresher than any webhook (a purchase is live before the
+  /// event lands), it works offline from its own cache, and it keeps
+  /// working through a webhook outage. Reading the mirror on mobile would
+  /// trade all three for nothing.
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _mirrorSub;
+
   /// The account this device's cached entitlement was written for, read from
   /// disk at boot. Compared against the account that actually signs in, in
   /// [bindAccount].
@@ -300,6 +318,7 @@ class PremiumNotifier extends StateNotifier<bool> {
   /// person's subscription to the next person who signs in.
   void bindAccount(String uid) {
     _uid = uid;
+    _listenToMirror(uid);
     final stale = _cachedUid != null && _cachedUid != uid;
     _cachedUid = uid;
     if (stale && state) {
@@ -328,7 +347,48 @@ class PremiumNotifier extends StateNotifier<bool> {
   void detachAccount() {
     _uid = null;
     _cachedUid = null;
+    _mirrorSub?.cancel();
+    _mirrorSub = null;
     _set(false);
+  }
+
+  /// Subscribes to this account's server-written mirror, on web only.
+  ///
+  /// The callback is async by construction (a Firestore snapshot never
+  /// arrives inside a build), so unlike [bindAccount]'s own stale-cache
+  /// path this needs no microtask guard.
+  void _listenToMirror(String uid) {
+    if (!kIsWeb) return;
+    _mirrorSub?.cancel();
+    _mirrorSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen(
+      (snap) {
+        // A doc that has never been written by the webhook says nothing
+        // about entitlement, so it reads as free rather than as an error.
+        if (_uid != uid) return; // Account changed while in flight.
+        _set(_mirrorSaysPremium(snap.data()));
+      },
+      // Offline, signed out mid-stream, or rules denied: fail to FREE and
+      // let a later snapshot correct it. Never throw into the zone.
+      onError: (_) {},
+    );
+  }
+
+  /// Whether the mirror on the user doc grants Premium right now.
+  ///
+  /// `premiumActive` is the webhook's verdict at the moment it wrote. The
+  /// expiry is re-checked here as well, so a subscription that lapsed
+  /// while no webhook landed (an outage, a dropped delivery) stops reading
+  /// as Premium rather than hanging on until the next event.
+  static bool _mirrorSaysPremium(Map<String, dynamic>? data) {
+    if (data == null) return false;
+    if (data['premiumActive'] != true) return false;
+    final expires = data['premiumExpiresAtMs'];
+    if (expires is! int) return true; // Lifetime, or no expiry recorded.
+    return expires > DateTime.now().millisecondsSinceEpoch;
   }
 
   void _set(bool entitled) {
@@ -415,6 +475,7 @@ class PremiumNotifier extends StateNotifier<bool> {
   @override
   void dispose() {
     _sub?.cancel();
+    _mirrorSub?.cancel();
     super.dispose();
   }
 }
