@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -621,25 +622,35 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                           size: 18, color: gp.textTert),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(s.premiumComingSoon,
+                        child: Text(
+                            // On the web this is not a transient failure and
+                            // never will be: RevenueCat has no Flutter web
+                            // SDK, so purchase_service returns null there and
+                            // no offering can ever load. Saying "try again
+                            // shortly" was an invitation to keep tapping a
+                            // button that cannot work.
+                            kIsWeb ? s.premiumBuyOnIphone : s.premiumComingSoon,
                             style: TextStyle(fontSize: 12.5, color: gp.textSec)),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 6),
-                // In App Review's sandbox a failed or slow offering fetch is
-                // the COMMON case. One tap to retry beats a dead end.
-                Center(
-                  child: TextButton(
-                    onPressed: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _loadingOffering = true);
-                      _loadOffering();
-                    },
-                    child: Text(s.premiumRetry),
+                // No Retry on the web, for the same reason. On a real store
+                // a failed or slow offering fetch is the COMMON case in App
+                // Review's sandbox, and one tap to retry beats a dead end.
+                if (!kIsWeb) ...[
+                  const SizedBox(height: 6),
+                  Center(
+                    child: TextButton(
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _loadingOffering = true);
+                        _loadOffering();
+                      },
+                      child: Text(s.premiumRetry),
+                    ),
                   ),
-                ),
+                ],
               ] else ...[
                 // Plan picker: the lead plan first and badged, then the
                 // rest in ladder order. Built from a list rather than three
@@ -675,7 +686,12 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               // failure mode — offerings unavailable — showed a reviewer a
               // paywall with no Restore button and no privacy policy, and
               // this screen is the app's ONLY restore entry point.
-              if (!isPremium && !_loadingOffering) ...[
+              // `!kIsWeb`: Restore asks the RevenueCat SDK, which is never
+              // configured on the web, so the button could only ever fail.
+              // It is also unnecessary there, because the server-written
+              // mirror PremiumNotifier listens to already restores the
+              // entitlement by itself the moment the webhook lands.
+              if (!isPremium && !_loadingOffering && !kIsWeb) ...[
                 const SizedBox(height: 10),
                 TextButton(
                   onPressed: _isRestoring ? null : _restore,

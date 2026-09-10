@@ -2887,6 +2887,26 @@ class S {
   String get premiumComingSoon => isAr
       ? 'بريميوم غير متاح الآن. حاول مرة أخرى بعد قليل.'
       : 'Premium isn\'t available right now. Please try again shortly.';
+
+  /// The web app's paywall state. On the web there is no store to buy
+  /// through: RevenueCat has no Flutter web SDK, so no offering ever loads
+  /// and the buy button did nothing at all while «حاول مرة أخرى» invited a
+  /// retry that could never succeed.
+  ///
+  /// Says what actually works instead. Buying happens in the iPhone app,
+  /// and the revenueCatWebhook mirror means it lights up here on its own
+  /// with nothing to restore by hand, which is why this replaces the
+  /// Restore button on the web rather than sitting next to it.
+  ///
+  /// Shown ONLY on the web. It must never appear inside the iOS app: App
+  /// Store guideline 3.1.1 forbids pointing at a purchase outside the app,
+  /// and the kIsWeb gate at its call site is what keeps them apart.
+  ///
+  /// DRAFT WORDING, not yet Aziz's. Easy spoken Arabic.
+  String get premiumBuyOnIphone => isAr
+      ? 'الاشتراك يتم من تطبيق الآيفون. اشترك هناك، وبريميوم بينفتح لك هنا بنفس الحساب.'
+      : 'Premium is bought in the iPhone app. Subscribe there and it unlocks '
+          'here on the same account.';
   String get premiumActive => isAr
       ? 'بريميوم مفعّل. شكرًا لدعمك!'
       : 'Premium is active. Thank you for your support!';
@@ -3467,7 +3487,28 @@ class S {
   // gives him 0.5 show that with the done mark" - Aziz, 2026-09-10.
 
   /// Sits under the day's fraction. The fraction is habits, not points.
-  String get roomCalendarDayScore => isAr ? 'من عادات اليوم' : "of the day's habits";
+  /// The denominator, spelled the way this app spells every other fraction.
+  ///
+  /// Arabic joins a fraction with «من», never a slash: roomDayCount,
+  /// roomPlanCoverage and about twenty other strings all do it. This card was
+  /// the ONE place in the app printing an Arabic fraction as "2.5 / 3", which
+  /// is why Aziz asked how it reads in Arabic (2026-09-10). Latin digits stay,
+  /// per the house rule; it is the separator that was foreign.
+  ///
+  /// It also absorbs the old standalone label: "2.5 من 3 من عادات اليوم"
+  /// would have said من twice in one breath.
+  String roomCalendarScoreOf(int total) {
+    if (!isAr) return 'of $total ${total == 1 ? 'habit' : 'habits'}';
+    return switch (total) {
+      1 => 'من عادة',
+      2 => 'من عادتين',
+      _ => 'من $total عادات',
+    };
+  }
+
+  /// The same fraction on the sum line, where it stands alone.
+  String roomCalendarTotalOf(String done, int total) =>
+      isAr ? '$done من $total' : '$done / $total';
 
   /// The same, when the day asked for nothing.
   String get roomCalendarNothingAsked =>

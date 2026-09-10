@@ -566,25 +566,18 @@ class _DayScoreCard extends StatelessWidget {
             color: ink,
           ),
         ),
-        Text(
-          ' / ${b.scheduled}',
-          textDirection: TextDirection.ltr,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            color: gp.textSec,
-          ),
-        ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 6),
         Expanded(
           child: Text(
-            s.roomCalendarDayScore,
+            // «من 3 عادات», not "/ 3". Arabic joins a fraction with من, and
+            // this card was the only place in the app using a slash for one.
+            s.roomCalendarScoreOf(b.scheduled),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              color: gp.textTert,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: gp.textSec,
             ),
           ),
         ),
@@ -618,8 +611,8 @@ class _DayScoreCard extends StatelessWidget {
           ),
         ),
         Text(
-          '${_count(b.credited)} / ${b.scheduled}',
-          textDirection: TextDirection.ltr,
+          s.roomCalendarTotalOf(_count(b.credited), b.scheduled),
+          textDirection: s.isAr ? null : TextDirection.ltr,
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w900,
@@ -676,9 +669,17 @@ class _DayScoreCard extends StatelessWidget {
   /// should be +0.5 +0.5, so we know that this is how it being counted".
   static String _share(double v) {
     if (v <= 0) return '0';
-    final text = v.toStringAsFixed(2);
-    final trimmed = text.endsWith('0') ? text.substring(0, text.length - 1) : text;
-    return '+$trimmed';
+    var text = v.toStringAsFixed(2);
+    // Strip trailing zeros AND a bare point: one pass left "+1.0" on a
+    // one-habit day while _count printed "1" for the same value two rows
+    // below it, on the same card.
+    if (text.contains('.')) {
+      while (text.endsWith('0')) {
+        text = text.substring(0, text.length - 1);
+      }
+      if (text.endsWith('.')) text = text.substring(0, text.length - 1);
+    }
+    return '+$text';
   }
 
   /// What one habit ADDED to the day.

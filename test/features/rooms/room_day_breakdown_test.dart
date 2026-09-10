@@ -1,4 +1,6 @@
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/rooms/models/room_day_breakdown.dart';
 import 'package:grow_daily_v2/features/rooms/models/room_model.dart';
@@ -450,6 +452,39 @@ void main() {
         final shares = List<double>.filled(n, 1 / n);
         final out = roundedShares(shares);
         expect(sum(out), closeTo(1.0, 1e-9), reason: '\$n habits');
+      }
+    });
+  });
+
+  /// How the score reads in Arabic.
+  ///
+  /// Aziz, 2026-09-10: "check how it shows in arabic, and fix that". An audit
+  /// of the card found this was the ONE place in the app printing an Arabic
+  /// fraction with a slash; every other one joins with «من».
+  group('the Arabic fraction', () {
+    final ar = S(const Locale('ar'));
+    final en = S(const Locale('en'));
+
+    test('Arabic joins with من, never a slash', () {
+      expect(ar.roomCalendarTotalOf('2.5', 3), '2.5 من 3');
+      expect(ar.roomCalendarScoreOf(3), 'من 3 عادات');
+      expect(ar.roomCalendarScoreOf(3), isNot(contains('/')));
+    });
+
+    test('the count agrees with the noun, as roomPlanCoverage does', () {
+      expect(ar.roomCalendarScoreOf(1), 'من عادة');
+      expect(ar.roomCalendarScoreOf(2), 'من عادتين');
+    });
+
+    test('English keeps the slash and the plural', () {
+      expect(en.roomCalendarTotalOf('2.5', 3), '2.5 / 3');
+      expect(en.roomCalendarScoreOf(3), 'of 3 habits');
+      expect(en.roomCalendarScoreOf(1), 'of 1 habit');
+    });
+
+    test('digits stay Latin in both, per the house rule', () {
+      for (final t in [ar.roomCalendarTotalOf('2.5', 3), ar.roomCalendarScoreOf(3)]) {
+        expect(RegExp(r'[٠-٩]').hasMatch(t), isFalse, reason: t);
       }
     });
   });
