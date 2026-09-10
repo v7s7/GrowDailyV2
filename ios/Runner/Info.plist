@@ -71,6 +71,14 @@
 	<string>GrowDaily uses your microphone to record short voice notes you attach to tasks. If you are signed in, your notes are saved to your private GrowDaily account so they sync across your devices.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>GrowDaily reads your daily step count from Apple Health (including steps recorded by your Apple Watch) so walking habits you link to steps can complete themselves automatically. Steps are only read, never changed, and stay on your device.</string>
+	<!-- Required by App Store validation (error 90683) whenever the HealthKit
+	     entitlement is present, even for an app that only ever reads: the
+	     entitlement PERMITS writing, so Apple asks for the string regardless.
+	     Build 69 was refused for its absence on 2026-09-10. The wording says
+	     plainly that nothing is written, because that is the truth and it is
+	     what somebody reading the sheet wants to know. -->
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>GrowDaily never writes anything to Apple Health. It only reads your step count, so nothing you see in Health is changed or added by this app.</string>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>GrowDaily rings an alarm for the habits and tasks you choose to be woken for, even when your iPhone is on silent or in a Focus. Only reminders you switch to alarm use this.</string>
 	<key>NSSupportsLiveActivities</key>
