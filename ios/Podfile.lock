@@ -1219,12 +1219,6 @@ PODS:
     - Firebase/Functions (= 11.15.0)
     - firebase_core
     - Flutter
-  - CocoaLumberjack (3.9.1):
-    - CocoaLumberjack/Core (= 3.9.1)
-  - CocoaLumberjack/Core (3.9.1)
-  - cupertino_native_better (0.0.1):
-    - Flutter
-    - SVGKit (~> 3.0)
   - device_info_plus (0.0.1):
     - Flutter
   - Firebase/AnalyticsWithoutAdIdSupport (11.15.0):
@@ -1560,8 +1554,6 @@ PODS:
   - sign_in_with_apple (0.0.1):
     - Flutter
     - FlutterMacOS
-  - SVGKit (3.0.0):
-    - CocoaLumberjack (~> 3.0)
   - url_launcher_ios (0.0.1):
     - Flutter
 
@@ -1570,7 +1562,6 @@ DEPENDENCIES:
   - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/darwin`)
   - cloud_firestore (from `.symlinks/plugins/cloud_firestore/ios`)
   - cloud_functions (from `.symlinks/plugins/cloud_functions/ios`)
-  - cupertino_native_better (from `.symlinks/plugins/cupertino_native_better/ios`)
   - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
   - firebase_analytics (from `.symlinks/plugins/firebase_analytics/ios`)
   - firebase_auth (from `.symlinks/plugins/firebase_auth/ios`)
@@ -1600,7 +1591,6 @@ SPEC REPOS:
     - AppAuth
     - AppCheckCore
     - BoringSSL-GRPC
-    - CocoaLumberjack
     - Firebase
     - FirebaseAnalytics
     - FirebaseAppCheckInterop
@@ -1636,7 +1626,6 @@ SPEC REPOS:
     - RecaptchaInterop
     - RevenueCat
     - RevenueCatUI
-    - SVGKit
 
 EXTERNAL SOURCES:
   app_links:
@@ -1647,8 +1636,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/cloud_firestore/ios"
   cloud_functions:
     :path: ".symlinks/plugins/cloud_functions/ios"
-  cupertino_native_better:
-    :path: ".symlinks/plugins/cupertino_native_better/ios"
   device_info_plus:
     :path: ".symlinks/plugins/device_info_plus/ios"
   firebase_analytics:
@@ -1703,8 +1690,6 @@ SPEC CHECKSUMS:
   BoringSSL-GRPC: dded2a44897e45f28f08ae87a55ee4bcd19bc508
   cloud_firestore: fdcc87898326e396d6ef6df543acf9b5c2034b95
   cloud_functions: 8565a870fbdc2b5046cba8183e972484128b6d8d
-  CocoaLumberjack: e4ba3b414dfca8c1916c6303d37f63b3a95134c6
-  cupertino_native_better: 48a6a9cd45efc9ea9e1eec30755b5a8ebe92f1f2
   device_info_plus: 21fcca2080fbcd348be798aa36c3e5ed849eefbe
   Firebase: d99ac19b909cd2c548339c2241ecd0d1599ab02e
   firebase_analytics: faf4abd990c99309b1af7cf7ae22e4c55b19ab19
@@ -1761,7 +1746,6 @@ SPEC CHECKSUMS:
   RevenueCatUI: 89a3f81665e6f3e2b70a15403e91683ff0959952
   share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a
   sign_in_with_apple: 5e34677a4e74c5f42760f41b3bbe05343e84d171
-  SVGKit: 1ad7513f8c74d9652f94ed64ddecda1a23864dea
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
 
 PODFILE CHECKSUM: 6bd93480903c808589999d9e5568befb3ac201df

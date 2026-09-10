@@ -11,6 +11,10 @@
           {
             "/": "/reset*",
             "comment": "Password reset. Opens the app on the new-password screen with the oobCode from the email; public/reset/index.html is what a computer gets instead."
+          },
+          {
+            "/": "/open*",
+            "comment": "Lock Screen and Control Center controls. A control can only open the app through a UNIVERSAL link: OpenURLIntent refuses a custom scheme from a ControlWidget, so growdaily://open did nothing at all on build 69."
           }
         ]
       }

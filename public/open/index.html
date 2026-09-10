@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grow Daily</title>
+<!--
+  The safety net for a Lock Screen / Control Center control.
+
+  A control can only open the app through a UNIVERSAL link (OpenURLIntent
+  refuses a custom scheme), and a universal link only reaches the app when
+  /open* is listed in .well-known/apple-app-site-association AND that file
+  is deployed. When the handshake has not happened, iOS hands the URL to
+  Safari and lands here instead of on a 404. This page then bounces to
+  growdaily://open, which DOES work from a browser.
+
+  Same job and same shape as public/reset/index.html.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #FBF7EE; color: #1E2B24;
+    font: 500 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    text-align: center; padding: 24px;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #101814; color: #EAF2EC; }
+  }
+  .card { max-width: 22rem; }
+  .mark { font-size: 44px; line-height: 1; margin-bottom: 14px; }
+  h1 { font-size: 19px; margin: 0 0 8px; font-weight: 800; }
+  p { margin: 0 0 20px; opacity: .72; font-size: 14px; }
+  a.cta {
+    display: inline-block; padding: 13px 22px; border-radius: 999px;
+    background: #E4B45F; color: #241B08; font-weight: 800;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark">🌱</div>
+    <h1>Opening Grow Daily</h1>
+    <p>If nothing happens, tap the button below.</p>
+    <a class="cta" id="cta" href="growdaily://open">Open the app</a>
+  </div>
+<script>
+  // Carry the query through verbatim, so ?tab=matrix&add=1 still lands on
+  // the add-task sheet rather than just the tasks page.
+  var target = 'growdaily://open' + (location.search || '');
+  document.getElementById('cta').href = target;
+  location.replace(target);
+</script>
+</body>
+</html>

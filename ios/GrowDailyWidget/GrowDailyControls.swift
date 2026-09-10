@@ -29,66 +29,84 @@ import WidgetKit
 private enum ControlDestination: String {
     case habits = "grid"
     case tasks = "matrix"
-
-    /// `growdaily://open?tab=<id>` — one parameterised link rather than a
-    /// path per page. See parseOpenTabLink in
-    /// lib/core/constants/deep_links.dart, which is the only place that
-    /// spelling has to agree.
-    var url: URL {
-        URL(string: "growdaily://open?tab=\(rawValue)")!
-    }
 }
 
-/// The Matrix widget's existing quick-add link, reused verbatim. A capture
-/// action is the one thing a lock screen is genuinely better at than the
-/// app icon, so it earns a control of its own rather than being a second
-/// tap inside the Tasks one.
-private let quickAddTaskURL = URL(string: "growdaily://matrix/add")!
+/// The host that owns the universal links, matching `linkHost` in
+/// lib/core/constants/deep_links.dart.
+private let linkHost = "grow-daily-339ef.web.app"
+
+/// A UNIVERSAL link, not growdaily://.
+///
+/// This is the whole bug of build 69. A ControlWidget's OpenURLIntent
+/// REFUSES a custom scheme — it accepts an https universal link only — so
+/// the three controls appeared on the Lock Screen and did nothing when
+/// tapped ("the locked buttom are here but its not opening", Aziz,
+/// 2026-09-10). Nothing in the build, the analyzer or the descriptor log
+/// could show it: registration succeeded, only the action was inert.
+///
+/// Requires /open* in public/.well-known/apple-app-site-association AND
+/// that file to be DEPLOYED, or iOS has no association to honour and hands
+/// the URL to Safari. public/open/index.html is the safety net for exactly
+/// that case: it bounces to growdaily://open, which does work from a
+/// browser.
+private func openURL(tab: String, quickAdd: Bool = false) -> URL {
+    var c = URLComponents()
+    c.scheme = "https"
+    c.host = linkHost
+    c.path = "/open"
+    c.queryItems = [URLQueryItem(name: "tab", value: tab)]
+    if quickAdd { c.queryItems?.append(URLQueryItem(name: "add", value: "1")) }
+    return c.url!
+}
 
 // MARK: - Intents
 
-/// Opens a URL in the app.
+/// Each intent declares its own `perform()`, deliberately, rather than
+/// inheriting one from a shared protocol extension. App Intents builds its
+/// metadata from the concrete type, and a `perform()` supplied by a protocol
+/// default is a way to end up registered but inert.
 ///
-/// A control cannot open a URL directly: ControlWidgetButton takes an
-/// AppIntent, so the intent is the thing that has to do the opening. Going
-/// out through the URL rather than navigating from Swift is deliberate — it
-/// lands in main.dart's _handleDeepLink, which is already the single place
-/// every link in this app is resolved, so a control cannot drift away from
-/// what a shared link, a widget tap or a notification action would do.
-@available(iOS 18.0, *)
-private protocol OpensGrowDaily: AppIntent {
-    var destinationURL: URL { get }
-}
+/// Going out through a URL rather than navigating from Swift is also
+/// deliberate: it lands in main.dart's _handleDeepLink, which is already the
+/// single place every link in this app is resolved, so a control cannot
+/// drift from what a shared link, a widget tap or a notification action
+/// would do.
 
 @available(iOS 18.0, *)
-extension OpensGrowDaily {
+struct OpenGrowDailyHabitsIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open Habits"
+    static var description = IntentDescription("Opens Grow Daily on your habit board.")
+    static var openAppWhenRun: Bool { true }
+
     func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(destinationURL))
+        .result(opensIntent: OpenURLIntent(openURL(tab: ControlDestination.habits.rawValue)))
     }
 }
 
 @available(iOS 18.0, *)
-struct OpenGrowDailyHabitsIntent: AppIntent, OpensGrowDaily {
-    static var title: LocalizedStringResource = "Open Habits"
-    static var description = IntentDescription("Opens Grow Daily on your habit board.")
-    static var openAppWhenRun: Bool { true }
-    fileprivate var destinationURL: URL { ControlDestination.habits.url }
-}
-
-@available(iOS 18.0, *)
-struct OpenGrowDailyTasksIntent: AppIntent, OpensGrowDaily {
+struct OpenGrowDailyTasksIntent: AppIntent {
     static var title: LocalizedStringResource = "Open Tasks"
     static var description = IntentDescription("Opens Grow Daily on your tasks.")
     static var openAppWhenRun: Bool { true }
-    fileprivate var destinationURL: URL { ControlDestination.tasks.url }
+
+    func perform() async throws -> some IntentResult & OpensIntent {
+        .result(opensIntent: OpenURLIntent(openURL(tab: ControlDestination.tasks.rawValue)))
+    }
 }
 
 @available(iOS 18.0, *)
-struct AddGrowDailyTaskIntent: AppIntent, OpensGrowDaily {
+struct AddGrowDailyTaskIntent: AppIntent {
     static var title: LocalizedStringResource = "Add Task"
     static var description = IntentDescription("Opens Grow Daily with a new task ready to type.")
     static var openAppWhenRun: Bool { true }
-    fileprivate var destinationURL: URL { quickAddTaskURL }
+
+    func perform() async throws -> some IntentResult & OpensIntent {
+        .result(
+            opensIntent: OpenURLIntent(
+                openURL(tab: ControlDestination.tasks.rawValue, quickAdd: true)
+            )
+        )
+    }
 }
 
 // MARK: - Controls

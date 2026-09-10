@@ -53,6 +53,10 @@
         {
           "source": "/join/**",
           "destination": "/join/index.html"
+        },
+        {
+          "source": "/open",
+          "destination": "/open/index.html"
         }
       ],
       "headers": [

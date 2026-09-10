@@ -112,10 +112,27 @@ String? parseOpenTabLink(Uri uri) {
   return tab.isEmpty ? null : tab;
 }
 
+/// Whether an "open the app here" link also wants the quick-add sheet.
+///
+/// Only the Add Task control sets it. A separate flag rather than a separate
+/// path so all three controls share one link shape and one AASA component.
+bool openTabLinkWantsAdd(Uri uri) =>
+    parseOpenTabLink(uri) != null && uri.queryParameters['add'] == '1';
+
 /// The link a control taps. Kept here so the Swift side has one spelling to
 /// copy and the test can assert the round trip.
-Uri openTabUrl(String tabId) =>
-    Uri(scheme: legacyScheme, host: 'open', queryParameters: {'tab': tabId});
+///
+/// **https, not growdaily://.** A ControlWidget's OpenURLIntent REFUSES a
+/// custom scheme: it accepts a universal link only. Build 69 shipped with
+/// `growdaily://open?tab=...` and the controls appeared on the Lock Screen
+/// and did nothing at all when tapped (Aziz, 2026-09-10). The custom-scheme
+/// form is still parsed on the way in, because public/open/index.html falls
+/// back to it when the AASA handshake has not happened.
+Uri openTabUrl(String tabId, {bool quickAdd = false}) => Uri.https(
+      linkHost,
+      openPath,
+      {'tab': tabId, if (quickAdd) 'add': '1'},
+    );
 
 /// Parses a password-reset link into its Firebase `oobCode`, or null.
 ///

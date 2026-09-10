@@ -68,7 +68,6 @@ import 'features/habits/notifiers/custom_habits_notifier.dart'
         pausedHabitsProvider;
 import 'features/habits/notifiers/habit_resume_notifier.dart'
     show habitResumeScheduleProvider;
-import 'features/dev/control_bakeoff.dart';
 import 'features/grid/models/square_state.dart' show SquareState;
 import 'features/grid/notifiers/square_audit.dart'
     show kSquareSourceNotification;
@@ -1804,6 +1803,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       if (tab != null) {
         ref.read(requestedHomeTabProvider.notifier).state = tab;
       }
+      // The Add Task control. Same link shape as the other two plus a flag,
+      // so all three share one AASA component.
+      if (openTabLinkWantsAdd(uri)) {
+        ref.read(requestedMatrixQuickAddProvider.notifier).state = true;
+      }
       AnalyticsService.instance.track('control_opened', props: {'tab': tabId});
     }
   }
@@ -2490,7 +2494,7 @@ class _OnboardingOrGrid extends ConsumerWidget {
           child: !seen
               ? const OnboardingScreen(key: ValueKey('onboarding'))
               : offerAsked
-                  ? const ControlBakeoffScreen()
+                  ? const HomeShell(key: ValueKey('home'))
                   : const FirstRunOfferScreen(key: ValueKey('offer')),
         ),
       ),

@@ -66,6 +66,37 @@ void main() {
       }
     });
 
+    test('the built link is https, because a control refuses a custom scheme',
+        () {
+      // The whole bug of build 69: OpenURLIntent in a ControlWidget accepts
+      // a universal link only, so growdaily://open did nothing when tapped.
+      final url = openTabUrl('grid');
+      expect(url.scheme, 'https');
+      expect(url.host, linkHost);
+      expect(url.path, openPath);
+    });
+
+    test('the quick-add flag rides on the same link shape', () {
+      final url = openTabUrl('matrix', quickAdd: true);
+      expect(parseOpenTabLink(url), 'matrix');
+      expect(openTabLinkWantsAdd(url), isTrue);
+    });
+
+    test('a plain open link does not want the add sheet', () {
+      expect(openTabLinkWantsAdd(openTabUrl('grid')), isFalse);
+      expect(
+        openTabLinkWantsAdd(Uri.parse('https://\$linkHost/open?tab=matrix')),
+        isFalse,
+      );
+    });
+
+    test('the add flag alone, on a link that is not ours, is nothing', () {
+      expect(
+        openTabLinkWantsAdd(Uri.parse('https://\$linkHost/join/A8GEL7?add=1')),
+        isFalse,
+      );
+    });
+
     test('an id this build does not know resolves to nothing, not a crash', () {
       // A control left on the lock screen after its tab was removed. The
       // handler opens the app on its usual tab instead of doing nothing.
