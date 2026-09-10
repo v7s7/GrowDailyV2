@@ -49,6 +49,24 @@ function isRealUid(appUserId) {
 }
 
 /**
+ * Whether this event describes a REAL purchase.
+ *
+ * RevenueCat sends SANDBOX events for App Store sandbox testers, TestFlight
+ * builds and Play's licence testers, in exactly the same shape as a real
+ * one. Mirroring those writes a permanent production entitlement for anyone
+ * who can run a sandbox purchase, which on TestFlight is anybody Aziz has
+ * ever invited. RevenueCat also fires a TEST event from the dashboard's own
+ * "send test webhook" button, carrying a made-up app_user_id.
+ *
+ * Only PRODUCTION is mirrored. The mobile SDKs are unaffected either way:
+ * they read entitlement from RevenueCat directly and sandbox testers keep
+ * working there, which is the point of sandbox.
+ */
+function isProduction(event) {
+  return event && event.environment === "PRODUCTION";
+}
+
+/**
  * Whether [event] says Premium is active, and until when.
  *
  * Read from `entitlement_ids` plus `expiration_at_ms` rather than from the
@@ -122,9 +140,57 @@ function shouldApply(event, stored) {
   return stored.premiumEventId !== event.id;
 }
 
+/**
+ * Every account this event changes, and what it changes them to.
+ *
+ * Usually one: the event's own app_user_id. A TRANSFER is the exception and
+ * the reason this function exists at all. RevenueCat moves a purchase
+ * between App User IDs and sends ONE event, whose app_user_id is the
+ * account RECEIVING it; the account losing it is named only in
+ * `transferred_from`. Writing just app_user_id therefore granted the new
+ * account and left the old account's mirror reading true forever.
+ *
+ * That is not a stale-cache annoyance, it is free Premium at scale: buy
+ * growdaily_lifetime once, sign in as a fresh account to move the purchase,
+ * and repeat. Every account walked away permanently Premium on the web,
+ * because nothing would ever write false to any of them again. The mobile
+ * SDKs were never exposed to this, since RevenueCat itself only ever
+ * reports the entitlement to whoever currently holds it.
+ */
+function targetsFor(event, nowMs) {
+  const verdict = entitlementFrom(event, nowMs);
+  const out = [];
+  const from = Array.isArray(event.transferred_from) ?
+    event.transferred_from : [];
+  if (String(event.type || "") === "TRANSFER") {
+    // Everyone who LOST it, whatever the entitlement now says.
+    for (const uid of from) {
+      if (isRealUid(uid)) out.push({uid, active: false, expiresAtMs: null});
+    }
+    const to = Array.isArray(event.transferred_to) ? event.transferred_to : [];
+    const gainers = to.length ? to : [event.app_user_id];
+    if (verdict) {
+      for (const uid of gainers) {
+        if (isRealUid(uid) && !from.includes(uid)) {
+          out.push({uid, active: verdict.active,
+            expiresAtMs: verdict.expiresAtMs});
+        }
+      }
+    }
+    return out;
+  }
+  if (!verdict) return out;
+  if (!isRealUid(event.app_user_id)) return out;
+  out.push({uid: event.app_user_id, active: verdict.active,
+    expiresAtMs: verdict.expiresAtMs});
+  return out;
+}
+
 module.exports = {
   ENTITLEMENT_ID,
   entitlementFrom,
+  isProduction,
   isRealUid,
   shouldApply,
+  targetsFor,
 };

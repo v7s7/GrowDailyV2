@@ -61,9 +61,9 @@ const {
   undercountedDays,
 } = require("./room_health");
 const {
-  entitlementFrom,
-  isRealUid,
+  isProduction,
   shouldApply,
+  targetsFor,
 } = require("./revenuecat_webhook");
 
 /**
@@ -1044,43 +1044,63 @@ exports.revenueCatWebhook = onRequest(
         res.status(400).send("no event");
         return;
       }
-      const uid = event.app_user_id;
-      if (!isRealUid(uid)) {
-        // An anonymous RevenueCat id belongs to no account yet. Not an
-        // error: the person simply has not signed in, and RevenueCat will
-        // send a TRANSFER to their real uid when they do. 200 so RevenueCat
-        // stops retrying something that will never succeed.
-        logger.info("revenueCatWebhook: skipping non-account app_user_id");
-        res.status(200).send("ignored");
+      // SANDBOX and TEST events look exactly like real ones. Mirroring them
+      // would hand a permanent production entitlement to every TestFlight
+      // tester and to anyone who can press "send test webhook" in the
+      // dashboard. 200, not an error: RevenueCat should stop retrying.
+      if (!isProduction(event)) {
+        logger.info("revenueCatWebhook: ignoring non-production event", {
+          environment: event.environment, type: event.type,
+        });
+        res.status(200).send("ignored: not production");
         return;
       }
 
       const nowMs = Date.now();
-      const verdict = entitlementFrom(event, nowMs);
-      if (verdict === null) {
-        res.status(200).send("not premium entitlement");
+      // Usually one account, two on a TRANSFER: the one gaining the purchase
+      // and the one LOSING it, which has to be revoked or a single lifetime
+      // purchase mints a permanent Premium account on every transfer.
+      const targets = targetsFor(event, nowMs);
+      if (targets.length === 0) {
+        // Nothing to write: not the Premium entitlement, or an anonymous
+        // $RCAnonymousID that belongs to no account yet. The latter is not
+        // an error, the person simply has not signed in, and RevenueCat
+        // sends a TRANSFER to their real uid when they do.
+        res.status(200).send("nothing to mirror");
         return;
       }
 
-      const ref = db.collection("users").doc(uid);
       try {
-        await db.runTransaction(async (tx) => {
-          const snap = await tx.get(ref);
-          const stored = snap.exists ? snap.data() : null;
-          if (!shouldApply(event, stored)) {
-            logger.info("revenueCatWebhook: stale or duplicate event", {
-              uid, id: event.id, type: event.type,
-            });
-            return;
-          }
-          tx.set(ref, {
-            premiumActive: verdict.active,
-            premiumExpiresAtMs: verdict.expiresAtMs,
-            premiumEventId: String(event.id || ""),
-            premiumEventMs: event.event_timestamp_ms,
-            premiumUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          }, {merge: true});
-        });
+        for (const t of targets) {
+          const ref = db.collection("users").doc(t.uid);
+          // eslint-disable-next-line no-await-in-loop
+          await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            // Never CREATE a user doc. A late renewal for an account that
+            // was deleted (AuthNotifier.deleteAccount removes the doc) would
+            // otherwise resurrect it as a ghost carrying nothing but an
+            // entitlement, which then reads as a real account elsewhere.
+            if (!snap.exists) {
+              logger.info("revenueCatWebhook: no user doc, skipping", {
+                uid: t.uid, type: event.type,
+              });
+              return;
+            }
+            if (!shouldApply(event, snap.data())) {
+              logger.info("revenueCatWebhook: stale or duplicate event", {
+                uid: t.uid, id: event.id, type: event.type,
+              });
+              return;
+            }
+            tx.set(ref, {
+              premiumActive: t.active,
+              premiumExpiresAtMs: t.expiresAtMs,
+              premiumEventId: String(event.id || ""),
+              premiumEventMs: event.event_timestamp_ms,
+              premiumUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, {merge: true});
+          });
+        }
       } catch (e) {
         // 500 so RevenueCat retries: losing an entitlement write is worse
         // than processing the event twice, which shouldApply makes safe.

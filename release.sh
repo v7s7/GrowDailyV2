@@ -9,6 +9,7 @@
 #
 #   --skip-tests                 skip the suite (do not use for a real release)
 #   --no-bump                    reuse the current build number
+#   --yes                        answer every confirmation (for non-interactive runs)
 #
 # Everything that reaches the outside world asks first. Preflight is the
 # whole point of this file: a release that fails at the upload step has
@@ -25,11 +26,27 @@ die()  { printf '%sxx %s%s\n' "$RED" "$1" "$OFF" >&2; exit 1; }
 
 confirm() {
   printf '\n%s%s%s\n' "$YLW" "$1" "$OFF"
-  read -r -p "Type yes to continue: " reply
+  if [ "${ASSUME_YES:-0}" = "1" ]; then
+    echo "  (--yes)"
+    return 0
+  fi
+  reply=""
+  # Read from the TERMINAL, not stdin. `flutter test` runs before this and
+  # leaves stdin at EOF, so a plain `read` returned instantly with an empty
+  # answer and refused a "yes" that had been typed correctly (2026-09-10:
+  # tests passed, the prompt echoed "yes", and the script still said Stopped).
+  if [ -r /dev/tty ]; then
+    read -r -p "Type yes to continue: " reply < /dev/tty || true
+  else
+    read -r -p "Type yes to continue: " reply || true
+  fi
+  # Tolerant of a stray carriage return, surrounding spaces and capitals: the
+  # answer is a confirmation, not a password.
+  reply="$(printf '%s' "$reply" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
   [ "$reply" = "yes" ] || die "Stopped."
 }
 
-DO_IOS=0; DO_FIREBASE=0; DO_TAG=0; SKIP_TESTS=0; BUMP=1
+DO_IOS=0; DO_FIREBASE=0; DO_TAG=0; SKIP_TESTS=0; BUMP=1; ASSUME_YES=0
 for arg in "$@"; do
   case "$arg" in
     --ios)        DO_IOS=1 ;;
@@ -37,6 +54,7 @@ for arg in "$@"; do
     --all)        DO_IOS=1; DO_FIREBASE=1; DO_TAG=1 ;;
     --skip-tests) SKIP_TESTS=1 ;;
     --no-bump)    BUMP=0 ;;
+    --yes)        ASSUME_YES=1 ;;
     *) die "Unknown flag: $arg" ;;
   esac
 done
@@ -189,6 +207,13 @@ if [ "$DO_FIREBASE" = "1" ]; then
   step "Functions"
   ( cd functions && npm ci --silent )
   firebase deploy --only functions
+
+  # The web app is a hosting TARGET, and `--only hosting` deploys both it and
+  # the marketing/action-page site. Deploying without rebuilding would push
+  # whatever build/web happens to hold, which is how a stale bundle silently
+  # replaces the live web app. Build it first, always.
+  step "Web build (hosting target 'app')"
+  flutter build web --release
 
   step "Hosting"
   firebase deploy --only hosting
