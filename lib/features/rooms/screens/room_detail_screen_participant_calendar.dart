@@ -422,7 +422,14 @@ class _DayScoreCard extends StatelessWidget {
               const SizedBox(height: 11),
               for (var i = 0; i < rows.length; i++) ...[
                 if (i > 0) const SizedBox(height: 8),
-                _slotRow(context, rows[i], s),
+                // Printed shares are rounded ACROSS the set, so what is on
+                // screen adds up to the percentage beside it.
+                _slotRow(
+                  context,
+                  rows[i],
+                  s,
+                  roundedShares([for (final r in rows) r.share])[i],
+                ),
               ],
             ],
             if (b.asksNothing) ...[
@@ -441,14 +448,18 @@ class _DayScoreCard extends StatelessWidget {
               ],
             ] else if (rows.isEmpty) ...[
               // The room could not say which habit did what (a mixed day, or
-              // an 'own'-mode room). The day's own fraction leads instead,
-              // and the marks follow it as counts.
+              // an 'own'-mode room). The day's own fraction leads, then the
+              // same arithmetic grouped rather than named.
               const SizedBox(height: 10),
               _dayFraction(context, b, s),
               const SizedBox(height: 8),
               _bar(context, b),
-              const SizedBox(height: 11),
-              _marks(context, b, s),
+              if (b.groups.isNotEmpty) ...[
+                const SizedBox(height: 11),
+                Divider(height: 1, thickness: 1, color: gp.divider),
+                const SizedBox(height: 10),
+                _groups(context, b, s),
+              ],
             ] else if (contributing > 1) ...[
               const SizedBox(height: 11),
               Divider(height: 1, thickness: 1, color: gp.divider),
@@ -648,19 +659,33 @@ class _DayScoreCard extends StatelessWidget {
     );
   }
 
-  /// What one habit ADDED to the day, in the same weights the room scores by:
-  /// a whole habit is +1, a جزئي is +0.5, and everything else adds nothing.
-  /// Aziz asked for the arithmetic to be visible rather than implied ("show
-  /// the mark, like +0.5, so user can see the scoring").
-  String _contribution(RoomSlotDay slot, S s) => switch (slot.outcome) {
-        RoomSlotOutcome.done => '+1',
-        RoomSlotOutcome.partial => '+0.5',
+  /// A share of the day, as text: +0.5 when two habits split it, +0.33 when
+  /// three do, half of that for a جزئي.
+  ///
+  /// This used to print a flat +1 for every completed habit, which is a count
+  /// of habits rather than the arithmetic behind the percentage beside it.
+  /// Aziz's correction (2026-09-10): "if room started with 2 habit the info
+  /// should be +0.5 +0.5, so we know that this is how it being counted".
+  static String _share(double v) {
+    if (v <= 0) return '0';
+    final text = v.toStringAsFixed(2);
+    final trimmed = text.endsWith('0') ? text.substring(0, text.length - 1) : text;
+    return '+$trimmed';
+  }
+
+  /// What one habit ADDED to the day.
+  String _contribution(RoomSlotDay slot, S s, double printedShare) =>
+      switch (slot.outcome) {
+        RoomSlotOutcome.done ||
+        RoomSlotOutcome.partial =>
+          _share(printedShare),
         RoomSlotOutcome.missed => '0',
         RoomSlotOutcome.rest => s.roomCalendarChipRest,
         RoomSlotOutcome.declined => s.roomCalendarSlotDeclined,
       };
 
-  Widget _slotRow(BuildContext context, RoomSlotDay slot, S s) {
+  Widget _slotRow(
+      BuildContext context, RoomSlotDay slot, S s, double printedShare) {
     final gp = context.gp;
     final dark = gp.dark;
     // An empty square, not a red one, while the day can still be marked: the
@@ -702,7 +727,7 @@ class _DayScoreCard extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Text(
-          _contribution(slot, s),
+          _contribution(slot, s, printedShare),
           textDirection: scores ? TextDirection.ltr : null,
           style: TextStyle(
             fontSize: 13,
@@ -714,75 +739,83 @@ class _DayScoreCard extends StatelessWidget {
     );
   }
 
-  /// The marks as counts — the fallback for a day whose habits cannot be
-  /// named individually.
-  Widget _marks(BuildContext context, RoomDayBreakdown b, S s) => Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        children: [
-          if (b.done > 0)
-            _chip(
-              context,
-              SquareState.complete,
-              s.roomCalendarChipDone,
-              b.done,
-            ),
-          if (b.partial > 0)
-            _chip(
-              context,
-              SquareState.partial,
-              s.roomCalendarChipPartial,
-              b.partial,
-            ),
-          if (b.missed > 0)
-            _chip(
-              context,
-              stillOpen ? SquareState.none : SquareState.failed,
-              s.roomCalendarChipMissed,
-              b.missed,
-            ),
-          if (b.rested > 0)
-            _chip(
-              context,
-              SquareState.skipped,
-              s.roomCalendarChipRest,
-              b.rested,
-            ),
+  /// The same outcomes and the same arithmetic, grouped instead of named —
+  /// the fallback for a day whose counts do not say which habit was which.
+  ///
+  /// This replaced a row of bare count chips. The chips were honest but said
+  /// nothing about how the percentage above them was reached, which was the
+  /// whole of Aziz's complaint about this card.
+  Widget _groups(BuildContext context, RoomDayBreakdown b, S s) {
+    final label = {
+      RoomSlotOutcome.done: s.roomCalendarChipDone,
+      RoomSlotOutcome.partial: s.roomCalendarChipPartial,
+      RoomSlotOutcome.missed: s.roomCalendarChipMissed,
+      RoomSlotOutcome.rest: s.roomCalendarChipRest,
+      RoomSlotOutcome.declined: s.roomCalendarSlotDeclined,
+    };
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < b.groups.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          _groupRow(
+            context,
+            b.groups[i],
+            label[b.groups[i].outcome] ?? '',
+            roundedShares([for (final g in b.groups) g.share])[i],
+          ),
         ],
-      );
+      ],
+    );
+  }
 
-  Widget _chip(
-    BuildContext context,
-    SquareState mark,
-    String label,
-    int count,
-  ) {
+  Widget _groupRow(BuildContext context, RoomSlotGroup g, String label,
+      double printedShare) {
     final gp = context.gp;
     final dark = gp.dark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: mark.fill(dark),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: mark.border(dark)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (mark.icon != null) ...[
-            Icon(mark.icon, size: 11.5, color: mark.accent(dark)),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            '$label $count',
+    final mark = g.outcome == RoomSlotOutcome.missed && stillOpen
+        ? SquareState.none
+        : _mark(g.outcome);
+    final scores = g.share > 0;
+    return Row(
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: mark.fill(dark),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: mark.border(dark)),
+          ),
+          child: mark.icon == null
+              ? null
+              : Icon(mark.icon, size: 13, color: mark.accent(dark)),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            '$label ${g.count}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
               color: gp.textPrimary,
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          scores ? _share(printedShare) : '0',
+          textDirection: scores ? TextDirection.ltr : null,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+            color: scores ? _inkFor(context, mark) : gp.textTert,
+          ),
+        ),
+      ],
     );
   }
 }

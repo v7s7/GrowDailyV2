@@ -45,6 +45,7 @@ RoomParticipant _p({
   Map<String, int> rested = const {},
   Map<String, int> scheduled = const {},
   Map<int, String> declinedFrom = const {},
+  Map<String, List<RoomHabitRule>> rules = const {},
 }) =>
     RoomParticipant(
       uid: 'member-uid',
@@ -57,6 +58,7 @@ RoomParticipant _p({
       dailyRestedCount: rested,
       dailyScheduledCount: scheduled,
       slotDeclinedFrom: declinedFrom,
+      habitRules: rules,
       lastUpdated: DateTime(2026, 9, 10),
     );
 
@@ -130,6 +132,60 @@ void main() {
   });
 
   group('naming the habit', () {
+    test('one habit takes the whole day', () {
+      final b = roomDayBreakdown(
+        room: _room(),
+        participant: _p(done: const {_day: 1}),
+        dateKey: _day,
+      );
+      expect(b.shareEach, 1);
+      expect(b.slots.single.share, 1);
+    });
+
+    test('two habits split the day in half, which is the whole point', () {
+      // Aziz's own words: "if room started with 2 habit the info should be
+      // +0.5 +0.5, so we know that this is how it being counted".
+      final b = roomDayBreakdown(
+        room: _room(plan: const ['تمرين', 'قراءة']),
+        participant: _p(linked: const ['h1', 'h2'], done: const {_day: 2}),
+        dateKey: _day,
+      );
+      expect(b.shareEach, 0.5);
+      expect(b.slots.map((e) => e.share), everyElement(0.5));
+    });
+
+    test('three habits take a third each', () {
+      final b = roomDayBreakdown(
+        room: _room(plan: const ['تمرين', 'قراءة', 'وتر']),
+        participant: _p(
+          linked: const ['h1', 'h2', 'h3'],
+          done: const {_day: 3},
+        ),
+        dateKey: _day,
+      );
+      expect(b.shareEach, closeTo(1 / 3, 1e-9));
+      expect(b.slots, hasLength(3));
+    });
+
+    test('a جزئي is worth half of its own share', () {
+      final b = roomDayBreakdown(
+        room: _room(plan: const ['تمرين', 'قراءة']),
+        participant: _p(linked: const ['h1', 'h2'], partial: const {_day: 2}),
+        dateKey: _day,
+      );
+      expect(b.slots.map((e) => e.share), everyElement(0.25));
+      expect(b.credited, 1);
+    });
+
+    test('a missed habit adds nothing', () {
+      final b = roomDayBreakdown(
+        room: _room(),
+        participant: _p(),
+        dateKey: _day,
+      );
+      expect(b.slots.single.share, 0);
+    });
+
     test('a one-habit plan can always be named', () {
       final b = roomDayBreakdown(
         room: _room(),
@@ -240,6 +296,108 @@ void main() {
       expect(b.slots.single.name, 'تمرين');
     });
 
+    test('a habit added later is absent from the days before it joined', () {
+      // Aziz, 2026-09-10: "some habit are being added after, not from day 1
+      // ... only the counted days for it should show it". The join test is
+      // slotOpenBy, the same one countedHabitCountOn uses for the
+      // denominator, so the rows and the number they sum to cannot disagree.
+      final b = roomDayBreakdown(
+        room: _room(plan: const ['تمرين', 'قراءة']),
+        participant: _p(
+          linked: const ['h1', 'h2'],
+          done: const {_day: 1},
+          scheduled: const {_day: 1},
+          rules: {
+            'h1': [
+              const RoomHabitRule(
+                from: '2026-08-21',
+                frequencyType: HabitFrequencyType.daily,
+                frequencyTarget: 1,
+              ),
+            ],
+            // Joined the plan the day AFTER the one under test.
+            'h2': [
+              const RoomHabitRule(
+                from: '2026-09-09',
+                frequencyType: HabitFrequencyType.daily,
+                frequencyTarget: 1,
+              ),
+            ],
+          },
+        ),
+        dateKey: _day,
+      );
+      expect(b.slots, hasLength(1));
+      expect(b.slots.single.name, 'تمرين');
+      // And with only one slot in the day, it takes the whole of it.
+      expect(b.slots.single.share, 1);
+    });
+
+    test('a habit added later IS shown on the days it counted for', () {
+      final b = roomDayBreakdown(
+        room: _room(plan: const ['تمرين', 'قراءة']),
+        participant: _p(
+          linked: const ['h1', 'h2'],
+          done: const {'2026-09-09': 2},
+          rules: {
+            'h1': [
+              const RoomHabitRule(
+                from: '2026-08-21',
+                frequencyType: HabitFrequencyType.daily,
+                frequencyTarget: 1,
+              ),
+            ],
+            'h2': [
+              const RoomHabitRule(
+                from: '2026-09-09',
+                frequencyType: HabitFrequencyType.daily,
+                frequencyTarget: 1,
+              ),
+            ],
+          },
+        ),
+        dateKey: '2026-09-09',
+      );
+      expect(b.slots.map((e) => e.name), ['تمرين', 'قراءة']);
+      expect(b.slots.map((e) => e.share), everyElement(0.5));
+    });
+
+    test('a mixed day groups the same arithmetic instead of naming it', () {
+      final b = roomDayBreakdown(
+        room: _room(plan: const ['تمرين', 'قراءة', 'وتر']),
+        participant: _p(
+          linked: const ['h1', 'h2', 'h3'],
+          done: const {_day: 2},
+        ),
+        dateKey: _day,
+      );
+      expect(b.slots, isEmpty);
+      expect(b.groups, hasLength(2));
+      final doneGroup =
+          b.groups.firstWhere((g) => g.outcome == RoomSlotOutcome.done);
+      expect(doneGroup.count, 2);
+      expect(doneGroup.share, closeTo(2 / 3, 1e-9));
+      final missedGroup =
+          b.groups.firstWhere((g) => g.outcome == RoomSlotOutcome.missed);
+      expect(missedGroup.count, 1);
+      expect(missedGroup.share, 0);
+      // The groups sum to the day, which is the claim the card makes.
+      expect(
+        b.groups.fold<double>(0, (a, g) => a + g.share),
+        closeTo(b.ratio, 1e-9),
+      );
+    });
+
+    test('an attributable day carries no groups, and vice versa', () {
+      final named = roomDayBreakdown(
+        room: _room(),
+        participant: _p(done: const {_day: 1}),
+        dateKey: _day,
+      );
+      expect(named.slots, isNotEmpty);
+      expect(named.groups, isEmpty);
+    });
+
     test("an 'own'-mode room has no names to give", () {
       // Every member picks their own habits there and the document carries
       // ids, not names.
@@ -250,6 +408,49 @@ void main() {
       );
       expect(b.slots, isEmpty);
       expect(b.credited, 1);
+    });
+  });
+
+  /// The printed numbers have to add up to the total printed beside them.
+  ///
+  /// Two thirds and a sixth print as 0.67 and 0.17, which sum to 0.84 while
+  /// the day says 83%. That was on screen in the first build of this card,
+  /// and arithmetic that does not add up defeats the reason for showing it.
+  group('roundedShares', () {
+    double sum(List<double> xs) => xs.fold(0, (a, b) => a + b);
+
+    test('two thirds and a sixth are printed so they sum to the day', () {
+      final out = roundedShares([2 / 3, 1 / 6]);
+      expect(out, [0.67, 0.16]);
+      expect(sum(out), closeTo(0.83, 1e-9));
+    });
+
+    test('three thirds print as a whole day, not 0.99', () {
+      final out = roundedShares([1 / 3, 1 / 3, 1 / 3]);
+      expect(sum(out), closeTo(1.0, 1e-9));
+    });
+
+    test('halves need no help', () {
+      expect(roundedShares([0.5, 0.5]), [0.5, 0.5]);
+    });
+
+    test('a zero share is never rounded up into a contribution', () {
+      // "This habit added nothing" is a fact, not a rounding choice.
+      final out = roundedShares([1 / 3, 1 / 3, 0]);
+      expect(out.last, 0);
+      expect(sum(out), closeTo(2 / 3, 0.005));
+    });
+
+    test('an empty day rounds to nothing', () {
+      expect(roundedShares(const []), isEmpty);
+    });
+
+    test('the sum property holds across every plan size', () {
+      for (var n = 1; n <= 8; n++) {
+        final shares = List<double>.filled(n, 1 / n);
+        final out = roundedShares(shares);
+        expect(sum(out), closeTo(1.0, 1e-9), reason: '\$n habits');
+      }
     });
   });
 }
