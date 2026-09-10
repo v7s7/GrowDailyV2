@@ -483,7 +483,15 @@ class _DayScoreCard extends StatelessWidget {
         const SizedBox(width: 6),
         Expanded(
           child: Text(
-            DateFormat('EEEE d MMMM', locale).format(day),
+            // weekdayDateLabel, not DateFormat directly. The raw pattern
+            // rendered "الأربعاء ٢ سبتمبر" in Arabic-Indic digits while
+            // every other number on this card and in the calendar above it
+            // — the day numbers, the score, the percentage — stayed ASCII
+            // (Aziz, 2026-09-10: "the number is not correct in arabic").
+            // Latin digits everywhere is the house rule, and this helper is
+            // where the app already settled it; it also brings the Arabic
+            // comma, which the bare pattern was dropping.
+            weekdayDateLabel(day, isAr: locale == 'ar', locale: locale),
             style: TextStyle(
               fontSize: 12.5,
               fontWeight: FontWeight.w700,

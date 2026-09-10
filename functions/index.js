@@ -43,7 +43,10 @@
  * "someone else finished," or "I finished" when the stored doc disagrees.
  */
 
-const {onCall, HttpsError} = require("firebase-functions/v2/https");
+const {onCall, HttpsError, onRequest} =
+    require("firebase-functions/v2/https");
+const {defineSecret} = require("firebase-functions/params");
+const crypto = require("crypto");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const logger = require("firebase-functions/logger");
@@ -57,6 +60,30 @@ const {
   todayKeyIn,
   undercountedDays,
 } = require("./room_health");
+const {
+  entitlementFrom,
+  isRealUid,
+  shouldApply,
+} = require("./revenuecat_webhook");
+
+/**
+ * The shared secret RevenueCat sends as the Authorization header. Set with
+ * `firebase functions:secrets:set REVENUECAT_WEBHOOK_SECRET`.
+ */
+const revenueCatWebhookSecret = defineSecret("REVENUECAT_WEBHOOK_SECRET");
+
+/**
+ * Constant-time string compare, so a wrong Authorization header cannot be
+ * discovered a byte at a time by timing the response. Length is compared
+ * first because timingSafeEqual throws on a length mismatch; the length of
+ * a secret is not the secret.
+ */
+function timingSafeEqualStr(a, b) {
+  const ab = Buffer.from(String(a), "utf8");
+  const bb = Buffer.from(String(b), "utf8");
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -957,4 +984,109 @@ exports.roomsHealthSweep = onSchedule(
         clippedRooms,
         undercounts,
       });
+    });
+
+/**
+ * RevenueCat's webhook: the only writer of the Premium mirror on
+ * `users/{uid}`.
+ *
+ * WHY. RevenueCat is the source of truth for entitlement and both mobile
+ * apps read its SDK directly. Flutter web has no RevenueCat SDK at all
+ * (purchase_service.dart's configure() returns null on kIsWeb), so someone
+ * who bought Premium on their iPhone opened grow-daily-app.web.app and read
+ * as FREE, with a paywall whose buy button silently did nothing. This
+ * endpoint mirrors the entitlement onto the user doc so a non-SDK client
+ * can read it. It is a CACHE of RevenueCat's answer, never a second
+ * authority: iOS and Android keep asking the SDK, which is fresher than any
+ * webhook and works offline.
+ *
+ * SECURITY. The mirror fields are server-written only. firestore.rules
+ * rejects any client write that so much as mentions them (premiumFieldOk),
+ * so the worst a tampered client can do is read a value it could already
+ * see. This endpoint authenticates RevenueCat with the shared secret set as
+ * the Authorization header in their dashboard, compared in constant time,
+ * and refuses everything else with 401. Without the secret configured the
+ * function refuses every request rather than failing open.
+ *
+ * SETUP, and only Aziz can do it:
+ *  1. `firebase functions:secrets:set REVENUECAT_WEBHOOK_SECRET` and paste a
+ *     long random string.
+ *  2. Deploy: `firebase deploy --only functions:revenueCatWebhook`.
+ *  3. RevenueCat dashboard -> Project Settings -> Integrations -> Webhooks:
+ *     set the URL to the deployed https trigger and the Authorization
+ *     header to the SAME string.
+ * Until step 3 is done this endpoint is simply never called and nothing
+ * changes for anyone; the mobile apps are unaffected either way.
+ */
+exports.revenueCatWebhook = onRequest(
+    {secrets: [revenueCatWebhookSecret]},
+    async (req, res) => {
+      if (req.method !== "POST") {
+        res.status(405).send("POST only");
+        return;
+      }
+      const expected = revenueCatWebhookSecret.value();
+      // Fail CLOSED. An unset secret must not mean "accept anything".
+      if (!expected) {
+        logger.error("revenueCatWebhook: secret not configured, refusing");
+        res.status(500).send("not configured");
+        return;
+      }
+      const got = req.get("Authorization") || "";
+      if (!timingSafeEqualStr(got, expected)) {
+        logger.warn("revenueCatWebhook: bad Authorization header");
+        res.status(401).send("unauthorized");
+        return;
+      }
+
+      const event = (req.body && req.body.event) || null;
+      if (!event || typeof event !== "object") {
+        res.status(400).send("no event");
+        return;
+      }
+      const uid = event.app_user_id;
+      if (!isRealUid(uid)) {
+        // An anonymous RevenueCat id belongs to no account yet. Not an
+        // error: the person simply has not signed in, and RevenueCat will
+        // send a TRANSFER to their real uid when they do. 200 so RevenueCat
+        // stops retrying something that will never succeed.
+        logger.info("revenueCatWebhook: skipping non-account app_user_id");
+        res.status(200).send("ignored");
+        return;
+      }
+
+      const nowMs = Date.now();
+      const verdict = entitlementFrom(event, nowMs);
+      if (verdict === null) {
+        res.status(200).send("not premium entitlement");
+        return;
+      }
+
+      const ref = db.collection("users").doc(uid);
+      try {
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          const stored = snap.exists ? snap.data() : null;
+          if (!shouldApply(event, stored)) {
+            logger.info("revenueCatWebhook: stale or duplicate event", {
+              uid, id: event.id, type: event.type,
+            });
+            return;
+          }
+          tx.set(ref, {
+            premiumActive: verdict.active,
+            premiumExpiresAtMs: verdict.expiresAtMs,
+            premiumEventId: String(event.id || ""),
+            premiumEventMs: event.event_timestamp_ms,
+            premiumUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          }, {merge: true});
+        });
+      } catch (e) {
+        // 500 so RevenueCat retries: losing an entitlement write is worse
+        // than processing the event twice, which shouldApply makes safe.
+        logger.error("revenueCatWebhook: write failed", e);
+        res.status(500).send("write failed");
+        return;
+      }
+      res.status(200).send("ok");
     });

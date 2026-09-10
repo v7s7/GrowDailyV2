@@ -25,6 +25,7 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/share_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/calendar_month_scaffold.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../../shared/widgets/segmented_tabs.dart';

@@ -80,12 +80,44 @@ service cloud.firestore {
           && dateKey <= ymd(request.time + duration.value(1, 'd'));
     }
 
+    // Every field of the Premium mirror. Written ONLY by the
+    // revenueCatWebhook Cloud Function, which goes through the Admin SDK
+    // and bypasses these rules entirely.
+    function premiumMirrorFields() {
+      return [
+        'premiumActive',
+        'premiumExpiresAtMs',
+        'premiumEventId',
+        'premiumEventMs',
+        'premiumUpdatedAt',
+      ];
+    }
+
+    // UPDATE guard: the write may not CHANGE any mirror field.
+    //
+    // diff(), not `in request.resource.data`. On an update
+    // request.resource.data is the document as it would be AFTER the write,
+    // merged fields and all, so a plain key test is true for every person
+    // the webhook has already written a mirror for, and would have locked
+    // each of them out of writing their own user doc ever again.
+    //
+    // This used to allow a client to set premiumActive to false, described
+    // as harmless defence in depth back when nothing read the field. It is
+    // not harmless now. Flutter web READS this mirror, because it has no
+    // RevenueCat SDK, and premiumEventMs is the webhook's own replay guard:
+    // a client that wrote a far-future value there would freeze its stored
+    // entitlement permanently, so a later refund could never revoke it.
+    // That is free Premium, not self-harm. Server-only, all of it.
     function premiumFieldOk() {
-      let before = resource.data.premiumActive;
-      let after = request.resource.data.premiumActive;
-      return !('premiumActive' in request.resource.data)
-          || after == before
-          || after == false;
+      return !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(premiumMirrorFields());
+    }
+
+    // CREATE guard: a brand-new doc may not carry a mirror field at all.
+    // There is no `resource` to diff against on a create, and a client has
+    // no business asserting an entitlement into existence.
+    function noPremiumFieldsOnCreate() {
+      return !request.resource.data.keys().hasAny(premiumMirrorFields());
     }
 
     // The three day-stamps the client writes onto its own user document.
@@ -138,7 +170,7 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid)
-          && !('premiumActive' in request.resource.data)
+          && noPremiumFieldsOnCreate()
           && userDayStampsOk();
       allow update: if isOwner(uid) && premiumFieldOk() && userDayStampsOk();
       // Account deletion (AuthNotifier.deleteAccount) deletes this doc
