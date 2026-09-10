@@ -11,6 +11,10 @@
 
 "NSLocationWhenInUseUsageDescription" = "Grow Daily يستخدم موقعك عشان يحسب أوقات الصلاة بدقة لتذكيراتك. إحداثياتك تنرسل لخدمة أوقات الصلاة، وإذا كنت مسجل دخول تنحفظ في حسابك عشان التذكيرات تمشي معك على كل أجهزتك.";
 
+/* Apple asks for the always-authorization string because Geolocator
+   references that API; this app only ever asks for when-in-use. */
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Grow Daily يستخدم موقعك بس وقت ما التطبيق مفتوح، عشان يحسب أوقات الصلاة بدقة لتذكيراتك. ما يتابع موقعك في الخلفية أبداً.";
+
 "NSMicrophoneUsageDescription" = "Grow Daily يستخدم المايك عشان تسجل ملاحظات صوتية قصيرة تربطها بمهامك. إذا كنت مسجل دخول، ملاحظاتك تنحفظ في حسابك الخاص عشان تتزامن بين أجهزتك.";
 
 "NSHealthShareUsageDescription" = "Grow Daily يقرأ عدد خطواتك اليومي من تطبيق صحتي (ومنها خطوات ساعة Apple إذا عندك وحدة) عشان عادات المشي اللي تربطها بالخطوات تكتمل بروحها. الخطوات تنقرأ بس، ما تتغير، وتبقى على جهازك.";

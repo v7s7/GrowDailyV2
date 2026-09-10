@@ -67,6 +67,15 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>GrowDaily uses your location to calculate accurate prayer times for your reminders. Your coordinates are sent to a prayer-time service, and if you are signed in they are saved to your account so reminders follow you across devices.</string>
+	<!-- Required by App Store validation (ITMS-90683, warned on build 69,
+	     2026-09-10) because Geolocator's iOS code references the
+	     always-authorization API. This app never requests it:
+	     DeviceLocationService calls Geolocator.requestPermission(), which
+	     asks for when-in-use only, and location is read while the app is
+	     open to compute prayer times. The string says exactly that, so the
+	     sheet cannot promise background tracking the app does not do. -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>GrowDaily only uses your location while the app is open, to calculate accurate prayer times for your reminders. It never tracks you in the background.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>GrowDaily uses your microphone to record short voice notes you attach to tasks. If you are signed in, your notes are saved to your private GrowDaily account so they sync across your devices.</string>
 	<key>NSHealthShareUsageDescription</key>
