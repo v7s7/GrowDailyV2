@@ -31,7 +31,11 @@ import '../../habits/notifiers/habit_order_notifier.dart';
 import '../../habits/notifiers/habit_resume_notifier.dart';
 import '../../../core/services/health_steps_service.dart';
 import '../../habits/step_auto_complete.dart'
-    show stepsFailureProvider, stepsTodayProvider;
+    show
+        stepFillFraction,
+        stepsByDayProvider,
+        stepsFailureProvider,
+        stepsTodayProvider;
 import '../../habits/notifiers/newly_added_habit_provider.dart';
 import '../../habits/widgets/pause_until_sheet.dart';
 import '../../habits/models/weekly_quota_plan.dart';
@@ -43,6 +47,8 @@ import '../../premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
 import '../models/covered_day.dart';
 import '../models/square_state.dart';
+import '../notifiers/square_audit.dart'
+    show kSquareSourcePalette, kSquareSourceTap, kSquareSourceTapUndo;
 import '../notifiers/weekly_grid_notifier.dart';
 import '../widgets/daily_quote_line.dart';
 import '../widgets/note_corner.dart';

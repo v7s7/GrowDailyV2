@@ -131,6 +131,9 @@ function keyOfTs(v) {
         const partsSnap = await roomDoc.ref.collection('participants').get();
         for (const partDoc of partsSnap.docs) {
           const part = partDoc.data() || {};
+          // Departed (RoomParticipant.leftAt): the record is kept so a rejoin
+          // cannot reset it, but nothing is graded for them while out.
+          if (part.leftAt) continue;
           const countingIds = countingHabitIds(room, part);
           if (countingIds.length === 0) continue;
           const daySnaps = await Promise.all(days.map((day) => db

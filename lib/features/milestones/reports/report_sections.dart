@@ -605,8 +605,16 @@ MatrixCellState cellStateFor({
     // single blank day of its week is a miss; the shortfall shows up in the
     // percentage and the absent PERFECT mark instead. See
     // [missIsAttributable].
+    // A day still open is not a day missed. `isOpenDay` is today AND
+    // yesterday until kDayCutoffHour, which is the same window the board
+    // lets somebody mark (Aziz, 2026-09-09: "maybe he will train before he
+    // sleep for the past day"). Without this, a blank TODAY read as a miss
+    // in the report from the moment the day began, and yesterday read as one
+    // from midnight, hours before the app stops accepting a mark for it.
     SquareState.none =>
-      missIsAttributable(stat.habit) && stat.habit.isScheduledFor(day)
+      missIsAttributable(stat.habit) &&
+              stat.habit.isScheduledFor(day) &&
+              !day.isOpenDay
           ? MatrixCellState.missed
           : isCoveredDay(
               habit: stat.habit,

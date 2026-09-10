@@ -39,39 +39,67 @@
       ]
     }
   ],
-  "hosting": {
-    "public": "public",
-    "ignore": [
-      "firebase.json",
-      "**/node_modules/**",
-      "**/.DS_Store"
-    ],
-    "appAssociation": "NONE",
-    "rewrites": [
-      {
-        "source": "/join/**",
-        "destination": "/join/index.html"
-      }
-    ],
-    "headers": [
-      {
-        "source": "/.well-known/apple-app-site-association",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      },
-      {
-        "source": "/.well-known/assetlinks.json",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      }
-    ]
-  }
+  "hosting": [
+    {
+      "target": "site",
+      "public": "public",
+      "ignore": [
+        "firebase.json",
+        "**/node_modules/**",
+        "**/.DS_Store"
+      ],
+      "appAssociation": "NONE",
+      "rewrites": [
+        {
+          "source": "/join/**",
+          "destination": "/join/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "/.well-known/apple-app-site-association",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        {
+          "source": "/.well-known/assetlinks.json",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "target": "app",
+      "public": "build/web",
+      "ignore": [
+        "firebase.json",
+        "**/.DS_Store"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "/@(index.html|flutter_bootstrap.js|flutter_service_worker.js|main.dart.js|version.json)",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

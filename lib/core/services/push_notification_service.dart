@@ -364,13 +364,17 @@ class PushNotificationService {
       outcome = 'error: ${e.runtimeType}: $e';
       if (_reported.add(outcome)) {
         try {
-          unawaited(
-            FirebaseCrashlytics.instance.recordError(
-              e,
-              st,
-              reason: 'PushNotificationService: token registration failed',
-            ),
-          );
+          // Crashlytics has no web plugin, and its Future rejects outside
+          // this try, so the guard has to be explicit.
+          if (!kIsWeb) {
+            unawaited(
+              FirebaseCrashlytics.instance.recordError(
+                e,
+                st,
+                reason: 'PushNotificationService: token registration failed',
+              ),
+            );
+          }
         } catch (_) {
           // No Firebase app to report to (unit tests); the log line below
           // still says what happened.

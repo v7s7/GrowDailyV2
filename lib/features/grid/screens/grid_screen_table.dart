@@ -324,6 +324,12 @@ class _GridTableState extends ConsumerState<_GridTable> {
     final stepsToday = ref.watch(stepsFailureProvider) == null
         ? ref.watch(stepsTodayProvider)
         : null;
+    // Every day this session has a count for, so a walk short of the goal
+    // keeps its fill after midnight instead of the day going blank. Today
+    // still comes from stepsToday above, which the stall check can withdraw;
+    // a past day cannot go stale, because the count that filled it was a
+    // read OF that day (see stepsByDayProvider).
+    final stepsByDay = ref.watch(stepsByDayProvider);
 
     return SizedBox(
       height: rowHeight,
@@ -610,7 +616,11 @@ class _GridTableState extends ConsumerState<_GridTable> {
               final doneToday = habit.effectiveDailyTarget > 1 && day.isToday
                   ? ref.watch(dashboardProvider).completions[habit.id] ?? 0
                   : 0;
-              // How far through today's step goal a linked walking habit is.
+              // How far through the day's step goal a linked walking habit
+              // got. Any day the session has a count for, not only today:
+              // below half the goal nothing is ever written (see
+              // kStepPartialShare), so a day that showed a real walk all day
+              // used to go blank the moment it stopped being today.
               //
               // Non-null only while the walk is genuinely part done AND the
               // square is otherwise empty: at zero steps there is nothing to
@@ -619,23 +629,20 @@ class _GridTableState extends ConsumerState<_GridTable> {
               // is a deliberate statement about the day that outranks a
               // measured count — the same precedence _effectiveSquare gives
               // those marks over a times-per-day tally.
-              final steps = stepsToday;
+              final steps =
+                  day.isToday ? stepsToday : stepsByDay[day.toDateKey()];
               final stepGoal = habit.stepGoal;
-              final double? stepFraction = (steps == null ||
-                      stepGoal == null ||
-                      !day.isToday ||
-                      // A day this habit does not run on is not part done, it
-                      // is not owed at all. Its square is drawn dimmed and
-                      // inert, and runStepAutoComplete skips it for the same
-                      // reason, so filling it in would be the one surface
-                      // claiming a day the rest of the app says is off.
-                      !habit.isScheduledFor(day) ||
-                      steps <= 0 ||
-                      steps >= stepGoal ||
-                      _effectiveSquare(habit, day, doneToday) !=
-                          SquareState.none)
-                  ? null
-                  : steps / stepGoal;
+              final stepFraction = stepFillFraction(
+                steps: steps,
+                goal: stepGoal,
+                // A day this habit does not run on is not part done, it is
+                // not owed at all. Its square is drawn dimmed and inert, and
+                // runStepAutoComplete skips it for the same reason, so
+                // filling it in would be the one surface claiming a day the
+                // rest of the app says is off.
+                scheduled: habit.isScheduledFor(day),
+                square: _effectiveSquare(habit, day, doneToday),
+              );
               // Hoisted so the marker and the spoken label cannot disagree.
               // trim() because clearing a note used to store '' rather than
               // deleting the key, so old days carry tombstones.
@@ -666,10 +673,12 @@ class _GridTableState extends ConsumerState<_GridTable> {
                     // and a picture is nothing to a screen reader. Gated on
                     // the schedule for the same reason the fill is: a day
                     // this habit does not run on is not part done.
-                    if (day.isToday &&
-                        stepGoal != null &&
-                        habit.isScheduledFor(day))
-                      S.of(context).stepsProgressLine(steps, stepGoal),
+                    if (stepGoal != null &&
+                        habit.isScheduledFor(day) &&
+                        (day.isToday || steps != null))
+                      day.isToday
+                          ? S.of(context).stepsProgressLine(steps, stepGoal)
+                          : S.of(context).stepsWalkedLine(steps!, stepGoal),
                     if (day.isAfter(today))
                       isAr ? 'يوم قادم' : 'future day'
                     else if (!habit.isScheduledFor(day))
@@ -720,16 +729,6 @@ class _GridTableState extends ConsumerState<_GridTable> {
                         ? null
                         : demand[days.indexOf(day)],
                   ),
-                  // A day this flexible quota genuinely owed and that stayed
-                  // empty — the week's real miss, and the only empty square the
-                  // app is entitled to call one. Rest days stay plain. Never
-                  // applied to today or a future day: a day still in progress
-                  // has not been missed yet, and `owed` for those means "this is
-                  // your last chance", not "you failed".
-                  isMissedQuotaDay: demand != null &&
-                      day.isBefore(today) &&
-                      demand[days.indexOf(day)] == DayDemand.owed &&
-                      widget.state.squareFor(habit.id, day) == SquareState.none,
                   square: _effectiveSquare(habit, day, doneToday),
                   // Only today, and only for a habit that is actually counted:
                   // `completions` holds today's count and nothing else, so
@@ -937,7 +936,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
           );
       ref
           .read(weeklyGridProvider.notifier)
-          .setSquareStateOnly(habit.id, day, next);
+          .setSquareStateOnly(habit.id, day, next, source: kSquareSourceTap);
       syncRoomToday(ref, habit.id, day);
       if (!context.mounted) return;
       // Second net behind the dialog, and the cheaper one to reach for: the
@@ -1038,7 +1037,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
     if (alreadyDoneToday) {
       // Already rewarded (e.g. completed from Today and the mirror
       // hasn't caught up) — just repair the visual state, no reward call.
-      ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day);
+      ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(habit.id, day, source: kSquareSourceTap);
       syncRoomToday(ref, habit.id, day);
     } else {
       // Canonical reward first, then mirror the square. No need to
@@ -1113,7 +1112,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
       }
       ref
           .read(weeklyGridProvider.notifier)
-          .markCompleteFromHabit(habit.id, day);
+          .markCompleteFromHabit(habit.id, day, source: kSquareSourceTap);
       syncRoomToday(ref, habit.id, day);
       _maybeCelebrateFullRow(ref, habit);
     }
@@ -1194,6 +1193,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
           habit.id,
           day,
           restored >= target ? SquareState.complete : SquareState.partial,
+          source: kSquareSourceTapUndo,
         );
     syncRoomToday(ref, habit.id, day);
     if (restored >= target) _maybeCelebrateFullRow(ref, habit);
@@ -1288,6 +1288,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
           habit.id,
           day,
           finishes ? SquareState.complete : SquareState.partial,
+          source: kSquareSourceTap,
         );
     syncRoomToday(ref, habit.id, day);
     if (finishes) _maybeCelebrateFullRow(ref, habit);
@@ -1554,16 +1555,24 @@ class _SquareCell extends StatelessWidget {
   // shows its real color, just dimmed and no longer editable.
   final bool isScheduled;
 
-  /// A past, empty day that a flexible weekly quota genuinely owed — computed
-  /// by [weeklyQuotaDemand], never stored and never marked by the user.
-  ///
-  /// Drawn in the same red the explicit `failed` state uses, because it means
-  /// the same thing: a day that was asked for and did not happen. What it is
-  /// NOT is every empty square — a 3x-a-week habit has four days it owes
-  /// nothing on, and those stay plain. The count of these across a week is
-  /// exactly the shortfall (proved in weekly_quota_plan_test.dart), so the app
-  /// can never show more red than the person actually fell short by.
-  final bool isMissedQuotaDay;
+  // An empty day a flexible weekly quota owed used to be painted here in the
+  // `failed` red, computed from weeklyQuotaDemand and never stored. It is
+  // gone (Aziz, 2026-09-09), and the argument for removing it is the one that
+  // should have stopped it being added.
+  //
+  // It made the same day mean two different things depending on the cadence.
+  // A daily habit nobody logged is empty, and the app says nothing about it;
+  // the identical empty square on a 3x-a-week habit was called a failure.
+  // Same person, same missing session, two verdicts. It also arrived at
+  // midnight, before the flex window that still lets somebody mark yesterday
+  // (see setSquare's grace), so a person who trains at 23:00 for the day just
+  // gone met a red square that was already wrong when it was drawn.
+  //
+  // The week stays just as legible without it, because the distinction that
+  // carries the meaning is still drawn: a day the habit asked nothing of is
+  // soft emerald (isCovered), and a day it asked for and did not get is a
+  // plain empty square — exactly what a daily habit's missed day looks like.
+  // Only the person marks a day فشل now, on every cadence.
 
   /// An empty square on a day the habit asked nothing of (see
   /// [isCoveredDay]). Painted soft green, at full opacity even when the day
@@ -1643,7 +1652,6 @@ class _SquareCell extends StatelessWidget {
     required this.isToday,
     required this.isFuture,
     required this.isScheduled,
-    this.isMissedQuotaDay = false,
     this.isCovered = false,
     required this.square,
     this.dayCount,
@@ -1667,13 +1675,12 @@ class _SquareCell extends StatelessWidget {
   /// Excludes the counting case for the same reason the glyph did: a counted
   /// square already draws its real proportion and its real number, and "half"
   /// would be a worse answer than "2 of 4" on top of being a wrong one.
-  bool get _isHalfFill =>
-      square == SquareState.partial && !_isCounting && !isMissedQuotaDay;
+  bool get _isHalfFill => square == SquareState.partial && !_isCounting;
 
   /// The ink for the note corner, one branch per fill it can land on.
   ///
-  /// The rule this replaces had three branches and no case for
-  /// [isMissedQuotaDay] or [isCovered], so a note on either was drawn in
+  /// The rule this replaces had three branches and no case for a computed
+  /// quota miss or for [isCovered], so a note on either was drawn in
   /// `textTert`, the lowest ink in the palette, on red and on covered
   /// emerald. It also fell to `textTert` on the ordinary empty square, which
   /// is where most notes actually land: 3.17:1 in dark and 1.98:1 in light,
@@ -1686,7 +1693,6 @@ class _SquareCell extends StatelessWidget {
     if (_isHalfFill || _isCounting || stepFraction != null) {
       return SquareState.partial.levelLine(context.gp.dark);
     }
-    if (isMissedQuotaDay) return SquareState.failed.accent(context.gp.dark);
     // NOT complete.accent. A covered day is emerald-on-emerald: the fill is
     // emerald at 0.12 and the accent is the same hue at full strength, which
     // measures 1.63:1 in light mode, BELOW the 1.98:1 this method exists to
@@ -1703,6 +1709,28 @@ class _SquareCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = context.gp.dark;
     final disabled = isFuture || !isScheduled;
+    // The gold ring is an ASK, not a date stamp.
+    //
+    // Aziz, 2026-09-09: "the habits that I don't need to do today, the square
+    // should not be outlined... I want to make it clear that no need for
+    // today, and at the same time it does not feel like the user is missing
+    // days, because he doesn't have to do it."
+    //
+    // Every habit used to get the ring on today's column, including the ones
+    // today asks nothing of: a Mon/Wed/Fri habit wore it on a Tuesday, and a
+    // four-a-week habit kept wearing it after the fourth session. A ring on
+    // an empty square reads as an outstanding task, so a person who had done
+    // everything they owed still saw a column of things apparently left to
+    // do. The day header's own circle is what says which column is today
+    // (see the isRealToday note there); this says what is still owed.
+    //
+    // So it is drawn only where today genuinely asks. See showsTodayRing,
+    // where the rule lives so it can be asserted directly.
+    final showTodayRing = showsTodayRing(
+      isToday: isToday,
+      isScheduled: isScheduled,
+      isCovered: isCovered,
+    );
     // Keying the pulse on the square state replays it on every color change:
     // marked cells get a satisfying pop, clearing back to white stays quiet.
     Widget cell = AnimatedContainer(
@@ -1711,15 +1739,8 @@ class _SquareCell extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        // A computed quota miss borrows the explicit `failed` state's own fill
-        // and border rather than inventing a red: it means exactly what a
-        // hand-marked red square means — a day that was owed and did not
-        // happen — so it should look like one. No new colour to learn, and it
-        // stays correct automatically in every theme preset and in light mode.
-        color: isMissedQuotaDay
-            ? SquareState.failed.fill(dark)
-            : isCovered
-                ? coveredDayFill(dark)
+        color: isCovered
+            ? coveredDayFill(dark)
             // A counting square is drawn as empty-plus-a-rising-portion. Left
             // as square.fill it painted the partial colour edge to edge, and
             // the proportional overlay — the same colour — was invisible: the
@@ -1742,11 +1763,7 @@ class _SquareCell extends StatelessWidget {
         // instead. `goldDim` is dark and saturated enough to stay crisp
         // against every fill color, not just the green "complete" state.
         border: Border.all(
-          color: isToday
-              ? GameColors.goldDim
-              : isMissedQuotaDay
-                  ? SquareState.failed.border(dark)
-                  : square.border(dark),
+          color: showTodayRing ? GameColors.goldDim : square.border(dark),
           width: 0.8,
         ),
       ),

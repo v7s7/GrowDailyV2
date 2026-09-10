@@ -189,6 +189,16 @@
                     android:scheme="https"
                     android:host="grow-daily-339ef.web.app"
                     android:pathPrefix="/join"/>
+                <!-- The password-reset link out of Firebase's email. Same
+                     three-way agreement as /join above: this prefix, the
+                     AASA/assetlinks pair on that host, and what
+                     parsePasswordResetLink accepts. Without it the link
+                     opens public/reset/index.html in a browser, which still
+                     works but is the long way round. -->
+                <data
+                    android:scheme="https"
+                    android:host="grow-daily-339ef.web.app"
+                    android:pathPrefix="/reset"/>
             </intent-filter>
 
             <!-- Health Connect shows the app's permission rationale through

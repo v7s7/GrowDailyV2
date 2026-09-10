@@ -58,11 +58,15 @@ class AnalyticsService {
     // also be unavailable during an early-startup failure. Analytics must
     // remain strictly best-effort in both cases.
     try {
-      FirebaseCrashlytics.instance.recordError(
-        error,
-        stackTrace,
-        reason: reason,
-      );
+      // Crashlytics has no web plugin: its Future rejects outside this try,
+      // so the web is excluded up front rather than caught.
+      if (!kIsWeb) {
+        FirebaseCrashlytics.instance.recordError(
+          error,
+          stackTrace,
+          reason: reason,
+        );
+      }
     } catch (_) {
       // There is no initialized Firebase app to report to.
     }
@@ -99,6 +103,7 @@ class AnalyticsService {
   void setUserId(String? uid) {
     final future = _analytics.setUserId(id: uid);
     unawaited(future.catchError((Object e, StackTrace st) {
+      if (kIsWeb) return; // no Crashlytics on the web
       FirebaseCrashlytics.instance.recordError(
         e,
         st,

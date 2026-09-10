@@ -7,6 +7,10 @@
           {
             "/": "/join/*",
             "comment": "Room invites. Opens the app straight on the join sheet for that room code."
+          },
+          {
+            "/": "/reset*",
+            "comment": "Password reset. Opens the app on the new-password screen with the oobCode from the email; public/reset/index.html is what a computer gets instead."
           }
         ]
       }

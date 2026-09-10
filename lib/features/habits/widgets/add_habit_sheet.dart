@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -113,7 +114,24 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   final _cueFocus = FocusNode();
   GoalType _goalType = GoalType.build;
   HabitCategory _category = HabitCategory.custom;
-  HabitFrequencyType _freqType = HabitFrequencyType.daily;
+
+  /// Daily / Weekly / Specific days, or null while nobody has picked one.
+  ///
+  /// It used to open on Daily, with the per-day stepper already under it. A
+  /// pre-selected chip is an answer the form gave itself, and this one is
+  /// not cosmetic: cadence decides which days the Grid asks about, what the
+  /// streak counts, and which days a room scores. So the chips open unlit,
+  /// everything under them stays away until one is tapped, and Create is
+  /// held back until then (see [_canCreate]) rather than saving a default
+  /// nobody chose.
+  ///
+  /// Deliberately nullable rather than a "was it touched" flag beside a
+  /// still-Daily field: nothing in this file dereferences it (every read is
+  /// an `==`), so null costs no null-checks in the widgets, and the two
+  /// places that would write it to storage stop compiling until they are
+  /// made to face the unanswered case. A flag next to a live default fails
+  /// the other way, silently.
+  HabitFrequencyType? _freqType;
   int _freqTarget = 1;
 
   /// The per-day count, kept apart from [_freqTarget] on purpose.
@@ -205,10 +223,23 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   bool _forward = true;
 
   // ── Timing (Step 2) ───────────────────────────────────────────────────
-  _TimingMode _timingMode = _TimingMode.time;
-  // Once the user manually picks a mode, category/goal-type changes stop
-  // silently overriding it — same pattern as [_didPickCategory] below.
-  bool _timingModeTouched = false;
+
+  /// Whether this habit is being given a moment at all — the switch above
+  /// the time/prayer/text picker (see [_timingToggleRow]).
+  ///
+  /// Off for every new habit, and off is a real answer rather than an
+  /// unanswered one: plenty of habits have no single checkable minute, and
+  /// that shape used to be reachable only by leaving a pre-selected picker
+  /// alone and believing the small print that said you could. Cadence is
+  /// one question, having a moment is another, and they are asked
+  /// separately now.
+  bool _timingEnabled = false;
+
+  /// Which kind of moment, once the switch is on. Null means the switch is
+  /// on and nothing has been picked yet — deliberately the opening state,
+  /// so the mode a habit ends up with is always one somebody chose rather
+  /// than one the category guessed on their behalf.
+  _TimingMode? _timingMode;
   String? _selectedPrayer;
   /// One picked time per occurrence of a habit counted several times a day,
   /// index-aligned with the reminder slot each will own.
@@ -332,6 +363,14 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   // scroll it into view — see that method.
   final GlobalKey _suggestionsKey = GlobalKey();
 
+  /// The Repeat chips, so a refused Create can scroll back to them.
+  final GlobalKey _repeatSectionKey = GlobalKey();
+
+  /// The timing section, so turning the switch on can scroll it into view.
+  /// It opens directly above the preview card and the footer, which on a
+  /// small phone is exactly where "below the fold" starts.
+  final GlobalKey _timingSectionKey = GlobalKey();
+
   bool get _isEditing => widget.existing != null;
 
   /// Editing a catalog preset stores a [CatalogHabitOverride] rather than a
@@ -372,17 +411,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// document written before the cap existed.
   int get _dailyTargetInRange => _timesPerDay.clamp(1, kMaxTimesPerDay);
 
-  /// A safe, always-reasonable starting timing mode for a fresh habit —
-  /// never a guess at the exact prayer/time itself, just which picker to
-  /// open first. Faith habits open on Prayer, quit/reduce goals open on
-  /// Custom Text (the "when is it hardest" question rarely has a clean
-  /// prayer or clock-time answer), everything else opens on Time.
-  _TimingMode _defaultModeFor(HabitCategory category, GoalType goalType) {
-    if (goalType == GoalType.quit) return _TimingMode.text;
-    if (category == HabitCategory.faith) return _TimingMode.prayer;
-    return _TimingMode.time;
-  }
-
   @override
   void initState() {
     super.initState();
@@ -417,7 +445,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         _timingMode = _TimingMode.text;
         _cueCtrl.text = storedCue;
       }
-      _timingModeTouched = true;
+      // A habit that already carries a cue opens with the section open and
+      // that cue showing; one saved without a moment opens closed, which is
+      // exactly the state it was saved in. Editing is the only way the
+      // switch is ever on to begin with.
+      _timingEnabled = _timingMode != null;
       final storedOffset = existing.reminderOffsetMinutes;
       _reminderOffset = storedOffset;
       _extraOffsets = {...existing.extraReminderOffsets}..remove(storedOffset);
@@ -523,12 +555,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             _stepGoalCustom = !_stepGoalPresets.contains(namedGoal);
           }
           _stepGoal = namedGoal;
-          if (!_didPickCategory) {
-            _category = inferred;
-            if (!_timingModeTouched) {
-              _timingMode = _defaultModeFor(_category, _goalType);
-            }
-          }
+          // The category no longer carries a timing mode with it. It used
+          // to open the Prayer picker for anything that read as faith, which
+          // is a good guess and still the wrong place to make it: the guess
+          // arrived pre-selected, so a habit could be saved with a prayer cue
+          // nobody ever chose.
+          if (!_didPickCategory) _category = inferred;
         });
         // The card is being added to the tree by this very setState, so the
         // scroll has to wait for it to exist. Only on the frame it appears:
@@ -618,9 +650,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// "Time / Prayer / Custom text + before-after" into the actual value,
   /// so submit and the live preview can never disagree with each other.
   HabitCue _currentCue() => switch (_timingMode) {
-        // An unfilled row is skipped rather than blocking: _submit has always
-        // required only a name, and _timingOptionalNote advertises timing as
-        // optional. All rows empty gives HabitCue.empty, exactly as before.
+        // The switch is off, or on with no mode picked yet. Either way there
+        // is no moment to save, which is what an untouched picker has always
+        // resolved to — the difference is that it is now something somebody
+        // said rather than something they failed to say.
+        null => HabitCue.empty,
+        // An unfilled row is skipped rather than blocking. An empty cue is
+        // never what stops a save: _submit's only two bars are a name and a
+        // picked cadence, and the switch above this picker rests OFF, so
+        // "no moment" is the ordinary answer rather than an omission. All
+        // rows empty gives HabitCue.empty, exactly as before.
         // HabitCue.times sorts, dedupes and clamps, so this is the only place
         // the form has to think about order.
         // Multi-time carries its shifts inside the cue, beside the times they
@@ -668,6 +707,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// entry is clamped to a sane 0–360 minute range so a stray typo can't
   /// push a reminder days away from the habit it's for.
   int get _effectiveReminderOffset {
+    // No moment, nothing to shift from. Reached whenever the switch is off,
+    // including on an edit that turned it off: the number has to be written
+    // back as 0 rather than left at whatever the habit used to carry, or a
+    // reminder outlives the cue it belonged to.
+    if (_timingMode == null) return 0;
     if (_timingMode == _TimingMode.text) return 0;
     // A multi-time habit answers per occurrence, from inside its cue. Writing
     // the habit-level field as well would leave two numbers describing the
@@ -704,6 +748,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// stepped up to 3x/day would otherwise go on firing a stack nothing in the
   /// form admits to, and stepping back down would resurrect it.
   List<int> get _effectiveExtraOffsets {
+    if (_timingMode == null) return const [];
     if (_timingMode == _TimingMode.text) return const [];
     if (_timingMode == _TimingMode.time && _isMultiTime) return const [];
     final primary = _effectiveReminderOffset;
@@ -765,6 +810,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   Future<void> _submit() async {
     if (!_hasName) return;
+    // Read once into a local so the three writes below take a non-nullable
+    // value: there is no "no cadence" to store (IslamicHabitTemplate's
+    // frequencyType is not nullable, and effectiveDailyTarget reads it
+    // unconditionally), and resolving the unanswered case to a quiet Daily
+    // here would put back exactly the default this change removed. The
+    // button is already held back for this (see [_canCreate]), so this is
+    // the belt to that braces.
+    final freqType = _freqType;
+    if (freqType == null) return;
     final existing = widget.existing;
     if (existing == null && !canAddHabits(ref)) {
       Navigator.pop(context);
@@ -811,10 +865,19 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // A quit habit's only notification is the evening check-in, which the
     // text mode above never asked permission for: on iOS it silently never
     // arrived (2026-09-08). Quit habits ask on save regardless of mode.
-    if (_timingMode != _TimingMode.text || _goalType == GoalType.quit) {
+    // Nothing is scheduled for a habit with no moment, so nothing is asked
+    // for either. With the switch off by default that is now the common
+    // case, and a permission sheet arriving on the way out of a form that
+    // set no reminder is exactly the prompt people learn to dismiss without
+    // reading — including the ones who later do want a reminder.
+    final currentCue = _currentCue();
+    if (_goalType == GoalType.quit ||
+        (_timingMode != null &&
+            _timingMode != _TimingMode.text &&
+            !currentCue.isEmpty)) {
       _ensureNotificationPermission();
     }
-    final cue = _currentCue().toStorageValue();
+    final cue = currentCue.toStorageValue();
     final limitAmount = int.tryParse(_limitCtrl.text.trim());
     final notifier = ref.read(customHabitsProvider.notifier);
     // Only the create path hands anything back - callers that open this
@@ -849,9 +912,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   ? null
                   : editedName,
               cueAfter: cue == catalogDefault.cueAfter ? null : cue,
-              frequencyType: _freqType == catalogDefault.frequencyType
+              frequencyType: freqType == catalogDefault.frequencyType
                   ? null
-                  : _freqType,
+                  : freqType,
               frequencyTarget: _freqTarget == catalogDefault.frequencyTarget
                   ? null
                   : _freqTarget,
@@ -894,7 +957,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         name: _nameCtrl.text.trim(),
         category: _category,
         cueAfter: cue,
-        frequencyType: _freqType,
+        frequencyType: freqType,
         frequencyTarget: _freqTarget,
         scheduledWeekdays: _selectedWeekdays.toList()..sort(),
         goalType: _goalType,
@@ -918,7 +981,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         name: _nameCtrl.text.trim(),
         category: _category,
         cueAfter: cue,
-        frequencyType: _freqType,
+        frequencyType: freqType,
         frequencyTarget: _freqTarget,
         scheduledWeekdays: _selectedWeekdays.toList()..sort(),
         goalType: _goalType,
@@ -1155,7 +1218,79 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   bool get _isLimitHabit =>
       _goalType == GoalType.quit && _reductionType == ReductionType.limit;
 
-  bool get _canProceed => _hasName && !_limitMissing;
+  /// The only thing that greys the primary button: a habit with no name is
+  /// not a habit yet, and the box asking for one is the first thing on the
+  /// step.
+  ///
+  /// The other two required answers (a limit habit's number, and the
+  /// cadence) do NOT grey it. They are checked when it is pressed, and only
+  /// then does the control that owes the answer say so: see [_tryContinue],
+  /// [_tryCreate] and [_limitErrorShown] / [_repeatErrorShown]. A form that
+  /// points at a field before anybody has had a go at it is nagging, and a
+  /// dead button with a note beside it says the same thing twice.
+  bool get _canProceed => _hasName;
+
+  /// Set the first time somebody presses the button with a limit habit whose
+  /// number is missing, and the only thing that puts
+  /// [S.limitAmountRequired] on screen. False again for a fresh sheet.
+  bool _limitErrorShown = false;
+
+  /// The cadence half of the same idea, for [S.repeatPickOne].
+  bool _repeatErrorShown = false;
+
+  /// Continue, with the step's own required answer checked at the moment of
+  /// the press rather than in advance.
+  ///
+  /// Shared by the footer button and the name field's return key, so the
+  /// keyboard cannot walk past a check the button enforces. Refusing here
+  /// rather than in [_canProceed] is what keeps a limit habit from reaching
+  /// step two with no number, which would be saved as no limit at all.
+  void _tryContinue() {
+    if (!_hasName) return;
+    if (_limitMissing) {
+      HapticFeedback.lightImpact();
+      setState(() => _limitErrorShown = true);
+      return;
+    }
+    HapticFeedback.selectionClick();
+    FocusScope.of(context).unfocus();
+    _goToStep(1, forward: true);
+  }
+
+  /// Create / Save changes, same contract as [_tryContinue].
+  ///
+  /// An unpicked cadence scrolls its own chips back into view before saying
+  /// anything: the press happens at the bottom of the sheet and the chips
+  /// can be above the fold by then, and an answer demanded from off screen
+  /// is a dead end however politely it is worded.
+  void _tryCreate() {
+    if (!_hasName) return;
+    if (_freqType == null) {
+      HapticFeedback.lightImpact();
+      setState(() => _repeatErrorShown = true);
+      _revealRepeatSection();
+      return;
+    }
+    _submit();
+  }
+
+  /// Scrolls the Repeat chips fully into view, the way
+  /// [_revealTimingSection] does for the section below them.
+  void _revealRepeatSection() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _repeatSectionKey.currentContext;
+      if (target == null) return;
+      // Aligned to the top of the viewport (the default), not the bottom the
+      // way _revealTimingSection does it: the chips are what has to be read
+      // and answered now, so they go where the eye starts.
+      Scrollable.ensureVisible(
+        target,
+        duration: GameMotion.slow,
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
 
   Widget _content(BuildContext context, S s) {
     final gp = context.gp;
@@ -1163,11 +1298,19 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // The first habit inside the hub has no heading of its own: the
-        // hub's «إضافة عادة» sits directly above, with nothing between the
-        // two any more (see _isFirstHabit), and «إضافة هدف» right under it
-        // would just be the same title twice.
-        if (!_simpleFirstHabit)
+        // Embedded, this form has no heading of its own. The host that
+        // embeds it (AddHabitHub) already writes «إضافة عادة» directly
+        // above, so «إضافة هدف» under it was the same word twice on two
+        // lines, pushing the step's own question («متى وكيف ستتابع؟») a
+        // heading further down for nothing.
+        //
+        // Standalone it is the only heading there is: three callers open
+        // this sheet with no chrome of their own above it (the Grid's edit
+        // sheet, the room habit picker, Create Room), so the condition is
+        // about who is hosting the form, not about how many habits the
+        // account has. It used to be the latter, which is why only a very
+        // first habit escaped the duplicate.
+        if (!widget.embedded)
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
             child: Text(
@@ -1242,13 +1385,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   key: _step == 1 ? _createButtonKey : null,
                   onPressed: !_canProceed
                       ? null
-                      : _step == 0
-                          ? () {
-                              HapticFeedback.selectionClick();
-                              FocusScope.of(context).unfocus();
-                              _goToStep(1, forward: true);
-                            }
-                          : _submit,
+                      : (_step == 0 ? _tryContinue : _tryCreate),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(double.infinity, 50),
                     shape: RoundedRectangleBorder(
@@ -1408,7 +1545,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  s.stepLinkTitle(Platform.isIOS),
+                  s.stepLinkTitle((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)),
                   style: TextStyle(
                     fontSize: 14.5,
                     fontWeight: FontWeight.w800,
@@ -1434,7 +1571,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ),
           const SizedBox(height: 2),
           Text(
-            s.stepLinkBody(Platform.isIOS),
+            s.stepLinkBody((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)),
             style: TextStyle(fontSize: 11.5, color: gp.textSec, height: 1.4),
           ),
           if (_stepLinkEnabled) ...[
@@ -1645,6 +1782,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       // A quit habit is kept or slipped once a day; there is no "three
       // times a day" to abstain. The stepper is hidden for quit habits (see
       // _frequencySection), so the count it owns goes back to one here.
+      //
+      // Only Daily can have run the count up, because the stepper is the
+      // only thing that moves it and it renders under no other chip — so an
+      // unpicked cadence has nothing to reset, and the null falls through
+      // this guard correctly.
       if (type == GoalType.quit && _freqType == HabitFrequencyType.daily) {
         _timesPerDay = 1;
         _freqTarget = 1;
@@ -1659,9 +1801,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       if (type == GoalType.quit && _stepLinkEnabled) {
         _stepLinkEnabled = false;
         _stepLinkTouched = true;
-      }
-      if (!_timingModeTouched) {
-        _timingMode = _defaultModeFor(_category, _goalType);
       }
     });
   }
@@ -1692,13 +1831,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               color: context.gp.textPrimary,
             ),
             textCapitalization: TextCapitalization.sentences,
-            onSubmitted: (_) {
-              if (_canProceed) {
-                HapticFeedback.selectionClick();
-                FocusScope.of(context).unfocus();
-                _goToStep(1, forward: true);
-              }
-            },
+            onSubmitted: (_) => _tryContinue(),
             decoration: InputDecoration(
               hintText: _goalType == GoalType.build ? s.whatHabitBuild : s.whatReduce,
               prefixIcon: const Icon(Icons.edit_note_rounded, size: 20),
@@ -1792,9 +1925,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   setState(() {
                     _didPickCategory = true;
                     _category = cat;
-                    if (!_timingModeTouched) {
-                      _timingMode = _defaultModeFor(_category, _goalType);
-                    }
                   });
                   // Picking a category before typing anything means the
                   // suggestions below are about to become the most useful
@@ -1824,8 +1954,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// first habit does differently: the suggestions are labelled as the
   /// quickest way in rather than as a shortcut, the hub hides its Plans /
   /// Add Goal pills and its "choose one" card and hands the form a Plans
-  /// link instead (AddHabitHub's `_pillsHidden`), and the form's own heading
-  /// is dropped under the hub's ([_simpleFirstHabit]).
+  /// link instead (AddHabitHub's `_pillsHidden`). Dropping the form's own
+  /// heading used to be on this list too; it is not a first-habit trimming
+  /// any more, it is what every embedded host gets (see [_content]).
   ///
   /// A first habit used to open on a grid of suggestions and an "or write
   /// your own" label before the box, all under the hub's pills and their
@@ -1836,11 +1967,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// already selected, so typing straight into the box works). The order is
   /// the same for every habit now and only the trimmings above differ.
   bool get _isFirstHabit => ref.read(habitListProvider).isEmpty;
-
-  /// Adding (not editing) a first habit inside the hub: the hub's own
-  /// «إضافة عادة» title sits directly above, so the form's own heading is
-  /// dropped rather than stacked under it.
-  bool get _simpleFirstHabit => widget.embedded && !_isEditing && _isFirstHabit;
 
   Widget _suggestionsSection(S s, {bool lead = false}) => Column(
         key: _suggestionsKey,
@@ -1898,7 +2024,21 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           ),
           if (_reductionType == ReductionType.limit) ...[
             const SizedBox(height: 12),
+            // ── One line, and the same two columns as the picks above ─────
+            //
+            // The amount field carries a helperText for as long as the number
+            // is missing, which is the state this row OPENS in — so it is
+            // taller than the dropdown next to it nearly every time it is
+            // seen. A Row centres its children by default, and that sank the
+            // dropdown by half the helper's height (11.5pt, measured) against
+            // a field whose box had not moved: two boxes, two different
+            // lines. Aligning the tops puts the helper where it belongs,
+            // under its own field, and leaves the boxes level.
+            //
+            // The gap is the picks' 8, not 10, so the seam between the two
+            // columns runs straight down both rows.
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: TextField(
@@ -1910,11 +2050,17 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                       // A limit habit without a number has nothing to be
                       // within; the form waits for one (see _canProceed).
                       helperText:
-                          _limitMissing ? s.limitAmountRequired : null,
+                          // Only after somebody has actually tried to move
+                          // on with it empty. It used to be on screen from
+                          // the moment the row opened, telling people off
+                          // for not having typed yet.
+                          _limitMissing && _limitErrorShown
+                              ? s.limitAmountRequired
+                              : null,
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Expanded(
                   child: DropdownButtonFormField<LimitUnit>(
                     value: _limitUnit,
@@ -1975,15 +2121,64 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               .animate(delay: 40.ms)
               .fadeIn(duration: 240.ms)
               .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-          const SizedBox(height: 18),
-          _timingModeSection(s)
-              .animate(delay: 70.ms)
-              .fadeIn(duration: 240.ms)
-              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-          const SizedBox(height: 8),
-          _timingOptionalNote(s)
-              .animate(delay: 90.ms)
-              .fadeIn(duration: 240.ms),
+          // ── One question at a time, downward ────────────────────────────
+          //
+          // Whether the habit has a MOMENT is a separate question from how
+          // often it repeats, and it is not asked until the first one is
+          // answered: no switch, no chips, nothing. Cadence is what shapes
+          // everything below it (a daily habit counted three times a day can
+          // hold three clock times; a weekly one cannot hold any of that),
+          // so offering the timing question first was offering it before the
+          // form knew what it could offer.
+          //
+          // The whole block only ever appears, never disappears: nothing
+          // sets the cadence back to null once it is picked, and an edit
+          // always arrives with one, so no answer given here can be stranded
+          // behind a section that went away.
+          //
+          // One AnimatedSize covers both reveals, this one and the picker's
+          // own inside it, because it animates to whatever its subtree
+          // measures rather than to a particular child.
+          AnimatedSize(
+            duration: GameMotion.standard,
+            curve: Curves.easeOutCubic,
+            // Grows downward from the chips above rather than around its own
+            // middle, so each section opens under the control that opened it.
+            alignment: Alignment.topCenter,
+            child: _freqType == null
+                ? const SizedBox.shrink()
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 14),
+                      _timingToggleRow(s)
+                          .animate(delay: 70.ms)
+                          .fadeIn(duration: 240.ms)
+                          .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+                      if (_timingEnabled)
+                        Padding(
+                          key: _timingSectionKey,
+                          padding: const EdgeInsets.only(top: 14),
+                          // Behind the switch row's own 70ms, not before it:
+                          // on a habit that opens with the section already on
+                          // (an edit with a cue), an unanimated picker painted
+                          // at full opacity while the heading, the chips and
+                          // the switch that governs it were still fading in.
+                          // On the frame it was 100 percent, that switch was
+                          // at 0.
+                          //
+                          // It sits on the child rather than on the
+                          // AnimatedSize so it also runs when somebody opens
+                          // the section by hand later, instead of popping in.
+                          child: _timingModeSection(s)
+                              .animate(delay: 100.ms)
+                              .fadeIn(duration: 240.ms)
+                              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+                        ),
+                    ],
+                  ),
+          ),
           const SizedBox(height: 16),
           _goalPreviewCard(s)
               .animate(delay: 130.ms)
@@ -2040,12 +2235,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ],
             ],
           ),
-          const SizedBox(height: 12),
+          // Nothing under the chips until one of them is picked. The
+          // gap goes with it, so an opened section with no answer yet is
+          // three chips and nothing else — which is the question.
+          if (_timingMode != null) const SizedBox(height: 12),
           AnimatedSwitcher(
             duration: GameMotion.standard,
             child: KeyedSubtree(
               key: ValueKey(_timingMode),
               child: switch (_timingMode) {
+                null => const SizedBox.shrink(),
                 _TimingMode.time => _timeModeContent(s),
                 _TimingMode.prayer => _prayerModeContent(s),
                 _TimingMode.text => _textModeContent(s),
@@ -2055,38 +2254,116 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
       );
 
-  /// Sits under the time/prayer/text picker as a standing reminder that none
-  /// of it is required — _submit() only ever requires a name, and an
-  /// untouched picker already saves as HabitCue.empty (see _currentCue).
-  /// That was already true before this note existed; the note just makes it
-  /// visible instead of leaving people to guess whether they have to force
-  /// a time onto a habit that doesn't really have one.
-  Widget _timingOptionalNote(S s) {
+  /// The switch that opens the time/prayer/text picker.
+  ///
+  /// Shaped like Notification Settings' rows (icon, label, Switch) rather
+  /// than like the steps-link card above it: this is a plain yes or no about
+  /// the section under it, not an offer that has to explain itself first.
+  /// The whole row is the target, not just the switch.
+  ///
+  /// It replaced a line of small print saying the picker below could be
+  /// skipped. A sentence asking someone not to use a control is a control
+  /// that should not have been open, and off is now the resting state, so
+  /// the sentence has nothing left to say.
+  ///
+  /// Not drawn at all until a cadence is picked (see [_stepWhen]): what this
+  /// switch opens depends on the answer above it, so it waits for it.
+  Widget _timingToggleRow(S s) {
     final gp = context.gp;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline_rounded, size: 13, color: gp.textTert),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              s.timingOptionalNote,
-              style: TextStyle(fontSize: 11, color: gp.textTert, height: 1.3),
+    final on = _timingEnabled;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => _setTimingEnabled(!on),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Icon(
+              on ? Icons.alarm_on_rounded : Icons.alarm_rounded,
+              size: 19,
+              color: on ? gp.goldInk : gp.textTert,
             ),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                // A quit habit is watching for a moment, not scheduling one
+                // (its own reminder is the evening check-in, which this
+                // switch has never governed), so it names the thing its
+                // field below already names: a time or a situation.
+                _goalType == GoalType.quit
+                    ? s.timingToggleQuit
+                    : s.timingToggle,
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                  color: on ? gp.textPrimary : gp.textSec,
+                ),
+              ),
+            ),
+            Switch(value: on, onChanged: _setTimingEnabled),
+          ],
+        ),
       ),
     );
   }
 
+  /// Opens or closes the timing section.
+  ///
+  /// Turning it OFF clears the mode rather than remembering it, and takes
+  /// with it everything that only means anything beside a cue: the alarm
+  /// choice and the quiet-hours override. Both are written on save, so
+  /// leaving either behind would store an answer about a reminder this
+  /// habit is no longer getting — the same class of bug the steps-link
+  /// switch already documents in [_setGoalType].
+  ///
+  /// What it does NOT clear is the picked times and the typed cue text.
+  /// Those are the person's own input, they are only ever saved through a
+  /// selected mode, and a switch flicked off and back on should ask for the
+  /// choice again, not for the typing again.
+  void _setTimingEnabled(bool on) {
+    HapticFeedback.selectionClick();
+    if (_cueFocus.hasFocus) _cueFocus.unfocus();
+    setState(() {
+      _timingEnabled = on;
+      if (!on) {
+        _timingMode = null;
+        _openOffsetRow = -1;
+        _alarm = false;
+        _ignoreQuietHours = false;
+      }
+      // Counted more than once a day, the clock time is the ONLY mode the
+      // row can offer (prayer and free text are single moments, see
+      // _timingModeSection), so opening the section would show one unlit
+      // full-width chip above empty space, which reads as a section that
+      // failed to draw rather than as a choice. Picking the only option on
+      // somebody's behalf takes nothing away from them: there is nothing
+      // else to pick.
+      if (on && _isMultiTime) _timingMode = _TimingMode.time;
+    });
+    if (on) _revealTimingSection();
+  }
+
+  /// Scrolls the freshly opened timing section fully into view. Same
+  /// treatment [_revealStepCard] gives the steps card, and for the same
+  /// reason: the section opens near the bottom of the sheet, so on a small
+  /// phone the chips somebody just asked for can land under the footer.
+  void _revealTimingSection() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _timingSectionKey.currentContext;
+      if (target == null) return;
+      Scrollable.ensureVisible(
+        target,
+        alignment: 1.0,
+        duration: GameMotion.slow,
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
   void _selectTimingMode(_TimingMode mode) {
     HapticFeedback.selectionClick();
-    setState(() {
-      _timingMode = mode;
-      _timingModeTouched = true;
-    });
+    setState(() => _timingMode = mode);
   }
 
   Widget _timeModeContent(S s) {
@@ -3020,9 +3297,22 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       );
 
   Widget _frequencySection(S s) => Column(
+        key: _repeatSectionKey,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _SectionLabel(s.repeat),
+          // Only once Create has been pressed with nothing picked, and then
+          // where the answer is owed rather than beside the button that
+          // refused. Not before: three chips under a label that says
+          // «التكرار» are already the question, and a line telling somebody
+          // to answer a question they have not reached yet is nagging.
+          if (_freqType == null && _repeatErrorShown) ...[
+            const SizedBox(height: 3),
+            Text(
+              s.repeatPickOne,
+              style: TextStyle(fontSize: 11, color: context.gp.textTert),
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
@@ -3107,9 +3397,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 // change. Only ever onto the clock-time mode, and only ever
                 // upward: stepping back down to 1 restores the chips and lets
                 // the person pick a prayer again if that is what they wanted.
-                if (_timesPerDay > 1 && _timingMode != _TimingMode.time) {
+                // A section that was never opened has no mode to carry:
+                // stepping the count up on a habit with no time at all
+                // must not hand it one.
+                if (_timesPerDay > 1 &&
+                    _timingMode != null &&
+                    _timingMode != _TimingMode.time) {
                   _timingMode = _TimingMode.time;
-                  _timingModeTouched = true;
                 }
               }),
             ),
@@ -3168,18 +3462,38 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
       );
 
-  String _summary(S s) {
-    final freq = _selectedWeekdays.isNotEmpty || _freqType == HabitFrequencyType.weekly
-        ? s.habitWeeklyTimes(_freqTarget)
-        // A counted daily habit says how many, because "Daily" alone is the
-        // one thing this preview would then be getting wrong.
-        : (_dailyTargetInRange > 1
-            // The whole phrase, not a numeral glued to a unit: Arabic says
-            // "مرتين في اليوم" for two, where the number IS the noun's form.
-            ? '${s.daily} · ${s.timesPerDayPhrase(_dailyTargetInRange)}'
-            : s.daily);
+  /// The preview card's second line, or null when there is nothing true to
+  /// put on it yet.
+  ///
+  /// Null, not an empty string: an empty Text still takes its line box, and
+  /// a blank row under the habit's name reads as a rendering fault. The
+  /// card drops the line instead (see [_goalPreviewCard]).
+  ///
+  /// The unanswered cadence is the reason this can be null at all. Before
+  /// the chips opened unlit, the else-branch below was always reachable and
+  /// always true; now, printing «يومياً» here for a chip nobody has touched
+  /// would be the form making the claim two lines above the button that
+  /// commits it, which is the whole thing the unlit chips exist to stop.
+  String? _summary(S s) {
+    final freq = _freqType == null
+        ? null
+        : (_selectedWeekdays.isNotEmpty ||
+                _freqType == HabitFrequencyType.weekly
+            ? s.habitWeeklyTimes(_freqTarget)
+            // A counted daily habit says how many, because "Daily" alone is
+            // the one thing this preview would then be getting wrong.
+            : (_dailyTargetInRange > 1
+                // The whole phrase, not a numeral glued to a unit: Arabic
+                // says "مرتين في اليوم" for two, where the number IS the
+                // noun's form.
+                ? '${s.daily} · ${s.timesPerDayPhrase(_dailyTargetInRange)}'
+                : s.daily));
     final cue = _currentCue();
-    return cue.isEmpty ? freq : '$freq · ${cue.labelForLocale(s.isAr)}';
+    final cueLabel = cue.isEmpty ? null : cue.labelForLocale(s.isAr);
+    // Whatever HAS been answered, and only that: a cue with no cadence
+    // still says the cue.
+    if (freq == null) return cueLabel;
+    return cueLabel == null ? freq : '$freq · $cueLabel';
   }
 
   /// A running "here's what you're about to create" confirmation — icon,
@@ -3240,13 +3554,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: gp.textPrimary),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _summary(s),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11.5, color: gp.textSec),
-                    ),
+                    if (_summary(s) case final summary?) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        summary,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 11.5, color: gp.textSec),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -3402,9 +3718,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _category = suggestion.category;
       _didPickCategory = true;
       _hasName = true;
-      if (!_timingModeTouched) {
-        _timingMode = _defaultModeFor(_category, _goalType);
-      }
     });
   }
 

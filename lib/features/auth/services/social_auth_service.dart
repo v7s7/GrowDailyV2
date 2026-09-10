@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
@@ -102,7 +103,7 @@ class SocialAuthService {
   /// share one initialization instead of racing two.
   Future<void> _ensureGoogleReady() {
     return _googleInit ??= GoogleSignIn.instance.initialize(
-      serverClientId: Platform.isAndroid ? _webClientId : null,
+      serverClientId: _isAndroid ? _webClientId : null,
     );
   }
 
@@ -114,10 +115,23 @@ class SocialAuthService {
   /// This project has neither, and a button that opens a browser and fails
   /// is worse than no button. It is also not required there: guideline 4.8
   /// binds on Apple's own platforms, and Android users have Google.
-  bool get appleAvailable => Platform.isIOS || Platform.isMacOS;
+  // defaultTargetPlatform, never dart:io's Platform: the auth screen asks
+  // these on its first frame, and Platform throws on the web (Unsupported
+  // operation: Platform._operatingSystem), which painted the whole web app
+  // as a grey error box before anything else could draw. On the web neither
+  // provider is configured (no OAuth client id, no Apple services id), so
+  // both read false and the screen offers email and guest.
+  static bool get _isIOS =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  static bool get _isAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  static bool get _isMacOS =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+
+  bool get appleAvailable => _isIOS || _isMacOS;
 
   /// Whether Google sign-in can be offered on this platform.
-  bool get googleAvailable => Platform.isIOS || Platform.isAndroid;
+  bool get googleAvailable => _isIOS || _isAndroid;
 
   /// Opens Google's account chooser and returns the resulting credential.
   ///

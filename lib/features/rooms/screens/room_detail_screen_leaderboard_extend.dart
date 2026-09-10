@@ -341,6 +341,48 @@ class _RoomStripScroller extends StatefulWidget {
   State<_RoomStripScroller> createState() => _RoomStripScrollerState();
 }
 
+/// Which of the strip's edges currently hide content, published to the
+/// scrolling content itself so a pinned label can stand down rather than
+/// render as a fragment.
+///
+/// The reserves the «البداية» and «اليوم» labels sit in are INSIDE the
+/// scrolling content, at its two extreme ends, so they are the first thing
+/// the viewport hides. A seven-week room already overflows the ~220pt the
+/// leaderboard card leaves the strip on a 402pt phone, and at rest the
+/// viewport sits on the newest end, so «البداية 07/28» was cut from its
+/// outer side. In an RTL line the Arabic word is the right-hand run and the
+/// date the left-hand one, so the word went first and what survived was the
+/// bare fragment «07/», then «0». Aziz screenshotted exactly that and asked
+/// what it meant.
+///
+/// Hiding beats shrinking: the label is not lost, it is one sideways slide
+/// away, and the reserve keeps its width so nothing below it moves. The
+/// alternative, dropping the 64pt reserve or taking the date off the marker,
+/// would reverse the decision documented on the label itself.
+class _StripEdges extends InheritedWidget {
+  const _StripEdges({
+    required this.moreAtStart,
+    required this.moreAtEnd,
+    required super.child,
+  });
+
+  final bool moreAtStart;
+  final bool moreAtEnd;
+
+  /// True when the edge this label is pinned to is currently cutting into
+  /// it. Absent ancestor means "not inside a scroller", which is every test
+  /// that pumps a label on its own: show it.
+  static bool hides(BuildContext context, {required bool atStart}) {
+    final edges = context.dependOnInheritedWidgetOfExactType<_StripEdges>();
+    if (edges == null) return false;
+    return atStart ? edges.moreAtStart : edges.moreAtEnd;
+  }
+
+  @override
+  bool updateShouldNotify(_StripEdges old) =>
+      old.moreAtStart != moreAtStart || old.moreAtEnd != moreAtEnd;
+}
+
 class _RoomStripScrollerState extends State<_RoomStripScroller> {
   /// Which edges still hide content. Before the first scroll the viewport
   /// rests at offset zero, the newest end, so everything hidden lies past
@@ -397,7 +439,16 @@ class _RoomStripScrollerState extends State<_RoomStripScroller> {
               reverse: true,
               child: ConstrainedBox(
                 constraints: BoxConstraints(minWidth: widget.viewportWidth),
-                child: widget.child,
+                // Inside the scroll view, so the content it wraps is the
+                // content whose edges these describe. The child widget is
+                // the same instance across a setState here, but an
+                // InheritedWidget notifies its dependents directly, so the
+                // two pinned labels still rebuild when an edge flips.
+                child: _StripEdges(
+                  moreAtStart: _moreAtStart,
+                  moreAtEnd: _moreAtEnd,
+                  child: widget.child,
+                ),
               ),
             ),
             if (_moreAtStart)
@@ -882,20 +933,30 @@ class RoomStrip extends StatelessWidget {
     // parent Stack is Clip.none and the box costs no layout either way.
     const labelHeight = 18.0;
     const topOffset = (_cell - labelHeight) / 2;
+    // The Builder sits INSIDE the PositionedDirectional, not around it: a
+    // Positioned has to stay a direct child of its Stack, and it is also
+    // built here, before the scroller that publishes _StripEdges exists, so
+    // the lookup has to be deferred to a context below it either way. The
+    // box keeps its reserve when the label stands down, so no cell moves.
+    Widget gated({required bool atStart}) => Builder(
+          builder: (ctx) => _StripEdges.hides(ctx, atStart: atStart)
+              ? const SizedBox.shrink()
+              : label,
+        );
     return towardsStart
         ? PositionedDirectional(
             start: -(_labelInset + _labelGap),
             top: topOffset,
             height: labelHeight,
             width: _labelInset,
-            child: label,
+            child: gated(atStart: true),
           )
         : PositionedDirectional(
             end: -(_todayInset + _labelGap),
             top: topOffset,
             height: labelHeight,
             width: _todayInset,
-            child: label,
+            child: gated(atStart: false),
           );
   }
 
@@ -926,7 +987,20 @@ class RoomStrip extends StatelessWidget {
       if (day.isAfter(room.lastCountedDay)) continue;
       // A paused day is outside the score on both sides (daysElapsedIn skips
       // it), so it must not make a week of finished days read as short.
-      if (room.isPausedOn(day.toDateKey())) continue;
+      //
+      // The member's own stand-down is the same state and needs the same
+      // line: creditFor returns 0 for it by design, so it used to fall
+      // through to `real++`, never settle, and turn the week amber. _cellFor
+      // 60 lines down already treats the two as one thing
+      // (`isRoomPaused || participant.isStoodDownOn(key)`), and so does the
+      // member sheet. On Aziz's own A8GEL7 row the 29-31 August column is
+      // three stood-down days and nothing else, so it drew a "this week fell
+      // short" bar directly above three dashes that mean nothing was owed,
+      // over a percentage that excludes all three days from both sides.
+      if (room.isPausedOn(day.toDateKey()) ||
+          participant.isStoodDownOn(day.toDateKey())) {
+        continue;
+      }
       real++;
       if (participant.creditFor(day.toDateKey()) >= 1.0) settled++;
       if (!_weekIsClosed(day)) open = true;
@@ -950,16 +1024,39 @@ class RoomStrip extends StatelessWidget {
   /// A QUOTA habit's yesterday is different: while its week is open, every
   /// un-done day is only provisionally owed, and finishing the week converts
   /// them all back into rest days. Crossing those out live would condemn
-  /// days the person is about to rescue, so the quota case waits for the
-  /// week to close.
+  /// days the person is about to rescue, so the quota case waits.
+  ///
+  /// Waits for the week to be DECIDED, though, which is not the same as
+  /// waiting for it to end. A 4x-a-week habit buys three blank days; on the
+  /// fourth, three sessions is the most the week can still reach and it will
+  /// grade as a miss whatever happens next. Until this second condition
+  /// existed the strip sat on that answer for the rest of the week: on
+  /// A8GEL7 the week of 09/05 was settled on Wednesday and still showed
+  /// seven neutral squares on Thursday, which reads as "nothing has happened
+  /// yet" rather than as the record it is. See
+  /// [RoomParticipant.quotaWeekIsLost], which is written to fail toward
+  /// silence in every case where it cannot be sure.
   bool _missIsFinal(DateTime day) {
-    if (day.isRealToday || day.isAfter(room.lastCountedDay)) return false;
+    final now = DateTime.now();
+    // Not while the day can still be marked. Under the overlapping-day
+    // window a day stays open until kDayCutoffHour the next morning, so at
+    // 03:00 yesterday is still winnable: the Grid will pay a session marked
+    // then, and roomDayIsClosedAt is the same test the room's own sync uses
+    // before it clamps a day. isRealToday closed it at midnight instead,
+    // ten hours early, and crossed out a day somebody was still allowed to
+    // finish. Aziz, 2026-09-10: "I may train now, so the system should add
+    // fail only if it passes the flex time."
+    if (!roomDayIsClosedAt(day, now) || day.isAfter(room.lastCountedDay)) {
+      return false;
+    }
     final onQuota = participant.countedHabitIds.any(
       (id) =>
           participant.ruleFor(id, day.toDateKey())?.frequencyType ==
           HabitFrequencyType.weekly,
     );
-    return onQuota ? _weekIsClosed(day) : true;
+    if (!onQuota) return true;
+    return _weekIsClosed(day) ||
+        participant.quotaWeekIsLost(day.toDateKey(), room, now: now);
   }
 
   /// Whether the Saturday week containing [day] has finished counting.
@@ -1416,7 +1513,18 @@ class _LeaderboardRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
-    final ratio = participant.progressRatio(room);
+    // Two numbers, on purpose. The row is ranked and drawn by the ROOM SCORE,
+    // every day graded against the whole plan, which is the only figure that
+    // means the same thing on every row. The member's OWN number - done over
+    // what they actually linked - appears small beneath it only when the two
+    // differ, so somebody carrying part of the plan sees their honest rate
+    // right beside the one the board placed them by, and everybody else sees
+    // why. See RoomParticipant.roomProgressRatio.
+    final ratio = participant.roomProgressRatio(room);
+    final ownPercent = (participant.progressRatio(room) * 100).round();
+    final coverage = participant.planCoverageIn(room);
+    final carriesPartOfPlan =
+        coverage != null && coverage.linked < coverage.total;
     // findById, NOT findByIdOrDefault. On someone else's row an unknown id
     // must stay unknown: the OrDefault variant returns male1, a character a
     // member may genuinely have chosen, so a participant whose avatar we
@@ -1713,13 +1821,40 @@ class _LeaderboardRow extends ConsumerWidget {
                       ),
                       const SizedBox(width: 9),
                     ],
-                    Text(
-                      s.roomDayCount(
-                        participant.daysCompleted(room),
-                        participant.daysElapsedIn(room),
+                    // The ROOM numbers, the same pair the percent above is
+                    // divided from. They used to be daysCompleted /
+                    // daysElapsedIn, this member's OWN count, which was the
+                    // same thing until the board started ranking by the room
+                    // score. On a partial plan it stopped being: Aziz's row in
+                    // A8GEL7 printed «27 من 39» under «31%», and 27/39 is 69%,
+                    // the number two lines further down labelled «المرتبطة».
+                    // The member sheet already prints the room pair, so the
+                    // two screens disagreed about the same member as well.
+                    // Only on a whole plan, where this fraction, the percent
+                    // above it and the squares to its left are all the same
+                    // three numbers and cannot disagree.
+                    //
+                    // On a PARTIAL plan every reading of it was wrong. As
+                    // the own pair it printed «27 من 39» under «31%», which
+                    // is 69%, the number already spelled out two lines down
+                    // as «المرتبطة». As the room pair it prints «12.1 من 39»
+                    // beside a strip showing 27 solid green squares, and no
+                    // reading reconciles 12.1 with counting them: the room
+                    // numerator is weighted plan coverage, not days done.
+                    // Either way it is a second score that contradicts
+                    // something on its own row, and it is redundant, because
+                    // roomPlanCoverage and roomOwnRate below already say
+                    // both halves. This is the «23 من 44» / «1 من عادتين»
+                    // pair Aziz asked about. The exact figures stay one tap
+                    // away on the member sheet, where «الأيام» labels them.
+                    if (!carriesPartOfPlan)
+                      Text(
+                        s.roomDayCount(
+                          participant.roomDaysCompleted(room),
+                          participant.roomDaysElapsedIn(room),
+                        ),
+                        style: TextStyle(fontSize: 10.5, color: gp.textTert),
                       ),
-                      style: TextStyle(fontSize: 10.5, color: gp.textTert),
-                    ),
                   ],
                 ),
               ],
@@ -1740,6 +1875,26 @@ class _LeaderboardRow extends ConsumerWidget {
                     color: gp.textPrimary,
                   ),
                 ),
+                // How much of the plan this member carries, and their own
+                // rate when it differs from the score above. Only drawn on a
+                // partial plan: a row on the whole plan says nothing extra,
+                // so the common case stays exactly as it was.
+                if (carriesPartOfPlan) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    s.roomPlanCoverage(coverage.linked, coverage.total),
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textTert,
+                    ),
+                  ),
+                  if (ownPercent != (ratio * 100).round())
+                    Text(
+                      s.roomOwnRate(ownPercent),
+                      style: TextStyle(fontSize: 9.5, color: gp.textTert),
+                    ),
+                ],
                 // Directly under the number it explains. Two members in one
                 // room can be graded on different terms — a 4x/week quota
                 // turns its untrained days into full credit, a daily habit

@@ -36,7 +36,7 @@ import '../../character/models/character_option.dart';
 import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/character_avatar.dart';
 import '../../character/widgets/prestige_mark.dart';
-import '../../grid/models/square_state.dart' show HalfFullMark;
+import '../../grid/models/square_state.dart' show HalfFullMark, SquareState;
 import '../../grid/notifiers/weekly_grid_notifier.dart' show weeklyGridProvider;
 import '../../grid/screens/monthly_heatmap_screen.dart' show heatColor;
 import '../../habits/catalog/islamic_habit_catalog.dart'
@@ -45,6 +45,7 @@ import '../../habits/models/habit_model.dart' show HabitFrequencyType;
 import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider, canAddHabits, pausedHabitsProvider;
+import '../models/room_day_breakdown.dart';
 import '../models/room_model.dart';
 import '../notifiers/room_moderation.dart';
 import '../notifiers/rooms_notifier.dart';
@@ -141,8 +142,14 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: Text(s.roomLeaveConfirmTitle),
+        // Leaving keeps the record now (RoomParticipant.leftAt), and the body
+        // says so: the old line, «تقدر تنضم مرة ثانية برمز الغرفة», read as
+        // an invitation to the reset it used to be. The leader keeps their
+        // own body alone: it already covers both of their outcomes, and one
+        // of them (last member out, room deleted) would make "your days are
+        // kept, if you come back" a promise about a room that will not exist.
         content: Text(
-          isLeader ? s.roomLeaveConfirmBodyLeader : s.roomLeaveConfirmBody,
+          isLeader ? s.roomLeaveConfirmBodyLeader : s.roomLeaveKeepsRecordBody,
         ),
         actions: [
           TextButton(

@@ -8,7 +8,6 @@
    These are the same promises the English strings in Info.plist make, in the
    same order. Change one, change both. */
 
-"NSLocationAlwaysAndWhenInUseUsageDescription" = "Grow Daily يستخدم موقعك بس والتطبيق مفتوح، عشان يحسب أوقات الصلاة بدقة لتذكيراتك. ما يتتبع موقعك في الخلفية أبدًا.";
 
 "NSLocationWhenInUseUsageDescription" = "Grow Daily يستخدم موقعك عشان يحسب أوقات الصلاة بدقة لتذكيراتك. إحداثياتك تنرسل لخدمة أوقات الصلاة، وإذا كنت مسجل دخول تنحفظ في حسابك عشان التذكيرات تمشي معك على كل أجهزتك.";
 
@@ -16,6 +15,5 @@
 
 "NSHealthShareUsageDescription" = "Grow Daily يقرأ عدد خطواتك اليومي من تطبيق صحتي (ومنها خطوات ساعة Apple إذا عندك وحدة) عشان عادات المشي اللي تربطها بالخطوات تكتمل بروحها. الخطوات تنقرأ بس، ما تتغير، وتبقى على جهازك.";
 
-"NSHealthUpdateUsageDescription" = "Grow Daily ما يكتب أي بيانات صحية. هذا الإذن جزء من ربط الصحة المستخدم لقراءة عدد خطواتك لعادات المشي.";
 
 "NSAlarmKitUsageDescription" = "Grow Daily يشغّل منبّه للعادات والمهام اللي تختار تنبّه لها بمنبّه، حتى لو الجوال صامت أو في وضع تركيز. بس التذكيرات اللي تحوّلها لمنبّه تستخدم هذا الإذن.";

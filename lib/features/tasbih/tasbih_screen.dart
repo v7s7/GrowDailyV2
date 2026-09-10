@@ -14,6 +14,7 @@ import '../../core/utils/western_digits.dart';
 import '../dashboard/notifiers/dashboard_notifier.dart';
 import '../../shared/widgets/app_snackbar.dart';
 import '../grid/models/square_state.dart';
+import '../grid/notifiers/square_audit.dart' show kSquareSourceTasbih;
 import '../grid/notifiers/weekly_grid_notifier.dart';
 import '../habits/catalog/islamic_habit_catalog.dart';
 import '../habits/models/habit_model.dart';
@@ -216,7 +217,8 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
     if (mirroredBySingleTap) {
       ref
           .read(weeklyGridProvider.notifier)
-          .markCompleteFromHabit(habit.id, today);
+          .markCompleteFromHabit(habit.id, today,
+              source: kSquareSourceTasbih);
       syncRoomToday(ref, habit.id, today);
     } else if (perDay > 1) {
       // A counted habit paints its square by hand, exactly like the
@@ -229,6 +231,7 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
               habit.id,
               today,
               done >= perDay ? SquareState.complete : SquareState.partial,
+              source: kSquareSourceTasbih,
             );
         syncRoomToday(ref, habit.id, today);
       }

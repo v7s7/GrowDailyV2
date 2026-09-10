@@ -309,7 +309,7 @@ class S {
   String get tryAsGuest => isAr ? 'المتابعة كضيف' : 'Continue as guest';
   String get guestDescription => isAr
       ? 'لا حاجة لحساب. ابدأ أولى انتصاراتك الآن.'
-      : 'No account needed. Complete your first Quran, athkar, or focus win now.';
+      : 'No account needed. Start your first win now.';
   String get guestLimitTitle =>
       isAr ? 'وصلت لحد التجربة' : "You've hit the guest limit";
   // "keep your progress synced" stays out of this line. The migration now
@@ -453,6 +453,60 @@ class S {
   String get errEnterEmailForReset =>
       isAr ? 'اكتب بريدك الإلكتروني أولًا' : 'Type your email first';
 
+  // ── Setting a new password from a reset link ──────────────────────────
+  // Reached by tapping the link in the reset email, which the OS hands
+  // straight to the app (see parsePasswordResetLink). The web page in
+  // public/reset/ says the same things for anyone opening it on a computer,
+  // so these two sets of words are meant to match.
+  String get setPasswordTitle =>
+      isAr ? 'كلمة مرور جديدة' : 'New password';
+  String get setPasswordSubject =>
+      isAr ? 'اختر كلمة مرور جديدة لحساب' : 'Choose a new password for';
+  String get setPasswordChecking =>
+      isAr ? 'نتأكد أن الرابط ما زال صالحًا…' : 'Checking that this link is still good…';
+  String get setPasswordSave =>
+      isAr ? 'حفظ كلمة المرور' : 'Save password';
+  // The rule as a HINT, before anything is typed. errPasswordTooShort says
+  // the same rule as a verdict, and using that one here made an empty field
+  // look like a mistake the moment the screen opened.
+  String get setPasswordHint =>
+      isAr ? 'ستة أحرف على الأقل.' : 'Six characters or more.';
+  String get setPasswordNote => isAr
+      ? 'هذا الرابط يشتغل مرة وحدة. إذا طلبت رابطًا جديدًا، القديم ينتهي.'
+      : 'This link works once. Asking for a newer one ends this one.';
+  String get setPasswordDone =>
+      isAr ? 'تم تغيير كلمة المرور' : 'Password changed';
+  // Shown when the oobCode no longer verifies. Says WHY, because "invalid
+  // link" reads as an accusation and leaves nothing to do; both reasons here
+  // are ordinary and both have the same fix.
+  String get resetLinkDeadTitle =>
+      isAr ? 'الرابط ما عاد يشتغل' : 'This link has expired';
+  String get resetLinkDeadBody => isAr
+      ? 'روابط إعادة التعيين تنتهي بعد فترة قصيرة، وتنتهي أيضًا إذا طلبت رابطًا أحدث منها.'
+      : 'Reset links last a short while, and asking for a newer one ends the older ones.';
+  String get resetLinkDeadCta =>
+      isAr ? 'اطلب رابطًا جديدًا' : 'Ask for a new link';
+
+  // ── Putting a password back after a provider sign-in removed it ───────
+  // Shown once, right after the sign-in where the loss is noticed. DRAFT
+  // wording: it has to explain something the person did not do and cannot
+  // have expected, without blaming them and without naming Firebase.
+  String get addPasswordTitle =>
+      isAr ? 'حط كلمة مرور للحساب' : 'Add a password';
+  String get addPasswordBody => isAr
+      ? 'دخولك بـ Google أو Apple شال كلمة المرور القديمة من هذا الحساب. حط وحدة جديدة وبتقدر تدخل بالطريقتين.'
+      : 'Signing in with Google or Apple removed the old password from this '
+          'account. Set a new one and both ways in will work.';
+  String get addPasswordLater => isAr ? 'لاحقًا' : 'Later';
+  String get addPasswordDone => isAr
+      ? 'تم. تقدر تدخل بالبريد وكلمة المرور أو بـ Google.'
+      : 'Done. You can sign in with your email and password, or with Google.';
+  // linkWithCredential's own refusals, both of which mean the account
+  // already has a password: nothing is broken, so neither reads as an error.
+  String get addPasswordAlready => isAr
+      ? 'هذا الحساب عنده كلمة مرور أصلاً.'
+      : 'This account already has a password.';
+
   // Auth errors
   String get errFillAll =>
       isAr ? 'يرجى ملء جميع الحقول' : 'Please fill in all fields';
@@ -461,9 +515,24 @@ class S {
   String get errPasswordTooShort => isAr
       ? 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'
       : 'Password must be at least 6 characters';
+  /// DRAFT wording (the second sentence).
+  ///
+  /// It names Google and Apple on EVERY failed sign-in, including a plain
+  /// typo, and that is deliberate: Firebase's email-enumeration protection
+  /// is on for this project, so `fetchSignInMethodsForEmail` comes back
+  /// empty and a wrong password and an address that has no password are the
+  /// same `invalid-credential` from the client's side. There is no way to
+  /// say this to only the people it applies to without also building an
+  /// oracle for which addresses are registered.
+  ///
+  /// It applies more often than it looks. Firebase DROPS the password from
+  /// an account whose email was never verified as soon as that address
+  /// signs in with Google or Apple, so a password that worked yesterday can
+  /// stop existing with nothing on screen having said so.
   String get errInvalidCredential => isAr
-      ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة'
-      : 'Invalid email or password';
+      ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة. إذا دخلت قبل بـ Google أو Apple، ادخل بنفس الطريقة.'
+      : 'Invalid email or password. If you signed in with Google or Apple '
+          'before, use that button instead.';
   String get errEmailInUse => isAr
       ? 'يوجد حساب بهذا البريد الإلكتروني بالفعل'
       : 'An account with this email already exists';
@@ -497,6 +566,12 @@ class S {
       ? 'الدخول بـ Apple يحتاج حساب Apple على الجهاز. تقدر تضيفه من الإعدادات.'
       : 'Signing in with Apple needs an Apple Account on this device. You can '
           'add one in Settings.';
+  // Firebase rate-limits reset emails per address. Says how to get past it
+  // (wait), because "try again" alone invites the retry that renews the
+  // limit.
+  String get errTooManyRequests => isAr
+      ? 'محاولات كثيرة. انتظر شوي وجرّب مرة ثانية.'
+      : 'Too many attempts. Wait a moment and try again.';
   String get errGeneric =>
       isAr ? 'حدث خطأ. حاول مجدداً.' : 'Something went wrong. Try again.';
 
@@ -512,9 +587,15 @@ class S {
   String get deleteAccount => isAr ? 'حذف الحساب' : 'Delete Account';
   String get deleteAccountWarningTitle =>
       isAr ? 'حذف حسابك نهائيًا؟' : 'Permanently delete your account?';
+  // The subscription sentence is unconditional on purpose. Gating it on
+  // premiumProvider would also fire for the lifetime non-consumable and tell a
+  // one-time buyer to cancel a subscription they never had. Deleting the
+  // account cannot cancel an App Store subscription: only the App Store can,
+  // and after deletion the paywall (the app's only Manage subscription entry
+  // point) is unreachable. Guideline 5.1.1(v).
   String get deleteAccountWarningBody => isAr
-      ? 'سيؤدي هذا إلى حذف عاداتك، سلاسلك، إنجازاتك، وكل بياناتك نهائيًا. لا يمكن التراجع عن هذا الإجراء.'
-      : "This permanently deletes your habits, streaks, achievements, and all your data. This can't be undone.";
+      ? 'سيؤدي هذا إلى حذف عاداتك، سلاسلك، إنجازاتك، وكل بياناتك نهائيًا. لا يمكن التراجع عن هذا الإجراء. حذف الحساب لا يلغي اشتراكك، الاشتراك يُدار من إعدادات الآيفون.'
+      : "This permanently deletes your habits, streaks, achievements, and all your data. This can't be undone. Deleting your account does not cancel an App Store subscription; those are managed in your iPhone Settings.";
   String get deleteAccountPasswordLabel =>
       isAr ? 'أدخل كلمة المرور للتأكيد' : 'Enter your password to confirm';
   // Shown instead of the password field to an account that signed in with a
@@ -1232,13 +1313,33 @@ class S {
   String get remindPreviewNeedsLocation => isAr
       ? 'حدد موقعك في إعدادات الإشعارات لرؤية الوقت الدقيق'
       : 'Set your location in Notification Settings to see the exact time';
-  // Timing (time/prayer/text) is already optional in the data — an
-  // untouched picker just saves with no cue at all. This says so out loud,
-  // for habits like "pray on time" that have no single checkable moment.
-  String get timingOptionalNote => isAr
-      ? 'ليست كل عادة تحتاج وقتًا محددًا. يمكنك تخطي هذا إن لم ينطبق'
-      : "Not every habit needs a set time. Skip this if it doesn't apply.";
+  // ── The timing switch (Add Habit → When step) ──────────────────────
+  //
+  // Timing has always been optional in the data: an untouched picker saves
+  // with no cue at all. The form used to express that by opening with a
+  // mode already selected and a line of small print underneath explaining
+  // that you were allowed to ignore it — so the honest answer "this habit
+  // has no particular moment" was reachable only by leaving something alone
+  // and trusting the note. The switch asks it as a question instead, off by
+  // default, and the note is gone with the state it was describing.
+  //
+  // Two wordings because the section means two different things. A build
+  // habit's cue is when to do it, and it is what a reminder is scheduled
+  // from. A quit habit's is the moment or the situation to watch out for,
+  // which is the same word its own field already uses
+  // ([customTriggerOptional]).
+  String get timingToggle => isAr ? 'حدد وقت أو تذكير' : 'Set a time or reminder';
+  String get timingToggleQuit => isAr ? 'حدد وقت أو موقف' : 'Set a time or trigger';
   String get repeat => isAr ? 'التكرار' : 'Repeat';
+  // Under the Repeat label while no chip is lit, and gone the moment one is.
+  //
+  // The chips open unpicked and Create is held back until one is chosen, so
+  // this is the same shape as the quit limit's missing number
+  // ([limitAmountRequired]): the button goes quiet AND the control that owns
+  // the missing answer says what it is waiting for. Without it the reason
+  // lives only on the button, and the button is not always on the same
+  // screenful as the chips once a keyboard is up.
+  String get repeatPickOne => isAr ? 'اختر وحدة' : 'Pick one';
   String get goalStyle => isAr ? 'أسلوب الهدف' : 'Goal style';
   String get customizeTiming => isAr ? 'تخصيص التوقيت' : 'Customize timing';
   String get avoidCompletely => isAr ? 'تجنّبه تمامًا' : 'Avoid completely';
@@ -3185,6 +3286,14 @@ class S {
   String get roomAlreadyEndedJoin => isAr
       ? 'انتهت هذه الغرفة ولم تعد تقبل أعضاءً جدد.'
       : "This room has already ended and isn't accepting new members.";
+
+  /// The join sheet found a room this account is already in. Joining again
+  /// used to re-resolve every plan slot, which was one of the two doors to
+  /// re-linking a slot and re-grading its past; the write side now ignores
+  /// that, and this says so instead of offering a Join that does nothing.
+  String get roomAlreadyMemberJoin => isAr
+      ? 'أنت عضو في هذه الغرفة من قبل.'
+      : "You're already a member of this room.";
   String get roomPreviewOwnMode =>
       isAr ? 'أحضر عادتك الخاصة' : 'Bring your own habit';
   String roomPreviewSharedHabit(String name) =>
@@ -3350,6 +3459,42 @@ class S {
       isAr ? 'أول يوم لك في هذه الغرفة' : 'Your first day in this room';
   String get roomCalendarFirstDayNoteOther =>
       isAr ? 'أول يوم في هذه الغرفة' : 'First day in this room';
+
+  // ── The tapped day's score card ───────────────────────────────────────
+  // A tapped day used to answer with one word ("أُنجز"), which says whether
+  // but never how much, and says nothing at all about which habit. "It
+  // should show a score like 1/1 for train, 0/1 for walk, and if the train
+  // gives him 0.5 show that with the done mark" - Aziz, 2026-09-10.
+
+  /// Sits under the day's fraction. The fraction is habits, not points.
+  String get roomCalendarDayScore => isAr ? 'من عادات اليوم' : "of the day's habits";
+
+  /// The same, when the day asked for nothing.
+  String get roomCalendarNothingAsked =>
+      isAr ? 'ما كان مطلوب شي بهذا اليوم' : 'Nothing was due this day';
+
+  /// Short chip labels for the marks behind the fraction. Deliberately
+  /// shorter than [roomCalendarDone] and its siblings, which are full
+  /// sentences about the whole day; these count habits inside one.
+  String get roomCalendarChipDone => isAr ? 'أُنجز' : 'Done';
+  String get roomCalendarChipPartial => isAr ? 'جزئي' : 'Partial';
+  String get roomCalendarChipMissed => isAr ? 'ما أُنجز' : 'Missed';
+  String get roomCalendarChipRest => isAr ? 'راحة' : 'Rest';
+
+  /// A plan slot this member never took on, or dropped.
+  String get roomCalendarSlotDeclined =>
+      isAr ? 'ما اشترك فيها' : 'Not taken';
+
+  /// A day that has not been missed, it has simply not finished: today, and
+  /// yesterday until the flex cutoff at kDayCutoffHour. Calling one of these
+  /// "لم يُنجز" is a verdict on a day somebody is still allowed to mark,
+  /// which is the same mistake the strip made before it learned to wait.
+  String get roomCalendarStillOpen => isAr ? 'إلى الآن' : 'Still open';
+
+  /// The sum line under the per-habit rows. Only appears when more than one
+  /// habit contributed, because on a one-habit day the row IS the total and
+  /// printing it twice was the first thing Aziz caught (2026-09-10).
+  String get roomCalendarTotal => isAr ? 'المجموع' : 'Total';
   String roomStartedOn(String date) => isAr ? 'بدأت $date' : 'Started $date';
   String roomStartsOn(String date) => isAr ? 'تبدأ $date' : 'Starts $date';
 
@@ -3517,6 +3662,21 @@ class S {
   String roomHabitAddedConfirmation(String habitName) => isAr
       ? 'تمت إضافة "$habitName" إلى الخطة'
       : 'Added "$habitName" to the plan';
+
+  /// Said when the leader picks a habit the plan already asks for. The plan
+  /// is unchanged, and this is the only refusal [AddSharedHabitResult] has
+  /// that a person can actually reach, so it has to be spoken: the same tap
+  /// used to answer «تمت الإضافة» and quietly do nothing.
+  ///
+  /// Says the plan already has it, not "you already did this": a slot can be
+  /// there because the leader declined it earlier, or because another member
+  /// filled it, and neither is the reader's mistake. See the no-blame rule
+  /// in reminder_copy.dart.
+  ///
+  /// DRAFT WORDING, not yet Aziz's. Easy spoken Arabic.
+  String roomHabitAlreadyInPlan(String habitName) => isAr
+      ? '"$habitName" موجودة في الخطة من قبل'
+      : '"$habitName" is already in the plan';
   String get roomAddAnotherHabitAction =>
       isAr ? '+ إضافة عادة أخرى' : '+ Add another habit';
   String get roomAddAnotherHabitPickerTitle =>
@@ -3582,9 +3742,12 @@ class S {
   String roomNewHabitBannerTitle(String habitName) => isAr
       ? 'أضاف القائد عادة جديدة: $habitName'
       : 'Your leader added a new habit: $habitName';
+  // The slot starts counting for the member the day they link it, and is
+  // held against them unlinked after RoomModel.kNewSlotGraceDays - so the
+  // banner says when, instead of only asking. Draft wording; Aziz picks it.
   String get roomNewHabitBannerBody => isAr
-      ? 'اربط إحدى عاداتك لتبقى نسبة إنجازك في هذه الغرفة دقيقة.'
-      : 'Link one of your own habits so your progress here stays accurate.';
+      ? 'اربطها بإحدى عاداتك وتبدأ تنحسب لك من اليوم. بعد ٣ أيام تنحسب في الغرفة سواء ربطتها أو لا.'
+      : 'Link it to one of your habits and it counts for you from today. After 3 days it counts in the room whether you linked it or not.';
   String get roomNewHabitBannerAction => isAr ? 'ربط الآن' : 'Link now';
   String get roomResolveHabitsSheetTitle =>
       isAr ? 'عادة جديدة في الخطة' : 'New habit in the plan';
@@ -3934,17 +4097,57 @@ class S {
   /// it fractional - shows the exact number either way rather than
   /// rounding, since rounding here would quietly disagree with the %
   /// shown right next to it.
+  /// No unit word in either language: both callers print [roomStatDays]
+  /// «الأيام» beside or under it. The English used to append "days" anyway,
+  /// so the member sheet read "27/39 days" captioned "Days".
   String roomDayCount(double done, int total) {
     final doneStr = done == done.roundToDouble()
         ? done.toInt().toString()
         : done.toStringAsFixed(1);
-    return isAr ? '$doneStr من $total' : '$doneStr/$total days';
+    return isAr ? '$doneStr من $total' : '$doneStr/$total';
   }
 
   // Label under the day count on a member's sheet. The value beside it is
   // roomDayCount ("3 من 7"), which already carries its own denominator, so
   // this only has to name what is being counted.
   String get roomStatDays => isAr ? 'الأيام' : 'Days';
+
+  /// How much of the room's plan a member carries, printed beside their
+  /// score on the board: «٣ من ٣ عادات». The board ranks by the room score
+  /// (every day graded against the whole plan), so a member on a smaller
+  /// plan is placed accordingly - and this is what says WHY, instead of two
+  /// identical-looking percentages that were never measuring the same thing.
+  /// See RoomParticipant.planCoverageIn.
+  /// Western digits on purpose, like [roomDayCount] printed right beside it:
+  /// inside an Arabic run the font shapes them itself, and forcing
+  /// Arabic-Indic here put ٢ next to a row whose every other number is 2.
+  String roomPlanCoverage(int linked, int total) {
+    if (!isAr) return '$linked of $total ${total == 1 ? 'habit' : 'habits'}';
+    return switch (total) {
+      1 => '$linked من عادة',
+      2 => '$linked من عادتين',
+      <= 10 => '$linked من $total عادات',
+      _ => '$linked من $total عادة',
+    };
+  }
+
+  /// A member's completion on the habits they LINKED, shown small beside the
+  /// room score only when the two differ - so someone on a partial plan who
+  /// did everything they linked still sees an honest number right next to
+  /// the one the board placed them by. Impersonal («المرتبطة», not «عاداتك»)
+  /// because it is drawn on every row, not only the reader's own. Same ASCII
+  /// percent sign as the score above it. See RoomParticipant.progressRatio
+  /// versus roomProgressRatio.
+  String roomOwnRate(int percent) =>
+      isAr ? 'المرتبطة: $percent%' : 'Linked: $percent%';
+
+  /// Leaving keeps the record. Said plainly, because the old body («تقدر
+  /// تنضم مرة ثانية برمز الغرفة») read as an invitation to reset, which is
+  /// exactly what leaving used to do. No «فات» family word: the days out are
+  /// counted, not lost. See reminder_copy.dart's register note.
+  String get roomLeaveKeepsRecordBody => isAr
+      ? 'أيامك في الغرفة تبقى محفوظة. إذا رجعت، الأيام اللي كنت فيها برا تنحسب عليك.'
+      : 'Your days in this room are kept. If you come back, the days you were out count against you.';
   String get roomYouLabel => isAr ? 'أنت' : 'You';
   String get roomLeaderLabel => isAr ? 'القائد' : 'Leader';
   String get roomLeaveAction => isAr ? 'مغادرة الغرفة' : 'Leave Room';
@@ -3989,7 +4192,22 @@ class S {
   String get roomCadenceDaily => isAr ? 'يومي' : 'Daily';
   // Shown when a member's linked habits don't all share one cadence, so the
   // badge names the count rather than a single misleading number.
-  String roomCadenceMixed(int n) => isAr ? '$n عادات' : '$n habits';
+  //
+  // Same agreement ladder as [roomPlanCoverage], which is drawn two lines
+  // above this on the same leaderboard row. This used to interpolate the
+  // numeral straight in front of عادات, so a member on one daily habit plus
+  // one 4x-weekly one, the commonest way to reach this badge at all, read
+  // «2 عادات» directly under a "«1 من عادتين»" that had the dual right.
+  // [n] is always 2 or more: the only call site is reached after the label
+  // set is found to hold more than one cadence.
+  String roomCadenceMixed(int n) {
+    if (!isAr) return '$n habits';
+    return switch (n) {
+      2 => 'عادتين',
+      <= 10 => '$n عادات',
+      _ => '$n عادة',
+    };
+  }
   String get roomExtendBody => isAr
       ? 'اختر مدة جديدة تبدأ من اليوم، أو اجعلها بلا نهاية.'
       : 'Pick a new duration starting today, or make it open-ended.';
@@ -4198,6 +4416,21 @@ class S {
   String get roomMemberActions => isAr ? 'خيارات العضو' : 'Member options';
   String get roomReportAction => isAr ? 'إبلاغ' : 'Report';
   String get roomBlockAction => isAr ? 'حظر' : 'Block';
+  // Reaching Report and Block used to require another member's leaderboard
+  // row to be on screen, because the overflow button that opens
+  // showMemberOptions is gated on `if (!isYou)`. Somebody alone in a room
+  // they just created has no such row, and neither does an App Review
+  // reviewer, which is the exact state guideline 1.2 asks about: the
+  // controls have to be FINDABLE, not merely present. These three strings
+  // back the always-present "Report a member" item in the room app-bar
+  // menu, including the case where there is genuinely nobody to report yet.
+  String get roomReportMemberMenu =>
+      isAr ? 'الإبلاغ عن عضو' : 'Report a member';
+  String get roomReportPickMember =>
+      isAr ? 'من تبي تبلغ عنه؟' : 'Who do you want to report?';
+  String get roomReportNobodyYet => isAr
+      ? 'ما أحد ثاني دخل الغرفة بعد. أول ما يدخل أحد، تقدر تبلغ عنه أو تحظره من هنا، أو من الزر اللي على صفه.'
+      : 'Nobody else has joined this room yet. Once someone does, you can report or block them from here, or from the button on their row.';
   String get roomUnblockAction => isAr ? 'إلغاء الحظر' : 'Unblock';
   String roomReportTitle(String name) =>
       isAr ? 'الإبلاغ عن $name' : 'Report $name';
@@ -4666,6 +4899,15 @@ class S {
     }
     final fraction = progressFraction(steps, goal);
     return isAr ? '$fraction خطوة اليوم' : '$fraction steps today';
+  }
+
+  /// The same figure for a day that is NOT today, which is why it drops the
+  /// word: the board fills a past day's square with what was walked on it,
+  /// and a screen reader hearing "steps today" on Tuesday's square would be
+  /// told the wrong thing about the right number.
+  String stepsWalkedLine(int steps, int goal) {
+    final fraction = progressFraction(steps, goal);
+    return isAr ? '$fraction خطوة' : '$fraction steps';
   }
 
   /// The second line under [stepsProgressLine] when the count is zero and

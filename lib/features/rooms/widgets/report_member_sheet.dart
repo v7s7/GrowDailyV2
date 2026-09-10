@@ -6,6 +6,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../models/room_model.dart';
 import '../notifiers/room_moderation.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
@@ -39,6 +40,65 @@ Future<void> showMemberOptions(
       memberUid: memberUid,
       memberName: memberName,
     ),
+  );
+}
+
+/// "Report a member", opened from the room app-bar menu.
+///
+/// [showMemberOptions] above is reached only through the small overflow
+/// button on ANOTHER member's leaderboard row, which is gated on
+/// `if (!isYou)`. That is fine once a room has people in it and useless
+/// before then: someone alone in a room they just created, or an App Review
+/// reviewer with no second device, never sees that button and concludes the
+/// app has no way to report anybody. Guideline 1.2 asks for controls that
+/// can be FOUND, so this entry point is in the menu in every room state and
+/// answers honestly when there is nobody to report yet.
+Future<void> showReportMemberPicker(
+  BuildContext context, {
+  required WidgetRef ref,
+  required String roomCode,
+  required List<RoomParticipant> participants,
+  required String? myUid,
+}) {
+  HapticFeedback.selectionClick();
+  final others = participants.where((p) => p.uid != myUid).toList();
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) {
+      final s = S.of(sheetContext);
+      if (others.isEmpty) {
+        return _SheetShell(
+          title: s.roomMemberActions,
+          subtitle: s.roomReportNobodyYet,
+          children: const [],
+        );
+      }
+      // One other member is the common case in a small room: going straight
+      // to their options sheet saves a pointless one-item list.
+      return _SheetShell(
+        title: s.roomReportPickMember,
+        children: [
+          for (final p in others)
+            _ActionRow(
+              icon: Icons.person_outline_rounded,
+              label: p.displayName,
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await showMemberOptions(
+                  context,
+                  ref: ref,
+                  roomCode: roomCode,
+                  memberUid: p.uid,
+                  memberName: p.displayName,
+                );
+              },
+            ),
+        ],
+      );
+    },
   );
 }
 

@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/deep_links.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/push_notification_service.dart';
@@ -67,6 +69,14 @@ enum AuthMethod {
   none,
 }
 
+/// What came back from a password-reset request.
+///
+/// [sent] also covers an address with no account at all: answering that
+/// differently would let anyone test which addresses are registered, and
+/// Firebase's own email-enumeration protection reports success either way
+/// regardless.
+enum ResetOutcome { sent, network, tooMany, failed }
+
 class AuthNotifier extends StateNotifier<AsyncValue<void>> {
   AuthNotifier(this._ref) : super(const AsyncData(null));
 
@@ -92,7 +102,12 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       );
       // Ensure user document exists (handles v1 migrations) and carries an
       // `email` field (handles v2 migrations - see _ensureUserDoc).
-      await _ensureUserDoc(cred.user!.uid, cred.user?.email ?? email.trim());
+      await _ensureUserDoc(
+        cred.user!.uid,
+        cred.user?.email ?? email.trim(),
+        // This sign-in IS the proof: they just used it.
+        hasPassword: true,
+      );
       AnalyticsService.instance.track('auth_signed_in');
     });
   }
@@ -101,19 +116,49 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
   ///
   /// Deliberately NOT routed through [state]: the screen's error listener
   /// maps AsyncError into sign-in wording ("invalid credentials"), which is
-  /// nonsense for a reset. Returns false only on a delivery-level failure
-  /// (offline); user-not-found returns TRUE on purpose, so the caller shows
-  /// the same confirmation either way and this can't be used to probe which
-  /// emails have accounts.
-  Future<bool> sendPasswordReset(String email) async {
+  /// nonsense for a reset. user-not-found reports SENT on purpose, so the
+  /// caller shows the same confirmation either way and this cannot be used to
+  /// probe which addresses have accounts.
+  ///
+  /// It returns an outcome rather than a bool because the bool was a lie by
+  /// omission: the screen printed "check your internet connection" for every
+  /// false, so a rate limit, a disabled provider and a genuinely broken
+  /// request all told the person to go and look at their wifi. The code is
+  /// logged in debug for the same reason, since a swallowed exception is
+  /// exactly what made this hard to see.
+  Future<ResetOutcome> sendPasswordReset(String email) async {
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email.trim());
-      return true;
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: email.trim(),
+        // Where Firebase's own page sends them AFTER the reset. It cannot be
+        // stopped from being the page that takes the password (the action URL
+        // is a template setting, and template editing is switched off for this
+        // project), but it can be made to hand back afterwards: /reset is an
+        // App Link, so on a phone this opens Grow Daily rather than a browser,
+        // and in a browser it is our page saying the password is changed.
+        //
+        // Deliberately no iOS/Android parameters: those route through Dynamic
+        // Links, which Google shut down, and the App Link already does the
+        // opening.
+        actionCodeSettings: ActionCodeSettings(
+          url: 'https://$linkHost$resetPath',
+          handleCodeInApp: false,
+        ),
+      );
+      return ResetOutcome.sent;
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found' || e.code == 'invalid-email') return true;
-      return false;
-    } catch (_) {
-      return false;
+      if (e.code == 'user-not-found' || e.code == 'invalid-email') {
+        return ResetOutcome.sent;
+      }
+      debugPrint('[auth] password reset failed: ${e.code} / ${e.message}');
+      return switch (e.code) {
+        'network-request-failed' => ResetOutcome.network,
+        'too-many-requests' => ResetOutcome.tooMany,
+        _ => ResetOutcome.failed,
+      };
+    } catch (e) {
+      debugPrint('[auth] password reset threw: $e');
+      return ResetOutcome.failed;
     }
   }
 
@@ -131,6 +176,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
           cred.user!.uid,
           cred.user?.email ?? email.trim(),
           freshRegistration: true,
+          hasPassword: true,
         );
       } catch (_) {
         // The Auth account exists but has no profile doc. _AuthGate routes
@@ -193,6 +239,15 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
 
       if (!isNewAccount) {
         await _ensureUserDoc(user.uid, email);
+        // Never allowed to fail the sign-in it is riding on: this is an
+        // extra read of one field, and a Firestore hiccup must not turn a
+        // sign-in that worked into an error banner.
+        try {
+          await _repairDroppedPassword(user, email);
+        } catch (_) {
+          // The flag stays as it was, so the next provider sign-in tries
+          // again. Nothing is lost by being late.
+        }
         // A returning Apple account has no name to re-learn (Apple hands the
         // full name over once and never again), but a returning Google
         // account can have had its Google name or photo changed since, and
@@ -252,6 +307,69 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     await FirebaseAuth.instance.signOut();
     AnalyticsService.instance.track('auth_signed_out');
     state = const AsyncData(null);
+  }
+
+  /// Puts a password onto the signed-in account, so it has two ways in
+  /// again: the provider it just used, and an email/password pair.
+  ///
+  /// linkWithCredential rather than any kind of "reset": there is nothing to
+  /// reset, the credential was deleted, and this account is already proven
+  /// by the provider sign-in that is holding it open right now. Writing the
+  /// flag back is what stops [_repairDroppedPassword] from ever offering
+  /// this again.
+  Future<void> addPassword(String password) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final email = user?.email ?? '';
+    if (user == null || email.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'No signed-in account with an address to attach a password to.',
+      );
+    }
+    await user.linkWithCredential(
+      EmailAuthProvider.credential(email: email, password: password),
+    );
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .set({'hasPassword': true}, SetOptions(merge: true));
+    AnalyticsService.instance.track('auth_password_added');
+  }
+
+  /// Notices when Firebase has just DELETED this account's password, and
+  /// arms the offer to put a new one back.
+  ///
+  /// This is not a hypothetical. Firebase treats an email/password account
+  /// whose address was never verified as unproven: anyone can type a
+  /// stranger's address and set a password on it. So the moment that same
+  /// address signs in with a provider that proves ownership (Google always,
+  /// Apple usually), Firebase DELETES the password credential and links the
+  /// provider in its place. Same uid, same data, same everything, except
+  /// that the password no longer exists. Nothing is said to the person, and
+  /// the next email sign-in fails as "wrong password" because from the
+  /// client's side there is nothing left to compare against.
+  ///
+  /// It cannot be prevented from here (the swap happens server-side, inside
+  /// the sign-in that just succeeded), and the password cannot be restored,
+  /// because it was never readable. What CAN be done is notice and say so:
+  /// `hasPassword` on the user doc is what we last knew, `providerData` is
+  /// what is true now, and the two disagreeing means exactly this happened.
+  ///
+  /// Fires at most once per account. The flag is cleared here, so the offer
+  /// is made on the sign-in where the loss is discovered and never again,
+  /// and setting a password later writes it back to true.
+  Future<void> _repairDroppedPassword(User user, String email) async {
+    final hasPasswordNow =
+        user.providerData.any((p) => p.providerId == passwordProviderId);
+    if (hasPasswordNow || email.isEmpty) return;
+
+    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final snap = await ref.get();
+    if (snap.data()?['hasPassword'] != true) return;
+
+    await ref.set({'hasPassword': false}, SetOptions(merge: true));
+    AnalyticsService.instance.track('auth_password_dropped');
+    _ref.read(passwordDroppedProvider.notifier).state = email;
   }
 
   /// How the signed-in account proves who it is, which decides what the
@@ -430,8 +548,12 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
   /// participant doc cannot be removed must not block the account deletion
   /// itself, because a user who asked to be deleted and got an error
   /// instead is the worse outcome — both for them and under guideline
-  /// 5.1.1(v). firestore.rules already lets a participant delete their own
-  /// entry (`allow delete: if isOwner(uid)`), so no rules change is needed.
+  /// 5.1.1(v). This no longer deletes the entry: firestore.rules stopped
+  /// allowing a member to delete their own participant doc once leaving
+  /// became a soft departure (RoomParticipant.leftAt), because that delete
+  /// was the leave-and-rejoin score reset. The entry is stamped as left and
+  /// stripped of every identifying field instead, which is an owner UPDATE
+  /// the rules do allow, and nothing ever draws a departed member again.
   static Future<void> _leaveAllRooms(
     String uid,
     DocumentReference<Map<String, dynamic>> userRef,
@@ -444,12 +566,39 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
           const <String>[];
       for (final code in codes) {
         try {
+          // A departure, not a delete. Deleting a participant doc is what
+          // the leave-and-rejoin reset was made of, so firestore.rules no
+          // longer allows a member to delete their own entry (only the
+          // room's creator can, for a full teardown). The entry is stamped
+          // as left instead, exactly as RoomsController.leaveRoom does, and
+          // stripped of everything that named the person: every roster read
+          // skips a departed member, so nothing of theirs is drawn anywhere
+          // again, and what remains is an anonymous record of days.
           await FirebaseFirestore.instance
               .collection('rooms')
               .doc(code)
               .collection('participants')
               .doc(uid)
-              .delete();
+              .set(
+            {
+              'leftAt': Timestamp.now(),
+              'displayName': '',
+              'characterId': '',
+              'accessoryId': FieldValue.delete(),
+              'prestigeTierId': FieldValue.delete(),
+              'linkedHabitNames': FieldValue.delete(),
+            },
+            SetOptions(merge: true),
+          );
+          // Out of the headcount too, as RoomsController.leaveRoom does.
+          await FirebaseFirestore.instance
+              .collection('rooms')
+              .doc(code)
+              .set(
+                {'memberCount': FieldValue.increment(-1)},
+                SetOptions(merge: true),
+              )
+              .catchError((_) {});
         } catch (_) {
           // One unreachable room must not strand the whole deletion.
         }
@@ -495,6 +644,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     String uid,
     String email, {
     bool freshRegistration = false,
+    bool hasPassword = false,
     String? providerName,
     String? photoUrl,
   }) async {
@@ -519,6 +669,10 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       'unlockedAchievements': <String>[],
       'equippedHabitIds': <String>[],
       if (freshRegistration) 'activeCatalogIds': <String>[],
+      // What we believe about this account's PASSWORD, which is the only
+      // way to notice that Firebase has taken it away. See
+      // [_repairDroppedPassword] for the whole story.
+      if (hasPassword) 'hasPassword': true,
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -602,13 +756,24 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     await ref.set(update, SetOptions(merge: true));
   }
 
-  static Future<void> _ensureUserDoc(String uid, String email) async {
+  static Future<void> _ensureUserDoc(
+    String uid,
+    String email, {
+    bool hasPassword = false,
+  }) async {
     final ref =
         FirebaseFirestore.instance.collection('users').doc(uid);
     final snap = await ref.get();
     if (!snap.exists) {
-      await _createUserDoc(uid, email);
+      await _createUserDoc(uid, email, hasPassword: hasPassword);
       return;
+    }
+    // Written on every password sign-in, not only at registration, so the
+    // accounts that already existed before this field did get marked the
+    // first time their owner uses a password. Cheap: a merge of one boolean
+    // that is already true on every sign-in after the first.
+    if (hasPassword && snap.data()?['hasPassword'] != true) {
+      await ref.set({'hasPassword': true}, SetOptions(merge: true));
     }
     // Backfill accounts created before `email` was stored on this doc (see
     // _createUserDoc's doc comment) - merge-write only touches this one
@@ -631,3 +796,9 @@ final authNotifierProvider =
     StateNotifierProvider<AuthNotifier, AsyncValue<void>>(
   (ref) => AuthNotifier(ref),
 );
+
+/// The address of an account that just lost its password to a Google or
+/// Apple sign-in, set once by [AuthNotifier._repairDroppedPassword] and
+/// consumed by main.dart, which puts up the screen offering to set a new
+/// one. Null the rest of the time.
+final passwordDroppedProvider = StateProvider<String?>((ref) => null);

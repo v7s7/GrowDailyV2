@@ -68,3 +68,33 @@ bool isCoveredDay({
 /// keeps the shape.
 Color coveredDayFill(bool dark) =>
     GameColors.emerald.withOpacity(dark ? 0.16 : 0.12);
+
+/// Whether today's square should wear the gold ring - i.e. whether today is
+/// genuinely ASKING this habit for something.
+///
+/// Aziz, 2026-09-09: "the habits that I don't need to do today, the square
+/// should not be outlined... make it clear that no need for today, and at
+/// the same time it does not feel like the user is missing days, because he
+/// doesn't have to do it."
+///
+/// The ring used to follow the calendar: every habit wore it on today's
+/// column, so a Mon/Wed/Fri habit wore it on a Tuesday and a four-a-week
+/// habit kept wearing it after the fourth session. A ring around an empty
+/// square reads as a task still outstanding, which turned a finished week
+/// into a column of apparent chores. Which column is today is the day
+/// header's job (it draws its own circle); this is only ever about what is
+/// still owed.
+///
+/// So: today, the habit runs today, and the day is not already covered (an
+/// off-day, or a quota whose target is met - see [isCoveredDay]). A day that
+/// IS owed keeps the ring whether or not it has been done yet, so the square
+/// still asking is the one that is circled.
+///
+/// A plain top-level function so the rule can be asserted directly, the same
+/// reason [isCoveredDay] is one.
+bool showsTodayRing({
+  required bool isToday,
+  required bool isScheduled,
+  required bool isCovered,
+}) =>
+    isToday && isScheduled && !isCovered;

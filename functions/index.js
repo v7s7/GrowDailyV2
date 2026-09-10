@@ -433,7 +433,11 @@ exports.notifyRoomFinish = onCall(async (request) => {
   // See the message tables at the top of this file for why the unit is an
   // event and not a finisher. `others` excludes the caller, whose own
   // finish is what got us here.
-  const others = participantsSnap.docs.filter((d) => d.id !== uid);
+  // A member who left keeps their document (RoomParticipant.leftAt, a soft
+  // departure so a rejoin cannot reset their score) but is not in the room,
+  // and must not be pushed about it.
+  const others = participantsSnap.docs.filter(
+      (d) => d.id !== uid && !(d.data() || {}).leftAt);
   const decision = roomEventFor(others, todayKey);
   if (!decision) return {sent: 0, suppressed: "solo-room"};
   const {event, recipients} = decision;
@@ -491,7 +495,10 @@ exports.notifyRoomFinish = onCall(async (request) => {
     // it goes to. Any condition failing falls back to the neutral wording,
     // which stays the default for everyone.
     const wantsNudge = event === "lastOne" &&
-      await nudgeAllowed(doc.id, other, participantsSnap.size);
+      // Room size for the policy is the members IN the room, not every
+      // document: a departed member's record is kept (RoomParticipant.leftAt)
+      // and must not make a two-person room look like three.
+      await nudgeAllowed(doc.id, other, others.length + 1);
     const table = wantsNudge ? NUDGE_MESSAGES : messageFor;
     // Event B's sentence is about the person reading it; A and C are about
     // the finisher. Passing the wrong one here is invisible in English and
@@ -539,6 +546,159 @@ exports.notifyRoomFinish = onCall(async (request) => {
     ...skipped,
   });
   return {sent: sends.length, event};
+});
+
+/**
+ * "A habit was added to the plan" - sent to every member of a shared room
+ * except the leader who added it.
+ *
+ * The in-app banner (roomNewHabitBannerBody) only reaches a member who opens
+ * the app, and a slot the leader adds starts counting against an unlinked
+ * member after the grace (RoomModel.kNewSlotGraceDays), so the people who
+ * most need to hear are exactly the ones not looking. Warm and plain: what
+ * was added, to which room, and that linking it means it counts for them
+ * from today. Impersonal on purpose - no «أضاف/أضافت» about the leader -
+ * so nothing has to guess a gender.
+ *
+ * DRAFT WORDING, Aziz picks the final Arabic.
+ */
+const HABIT_ADDED_MESSAGES = {
+  en: (habitName, roomName) => ({
+    title: `New habit in "${roomName}"`,
+    body: `"${habitName}" was added to the plan. Link it on your side and ` +
+      "it counts for you from today \u{1F331}",
+  }),
+  ar: (habitName, roomName) => ({
+    title: `عادة جديدة في "${roomName}"`,
+    body: `انضافت «${habitName}» للخطة. اربطها من عندك وتبدأ تنحسب لك ` +
+      "من اليوم \u{1F331}",
+  }),
+};
+
+/**
+ * Callable: the leader's device fires this right after addSharedHabit lands
+ * a new slot (RoomsController._notifyRoomHabitAdded). Re-verified against
+ * the room document, never trusted from request.data alone: the caller must
+ * be the room's creator, and a live slot with that name must carry an
+ * addedAt from the last few minutes. Idempotent per slot through a marker
+ * on the room doc, so a retry or a second device cannot send it twice.
+ * Recipients are the members IN the room (a departed record is skipped),
+ * each under the same quiet-hours check and per-kind daily cap as every
+ * other push here ("info").
+ */
+exports.notifyRoomHabitAdded = onCall(async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Sign in required.");
+  }
+  const roomCode = request.data && request.data.roomCode;
+  const habitName = request.data && request.data.habitName;
+  if (typeof roomCode !== "string" || roomCode.length === 0 ||
+      typeof habitName !== "string" || habitName.length === 0) {
+    throw new HttpsError("invalid-argument",
+        "roomCode and habitName are required.");
+  }
+
+  const roomRef = db.collection("rooms").doc(roomCode);
+  const roomSnap = await roomRef.get();
+  if (!roomSnap.exists) return {sent: 0};
+  const room = roomSnap.data() || {};
+  if (room.createdBy !== uid) return {sent: 0, suppressed: "not-leader"};
+  if (room.habitMode !== "shared") return {sent: 0, suppressed: "own-mode"};
+
+  // The slot itself, by name, live, and genuinely just added. A slot with
+  // no addedAt is one the room was created with; nobody is told about
+  // those, they were on the invite.
+  const shared = Array.isArray(room.sharedHabits) ? room.sharedHabits : [];
+  const nowMs = Date.now();
+  const FRESH_MS = 15 * 60 * 1000;
+  let slotIndex = -1;
+  let addedMs = 0;
+  for (let i = shared.length - 1; i >= 0; i--) {
+    const s = shared[i] || {};
+    if (s.name !== habitName || s.removedAt || !s.addedAt) continue;
+    const ms = s.addedAt.toMillis ? s.addedAt.toMillis() : 0;
+    if (nowMs - ms > FRESH_MS) continue;
+    slotIndex = i;
+    addedMs = ms;
+    break;
+  }
+  if (slotIndex < 0) return {sent: 0, suppressed: "no-fresh-slot"};
+
+  // Once per slot. The marker is the slot's own addedAt, so a second slot
+  // with the same name later gets its own announcement.
+  const marker = `${slotIndex}:${addedMs}`;
+  const claimed = await db.runTransaction(async (tx) => {
+    const fresh = await tx.get(roomRef);
+    const sent = Array.isArray((fresh.data() || {}).habitAddedNotified) ?
+      fresh.data().habitAddedNotified : [];
+    if (sent.includes(marker)) return false;
+    tx.set(roomRef, {
+      habitAddedNotified: admin.firestore.FieldValue.arrayUnion(marker),
+    }, {merge: true});
+    return true;
+  });
+  if (!claimed) return {sent: 0, alreadyNotified: true};
+
+  const roomName = room.name || "your room";
+  const participantsSnap = await roomRef.collection("participants").get();
+  const recipients = participantsSnap.docs.filter(
+      (d) => d.id !== uid && !(d.data() || {}).leftAt);
+
+  const sends = [];
+  const skipped = {ineligible: 0, noToken: 0, capped: 0};
+  for (const doc of recipients) {
+    const other = doc.data() || {};
+    const {eligible, locale, tzOffsetMinutes} =
+      await isEligible(doc.id, other);
+    if (!eligible) {
+      skipped.ineligible++;
+      continue;
+    }
+    const tokensSnap = await db
+        .collection("users").doc(doc.id)
+        .collection("fcmTokens").get();
+    if (tokensSnap.empty) {
+      skipped.noToken++;
+      continue;
+    }
+    if (!await claimPushSlot(
+        doc.id, localDayKey(tzOffsetMinutes), "info")) {
+      skipped.capped++;
+      continue;
+    }
+    const table = HABIT_ADDED_MESSAGES[locale] || HABIT_ADDED_MESSAGES.en;
+    const {title, body} = table(habitName, roomName);
+    for (const tokenDoc of tokensSnap.docs) {
+      sends.push(
+          admin.messaging().send({
+            token: tokenDoc.id,
+            notification: {title, body},
+            data: {roomCode, type: "roomHabitAdded"},
+            apns: {payload: {aps: {sound: "default"}}},
+          }).catch((err) => {
+            const code = err && err.code;
+            if (
+              code === "messaging/registration-token-not-registered" ||
+              code === "messaging/invalid-registration-token"
+            ) {
+              return tokenDoc.ref.delete().catch(() => {});
+            }
+            logger.warn("habit-added push failed", {code, uid: doc.id});
+            return null;
+          }),
+      );
+    }
+  }
+  await Promise.all(sends);
+  logger.info("notifyRoomHabitAdded", {
+    roomCode,
+    slotIndex,
+    recipients: recipients.length,
+    sent: sends.length,
+    ...skipped,
+  });
+  return {sent: sends.length};
 });
 
 /**
@@ -613,20 +773,23 @@ exports.roomEveningReminder = onSchedule(
         if (end && end.getTime() + DAY_MS < nowMs) continue;
 
         const partsSnap = await roomDoc.ref.collection("participants").get();
-        if (partsSnap.size < 2) continue;
+        // Departed members keep their document (RoomParticipant.leftAt) but
+        // are not in the room: not counted, not consulted, not nudged.
+        const present = partsSnap.docs.filter((d) => !(d.data() || {}).leftAt);
+        if (present.length < 2) continue;
         // Cheap pre-filter, and the reason this sweep is affordable: if
         // anyone has finished on any day that could still be current for
         // anyone, the room is not silent and no member needs the per-user
         // timezone read below. Busy rooms cost one read; only genuinely
         // dead ones pay per member.
-        const someoneFinished = partsSnap.docs.some((d) => {
+        const someoneFinished = present.some((d) => {
           const q = d.data() || {};
           return q.allDoneToday === true && candidateDays.has(q.allDoneDate);
         });
         if (someoneFinished) continue;
 
         const roomName = room.name || "your room";
-        for (const doc of partsSnap.docs) {
+        for (const doc of present) {
           const part = doc.data() || {};
           const {eligible, locale, tzOffsetMinutes} =
             await isEligible(doc.id, part);
@@ -755,6 +918,10 @@ exports.roomsHealthSweep = onSchedule(
         const partsSnap = await roomDoc.ref.collection("participants").get();
         for (const partDoc of partsSnap.docs) {
           const part = partDoc.data() || {};
+          // Departed (RoomParticipant.leftAt): still stored, not in the room.
+          // Their days stopped being graded when they left, so a stale count
+          // here is expected rather than an undercount worth reporting.
+          if (part.leftAt) continue;
           const countingIds = countingHabitIds(room, part);
           if (countingIds.length === 0) continue;
           const daySnaps = await Promise.all(days.map((d) => db

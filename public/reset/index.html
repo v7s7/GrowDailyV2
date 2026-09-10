@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>كلمة مرور جديدة | Grow Daily</title>
+<meta name="robots" content="noindex">
+<meta name="apple-itunes-app" content="app-id=6788149393">
+<meta name="color-scheme" content="light dark">
+
+<!--
+  The password-reset action page.
+
+  It exists because Firebase's own handler is an unstyled Google form, and
+  because a password should be changed IN THE APP: on a phone this URL is an
+  App Link (see /.well-known/apple-app-site-association and assetlinks.json),
+  so tapping it from the email opens Grow Daily straight on the new-password
+  screen and this page is never seen. It is the desktop path, and the fallback
+  for a phone that does not have the app.
+
+  Two roles, decided by the query string:
+    ?oobCode=...   the reset itself. Verify the code, then either hand it to
+                   the app or set the password here.
+    (no oobCode)   the "continue" landing after Firebase's own page, i.e. the
+                   password is already changed and all that is left is to get
+                   back into the app.
+
+  No dependencies and no network on load beyond one Identity Toolkit call,
+  because this page is the last thing between someone and their account.
+-->
+
+<style>
+  :root{
+    --ground:#FBF6EA; --panel:#FFFCF4; --panel-2:#F5EFE3;
+    --ink:#17301F; --ink2:#4A5B4E; --ink3:#8B9689;
+    --gold:#B7822A; --gold-fill:#DFA83F; --gold-soft:rgba(223,168,63,.14);
+    --green:#1B6B4C; --green-ink:#146B4E; --green-soft:rgba(20,107,78,.10);
+    --edge:#E6DCC6; --line:#EFE7D6;
+    --danger:#9B2C22; --danger-soft:rgba(155,44,34,.09);
+    --shadow:0 1px 2px rgba(23,48,31,.04), 0 12px 32px rgba(23,48,31,.07);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#12160F; --panel:#1A2018; --panel-2:#212A1F;
+      --ink:#EDF2E6; --ink2:#B4C0B2; --ink3:#7F8C7E;
+      --gold:#E8B85C; --gold-fill:#DFA83F; --gold-soft:rgba(223,168,63,.12);
+      --green:#2ECF8F; --green-ink:#8FE3C0; --green-soft:rgba(143,227,192,.13);
+      --edge:#2E382C; --line:#26301F;
+      --danger:#FF8A7E; --danger-soft:rgba(255,138,126,.10);
+      --shadow:none;
+    }
+  }
+  *{box-sizing:border-box}
+  /* The class sets display:flex, which outranks the UA sheet's rule for the
+     hidden attribute, so the app button and its divider stayed on screen on
+     desktop while the DOM said they were hidden. */
+  [hidden]{display:none !important}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,"Noto Sans Arabic",sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    padding:24px 20px; -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  .card{
+    width:100%; max-width:400px; background:var(--panel);
+    border:1px solid var(--edge); border-radius:22px;
+    padding:30px 26px 26px; box-shadow:var(--shadow);
+  }
+  .mark{width:56px;height:56px;display:block;margin:0 0 20px}
+  h1{font-size:22px; line-height:1.3; margin:0 0 8px; letter-spacing:-.015em; font-weight:700}
+  .sub{font-size:14.5px; line-height:1.6; color:var(--ink2); margin:0 0 22px}
+  .mail{
+    display:inline-block; direction:ltr; unicode-bidi:isolate;
+    font-weight:600; color:var(--ink);
+  }
+
+  label{display:block; font-size:12.5px; font-weight:600; color:var(--ink2); margin:0 0 7px}
+  /* LTR inside the field even on the Arabic page: the value is a password
+     typed in Latin characters, so it starts at the left, and the reveal
+     button has to sit at the other end of it. Left to inherit RTL, the
+     button landed exactly where the first character goes. */
+  .field{position:relative; direction:ltr}
+  input[type=password], input[type=text]{
+    width:100%; padding:14px 15px; padding-inline-end:46px;
+    font-size:16px; font-family:inherit; color:var(--ink);
+    background:var(--panel-2); border:1px solid var(--edge);
+    border-radius:13px; direction:ltr; text-align:left;
+  }
+  input:focus-visible{outline:2px solid var(--gold-fill); outline-offset:1px; border-color:transparent}
+  .peek{
+    position:absolute; inset-block:0; inset-inline-end:4px; width:42px;
+    display:grid; place-items:center; background:none; border:0; padding:0;
+    color:var(--ink3); cursor:pointer; border-radius:10px;
+  }
+  .peek:focus-visible{outline:2px solid var(--gold-fill); outline-offset:-2px}
+  .hint{font-size:12px; color:var(--ink3); margin:8px 2px 0; line-height:1.5}
+
+  .btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; min-height:52px; padding:14px 18px; margin-top:16px;
+    font-size:16px; font-weight:700; font-family:inherit; line-height:1.2;
+    border-radius:15px; border:1px solid transparent; cursor:pointer;
+    text-decoration:none; text-align:center;
+  }
+  .btn.primary{background:var(--gold-fill); color:#17301F}
+  .btn.green{background:var(--green-ink); color:#fff}
+  @media (prefers-color-scheme: dark){ .btn.green{color:#0E1A13} }
+  .btn.quiet{background:transparent; color:var(--ink); border-color:var(--edge); font-weight:600}
+  /* Tonal, not solid: on a phone the gold "change it in the app" button is
+     the primary action and two solid full-width buttons would argue. On
+     desktop that button is gone, so this one goes solid green instead (see
+     the class swap in the script). */
+  .btn.tonal{background:var(--green-soft); color:var(--green-ink)}
+  .btn:disabled{opacity:.5; cursor:default}
+  .btn:focus-visible{outline:2px solid var(--gold-fill); outline-offset:2px}
+
+  .or{display:flex; align-items:center; gap:12px; margin:22px 0 4px; color:var(--ink3); font-size:12.5px}
+  .or::before,.or::after{content:""; height:1px; background:var(--line); flex:1}
+
+  .note{
+    display:flex; gap:9px; align-items:flex-start;
+    font-size:12.5px; line-height:1.6; color:var(--ink2);
+    border-top:1px solid var(--line); margin-top:24px; padding-top:16px;
+  }
+  .note svg{flex:none; margin-top:2px; color:var(--ink3)}
+
+  .msg{
+    display:none; gap:9px; align-items:flex-start; margin-top:14px;
+    font-size:13.5px; line-height:1.55; padding:12px 13px; border-radius:12px;
+  }
+  .msg.on{display:flex}
+  .msg.bad{background:var(--danger-soft); color:var(--danger)}
+
+  .spin{
+    width:18px;height:18px;border-radius:50%;
+    border:2px solid rgba(23,48,31,.25); border-top-color:#17301F;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){ .spin{animation-duration:2s} }
+
+  .screen{display:none}
+  .screen.on{display:block}
+  .center{text-align:center}
+  .tick{
+    width:56px;height:56px;border-radius:50%;margin:0 auto 18px;
+    background:var(--gold-soft); display:grid; place-items:center; color:var(--green-ink);
+  }
+  .skel{height:14px;border-radius:7px;background:var(--panel-2);margin:0 0 10px}
+</style>
+</head>
+<body>
+<main class="card" role="main">
+
+  <svg class="mark" viewBox="0 0 64 64" aria-label="Grow Daily" role="img">
+    <rect width="64" height="64" rx="17" fill="#1B6B4C"/>
+    <path d="M25.4 40.5h13.2l-1.5 9a2.7 2.7 0 0 1-2.7 2.2h-4.8a2.7 2.7 0 0 1-2.7-2.2Z" fill="#E4B45F"/>
+    <path d="M32 41V26.5" stroke="#E4B45F" stroke-width="3" stroke-linecap="round"/>
+    <path d="M31.4 31.2c-1.1-5.7-5-8.7-10.4-8.7-.2 5.9 3.9 8.9 10.4 8.7Z" fill="#E4B45F"/>
+    <path d="M32.6 27.6c.9-6.8 5-9.9 11.3-9.9.2 6.9-4.6 10-11.3 9.9Z" fill="#E4B45F"/>
+  </svg>
+
+  <!-- 1. Checking the link -->
+  <section class="screen on" id="s-loading" aria-live="polite">
+    <h1 data-t="loadTitle">لحظة…</h1>
+    <p class="sub" data-t="loadSub">نتأكد أن الرابط ما زال صالحًا.</p>
+    <div class="skel" style="width:72%"></div>
+    <div class="skel" style="width:48%"></div>
+  </section>
+
+  <!-- 2. Set the password -->
+  <section class="screen" id="s-form">
+    <h1 data-t="formTitle">كلمة مرور جديدة</h1>
+    <p class="sub"><span data-t="formSub">اختر كلمة مرور جديدة لحساب</span> <span class="mail" id="email"></span></p>
+
+    <a class="btn primary" id="open-app" href="#" hidden>
+      <span data-t="inApp">غيّرها داخل التطبيق</span>
+    </a>
+    <div class="or" id="or" hidden><span data-t="or">أو من هنا</span></div>
+
+    <form id="form" novalidate>
+      <label for="pw" data-t="pwLabel">كلمة المرور الجديدة</label>
+      <div class="field">
+        <input id="pw" type="password" autocomplete="new-password" minlength="6"
+               autocapitalize="off" spellcheck="false" required>
+        <button class="peek" type="button" id="peek" aria-label="إظهار كلمة المرور">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.7"/>
+          </svg>
+        </button>
+      </div>
+      <p class="hint" data-t="pwHint">ستة أحرف على الأقل.</p>
+
+      <div class="msg bad" id="err" role="alert">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex:none;margin-top:1px">
+          <circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.4v.1"/>
+        </svg>
+        <span id="err-text"></span>
+      </div>
+
+      <button class="btn green" id="save" type="submit">
+        <span data-t="save">حفظ كلمة المرور</span>
+      </button>
+    </form>
+
+    <p class="note">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+        <rect x="4" y="10" width="16" height="10" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/>
+      </svg>
+      <span data-t="noteForm">هذا الرابط يشتغل مرة وحدة. إذا طلبت رابطًا جديدًا، القديم ينتهي.</span>
+    </p>
+  </section>
+
+  <!-- 3. Done -->
+  <section class="screen center" id="s-done">
+    <div class="tick">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12.5 10 17.5 19 7"/>
+      </svg>
+    </div>
+    <h1 data-t="doneTitle">تم تغيير كلمة المرور</h1>
+    <p class="sub" data-t="doneSub">تقدر تسجّل دخولك الحين بالبريد وكلمة المرور الجديدة.</p>
+    <a class="btn primary" id="done-app" href="growdaily://open"><span data-t="openApp">افتح التطبيق</span></a>
+  </section>
+
+  <!-- 4. Dead link -->
+  <section class="screen" id="s-dead">
+    <h1 data-t="deadTitle">الرابط ما عاد يشتغل</h1>
+    <p class="sub" data-t="deadSub">روابط إعادة التعيين تنتهي بعد فترة قصيرة، وتنتهي أيضًا إذا طلبت رابطًا أحدث منها. اطلب واحدًا جديدًا من التطبيق.</p>
+    <a class="btn quiet" id="dead-app" href="growdaily://open"><span data-t="openApp">افتح التطبيق</span></a>
+    <p class="note">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+        <circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.1"/>
+      </svg>
+      <span data-t="deadNote">في شاشة الدخول: «المتابعة بالبريد الإلكتروني» ثم «نسيت كلمة المرور؟».</span>
+    </p>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  "use strict";
+
+  var Q = new URLSearchParams(location.search);
+  var CODE = Q.get("oobCode") || "";
+  var KEY  = Q.get("apiKey")  || "AIzaSyDPRsJ600XqWwWxpq4a6YQPoY1PM80v0iE";
+  var LANG = (Q.get("lang") || "ar").toLowerCase().slice(0,2) === "en" ? "en" : "ar";
+  var API  = "https://identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=" + encodeURIComponent(KEY);
+
+  var EN = {
+    loadTitle:"One moment", loadSub:"Checking that this link is still good.",
+    formTitle:"New password", formSub:"Choose a new password for",
+    inApp:"Change it in the app", or:"or here",
+    pwLabel:"New password", pwHint:"Six characters or more.",
+    save:"Save password", openApp:"Open Grow Daily",
+    noteForm:"This link works once. Asking for a newer one ends this one.",
+    doneTitle:"Password changed", doneSub:"You can sign in now with your email and the new password.",
+    deadTitle:"This link has expired", deadSub:"Reset links last a short while, and asking for a newer one ends the older ones. Ask for a fresh one in the app.",
+    deadNote:"On the sign-in screen: \"Continue with email\", then \"Forgot password?\".",
+    peek:"Show password", peekOff:"Hide password",
+    errShort:"Six characters or more, please.", errWeak:"That password is too easy to guess. Try a longer one.",
+    errGeneric:"Something went wrong. Try again."
+  };
+  var AR_EXTRA = {
+    peek:"إظهار كلمة المرور", peekOff:"إخفاء كلمة المرور",
+    errShort:"ستة أحرف على الأقل من فضلك.", errWeak:"كلمة المرور سهلة التخمين. جرّب واحدة أطول.",
+    errGeneric:"صار خطأ. جرّب مرة ثانية."
+  };
+  var T = LANG === "en" ? EN : AR_EXTRA;
+
+  if (LANG === "en") {
+    document.documentElement.lang = "en";
+    document.documentElement.dir = "ltr";
+    document.title = "New password | Grow Daily";
+    [].forEach.call(document.querySelectorAll("[data-t]"), function(el){
+      var v = EN[el.getAttribute("data-t")];
+      if (v) el.textContent = v;
+    });
+  }
+
+  var $ = function(id){ return document.getElementById(id); };
+  function show(id){
+    [].forEach.call(document.querySelectorAll(".screen"), function(s){ s.classList.toggle("on", s.id === id); });
+  }
+  function fail(text){
+    $("err-text").textContent = text;
+    $("err").classList.add("on");
+  }
+
+  // The app handoff. On a phone this page is usually skipped entirely (the
+  // link opens the app directly), so the button is for the case where the
+  // system did not do it: a desktop browser has no app to open, and showing
+  // a button that cannot work is worse than not showing one.
+  var isPhone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  var appUrl = "growdaily://reset?oobCode=" + encodeURIComponent(CODE);
+  if (isPhone && CODE) {
+    var a = $("open-app");
+    a.href = appUrl;
+    a.hidden = false;
+    $("or").hidden = false;
+    $("save").className = "btn tonal";
+  }
+  $("done-app").href = $("dead-app").href = "growdaily://open";
+  // A button that opens an app is a dead end on a desktop, where there is no
+  // app to open. Say the sentence instead of offering the control.
+  if (!isPhone) {
+    $("done-app").hidden = true;
+    $("dead-app").hidden = true;
+  }
+
+  // Reveal toggle. Type swap rather than a CSS trick, so password managers
+  // still see a password field on load.
+  $("peek").addEventListener("click", function(){
+    var pw = $("pw"), showing = pw.type === "text";
+    pw.type = showing ? "password" : "text";
+    this.setAttribute("aria-label", showing ? T.peek : T.peekOff);
+    pw.focus();
+  });
+
+  // No code at all: this is the landing after Firebase's own handler did the
+  // reset, so the only thing left to say is that it worked.
+  if (!CODE) { show("s-done"); return; }
+
+  // Verify WITHOUT consuming: accounts:resetPassword with an oobCode and no
+  // newPassword returns the account's email and leaves the code usable.
+  fetch(API, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ oobCode: CODE })
+  }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+    .then(function(res){
+      if (!res.ok) { show("s-dead"); return; }
+      $("email").textContent = res.body.email || "";
+      show("s-form");
+      if (!isPhone) setTimeout(function(){ $("pw").focus(); }, 60);
+    })
+    .catch(function(){ show("s-dead"); });
+
+  $("form").addEventListener("submit", function(e){
+    e.preventDefault();
+    $("err").classList.remove("on");
+    var pw = $("pw").value;
+    if (pw.length < 6) { fail(T.errShort); $("pw").focus(); return; }
+
+    var btn = $("save");
+    btn.disabled = true;
+    var label = btn.innerHTML;
+    btn.innerHTML = '<span class="spin"></span>';
+
+    fetch(API, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ oobCode: CODE, newPassword: pw })
+    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+      .then(function(res){
+        if (res.ok) { show("s-done"); return; }
+        var code = (res.body && res.body.error && res.body.error.message) || "";
+        if (code.indexOf("EXPIRED_OOB_CODE") === 0 || code.indexOf("INVALID_OOB_CODE") === 0) { show("s-dead"); return; }
+        btn.disabled = false; btn.innerHTML = label;
+        fail(code.indexOf("WEAK_PASSWORD") === 0 ? T.errWeak : T.errGeneric);
+      })
+      .catch(function(){
+        btn.disabled = false; btn.innerHTML = label;
+        fail(T.errGeneric);
+      });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,18 @@
 {
   "projects": {
     "default": "grow-daily-339ef"
-  }
+  },
+  "targets": {
+    "grow-daily-339ef": {
+      "hosting": {
+        "site": [
+          "grow-daily-339ef"
+        ],
+        "app": [
+          "grow-daily-app"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

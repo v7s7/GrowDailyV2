@@ -158,14 +158,35 @@ function undercountedDays({days, countingIds, squaresByDay, part}) {
   const scheduled = part.dailyScheduledCount || {};
   const stood = new Set(Array.isArray(part.standDownDays) ?
       part.standDownDays : []);
+  // The day each habit's room rule starts - the day it was linked into the
+  // plan (RoomParticipant.slotOpenBy on the client). A slot added to a
+  // running room, or linked late, is not graded on the days before that,
+  // so a green square there is the member's own business and not an
+  // undercount; reporting it used to hand out a set_room_day.js command
+  // that would have written the higher number in. No rule recorded means
+  // no floor, exactly as the client fails open.
+  const rules = part.habitRules || {};
+  const floorOf = (id) => {
+    const periods = Array.isArray(rules[id]) ? rules[id] : [];
+    let floor = null;
+    for (const r of periods) {
+      const from = r && typeof r.from === "string" ? r.from : null;
+      if (from && (floor === null || from < floor)) floor = from;
+    }
+    return floor;
+  };
+  const floors = new Map(countingIds.map((id) => [id, floorOf(id)]));
   const out = [];
   for (const day of days) {
     if (stood.has(day)) continue;
     // A day the sync recorded as owing nothing (rest day) cannot be short.
     if (scheduled[day] === 0) continue;
     const squares = squaresByDay[day] || {};
-    const real = countingIds.filter((id) => GREEN.has(String(squares[id])))
-        .length;
+    const real = countingIds.filter((id) => {
+      const floor = floors.get(id);
+      if (floor !== null && floor !== undefined && day < floor) return false;
+      return GREEN.has(String(squares[id]));
+    }).length;
     const stored = done[day] || 0;
     if (real > stored) out.push({day, real, stored});
   }

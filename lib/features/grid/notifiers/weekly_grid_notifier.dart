@@ -13,6 +13,7 @@ import '../../milestones/reports/habit_day_marks.dart';
 import '../../premium/notifiers/premium_notifier.dart'
     show canBrowseHistoryMonth, kFreeHistoryMonths;
 import '../models/square_state.dart';
+import 'square_audit.dart';
 import 'note_index_notifier.dart'
     show dayStillHasWriting, monthKeyOf, noteIndexRef;
 
@@ -491,7 +492,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// Advance a square through the tap cycle: white → yellow → green → white.
   void cycleSquare(String habitId, DateTime day) {
     final current = state.squareFor(habitId, day);
-    setSquare(habitId, day, current.next);
+    setSquare(habitId, day, current.next, source: kSquareSourceTap);
   }
 
   /// Set a square to an explicit state (used by the long-press palette).
@@ -503,7 +504,12 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// tapping repeatedly. Does *not* touch the streak — see
   /// [DashboardNotifier.applyGridSquareChange]'s doc comment for why a Grid
   /// color change alone never earns today's streak point.
-  void setSquare(String habitId, DateTime day, SquareState value) {
+  void setSquare(
+    String habitId,
+    DateTime day,
+    SquareState value, {
+    String source = kSquareSourceUnknown,
+  }) {
     final old = state.squareFor(habitId, day);
     final key = day.toDateKey();
     final states = {
@@ -511,7 +517,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     };
     (states[key] ??= {})[habitId] = value;
     state = state.copyWith(states: states);
-    _persistSquare(habitId, day, value);
+    _persistSquare(habitId, day, value, previous: old, source: source);
 
     final greenDelta = (value.isGreen ? 1 : 0) - (old.isGreen ? 1 : 0);
 
@@ -647,8 +653,13 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// netted +5 XP per lap, repeatable forever, since the complete → none
   /// leg only ever refunds what `completeHabit` paid. Reversing the old
   /// colour here makes a full lap sum to exactly zero again.
-  void setSquareStateOnly(String habitId, DateTime day, SquareState value) =>
-      setSquareStateOnlyAsync(habitId, day, value);
+  void setSquareStateOnly(
+    String habitId,
+    DateTime day,
+    SquareState value, {
+    String source = kSquareSourceUnknown,
+  }) =>
+      setSquareStateOnlyAsync(habitId, day, value, source: source);
 
   /// [setSquareStateOnly], but hands back the write so a caller that changes
   /// several squares at once can wait for all of them.
@@ -661,7 +672,11 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// restart. They queue correctly now (see LocalStoreService.updateDailyMap),
   /// but a caller that walks away still cannot know when the day is safe.
   Future<void> setSquareStateOnlyAsync(
-      String habitId, DateTime day, SquareState value) {
+    String habitId,
+    DateTime day,
+    SquareState value, {
+    String source = kSquareSourceUnknown,
+  }) {
     final old = state.squareFor(habitId, day);
     final key = day.toDateKey();
     final states = {
@@ -669,7 +684,8 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     };
     (states[key] ??= {})[habitId] = value;
     state = state.copyWith(states: states);
-    final written = _persistSquare(habitId, day, value);
+    final written =
+        _persistSquare(habitId, day, value, previous: old, source: source);
 
     // Only today ever earned flat-rate XP in the first place — [setSquare]
     // returns before the reward call on any other day (anti-backdating), so
@@ -706,8 +722,13 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// `DashboardNotifier.completeHabit` onto today's Grid square. A no-op
   /// if the square is already `complete` (e.g. repairing the mirror after
   /// `completeHabit` succeeded but the visual write hadn't landed yet).
-  void markCompleteFromHabit(String habitId, DateTime day) =>
-      markResultFromHabit(habitId, day, SquareState.complete);
+  void markCompleteFromHabit(
+    String habitId,
+    DateTime day, {
+    String source = kSquareSourceUnknown,
+  }) =>
+      markResultFromHabit(habitId, day, SquareState.complete,
+          source: source);
 
   /// General form of [markCompleteFromHabit] — mirrors *any* outcome
   /// (not just a green complete) onto a Grid square without touching the
@@ -720,9 +741,14 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// the grid's existing red state) — see `HabitCard`'s quit-goal action
   /// row. A no-op if the square already shows [value], mirroring
   /// [markCompleteFromHabit]'s own repair-safe guard.
-  void markResultFromHabit(String habitId, DateTime day, SquareState value) {
+  void markResultFromHabit(
+    String habitId,
+    DateTime day,
+    SquareState value, {
+    String source = kSquareSourceUnknown,
+  }) {
     if (state.squareFor(habitId, day) == value) return;
-    setSquareStateOnly(habitId, day, value);
+    setSquareStateOnly(habitId, day, value, source: source);
   }
 
   /// Attach (or clear) a daily reflection note for a habit's square.
@@ -743,7 +769,23 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   }
 
   Future<void> _persistSquare(
-      String habitId, DateTime day, SquareState value) async {
+    String habitId,
+    DateTime day,
+    SquareState value, {
+    required SquareState previous,
+    required String source,
+  }) async {
+    // The one choke point every square write passes through, which makes it
+    // the only place a trail can be complete. Records losses only — see
+    // squareChangeLosesCredit.
+    SquareAudit.record(
+      uid: _uid,
+      habitId: habitId,
+      day: day,
+      from: previous,
+      to: value,
+      source: source,
+    );
     if (_uid != null) {
       _dayRef(day).set(
         {
@@ -962,7 +1004,8 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     for (final id in habitIds) {
       final existing = SquareState.fromJson(raw[id]?.toString());
       if (existing != SquareState.none) continue;
-      await setSquareStateOnlyAsync(id, day, SquareState.complete);
+      await setSquareStateOnlyAsync(id, day, SquareState.complete,
+          source: kSquareSourceQuitAutoClean);
     }
   }
 

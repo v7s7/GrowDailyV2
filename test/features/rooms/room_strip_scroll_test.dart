@@ -155,15 +155,23 @@ void main() {
     });
 
     group('opens on the newest month ($lang)', () {
-      testWidgets('today is on screen, the start is not', (tester) async {
+      testWidgets('today is on screen, the start label stands down',
+          (tester) async {
         await pumpStrip(tester, days: 90, isAr: isAr);
         final viewport = stripRect(tester);
         final todayRect = tester.getRect(todayLabel(isAr));
-        final startRect = tester.getRect(startLabel(isAr));
         expect(inView(todayRect, viewport), isTrue,
             reason: 'the newest month must be what a person sees first');
-        expect(inView(startRect, viewport), isFalse,
-            reason: 'ninety days cannot fit, so the start is off screen');
+        // Not merely off screen: NOT BUILT. The reserve «البداية 07/28» sits
+        // in is the first content the viewport hides, and the label is cut
+        // from its outer side, so in an RTL line the Arabic word goes first
+        // and «07/» is left floating beside the ring with nothing to say it
+        // is a date. Aziz screenshotted exactly that fragment and asked what
+        // it meant. A label that cannot be shown whole is not shown at all;
+        // one slide toward the older months brings it back (next test).
+        expect(startLabel(isAr), findsNothing,
+            reason: 'ninety days cannot fit, so a partly hidden start label '
+                'must not render as a fragment');
         // The «اليوم» label hugs the trailing edge, which is where the last
         // column lands when the viewport rests at the content's end: the
         // left in Arabic, the right in English.
@@ -189,8 +197,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(inView(tester.getRect(startLabel(isAr)), viewport), isTrue,
             reason: 'the first day and its «البداية» label must come into view');
-        expect(inView(tester.getRect(todayLabel(isAr)), viewport), isFalse,
-            reason: 'ninety days still cannot fit, so today has left');
+        // And the far end's label has stood down in its turn, for the same
+        // reason «البداية» does at rest: a pinned label whose reserve the
+        // viewport is cutting into would render as a fragment.
+        expect(todayLabel(isAr), findsNothing,
+            reason: 'ninety days still cannot fit, so today has left and its '
+                'label must not be left behind as a fragment');
         // The drag was a scroll, not a tap: the strip's tap opens the
         // participant calendar, which must not appear.
         expect(find.byType(BottomSheet), findsNothing);
@@ -352,9 +364,13 @@ void main() {
       find.bySemanticsLabel(const S(Locale('ar')).roomStripOpenCalendar),
       findsOneWidget,
     );
-    // And says nothing else. The markers are still DRAWN, they are just not
-    // part of the button's announcement.
-    expect(startLabel(true), findsWidgets, reason: 'still on screen');
+    // And says nothing else. The marker is still DRAWN, it is just not part
+    // of the button's announcement.
+    //
+    // «اليوم» rather than «البداية» for the on-screen half: a 400-day room
+    // rests on its newest end, so the today marker is the one in view and
+    // the start label has stood down (see the "stands down" tests above).
+    expect(todayLabel(true), findsWidgets, reason: 'still on screen');
     expect(find.bySemanticsLabel(RegExp('البداية')), findsNothing);
     expect(find.bySemanticsLabel(RegExp('اليوم')), findsNothing);
     handle.dispose();

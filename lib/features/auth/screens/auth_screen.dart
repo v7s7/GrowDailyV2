@@ -41,6 +41,20 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _confirmCtrl = TextEditingController();
   String? _errorMessage;
 
+  /// The submit button, so that a message which pushes it down can pull it
+  /// back up into view. See [_revealSubmit].
+  final _submitKey = GlobalKey();
+
+  /// Which of the two banner slots the current message belongs to.
+  ///
+  /// True for anything the email form itself said, which renders directly
+  /// under the password field; false for a Google or Apple failure, which
+  /// renders below the whole stack because it has to be able to speak while
+  /// the form is still closed. Set by whichever path is about to produce a
+  /// message, before its await, so the listener in initState does not have
+  /// to work out where the error came from.
+  bool _bannerInForm = false;
+
   /// Whether this device still holds guest progress, which is what the
   /// fresh-start warning below is about. Resolved once, in initState:
   /// nothing can create or destroy guest data while this screen is up.
@@ -80,6 +94,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             };
           }
           setState(() => _errorMessage = msg);
+          if (_bannerInForm) _revealSubmit();
         },
       );
     });
@@ -100,20 +115,24 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final email = _emailCtrl.text.trim();
     final pass = _passCtrl.text;
     setState(() {
+      _bannerInForm = true;
       _errorMessage = null;
       _resetSent = false;
     });
 
     if (email.isEmpty || pass.isEmpty) {
       setState(() => _errorMessage = s.errFillAll);
+      _revealSubmit();
       return;
     }
     if (!_isSignIn && pass != _confirmCtrl.text) {
       setState(() => _errorMessage = s.errPasswordsMismatch);
+      _revealSubmit();
       return;
     }
     if (!_isSignIn && pass.length < 6) {
       setState(() => _errorMessage = s.errPasswordTooShort);
+      _revealSubmit();
       return;
     }
 
@@ -152,27 +171,37 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final email = _emailCtrl.text.trim();
     if (email.isEmpty) {
       setState(() {
+        _bannerInForm = true;
         _errorMessage = s.errEnterEmailForReset;
         _resetSent = false;
       });
+      _revealSubmit();
       return;
     }
     HapticFeedback.selectionClick();
     setState(() {
+      _bannerInForm = true;
       _isSendingReset = true;
       _errorMessage = null;
     });
-    final ok =
+    final outcome =
         await ref.read(authNotifierProvider.notifier).sendPasswordReset(email);
     if (!mounted) return;
     setState(() {
       _isSendingReset = false;
       // Same confirmation whether the address exists or not - see
-      // sendPasswordReset's doc comment. Only a delivery failure (offline)
-      // reads as an error.
-      _resetSent = ok;
-      _errorMessage = ok ? null : s.errNetwork;
+      // sendPasswordReset's doc comment. Each failure now says its own thing:
+      // this used to blame the network for all of them, so a rate limit read
+      // as "your wifi is down".
+      _resetSent = outcome == ResetOutcome.sent;
+      _errorMessage = switch (outcome) {
+        ResetOutcome.sent => null,
+        ResetOutcome.network => s.errNetwork,
+        ResetOutcome.tooMany => s.errTooManyRequests,
+        ResetOutcome.failed => s.errGeneric,
+      };
     });
+    _revealSubmit();
   }
 
   /// Whether the email form is showing.
@@ -202,6 +231,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Future<void> _social(SocialProvider provider) async {
     HapticFeedback.mediumImpact();
     setState(() {
+      _bannerInForm = false;
       _socialBusy = provider;
       _errorMessage = null;
       _resetSent = false;
@@ -250,6 +280,72 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     });
   }
 
+  /// Holds the submit button on screen while a message opens above it.
+  ///
+  /// The message is worth the height it costs, but on a 375x667 phone the
+  /// button's bottom edge already sits 12pt off the fold, so any message at
+  /// all pushes the button that was just pressed off the screen, and an
+  /// answer you can read next to a button you cannot reach is only half a
+  /// fix.
+  ///
+  /// It corrects the scroll on EVERY frame of the banner's growth rather
+  /// than waiting for the growth to finish and then animating: the button is
+  /// pinned to the bottom edge as the box opens, so the whole thing is one
+  /// motion, the message growing while the screen above it slides up by the
+  /// same amount at the same rate. Waiting first was measurably worse in two
+  /// ways. It looked like two events with a pause between them, the box
+  /// opening and then the screen jumping; and the scroll it computed came
+  /// from a box that had not finished growing, which on a 375x667 phone left
+  /// the button 5pt below the edge, with the right delay differing per phone
+  /// anyway since the message wraps to a different number of lines.
+  ///
+  /// The frame loop watches maxScrollExtent, NOT the button's own position,
+  /// and that is the whole reason it works: the button's bottom is the thing
+  /// being pinned, so it stops moving immediately and would read as "the
+  /// layout has settled" while the banner was still opening. The extent
+  /// tracks the content's height, which only stops changing when the growth
+  /// really is over.
+  ///
+  /// Nothing happens while the button is fully on screen, and that guard is
+  /// not an optimisation: ensureVisible ALIGNS, it does not scroll the
+  /// minimum, so without it a message would yank a comfortably visible
+  /// button down to the bottom edge and drag the whole screen with it.
+  void _revealSubmit() {
+    double? previousExtent;
+    var frames = 0;
+    void keepInView(Duration _) {
+      if (!mounted || !_scrollCtrl.hasClients) return;
+      final ctx = _submitKey.currentContext;
+      final box = ctx?.findRenderObject() as RenderBox?;
+      if (ctx == null || box == null || !box.hasSize) return;
+      final media = MediaQuery.of(context);
+      // With the keyboard up, the window ends where the keyboard starts.
+      final visibleBottom = media.size.height - media.viewInsets.bottom;
+      final bottom = box.localToGlobal(Offset(0, box.size.height)).dy;
+      if (bottom > visibleBottom - 8) {
+        // Zero duration on purpose: this runs every frame, so each step is a
+        // few points and the sequence IS the animation. An animated scroll
+        // here would be a second curve fighting the banner's own.
+        Scrollable.ensureVisible(ctx, alignment: 1.0, duration: Duration.zero);
+      }
+      // 30 frames is half a second at 60fps, comfortably longer than the
+      // banner takes and short enough that a layout which never settles
+      // gives up rather than polling for the life of the screen.
+      final extent = _scrollCtrl.position.maxScrollExtent;
+      if (extent != previousExtent && frames < 30) {
+        previousExtent = extent;
+        frames++;
+        WidgetsBinding.instance
+          ..addPostFrameCallback(keepInView)
+          ..scheduleFrame();
+      }
+    }
+
+    WidgetsBinding.instance
+      ..addPostFrameCallback(keepInView)
+      ..scheduleFrame();
+  }
+
   /// One line of the pair under the buttons: a bolded lead, then the fact.
   ///
   /// Text.rich rather than two widgets so the lead and the fact wrap as one
@@ -293,6 +389,109 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       _errorMessage = null;
       _resetSent = false;
     });
+  }
+
+  /// The reset confirmation and the error, as one slot rendered in two
+  /// places: [inForm] under the password field for anything the email form
+  /// said, and once more below the whole stack for a social failure.
+  ///
+  /// Both copies are always in the tree and at most one of them is ever
+  /// non-empty, which is what [_bannerInForm] decides. Built here rather
+  /// than written out twice so the two can never drift apart, and the slot
+  /// whose turn it is not collapses its AnimatedSize to zero rather than
+  /// holding height.
+  Widget _banner(BuildContext context, {required bool inForm}) {
+    final s = S.of(context);
+    final mine = _bannerInForm == inForm;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Reset-sent confirmation - same slot and motion as the error
+        // below, opposite tone, and mutually exclusive with it (_sendReset
+        // and _submit each clear the other's flag).
+        AnimatedSize(
+          duration: GameMotion.standard,
+          curve: Curves.easeOutCubic,
+          // Grows from the TOP, not the centre. AnimatedSize defaults to
+          // centre, which slides the content up as the box opens and reads
+          // as the banner arriving from two directions at once; the row
+          // below it is being pushed down either way.
+          alignment: Alignment.topCenter,
+          child: AnimatedSwitcher(
+            // The size alone was not enough: the text used to reach full
+            // strength on the first frame and be revealed by the growing
+            // clip, which wipes rather than fades. Traced on the simulator,
+            // the ink hit full red at 240ms while the box was still opening
+            // until ~400ms.
+            duration: GameMotion.standard,
+            child: !(mine && _resetSent)
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.mark_email_read_outlined,
+                            size: 15, color: context.gp.emeraldInk),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            s.authResetSent,
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: context.gp.emeraldInk,
+                                fontWeight: FontWeight.w500,
+                                height: 1.35),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ),
+
+        // Error
+        AnimatedSize(
+          duration: GameMotion.standard,
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: AnimatedSwitcher(
+            duration: GameMotion.standard,
+            child: !mine || _errorMessage == null
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    // Keyed on the message so one error replacing another
+                    // cross-fades too, rather than swapping the words inside
+                    // a box that never moved.
+                    key: ValueKey(_errorMessage),
+                    padding: const EdgeInsets.only(top: 14),
+                    child: Row(
+                      // Start, not centre: errInvalidCredential runs to two
+                      // lines now that it names the social way in, and a
+                      // centred icon would float against the middle of the
+                      // paragraph instead of sitting on its first line.
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.error_outline_rounded,
+                            size: 15, color: context.gp.errorInk),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: context.gp.errorInk,
+                                fontWeight: FontWeight.w500,
+                                height: 1.35),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -584,6 +783,16 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 ),
               ).animate(delay: 80.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.04),
 
+              // Whatever the form has to say goes HERE, against the fields
+              // it is about, rather than at the bottom of the screen under
+              // the way back out. "Wrong email or password" printed below
+              // the "other ways in" link sat four elements away from the
+              // field it referred to, with the submit button in between, so
+              // the form read as if it had done nothing at all. Here it also
+              // lands directly above the forgot-password link, which is the
+              // next thing to reach for once it appears.
+              _banner(context, inForm: true),
+
               // Forgot password (sign-in only). AlignmentDirectional so the
               // link hugs the trailing edge in both directions - end is
               // where the eye lands after the password field in each script.
@@ -700,6 +909,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
               // Submit button
               FilledButton(
+                key: _submitKey,
                 onPressed: busy ? null : _submit,
                 // The spinner belongs to the EMAIL flow only. Without the
                 // second half of this condition, tapping Google spun this
@@ -742,88 +952,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 ).animate().fadeIn(duration: 250.ms),
               ],
 
-              // The two banners live OUTSIDE the email block on
-              // purpose: a cancelled or failed Apple/Google sign-in has to
-              // be able to say so while the form is still closed, and that
-              // is the most common way either of them is seen.
-              // Reset-sent confirmation - same slot and motion as the
-              // error below, opposite tone, and mutually exclusive with it
-              // (_sendReset and _submit each clear the other's flag).
-              AnimatedSize(
-                duration: GameMotion.standard,
-                curve: Curves.easeOutCubic,
-                // Grows from the TOP, not the centre. AnimatedSize defaults
-                // to centre, which slides the content up as the box opens
-                // and reads as the banner arriving from two directions at
-                // once; the row below it is being pushed down either way.
-                alignment: Alignment.topCenter,
-                child: AnimatedSwitcher(
-                  // The size alone was not enough: the text used to reach
-                  // full strength on the first frame and be revealed by the
-                  // growing clip, which wipes rather than fades. Traced on
-                  // the simulator, the ink hit full red at 240ms while the
-                  // box was still opening until ~400ms.
-                  duration: GameMotion.standard,
-                  child: !_resetSent
-                    ? const SizedBox(width: double.infinity)
-                    : Padding(
-                        padding: const EdgeInsets.only(top: 14),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(Icons.mark_email_read_outlined,
-                                size: 15, color: context.gp.emeraldInk),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                s.authResetSent,
-                                style: TextStyle(
-                                    fontSize: 13,
-                                    color: context.gp.emeraldInk,
-                                    fontWeight: FontWeight.w500,
-                                    height: 1.35),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                ),
-              ),
-
-              // Error
-              AnimatedSize(
-                duration: GameMotion.standard,
-                curve: Curves.easeOutCubic,
-                alignment: Alignment.topCenter,
-                child: AnimatedSwitcher(
-                  duration: GameMotion.standard,
-                  child: _errorMessage == null
-                    ? const SizedBox(width: double.infinity)
-                    : Padding(
-                        // Keyed on the message so one error replacing
-                        // another cross-fades too, rather than swapping the
-                        // words inside a box that never moved.
-                        key: ValueKey(_errorMessage),
-                        padding: const EdgeInsets.only(top: 14),
-                        child: Row(
-                          children: [
-                            Icon(Icons.error_outline_rounded,
-                                size: 15, color: context.gp.errorInk),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: TextStyle(
-                                    fontSize: 13,
-                                    color: context.gp.errorInk,
-                                    fontWeight: FontWeight.w500),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                ),
-              ),
+              // The banner slot for the OTHER path: a cancelled or failed
+              // Apple or Google sign-in, which has to be able to speak while
+              // the form is still closed, and that is the most common way
+              // either of them is seen. Anything the email form itself says
+              // renders in its own slot, under the password field.
+              _banner(context, inForm: false),
 
 
               // The caption sits ABOVE its button now, not under it. Read

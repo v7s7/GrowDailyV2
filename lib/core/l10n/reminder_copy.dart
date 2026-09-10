@@ -24,8 +24,19 @@
 /// Bahraini, and deliberately *impersonal*. Arabic second-person verbs are
 /// gendered ("خلّصت" vs "خلّصتي"), and a notification has no idea who is
 /// reading it, so the phrasing talks about the task or the habit rather
-/// than to the person: "فات وقتها قبل ساعة", never "فاتتك". Possessive ك is
+/// than to the person: "صار لها ساعة", never "فاتتك". Possessive ك is
 /// fine unvocalized, which is why "مهمتك" and "بانتظارك" still appear.
+///
+/// ── And it does not tell anyone they failed ─────────────────────────
+/// A late reminder states the clock and asks for the thing. It does not
+/// deliver a verdict on the day. «فات» is barred for exactly that reason:
+/// "فات الفجر قبل ١٥ دقيقة" tells the reader they have already lost
+/// something, at the one moment they can still do it. The prayer is an
+/// anchor, so the honest and kinder sentence is the call to prayer itself,
+/// followed by the ask: «اذن الفجر قبل ١٥ دقيقة، سوي عادتك الحين». Same
+/// rule as the daily reminder's, which never states an absence as a
+/// verdict. Anything past due says how long it has been and what to do
+/// about it, never what was lost.
 library;
 
 // ── Counting an offset ──────────────────────────────────────────────
@@ -168,7 +179,7 @@ String overdueTaskReminderTitle({
 }) {
   if (minutesLate < 1) return isAr ? 'حان الوقت' : "It's time";
   final gap = countedOffsetPhrase(minutesLate, isAr);
-  return isAr ? 'فات وقتها قبل $gap' : 'This was due $gap ago';
+  return isAr ? 'وقتها كان قبل $gap' : 'This was due $gap ago';
 }
 
 // ── Habit reminders ─────────────────────────────────────────────────
@@ -531,6 +542,52 @@ String habitOnTimeLine({
 /// reason to act.
 ///
 /// [everyDay] reaches the streak clause, see [habitStreakLine].
+/// The ask a late reminder ends on, rotated so the same words are not the
+/// only thing the person ever reads.
+///
+/// Aziz's own wording, 2026-09-09: one phrase repeating every time «هي عادية
+/// بس فيه احلى لا تخليها تتكرر بس هي». So the clock fact stays fixed and the
+/// ask moves.
+String lateReminderAsk(int variantIndex, bool isAr) => _pick(
+      isAr
+          ? const [
+              'سوي عادتك الحين.',
+              'مستعد تنجز هالعادة الحين؟',
+              'يلا يا بطل، خلص اللي عليك ولوّن.',
+              'يلا يا كفو، خلص اللي عليك ولوّن.',
+            ]
+          : const [
+              'Do it now.',
+              'Ready to get this one done?',
+              'Come on, finish it and colour it in.',
+              "Let's get it done.",
+            ],
+      variantIndex,
+    );
+
+/// The streak clause a LATE reminder ends on - warm and backward-looking,
+/// where [habitStreakLine] counts forward.
+///
+/// Aziz, 2026-09-09, on «سوي عادتك الحين» landing straight before «٧ أيام
+/// ورا بعض، واليوم يخليها ٨»: «ماحب انه ... احذف». Two calls to action in one
+/// breath, the second of which is really an arithmetic fact. A late ping is
+/// already asking; what the streak owes it is praise, not a second ask, so it
+/// says what has been kept rather than what today would make it.
+String lateStreakPraise(int streak, bool isAr) {
+  if (!isAr) {
+    return streak == 1
+        ? "You've kept it up a day 👏🏼"
+        : "You've kept it up $streak days 👏🏼";
+  }
+  final counted = switch (streak) {
+    1 => 'يوم',
+    2 => 'يومين',
+    <= 10 => '${arabicDigits(streak)} أيام',
+    _ => '${arabicDigits(streak)} يوم',
+  };
+  return 'ملتزم صارلك $counted 👏🏼';
+}
+
 String habitReminderBody({
   required int offsetMinutes,
   required int streak,
@@ -538,19 +595,27 @@ String habitReminderBody({
   required bool isAr,
   required String onTimeLine,
   bool everyDay = true,
+  int variantIndex = 0,
 }) {
   if (offsetMinutes == 0) return onTimeLine;
   final gap = countedOffsetPhrase(offsetMinutes.abs(), isAr);
-  final lead = offsetMinutes < 0
-      ? (anchorLabel != null
-          ? (isAr ? 'باقي $gap على $anchorLabel.' : '$gap until $anchorLabel.')
-          : (isAr ? 'باقي $gap على وقتها.' : '$gap to go.'))
-      : (anchorLabel != null
-          ? (isAr ? 'فات $anchorLabel قبل $gap.' : '$anchorLabel was $gap ago.')
-          : (isAr ? 'فات وقتها قبل $gap.' : '$gap past due.'));
+  if (offsetMinutes < 0) {
+    final lead = anchorLabel != null
+        ? (isAr ? 'باقي $gap على $anchorLabel.' : '$gap until $anchorLabel.')
+        : (isAr ? 'باقي $gap على وقتها.' : '$gap to go.');
+    return streak > 0
+        ? '$lead ${habitStreakLine(streak, isAr, everyDay: everyDay)}'
+        : lead;
+  }
+  // Late. The clock fact, then the ask, then praise for the run if there is
+  // one - never the forward-counting streak line, see [lateStreakPraise].
+  final stamp = anchorLabel != null
+      ? (isAr ? 'اذن $anchorLabel قبل $gap' : '$anchorLabel was $gap ago')
+      : (isAr ? 'صار لها $gap' : "It's been $gap");
+  final ask = lateReminderAsk(variantIndex, isAr);
   return streak > 0
-      ? '$lead ${habitStreakLine(streak, isAr, everyDay: everyDay)}'
-      : lead;
+      ? '$stamp. $ask ${lateStreakPraise(streak, isAr)}'
+      : '$stamp. $ask';
 }
 
 // ── Action buttons ──────────────────────────────────────────────────

@@ -399,8 +399,11 @@ class _RoomListTile extends ConsumerWidget {
         final uid = ref.watch(authStateProvider).asData?.value?.uid;
         final participants = ref.watch(roomParticipantsProvider(code)).valueOrNull;
         final mine = participants?.where((p) => p.uid == uid);
-        final myRatio =
-            mine != null && mine.isNotEmpty ? mine.first.progressRatio(room) : 0.0;
+        // The room score - your standing, which is what a room card is
+        // asking about. See RoomParticipant.roomProgressRatio.
+        final myRatio = mine != null && mine.isNotEmpty
+            ? mine.first.roomProgressRatio(room)
+            : 0.0;
 
         return InkWell(
           borderRadius: BorderRadius.circular(GameSpacing.cardRadius),

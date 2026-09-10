@@ -706,30 +706,52 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                 // Required alongside the subscription itself, not just
                 // somewhere in Settings — see App Store Guideline 3.1.2 and
                 // _termsOfUseUrl/_privacyPolicyUrl's doc comments above.
+                // These were bare GestureDetectors wrapping 11px Text: a tap
+                // target about 13pt tall, on the two links a Guideline 3.1.2
+                // reviewer is most likely to go looking for. A near miss on a
+                // bare GestureDetector gives no feedback at all, which is how
+                // a working link gets reported as a broken one. Apple's HIG
+                // minimum is 44x44pt, and Restore directly above already meets
+                // it via TextButton.
+                //
+                // The visible text is deliberately unchanged: same 11px, same
+                // colour, same underline. Only the hit area and the ripple are
+                // new, so the separator loses its padding spaces (the
+                // horizontal padding below now supplies that gap).
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    GestureDetector(
+                    InkWell(
                       onTap: () => _openLink(_termsOfUseUrl),
-                      child: Text(
-                        s.premiumTermsOfUse,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: gp.textSec,
-                          decoration: TextDecoration.underline,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 15),
+                        child: Text(
+                          s.premiumTermsOfUse,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: gp.textSec,
+                            decoration: TextDecoration.underline,
+                          ),
                         ),
                       ),
                     ),
-                    Text('  ·  ',
+                    Text('·',
                         style: TextStyle(fontSize: 11, color: gp.textTert)),
-                    GestureDetector(
+                    InkWell(
                       onTap: () => _openLink(_privacyPolicyUrl),
-                      child: Text(
-                        s.premiumPrivacyPolicy,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: gp.textSec,
-                          decoration: TextDecoration.underline,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 15),
+                        child: Text(
+                          s.premiumPrivacyPolicy,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: gp.textSec,
+                            decoration: TextDecoration.underline,
+                          ),
                         ),
                       ),
                     ),

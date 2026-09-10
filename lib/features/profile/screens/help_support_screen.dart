@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -241,9 +242,9 @@ const List<FaqEntry> kFaqEntries = [
     questionEn: 'Can I delete my account?',
     questionAr: 'هل يمكنني حذف حسابي؟',
     answerEn:
-        'Yes. Go to Settings and tap Delete Account. You\'ll re-enter your password to confirm. After that it\'s permanent.',
+        'Yes. Go to Settings and tap Delete Account. We ask you to confirm it is you first: your password if you signed up with email, or a quick Google or Apple sign-in if you used one of those. After that it\'s permanent.',
     answerAr:
-        'نعم. اذهب إلى الإعدادات واضغط على حذف الحساب. ستُعيد إدخال كلمة المرور للتأكيد. وبعدها يكون نهائيًا.',
+        'نعم. اذهب إلى الإعدادات واضغط على حذف الحساب. بنتأكد إنه أنت أول: كلمة المرور إذا سجلت بالإيميل، أو تسجيل دخول سريع بقوقل أو آبل إذا استخدمت وحدة منهم. وبعدها يكون نهائيًا.',
     group: FaqGroup.account,
   ),
 ];
@@ -487,7 +488,7 @@ class _FaqRow extends StatelessWidget {
 String supportMailto(S s, {String? appVersion}) {
   final device = [
     'App: Grow Daily${appVersion == null ? '' : ' $appVersion'}',
-    'Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+    'Platform: ${kIsWeb ? 'web' : '${Platform.operatingSystem} ${Platform.operatingSystemVersion}'}',
     'Language: ${s.isAr ? 'ar' : 'en'}',
   ].join('\n');
   final body = '${s.helpEmailBodyLead}\n\n\n--\n$device';

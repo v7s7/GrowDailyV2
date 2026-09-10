@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show PlatformException;
@@ -167,8 +166,9 @@ class PurchaseService {
   /// the store setup was, and Premium could not be sold at all.
   static String? get _apiKeyForPlatform {
     if (kIsWeb) return null;
-    if (Platform.isIOS) return _iosApiKey;
-    if (Platform.isAndroid) return _androidApiKey;
+    // defaultTargetPlatform, not dart:io's Platform, which throws on the web.
+    if (defaultTargetPlatform == TargetPlatform.iOS) return _iosApiKey;
+    if (defaultTargetPlatform == TargetPlatform.android) return _androidApiKey;
     return null;
   }
 

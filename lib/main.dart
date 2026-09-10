@@ -2,11 +2,12 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' show User;
+import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth, User;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -45,7 +46,9 @@ import 'core/services/local_store_service.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/notifiers/guest_reconnect_provider.dart';
 import 'features/auth/widgets/guest_reconnect_prompt.dart';
+import 'core/constants/deep_links.dart';
 import 'features/auth/screens/auth_screen.dart';
+import 'features/auth/screens/set_new_password_screen.dart';
 import 'features/dashboard/notifiers/dashboard_notifier.dart';
 import 'features/habits/catalog/habit_plans.dart'
     show reminderTimeProvider, activeCatalogProvider;
@@ -66,6 +69,8 @@ import 'features/habits/notifiers/custom_habits_notifier.dart'
 import 'features/habits/notifiers/habit_resume_notifier.dart'
     show habitResumeScheduleProvider;
 import 'features/grid/models/square_state.dart' show SquareState;
+import 'features/grid/notifiers/square_audit.dart'
+    show kSquareSourceNotification;
 import 'features/grid/notifiers/weekly_grid_notifier.dart'
     show
         WeeklyGridState,
@@ -181,13 +186,42 @@ Future<void> main() async {
     // (TestFlight via RELEASE.md's `flutter build ipa`) is a release build
     // regardless, so this never silences a build anyone outside the dev
     // machine will ever run.
-    await FirebaseCrashlytics.instance
-        .setCrashlyticsCollectionEnabled(!kDebugMode);
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-    PlatformDispatcher.instance.onError = (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-      return true;
-    };
+    // Crashlytics has no web implementation: the first call into it threw
+    // and took the whole boot down before the first frame (the web build
+    // sat on its splash forever, 2026-09-09). On the web, errors go to the
+    // console and the app carries on.
+    if (!kIsWeb) {
+      await FirebaseCrashlytics.instance
+          .setCrashlyticsCollectionEnabled(!kDebugMode);
+      FlutterError.onError =
+          FirebaseCrashlytics.instance.recordFlutterFatalError;
+      PlatformDispatcher.instance.onError = (error, stack) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        return true;
+      };
+    } else {
+      PlatformDispatcher.instance.onError = (error, stack) {
+        debugPrint('[web] uncaught: $error\n$stack');
+        return true;
+      };
+      // A widget error in a release build paints a plain grey box and, on
+      // the web, says nothing anywhere. Say it in the console, where the
+      // only crash reporter the web has can read it.
+      FlutterError.onError = (details) {
+        debugPrint('[web] flutter error: ${details.exceptionAsString()}\n'
+            '${details.stack}');
+      };
+      ErrorWidget.builder = (details) => Material(
+            color: const Color(0xFFFEFAF0),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                details.exceptionAsString(),
+                style: const TextStyle(color: Color(0xFFB00020), fontSize: 13),
+              ),
+            ),
+          );
+    }
 
     // The persisted language is read BEFORE the notification service starts,
     // so its one-time category registration (the iOS action buttons under a
@@ -213,16 +247,32 @@ Future<void> main() async {
             WidgetsBinding.instance.platformDispatcher.locales);
     await NotificationService.instance
         .applyLocale(bootLocale.languageCode == 'ar');
+    // The password-reset email is rendered by FIREBASE, from its own
+    // templates, in whatever language this says. Left unset it falls back to
+    // the console's default language, which is English, so someone who asked
+    // for a reset from an Arabic screen got an English email with an English
+    // sender name. Set at boot, before anything can request one, and kept in
+    // step by the locale listener in _AuthGate.
+    FirebaseAuth.instance.setLanguageCode(bootLocale.languageCode);
     // After NotificationService, which is what initialises the timezone
     // database this table converts through. Preloaded here so the one
     // synchronous prayer-time caller (AddHabitSheet's live cue preview)
     // can reach it — see BahrainPrayerTable.ensureLoaded.
+    //
+    // On the web the notification service steps aside entirely, so the
+    // database it would have loaded is loaded here instead: the prayer table
+    // asks for Asia/Bahrain by name and throws without it.
+    if (kIsWeb) tz_data.initializeTimeZones();
     await BahrainPrayerTable.ensureLoaded();
-    await HomeWidgetService.instance.init();
-    // Configures the RevenueCat SDK with the production API key (see
-    // PurchaseService's doc comment). Safe to call unconditionally even if
-    // it were ever unset — [PurchaseService.configure] never throws.
-    await PurchaseService.instance.configure();
+    // Neither the home widget nor the store exists on the web; both plugins
+    // are native-only and their first channel call would throw here.
+    if (!kIsWeb) {
+      await HomeWidgetService.instance.init();
+      // Configures the RevenueCat SDK with the production API key (see
+      // PurchaseService's doc comment). Safe to call unconditionally even if
+      // it were ever unset — [PurchaseService.configure] never throws.
+      await PurchaseService.instance.configure();
+    }
     // Seed guestModeProvider from Hive so a returning guest with intact local
     // data lands back on their grid instead of being bounced to the auth
     // screen (the provider's own default is always `false` in memory).
@@ -325,6 +375,14 @@ Future<void> main() async {
       child: const GrowDailyApp(),
     ));
   }, (error, stack) {
+    // Crashlytics has no web plugin: forwarding to it on the web threw a
+    // MissingPluginException out of the error handler itself, which both
+    // hid the original error and took the app down. The console is the
+    // crash reporter there.
+    if (kIsWeb) {
+      debugPrint('[web] zone error: $error\n$stack');
+      return;
+    }
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
   });
 }
@@ -350,6 +408,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// second. See _watchForDeferredStreakGap.
   final List<ProviderSubscription<Object?>> _streakGapSubs = [];
   ProviderSubscription<AsyncValue<User?>>? _authSub;
+  ProviderSubscription<String?>? _passwordDroppedSub;
   ProviderSubscription<RoomRaceSnapshot?>? _roomRaceSub;
   ProviderSubscription<MatrixState>? _matrixWidgetSub;
   StreamSubscription<Uri>? _linkSub;
@@ -439,6 +498,24 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // is the same fix already used for every other listener in this
     // method (see _reminderSub etc. below) - this one just hadn't gotten
     // it.
+    // A Google or Apple sign-in that cost this account its password, which
+    // Firebase does silently to any password account whose address was never
+    // verified. AuthNotifier._repairDroppedPassword is what notices; this is
+    // what puts the offer on screen. Pushed over whatever the sign-in landed
+    // on, for the same reason the reset screen is: one job and a way out.
+    _passwordDroppedSub =
+        ref.listenManual<String?>(passwordDroppedProvider, (_, email) {
+      if (email == null || email.isEmpty) return;
+      // Consumed here, so a rebuild cannot show it twice.
+      ref.read(passwordDroppedProvider.notifier).state = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final nav = _navKey.currentState;
+        if (!mounted || nav == null) return;
+        nav.push(MaterialPageRoute<void>(
+          builder: (_) => SetNewPasswordScreen.addToAccount(email: email),
+        ));
+      });
+    });
     _authSub = ref.listenManual(authStateProvider, (previous, next) {
       final uid = next.asData?.value?.uid;
       // Ties analytics to the real account instead of leaving every
@@ -451,7 +528,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // "something broke for someone" and "I can look up this exact
       // account's data to reproduce it." Cleared to '' on sign-out rather
       // than left stale, same as this block's detachAccount() calls below.
-      FirebaseCrashlytics.instance.setUserIdentifier(uid ?? '');
+      // No Crashlytics on the web; this was the call that took the web build
+      // down on its first frame (MissingPluginException, Crashlytics#
+      // setUserIdentifier) once the boot-time guards were in place.
+      if (!kIsWeb) FirebaseCrashlytics.instance.setUserIdentifier(uid ?? '');
       if (uid != null) {
         ref.read(themeModeProvider.notifier).pullFromAccount(uid);
         ref.read(themePresetProvider.notifier).pullFromAccount(uid);
@@ -626,6 +706,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         HomeWidgetService.instance
             .saveLocale(next.languageCode == 'ar')
             .ignore();
+        // Same reason as the boot call in main(): this is the language
+        // Firebase's own emails come out in, and someone who switches to
+        // Arabic and then asks for a reset should not get an English one.
+        FirebaseAuth.instance.setLanguageCode(next.languageCode);
         _recomputeNotifications();
       },
     );
@@ -1651,7 +1735,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     if ((marks[habit.id] ?? SquareState.none) != SquareState.none) return;
     await ref
         .read(weeklyGridProvider.notifier)
-        .setSquareStateOnlyAsync(habit.id, day, result);
+        .setSquareStateOnlyAsync(habit.id, day, result,
+            source: kSquareSourceNotification);
     if (!mounted) return;
     syncRoomToday(ref, habit.id, day);
   }
@@ -1698,7 +1783,36 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     if (isMatrixQuickAddLink(uri)) {
       ref.read(requestedHomeTabProvider.notifier).state = NavTab.matrix;
       ref.read(requestedMatrixQuickAddProvider.notifier).state = true;
+      return;
     }
+    final resetCode = parsePasswordResetLink(uri);
+    if (resetCode != null) _openPasswordReset(resetCode);
+  }
+
+  /// The code from a reset link, held only until there is a Navigator to
+  /// push it onto.
+  ///
+  /// A cold start runs [_initDeepLinks] from initState, so the very link
+  /// that launched the app arrives before the first frame and
+  /// `_navKey.currentState` is still null. Pushing on the next frame instead
+  /// of dropping it is the difference between the email link working and the
+  /// app opening on the grid as if nothing had been tapped.
+  String? _pendingResetCode;
+
+  void _openPasswordReset(String code) {
+    _pendingResetCode = code;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pending = _pendingResetCode;
+      final nav = _navKey.currentState;
+      if (pending == null || nav == null || !mounted) return;
+      _pendingResetCode = null;
+      // Pushed over whatever is showing rather than routed to, because it
+      // is an interruption with one job and a close button: the screen
+      // underneath, signed in or out, is where the person goes back to.
+      nav.push(MaterialPageRoute<void>(
+        builder: (_) => SetNewPasswordScreen(oobCode: pending),
+      ));
+    });
   }
 
   /// Today's scheduled habits vs. how many are already complete, plus the
@@ -1847,7 +1961,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
           );
       final today = actionDay;
       ref.read(weeklyGridProvider.notifier).markResultFromHabit(
-          habit.id, today, SquareState.failed);
+          habit.id, today, SquareState.failed,
+          source: kSquareSourceNotification);
       // A notification action is a third way to change today's square,
       // alongside Grid and Today — see syncRoomToday's doc comment for why
       // every one of them has to call this.
@@ -1901,7 +2016,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         final today = actionDay;
         ref
             .read(weeklyGridProvider.notifier)
-            .markCompleteFromHabit(habit.id, today);
+            .markCompleteFromHabit(habit.id, today,
+                source: kSquareSourceNotification);
         syncRoomToday(ref, habit.id, today);
       } else if (perDay > 1) {
         // A habit counted several times a day also has to paint its square,
@@ -1919,6 +2035,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 habit.id,
                 today,
                 done >= perDay ? SquareState.complete : SquareState.partial,
+                source: kSquareSourceNotification,
               );
           syncRoomToday(ref, habit.id, today);
         }
@@ -1993,6 +2110,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _notificationSettingsSub?.close();
     _gridSub?.close();
     _authSub?.close();
+    _passwordDroppedSub?.close();
     _roomRaceSub?.close();
     _matrixWidgetSub?.close();
     _linkSub?.cancel();
@@ -2061,11 +2179,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // feedbacks); this is the backstop, not a replacement for those.
       builder: (context, child) => Material(
         type: MaterialType.transparency,
-        child: Stack(
-          children: [
-            if (child != null) child,
-            const GlobalVoiceNotePlayerOverlay(),
-          ],
+        // On the web, a phone-sized frame on any window wider than a phone
+        // (see _WebPhoneFrame); a no-op everywhere else, and on narrow
+        // windows.
+        child: _WebPhoneFrame(
+          child: Stack(
+            children: [
+              if (child != null) child,
+              const GlobalVoiceNotePlayerOverlay(),
+            ],
+          ),
         ),
       ),
       initialRoute: '/',
@@ -2127,6 +2250,82 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
 // record of whether a language was DECIDED, which is what stops detection and
 // the account's own value from overruling a person who picked. Nothing gates
 // on it any more.
+
+/// On the web, the app inside a phone-sized panel whenever the window is
+/// wider than a phone; the app itself everywhere else.
+///
+/// GrowDaily is a phone app. Stretched across a laptop window every column
+/// of the Grid, every room row and every sheet lays out for a width it was
+/// never designed for, and the Arabic type in particular reads badly at
+/// forty characters a line. So on a wide window the whole app is laid out
+/// in a 402-point frame, the width of the iPhone it is built and verified
+/// on, centred on a quiet backdrop drawn from the current theme. The
+/// MediaQuery handed down is the FRAME's, not the window's, so every screen
+/// that asks "how wide am I" gets the phone answer and lays out exactly as
+/// it does on the device; the keyboard inset is left alone, since a tablet
+/// wide enough to get the frame still has a real keyboard to avoid.
+///
+/// Below [kWideWindow] the app is full-bleed, which is what a phone or a
+/// narrow browser window should get. Never active off the web.
+class _WebPhoneFrame extends StatelessWidget {
+  final Widget child;
+  const _WebPhoneFrame({required this.child});
+
+  static const double kWideWindow = 600;
+  static const double kFrameWidth = 402;
+  static const double kFrameHeight = 874;
+  static const double kMargin = 24;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb) return child;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < kWideWindow) return child;
+        final theme = Theme.of(context);
+        final surface = theme.scaffoldBackgroundColor;
+        final dark = theme.brightness == Brightness.dark;
+        final backdrop =
+            Color.lerp(surface, Colors.black, dark ? 0.45 : 0.10)!;
+        final width = kFrameWidth;
+        final height = (constraints.maxHeight - kMargin * 2)
+            .clamp(480.0, kFrameHeight)
+            .toDouble();
+        final mq = MediaQuery.of(context);
+        return ColoredBox(
+          color: backdrop,
+          child: Center(
+            child: Container(
+              width: width,
+              height: height,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(32),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: dark ? 0.55 : 0.18),
+                    blurRadius: 48,
+                    offset: const Offset(0, 18),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(32),
+                child: MediaQuery(
+                  data: mq.copyWith(
+                    size: Size(width, height),
+                    padding: EdgeInsets.zero,
+                    viewPadding: EdgeInsets.zero,
+                  ),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
 
 class _AuthGate extends ConsumerWidget {
   const _AuthGate();

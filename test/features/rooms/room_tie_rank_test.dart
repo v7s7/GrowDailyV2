@@ -122,7 +122,7 @@ void main() {
       // first. List.sort is unstable above 32 elements, which is why the
       // uid key is still the last word.
       final board = room().standings([
-        member('zoe', done: 6, joined: DateTime(2026, 7, 16)), // 6/7
+        member('zoe', done: 12, joined: DateTime(2026, 7, 9)), // 12/14
         member('ali', done: 19), // 19/22, both read 86%
       ]);
       expect(board.map((m) => m.participant.uid), ['ali', 'zoe']);
@@ -130,12 +130,16 @@ void main() {
   });
 
   group('level means the same number on screen', () {
-    test('19 of 22 days and 6 of 7 both read 86%, so both are first', () {
+    // A late joiner, but one in for more than half the room: a place needs
+    // tenure now (RoomModel.holdsPlaceIn), and a member who joined on day
+    // 16 of 22 would hold none. 12 of 14 keeps the ratio this test is about
+    // (0.8571, printing 86% beside 19 of 22's 0.8636) with 14 counted days.
+    test('19 of 22 days and 12 of 14 both read 86%, so both are first', () {
       // The case the raw-double version of this would have got wrong:
       // 0.8636 and 0.8571 are not equal, but every surface prints 86% for
       // both of them, so a single cup between them is the bug being fixed.
       final ali = member('ali', done: 19);
-      final zoe = member('zoe', done: 6, joined: DateTime(2026, 7, 16));
+      final zoe = member('zoe', done: 12, joined: DateTime(2026, 7, 9));
       final r = room();
       expect((ali.progressRatio(r) * 100).round(), 86);
       expect((zoe.progressRatio(r) * 100).round(), 86);
@@ -373,13 +377,15 @@ void main() {
     final r = room();
     final members = [
       member('ali', done: 19),
-      member('zoe', done: 6, joined: DateTime(2026, 7, 16)),
+      member('zoe', done: 12, joined: DateTime(2026, 7, 9)),
       member('omar', done: 11),
       member('sara', done: 0),
     ];
     for (final board in [r.standings(members)]) {
       for (final m in board) {
-        final printed = (m.participant.progressRatio(r) * 100).round();
+        // The room score: what every surface prints since the board began
+        // ranking by it (RoomParticipant.roomProgressRatio).
+        final printed = (m.participant.roomProgressRatio(r) * 100).round();
         // Same place for the same printed number, and no place at all for
         // a printed 0.
         if (printed == 0) {
@@ -388,7 +394,8 @@ void main() {
           expect(
             board
                 .where((o) =>
-                    (o.participant.progressRatio(r) * 100).round() == printed)
+                    (o.participant.roomProgressRatio(r) * 100).round() ==
+                    printed)
                 .map((o) => o.rank)
                 .toSet(),
             {m.rank},

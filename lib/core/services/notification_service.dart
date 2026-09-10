@@ -2072,6 +2072,9 @@ class NotificationService {
             isAr: isAr,
             onTimeLine: onTimeLine,
             everyDay: facts.everyDay,
+            // Same seed the on-time line rotates on, so one habit's reminder
+            // keeps one voice for the day instead of two halves that drift.
+            variantIndex: _daySeed + r.id.hashCode,
           );
     // What this slot will say and when, so a wrong line can be read off the
     // run log at schedule time instead of waited for on a lock screen.

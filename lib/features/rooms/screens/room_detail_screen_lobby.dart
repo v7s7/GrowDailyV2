@@ -86,9 +86,26 @@ class _RoomBody extends ConsumerWidget {
               if (value == 'delete') onDelete();
               if (value == 'extend') onExtend();
               if (value == 'addHabit') _addHabitToPlan(context, ref, room);
+              if (value == 'report') {
+                showReportMemberPicker(
+                  context,
+                  ref: ref,
+                  roomCode: room.code,
+                  participants: participantsAsync.valueOrNull ?? const [],
+                  myUid: uid,
+                );
+              }
             },
             itemBuilder: (_) => [
               PopupMenuItem(value: 'leave', child: Text(s.roomLeaveAction)),
+              // Not gated on anything. The overflow button on another
+              // member's leaderboard row is the only other way to reach
+              // Report and Block, and it needs somebody else's row to be on
+              // screen. This item is here in every room state, including a
+              // room of one, so the control is findable rather than merely
+              // present - see showReportMemberPicker and guideline 1.2.
+              PopupMenuItem(
+                  value: 'report', child: Text(s.roomReportMemberMenu)),
               // Only offered for a fixed-length room - an open-ended one
               // never locks in the first place, so there's nothing to
               // extend. Available whether or not the room has ended yet,
@@ -122,6 +139,13 @@ class _RoomBody extends ConsumerWidget {
         data: (participants) {
           final mine = mineOf(participants);
           onSyncIfNeeded(room, mine);
+          // The team arithmetic counts over every record, departed members
+          // included, so nobody's leaving rewrites the days the team played.
+          // Falls back to the live roster until the stream has a value.
+          final history = ref
+                  .watch(roomRosterHistoryProvider(room.code))
+                  .valueOrNull ??
+              participants;
           // Live, not over, and nobody but the creator: the invite card
           // takes the place of the one-row ranking (see below).
           final soloLive =
@@ -154,6 +178,7 @@ class _RoomBody extends ConsumerWidget {
                 ] else if (room.isEnded) ...[
                   _FinaleCard(
                     standings: standings,
+                    history: history,
                     room: room,
                     mine: mine,
                     isLeader: isLeader,
@@ -195,7 +220,11 @@ class _RoomBody extends ConsumerWidget {
                     room.competeMode == RoomCompeteMode.team) ...[
                   const SizedBox(height: 14),
                   _TeamDayCard(
-                      room: room, participants: participants, mine: mine),
+                    room: room,
+                    participants: participants,
+                    history: history,
+                    mine: mine,
+                  ),
                 ],
                 if (mine != null && mine.linkedHabitIds.isNotEmpty) ...[
                   const SizedBox(height: 14),
@@ -245,13 +274,19 @@ Future<void> _addHabitToPlan(
 ) async {
   final s = S.of(context);
   final uid = ref.read(authStateProvider).asData?.value?.uid;
-  final myParticipant = ref
-      .read(roomParticipantsProvider(room.code))
-      .valueOrNull
-      ?.where((p) => p.uid == uid);
-  final mineHabitIds = myParticipant != null && myParticipant.isNotEmpty
+  // `.future`, not `.valueOrNull`: this action lives on the AppBar, which is
+  // built OUTSIDE the `when` that spinners the body, so a room opened cold
+  // from a push or a deep link reaches here with the roster stream still in
+  // flight. valueOrNull was null there, excludeIds came out empty, and the
+  // picker cheerfully offered habits that were already in the plan. Same
+  // pattern the resolve path already uses; the mute action three lines up
+  // guards the same window with `mine != null`.
+  final roster = await ref.read(roomParticipantsProvider(room.code).future);
+  final myParticipant = roster.where((p) => p.uid == uid);
+  final mineHabitIds = myParticipant.isNotEmpty
       ? myParticipant.first.linkedHabitIds
       : const <String>[];
+  if (!context.mounted) return;
   final picked = await pickOwnHabitSheet(
     context,
     title: s.roomAddHabitPickerTitle,
@@ -260,10 +295,17 @@ Future<void> _addHabitToPlan(
     isSharedTemplate: true,
   );
   if (picked == null || !context.mounted) return;
-  await ref.read(roomsControllerProvider).addSharedHabit(room, picked.id);
+  final result =
+      await ref.read(roomsControllerProvider).addSharedHabit(room, picked.id);
   if (!context.mounted) return;
+  // The confirmation used to be unconditional, so a refused add still said
+  // «تمت الإضافة» and the leader had no way to know the plan was unchanged.
   ScaffoldMessenger.of(context).showOne(
-    SnackBar(content: Text(s.roomHabitAddedConfirmation(picked.name))),
+    SnackBar(
+      content: Text(result == AddSharedHabitResult.alreadyInPlan
+          ? s.roomHabitAlreadyInPlan(picked.name)
+          : s.roomHabitAddedConfirmation(picked.name)),
+    ),
   );
 }
 

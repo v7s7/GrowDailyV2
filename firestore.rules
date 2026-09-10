@@ -242,14 +242,18 @@ service cloud.firestore {
       match /participants/{uid} {
         allow read: if isSignedIn();
         allow create, update: if isOwner(uid);
-        // A participant can always delete their own entry (leaving - see
-        // RoomsController.leaveRoom). The room's own creator can also
-        // delete *any* participant's entry, needed for
-        // RoomsController.deleteRoom's full-room teardown, which removes
-        // every member's doc, not just the leader's own - see that
-        // method's doc comment for why plain isOwner(uid) alone isn't
-        // enough for that to work.
-        allow delete: if isOwner(uid) ||
+        // Leaving no longer deletes: RoomsController.leaveRoom stamps
+        // `leftAt` on the member's own doc instead (an update, covered
+        // above), so the record of the days they were there survives a
+        // rejoin. A member deleting their own entry was the reset exploit -
+        // leave, rejoin, be measured from today - and the app no longer
+        // does it, so the rule no longer allows it either: otherwise a
+        // client talking to Firestore directly could still do by hand what
+        // the button used to do. Only the room's own creator may delete a
+        // participant's entry, for RoomsController.deleteRoom's full-room
+        // teardown, which removes every member's doc - see that method's
+        // doc comment for why plain isOwner(uid) isn't enough for that.
+        allow delete: if
             get(/databases/$(database)/documents/rooms/$(roomId)).data.createdBy
                 == request.auth.uid;
       }

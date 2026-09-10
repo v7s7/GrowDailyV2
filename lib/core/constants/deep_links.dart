@@ -75,3 +75,45 @@ Uri roomJoinUrl(String code) =>
 /// `growdaily://matrix/add` link has no reason to become a web URL — it never
 /// leaves the device, so it never needed to be tappable by a stranger.
 const String legacyScheme = 'growdaily';
+
+/// Path for the password-reset action page. Three places must agree: here,
+/// the AASA `components` array, and `public/reset/index.html` (which is what
+/// a browser gets when the app is not installed).
+const String resetPath = '/reset';
+
+/// Parses a password-reset link into its Firebase `oobCode`, or null.
+///
+/// Two shapes reach the app, and both mean the same thing:
+///   `https://<host>/reset?oobCode=...`  the App Link, which is what the
+///       page in `public/reset/` is FOR: on a phone the system hands the URL
+///       to the app and the page is never drawn.
+///   `growdaily://reset?oobCode=...`     what that page falls back to when
+///       the system did not do the handoff itself and the person taps
+///       "change it in the app".
+///
+/// A `mode` that is present and is not `resetPassword` returns null on
+/// purpose: Firebase puts every kind of email action through one URL shape,
+/// and an email-verification link must not open a "set a new password"
+/// screen. A link with no `mode` at all is accepted, because our own page
+/// builds the growdaily:// form from the code alone.
+///
+/// Host is not checked here, for the reason [parseRoomJoinLink] documents at
+/// length: the platform config already scoped it before the app is handed
+/// anything.
+String? parsePasswordResetLink(Uri uri) {
+  final scheme = uri.scheme.toLowerCase();
+  final isWeb = scheme == 'https' || scheme == 'http';
+  if (!isWeb && scheme != legacyScheme) return null;
+
+  // growdaily://reset?... puts "reset" in the HOST, not the path, because a
+  // custom scheme has no authority of its own. Accept it from either.
+  final first = uri.pathSegments.isEmpty ? '' : uri.pathSegments.first;
+  final target = isWeb ? first : (uri.host.isEmpty ? first : uri.host);
+  if (target.toLowerCase() != 'reset') return null;
+
+  final mode = uri.queryParameters['mode'];
+  if (mode != null && mode.isNotEmpty && mode != 'resetPassword') return null;
+
+  final code = uri.queryParameters['oobCode']?.trim() ?? '';
+  return code.isEmpty ? null : code;
+}

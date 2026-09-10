@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 
 import 'package:health/health.dart';
 
@@ -65,7 +66,12 @@ class HealthStepsService {
   /// to different places, so the strings cannot be one wording. Exposed here
   /// rather than letting each surface reach for dart:io, so there is one
   /// answer to "is this the Health Connect side" in the whole app.
-  static bool get usesHealthConnect => Platform.isAndroid;
+  // Never dart:io's Platform, which throws on the web; there is no step
+  // source there and every check below reads false.
+  static bool get _isAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  static bool get usesHealthConnect => _isAndroid;
 
   Future<void> _ensureConfigured() async {
     if (_configured) return;
@@ -79,7 +85,7 @@ class HealthStepsService {
   Future<bool> isSupported() async {
     try {
       await _ensureConfigured();
-      if (!Platform.isAndroid) return true;
+      if (!_isAndroid) return true;
       return await _health.isHealthConnectAvailable();
     } catch (_) {
       return false;
@@ -102,7 +108,7 @@ class HealthStepsService {
   Future<bool?> hasReadPermission() async {
     try {
       await _ensureConfigured();
-      if (Platform.isAndroid && !await _health.isHealthConnectAvailable()) {
+      if (_isAndroid && !await _health.isHealthConnectAvailable()) {
         return false;
       }
       return await _health.hasPermissions(_types, permissions: _permissions);
@@ -135,13 +141,22 @@ class HealthStepsService {
   }
 
   /// The step total for the calendar day containing [day] (midnight to
-  /// midnight). Callers pass the app's *effective* day, not the clock day:
-  /// in the after-midnight window (see DateTimeGameExt.effectiveDay) the
-  /// habit-day still in progress is yesterday's, and yesterday's habit
-  /// must be judged against yesterday's steps — the platform's counter
-  /// resets at calendar midnight, so reading "midnight to now" there
-  /// would grade Tuesday's walk against Wednesday's near-zero (verified
-  /// live at 12:23 AM before this took the day parameter).
+  /// midnight).
+  ///
+  /// Taking a day at all is the point. This used to read "midnight to now",
+  /// which graded Tuesday's walk against Wednesday's near-zero in the hours
+  /// after midnight (seen live at 12:23 AM). The caller passes the day it
+  /// wants; the platform's own counter resets at calendar midnight, so a
+  /// past day always comes back final and a fresh read of it can only ever
+  /// confirm what was already measured.
+  ///
+  /// Note the day this is asked for is a CALENDAR day even though a habit-day
+  /// stays markable until kDayCutoffHour the next morning
+  /// (DateTimeGameExt.isOpenDayAt). Steps are the one thing here the app does
+  /// not get to redefine: HealthKit closes the count at midnight, so the
+  /// grace tail lets somebody mark yesterday's square, not walk more into it.
+  /// DateTimeGameExt.effectiveDay is plain startOfDay now, so passing it and
+  /// passing the clock day are the same call.
   ///
   /// Manual entries count, same as sensor-recorded ones. Excluding them
   /// was considered as anti-cheat and rejected: tapping the habit square
@@ -158,7 +173,7 @@ class HealthStepsService {
   Future<HealthStepsOutcome> stepsForDay(DateTime day) async {
     try {
       await _ensureConfigured();
-      if (Platform.isAndroid && !await _health.isHealthConnectAvailable()) {
+      if (_isAndroid && !await _health.isHealthConnectAvailable()) {
         return HealthStepsOutcome.failed(HealthStepsFailure.notSupported);
       }
       // Both ends built from the calendar, not by adding 24 hours to the
@@ -186,7 +201,7 @@ class HealthStepsService {
       // denied read returns an empty set summing to zero — indistinguishable
       // from a day that has not started yet, by Apple's design. So zero
       // stands as a success there and the UI explains itself instead.
-      if (steps == null && Platform.isAndroid) {
+      if (steps == null && _isAndroid) {
         return HealthStepsOutcome.failed(HealthStepsFailure.permissionDenied);
       }
       return HealthStepsOutcome.success(steps ?? 0);

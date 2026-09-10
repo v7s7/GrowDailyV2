@@ -199,7 +199,7 @@ void main() {
   group('RoomParticipant.daysCompleted / progressRatio - end to end', () {
     test(
         'Mon/Wed-only habit: done Monday, excused Tuesday, missed Wednesday '
-        '-> 2 of 3 days, not 1 of 3', () {
+        '-> 1 of 2 days, not 1 of 3 and not 2 of 3', () {
       final room = _fixedRoom(
         start: DateTime(2026, 7, 6), // Monday
         end: DateTime(2026, 7, 8), // Wednesday
@@ -219,15 +219,30 @@ void main() {
       expect(p.creditFor('2026-07-07'), 1.0, reason: 'Tuesday: excused');
       expect(p.creditFor('2026-07-08'), 0.0, reason: 'Wednesday: missed');
 
-      expect(p.daysCompleted(room), 2.0);
-      expect(p.progressRatio(room), closeTo(2 / 3, 0.0001));
+      // Tuesday leaves BOTH sides: it is not a success and it is not a
+      // demand. Asked twice, done once, so one of two.
+      expect(p.daysCompleted(room), 1.0);
+      expect(p.daysElapsedIn(room), 2);
+      expect(p.progressRatio(room), closeTo(1 / 2, 0.0001));
 
-      // Before the fix, Tuesday would have used linkedHabitIds.length (1)
-      // as the denominator with 0 done, contributing 0.0 instead of 1.0 -
-      // daysCompleted would have been 1.0/3 (~0.33) instead of the correct
-      // 2.0/3 (~0.67). Asserting the old, wrong number is explicitly NOT
-      // what this test expects, on purpose.
+      // Two wrong answers this pins against, one on each side.
+      //
+      // 1/3 was the original bug: Tuesday used linkedHabitIds.length (1) as
+      // its denominator with nothing done, so a day the habit never asked
+      // about scored a flat miss.
+      //
+      // 2/3 was the over-correction that replaced it: Tuesday was paid a
+      // full 1.0 and still counted, so a day nobody was asked about became a
+      // day somebody succeeded at. Harmless here, ruinous on a weekly quota,
+      // where it handed a 4x-a-week habit three free wins every week and let
+      // a week of nothing read 43%.
       expect(p.progressRatio(room), isNot(closeTo(1 / 3, 0.0001)));
+      expect(p.progressRatio(room), isNot(closeTo(2 / 3, 0.0001)));
+
+      // creditFor itself is unchanged - an excused day is still worth 1.0 to
+      // anything that asks it directly. The fix is that daysCompleted and
+      // daysElapsedIn no longer ask it about a day the schedule skipped.
+      expect(p.creditFor('2026-07-07'), 1.0);
     });
   });
 

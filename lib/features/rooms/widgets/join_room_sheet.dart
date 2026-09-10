@@ -10,6 +10,7 @@ import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
 import '../notifiers/rooms_notifier.dart';
+import '../screens/room_detail_screen.dart';
 
 /// Opens the Join Room sheet and resolves to the room's code once actually
 /// joined, or null if dismissed/cancelled - same "let the caller navigate"
@@ -131,11 +132,35 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
     });
   }
 
+  /// Whether the room the search found is one this account is already in.
+  /// The sheet then offers to open it rather than to join it: a second join
+  /// used to rewrite every plan slot, which was a door to re-linking a slot
+  /// and re-grading its past (RoomsController.joinRoom now keeps the slots a
+  /// member already holds, so this is the honest button rather than the
+  /// last line of defence).
+  bool get _alreadyIn {
+    final room = _foundRoom;
+    if (room == null) return false;
+    final codes = ref.read(myRoomCodesProvider).valueOrNull ?? const [];
+    return codes.contains(room.code);
+  }
+
   bool get _canJoin {
     final room = _foundRoom;
-    if (room == null || _isJoining || room.isEnded) return false;
+    if (room == null || _isJoining || room.isEnded || _alreadyIn) return false;
     if (room.habitMode == RoomHabitMode.own) return _ownHabitIds.isNotEmpty;
     return true;
+  }
+
+  void _openRoom() {
+    final room = _foundRoom;
+    if (room == null) return;
+    HapticFeedback.selectionClick();
+    Navigator.pop(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RoomDetailScreen(code: room.code)),
+    );
   }
 
   /// How many *new* habits joining right now would create - every plan
@@ -270,7 +295,10 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
                     if (_foundRoom != null) ...[
                       const SizedBox(height: 16),
                       _RoomPreviewCard(room: _foundRoom!),
-                      if (_foundRoom!.isEnded) ...[
+                      if (_alreadyIn) ...[
+                        const SizedBox(height: 10),
+                        _InlineNotice(text: s.roomAlreadyMemberJoin),
+                      ] else if (_foundRoom!.isEnded) ...[
                         const SizedBox(height: 10),
                         _InlineNotice(text: s.roomAlreadyEndedJoin),
                       ] else if (_foundRoom!.habitMode ==
@@ -307,7 +335,8 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
                 padding: EdgeInsets.fromLTRB(
                     20, 10, 20, 20 + MediaQuery.of(context).padding.bottom),
                 child: FilledButton(
-                  onPressed: _canJoin ? _join : null,
+                  // Already a member: the one useful thing to do is open it.
+                  onPressed: _alreadyIn ? _openRoom : (_canJoin ? _join : null),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(double.infinity, 50),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -318,7 +347,7 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
                           height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2.4),
                         )
-                      : Text(s.roomJoinSubmit),
+                      : Text(_alreadyIn ? s.roomOpenAction : s.roomJoinSubmit),
                 ),
               )
             else

@@ -126,7 +126,7 @@ void main() {
     test('states how late it is, rather than that it is time', () {
       expect(
         overdueTaskReminderTitle(minutesLate: 60, isAr: true),
-        'فات وقتها قبل ساعة',
+        'وقتها كان قبل ساعة',
       );
       expect(
         overdueTaskReminderTitle(minutesLate: 60, isAr: false),
@@ -137,7 +137,7 @@ void main() {
     test('a catch-up days later still reads correctly', () {
       expect(
         overdueTaskReminderTitle(minutesLate: 2880, isAr: true),
-        'فات وقتها قبل يومين',
+        'وقتها كان قبل يومين',
       );
       expect(
         overdueTaskReminderTitle(minutesLate: 2880, isAr: false),
@@ -146,7 +146,7 @@ void main() {
     });
 
     test('a catch-up fired within the same minute falls back gracefully', () {
-      // Rather than "فات وقتها قبل ٠ دقيقة".
+      // Rather than "وقتها كان قبل ٠ دقيقة".
       expect(overdueTaskReminderTitle(minutesLate: 0, isAr: true), 'حان الوقت');
       expect(
         overdueTaskReminderTitle(minutesLate: -3, isAr: false),
@@ -161,6 +161,7 @@ void main() {
       int streak = 0,
       String? anchor,
       bool isAr = true,
+      int variant = 0,
     }) =>
         habitReminderBody(
           offsetMinutes: offset,
@@ -168,6 +169,7 @@ void main() {
           anchorLabel: anchor,
           isAr: isAr,
           onTimeLine: isAr ? 'حان الوقت.' : "It's time.",
+          variantIndex: variant,
         );
 
     test('on time is left exactly as it was', () {
@@ -181,18 +183,124 @@ void main() {
         body(offset: -45, anchor: 'Maghrib', isAr: false),
         '45 minutes until Maghrib.',
       );
-      expect(body(offset: 20, anchor: 'الفجر'), 'فات الفجر قبل ٢٠ دقيقة.');
+      expect(
+        body(offset: 20, anchor: 'الفجر'),
+        'اذن الفجر قبل ٢٠ دقيقة. سوي عادتك الحين.',
+      );
       expect(
         body(offset: 20, anchor: 'Fajr', isAr: false),
-        'Fajr was 20 minutes ago.',
+        'Fajr was 20 minutes ago. Do it now.',
+      );
+    });
+
+    test('every late variant asks for the habit, and none says فات', () {
+      // «فات» is barred: it tells the reader they have already lost
+      // something at the one moment they can still do it. Aziz, on his own
+      // سنة الفجر reminder: "فات الفجر قبل ١٥ دقيقة" should have been
+      // «اذن الفجر قبل ١٥ دقيقة، سوي عادتك الحين».
+      //
+      // Every minute value the offset picker can produce, not just one, since
+      // the noun declines (singular, dual, 3-10 plural, 11+ singular) and the
+      // sentence has to survive all four shapes. Every rotation too, since
+      // the ask moves and the clock fact does not.
+      const lateMinutes = [1, 2, 3, 10, 11, 15, 20, 30, 45, 59];
+      for (final m in lateMinutes) {
+        for (var v = 0; v < 8; v++) {
+          final withPrayer = body(offset: m, anchor: 'الفجر', variant: v);
+          final withClock = body(offset: m, variant: v);
+          for (final line in [withPrayer, withClock]) {
+            expect(line, isNot(contains('فات')), reason: '$m min, variant $v');
+          }
+          expect(withPrayer, startsWith('اذن الفجر قبل '));
+          expect(withClock, startsWith('صار لها '));
+        }
+      }
+      // The declensions of the clock fact, spot-checked end to end.
+      expect(
+        body(offset: 15, anchor: 'الفجر'),
+        'اذن الفجر قبل ١٥ دقيقة. سوي عادتك الحين.',
+      );
+      expect(
+        body(offset: 1, anchor: 'الفجر'),
+        'اذن الفجر قبل دقيقة. سوي عادتك الحين.',
+      );
+      expect(
+        body(offset: 2, anchor: 'المغرب'),
+        'اذن المغرب قبل دقيقتين. سوي عادتك الحين.',
+      );
+      expect(
+        body(offset: 5, anchor: 'العشاء'),
+        'اذن العشاء قبل ٥ دقائق. سوي عادتك الحين.',
+      );
+      expect(
+        body(offset: 60, anchor: 'الظهر'),
+        'اذن الظهر قبل ساعة. سوي عادتك الحين.',
+      );
+    });
+
+    test('the ask rotates instead of repeating one phrase forever', () {
+      // Aziz: «هي عادية بس فيه احلى لا تخليها تتكرر بس هي».
+      final seen = {
+        for (var v = 0; v < 8; v++) body(offset: 15, anchor: 'الفجر', variant: v)
+      };
+      expect(seen.length, greaterThan(1));
+      expect(
+        body(offset: 15, anchor: 'الفجر', variant: 1),
+        'اذن الفجر قبل ١٥ دقيقة. مستعد تنجز هالعادة الحين؟',
+      );
+      expect(
+        body(offset: 15, anchor: 'الفجر', variant: 2),
+        'اذن الفجر قبل ١٥ دقيقة. يلا يا بطل، خلص اللي عليك ولوّن.',
+      );
+      expect(
+        body(offset: 15, anchor: 'الفجر', variant: 3),
+        'اذن الفجر قبل ١٥ دقيقة. يلا يا كفو، خلص اللي عليك ولوّن.',
+      );
+      // The same habit on the same day always reads the same.
+      expect(
+        body(offset: 15, anchor: 'الفجر', variant: 5),
+        body(offset: 15, anchor: 'الفجر', variant: 5),
+      );
+    });
+
+    test('a late streak is praised, never counted forward at the reader', () {
+      // Aziz: «ماحب انه سوي عادتك الحين وبعدها ٧ ايام ورا بعض، واليوم
+      // يخليها ٨». Two asks in one breath, the second of them arithmetic.
+      // A late ping already asks; the streak owes it praise.
+      expect(
+        body(offset: 15, anchor: 'الفجر', streak: 7),
+        'اذن الفجر قبل ١٥ دقيقة. سوي عادتك الحين. ملتزم صارلك ٧ أيام 👏🏼',
+      );
+      for (var v = 0; v < 8; v++) {
+        final line = body(offset: 15, anchor: 'الفجر', streak: 7, variant: v);
+        expect(line, isNot(contains('ورا بعض')));
+        expect(line, isNot(contains('يخليها')));
+        expect(line, contains('ملتزم صارلك'));
+      }
+      // Declines like every count in this file.
+      expect(lateStreakPraise(1, true), 'ملتزم صارلك يوم 👏🏼');
+      expect(lateStreakPraise(2, true), 'ملتزم صارلك يومين 👏🏼');
+      expect(lateStreakPraise(7, true), 'ملتزم صارلك ٧ أيام 👏🏼');
+      expect(lateStreakPraise(15, true), 'ملتزم صارلك ١٥ يوم 👏🏼');
+    });
+
+    test('an EARLY reminder still counts the streak forward, as before', () {
+      // Only the late branch changed. Early is a countdown, not a nudge about
+      // something outstanding, so its streak line is untouched.
+      expect(
+        body(offset: -15, streak: 7),
+        'باقي ١٥ دقيقة على وقتها. ٧ أيام ورا بعض، واليوم يخليها ٨.',
       );
     });
 
     test('a clock-time habit does not read its own clock back to itself', () {
       expect(body(offset: -15), 'باقي ١٥ دقيقة على وقتها.');
       expect(body(offset: -15, isAr: false), '15 minutes to go.');
-      expect(body(offset: 30), 'فات وقتها قبل ٣٠ دقيقة.');
-      expect(body(offset: 30, isAr: false), '30 minutes past due.');
+      expect(body(offset: 30), 'صار لها ٣٠ دقيقة. سوي عادتك الحين.');
+      expect(
+        body(offset: 30, isAr: false),
+        "It's been 30 minutes. Do it now.",
+      );
     });
 
     test('the streak is still the reason to act, so it is kept', () {

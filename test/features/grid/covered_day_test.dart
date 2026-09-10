@@ -153,4 +153,62 @@ void main() {
           reason: 'faint enough to vanish is the bug this replaces');
     }
   });
+
+
+  // ── The gold ring ────────────────────────────────────────────────────
+  //
+  // Aziz, 2026-09-09: "the habits that I don't need to do today, the square
+  // should not be outlined." The ring followed the calendar, so every habit
+  // wore it on today's column whether or not today asked anything of it.
+  group('today\'s ring is an ask, not a date stamp', () {
+    bool ring({
+      bool isToday = true,
+      bool isScheduled = true,
+      bool isCovered = false,
+    }) =>
+        showsTodayRing(
+          isToday: isToday,
+          isScheduled: isScheduled,
+          isCovered: isCovered,
+        );
+
+    test('a day that is owed wears it', () {
+      expect(ring(), isTrue);
+    });
+
+    test('an off-day of a specific-days habit does not', () {
+      // The reported case: a Mon/Wed/Fri habit on a Tuesday. Covered and
+      // unscheduled both hold here, and either alone is enough.
+      expect(ring(isScheduled: false, isCovered: true), isFalse);
+      expect(ring(isScheduled: false), isFalse);
+    });
+
+    test('a quota that has already been met does not', () {
+      // scheduledWeekdays is empty for a flexible quota, so the day IS
+      // scheduled; being covered is the whole of what stops the ring.
+      expect(ring(isCovered: true), isFalse);
+    });
+
+    test('a quota still short of its target keeps it', () {
+      expect(ring(isCovered: false), isTrue);
+    });
+
+    test('no other day ever wears it', () {
+      for (final scheduled in [true, false]) {
+        for (final covered in [true, false]) {
+          expect(ring(isToday: false, isScheduled: scheduled, isCovered: covered),
+              isFalse);
+        }
+      }
+    });
+
+    test('a day already done today still wears it', () {
+      // isCoveredDay is false the moment a square carries a mark, so a
+      // finished-but-owed day stays circled: the ring says "this is today's
+      // business", and it was.
+      final daily = habit();
+      expect(covered(daily, today, square: SquareState.complete), isFalse);
+      expect(ring(isCovered: false), isTrue);
+    });
+  });
 }

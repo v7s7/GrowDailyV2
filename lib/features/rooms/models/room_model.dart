@@ -281,6 +281,62 @@ class RoomModel {
         (s) => dateKey.compareTo(s.from) >= 0 && dateKey.compareTo(s.to) <= 0,
       );
 
+  /// Days a member has to link a slot the leader added before it starts
+  /// counting against them unlinked (see [slotAsksFromKey]). Aziz, 2026-09-09:
+  /// "if all accept no need to wait", and none of them do wait, since a slot
+  /// counts for a member from the day THEY link it (RoomHabitRule.from). This
+  /// only ever governs the member who has not linked it yet: three days with
+  /// a banner and a push before the room's plan is held against them.
+  static const int kNewSlotGraceDays = 3;
+
+  /// The share of the room's elapsed days a member must have been PRESENT
+  /// for before they can hold a place (see RoomLeaderboard.holdsPlaceIn).
+  /// Their score is still computed and shown; only the rank, the cup and the
+  /// podium prize wait for tenure. The minimum-games-played rule every real
+  /// league has, and the one this board was missing: a member who joined on
+  /// the FINAL day and finished it read 100% and outranked 29 perfect days
+  /// of 30, cup and 200 XP included (measured 2026-09-09). The team bonus
+  /// already refused that exact move (teamIsPerfect's tenure clause); the
+  /// competitive board and the podium never did.
+  ///
+  /// Half, so that on any day a member in for most of the room is placed and
+  /// someone who joined in its second half has to finish it to hold a place.
+  /// Never less than one day, so day one of a room places everyone.
+  static const double kPlaceTenureFraction = 0.5;
+
+  /// The most days tenure can ever demand. An open-ended room has no end, so
+  /// half of it would grow without bound and somebody joining in its fourth
+  /// month would wait two more before the board placed them. Two weeks is
+  /// more than any sniper will sit out and less than any genuine joiner
+  /// minds; a fixed room shorter than a month never reaches it.
+  static const int kPlaceTenureCapDays = 14;
+
+  /// The first day slot [i] was part of the plan at all - the room's own
+  /// start for everything it was created with, the addition day for a slot
+  /// the leader added later. Never before [startDate].
+  String slotJoinedPlanKey(int i) {
+    final startKey = startDate.toDateKey();
+    if (i < 0 || i >= sharedHabits.length) return startKey;
+    final added = sharedHabits[i].addedAt;
+    if (added == null) return startKey;
+    final key = DateTime(added.year, added.month, added.day).toDateKey();
+    return key.compareTo(startKey) > 0 ? key : startKey;
+  }
+
+  /// The first day slot [i] is held against a member who has NOT linked it:
+  /// [slotJoinedPlanKey] plus [kNewSlotGraceDays] for a late addition, the
+  /// room's own start for an original slot (everyone linked those on joining
+  /// or declined them on purpose, so there is nothing to wait for).
+  String slotAsksFromKey(int i) {
+    final startKey = startDate.toDateKey();
+    if (i < 0 || i >= sharedHabits.length) return startKey;
+    final added = sharedHabits[i].addedAt;
+    if (added == null) return startKey;
+    final asks = DateTime(added.year, added.month, added.day + kNewSlotGraceDays)
+        .toDateKey();
+    return asks.compareTo(startKey) > 0 ? asks : startKey;
+  }
+
   /// Denormalized headcount so a "my rooms" list can show it without a
   /// second read per room - kept in sync by RoomsController.joinRoom/
   /// leaveRoom via FieldValue.increment.
@@ -371,7 +427,12 @@ class RoomModel {
   /// Tolerant of anything that isn't the shape we wrote — a malformed entry
   /// is dropped rather than failing the whole room's load, same posture as
   /// _remindersFrom on MatrixTask.
-  static List<({String from, String to})> _pausedFrom(Object? raw) {
+  static List<({String from, String to})> _pausedFrom(Object? raw) =>
+      spansFrom(raw);
+
+  /// The `[{from, to}]` date-key span shape [pausedSpans] and
+  /// RoomParticipant.awaySpans share, parsed with the same tolerance.
+  static List<({String from, String to})> spansFrom(Object? raw) {
     if (raw is! List) return const [];
     final out = <({String from, String to})>[];
     for (final e in raw) {
@@ -386,8 +447,14 @@ class RoomModel {
     return List.unmodifiable(out);
   }
 
-  DateTime get lastCountedDay {
-    final today = DateTime.now().effectiveDay;
+  DateTime get lastCountedDay => lastCountedDayAt(DateTime.now());
+
+  /// [lastCountedDay] against an explicit clock, so a rule that depends on
+  /// both the room's end AND the hour (see
+  /// [RoomParticipant.quotaWeekIsLost]) can be tested at a chosen moment
+  /// rather than only at whatever time the suite happens to run.
+  DateTime lastCountedDayAt(DateTime now) {
+    final today = now.effectiveDay;
     final end = endDate;
     if (end == null) return today;
     return today.isAfter(end) ? end : today;
@@ -808,6 +875,73 @@ class RoomParticipant {
   /// fallback.
   final DateTime? lastSyncedAt;
 
+  /// When this member left the room - null while they are in it.
+  ///
+  /// A SOFT departure, deliberately, and it is the whole fix for the reset
+  /// exploit. RoomsController.leaveRoom used to delete this document
+  /// outright, and a rejoin then took the fresh-join path and stamped a new
+  /// [joinedAt]: every bad day gone, measured from that moment, first place
+  /// for a third of the work. Measured on 2026-09-09: 27% -> leave -> rejoin
+  /// -> 100% and rank 1 over a day-one member at 80%. The doc comment that
+  /// called losing your history "the cost of leaving" had it backwards on a
+  /// ranked board, where bad history is exactly what a person wants to lose.
+  ///
+  /// The team bonus had already been given a tenure guard for this exact
+  /// mechanic (see [RoomModel.teamIsPerfect]); the competitive board and the
+  /// podium payout never were. Keeping the record is what gives them one:
+  /// [joinedAt] stays the FIRST join, the finished and missed days stay, the
+  /// frozen [habitRules] stay (a rejoin used to re-seed them from the habit's
+  /// current settings, quietly undoing relockHabitRules' forward-only
+  /// promise), and the days away become [awaySpans].
+  ///
+  /// Same shape as RoomHabitTemplate.removedAt for a withdrawn slot: stamp,
+  /// do not delete, and let every reader skip it. A departed member is
+  /// filtered out of the roster by roomParticipantsProvider and never drawn
+  /// on the board; their document simply waits.
+  final DateTime? leftAt;
+
+  /// Stretches this member spent OUT of the room, as inclusive date keys,
+  /// oldest first - written by RoomsController.joinRoom when someone who left
+  /// comes back, from [leftAt] through the day before the rejoin.
+  ///
+  /// An away day scores ZERO on the room score ([roomCreditFor]), and stays
+  /// in the denominator. Not excused like a stand-down: a pause is stepping
+  /// back from a habit while still in the room, and the room asked nothing of
+  /// you; leaving is withdrawing from the contest, and the contest went on
+  /// without you. Excusing the away days would leave the exploit half open
+  /// (leave for your bad stretch, return, watch it vanish). Zero closes it.
+  final List<({String from, String to})> awaySpans;
+
+  /// The day each currently DECLINED shared slot was declined, keyed by slot
+  /// index (as a string, Firestore maps take string keys) - so the slot is
+  /// held against the member only from then on, and the days before it,
+  /// when it was linked and graded, stay exactly as they were played.
+  ///
+  /// Without a date, declining a slot today put its phantom on every past
+  /// day and the resync stopped grading the habit that used to fill it: a
+  /// member who unlinked one of three habits on day 20 dropped from 100% to
+  /// 67% across the whole room for work already done - the same retroactive
+  /// injustice the plan floor fixed for an added slot, from the other
+  /// direction. Absent on a doc written before this existed, which reads as
+  /// the old behaviour (declined from the slot's plan floor) for legacy
+  /// declines only; every new decline carries its day.
+  final Map<int, String> slotDeclinedFrom;
+
+  /// Stretches a shared slot spent declined and was then resolved again,
+  /// keyed by slot index, as inclusive date keys. A closed window stays a
+  /// phantom forever: undoing a decline by linking a habit that happened to
+  /// be paused or empty across the declined stretch cannot excuse it, which
+  /// is the exploit the review measured (missed days simply vanishing).
+  final Map<int, List<({String from, String to})>> slotDeclinedSpans;
+
+  /// The habit that filled a shared slot before it was declined, keyed by
+  /// slot index - what the resync keeps grading on the days before
+  /// [slotDeclinedFrom], so those days keep the numerator they earned. One
+  /// prior per slot; a second decline overwrites it, and the earlier
+  /// stretch, always further back than the resync reaches, keeps its stored
+  /// counts untouched.
+  final Map<int, String> slotPriorHabitIds;
+
   const RoomParticipant({
     required this.uid,
     required this.displayName,
@@ -835,7 +969,85 @@ class RoomParticipant {
     this.notificationsMuted = false,
     this.lastSyncedDay,
     this.lastSyncedAt,
+    this.leftAt,
+    this.awaySpans = const [],
+    this.slotDeclinedFrom = const {},
+    this.slotDeclinedSpans = const {},
+    this.slotPriorHabitIds = const {},
   });
+
+  /// Whether this member has left the room (see [leftAt]).
+  bool get isDeparted => leftAt != null;
+
+  /// Where a decline with no recorded date starts counting: the day this
+  /// document was last written.
+  ///
+  /// An undated decline used to count from the beginning of time, and that
+  /// was a real hole rather than a tidy default. [slotDeclinedFrom] is new,
+  /// and its first three weeks of writes were silently discarded by a dotted
+  /// field key inside a set(merge:) (see no_dotted_keys_in_set_test.dart), so
+  /// NOT ONE participant document in production carries it. Every existing
+  /// decline therefore took that branch and became a phantom across its
+  /// room's whole history — including the weeks the slot was linked, graded
+  /// and answered. On A8GEL7 that alone reversed the podium and put a 63.6%
+  /// ceiling on a member who had answered 61% of the room, which is the exact
+  /// complaint this whole scoring pass exists to fix.
+  ///
+  /// [lastUpdated] is the honest anchor: a decline present in the document
+  /// was made at or before the last write, so this is the LATEST it can have
+  /// happened, and charging no earlier than that never bills anyone for a day
+  /// there is no record against. It stops sliding on the first sync, which
+  /// stamps a real date (see RoomsController.syncLinkedHabitsProgress) — so
+  /// this governs one launch per member and then never again.
+  String get undatedDeclineFromKey =>
+      DateTime(lastUpdated.year, lastUpdated.month, lastUpdated.day)
+          .toDateKey();
+
+  /// Whether shared slot [i] stood declined on [dateKey]: currently declined
+  /// and on or after its [slotDeclinedFrom] (or [undatedDeclineFromKey] when
+  /// no date was ever recorded), or inside one of its closed
+  /// [slotDeclinedSpans].
+  bool slotDeclinedOn(int i, String dateKey) {
+    for (final s in slotDeclinedSpans[i] ?? const <({String from, String to})>[]) {
+      if (dateKey.compareTo(s.from) >= 0 && dateKey.compareTo(s.to) <= 0) {
+        return true;
+      }
+    }
+    if (i < linkedHabitIds.length && linkedHabitIds[i] == kDeclinedSlot) {
+      return dateKey.compareTo(slotDeclinedFrom[i] ?? undatedDeclineFromKey) >=
+          0;
+    }
+    return false;
+  }
+
+  /// The habit that was graded in shared slot [i] on [dateKey], if any: the
+  /// current one outside any declined window, the prior one on the days
+  /// before the current decline. Null while declined or never resolved.
+  String? habitInSlotOn(int i, String dateKey) {
+    if (slotDeclinedOn(i, dateKey)) return null;
+    if (i >= linkedHabitIds.length) return null;
+    final current = linkedHabitIds[i];
+    if (current != kDeclinedSlot) return current;
+    // Declined now, but not yet on this day: the habit that filled it then.
+    return slotPriorHabitIds[i];
+  }
+
+  /// Whether [dateKey] falls inside a stretch this member was out of the
+  /// room - a past [awaySpans] entry, or the open stretch since [leftAt] if
+  /// they are out right now.
+  bool isAwayOn(String dateKey) {
+    for (final s in awaySpans) {
+      if (dateKey.compareTo(s.from) >= 0 && dateKey.compareTo(s.to) <= 0) {
+        return true;
+      }
+    }
+    final left = leftAt;
+    if (left == null) return false;
+    return dateKey.compareTo(
+          DateTime(left.year, left.month, left.day).toDateKey(),
+        ) >=
+        0;
+  }
 
   /// Whether the room was already watching on [dateKey] — i.e. a sync ran on
   /// or after that day, so whatever it recorded for that day is a real
@@ -923,6 +1135,75 @@ class RoomParticipant {
     return n;
   }
 
+  /// Whether [habitId] had actually joined this room's plan by [dateKey].
+  ///
+  /// A slot added to a room that was already running is not something the
+  /// member failed to do on the days before it existed. Grading it against
+  /// them anyway is the bug this answers: adding a third habit to a room on
+  /// day 9 re-divided all eight earlier days by 3 while their numerators
+  /// could not move, and the adder's percentage fell more than twenty points
+  /// for work they had already done. Traced on room ELQVF8, 2026-09-09.
+  ///
+  /// Read from [habitRules], which is already this room's own frozen,
+  /// per-slot, date-windowed record of what it grades and from when. The
+  /// MINIMUM `from` across the slot's periods, not [ruleFor]'s: ruleFor
+  /// answers "which cadence applies" and deliberately falls back to the
+  /// earliest period for a day before any rule started, which is the right
+  /// answer to its question and the wrong one to this.
+  ///
+  /// FAILS OPEN. No recorded rule means this device has never stamped one,
+  /// so there is nothing to say the slot was absent and the day grades
+  /// exactly as it did before this existed. That is what keeps every stored
+  /// percentage identical on the first launch after this ships: only a slot
+  /// the room itself recorded as joining late can be excluded by it.
+  bool slotOpenBy(String habitId, String dateKey) {
+    final rules = habitRules[habitId];
+    if (rules == null || rules.isEmpty) return true;
+    var from = rules.first.from;
+    for (final r in rules) {
+      if (r.from.compareTo(from) < 0) from = r.from;
+    }
+    return from.compareTo(dateKey) <= 0;
+  }
+
+  /// [countedHabitCount] as it stood on [dateKey] - the slots that had
+  /// actually joined the plan by then.
+  ///
+  /// The denominator [scheduledCountFor] falls back to. It must stay in step
+  /// with what syncLinkedHabitsProgress computes for the same day, or the
+  /// two disagree and a written key says one thing while an absent key reads
+  /// another - the exact shape of the withdrawn-slot bug (see
+  /// test/features/rooms/withdrawn_slot_credit_test.dart).
+  int countedHabitCountOn(String dateKey) {
+    var n = 0;
+    var counted = 0;
+    for (var i = 0; i < linkedHabitIds.length; i++) {
+      // The habit that was actually in this slot THAT day: the prior one on
+      // a day before the slot was declined, none inside a declined window
+      // (see habitInSlotOn). A shared slot's history, not just its present.
+      final id = habitInSlotOn(i, dateKey);
+      if (id == null) continue;
+      counted++;
+      if (!slotOpenBy(id, dateKey)) continue;
+      n++;
+    }
+    // NEVER zero while anything is linked. A zero denominator is full credit
+    // in [creditFor] ("nothing was scheduled, so nothing was fallen short
+    // of"), which is right for a day a schedule excused and catastrophic
+    // here: a member who declined every original slot and took only a
+    // late-added one would be paid 1.0 a day for every day before it joined,
+    // retroactively, for nothing. That is a worse bug than the one this
+    // whole change fixes, and it is on a ranked board.
+    //
+    // Falling back to the plain total keeps exactly today's answer for that
+    // member: their day scores 0 and stays in the denominator, which is
+    // honest - they were in the room and it did ask them for something. So
+    // this method can only ever SHRINK a denominator that still has at least
+    // one open slot in it, and can never create one that pays.
+    if (n == 0) return counted;
+    return n;
+  }
+
   /// The cadence rule this room grades [habitId] by on [dateKey] - the
   /// latest period that had already started by then (see [habitRules]).
   /// Falls back to the earliest recorded period for a day before any rule
@@ -999,7 +1280,11 @@ class RoomParticipant {
         _weekQuotaWasMet(dateKey)) {
       return 0;
     }
-    return countedHabitCount;
+    // The plan AS IT STOOD on this day, not as it stands now. A slot the
+    // room recorded as joining later is not part of this day's denominator -
+    // see [countedHabitCountOn]. Identical to [countedHabitCount] for every
+    // room whose plan never changed, which is almost all of them.
+    return countedHabitCountOn(dateKey);
   }
 
   /// Whether EVERY counted habit was on a weekly quota on [dateKey].
@@ -1045,6 +1330,89 @@ class RoomParticipant {
     final day = DateTime.tryParse(dateKey);
     if (day == null) return false;
     return quotaOkWeeks.contains(day.startOfDisplayWeek.toDateKey());
+  }
+
+  /// Whether the quota week around [dateKey] can no longer reach its target,
+  /// however the days it has left are spent.
+  ///
+  /// A 4x-a-week habit buys three blank days in a seven-day week. The fourth
+  /// blank does not merely put the week behind, it ENDS it: three sessions
+  /// is the most that can still be reached, and the week will grade as a
+  /// miss no matter what happens on the remaining days. This is what tells
+  /// the strip it may cross those days out now instead of waiting for
+  /// Saturday to say something that was already true on Wednesday.
+  ///
+  /// Everything about it fails toward silence, because crossing out a day
+  /// that could still have been saved is the one mistake that matters here:
+  ///
+  ///  * a week already banked in [quotaOkWeeks] is never lost;
+  ///  * a plan with anything other than weekly habits on it is left alone,
+  ///    exactly as [scheduledCountFor]'s own inference is, so a daily habit
+  ///    is never graded by a quota's arithmetic;
+  ///  * a habit whose rule this device has not recorded, or whose target is
+  ///    not a real number, answers no;
+  ///  * [dailyDoneCount] counts habits, not sessions of ONE habit, so on a
+  ///    multi-habit plan it can only overstate what is already done, which
+  ///    can only make a week look more reachable than it is.
+  ///
+  /// Days still to come count as available only while the room is still
+  /// running on them: [lastCountedDay] is today for a live room, and a room
+  /// that ends mid-week has nothing to offer after [endDate].
+  ///
+  /// YESTERDAY counts too while it is still inside the overlapping-day
+  /// window. A day stays markable until [kDayCutoffHour] the next morning
+  /// (DateTimeGameExt.isOpenDayAt), and a session marked in that tail is one
+  /// the Grid pays and the room counts, so at 03:00 the week has one more day
+  /// in hand than the calendar suggests. [now] is injectable for the same
+  /// reason isOpenDayAt is: a rule with a boundary at 10 AM is otherwise only
+  /// ever tested at whatever hour the suite happens to run.
+  bool quotaWeekIsLost(String dateKey, RoomModel room, {DateTime? now}) {
+    final clock = now ?? DateTime.now();
+    final day = DateTime.tryParse(dateKey);
+    if (day == null) return false;
+    if (_weekQuotaWasMet(dateKey)) return false;
+    if (!_everyCountedHabitIsWeeklyOn(dateKey)) return false;
+
+    final weekStart = day.startOfDisplayWeek;
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    final roomEnd = room.endDate;
+    final today = room.lastCountedDayAt(clock);
+
+    for (final id in linkedHabitIds) {
+      if (id == kDeclinedSlot) continue;
+      final rule = ruleFor(id, dateKey);
+      if (rule == null ||
+          rule.frequencyType != HabitFrequencyType.weekly ||
+          rule.frequencyTarget < 1) {
+        return false;
+      }
+
+      var reachable = 0;
+      for (var d = weekStart; !d.isAfter(weekEnd); d = d.add(const Duration(days: 1))) {
+        final key = d.toDateKey();
+        // A day the room was not running, or the member's plan was stood
+        // down on, was never theirs to spend and cannot be spent now.
+        if (room.isPausedOn(key) || isStoodDownOn(key)) continue;
+        if (d.isBefore(room.startDate)) continue;
+        if (roomEnd != null && d.isAfter(roomEnd)) continue;
+        // Three ways a day can still hold the session they need: it already
+        // did, it has not happened yet, or it is the day that just ended and
+        // is still inside the grace tail. Anything else is a blank day
+        // already spent.
+        //
+        // `isAfter(today)`, not `!isBefore(today)`: today itself is covered
+        // by isOpenDayAt, and on a room that has ENDED the last counted day
+        // is in the past and long since spent — counting it would hand every
+        // finished room one imaginary session.
+        if ((dailyDoneCount[key] ?? 0) > 0 ||
+            d.isAfter(today) ||
+            d.isOpenDayAt(clock)) {
+          reachable++;
+        }
+      }
+      if (reachable < rule.frequencyTarget) return true;
+    }
+    return false;
   }
 
   /// How many habits were stood down on [dateKey]. Display only, see
@@ -1207,22 +1575,37 @@ class RoomParticipant {
   }
 
   /// Days this participant has actually been in [room], counting both ends —
-  /// the per-person counterpart to [RoomModel.daysElapsed], and the correct
-  /// denominator for [progressRatio]. Never less than 1, even on the day
-  /// someone joins.
+  /// the per-person counterpart to [RoomModel.daysElapsed]. Never less than
+  /// 1, even on the day someone joins.
+  ///
+  /// The ratios below deliberately do NOT use this: they want [_liveDaysIn]'s
+  /// unclamped count, because zero days asked and one day asked are different
+  /// facts and this method cannot tell them apart.
   int daysElapsedIn(RoomModel room) {
+    final live = _liveDaysIn(room).live;
+    return live < 1 ? 1 : live;
+  }
+
+  /// The real denominator: how many days in this participant's window
+  /// anything was actually asked of them, unclamped, plus whether the reason
+  /// nothing was is the SCHEDULE's own doing.
+  ///
+  /// Zero live days is a real answer, not an error, and [progressRatio] reads
+  /// it through `allRest`: a window the plan never asked a single thing of is
+  /// nothing fallen short of, while a window excused by a pause or a
+  /// stand-down keeps the zero it has always had.
+  ({int live, bool allRest}) _liveDaysIn(RoomModel room) {
     final start = countedStartIn(room);
     final last = room.lastCountedDay;
-    if (last.isBefore(start)) return 1;
+    if (last.isBefore(start)) return (live: 1, allRest: false);
     final span = last.difference(start).inDays + 1;
     final conceded = concededDaysIn(room);
-    // The early return is conditional on ALL THREE exemptions being empty now.
-    // It used to check only pausedSpans, which would have skipped the rest
-    // allowance entirely in the common case of a room that was never paused,
-    // and the feature would have silently done nothing for almost everybody.
-    if (room.pausedSpans.isEmpty && conceded.isEmpty && standDownDays.isEmpty) {
-      return span;
-    }
+    // No early return. There used to be one when the three stored exemptions
+    // were all empty, but a rest day the SCHEDULE grants leaves the
+    // denominator too now (see [isRestDay] below), and nothing is stored for
+    // those - a 4x-a-week habit has them every week without a single paused
+    // span or stand-down day to hint at it. Walking is what the numerator
+    // already does, so the two agree by construction.
     // Paused days are not elapsed — the room wasn't running, so they were
     // never anyone's to keep. Counted by walking rather than by subtracting
     // span lengths, so a span that only partly overlaps this participant's
@@ -1237,15 +1620,42 @@ class RoomParticipant {
     // are worth 0 in [daysCompleted] and 0 here, so a paused stretch holds a
     // percentage exactly where it was rather than either paying it out or
     // burning it down. See standDownDays.
+    // ── A day the plan never asked for leaves BOTH sides ─────────────────
+    //
+    // It used to leave only the numerator's side, by being paid FULL credit
+    // in [creditFor] ("nothing was scheduled, so nothing was fallen short
+    // of") while still counting in this denominator. On a 7-day week that
+    // handed a 4x-a-week habit three free successes every single week,
+    // whatever actually happened: measured with the real grader, a week in
+    // which NOTHING was done still scored 3/7 = 43%, and 1 of 4 scored 57%.
+    //
+    // Aziz, three times, looking at his own room: "why they are not getting
+    // failure, they are missing the days not only rest days". He is right.
+    // A day nobody was asked about is not a day anybody succeeded at, and
+    // paying it like one is what stopped a missed week from reading as one.
+    //
+    // Excused instead, exactly as a paused day and a stand-down day already
+    // are. A week's score becomes what fraction of its target was actually
+    // done: 4 of 4 is still 100%, 1 of 4 is 25%, 0 of 4 is 0%. A completed
+    // commitment is unchanged - which is the whole point, and the reason
+    // this is safe for everyone keeping their promise.
+    //
+    // The Grid keeps painting these days calm (see isCoveredDay): a rest day
+    // should still not LOOK like a miss. It simply stops counting as a win.
     var excused = 0;
+    var rested = 0;
     for (var d = start; !d.isAfter(last); d = d.add(const Duration(days: 1))) {
       final key = d.toDateKey();
-      if (room.isPausedOn(key) || conceded.contains(key) || isStoodDownOn(key)) {
+      final resting = isRestDay(key);
+      if (resting) rested++;
+      if (room.isPausedOn(key) ||
+          conceded.contains(key) ||
+          isStoodDownOn(key) ||
+          resting) {
         excused++;
       }
     }
-    final live = span - excused;
-    return live < 1 ? 1 : live;
+    return (live: span - excused, allRest: rested == span);
   }
 
   /// How many rest days a week a room excuses. One.
@@ -1319,8 +1729,13 @@ class RoomParticipant {
       // Skipped on both sides, matching daysElapsedIn — a paused day adds
       // nothing to the numerator and nothing to the denominator, so an
       // extension leaves every existing percentage exactly where it was.
-      // A member's own stand-down days leave by the same door.
-      if (!room.isPausedOn(key) && !isStoodDownOn(key)) total += creditFor(key);
+      // A member's own stand-down days leave by the same door, and so does a
+      // day the schedule never asked for (see daysElapsedIn's isRestDay note:
+      // a free day used to be paid a full 1.0 here, which is what let a week
+      // of nothing score 43%).
+      if (!room.isPausedOn(key) && !isStoodDownOn(key) && !isRestDay(key)) {
+        total += creditFor(key);
+      }
       day = day.add(const Duration(days: 1));
     }
     return total;
@@ -1330,9 +1745,294 @@ class RoomParticipant {
   /// sorts and renders by.
   double progressRatio(RoomModel room) {
     // Their own window, not the room's — see [countedStartIn].
-    final elapsed = daysElapsedIn(room);
-    if (elapsed <= 0) return 0;
-    return (daysCompleted(room) / elapsed).clamp(0.0, 1.0);
+    final window = _liveDaysIn(room);
+    if (window.live <= 0) {
+      // Every day they have been here was excused, so there is no fraction
+      // to take. Which answer that deserves depends on WHY.
+      //
+      // The schedule's own doing (allRest): nothing was ever asked, so
+      // nothing was fallen short of — the day-one member whose only habit is
+      // Friday's, joining on a Tuesday. 1.0, exactly as before rest days
+      // started leaving the denominator, so this narrow case is unchanged by
+      // that fix. Tenure still keeps them off the podium (see holdsPlaceIn).
+      //
+      // A pause or a stand-down: unchanged too, and that has always been 0.
+      // Someone who parked every habit on day one has not completed a room.
+      return window.allRest ? 1.0 : 0.0;
+    }
+    return (daysCompleted(room) / window.live).clamp(0.0, 1.0);
+  }
+
+  // ── The room score ────────────────────────────────────────────────────
+  //
+  // Two numbers, on purpose.
+  //
+  // [progressRatio] is YOUR number: done over the habits you actually linked,
+  // over your own days. It never lies about your effort and nothing another
+  // member does can move it. It is what the strip, your sheet and your own
+  // header speak in.
+  //
+  // [roomProgressRatio] is the ROOM SCORE: every day graded against the
+  // room's plan as it stood that day, whether or not you linked all of it. It
+  // is what the board ranks by, because it is the only number that means the
+  // same thing for every row. A percentage of your own plan is only
+  // comparable with somebody else's when the plans are the same size, and a
+  // room's plans are not: a slot declined, a slot not yet linked, a slot a
+  // free account could not create a habit for, a member who joined late.
+  // Ranking [progressRatio] let two of three habits done every day tie
+  // three of three, silently, which is the dial this whole file refuses
+  // everywhere else (see dailyRestedCount).
+  //
+  // For every room where everyone linked every slot and nobody left, the
+  // two are identical, so nothing moves on the first launch after this
+  // ships except in rooms where the board was already wrong.
+
+  /// Slots in [room]'s plan that were asked of this member on [dateKey] and
+  /// that they have not linked - never resolved, or declined (see
+  /// [kDeclinedSlot]). Each one counts as not done on the room score. Always
+  /// 0 for an 'own'-mode room, which has no shared plan to fall short of.
+  ///
+  /// A slot the leader added later is only held against an unlinked member
+  /// from [RoomModel.slotAsksFromKey], the addition plus a grace, so someone
+  /// who has not opened the app since it appeared has a few days before the
+  /// plan is counted against them. A member who DID link it is scored from
+  /// the day they did, through their own RoomHabitRule, so an engaged room
+  /// never waits (see RoomModel.kNewSlotGraceDays).
+  int phantomSlotsOn(RoomModel room, String dateKey) {
+    if (room.habitMode != RoomHabitMode.shared) return 0;
+    final shared = room.sharedHabits;
+    var n = 0;
+    for (var i = 0; i < shared.length; i++) {
+      if (shared[i].isRemoved) continue;
+      if (!_slotIsPhantomOn(room, i, dateKey)) continue;
+      n++;
+    }
+    return n;
+  }
+
+  /// Whether shared slot [i] was asked of this member on [dateKey] and had
+  /// no habit in it: never resolved, or declined THAT day (see
+  /// [slotDeclinedOn] - a decline counts from the day it was made, and a
+  /// closed declined window stays a phantom however the slot was filled
+  /// afterwards). Never before the day the room holds the slot against an
+  /// unlinked member ([RoomModel.slotAsksFromKey]).
+  bool _slotIsPhantomOn(RoomModel room, int i, String dateKey) {
+    if (room.slotAsksFromKey(i).compareTo(dateKey) > 0) return false;
+    if (i >= linkedHabitIds.length) return true; // never resolved
+    final habit = habitInSlotOn(i, dateKey);
+    if (habit == null) {
+      // Declined, undated, and no record of what was in the slot before -
+      // on a day before the decline could even have been made (see
+      // [undatedDeclineFromKey]). We do not know whether they carried this
+      // slot then or never took it, so the slot leaves BOTH sides: not a
+      // phantom here, and not in [ownPlanWeightOn] either, since
+      // habitInSlotOn is null for it. The day is graded on what they
+      // demonstrably did have.
+      //
+      // Charging it instead is what made every pre-existing decline a
+      // phantom across its room's whole history. Crediting it instead would
+      // pay for a slot nobody can show was ever carried. Neither is a
+      // record, so neither is charged.
+      final undated = linkedHabitIds[i] == kDeclinedSlot &&
+          slotDeclinedFrom[i] == null &&
+          slotPriorHabitIds[i] == null;
+      if (undated && dateKey.compareTo(undatedDeclineFromKey) < 0) return false;
+      return true;
+    }
+    // Linked, but not yet on this day: a habit's room rule starts on the day
+    // it was linked (the sync seeds it from that day and never earlier), and
+    // before that the slot was as empty for this member as for anyone who
+    // had not linked it. Without this, linking a habit late made the days
+    // before the link disappear from the denominator - and with a sparse
+    // cadence, excused them outright. Fails open for a doc with no rule
+    // recorded, exactly like slotOpenBy.
+    return !slotOpenBy(habit, dateKey);
+  }
+
+  /// This member's credit for [dateKey] on the room score: [creditFor], with
+  /// every unlinked slot the room asked for that day counted as not done, and
+  /// zero for any day they were out of the room ([awaySpans]).
+  ///
+  /// Byte-for-byte [creditFor] whenever nothing is missing, which is what
+  /// keeps every unaffected room's number exactly where it was.
+  /// What the unlinked slots the room asked for on [dateKey] weigh in the
+  /// denominator - [phantomSlotsOn], with each slot weighed by its template's
+  /// cadence. A daily slot is a whole habit every day. A weekly slot is only
+  /// ever asked for [frequencyTarget] days of seven, so charging it in full
+  /// every day would hold an unlinked "once a week" against someone seven
+  /// times harder than the member who linked it and gets rest days; it
+  /// weighs target/7 instead, the same average the linked member is graded
+  /// at across a week.
+  double phantomWeightOn(RoomModel room, String dateKey) {
+    if (room.habitMode != RoomHabitMode.shared) return 0;
+    final shared = room.sharedHabits;
+    var weight = 0.0;
+    for (var i = 0; i < shared.length; i++) {
+      final slot = shared[i];
+      if (slot.isRemoved) continue;
+      if (!_slotIsPhantomOn(room, i, dateKey)) continue;
+      weight += _slotWeight(slot);
+    }
+    return weight;
+  }
+
+  /// What ONE slot of the room's plan weighs on any given day. The single
+  /// definition both sides of the room score use — [phantomWeightOn] for the
+  /// slots this member is missing, [ownPlanWeightOn] for the ones they carry.
+  ///
+  /// Deliberately one function rather than two matching expressions. They
+  /// were two, and the second one did not exist: the phantom side discounted
+  /// a weekly slot to target/7 while the member's own side was taken from
+  /// the day's raw scheduled count, so the same cadence weighed differently
+  /// depending on which side of the plan it fell on. Two members carrying
+  /// exactly half their room's plan and performing identically scored 50%
+  /// and 40.7%, for no reason but whether the slots were daily or weekly.
+  static double _slotWeight(RoomHabitTemplate slot) =>
+      slot.frequencyType == HabitFrequencyType.weekly
+          ? (slot.frequencyTarget / 7).clamp(0.0, 1.0)
+          : 1.0;
+
+  /// What the slots this member DOES carry weigh on [dateKey] — the mirror
+  /// of [phantomWeightOn], over the slots with one of their habits in them.
+  ///
+  /// This is a property of the PLAN, not of the day: a slot they carry
+  /// weighs the same on a day its habit happens not to be due as on a day it
+  /// is. That is the whole point. Their performance on the day is [creditFor]
+  /// (which already pays a day nothing was due a full 1.0); this only says
+  /// how much of the room's plan that performance speaks for.
+  double ownPlanWeightOn(RoomModel room, String dateKey) {
+    if (room.habitMode != RoomHabitMode.shared) return 0;
+    final shared = room.sharedHabits;
+    var weight = 0.0;
+    for (var i = 0; i < shared.length; i++) {
+      if (shared[i].isRemoved) continue;
+      final habit = habitInSlotOn(i, dateKey);
+      // Empty for them that day, or linked but not yet running — the same
+      // two tests _slotIsPhantomOn uses to call a slot missing.
+      if (habit == null || !slotOpenBy(habit, dateKey)) continue;
+      weight += _slotWeight(shared[i]);
+    }
+    return weight;
+  }
+
+  double roomCreditFor(RoomModel room, String dateKey) {
+    if (isAwayOn(dateKey)) return 0;
+    // Stood down leaves both sides, same as daysCompleted/daysElapsedIn.
+    if (isStoodDownOn(dateKey)) return 0;
+    final phantoms = phantomWeightOn(room, dateKey);
+    if (phantoms == 0) return creditFor(dateKey);
+    final mine = ownPlanWeightOn(room, dateKey);
+    // None of the plan is theirs today, so none of the day is either.
+    if (mine <= 0) return 0;
+    // Their own day, scaled by the share of the plan it speaks for.
+    //
+    // This used to re-derive the numerator from raw counts —
+    // `(done + partial * 0.5) / (scheduledCountFor + phantoms)` — and that
+    // was the bug. An excused habit leaves scheduledCountFor, so it left the
+    // numerator AND the denominator while the phantom stayed put, and a day
+    // where EVERY own habit was excused divided 0 by the phantom's weight:
+    // exactly 0.0, indistinguishable from doing nothing at all. On a
+    // 4x-a-week habit that is three days in seven, and it cost the member on
+    // Aziz's own room 13 points — 31.0% for a room he was answering 69% of.
+    // creditFor pays that day 1.0 and says why ("there was nothing to fall
+    // short of"); the room score's only business is scaling it.
+    //
+    // Byte-for-byte identical to the old arithmetic wherever every linked
+    // habit was scheduled and every slot is daily, which is most rooms.
+    return (creditFor(dateKey) * mine / (mine + phantoms)).clamp(0.0, 1.0);
+  }
+
+  /// [daysCompleted] on the room score.
+  double roomDaysCompleted(RoomModel room) {
+    var total = 0.0;
+    var day = countedStartIn(room);
+    final last = room.lastCountedDay;
+    while (!day.isAfter(last)) {
+      final key = day.toDateKey();
+      // An away day contributes its zero whether or not it was also stood
+      // down, or a rest day; see [roomDaysElapsedIn] for the other half of
+      // that rule. A rest day the plan never asked for leaves both sides
+      // (daysElapsedIn's isRestDay note) - but only when nothing else asked
+      // that day either, which is what phantomWeightOn answers: an unlinked
+      // slot still wants something, so the day is not free.
+      final free = isRestDay(key) && phantomWeightOn(room, key) == 0;
+      if (!room.isPausedOn(key) &&
+          (isAwayOn(key) || (!isStoodDownOn(key) && !free))) {
+        total += roomCreditFor(room, key);
+      }
+      day = day.add(const Duration(days: 1));
+    }
+    return total;
+  }
+
+  /// [daysElapsedIn], plus every away day that it excused.
+  ///
+  /// daysElapsedIn leaves stood-down and conceded days out of the
+  /// denominator, which is right for a score and would leave the reset half
+  /// open here: pause every habit, leave, come back, and the away stretch is
+  /// excused instead of scored zero. On the room score an away day is in the
+  /// denominator no matter what else was true of it. A day the whole ROOM
+  /// was paused is still nobody's day.
+  int roomDaysElapsedIn(RoomModel room) {
+    var elapsed = _liveDaysIn(room).live;
+    final conceded = concededDaysIn(room);
+    var day = countedStartIn(room);
+    final last = room.lastCountedDay;
+    while (!day.isAfter(last)) {
+      final key = day.toDateKey();
+      if (room.isPausedOn(key)) {
+        day = day.add(const Duration(days: 1));
+        continue;
+      }
+      // An away day is in the denominator whatever else was true of it.
+      if (isAwayOn(key) &&
+          (isStoodDownOn(key) ||
+              conceded.contains(key) ||
+              isRestDay(key))) {
+        elapsed++;
+      } else if (!isAwayOn(key) &&
+          isRestDay(key) &&
+          phantomWeightOn(room, key) != 0) {
+        // daysElapsedIn excused this day because this member's own linked
+        // habits asked nothing of it. The ROOM still did: a slot they never
+        // linked wants something every day it is open, so the day is theirs
+        // to answer for and belongs back in the denominator. Without this,
+        // an unlinked slot could be dodged simply by resting.
+        elapsed++;
+      }
+      day = day.add(const Duration(days: 1));
+    }
+    return elapsed;
+  }
+
+  /// 0.0-1.0 - the number the board ranks by. See the section comment above.
+  double roomProgressRatio(RoomModel room) {
+    final elapsed = roomDaysElapsedIn(room);
+    // Same reading as [progressRatio]: an all-rest window asked nothing, a
+    // paused or stood-down one keeps its zero. In a shared room this is
+    // rarely reached at all, because an unlinked slot's phantom puts those
+    // days straight back into the denominator above.
+    if (elapsed <= 0) return _liveDaysIn(room).allRest ? 1.0 : 0.0;
+    return (roomDaysCompleted(room) / elapsed).clamp(0.0, 1.0);
+  }
+
+  /// How much of [room]'s plan this member carries TODAY: linked, live slots
+  /// over the plan's live slots. What the board prints beside the score so a
+  /// smaller plan is visible rather than a silent advantage. Null for an
+  /// 'own'-mode room, where there is no shared plan to be a fraction of.
+  ({int linked, int total})? planCoverageIn(RoomModel room) {
+    if (room.habitMode != RoomHabitMode.shared) return null;
+    final shared = room.sharedHabits;
+    var linked = 0;
+    var total = 0;
+    for (var i = 0; i < shared.length; i++) {
+      if (shared[i].isRemoved) continue;
+      total++;
+      if (i < linkedHabitIds.length && linkedHabitIds[i] != kDeclinedSlot) {
+        linked++;
+      }
+    }
+    return (linked: linked, total: total);
   }
 
   /// Consecutive unbroken days counting backward from "now", for the
@@ -1501,8 +2201,30 @@ class RoomParticipant {
       // history once instead of trusting the old clamp's zeros.
       lastSyncedDay: d['lastSyncedDay'] as String?,
       lastSyncedAt: (d['lastSyncedAt'] as Timestamp?)?.toDate(),
+      // Absent on every doc written before departures were kept, which
+      // reads as "in the room, never left" - exactly what was true of every
+      // doc that existed then, since leaving used to delete it.
+      leftAt: (d['leftAt'] as Timestamp?)?.toDate(),
+      awaySpans: RoomModel.spansFrom(d['awaySpans']),
+      slotDeclinedFrom: _slotKeyedStrings(d['slotDeclinedFrom']),
+      slotDeclinedSpans: {
+        for (final e in ((d['slotDeclinedSpans'] as Map?) ?? const {}).entries)
+          if (int.tryParse(e.key.toString()) case final int i)
+            i: RoomModel.spansFrom(e.value),
+      },
+      slotPriorHabitIds: _slotKeyedStrings(d['slotPriorHabitIds']),
     );
   }
+
+  /// `{ "2": "..." }` -> `{2: "..."}`, dropping anything that is not a slot
+  /// index with a string under it.
+  static Map<int, String> _slotKeyedStrings(Object? raw) => {
+        if (raw is Map)
+          for (final e in raw.entries)
+            if (int.tryParse(e.key.toString()) case final int i)
+              if (e.value is String && (e.value as String).isNotEmpty)
+                i: e.value as String,
+      };
 
   Map<String, dynamic> toFirestore() => {
         'uid': uid,
@@ -1540,6 +2262,26 @@ class RoomParticipant {
         if (lastSyncedDay != null) 'lastSyncedDay': lastSyncedDay,
         if (lastSyncedAt != null)
           'lastSyncedAt': Timestamp.fromDate(lastSyncedAt!),
+        if (leftAt != null) 'leftAt': Timestamp.fromDate(leftAt!),
+        if (awaySpans.isNotEmpty)
+          'awaySpans': [
+            for (final s in awaySpans) {'from': s.from, 'to': s.to},
+          ],
+        if (slotDeclinedFrom.isNotEmpty)
+          'slotDeclinedFrom': {
+            for (final e in slotDeclinedFrom.entries) '${e.key}': e.value,
+          },
+        if (slotDeclinedSpans.isNotEmpty)
+          'slotDeclinedSpans': {
+            for (final e in slotDeclinedSpans.entries)
+              '${e.key}': [
+                for (final s in e.value) {'from': s.from, 'to': s.to},
+              ],
+          },
+        if (slotPriorHabitIds.isNotEmpty)
+          'slotPriorHabitIds': {
+            for (final e in slotPriorHabitIds.entries) '${e.key}': e.value,
+          },
       };
 
   RoomParticipant copyWith({
@@ -1567,6 +2309,12 @@ class RoomParticipant {
     bool? notificationsMuted,
     String? lastSyncedDay,
     DateTime? lastSyncedAt,
+    DateTime? leftAt,
+    bool clearLeftAt = false,
+    List<({String from, String to})>? awaySpans,
+    Map<int, String>? slotDeclinedFrom,
+    Map<int, List<({String from, String to})>>? slotDeclinedSpans,
+    Map<int, String>? slotPriorHabitIds,
   }) =>
       RoomParticipant(
         uid: uid,
@@ -1595,6 +2343,11 @@ class RoomParticipant {
         notificationsMuted: notificationsMuted ?? this.notificationsMuted,
         lastSyncedDay: lastSyncedDay ?? this.lastSyncedDay,
         lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
+        leftAt: clearLeftAt ? null : (leftAt ?? this.leftAt),
+        awaySpans: awaySpans ?? this.awaySpans,
+        slotDeclinedFrom: slotDeclinedFrom ?? this.slotDeclinedFrom,
+        slotDeclinedSpans: slotDeclinedSpans ?? this.slotDeclinedSpans,
+        slotPriorHabitIds: slotPriorHabitIds ?? this.slotPriorHabitIds,
       );
 }
 
@@ -1659,6 +2412,47 @@ extension RoomLeaderboard on RoomModel {
   /// without a stable last key the rows, and any number derived from their
   /// order, visibly reshuffle on every participants-stream rebuild with
   /// nobody's score having changed.
+  /// The share of the room's elapsed days a member must have been counted
+  /// for before they can hold a PLACE. Their score is still computed and
+  /// shown; only the rank, the cup and the podium prize wait for tenure.
+  ///
+  /// The minimum-games-played rule every real league has, and the one this
+  /// board was missing. A member is measured only from the day they joined
+  /// (countedStartIn, correctly, so a late joiner is not swamped by days
+  /// they were never in), which means a member who joins on the FINAL day
+  /// and finishes that one day reads 100% - and outranked 29 perfect days of
+  /// 30. Measured on 2026-09-09: the one-day sniper took the cup and 200 XP
+  /// from a 97% member. The team bonus already refuses this exact move
+  /// ([teamIsPerfect]'s tenure clause); the competitive board and the podium
+  /// never did.
+  ///
+  /// The thresholds live on [RoomModel] itself ([RoomModel.kPlaceTenureFraction],
+  /// [RoomModel.kPlaceTenureCapDays]); an extension's statics are only
+  /// reachable through the extension's own name, which nothing else should
+  /// have to know.
+  ///
+  /// Whether [p] has been in this room long enough to hold a place.
+  ///
+  /// Tenure is PRESENCE, the calendar days from their first counted day to
+  /// the last one graded, not [RoomParticipant.daysElapsedIn]. That one
+  /// excuses stood-down and conceded days from the denominator, which is
+  /// right for a score and wrong here: a member who paused a habit for a
+  /// week was in the room that week, and a pause is a stand-down, not a
+  /// shorter membership. Away days count too: they sit in the denominator
+  /// and score zero, a worse standing rather than a shorter one, so leaving
+  /// and coming back cannot dodge this in either direction.
+  bool holdsPlaceIn(RoomParticipant p) {
+    var required = (daysElapsed * RoomModel.kPlaceTenureFraction).ceil();
+    if (required > RoomModel.kPlaceTenureCapDays) {
+      required = RoomModel.kPlaceTenureCapDays;
+    }
+    if (required < 1) required = 1;
+    final start = p.countedStartIn(this);
+    final last = lastCountedDay;
+    final present = last.isBefore(start) ? 1 : last.difference(start).inDays + 1;
+    return present >= required;
+  }
+
   List<RoomStanding> standings(List<RoomParticipant> participants) {
     // Scored once per member rather than once per comparison. progressRatio
     // walks every counted day of the room and a sort asks for it O(n log n)
@@ -1668,14 +2462,29 @@ extension RoomLeaderboard on RoomModel {
     final percents = <String, int>{};
     final ratios = <String, double>{};
     for (final p in participants) {
-      final ratio = p.progressRatio(this);
+      // The room score, not the member's own number: the one yardstick that
+      // means the same thing on every row. See RoomParticipant.roomCreditFor.
+      final ratio = p.roomProgressRatio(this);
       ratios[p.uid] = ratio;
       percents[p.uid] = (ratio * 100).round();
     }
     int percentOf(RoomParticipant p) => percents[p.uid] ?? 0;
     double ratioOf(RoomParticipant p) => ratios[p.uid] ?? 0;
+    // 0% is not a place, and neither is a day (see [holdsPlaceIn]). Decided
+    // once here so the sort and the numbering below cannot disagree.
+    final eligible = <String, bool>{
+      for (final p in participants)
+        p.uid: percentOf(p) > 0 && holdsPlaceIn(p),
+    };
+    bool placedOf(RoomParticipant p) => eligible[p.uid] ?? false;
 
     final sorted = [...participants]..sort((a, b) {
+      // Members who hold a place come first, whatever their number: a
+      // one-day joiner reading 100% sits below the cup-holder at 97%, not
+      // above them with no cup, which reads as a board that forgot to draw
+      // one. 0% rows already sorted last for the same reason.
+      final byPlaced = (placedOf(b) ? 1 : 0).compareTo(placedOf(a) ? 1 : 0);
+      if (byPlaced != 0) return byPlaced;
       final byPercent = percentOf(b).compareTo(percentOf(a));
       if (byPercent != 0) return byPercent;
       final byRatio = ratioOf(b).compareTo(ratioOf(a));
@@ -1684,18 +2493,22 @@ extension RoomLeaderboard on RoomModel {
 
     final placed = <({RoomParticipant participant, int rank})>[];
     var place = 0;
+    var placedSoFar = 0;
     int? previous;
-    for (var i = 0; i < sorted.length; i++) {
-      final percent = percentOf(sorted[i]);
-      if (percent <= 0) {
-        placed.add((participant: sorted[i], rank: 0));
+    for (final p in sorted) {
+      if (!placedOf(p)) {
+        placed.add((participant: p, rank: 0));
         continue;
       }
+      final percent = percentOf(p);
       // Only a genuinely different percentage moves the number on, and it
-      // moves it to the position, not to the next integer: that is what
-      // makes the place after a two-way tie for first a 3.
-      if (percent != previous) place = i + 1;
-      placed.add((participant: sorted[i], rank: place));
+      // moves it to the position AMONG THE PLACED, not to the next integer:
+      // that is what makes the place after a two-way tie for first a 3. The
+      // position is counted over placed members only, so an unplaced row
+      // never consumes a number nobody was given.
+      if (percent != previous) place = placedSoFar + 1;
+      placedSoFar++;
+      placed.add((participant: p, rank: place));
       previous = percent;
     }
 
@@ -1857,7 +2670,13 @@ extension RoomTeamProgress on RoomModel {
       p.hasCountedHabits &&
       !p.countedStartIn(this).isAfter(day) &&
       !isPausedOn(dateKey) &&
-      !p.isStoodDownOn(dateKey);
+      !p.isStoodDownOn(dateKey) &&
+      // Out of the room that day (RoomParticipant.awaySpans / leftAt): not
+      // on the team, so they neither win nor lose it the day. Without this a
+      // rejoiner's away stretch turned every won team day in it into a lost
+      // one, and the days before a departure are kept exactly as they were
+      // played - the team's history is not rewritten by someone leaving.
+      !p.isAwayOn(dateKey);
 
   /// The team's result for one day: true when everyone who counted that
   /// day finished, false when someone who counted did not, null when

@@ -109,6 +109,23 @@ class LocalStoreService {
   static const String catalogOverridesKey = 'catalog_habit_overrides_v1';
   static const String habitOrderKey = 'habit_order';
 
+  /// What the pedometer measured on each calendar day: `{dateKey: steps}`.
+  ///
+  /// The day's own record, kept because nothing else keeps it. A walk short
+  /// of half the goal writes no square (kStepPartialShare), so before this
+  /// the only trace of it was a number in memory that a restart threw away
+  /// and a new day re-pointed at a different date. "It should count each day
+  /// at its 24h, when the day finish it saves the data, and start count to
+  /// the next day, it should not go to 0, even if its 3921 steps and the
+  /// goal is 6000" - Aziz, 2026-09-10.
+  ///
+  /// Device-global rather than per-identity, unlike [habitResumeDatesKeyFor].
+  /// A day's step count is a fact about this phone, not about whoever is
+  /// signed into it: HealthKit answers the same number to every account on
+  /// the device, so scoping it per uid would only mean each account paying
+  /// to re-learn what the device already knew.
+  static const String stepsByDayKey = 'steps_by_day_v1';
+
   /// When the guest data on this device should be deleted, ISO8601.
   ///
   /// Set once someone has ANSWERED the reconnect offer, either way, and

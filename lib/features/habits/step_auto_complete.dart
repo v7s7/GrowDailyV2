@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/extensions/datetime_ext.dart';
 import '../../core/services/health_steps_service.dart';
+import '../../core/services/local_store_service.dart';
 import '../dashboard/notifiers/dashboard_notifier.dart';
 import '../grid/models/square_state.dart';
+import '../grid/notifiers/square_audit.dart';
 import '../grid/notifiers/weekly_grid_notifier.dart';
 import '../rooms/notifiers/rooms_notifier.dart';
 import 'catalog/islamic_habit_catalog.dart';
@@ -13,6 +17,34 @@ import 'notifiers/custom_habits_notifier.dart';
 /// first successful read). Written only by [runStepAutoComplete]; read by
 /// any surface that wants to show the number without its own health call.
 final stepsTodayProvider = StateProvider<int?>((ref) => null);
+
+/// Every day this session has a step count for, keyed by date key.
+///
+/// The board draws a linked habit's part-done walk as a proportional fill,
+/// and that fill used to come from [stepsTodayProvider] alone. So it was
+/// only ever drawn on TODAY, and at midnight a day that had been showing a
+/// real walk all day went blank: nothing is written below half the goal (see
+/// [kStepPartialShare]), so the record of the walk lived only in a variable
+/// that now meant a different day. "It records correctly from the app, but
+/// when it hits 00:00 it becomes zero, like the user never walked" — Aziz,
+/// 2026-09-10.
+///
+/// Filled from three places: today's read, the once-a-day catch-up pass over
+/// the last [kStepCatchUpDays] days ([_creditWalksOn]), and the day log on
+/// disk ([_hydrateSteps]).
+///
+/// It IS persisted, which was the second half of the same complaint. An
+/// in-memory map made HealthKit the sole record, and HealthKit is a record
+/// the app cannot always get back: the catch-up reaches seven days, a
+/// revoked permission answers a well-formed zero for all of them, and every
+/// launch paid to re-learn what it already knew. "When the day finish it
+/// saves the data, and start count to the next day, it should not go to 0,
+/// even if its 3921 steps and the goal is 6000" - Aziz, 2026-09-10.
+///
+/// Disk and memory are merged the same way two reads are, by
+/// [stepsMapWith]'s never-downward rule, so neither copy can talk the other
+/// one down.
+final stepsByDayProvider = StateProvider<Map<String, int>>((ref) => const {});
 
 /// Why the last steps read produced nothing, or null when it produced a
 /// number. Read by the surfaces that would otherwise show a zero the app
@@ -24,6 +56,132 @@ final stepsTodayProvider = StateProvider<int?>((ref) => null);
 final stepsFailureProvider = StateProvider<HealthStepsFailure?>((ref) => null);
 
 DateTime? _lastRead;
+
+/// Records [steps] against [day] for the board's fill.
+///
+/// Merge, never replace: the catch-up walks seven days and today's read
+/// lands separately, and the map has to end up holding all of them.
+///
+/// And never DOWNWARD for a day it already knows, which is the whole
+/// difference between a record and a rumour. Steps only grow within a day,
+/// so a smaller number for a day already counted is not news, it is a bad
+/// read — and iOS has a standing supply of those: a refused read there is
+/// indistinguishable from a quiet morning and arrives as a perfectly
+/// well-formed zero (see HealthStepsService.stepsForDay). One of those
+/// landing on a day the app had already measured is exactly the "it saved
+/// it, then overwrote it to zero" Aziz reported on 2026-09-10.
+///
+/// A new day is a different key, so midnight still resets what the board
+/// shows without this ever having to allow a decrease.
+void _publishSteps(WidgetRef ref, DateTime day, int steps) {
+  final current = ref.read(stepsByDayProvider);
+  final next = stepsMapWith(current, day.toDateKey(), steps);
+  if (identical(next, current)) return;
+  ref.read(stepsByDayProvider.notifier).state = next;
+  unawaited(_persistSteps(next));
+}
+
+/// Writes the day log to disk, pruned to [kStepLogKeepDays].
+///
+/// Fire-and-forget on purpose: the number is already on screen by the time
+/// this runs, and a Hive failure is not something to interrupt somebody's
+/// walk over. The next publish rewrites the whole map anyway, so a dropped
+/// write costs one day of durability and nothing else.
+Future<void> _persistSteps(Map<String, int> log) async {
+  try {
+    await LocalStoreService.putSettingsMap(
+      LocalStoreService.stepsByDayKey,
+      prunedStepsLog(log, DateTime.now()),
+    );
+  } catch (_) {
+    // No Hive (widget tests), a closed box, a full disk. All the same here.
+  }
+}
+
+/// Whether the day log on disk has been merged into [stepsByDayProvider]
+/// this session. Once per process: the provider is the newer copy from then
+/// on, and every write goes through both.
+bool _hydrated = false;
+
+/// Test seam. Lets a test start from a cold process without a Hive box.
+void resetStepHydrationForTest() => _hydrated = false;
+
+/// Merges the stored day log into [stepsByDayProvider].
+///
+/// Runs before the first health read of the session, so a launch whose read
+/// is refused, stalled or simply zero still shows what the phone measured
+/// yesterday rather than an empty week. Merged, never assigned: a day the
+/// provider already holds a bigger number for keeps it (see [stepsMapWith]).
+Future<void> _hydrateSteps(WidgetRef ref) async {
+  if (_hydrated) return;
+  _hydrated = true;
+  Map<String, dynamic> raw;
+  try {
+    raw = await LocalStoreService.getSettingsMap(LocalStoreService.stepsByDayKey);
+  } catch (_) {
+    return;
+  }
+  if (!ref.context.mounted) return;
+  final stored = stepsLogFrom(raw);
+  if (stored.isEmpty) return;
+  var merged = ref.read(stepsByDayProvider);
+  for (final entry in stored.entries) {
+    merged = stepsMapWith(merged, entry.key, entry.value);
+  }
+  if (identical(merged, ref.read(stepsByDayProvider))) return;
+  ref.read(stepsByDayProvider.notifier).state = merged;
+}
+
+/// How many days of step counts the log keeps.
+///
+/// Sixty: comfortably past [kStepCatchUpDays] and past the two months of
+/// squares the Grid and the room strips can scroll back to, while keeping
+/// the stored map small enough to rewrite on every read.
+const int kStepLogKeepDays = 60;
+
+/// The stored map, as counts. Anything that is not a positive int for a
+/// plausible key is dropped rather than trusted: this comes off disk, where
+/// an older build's shape may still be sitting.
+Map<String, int> stepsLogFrom(Map<String, dynamic> raw) {
+  final out = <String, int>{};
+  for (final entry in raw.entries) {
+    final value = entry.value;
+    final steps = value is int ? value : (value is num ? value.toInt() : null);
+    if (steps == null || steps <= 0) continue;
+    if (DateTime.tryParse(entry.key) == null) continue;
+    out[entry.key] = steps;
+  }
+  return out;
+}
+
+/// [log] with everything older than [kStepLogKeepDays] before [now] dropped,
+/// and anything dated after today dropped with it: a future day cannot have
+/// been walked, and one arriving from a device whose clock is wrong must not
+/// be able to sit in the log forever.
+Map<String, int> prunedStepsLog(
+  Map<String, int> log,
+  DateTime now, {
+  int keepDays = kStepLogKeepDays,
+}) {
+  final today = DateTime(now.year, now.month, now.day);
+  final oldest = DateTime(now.year, now.month, now.day - keepDays);
+  final out = <String, dynamic>{};
+  for (final entry in log.entries) {
+    final day = DateTime.tryParse(entry.key);
+    if (day == null || day.isBefore(oldest) || day.isAfter(today)) continue;
+    out[entry.key] = entry.value;
+  }
+  return out.cast<String, int>();
+}
+
+/// [_publishSteps]'s rule, as a value: the map that results from recording
+/// [steps] against [key], or the same map back when there is nothing to
+/// record. Pure so the never-downward invariant can be tested without a
+/// health store, a Grid or a clock.
+Map<String, int> stepsMapWith(Map<String, int> current, String key, int steps) {
+  if (steps <= (current[key] ?? 0)) return current;
+  return {...current, key: steps};
+}
 
 /// The share of the goal from which a walk leaves a جزئي square. Half, in
 /// Aziz's own words (2026-09-07): "if he walked the half, it marks and
@@ -47,6 +205,37 @@ SquareState stepSquareFor({required int steps, required int goal}) {
   return SquareState.none;
 }
 
+/// The share of the goal to draw as a FILL on a day's square, or null when
+/// there is nothing to draw.
+///
+/// The sibling of [stepSquareFor]: that one decides what the count has
+/// EARNED, this one what it should look like on a day it earned nothing.
+/// Below half the goal no square is ever written, and until this was drawn
+/// for past days too, such a day went blank at midnight and read as though
+/// nobody had walked at all.
+///
+/// Null in four cases, each of them a day this must not speak about: nothing
+/// walked, the goal already reached (the square is green by then and says so
+/// itself), a day the habit does not run on, and a square that already
+/// carries a mark — تخطّي, فشل, جزئي or the blue one are all statements that
+/// outrank a measured count, exactly as _effectiveSquare ranks them over a
+/// times-per-day tally.
+///
+/// Deliberately takes no date. Which day's count to hand in is the caller's
+/// question, and making it this function's was the bug: the fill was drawn
+/// only for `day.isToday`, so it could not survive the day it described.
+double? stepFillFraction({
+  required int? steps,
+  required int? goal,
+  required bool scheduled,
+  required SquareState square,
+}) {
+  if (steps == null || goal == null || goal <= 0 || !scheduled) return null;
+  if (steps <= 0 || steps >= goal) return null;
+  if (square != SquareState.none) return null;
+  return steps / goal;
+}
+
 /// Where a square sits on the ladder the step count may climb: -1 for the
 /// two marks that are the owner's own word about the day (فشل, تخطّي) and
 /// must never be touched by a count.
@@ -64,10 +253,31 @@ int stepSquareRank(SquareState square) => switch (square) {
 bool stepCountMayLift(SquareState from, SquareState to) =>
     stepSquareRank(from) >= 0 && stepSquareRank(to) > stepSquareRank(from);
 
-/// The effective day whose *previous* day has already been checked for a
-/// walk the app was never open to see. One extra health read per day, not
-/// one per trigger — see [_creditYesterdayWalks].
-DateTime? _yesterdayCheckedFor;
+/// How many days back the once-a-day catch-up looks for a walk the app was
+/// never open to see.
+///
+/// Seven, Aziz's call on 2026-09-09, after testers came back with days that
+/// had gone empty. It used to be one, on the argument that somebody who has
+/// not opened the app in a week has bigger problems than a missing square.
+/// That argument was wrong in the one case that matters: steps are the only
+/// habit here that happens entirely while the app is closed, so the person
+/// who walks every day and opens the app twice a week lost every day in
+/// between, permanently, and nothing on screen ever said so.
+///
+/// Seven is the visible grid week, which makes the promise easy to state:
+/// no day the board still shows is a day the count quietly gave up on.
+///
+/// It is also the recovery path for the days lost to build 66, where a walk
+/// short of the goal wrote nothing at all: HealthKit still holds the counts,
+/// so the first launch after updating fills back in whatever the week still
+/// has. Days older than the window stay empty, because nothing was ever
+/// written for them and nothing now will be.
+const int kStepCatchUpDays = 7;
+
+/// The effective day whose previous [kStepCatchUpDays] days have already
+/// been checked for a walk the app was never open to see. One pass per day,
+/// not one per trigger — see [_creditRecentWalks].
+DateTime? _catchUpCheckedFor;
 
 /// Reads today's steps and writes what they have earned into every linked
 /// habit's square: جزئي from half the goal, the green square at the goal,
@@ -100,6 +310,12 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
       ref.read(habitListProvider).where((h) => h.stepGoal != null).toList();
   if (allLinked.isEmpty) return;
 
+  // Before the throttle, and before the read: a launch whose health query is
+  // refused or slow should still be showing yesterday's measured walk, not an
+  // empty week that fills in two seconds later.
+  await _hydrateSteps(ref);
+  if (!ref.context.mounted) return;
+
   final now = DateTime.now();
   if (!force &&
       _lastRead != null &&
@@ -124,7 +340,13 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
   // overwriting it with a zero: "you walked 0 today" is a claim about the
   // person's day, and a refused query is not evidence for it.
   if (steps == null) return;
-  ref.read(stepsTodayProvider.notifier).state = steps;
+  _publishSteps(ref, effectiveDay, steps);
+  // Read back out of the map rather than from the read, so the same
+  // never-downward rule protects the number every surface shows. A stalled
+  // read that comes back as zero at 4pm must not tell somebody who walked
+  // 9,000 steps this morning that they have walked none.
+  ref.read(stepsTodayProvider.notifier).state =
+      ref.read(stepsByDayProvider)[effectiveDay.toDateKey()] ?? steps;
 
   // completeHabit refuses while the account doc is still loading (writing
   // through would zero it — see its guards), and the Grid square write
@@ -146,7 +368,7 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
     return;
   }
 
-  await _creditYesterdayWalks(ref, allLinked, effectiveDay);
+  await _creditRecentWalks(ref, allLinked, effectiveDay);
   if (!ref.context.mounted) return;
 
   for (final habit in linked) {
@@ -170,7 +392,8 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
       // not a reward: the day is paid only when the goal is reached.
       await ref
           .read(weeklyGridProvider.notifier)
-          .setSquareStateOnlyAsync(habit.id, effectiveDay, target);
+          .setSquareStateOnlyAsync(habit.id, effectiveDay, target,
+              source: kSquareSourceSteps);
       if (!ref.context.mounted) return;
       syncRoomToday(ref, habit.id, effectiveDay);
       continue;
@@ -183,7 +406,8 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
       if (target == SquareState.bonus && current != SquareState.bonus) {
         await ref
             .read(weeklyGridProvider.notifier)
-            .setSquareStateOnlyAsync(habit.id, effectiveDay, target);
+            .setSquareStateOnlyAsync(habit.id, effectiveDay, target,
+              source: kSquareSourceSteps);
         if (!ref.context.mounted) return;
         syncRoomToday(ref, habit.id, effectiveDay);
       }
@@ -224,6 +448,7 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
     ref.read(weeklyGridProvider.notifier).markCompleteFromHabit(
           habit.id,
           effectiveDay,
+          source: kSquareSourceSteps,
         );
     if (target == SquareState.bonus) {
       // Twenty percent over the goal: the blue square, exactly what the
@@ -231,22 +456,24 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
       // not a second reward, same as picking it from the palette.
       await ref
           .read(weeklyGridProvider.notifier)
-          .setSquareStateOnlyAsync(habit.id, effectiveDay, target);
+          .setSquareStateOnlyAsync(habit.id, effectiveDay, target,
+              source: kSquareSourceSteps);
       if (!ref.context.mounted) return;
     }
     syncRoomToday(ref, habit.id, effectiveDay);
   }
 }
 
-/// Credits a walk the app was never open to see.
+/// Credits walks the app was never open to see, over the last
+/// [kStepCatchUpDays] days.
 ///
 /// Auto-completion only ever looked at the day in progress, so someone who
 /// walked their goal and did not open the app before the cutoff lost it
-/// outright: the next launch reads a fresh day and yesterday stays empty
-/// forever. Steps are the one habit in this app that genuinely happen while
-/// the app is closed, which is exactly why they are worth reading at all,
-/// and the flex window after midnight only covers the person who happens to
-/// open it in those few hours.
+/// outright: the next launch reads a fresh day and the day before stays
+/// empty forever. Steps are the one habit in this app that genuinely happen
+/// while the app is closed, which is exactly why they are worth reading at
+/// all, and the flex window after midnight only covers the person who
+/// happens to open it in those few hours.
 ///
 /// Marks the SQUARE only, never [DashboardNotifier.completeHabit]. That is
 /// the same division of labour a person gets for tapping a past square: the
@@ -255,81 +482,98 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
 /// Room percentages do follow, through syncRoomToday's past-day branch,
 /// which runs a full resync rather than the today-only fast path.
 ///
-/// Yesterday only, and once per day: a longer lookback would mean a health
-/// query per day per launch for a payoff that shrinks with every day (a
-/// person who has not opened the app in a week has bigger problems than one
-/// missing square), and a square already marked closes the gate anyway.
-Future<void> _creditYesterdayWalks(
+/// Once per day, newest day first, and a health read only for a day that
+/// actually has an open question on it: a day already marked costs one
+/// stored-squares read and nothing else. A day the store could not answer,
+/// or a health read that failed for a reason that might not last, puts the
+/// whole pass back for a later trigger rather than writing a guess.
+Future<void> _creditRecentWalks(
   WidgetRef ref,
   List<IslamicHabitTemplate> allLinked,
   DateTime effectiveDay,
 ) async {
-  if (_yesterdayCheckedFor == effectiveDay) return;
+  if (_catchUpCheckedFor == effectiveDay) return;
   // Claimed BEFORE the await, so the two triggers that can overlap on a cold
   // start (HomeShell's post-frame call and the linked-habit listener's
-  // forced one) cannot both spend a health read on the same question.
-  _yesterdayCheckedFor = effectiveDay;
+  // forced one) cannot both spend a pass on the same question.
+  _catchUpCheckedFor = effectiveDay;
 
-  // The calendar's previous day, not "24 hours earlier": on a DST shift a
-  // day is 23 or 25 hours long, and effectiveDay is a local midnight, so
-  // subtracting a fixed Duration lands at 01:00 or 23:00 rather than on
-  // midnight. Same reason stepsForDay builds both of its ends this way.
-  final yesterday = DateTime(
-    effectiveDay.year,
-    effectiveDay.month,
-    effectiveDay.day - 1,
-  );
-
-  // Yesterday is usually in the visible week, and the in-memory row is the
-  // better answer there: it includes a mark made seconds ago whose write to
-  // the store may still be in flight. On the first day of a grid week it is
-  // NOT in the visible week, and WeeklyGridState answers `none` for every day
-  // it has not loaded — indistinguishable from an untouched day. Believing
-  // that would have painted over a تخطّي once every seven days.
-  final grid = ref.read(weeklyGridProvider);
-  final marks = grid.days.any((d) => d.isSameDayAs(yesterday))
-      ? grid.states[yesterday.toDateKey()] ?? const <String, SquareState>{}
-      : await ref
-          .read(weeklyGridProvider.notifier)
-          .storedSquaresFor(yesterday);
-  if (!ref.context.mounted) return;
-  if (marks == null) {
-    // The day could not be read at all. Deciding anything about a day the app
-    // has not seen is exactly the mistake above, so leave it and let a later
-    // trigger try again.
-    _yesterdayCheckedFor = null;
-    return;
+  // Newest first. An interrupted pass then leaves the days nearest today
+  // done, which are both the likeliest to matter and the ones still on
+  // screen.
+  var retryLater = false;
+  for (var back = 1; back <= kStepCatchUpDays; back++) {
+    // The calendar's day, not "N times 24 hours earlier": on a DST shift a
+    // day is 23 or 25 hours long, and effectiveDay is a local midnight, so
+    // subtracting a fixed Duration lands at 01:00 or 23:00 rather than on
+    // midnight. Same reason stepsForDay builds both of its ends this way.
+    final day = DateTime(
+      effectiveDay.year,
+      effectiveDay.month,
+      effectiveDay.day - back,
+    );
+    if (await _creditWalksOn(ref, allLinked, day)) continue;
+    if (!ref.context.mounted) return;
+    retryLater = true;
   }
+  // One failure anywhere in the window re-opens the whole pass. The days
+  // that did land are marked by then, so the retry costs a stored read each
+  // and no health read at all.
+  if (retryLater) _catchUpCheckedFor = null;
+}
 
-  final owed = stepHabitsOwedYesterday(
+/// One day of [_creditRecentWalks]. True when the day is settled (filled in,
+/// or nothing was owed on it), false when it should be tried again later.
+Future<bool> _creditWalksOn(
+  WidgetRef ref,
+  List<IslamicHabitTemplate> allLinked,
+  DateTime day,
+) async {
+  // A day inside the visible week is better read from memory: the row there
+  // includes a mark made seconds ago whose write to the store may still be
+  // in flight. Outside it, WeeklyGridState answers `none` for every day it
+  // has not loaded — indistinguishable from an untouched day, and believing
+  // that would paint over a تخطّي.
+  final grid = ref.read(weeklyGridProvider);
+  final marks = grid.days.any((d) => d.isSameDayAs(day))
+      ? grid.states[day.toDateKey()] ?? const <String, SquareState>{}
+      : await ref.read(weeklyGridProvider.notifier).storedSquaresFor(day);
+  if (!ref.context.mounted) return true;
+  // The day could not be read at all. Deciding anything about a day the app
+  // has not seen is exactly the mistake above, so leave it for a later try.
+  if (marks == null) return false;
+
+  final owed = stepHabitsOwedOn(
     linked: allLinked,
     marks: marks,
-    yesterday: yesterday,
+    day: day,
   );
-  if (owed.isEmpty) return;
+  if (owed.isEmpty) return true;
 
-  final outcome = await HealthStepsService.instance.stepsForDay(yesterday);
+  final outcome = await HealthStepsService.instance.stepsForDay(day);
   final steps = outcome.steps;
   if (steps == null) {
     // A transient platform-channel failure gets the day back: the first
     // launch of a day is exactly when the health plugin is most likely to
-    // still be warming up, and losing yesterday to that would be the same
+    // still be warming up, and losing a day to that would be the same
     // silent loss this whole function exists to stop. A refusal (permission
     // gone, no Health Connect) does not, because retrying it every two
     // minutes for the rest of the day would burn reads to be told no again.
-    if (outcome.failure == HealthStepsFailure.unavailable) {
-      _yesterdayCheckedFor = null;
-    }
-    return;
+    return outcome.failure != HealthStepsFailure.unavailable;
   }
-  if (!ref.context.mounted) return;
+  if (!ref.context.mounted) return true;
+  // Published even when nothing below writes a square. A walk short of half
+  // the goal earns no mark by design, and this is the whole point of
+  // recording it anyway: the board can still draw what was actually walked
+  // instead of an empty square.
+  _publishSteps(ref, day, steps);
 
   for (final habit in owed) {
     final current = marks[habit.id] ?? SquareState.none;
     final target = stepSquareFor(steps: steps, goal: habit.stepGoal!);
     // The day's final count, in the day's own square: half stays a جزئي,
     // the goal a green, twenty percent over a blue. Only ever upwards from
-    // whatever the live reads left there yesterday.
+    // whatever the live reads left there on the day itself.
     if (!stepCountMayLift(current, target)) continue;
     // Awaited, unlike today's equivalent, because the room sync that follows
     // reads a PAST day back out of the store (syncRoomToday's past-day branch
@@ -338,16 +582,18 @@ Future<void> _creditYesterdayWalks(
     // moment ago and publish a percentage that did not include the walk.
     await ref
         .read(weeklyGridProvider.notifier)
-        .setSquareStateOnlyAsync(habit.id, yesterday, target);
-    if (!ref.context.mounted) return;
-    syncRoomToday(ref, habit.id, yesterday);
+        .setSquareStateOnlyAsync(habit.id, day, target,
+            source: kSquareSourceStepsCatchUp);
+    if (!ref.context.mounted) return true;
+    syncRoomToday(ref, habit.id, day);
   }
+  return true;
 }
 
-/// Which linked habits still have an open question about [yesterday]: it was
-/// one of their days, and nobody has said anything about it.
+/// Which linked habits still have an open question about [day]: it was one
+/// of their days, and nobody has said anything about it.
 ///
-/// Split out of [_creditYesterdayWalks] because this is the whole risk in
+/// Split out of [_creditRecentWalks] because this is the whole risk in
 /// back-filling a day. Writing a square the person never asked for is only
 /// defensible while it is confined to days that are genuinely blank, and a
 /// blank day is the one thing this decides.
@@ -363,16 +609,16 @@ Future<void> _creditYesterdayWalks(
 /// a red means they said it did not happen. A step count read a day late
 /// does not get to overrule any of those, and neither does a جزئي, which is
 /// somebody's own account of a part-done day.
-List<IslamicHabitTemplate> stepHabitsOwedYesterday({
+List<IslamicHabitTemplate> stepHabitsOwedOn({
   required List<IslamicHabitTemplate> linked,
   required Map<String, SquareState> marks,
-  required DateTime yesterday,
+  required DateTime day,
 }) =>
     linked
         .where(
           (h) =>
               h.stepGoal != null &&
-              h.isScheduledFor(yesterday) &&
+              h.isScheduledFor(day) &&
               stepSquareRank(marks[h.id] ?? SquareState.none) >= 0 &&
               (marks[h.id] ?? SquareState.none) != SquareState.bonus,
         )

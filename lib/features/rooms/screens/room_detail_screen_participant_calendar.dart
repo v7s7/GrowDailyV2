@@ -118,6 +118,18 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     return null;
   }
 
+  /// Whether the day has a score to show at all: inside this member's own
+  /// window, and neither paused by the room nor stood down by them. Those
+  /// two are answered by a reason, not a fraction, exactly as [_statusFor]
+  /// answers them, and computing 0/0 for either would put a number on a day
+  /// nobody was asked about.
+  bool _isScoredDay(DateTime day) {
+    if (day.isBefore(_firstDay) || day.isAfter(_lastDay)) return false;
+    final key = day.toDateKey();
+    return !widget.room.isPausedOn(key) &&
+        !widget.participant.isStoodDownOn(key);
+  }
+
   String _statusFor(DateTime day, S s) {
     final key = day.toDateKey();
     // Same precedence as _fillFor above, so the word and the colour can
@@ -133,15 +145,27 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     final credit = widget.participant.creditFor(key);
     if (credit >= 1.0) return s.roomCalendarDone;
     if (credit > 0) return s.roomCalendarPartial;
+    // Nothing done YET is not the same as missed. Under the overlapping-day
+    // window a day stays markable until kDayCutoffHour the next morning, and
+    // the strip already refuses to cross one out before then. This used to
+    // call the same day "لم يُنجز" ten hours early.
+    if (!roomDayIsClosedAt(day, DateTime.now())) {
+      return s.roomCalendarStillOpen;
+    }
     return s.roomCalendarMissed;
   }
+
+  /// Whether [day] can still be marked: today, or yesterday before the
+  /// cutoff. The card draws an unearned but still-open day in a neutral tone
+  /// rather than the red of a miss.
+  bool _isOpenDay(DateTime day) =>
+      !roomDayIsClosedAt(day, DateTime.now());
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
     final dark = gp.dark;
-    final locale = Localizations.localeOf(context).languageCode;
     final selected = _selected;
 
     return Padding(
@@ -236,31 +260,14 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
                   : Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Row(
-                          children: [
-                            Icon(Icons.event_rounded,
-                                size: 14, color: gp.textTert),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                DateFormat('EEEE d MMMM', locale)
-                                    .format(selected),
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: gp.textPrimary,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              _statusFor(selected, s),
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w800,
-                                color: gp.textSec,
-                              ),
-                            ),
-                          ],
+                        _DayScoreCard(
+                          room: widget.room,
+                          participant: widget.participant,
+                          day: selected,
+                          status: _statusFor(selected, s),
+                          tone: _fillFor(selected, dark),
+                          scored: _isScoredDay(selected),
+                          stillOpen: _isOpenDay(selected),
                         ),
                         // The day-1 note. Its own banded row rather than
                         // another word in the status line, because it says
@@ -312,6 +319,475 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
   }
 }
 
+
+/// The tapped day, as a score rather than a verdict.
+///
+/// A day used to answer with one word. "أُنجز" says whether, never how much,
+/// and says nothing at all about which habit: on a three-habit plan the same
+/// word covered a day where everything was done and a day where the fraction
+/// happened to round kindly. "It should show a score like 1/1 for train, 0/1
+/// for walk, and if the train gives him 0.5 show that with the done mark"
+/// (Aziz, 2026-09-10).
+///
+/// It reads as a receipt: one line per habit carrying what that habit ADDED
+/// to the day (+1, +0.5, 0), and a sum underneath. The first cut printed the
+/// day's fraction at the top AND repeated it on the habit's own row, which on
+/// a one-habit plan is the same number twice ("you show it 1/1 twice" - Aziz,
+/// same day). So the sum now appears only when more than one habit
+/// contributed to it; with one habit, its row is the total.
+///
+/// Everything here is read through [roomDayBreakdown], which reads the same
+/// accessors the leaderboard ranks on. Nothing is recomputed locally, so this
+/// card cannot drift away from the percentage that opened it.
+class _DayScoreCard extends StatelessWidget {
+  final RoomModel room;
+  final RoomParticipant participant;
+  final DateTime day;
+
+  /// The one-word verdict, still shown: it names the KIND of day (paused,
+  /// stood down, rested, still open) in the cases a fraction cannot.
+  final String status;
+
+  /// The day's own cell colour, so the pill and the square agree.
+  final Color? tone;
+
+  /// False for a day outside this member's window, a paused room day, or one
+  /// they stood down. Those get the header and nothing else.
+  final bool scored;
+
+  /// Whether the day can still be marked (today, or yesterday before the
+  /// cutoff). An empty day that is still open is drawn in a neutral tone: it
+  /// has not been failed, it has not finished.
+  final bool stillOpen;
+
+  const _DayScoreCard({
+    required this.room,
+    required this.participant,
+    required this.day,
+    required this.status,
+    required this.tone,
+    required this.scored,
+    required this.stillOpen,
+  });
+
+  /// 1, or 2.5. Trailing zeros dropped, because "2.0 / 3" reads like a
+  /// measurement rather than a count of habits.
+  static String _count(double v) => v == v.roundToDouble()
+      ? v.toInt().toString()
+      : v.toStringAsFixed(1);
+
+  /// The square whose colour and glyph stand for an outcome. Reusing
+  /// [SquareState] rather than inventing a second vocabulary: a جزئي is the
+  /// same half-disc here as it is on the Grid.
+  static SquareState _mark(RoomSlotOutcome outcome) => switch (outcome) {
+        RoomSlotOutcome.done => SquareState.complete,
+        RoomSlotOutcome.partial => SquareState.partial,
+        RoomSlotOutcome.missed => SquareState.failed,
+        RoomSlotOutcome.rest => SquareState.skipped,
+        RoomSlotOutcome.declined => SquareState.none,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final b = scored
+        ? roomDayBreakdown(
+            room: room,
+            participant: participant,
+            dateKey: day.toDateKey(),
+          )
+        : null;
+    final rows = b?.slots ?? const <RoomSlotDay>[];
+    // Declined slots are listed but score nothing, so they cannot make a day
+    // need a sum line.
+    final contributing =
+        rows.where((r) => r.outcome != RoomSlotOutcome.declined).length;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(13, 11, 13, 12),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: gp.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _header(context, s),
+          if (b != null) ...[
+            if (rows.isNotEmpty) ...[
+              const SizedBox(height: 11),
+              for (var i = 0; i < rows.length; i++) ...[
+                if (i > 0) const SizedBox(height: 8),
+                _slotRow(context, rows[i], s),
+              ],
+            ],
+            if (b.asksNothing) ...[
+              // Named rows already say "راحة" on every line; without them the
+              // day still owes an explanation for having no score at all.
+              if (rows.isEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  s.roomCalendarNothingAsked,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: gp.textSec,
+                  ),
+                ),
+              ],
+            ] else if (rows.isEmpty) ...[
+              // The room could not say which habit did what (a mixed day, or
+              // an 'own'-mode room). The day's own fraction leads instead,
+              // and the marks follow it as counts.
+              const SizedBox(height: 10),
+              _dayFraction(context, b, s),
+              const SizedBox(height: 8),
+              _bar(context, b),
+              const SizedBox(height: 11),
+              _marks(context, b, s),
+            ] else if (contributing > 1) ...[
+              const SizedBox(height: 11),
+              Divider(height: 1, thickness: 1, color: gp.divider),
+              const SizedBox(height: 10),
+              _total(context, b, s),
+              const SizedBox(height: 8),
+              _bar(context, b),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _header(BuildContext context, S s) {
+    final gp = context.gp;
+    final locale = Localizations.localeOf(context).languageCode;
+    return Row(
+      children: [
+        Icon(Icons.event_rounded, size: 14, color: gp.textTert),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            DateFormat('EEEE d MMMM', locale).format(day),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: gp.textPrimary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: tone ?? gp.surfaceHL,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: gp.border),
+          ),
+          child: Text(
+            status,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              color: gp.textPrimary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A mark's colour as TEXT, which is not the same question as its colour
+  /// as a glyph inside its own tinted square.
+  ///
+  /// [SquareState.accent] returns the RAW GameColors.warning / .error for
+  /// جزئي and فشل, and both are light enough that they fail contrast as text
+  /// on a cream light-mode surface. GameColors' own note says the raw pair
+  /// "stay for fills"; the palette already carries [_GamePalette.warningInk]
+  /// and [_GamePalette.errorInk] for exactly this use.
+  static Color _inkFor(BuildContext context, SquareState mark) {
+    final gp = context.gp;
+    return switch (mark) {
+      SquareState.partial => gp.warningInk,
+      SquareState.failed => gp.errorInk,
+      _ => mark.accent(gp.dark),
+    };
+  }
+
+  /// The colour of the fraction and the bar. Red only for a day that is
+  /// actually over with nothing on it.
+  Color _ink(BuildContext context, RoomDayBreakdown b) {
+    final gp = context.gp;
+    if (b.ratio >= 1) return _inkFor(context, SquareState.complete);
+    if (b.credited > 0) return _inkFor(context, SquareState.partial);
+    if (stillOpen) return gp.textTert;
+    return _inkFor(context, SquareState.failed);
+  }
+
+  /// The day's own fraction, large. Used only when the habits cannot be named
+  /// — otherwise the rows carry the detail and [_total] sums them.
+  Widget _dayFraction(BuildContext context, RoomDayBreakdown b, S s) {
+    final gp = context.gp;
+    final ink = _ink(context, b);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(
+          _count(b.credited),
+          textDirection: TextDirection.ltr,
+          style: TextStyle(
+            fontSize: 25,
+            fontWeight: FontWeight.w900,
+            height: 1,
+            color: ink,
+          ),
+        ),
+        Text(
+          ' / ${b.scheduled}',
+          textDirection: TextDirection.ltr,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: gp.textSec,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            s.roomCalendarDayScore,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: gp.textTert,
+            ),
+          ),
+        ),
+        Text(
+          '${(b.ratio * 100).round()}%',
+          textDirection: TextDirection.ltr,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: ink,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The sum of the rows above it.
+  Widget _total(BuildContext context, RoomDayBreakdown b, S s) {
+    final gp = context.gp;
+    final ink = _ink(context, b);
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            s.roomCalendarTotal,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: gp.textSec,
+            ),
+          ),
+        ),
+        Text(
+          '${_count(b.credited)} / ${b.scheduled}',
+          textDirection: TextDirection.ltr,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+            color: ink,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '${(b.ratio * 100).round()}%',
+          textDirection: TextDirection.ltr,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: gp.textTert,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _bar(BuildContext context, RoomDayBreakdown b) {
+    final gp = context.gp;
+    final ink = _ink(context, b);
+    return SizedBox(
+      height: 7,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: ColoredBox(color: gp.textPrimary.withOpacity(0.08)),
+            ),
+            // centerStart, not the default centre: in Arabic the bar has to
+            // grow from the right edge, and an unaligned FractionallySizedBox
+            // would float the fill in the middle of the track.
+            FractionallySizedBox(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: b.ratio.clamp(0.0, 1.0),
+              heightFactor: 1,
+              child: ColoredBox(color: ink),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// What one habit ADDED to the day, in the same weights the room scores by:
+  /// a whole habit is +1, a جزئي is +0.5, and everything else adds nothing.
+  /// Aziz asked for the arithmetic to be visible rather than implied ("show
+  /// the mark, like +0.5, so user can see the scoring").
+  String _contribution(RoomSlotDay slot, S s) => switch (slot.outcome) {
+        RoomSlotOutcome.done => '+1',
+        RoomSlotOutcome.partial => '+0.5',
+        RoomSlotOutcome.missed => '0',
+        RoomSlotOutcome.rest => s.roomCalendarChipRest,
+        RoomSlotOutcome.declined => s.roomCalendarSlotDeclined,
+      };
+
+  Widget _slotRow(BuildContext context, RoomSlotDay slot, S s) {
+    final gp = context.gp;
+    final dark = gp.dark;
+    // An empty square, not a red one, while the day can still be marked: the
+    // ✗ is a verdict and the day has not reached one yet.
+    final mark = slot.outcome == RoomSlotOutcome.missed && stillOpen
+        ? SquareState.none
+        : _mark(slot.outcome);
+    final scores = slot.outcome == RoomSlotOutcome.done ||
+        slot.outcome == RoomSlotOutcome.partial;
+    return Row(
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: mark.fill(dark),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: mark.border(dark)),
+          ),
+          child: mark.icon == null
+              ? null
+              : Icon(mark.icon, size: 13, color: mark.accent(dark)),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            slot.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: slot.outcome == RoomSlotOutcome.declined
+                  ? gp.textTert
+                  : gp.textPrimary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          _contribution(slot, s),
+          textDirection: scores ? TextDirection.ltr : null,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+            color: scores ? _inkFor(context, mark) : gp.textTert,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The marks as counts — the fallback for a day whose habits cannot be
+  /// named individually.
+  Widget _marks(BuildContext context, RoomDayBreakdown b, S s) => Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          if (b.done > 0)
+            _chip(
+              context,
+              SquareState.complete,
+              s.roomCalendarChipDone,
+              b.done,
+            ),
+          if (b.partial > 0)
+            _chip(
+              context,
+              SquareState.partial,
+              s.roomCalendarChipPartial,
+              b.partial,
+            ),
+          if (b.missed > 0)
+            _chip(
+              context,
+              stillOpen ? SquareState.none : SquareState.failed,
+              s.roomCalendarChipMissed,
+              b.missed,
+            ),
+          if (b.rested > 0)
+            _chip(
+              context,
+              SquareState.skipped,
+              s.roomCalendarChipRest,
+              b.rested,
+            ),
+        ],
+      );
+
+  Widget _chip(
+    BuildContext context,
+    SquareState mark,
+    String label,
+    int count,
+  ) {
+    final gp = context.gp;
+    final dark = gp.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: mark.fill(dark),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: mark.border(dark)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (mark.icon != null) ...[
+            Icon(mark.icon, size: 11.5, color: mark.accent(dark)),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            '$label $count',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              color: gp.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
 /// The identity and the score at the top of a member's sheet.
 ///
 /// Every figure here is read through the SAME accessor the leaderboard row
@@ -344,9 +820,25 @@ class _ParticipantHeader extends StatelessWidget {
     final accessory = AccessoryCatalog.findById(participant.accessoryId);
     final prestige = PrestigeCatalog.findById(participant.prestigeTierId);
 
-    final ratio = participant.progressRatio(room);
-    final done = participant.daysCompleted(room);
-    final elapsed = participant.daysElapsedIn(room);
+    // The room score, the number this member was placed by, and the day
+    // count that produces it - the same fraction, so «٣.٥ من ٩» and the
+    // percent beside it can never disagree. How much of the plan they carry
+    // is captioned under the scoreboard when it is not all of it, which is
+    // the only case the two numbers differ from the member's own. See
+    // RoomParticipant.roomProgressRatio.
+    final ratio = participant.roomProgressRatio(room);
+    final done = participant.roomDaysCompleted(room);
+    // roomDaysElapsedIn, not daysElapsedIn: the room score's own denominator.
+    // The two used to be the same number for anyone who never went away, and
+    // are not any more — a day this member's own plan asked nothing of, but
+    // an unlinked slot did, leaves their own denominator and stays in the
+    // room's. Pairing the room numerator with the personal denominator would
+    // print a fraction that disagreed with the percent right beside it.
+    final elapsed = participant.roomDaysElapsedIn(room);
+    final ownPercent = (participant.progressRatio(room) * 100).round();
+    final coverage = participant.planCoverageIn(room);
+    final carriesPartOfPlan =
+        coverage != null && coverage.linked < coverage.total;
     final streak = participant.currentStreak(room);
 
     // Your own sheet is gold, everyone else's is the grid's green. The same
@@ -489,6 +981,25 @@ class _ParticipantHeader extends StatelessWidget {
             ],
           ),
         ).animate(delay: 170.ms).fadeIn(duration: 260.ms).moveY(begin: 8, end: 0),
+        if (carriesPartOfPlan) ...[
+          const SizedBox(height: 8),
+          Text(
+            // roomOwnRate only when it differs from the score above it, the
+            // contract its own doc states and the leaderboard row already
+            // keeps. Without the guard this sheet printed «المرتبطة: 52%»
+            // directly under «نسبة الإنجاز 52%»: the same number twice under
+            // two labels, which is the confusion the caption exists to
+            // prevent. Reachable with no odd data at all, since a slot added
+            // in the last three days is asked of nobody yet, so every
+            // unresolved member's room score still equals their own.
+            [
+              s.roomPlanCoverage(coverage.linked, coverage.total),
+              if (ownPercent != (ratio * 100).round()) s.roomOwnRate(ownPercent),
+            ].join(' · '),
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11, color: gp.textTert),
+          ).animate(delay: 220.ms).fadeIn(duration: 260.ms),
+        ],
       ],
     );
   }

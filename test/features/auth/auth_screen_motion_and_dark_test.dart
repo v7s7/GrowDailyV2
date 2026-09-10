@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
@@ -110,7 +112,23 @@ void main() {
   });
 
   group('dark mode', () {
-    testWidgets('the whole screen lays out', (tester) async {
+    // The Apple button is an iOS/macOS thing. SocialAuthService used to ask
+    // dart:io's Platform, which on the Mac running these tests happened to
+    // say macOS, so the button appeared by accident of the host. It now
+    // asks defaultTargetPlatform (Android under flutter test), so the two
+    // tests that are ABOUT the button state the platform they mean. Reset
+    // inside the body, not in tearDown: the binding asserts every
+    // foundation debug variable is back to null before the test ends.
+    Future<void> onIOS(Future<void> Function() body) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await body();
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+
+    testWidgets('the whole screen lays out', (tester) => onIOS(() async {
       await tester.pumpWidget(
         hosted(const AuthScreen(), calm: false, theme: GameTheme.dark),
       );
@@ -121,10 +139,10 @@ void main() {
       expect(find.text(en.continueWithEmail), findsOneWidget);
       expect(find.text(en.tryAsGuest), findsOneWidget);
       expect(find.textContaining(en.authAccountLead), findsOneWidget);
-    });
+    }));
 
     testWidgets('the Apple button inverts, as its own guidelines require',
-        (tester) async {
+        (tester) => onIOS(() async {
       // Apple asks for the treatment that contrasts with the background:
       // black on light, white on dark. Hard-coding black would make the
       // button vanish into this app's dark ground.
@@ -145,7 +163,7 @@ void main() {
         appleButton.style!.backgroundColor!.resolve(<WidgetState>{}),
         const Color(0xFFFFFFFF),
       );
-    });
+    }));
 
     testWidgets('the guest button keeps a readable label on the dark ground',
         (tester) async {

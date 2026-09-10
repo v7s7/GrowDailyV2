@@ -19,7 +19,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_schedule.dart';
 import '../../grid/models/square_state.dart';
 import '../../milestones/reports/habit_day_marks.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
 part 'dashboard_notifier_loading.dart';
 part 'dashboard_notifier_complete_habit.dart';
@@ -60,6 +60,9 @@ Future<void> _recordWriteFailure(
   Object error,
   StackTrace stackTrace,
 ) {
+  // No Crashlytics on the web; the failure still reaches the console
+  // through the caller's own handling.
+  if (kIsWeb) return Future.value();
   return FirebaseCrashlytics.instance.recordError(
     error,
     stackTrace,

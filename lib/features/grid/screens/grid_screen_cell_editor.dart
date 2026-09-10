@@ -585,7 +585,8 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       // 15 back without touching the completion.
       ref
           .read(weeklyGridProvider.notifier)
-          .setSquareStateOnly(habit.id, day, picked);
+          .setSquareStateOnly(habit.id, day, picked,
+              source: kSquareSourcePalette);
       syncRoomToday(ref, habit.id, day);
       return;
     }
@@ -633,7 +634,8 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       if (!mounted) return;
       ref
           .read(weeklyGridProvider.notifier)
-          .setSquareStateOnly(habit.id, day, picked);
+          .setSquareStateOnly(habit.id, day, picked,
+              source: kSquareSourcePalette);
       syncRoomToday(ref, habit.id, day);
       return;
     }
@@ -750,12 +752,14 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       }
       ref
           .read(weeklyGridProvider.notifier)
-          .setSquareStateOnly(habit.id, day, picked);
+          .setSquareStateOnly(habit.id, day, picked,
+              source: kSquareSourcePalette);
       syncRoomToday(ref, habit.id, day);
       return;
     }
 
-    ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked);
+    ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked,
+        source: kSquareSourcePalette);
     syncRoomToday(ref, habit.id, day);
   }
 }

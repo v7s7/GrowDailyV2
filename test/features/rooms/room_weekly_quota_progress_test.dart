@@ -115,6 +115,7 @@ IslamicHabitTemplate _namedDaysHabit(List<int> weekdays) =>
 void main() {
   _quotaWriterInvariant();
   _extendIsScoreNeutral();
+  _emptyWindowIsNotFailure();
   _unlinkKeepsSlots();
   group('weeklyQuotaScheduledDays - which days a quota is answerable for', () {
     test('target met exactly: only the days done count, rest days are excused',
@@ -263,9 +264,14 @@ void main() {
         dailyScheduledCount: stored.scheduled,
       );
 
-      expect(p.daysCompleted(week), 7.0);
+      // Five answerable days, five done. The two untouched days are not in
+      // the numerator any more and not in the denominator either — a rest
+      // day leaves BOTH sides now, where it used to be paid a full 1.0 and
+      // still counted, which is what let an empty week score 43%.
+      expect(p.daysCompleted(week), 5.0);
+      expect(p.daysElapsedIn(week), 5);
       expect(p.progressRatio(week), 1.0);
-      // The old behaviour, asserted as explicitly NOT the answer: every day
+      // The original bug, asserted as explicitly NOT the answer: every day
       // of the week in the denominator meant the two untouched rest days
       // read as misses, so a beaten target scored 5/7.
       expect(p.progressRatio(week), isNot(closeTo(5 / 7, 0.0001)));
@@ -312,7 +318,13 @@ void main() {
 
     test('falling short still costs exactly the shortfall, no more', () {
       // 4x a week, done 3. Three done days credit fully, one day is a real
-      // miss, and the three rest days stay excused: 6 of 7.
+      // miss, and the three rest days leave entirely: 3 of 4.
+      //
+      // 3 of 4 IS the shortfall, exactly. The old 6 of 7 was less than it:
+      // the excused days were paid a full 1.0 apiece, which padded the
+      // numerator and the denominator together and dragged every score
+      // toward 100%. Aziz, on his own room, three times: "why they are not
+      // getting failure, they are missing the days not only rest days."
       final stored = _storedForWeek(
         doneDayIndices: const {0, 1, 2},
         target: 4,
@@ -322,8 +334,9 @@ void main() {
         dailyDoneCount: stored.done,
         dailyScheduledCount: stored.scheduled,
       );
-      expect(p.daysCompleted(week), 6.0);
-      expect(p.progressRatio(week), closeTo(6 / 7, 0.0001));
+      expect(p.daysCompleted(week), 3.0);
+      expect(p.daysElapsedIn(week), 4);
+      expect(p.progressRatio(week), closeTo(3 / 4, 0.0001));
     });
 
     test('an entirely empty week is still scored as a failed quota', () {
@@ -340,12 +353,17 @@ void main() {
       );
       expect(
         p.daysCompleted(week),
-        3.0,
-        reason: 'the 4 owed sessions are misses; only the 3 rest days are '
-            'excused - the same score a 4-named-weekday habit gets for '
-            'doing nothing',
+        0.0,
+        reason: 'the 4 owed sessions are misses and the 3 rest days are gone '
+            'from both sides - the same score a 4-named-weekday habit gets '
+            'for doing nothing',
       );
-      expect(p.progressRatio(week), lessThan(0.5));
+      expect(p.daysElapsedIn(week), 4);
+      // Zero, not 43%. A week in which nothing at all was done used to score
+      // 3/7 here, because each of the three rest days was paid a full 1.0.
+      // That is the number a member kept seeing beside a blank week, and the
+      // reason a real miss never read as one.
+      expect(p.progressRatio(week), 0.0);
     });
   });
 
@@ -1141,6 +1159,59 @@ void _unlinkKeepsSlots() {
       final (newIds, _) =
           removeLinkedHabit(ids, names, 'b', preserveSlots: true);
       expect(newIds, ['a', kDeclinedSlot, 'c']);
+    });
+  });
+}
+
+/// A window in which the plan asked for literally nothing.
+///
+/// Making a rest day leave the denominator opened one narrow trapdoor: if
+/// EVERY day someone has been in a room is a rest day, the live denominator
+/// is zero, and a naive "completed / elapsed" reads 0% for a person who has
+/// not been asked for a single thing yet. That is the day-one member whose
+/// only habit falls on Friday, joining on a Tuesday.
+///
+/// Nothing asked is nothing fallen short of, so that window reads 1.0 — the
+/// same as it did before rest days started leaving. Tenure keeps them off the
+/// podium either way (see holdsPlaceIn). The zero belongs only to windows
+/// excused for a different reason: a pause, or a stand-down.
+void _emptyWindowIsNotFailure() {
+  group('a window the plan never asked anything of', () {
+    // Tue 4 Aug .. Wed 5 Aug 2026, with a Friday-only habit: two days, both
+    // rest days, nothing due in either.
+    final room = _room(start: DateTime(2026, 8, 4), end: DateTime(2026, 8, 5));
+
+    RoomParticipant restOnly({List<String> standDown = const []}) =>
+        RoomParticipant(
+          uid: 'new-uid',
+          displayName: 'New',
+          characterId: 'male_ghutra_blue',
+          joinedAt: DateTime(2026, 8, 4),
+          linkedHabitIds: const ['h1'],
+          dailyScheduledCount: const {'2026-08-04': 0, '2026-08-05': 0},
+          standDownDays: standDown,
+          lastUpdated: DateTime(2026, 8, 5),
+        );
+
+    test('scores 1.0, not 0 - nothing was asked, nothing was missed', () {
+      final p = restOnly();
+      expect(p.isRestDay('2026-08-04'), isTrue);
+      expect(p.progressRatio(room), 1.0);
+      expect(p.roomProgressRatio(room), 1.0);
+    });
+
+    test('daysElapsedIn still never reports zero days present', () {
+      // The display denominator keeps its floor of 1; only the ratios read
+      // the unclamped count, because 0 asked and 1 asked are different facts.
+      expect(restOnly().daysElapsedIn(room), 1);
+    });
+
+    test('a stood-down window keeps its zero - that is not a rest day', () {
+      // Same empty denominator, different reason. Parking every habit on day
+      // one is not the same as the schedule having no work for you.
+      final p = restOnly(standDown: const ['2026-08-04', '2026-08-05']);
+      expect(p.isRestDay('2026-08-04'), isFalse);
+      expect(p.progressRatio(room), 0.0);
     });
   });
 }

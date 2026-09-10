@@ -7,6 +7,12 @@
 // closed, which is the whole reason for reading them, so the app now looks
 // back exactly one day on the first run of each new day.
 //
+// Widened from one day to seven on 2026-09-09 (kStepCatchUpDays), Aziz's
+// call after testers reported days going empty: the person who walks daily
+// and opens the app twice a week used to lose every day in between, and
+// nothing on screen ever said so. It is also the recovery path for days lost
+// to build 66, where a walk short of the goal wrote nothing at all.
+//
 // Writing a square nobody asked for is only defensible while it is confined
 // to days that are genuinely blank, and that confinement is what this file
 // pins. Everything else about the back-fill is deliberately dull: the square
@@ -48,11 +54,56 @@ void main() {
     List<IslamicHabitTemplate> linked,
     Map<String, SquareState> marks,
   ) =>
-      stepHabitsOwedYesterday(
+      stepHabitsOwedOn(
         linked: linked,
         marks: marks,
-        yesterday: yesterday,
+        day: yesterday,
       ).map((h) => h.id).toList();
+
+  group('the window the pass reaches back over', () {
+    test('seven days, and the number is load-bearing', () {
+      // Not a taste question: one day was the old value, and it is what let
+      // a walker who opens the app twice a week lose every day in between.
+      // Seven matches the visible grid week, so the promise the board makes
+      // and the promise the count keeps are the same length.
+      expect(kStepCatchUpDays, 7);
+    });
+
+    test('a habit is owed every day of the window it existed for', () {
+      final born = DateTime.now().effectiveDay.subtract(const Duration(days: 3));
+      final h = habit(createdAt: born);
+      for (var back = 1; back <= kStepCatchUpDays; back++) {
+        final day = DateTime.now().effectiveDay.subtract(Duration(days: back));
+        final owed = stepHabitsOwedOn(
+          linked: [h],
+          marks: const {},
+          day: day,
+        ).map((x) => x.id).toList();
+        // Three days old: days one to three are its own, four and older are
+        // days it did not exist for and must never be marked.
+        expect(owed, back <= 3 ? ['walk'] : isEmpty,
+            reason: 'day $back back, habit born 3 days ago');
+      }
+    });
+
+    test('a specific-days habit is only owed its own weekdays in the window',
+        () {
+      // Whatever weekday today is, exactly one of the seven days behind it
+      // shares it, so a habit scheduled for that weekday alone is owed
+      // exactly one day of the window.
+      final weekday = DateTime.now().effectiveDay.weekday;
+      final h = habit(weekdays: [weekday]);
+      var owedDays = 0;
+      for (var back = 1; back <= kStepCatchUpDays; back++) {
+        final day = DateTime.now().effectiveDay.subtract(Duration(days: back));
+        if (stepHabitsOwedOn(linked: [h], marks: const {}, day: day)
+            .isNotEmpty) {
+          owedDays++;
+        }
+      }
+      expect(owedDays, 1);
+    });
+  });
 
   group('every square the count may still lift is in play', () {
     test('an untouched square is owed an answer', () {

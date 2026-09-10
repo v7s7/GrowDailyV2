@@ -6,6 +6,12 @@
 // one about NOT changing anything: a habit left at one time a day must be
 // byte-for-byte the habit that existed before this feature, so the tests
 // below check the resting state as carefully as the counted one.
+//
+// What moved on 2026-09-09: the Repeat chips no longer open with Daily
+// already lit, so "whenever Daily is selected" now begins at the tap that
+// selects it. Every test below therefore picks Daily first, through the
+// helper, and the one directly under this comment pins the state before
+// that tap: chips offered, nothing underneath them yet.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -59,24 +65,60 @@ void main() {
         ),
       );
 
-  /// Walks the sheet to the frequency step, where the stepper lives.
-  Future<void> toWhen(WidgetTester tester) async {
+  /// The tappable cell of a chip, not its label: «يومياً» is also printed
+  /// by the preview card's summary line the moment a cadence is picked, so
+  /// a bare find.text would become ambiguous halfway through these tests.
+  Finder chip(String label) =>
+      find.ancestor(of: find.text(label), matching: find.byType(InkWell)).first;
+
+  /// Walks the sheet to the frequency step and picks Daily, which is what
+  /// puts the stepper on screen. [pickDaily] false stops one tap short, for
+  /// the test that pins what the step looks like before anything is chosen.
+  Future<void> toWhen(WidgetTester tester, {bool pickDaily = true}) async {
     await tester.pumpWidget(app(const Locale('ar')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.enterText(find.byType(TextField).first, 'الدواء');
     await tester.pump();
     await tester.tap(find.byType(FilledButton).last);
     await tester.pump(const Duration(milliseconds: 400));
+    if (!pickDaily) return;
+    await tester.tap(chip(ar.daily));
+    await tester.pump(const Duration(milliseconds: 400));
   }
 
   Finder plus() => find.byIcon(Icons.add_rounded);
   Finder minus() => find.byIcon(Icons.remove_rounded);
 
+  testWidgets('the step opens with no cadence picked and no stepper',
+      (tester) async {
+    await toWhen(tester, pickDaily: false);
+    expect(find.text(ar.repeat), findsOneWidget,
+        reason: 'the question is asked');
+    expect(find.text(ar.daily), findsOneWidget,
+        reason: 'exactly the chip: with no cadence picked the preview card '
+            'has no cadence to print, so this is unambiguous');
+    expect(plus(), findsNothing,
+        reason: 'the per-day count belongs to Daily, and Daily has not been '
+            'chosen yet');
+    expect(find.text(ar.timesPerDayLabel(1)), findsNothing);
+    await _teardown(tester);
+  });
+
+  testWidgets('picking Daily is what brings the stepper', (tester) async {
+    await toWhen(tester, pickDaily: false);
+    expect(plus(), findsNothing);
+    await tester.tap(chip(ar.daily));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(plus(), findsOneWidget);
+    expect(find.text(ar.timesPerDayLabel(1)), findsOneWidget);
+    await _teardown(tester);
+  });
+
   testWidgets('Daily opens on one a day, and says so', (tester) async {
     await toWhen(tester);
     expect(plus(), findsOneWidget,
-        reason: 'the stepper must be visible without being hunted for — '
-            'that is the whole of Option A');
+        reason: 'once Daily is chosen the stepper must be visible without '
+            'being hunted for — that is the whole of Option A');
     expect(find.text(ar.timesPerDayLabel(1)), findsOneWidget);
     expect(find.text('1'), findsWidgets);
     await _teardown(tester);
@@ -139,7 +181,7 @@ void main() {
       (tester) async {
     await toWhen(tester);
     expect(plus(), findsOneWidget);
-    await tester.tap(find.text(ar.weekly));
+    await tester.tap(chip(ar.weekly));
     await tester.pump(const Duration(milliseconds: 300));
     expect(plus(), findsNothing,
         reason: 'a per-DAY count on a weekly habit is a contradiction');
@@ -152,9 +194,9 @@ void main() {
     // two different things. Five times a WEEK carried across verbatim would
     // silently become five times a DAY.
     await toWhen(tester);
-    await tester.tap(find.text(ar.weekly));
+    await tester.tap(chip(ar.weekly));
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text(ar.daily));
+    await tester.tap(chip(ar.daily));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text(ar.timesPerDayLabel(1)), findsOneWidget,
         reason: 'coming back from Weekly must rest at one a day, not inherit '
@@ -170,9 +212,9 @@ void main() {
     await tester.tap(plus());
     await tester.pump();
     expect(find.text('3'), findsWidgets);
-    await tester.tap(find.text(ar.specificDays));
+    await tester.tap(chip(ar.specificDays));
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text(ar.daily));
+    await tester.tap(chip(ar.daily));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('3'), findsWidgets,
         reason: 'Specific Days rewrites frequencyTarget to a number of '

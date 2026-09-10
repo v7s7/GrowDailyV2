@@ -29,7 +29,9 @@ class _PodiumColumn extends StatelessWidget {
       2 => (46.0, const Color(0xFFB9C0C7)),
       _ => (34.0, const Color(0xFFC98A5E)),
     };
-    final pct = (participant.progressRatio(room) * 100).round();
+    // The room score, the number the place was decided by. See
+    // RoomParticipant.roomProgressRatio.
+    final pct = (participant.roomProgressRatio(room) * 100).round();
     // The plinth keeps the medal's true metal; the two labels take its ink.
     // All three metals are pale on a light surface - gold measured 2.03:1
     // here on device - and silver and bronze are no better, so this goes
@@ -244,11 +246,19 @@ class _RoomHeaderCard extends StatelessWidget {
 /// is final.
 class _TeamDayCard extends ConsumerWidget {
   final RoomModel room;
+
+  /// The members IN the room - today's faces and who is still to go.
   final List<RoomParticipant> participants;
+
+  /// Every record the room holds, departed members included - what the
+  /// team's DAYS are counted over, so someone leaving does not rewrite the
+  /// days they played. See roomRosterHistoryProvider.
+  final List<RoomParticipant> history;
   final RoomParticipant? mine;
   const _TeamDayCard({
     required this.room,
     required this.participants,
+    required this.history,
     required this.mine,
   });
 
@@ -267,8 +277,11 @@ class _TeamDayCard extends ConsumerWidget {
         if (!p.isFullyDone(todayKey)) p,
     ];
     final wonToday = counted.isNotEmpty && waiting.isEmpty;
-    final streak = room.teamStreak(participants);
-    final days = room.teamDays(participants);
+    // Counted over the full history, not today's roster: a member who left
+    // keeps the days they played on the team's record, and a rejoiner's
+    // away days count for nobody (RoomModel.memberCountsOn).
+    final streak = room.teamStreak(history);
+    final days = room.teamDays(history);
     final ratio =
         days.counted == 0 ? 0.0 : (days.won / days.counted).clamp(0.0, 1.0);
     final pct = (ratio * 100).round();
@@ -277,7 +290,7 @@ class _TeamDayCard extends ConsumerWidget {
     // reached (claimable) or the next target. teamBestStreakWith is the
     // tenure guard; see its doc comment.
     final me = mine;
-    final best = me == null ? 0 : room.teamBestStreakWith(me, participants);
+    final best = me == null ? 0 : room.teamBestStreakWith(me, history);
     final mine_ = me == null ? 0 : room.teamStreakWith(me, participants);
     final claims = me?.teamStreakClaims ?? const <int>[];
     int? claimable;

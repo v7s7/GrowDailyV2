@@ -292,6 +292,11 @@ class _FinaleCard extends ConsumerStatefulWidget {
   /// members who finished dead level were shown, and paid, as first and
   /// second on the strength of uid order.
   final List<RoomStanding> standings;
+
+  /// Every record the room holds, departed members included, for the team
+  /// summary: the days a team won are the days it won, whoever has since
+  /// left. See roomRosterHistoryProvider.
+  final List<RoomParticipant> history;
   final RoomModel room;
   final RoomParticipant? mine;
 
@@ -310,6 +315,7 @@ class _FinaleCard extends ConsumerStatefulWidget {
 
   const _FinaleCard({
     required this.standings,
+    required this.history,
     required this.room,
     required this.mine,
     required this.isLeader,
@@ -429,9 +435,11 @@ class _FinaleCardState extends ConsumerState<_FinaleCard> {
   List<Widget> _teamSummary(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final roster = [for (final m in widget.standings) m.participant];
-    final days = widget.room.teamDays(roster);
-    final best = widget.room.teamBestStreak(roster);
+    // The full history, not the board: a departed member's played days stay
+    // on the team's record (RoomModel.memberCountsOn leaves them out of the
+    // days they were away, and of nothing else).
+    final days = widget.room.teamDays(widget.history);
+    final best = widget.room.teamBestStreak(widget.history);
     return [
       Text(
         s.roomTeamFinaleScore(days.won, days.counted),
