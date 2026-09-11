@@ -25,7 +25,10 @@ class _RoomBody extends ConsumerWidget {
     final s = S.of(context);
     final uid = ref.watch(authStateProvider).asData?.value?.uid;
     final isLeader = uid != null && uid == room.createdBy;
-    final participantsAsync = ref.watch(roomParticipantsProvider(room.code));
+    // Graded: the board, the podium, the finale and every sheet opened from
+    // them score members from this list. See gradedRoomParticipantsProvider.
+    final participantsAsync =
+        ref.watch(gradedRoomParticipantsProvider(room.code));
     // Needed up here (not just inside the `data:` branch below) so the
     // app-bar's mute toggle can show the right label/icon before the list
     // itself has necessarily rendered - null only very briefly, while
@@ -136,16 +139,22 @@ class _RoomBody extends ConsumerWidget {
         error: (_, __) => Center(
           child: Text(s.roomGenericError, style: TextStyle(color: gp.textSec)),
         ),
-        data: (participants) {
+        data: (graded) {
+          // Settled once it is over: an ended room reads the record on every
+          // card below, the finale and its podium claim included. See
+          // RoomLeaderboard.scoringRoster.
+          final participants = room.scoringRoster(graded);
           final mine = mineOf(participants);
           onSyncIfNeeded(room, mine);
           // The team arithmetic counts over every record, departed members
           // included, so nobody's leaving rewrites the days the team played.
           // Falls back to the live roster until the stream has a value.
-          final history = ref
-                  .watch(roomRosterHistoryProvider(room.code))
-                  .valueOrNull ??
-              participants;
+          final history = room.scoringRoster(
+            ref
+                    .watch(gradedRoomRosterHistoryProvider(room.code))
+                    .valueOrNull ??
+                graded,
+          );
           // Live, not over, and nobody but the creator: the invite card
           // takes the place of the one-row ranking (see below).
           final soloLive =

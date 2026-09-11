@@ -397,7 +397,12 @@ class _RoomListTile extends ConsumerWidget {
           return const SizedBox.shrink();
         }
         final uid = ref.watch(authStateProvider).asData?.value?.uid;
-        final participants = ref.watch(roomParticipantsProvider(code)).valueOrNull;
+        // As the room screen reads it: the record once the room has ended
+        // (RoomLeaderboard.scoringRoster).
+        final graded =
+            ref.watch(gradedRoomParticipantsProvider(code)).valueOrNull;
+        final participants =
+            graded == null ? null : room.scoringRoster(graded);
         final mine = participants?.where((p) => p.uid == uid);
         // The room score - your standing, which is what a room card is
         // asking about. See RoomParticipant.roomProgressRatio.

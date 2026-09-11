@@ -137,6 +137,49 @@ final roomRosterHistoryProvider =
       .map((snap) => snap.docs.map(RoomParticipant.fromFirestore).toList());
 });
 
+/// [roomParticipantsProvider] as the board reads it: every member with the
+/// closed quota weeks their own phone has not regraded yet inferred on top
+/// (RoomParticipant.closedQuotaWeekInference). Every surface that SCORES a
+/// member reads this one. Nothing that writes a participant document may:
+/// syncLinkedHabitsProgress parses the raw document itself, and the inferred
+/// counts are not a field of that document.
+///
+/// `now` is taken whenever either stream emits, and the answer is kept while
+/// neither does, so it can lag the clock. A week that has closed since is
+/// picked up on the next emission, under-inferring meanwhile; a week that
+/// has aged out of the window, or a room that has ended, stays inferred
+/// until then. Neither lag reaches a payout: the room screen reads an ended
+/// room's record (RoomLeaderboard.scoringRoster), and a team milestone
+/// always does (RoomTeamProgress.claimableTeamMilestone). A leader's
+/// extension re-emits the room.
+final gradedRoomParticipantsProvider =
+    Provider.family<AsyncValue<List<RoomParticipant>>, String>((ref, code) {
+  final roster = ref.watch(roomParticipantsProvider(code));
+  final room = ref.watch(roomProvider(code)).valueOrNull;
+  if (room == null) return roster;
+  final now = DateTime.now();
+  return roster.whenData(
+    (list) => [
+      for (final p in list) p.withClosedQuotaWeeksInferred(room, now: now),
+    ],
+  );
+});
+
+/// [roomRosterHistoryProvider] with the same inference, so the team
+/// arithmetic grades a member exactly as the board beside it does.
+final gradedRoomRosterHistoryProvider =
+    Provider.family<AsyncValue<List<RoomParticipant>>, String>((ref, code) {
+  final roster = ref.watch(roomRosterHistoryProvider(code));
+  final room = ref.watch(roomProvider(code)).valueOrNull;
+  if (room == null) return roster;
+  final now = DateTime.now();
+  return roster.whenData(
+    (list) => [
+      for (final p in list) p.withClosedQuotaWeeksInferred(room, now: now),
+    ],
+  );
+});
+
 /// One ranked row of the widget's Room Race face - a trimmed, JSON-ready
 /// view of a single participant. See [myRoomRaceSnapshotProvider].
 class RoomRaceRow {
@@ -293,8 +336,13 @@ final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
   if (picked == null) return null;
   final bestRoom = picked; // final capture - safe to use inside closures below
 
+  // Graded, as the board is. pickFrom never picks a room that has ended,
+  // but this is worked out only when a provider it watches emits, so rows
+  // worked out while the room ran can stay on the widget for a while after
+  // its end, inferred weeks included, just as the pick itself can. Nothing
+  // pays from them.
   final participants =
-      ref.watch(roomParticipantsProvider(bestRoom.code)).valueOrNull ??
+      ref.watch(gradedRoomParticipantsProvider(bestRoom.code)).valueOrNull ??
           const [];
   if (participants.isEmpty) return null;
 
@@ -2567,9 +2615,10 @@ class RoomsController {
   /// transaction as [claimTeamBonus], with the claim recorded as an
   /// arrayUnion on `teamStreakClaims` so two taps, or two devices, can never
   /// pay the same milestone twice. The caller (the team card) has already
-  /// checked RoomTeamProgress.teamBestStreakWith against [milestone]; this
-  /// method only guards the double payment, not the eligibility, because
-  /// eligibility is a function of history every client can read.
+  /// asked RoomTeamProgress.claimableTeamMilestone, which grades the record
+  /// and never the weeks the board infers; this method only guards the
+  /// double payment, not the eligibility, because eligibility is a function
+  /// of history every client can read.
   Future<void> claimTeamStreakBonus(
     String code,
     RoomParticipant mine,
@@ -3963,7 +4012,14 @@ class RoomsController {
       // leaves the scheduled count untouched, so it still meets the clamp; and
       // a FALLING count (a habit unlinked, a shared slot withdrawn) keeps it
       // too, so nothing can be farmed by shrinking a day's obligations.
-      final storedScheduled = mineNow.scheduledCountFor(dateKey);
+      // What the document RECORDS, never what the board infers on top of it
+      // (RoomParticipant.inferredScheduledCount). mineNow is parsed from the
+      // raw snapshot above, so the two are equal here; naming the recorded
+      // value keeps it that way if a graded participant is ever handed in.
+      // Lowering this comparison is exactly what released the clamp when an
+      // admin write tried it on 2026-09-11: a back-painted observed day then
+      // asked for more than before, and was paid.
+      final storedScheduled = mineNow.recordedScheduledCountFor(dateKey);
       final asksMoreThanBefore = scheduled > storedScheduled;
       // Capping the credit also denies the streak on any plan with a daily
       // habit in it: the streak reads isFullyDone, which reads these very

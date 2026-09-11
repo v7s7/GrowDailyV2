@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../habits/models/habit_model.dart';
+import '../../habits/models/weekly_quota_plan.dart';
 
 enum RoomHabitMode {
   shared, // leader picks a plan (1+ habits) that gets cloned to every joiner
@@ -416,9 +417,14 @@ class RoomModel {
   /// roomBoostedHabitsProvider) and the "progress counts" window.
   bool get isLive => hasStarted && !isEnded;
 
-  bool get isEnded {
+  bool get isEnded => isEndedAt(DateTime.now());
+
+  /// [isEnded] against an explicit clock, like [lastCountedDayAt], so a
+  /// surface that switches on the end (RoomLeaderboard.scoringRoster) can be
+  /// tested at a chosen moment.
+  bool isEndedAt(DateTime now) {
     final end = endDate;
-    return end != null && DateTime.now().effectiveDay.isAfter(end);
+    return end != null && now.effectiveDay.isAfter(end);
   }
 
   /// The last day progress counts toward this room - today, unless the room
@@ -875,6 +881,17 @@ class RoomParticipant {
   /// fallback.
   final DateTime? lastSyncedAt;
 
+  /// Due counts inferred at read time for days this member's own phone has
+  /// not regraded yet (see [closedQuotaWeekInference]).
+  ///
+  /// Never read from or written to Firestore: [RoomParticipant.fromFirestore]
+  /// leaves it empty, and that is the only way syncLinkedHabitsProgress ever
+  /// builds a participant, so nothing the sync compares or writes can see
+  /// it. Filled only by [withClosedQuotaWeeksInferred], for the board, and
+  /// dropped again by [asRecorded] for anything that pays.
+  /// [scheduledCountFor] prefers it; [recordedScheduledCountFor] ignores it.
+  final Map<String, int> inferredScheduledCount;
+
   /// When this member left the room - null while they are in it.
   ///
   /// A SOFT departure, deliberately, and it is the whole fix for the reset
@@ -969,6 +986,7 @@ class RoomParticipant {
     this.notificationsMuted = false,
     this.lastSyncedDay,
     this.lastSyncedAt,
+    this.inferredScheduledCount = const {},
     this.leftAt,
     this.awaySpans = const [],
     this.slotDeclinedFrom = const {},
@@ -1228,6 +1246,21 @@ class RoomParticipant {
     return best ?? earliest;
   }
 
+  /// How many habits [dateKey] asked of this member: the inferred count for
+  /// a closed quota week the member's phone has not regraded yet, when there
+  /// is one (see [inferredScheduledCount]), otherwise what the document
+  /// records ([recordedScheduledCountFor]). Every score and every drawn
+  /// square reads this.
+  int scheduledCountFor(String dateKey) =>
+      inferredScheduledCount[dateKey] ?? recordedScheduledCountFor(dateKey);
+
+  /// [scheduledCountFor] as the document itself records it, with nothing
+  /// inferred on top. The anti-backdating clamp in syncLinkedHabitsProgress
+  /// compares against THIS, and must: lowering the value it compares against
+  /// is what released it when an admin write tried exactly that on
+  /// 2026-09-11 (a back-painted observed day then asked for more than
+  /// before, and was paid).
+  ///
   /// Note the fallback can't know about a leader-withdrawn slot (that lives on
   /// the room, not here) - it doesn't need to, because the sync writes a real
   /// [dailyScheduledCount] entry whenever the true count differs from the
@@ -1270,7 +1303,7 @@ class RoomParticipant {
   /// points from back-painting two squares. Days a sync already watched keep
   /// their observed value instead, so back-dating still cannot buy credit
   /// here, exactly as setSquare's past-day branch refuses to pay XP for it.
-  int scheduledCountFor(String dateKey) {
+  int recordedScheduledCountFor(String dateKey) {
     final stored = dailyScheduledCount[dateKey];
     if (stored != null) return stored;
     if (!wasObservedOn(dateKey) &&
@@ -1420,6 +1453,379 @@ class RoomParticipant {
     }
     return false;
   }
+
+  /// How far back a member's own phone regrades a room: kRoomSyncWindowDays
+  /// in rooms_notifier.dart. Mirrored because the model does not import the
+  /// notifier; room_closed_quota_week_inference_test.dart pins the two
+  /// together.
+  static const int kSyncWindowDaysMirror = 45;
+
+  /// The westernmost and easternmost clocks people keep, in hours from UTC.
+  /// [closedQuotaWeekInference] reads every date it takes from an instant at
+  /// one of these two, never on the device it happens to run on.
+  static const int _kWestmostUtcOffsetHours = -12;
+  static const int _kEastmostUtcOffsetHours = 14;
+
+  /// The calendar day [instant] falls on for a clock [offsetHours] from UTC,
+  /// as a local midnight like every other day this model builds. Read from
+  /// the UTC value, so every device gets the same day whatever its own zone.
+  static DateTime _dayAtUtcOffset(DateTime instant, int offsetHours) {
+    final wall = instant.toUtc().add(Duration(hours: offsetHours));
+    return DateTime(wall.year, wall.month, wall.day);
+  }
+
+  /// The Saturday that starts [day]'s week, counted in calendar days.
+  /// startOfDisplayWeek subtracts a Duration, which a daylight saving change
+  /// on this device can push into the day before.
+  static DateTime _saturdayOn(DateTime day) => DateTime(
+        day.year,
+        day.month,
+        day.day - (day.weekday - DateTime.saturday + 7) % 7,
+      );
+
+  /// Due counts for the days of weekly-quota weeks that have CLOSED since
+  /// this member's last full sync graded them while they were still open,
+  /// worked out from this document and [room] alone. A day is in the result
+  /// only when its answer differs from [recordedScheduledCountFor].
+  ///
+  /// Why it exists. While a quota week is open the sync counts every present
+  /// day as due (weeklyQuotaScheduledDays returns them all). Once the week
+  /// closes short, the days weeklyQuotaDemand calls spare become rest days,
+  /// but only the member's own phone writes that, and a member who stopped
+  /// opening the app kept that week, and every week after it, fully due.
+  /// Measured 2026-09-11: A8GEL7 Perla 37.8% for a record her own regrade
+  /// scores 45.2%, YW68B9 m7md 26.3% for 31.3%.
+  ///
+  /// What it answers: what syncLinkedHabitsProgress would write for those
+  /// days if the phone synced at [now] and the squares matched this record,
+  /// on whatever clock that phone keeps (see "Which clock" below). The same
+  /// window (kSyncWindowDaysMirror, rewound to Saturday), the same Saturday
+  /// weeks, the same target clamped to the days present, and the same rest
+  /// decision: weeklyQuotaDemand, translated to week positions exactly as
+  /// weeklyQuotaScheduledDays does.
+  ///
+  /// It never reaches the anti-backdating clamp. The clamp compares against
+  /// [recordedScheduledCountFor], and the sync grades a participant it
+  /// parsed from the raw document, which has no inferred counts. Nor does it
+  /// reach a payout: a team milestone is graded [asRecorded]
+  /// (RoomTeamProgress.claimableTeamMilestone), and a room that has ended,
+  /// where the podium settles, is left as recorded.
+  ///
+  /// A week is left exactly as recorded unless every one of these holds,
+  /// because each is something the document cannot otherwise prove:
+  ///  * the member is in the room and has synced, every linked habit has a
+  ///    recorded rule, no declined slot carries a prior habit, and no linked
+  ///    slot has been withdrawn (a declined slot is no habit at all, even
+  ///    one the leader withdrew afterwards);
+  ///  * the room has started, and has not ended on any clock. An ended room
+  ///    is settled: RoomsController.claimPodiumBonus pays from its standings,
+  ///    and no member's phone regrades it unasked (resyncAllMyRooms and
+  ///    linkedRoomsFor both skip it);
+  ///  * the week has closed by [now] on every clock and the last sync saw it
+  ///    open on every clock: its lastSyncedDay is not after the week, and its
+  ///    recorded instant falls on no later day than the week's last;
+  ///  * the week is not banked in [quotaOkWeeks], touches no room pause and
+  ///    no away day, and every habit's rule and slot are the same on all of
+  ///    its days, starting on or before the first. The rule must also be
+  ///    the same on any day in front of them that a phone can count first,
+  ///    because a phone grades the whole week by the rule on its own first
+  ///    counted day in it (see "Which clock");
+  ///  * no day carries a partial or a rest mark, no stood-down day carries a
+  ///    done, every other day records exactly what an open week records
+  ///    (each weekly habit plus the regular habits due that weekday), and
+  ///    each day has either nothing or everything done, so every weekly
+  ///    habit's done days are known;
+  ///  * those done days do not already meet the target.
+  /// A day with anything done on it is never lowered.
+  ///
+  /// What it cannot see is squares. A square painted after its day closed,
+  /// and held at zero by the clamp, still counts toward the target in the
+  /// phone's regrade, which can move WHICH empty day is owed without moving
+  /// the score: YW68B9 y.almehza101's phone keeps 22 August owed and rests
+  /// the 26th, this rests the 22nd and keeps the 26th, four due days and the
+  /// same percentage either way. Marks on days no sync observed leave this
+  /// at or below the phone's answer. Late marks on days a sync DID observe
+  /// can leave it above: squares painted there after the last sync that
+  /// take a closed week past its target make the phone owe every green day
+  /// (weeklyQuotaScheduledDays) while the clamp holds them at zero, and this
+  /// cannot see them. Measured: a 4x week with 22 to 24 August done, a sync
+  /// on Friday 28 August, then squares painted on the 25th and 26th, scores
+  /// 3 of 4 here against 3 of 5 on the phone until that phone's sync lands.
+  ///
+  /// Nor can it see a habit paused after the last sync. The phone stops
+  /// counting a paused habit where its stint ends (archivedAt) and stands
+  /// those days down, but nothing on this document records the pause, so
+  /// this treats them as present and can rest some of them. A 4x week with
+  /// nothing done, paused after its fifth day, rests Saturday on the phone
+  /// and Saturday to Monday here.
+  ///
+  /// Both are display only, and both are why nothing that pays may read
+  /// this: payouts and ended rooms read the record ([asRecorded]).
+  ///
+  /// Which clock. Nothing in the document says what zone the member's phone
+  /// keeps, and the viewer's own calendar can be a day ahead of it: a viewer
+  /// at UTC+4 graded the week of 5 September closed at 2026-09-11T20:22Z,
+  /// still Friday evening on the Bahrain phones in A8GEL7 and YW68B9. So
+  /// every calendar date this takes from an INSTANT is read at the end of
+  /// the inhabited clocks, UTC-12 or UTC+14, that makes it fire less, and
+  /// the same on every device:
+  ///  * today, and with it whether a week has closed: UTC-12, the latest
+  ///    anywhere;
+  ///  * whether the room has ended: today at UTC+14 against its end day at
+  ///    UTC-12, the earliest anywhere;
+  ///  * the room's first day and the member's join day: UTC+14, so no day
+  ///    counts that some phone does not count;
+  ///  * the first day a phone can take a week's rule from, those same two
+  ///    dates: UTC-12, the earliest anywhere. A member who joined on a
+  ///    Monday at 14:00 in Bahrain joined on Tuesday at UTC+14 and on Sunday
+  ///    at UTC-12, and their phone grades that week by Monday's rule;
+  ///  * the window's last day: UTC+14, so a week ages out as early as it
+  ///    does anywhere;
+  ///  * the last sync's day ([lastSyncedAt]): UTC+14, the latest day it can
+  ///    have run on.
+  /// Keys the member's phone wrote (lastSyncedDay, rule, pause, away and day
+  /// keys) are already its own calendar and are read as written.
+  ///
+  /// A week these readings cut short at its start rests only days the phone
+  /// rests too. weeklyQuotaDemand calls an empty day spare when the days
+  /// from it to the week's end outnumber what is still needed: the days a
+  /// phone counts in front of it leave the first as it is, and can only
+  /// lower the second.
+  ///
+  /// Apart from those two blind spots and the one case after this list, the
+  /// cost is time, never a wrong answer:
+  ///  * a Bahrain member's closed week is corrected about 15 hours after it
+  ///    closes on their phone (Saturday 12:00 UTC against Friday 21:00 UTC),
+  ///    never before;
+  ///  * a week whose last sync was stamped at 13:00 Bahrain time or later on
+  ///    its own last day stays as recorded;
+  ///  * a Bahrain room is left as recorded from 13:00 Bahrain time on the
+  ///    day before its last day, and for good once it has ended, so its
+  ///    finale and its podium read the record as they did before this
+  ///    existed.
+  /// The one case is daylight saving. A phone whose clock changes groups
+  /// days in 24-hour steps (startOfGridWeek, and the day list the sync
+  /// builds with day.add), which splits the week of each change in two,
+  /// while this reads whole calendar weeks. For a member on such a phone it
+  /// can rest a day that phone keeps due. The split is the phone grader's
+  /// own bug, and no Gulf zone changes its clock.
+  Map<String, int> closedQuotaWeekInference(RoomModel room, {DateTime? now}) {
+    final clock = now ?? DateTime.now();
+    final synced = lastSyncedDay;
+    if (isDeparted || room.isLobby || synced == null) return const {};
+    // See "Which clock" above.
+    DateTime west(DateTime t) => _dayAtUtcOffset(t, _kWestmostUtcOffsetHours);
+    DateTime east(DateTime t) => _dayAtUtcOffset(t, _kEastmostUtcOffsetHours);
+    final today = west(clock);
+    final todayEast = east(clock);
+    final start = east(room.startDate);
+    if (today.isBefore(start)) return const {};
+    // Ended on some clock: settled, and left as recorded. Past this line
+    // the room's end day falls on or after todayEast, and so after every
+    // closed week, which is why nothing below asks about the end again.
+    final endAt = room.endDate;
+    if (endAt != null && todayEast.isAfter(west(endAt))) return const {};
+
+    final shared = room.habitMode == RoomHabitMode.shared
+        ? room.sharedHabits
+        : const <RoomHabitTemplate>[];
+    final slots = <(int, String)>[];
+    for (var i = 0; i < linkedHabitIds.length; i++) {
+      final id = linkedHabitIds[i];
+      if (id == kDeclinedSlot) continue;
+      if (i < shared.length && shared[i].isRemoved) return const {};
+      final rules = habitRules[id];
+      if (rules == null || rules.isEmpty) return const {};
+      slots.add((i, id));
+    }
+    if (slots.isEmpty || slotPriorHabitIds.isNotEmpty) return const {};
+    if (!slots.any(
+      (s) => habitRules[s.$2]!
+          .any((r) => r.frequencyType == HabitFrequencyType.weekly),
+    )) {
+      return const {};
+    }
+
+    // The phone's own window, rooms_notifier.dart syncLinkedHabitsProgress:
+    // countedStartIn, then the last kSyncWindowDaysMirror days.
+    final joined = east(joinedAt);
+    var windowStart = joined.isAfter(start) ? joined : start;
+    if (dailyDoneCount.isNotEmpty) {
+      final aligned = _saturdayOn(
+        DateTime(
+          todayEast.year,
+          todayEast.month,
+          todayEast.day - (kSyncWindowDaysMirror - 1),
+        ),
+      );
+      if (aligned.isAfter(windowStart)) windowStart = aligned;
+    }
+    // The earliest day any phone can count as this member's first: the
+    // same two dates read at UTC-12. A phone grades a whole week by the rule
+    // on its own first counted day in it, which in the week of the join or
+    // of the room's start can fall before windowStart.
+    final startWest = west(room.startDate);
+    final joinedWest = west(joinedAt);
+    final firstOnAnyPhone =
+        joinedWest.isAfter(startWest) ? joinedWest : startWest;
+    final syncedAt = lastSyncedAt;
+    final syncedOn = syncedAt == null ? null : east(syncedAt);
+
+    final out = <String, int>{};
+    for (var week = _saturdayOn(windowStart);
+        !week.isAfter(today);
+        week = DateTime(week.year, week.month, week.day + 7)) {
+      final weekEnd = DateTime(week.year, week.month, week.day + 6);
+      // Closed now: isQuotaWeekClosed.
+      if (!weekEnd.isBefore(today)) continue;
+      // Open at the last sync. A sync after the week closed stamps a
+      // lastSyncedDay past its end, or an instant some clock puts past it.
+      if (weekEnd.toDateKey().compareTo(synced) < 0) continue;
+      if (syncedOn != null && weekEnd.isBefore(syncedOn)) continue;
+      if (quotaOkWeeks.contains(week.toDateKey())) continue;
+
+      final first = week.isAfter(windowStart) ? week : windowStart;
+      if (first.isAfter(weekEnd)) continue;
+      final keys = <String>[
+        for (var d = first;
+            !d.isAfter(weekEnd);
+            d = DateTime(d.year, d.month, d.day + 1))
+          d.toDateKey(),
+      ];
+      // Every day a phone can take this week's rule from
+      // (rooms_notifier.dart: roomRuleAt at days[dayIndices.first]): keys,
+      // and any day in front of them some phone counts first. Never after
+      // keys.first, since firstOnAnyPhone is never after windowStart.
+      final ruleFirst = week.isAfter(firstOnAnyPhone) ? week : firstOnAnyPhone;
+      final ruleKeys = <String>[
+        for (var d = ruleFirst;
+            !d.isAfter(weekEnd);
+            d = DateTime(d.year, d.month, d.day + 1))
+          d.toDateKey(),
+      ];
+      if (keys.any((k) => room.isPausedOn(k) || isAwayOn(k))) continue;
+
+      var provable = true;
+      final targets = <int>[];
+      final regular = <RoomHabitRule>[];
+      for (final (slot, id) in slots) {
+        final rules = habitRules[id]!;
+        final rule = ruleFor(id, keys.first)!;
+        var floor = rules.first.from;
+        for (final r in rules) {
+          if (r.from.compareTo(floor) < 0) floor = r.from;
+        }
+        if (floor.compareTo(keys.first) > 0 ||
+            ruleKeys.any((k) => !identical(ruleFor(id, k), rule)) ||
+            keys.any((k) => habitInSlotOn(slot, k) != id)) {
+          provable = false;
+          break;
+        }
+        if (rule.frequencyType == HabitFrequencyType.weekly) {
+          if (rule.frequencyTarget < 1) {
+            provable = false;
+            break;
+          }
+          targets.add(rule.frequencyTarget);
+        } else {
+          regular.add(rule);
+        }
+      }
+      if (!provable || targets.isEmpty) continue;
+
+      final present = <String>[];
+      final recorded = <String, int>{};
+      final allDone = <String>{};
+      for (final k in keys) {
+        final done = dailyDoneCount[k] ?? 0;
+        if ((dailyPartialCount[k] ?? 0) > 0 || (dailyRestedCount[k] ?? 0) > 0) {
+          provable = false;
+          break;
+        }
+        if (isStoodDownOn(k)) {
+          if (done > 0) {
+            provable = false;
+            break;
+          }
+          continue;
+        }
+        final count = recordedScheduledCountFor(k);
+        final weekday = DateTime.parse(k).weekday;
+        final openWeekCount = targets.length +
+            regular
+                .where(
+                  (r) =>
+                      r.scheduledWeekdays.isEmpty ||
+                      r.scheduledWeekdays.contains(weekday),
+                )
+                .length;
+        if (count != openWeekCount) {
+          provable = false;
+          break;
+        }
+        if (done == count) {
+          allDone.add(k);
+        } else if (done != 0) {
+          provable = false;
+          break;
+        }
+        present.add(k);
+        recorded[k] = count;
+      }
+      if (!provable || present.isEmpty) continue;
+
+      final rest = <String, int>{};
+      for (final target in targets) {
+        final effective = target.clamp(1, present.length);
+        if (allDone.length >= effective) {
+          provable = false;
+          break;
+        }
+        final demand = weeklyQuotaDemand(
+          dayCount: present.length,
+          doneDays: {
+            for (var i = 0; i < present.length; i++)
+              if (allDone.contains(present[i])) i,
+          },
+          target: effective,
+        );
+        for (var i = 0; i < present.length; i++) {
+          if (demand[i].isRest) {
+            rest[present[i]] = (rest[present[i]] ?? 0) + 1;
+          }
+        }
+      }
+      if (!provable) continue;
+      for (final e in rest.entries) {
+        // Guaranteed by the gates above; stated so it cannot quietly stop
+        // being true.
+        if ((dailyDoneCount[e.key] ?? 0) != 0) return const {};
+        out[e.key] = recorded[e.key]! - e.value;
+      }
+    }
+    return out;
+  }
+
+  /// This member with [closedQuotaWeekInference] applied to every read built
+  /// on [scheduledCountFor]. For the board only: gradedRoomParticipantsProvider
+  /// calls it, nothing that writes a participant document may read the
+  /// result, and nothing that pays may either (see [asRecorded]).
+  RoomParticipant withClosedQuotaWeeksInferred(
+    RoomModel room, {
+    DateTime? now,
+  }) {
+    final inferred = closedQuotaWeekInference(room, now: now);
+    return inferred.isEmpty ? this : copyWith(inferredScheduledCount: inferred);
+  }
+
+  /// This member as the document records it: [inferredScheduledCount]
+  /// dropped, so every read built on [scheduledCountFor] answers
+  /// [recordedScheduledCountFor] again. What anything that pays grades,
+  /// whichever roster it was handed: an inferred week can pick a different
+  /// rest day from the member's own phone (see [closedQuotaWeekInference]).
+  RoomParticipant get asRecorded => inferredScheduledCount.isEmpty
+      ? this
+      : copyWith(inferredScheduledCount: const {});
 
   /// How many habits were stood down on [dateKey]. Display only, see
   /// [dailyRestedCount].
@@ -2333,6 +2739,7 @@ class RoomParticipant {
     bool? notificationsMuted,
     String? lastSyncedDay,
     DateTime? lastSyncedAt,
+    Map<String, int>? inferredScheduledCount,
     DateTime? leftAt,
     bool clearLeftAt = false,
     List<({String from, String to})>? awaySpans,
@@ -2367,6 +2774,8 @@ class RoomParticipant {
         notificationsMuted: notificationsMuted ?? this.notificationsMuted,
         lastSyncedDay: lastSyncedDay ?? this.lastSyncedDay,
         lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
+        inferredScheduledCount:
+            inferredScheduledCount ?? this.inferredScheduledCount,
         leftAt: clearLeftAt ? null : (leftAt ?? this.leftAt),
         awaySpans: awaySpans ?? this.awaySpans,
         slotDeclinedFrom: slotDeclinedFrom ?? this.slotDeclinedFrom,
@@ -2476,6 +2885,25 @@ extension RoomLeaderboard on RoomModel {
     final present = last.isBefore(start) ? 1 : last.difference(start).inDays + 1;
     return present >= required;
   }
+
+  /// The roster a surface that scores [graded] may read: as handed while the
+  /// room runs, and every member [RoomParticipant.asRecorded] once it has
+  /// ended at [now] (this device's clock when omitted).
+  ///
+  /// gradedRoomParticipantsProvider infers closed quota weeks on top of the
+  /// record, and an ended room's finale pays its podium from the places
+  /// [standings] draws from this list: RoomsController.claimPodiumBonus
+  /// re-checks the end, the flag, the member count and tenure, never the
+  /// rank. The inference returns nothing for a room that has ended on any
+  /// clock, but a list graded before the end is kept until a stream emits,
+  /// so the switch is made again here, where the places are drawn.
+  List<RoomParticipant> scoringRoster(
+    List<RoomParticipant> graded, {
+    DateTime? now,
+  }) =>
+      isEndedAt(now ?? DateTime.now())
+          ? [for (final p in graded) p.asRecorded]
+          : graded;
 
   List<RoomStanding> standings(List<RoomParticipant> participants) {
     // Scored once per member rather than once per comparison. progressRatio
@@ -2806,6 +3234,63 @@ extension RoomTeamProgress on RoomModel {
       day = day.add(const Duration(days: 1));
     }
     return best;
+  }
+
+  /// The team milestone [member] can claim now, or null: the first of
+  /// [RoomTeamProgress.teamMilestones] not in their teamStreakClaims, once
+  /// [teamBestStreakWith] over [history] has reached it. What the team
+  /// card's Claim button pays on; RoomsController.claimTeamStreakBonus
+  /// guards only the double payment.
+  ///
+  /// Graded on the record whichever roster it is handed: every member is
+  /// read [RoomParticipant.asRecorded], without the closed quota weeks the
+  /// board infers on top (RoomParticipant.closedQuotaWeekInference). A team
+  /// day turns on WHICH day was a rest, and the inference can rest a
+  /// different day from the member's own phone, so over the board's roster
+  /// a run can reach a milestone that neither the record nor that phone
+  /// ever reaches.
+  int? claimableTeamMilestone(
+    RoomParticipant member,
+    List<RoomParticipant> history,
+  ) {
+    for (final m in RoomTeamProgress.teamMilestones) {
+      if (member.teamStreakClaims.contains(m)) continue;
+      final best = teamBestStreakWith(
+        member.asRecorded,
+        [for (final p in history) p.asRecorded],
+      );
+      return best >= m ? m : null;
+    }
+    return null;
+  }
+
+  /// The team card's milestone row for [member]: the milestone its Claim
+  /// button pays ([claimableTeamMilestone]), otherwise the next one to
+  /// reach, and the current run its days-to-go counts from. All three read
+  /// the record, whichever rosters [participants] and [history] hold: the
+  /// button pays, and the countdown counts toward the claim it promises.
+  ({int? claimable, int? next, int current}) teamMilestoneRowFor(
+    RoomParticipant member,
+    List<RoomParticipant> participants,
+    List<RoomParticipant> history,
+  ) {
+    final claimable = claimableTeamMilestone(member, history);
+    int? next;
+    if (claimable == null) {
+      for (final m in RoomTeamProgress.teamMilestones) {
+        if (member.teamStreakClaims.contains(m)) continue;
+        next = m;
+        break;
+      }
+    }
+    return (
+      claimable: claimable,
+      next: next,
+      current: teamStreakWith(
+        member.asRecorded,
+        [for (final p in participants) p.asRecorded],
+      ),
+    );
   }
 
   /// The longest run of won days the team ever had, member-agnostic: the

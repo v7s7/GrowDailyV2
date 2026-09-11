@@ -289,21 +289,22 @@ class _TeamDayCard extends ConsumerWidget {
     // Milestones, for THIS member: the first unclaimed one is either
     // reached (claimable) or the next target. teamBestStreakWith is the
     // tenure guard; see its doc comment.
+    //
+    // This row reads the record, while the numbers above read the board's
+    // graded roster. Its Claim button pays, and a closed quota week the
+    // board infers for a member whose phone has not regraded it can win a
+    // team day that phone would not. Worked out by
+    // RoomTeamProgress.teamMilestoneRowFor, which reads the record whatever
+    // it is handed; the countdown reads it too, so it counts toward the
+    // claim it promises.
     final me = mine;
-    final best = me == null ? 0 : room.teamBestStreakWith(me, history);
-    final mine_ = me == null ? 0 : room.teamStreakWith(me, participants);
+    final milestoneRow = me == null
+        ? null
+        : room.teamMilestoneRowFor(me, participants, history);
+    final claimable = milestoneRow?.claimable;
+    final next = milestoneRow?.next;
+    final mine_ = milestoneRow?.current ?? 0;
     final claims = me?.teamStreakClaims ?? const <int>[];
-    int? claimable;
-    int? next;
-    for (final m in RoomTeamProgress.teamMilestones) {
-      if (claims.contains(m)) continue;
-      if (best >= m) {
-        claimable = m;
-      } else {
-        next = m;
-      }
-      break;
-    }
     final lastClaimed =
         claims.isEmpty ? null : claims.reduce((a, b) => a > b ? a : b);
 
@@ -471,7 +472,7 @@ class _TeamDayCard extends ConsumerWidget {
                       HapticFeedback.mediumImpact();
                       ref
                           .read(roomsControllerProvider)
-                          .claimTeamStreakBonus(room.code, me, claimable!)
+                          .claimTeamStreakBonus(room.code, me, claimable)
                           .ignore();
                     },
             ),
