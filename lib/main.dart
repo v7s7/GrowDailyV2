@@ -18,6 +18,7 @@ import 'core/constants/game_constants.dart';
 import 'core/extensions/datetime_ext.dart';
 import 'core/l10n/app_strings.dart';
 import 'core/providers/app_guide_provider.dart';
+import 'core/providers/day_clock_provider.dart';
 import 'core/providers/get_started_checklist_provider.dart';
 import 'core/providers/home_tab_provider.dart'
     show requestedHomeTabProvider, requestedMatrixQuickAddProvider;
@@ -1328,6 +1329,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // Saturday grid-week boundary, would keep showing the old week until
       // a full restart without this.
       ref.read(weeklyGridProvider.notifier).refresh();
+      // The day clock's own timer does not run while the app is suspended,
+      // so a phone put away at 09:00 and opened at 11:00 would still hold
+      // yesterday open. Re-reading it here carries every report across
+      // kDayCutoffHour on resume, and only once a boundary has passed. See
+      // refreshDayClockIfStale.
+      refreshDayClockIfStale(ProviderScope.containerOf(context, listen: false));
       // Reminders are armed a few occurrences ahead, not indefinitely (see
       // NotificationService's class doc comment) — re-running this on every
       // resume, not just on explicit state changes, is what refills the

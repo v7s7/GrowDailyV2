@@ -8,7 +8,10 @@
 // now re-based onto the fire day by NotificationService.reminderFactsAtFireDay,
 // which is a pure static precisely so this can be asserted without a device.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
+import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
+import 'package:grow_daily_v2/features/habits/models/habit_schedule.dart';
 
 void main() {
   // September 2026: the 5th is a Saturday, the 2nd a Wednesday.
@@ -34,10 +37,12 @@ void main() {
     Set<int> scheduledWeekdays = const {},
     int? weekTarget,
     Set<int>? weekDoneDays,
+    DateTime? fireTime,
   }) =>
       NotificationService.reminderFactsAtFireDay(
         today: today ?? sat5,
         fireDay: fireDay ?? sat5,
+        fireTime: fireTime,
         streak: streak,
         completedCount: completedCount,
         lastDoneDaysAgo: lastDoneDaysAgo,
@@ -165,6 +170,97 @@ void main() {
       );
       expect(f.weekDone, 0);
       expect(f.owedOnFireDay, isTrue);
+    });
+  });
+
+  group('a reminder that lands before the cutoff', () {
+    // Aziz, 2026-09-11: a day still open is not a day missed. The day before
+    // the fire day stays markable until kDayCutoffHour, so a reminder landing
+    // at Fajr time must not word it as lost.
+    DateTime at(DateTime day, int h, [int m = 0]) =>
+        DateTime(day.year, day.month, day.day, h, m);
+
+    test('an every-day habit done on Thursday is not lapsed at 04:00', () {
+      final f = facts(lastDoneDaysAgo: 2, streak: 4, fireTime: at(sat5, 4));
+      expect(f.missedSinceLastDone, 0, reason: 'Friday can still be marked');
+      // Nor is its streak promised. Ticking Saturday before Friday restarts
+      // it at 1, and this reminder's own Mark Done ticks Saturday, so the
+      // line names neither the lapse nor the streak until Friday is done.
+      expect(f.streak, 0);
+      expect(
+        nextHabitStreak(
+          gapDays: scheduledGap(
+            last: dayPlus(sat5, -2),
+            day: sat5,
+            weekdays: const {},
+          ),
+          previousStreak: 4,
+        ),
+        1,
+        reason: 'the tap a promised streak would be broken by',
+      );
+    });
+
+    test('a streak with nothing unfinished before the fire day is carried',
+        () {
+      final f = facts(lastDoneDaysAgo: 1, streak: 4, fireTime: at(sat5, 4));
+      expect((f.missedSinceLastDone, f.streak), (0, 4));
+    });
+
+    test('and has missed Friday by 11:00', () {
+      final f = facts(lastDoneDaysAgo: 2, streak: 4, fireTime: at(sat5, 11));
+      expect(f.missedSinceLastDone, 1);
+      expect(f.streak, 0);
+    });
+
+    test('one minute either side of the cutoff', () {
+      expect(
+        facts(
+          lastDoneDaysAgo: 2,
+          streak: 4,
+          fireTime: at(sat5, kDayCutoffHour - 1, 59),
+        ).missedSinceLastDone,
+        0,
+      );
+      expect(
+        facts(
+          lastDoneDaysAgo: 2,
+          streak: 4,
+          fireTime: at(sat5, kDayCutoffHour),
+        ).missedSinceLastDone,
+        1,
+      );
+    });
+
+    test('without a fire time, the older reading stands', () {
+      expect(facts(lastDoneDaysAgo: 2, streak: 4).missedSinceLastDone, 1);
+    });
+
+    test('a quota week does not count its owed Friday on Saturday at 04:00',
+        () {
+      // Three times a week, nothing logged in the week of Saturday the 5th,
+      // last done on Friday the 4th. Wednesday, Thursday and Friday were the
+      // owed days, and at 04:00 on Saturday the 12th Friday is still open.
+      final fri11 = DateTime(2026, 9, 11);
+      final sat12 = DateTime(2026, 9, 12);
+      final early = facts(
+        today: fri11,
+        fireDay: sat12,
+        fireTime: at(sat12, 4),
+        lastDoneDaysAgo: 7,
+        weekTarget: 3,
+        weekDoneDays: const {},
+      );
+      expect(early.missedSinceLastDone, 2);
+      final late = facts(
+        today: fri11,
+        fireDay: sat12,
+        fireTime: at(sat12, 11),
+        lastDoneDaysAgo: 7,
+        weekTarget: 3,
+        weekDoneDays: const {},
+      );
+      expect(late.missedSinceLastDone, 3);
     });
   });
 }

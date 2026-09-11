@@ -524,6 +524,8 @@ class _DashboardSection extends ConsumerWidget {
       final recap = computeWeeklyRecap(
         dailyGreenCounts: dash.dailyGreenCounts,
         weekStart: startOfGridWeek(today),
+        // Only the two totals are read here, and neither takes a clock.
+        now: null,
       );
       return recap.thisWeekTotal != 0 || recap.lastWeekTotal != 0;
     }();

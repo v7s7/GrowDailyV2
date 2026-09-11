@@ -305,6 +305,8 @@ void main() {
           },
         },
         days: daysOf(DateTime(2026, 8, 15), 7),
+        now: null,
+        windowEnd: null,
       );
       final stat = stats.single;
       expect(stat.restCount, 2);
@@ -326,6 +328,8 @@ void main() {
           },
         },
         days: daysOf(DateTime(2026, 8, 15), 2),
+        now: null,
+        windowEnd: null,
       );
       final stat = stats.single;
       expect(stat.failedCount, 1);
@@ -346,6 +350,8 @@ void main() {
           },
         },
         days: daysOf(DateTime(2026, 8, 15), 2),
+        now: null,
+        windowEnd: null,
       );
       final stat = stats.single;
       expect(stat.creditedUnits, 1.5);
@@ -361,6 +367,8 @@ void main() {
           'h1': {DateTime(2026, 8, 15).toDateKey(): SquareState.bonus},
         },
         days: daysOf(DateTime(2026, 8, 15), 1),
+        now: null,
+        windowEnd: null,
       );
       final stat = stats.single;
       expect(stat.doneCount, 1);
@@ -377,6 +385,8 @@ void main() {
           },
         },
         days: daysOf(DateTime(2026, 8, 15), 3),
+        now: null,
+        windowEnd: null,
       );
       final stat = stats.single;
       expect(stat.expected, 0);
@@ -427,6 +437,8 @@ void main() {
           },
         },
         days: daysOf(DateTime(2026, 8, 1), 10),
+        now: null,
+        windowEnd: null,
       );
       expect(stats.single.doneCount, 2);
     });
@@ -437,6 +449,8 @@ void main() {
         habits: [dead],
         history: const {},
         days: daysOf(DateTime(2026, 8, 1), 10),
+        now: null,
+        windowEnd: null,
       );
       expect(stats, isEmpty);
     });
@@ -446,6 +460,8 @@ void main() {
         habits: [habit()],
         history: const {},
         days: daysOf(DateTime(2026, 8, 1), 10),
+        now: null,
+        windowEnd: null,
       );
       expect(stats.single.doneCount, 0);
       expect(stats.single.expected, 10);
@@ -492,6 +508,7 @@ void main() {
         dayCounts: dayCountsFrom(stats),
         days: daysOf(DateTime(2026, 8, 1), 7),
         habitStats: stats,
+        now: null,
       );
       expect(summary.totalDone, 2);
       expect(
@@ -558,6 +575,7 @@ void main() {
         dayCounts: counts,
         days: daysOf(DateTime(2026, 8, 1), 7),
         habitStats: const [],
+        now: null,
       );
       expect(summary.longestRun, 3);
       expect(summary.activeDays, 4);
@@ -578,6 +596,7 @@ void main() {
         dayCounts: counts,
         days: daysOf(DateTime(2026, 8, 1), 7),
         habitStats: const [],
+        now: null,
       );
       expect(summary.longestRun, 1);
     });
@@ -591,6 +610,8 @@ void main() {
           'h1': {for (var i = 0; i < 5; i++) DateTime(2026, 8, 1 + i).toDateKey(): SquareState.complete},
         },
         days: days,
+        now: null,
+        windowEnd: null,
       );
       final summary = computePeriodSummary(
         dayCounts: {
@@ -598,6 +619,7 @@ void main() {
         },
         days: days,
         habitStats: stats,
+        now: null,
       );
       expect(summary.expectedTotal, 10);
       expect(summary.rate, 0.5);
@@ -608,6 +630,7 @@ void main() {
         dayCounts: const {},
         days: const [],
         habitStats: const [],
+        now: null,
       );
       expect(summary.rate, 0);
       expect(summary.hasAnything, isFalse);
@@ -637,6 +660,7 @@ void main() {
         habits: [habit()],
         today: DateTime(2026, 8, 10),
         earliestData: DateTime(2026, 1, 1),
+        now: null,
       );
       expect(delta, 0);
     });
@@ -653,6 +677,7 @@ void main() {
         habits: [habit()],
         today: DateTime(2026, 8, 10),
         earliestData: DateTime(2026, 1, 1),
+        now: null,
       );
       expect(delta, 6);
     });
@@ -670,6 +695,7 @@ void main() {
         habits: [habit()],
         today: DateTime(2026, 8, 10),
         earliestData: DateTime(2026, 8, 1),
+        now: null,
       );
       expect(delta, isNull);
     });
@@ -687,6 +713,7 @@ void main() {
         habits: [habit()],
         today: DateTime(2026, 8, 21),
         earliestData: DateTime(2026, 1, 1),
+        now: null,
       );
       expect(delta, 1);
     });
@@ -708,6 +735,7 @@ void main() {
         habits: [habit()],
         today: DateTime(2026, 8, 6),
         earliestData: DateTime(2026, 1, 1),
+        now: null,
       );
       // Nothing in July, so the delta is exactly the total. Never more.
       expect(total, 6);

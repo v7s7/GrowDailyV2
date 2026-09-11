@@ -76,6 +76,15 @@ class DayScore {
   /// not a missed day.
   final int rested;
 
+  /// Whether the day was still open when it was scored (see
+  /// DateTimeGameExt.isOpenDayAt). An open day's [owed] and [credit] are its
+  /// progress so far: the right picture for the chart and the day sheet, and
+  /// the wrong input for anything that judges the day.
+  final bool isOpen;
+
+  final int? _settledOwed;
+  final double? _settledCredit;
+
   const DayScore({
     required this.day,
     required this.done,
@@ -83,7 +92,32 @@ class DayScore {
     required this.owed,
     required this.failed,
     required this.rested,
-  });
+    int? settledOwed,
+    double? settledCredit,
+    this.isOpen = false,
+  })  : _settledOwed = settledOwed,
+        _settledCredit = settledCredit;
+
+  /// The part of [owed] that can already be judged: every habit on a closed
+  /// day, and on a day still open only the habits already answered (done, or
+  /// فشل). A blank or جزئي habit on an open day is still in progress and
+  /// waits for the day to close. Falls back to [owed] for a score built
+  /// without a clock.
+  int get settledOwed => _settledOwed ?? owed;
+
+  /// The credit that goes with [settledOwed]. An open جزئي adds nothing until
+  /// it is finished or its day closes, so marking half of today can never
+  /// pull a rate down. Falls back to [credit].
+  double get settledCredit => _settledCredit ?? credit;
+
+  /// Whether the day is still open with something on it not yet answered: a
+  /// blank or جزئي habit that can still be finished before kDayCutoffHour.
+  /// Such a day is in progress, so nothing may judge it yet: [windowRate]
+  /// leaves that part of it out, progressTrendLine leaves the whole day out,
+  /// and while nothing on it is done yet the chart draws it as a quiet dot
+  /// with no line running down to it (DayScoreLinePainter.lineRuns). A day
+  /// whose every habit is answered is not pending even while it is open.
+  bool get isPending => isOpen && settledOwed < owed;
 
   /// Null when the day asked for nothing, which is NOT the same as 0%.
   /// A caller that renders `rate ?? 0` reintroduces exactly the lie this
@@ -123,6 +157,11 @@ DayScore dayScoreFor({
   required Iterable<IslamicHabitTemplate> habits,
   required Map<String, Map<String, SquareState>> history,
   required DateTime day,
+
+  /// The wall clock. When given, the score also carries [DayScore.isOpen]
+  /// and the settled numbers the window rate is built from. Null scores
+  /// every day as closed.
+  DateTime? now,
 }) {
   final key = day.toDateKey();
   final everyId = <String>{};
@@ -144,6 +183,8 @@ DayScore dayScoreFor({
   var rested = 0;
   var owed = 0;
   var credit = 0.0;
+  var settledOwed = 0;
+  var settledCredit = 0.0;
 
   for (final id in everyId) {
     final mark = history[id]?[key] ?? SquareState.none;
@@ -164,6 +205,13 @@ DayScore dayScoreFor({
     credit += earned;
     if (markIsDone(mark)) done++;
     if (mark == SquareState.failed) failed++;
+    // The still-open rule every report percentage follows: an answered habit
+    // (done, or فشل) settles at once, anything else waits for its day to
+    // close. See DateTimeGameExt.isSettledAt.
+    if (now == null || day.isSettledAt(now, answered: mark.answersDay)) {
+      settledOwed++;
+      settledCredit += earned;
+    }
   }
 
   return DayScore(
@@ -173,18 +221,26 @@ DayScore dayScoreFor({
     owed: owed,
     failed: failed,
     rested: rested,
+    settledOwed: settledOwed,
+    settledCredit: settledCredit,
+    isOpen: now != null && day.isOpenDayAt(now),
   );
 }
 
 /// [dayScoreFor] across a window, in the order [days] came in.
+///
+/// [now] is required, though nullable, so a screen cannot forget its clock
+/// and compile: without it every open day scores as closed, and the rate
+/// under the chart counts an untouched today as a miss again.
 List<DayScore> computeDayScores({
   required Iterable<IslamicHabitTemplate> habits,
   required Map<String, Map<String, SquareState>> history,
   required List<DateTime> days,
+  required DateTime? now,
 }) =>
     [
       for (final day in days)
-        dayScoreFor(habits: habits, history: history, day: day),
+        dayScoreFor(habits: habits, history: history, day: day, now: now),
     ];
 
 /// The habits that owed [day] and recorded nothing at all.
@@ -218,12 +274,17 @@ List<IslamicHabitTemplate> silentHabitsOn({
 /// [DayScore.rate] is nullable. Deliberately NOT the mean of the daily
 /// rates: a day that owed one habit would then weigh exactly as much as a
 /// day that owed twelve.
+///
+/// Built from the SETTLED numbers, so a day still open counts only what has
+/// been answered on it: at 05:00 an untouched today, and a yesterday still
+/// inside its grace, no longer drag the window down, and they enter the
+/// moment they are done or close (Aziz, 2026-09-11).
 double? windowRate(List<DayScore> scores) {
   var credit = 0.0;
   var owed = 0;
   for (final score in scores) {
-    credit += score.credit;
-    owed += score.owed;
+    credit += score.settledCredit;
+    owed += score.settledOwed;
   }
   return owed <= 0 ? null : (credit / owed).clamp(0.0, 1.0).toDouble();
 }

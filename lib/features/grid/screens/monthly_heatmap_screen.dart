@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
@@ -150,11 +151,21 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
     // was this filter, one archived habit apart.
     final habits = ref.watch(allHabitsEverProvider).toList();
 
+    // The self-refreshing day clock, re-read at midnight and at
+    // kDayCutoffHour, so a cell and the day sheet behind it take a day in
+    // the moment it closes, even with this screen left open. See
+    // dayClockProvider.
+    final now = ref.watch(dayClockProvider);
+    final grid = ref.watch(weeklyGridProvider);
     // Today is resolved from LIVE state, never from a rollup. See
     // [_todayDoneCount] — dailyGreenCounts does not reliably hold today.
-    final todayDone =
-        _todayDoneCount(habits, dash.completions, ref.watch(weeklyGridProvider));
-    final todayKey = DateTime.now().effectiveDay.toDateKey();
+    final todayDone = _todayDoneCount(
+      habits,
+      dash.completions,
+      grid,
+      now.effectiveDay,
+    );
+    final todayKey = now.effectiveDay.toDateKey();
     // The mirror is the truth for settled days; the rollup is only a
     // stand-in for the one frame before it resolves.
     //
@@ -192,6 +203,16 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
           },
           orElse: () => {...dash.dailyGreenCounts, todayKey: todayDone},
         );
+    // The days still open that already hold a فشل, which settles its day at
+    // once. See heatmapFailedOpenDays.
+    final failedOpenDays = heatmapFailedOpenDays(
+      mirror: ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
+      habitIds: countedIds,
+      now: now,
+      liveToday: grid.weekStart == startOfGridWeek(now.effectiveDay)
+          ? (id) => grid.squareFor(id, now.effectiveDay)
+          : null,
+    );
 
     // One document, covering every month section on this screen. The list
     // below builds all its sections eagerly, so reading ground truth per
@@ -203,7 +224,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
           orElse: () => const <String, Set<int>>{},
         );
 
-    final today = DateTime.now().effectiveDay;
+    final today = now.effectiveDay;
     final currentMonth = DateTime(today.year, today.month, 1);
     final months = _visibleMonths(
       currentMonth: currentMonth,
@@ -304,6 +325,8 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
                           counts: counts,
                           habits: habits,
                           today: today,
+                          now: now,
+                          failedOpenDays: failedOpenDays,
                           dark: dark,
                           noteDays: noteDays[monthKeyOf(
                                   ordered[i].toDateKey())] ??
@@ -502,8 +525,8 @@ int _todayDoneCount(
   List<IslamicHabitTemplate> habits,
   Map<String, int> completions,
   WeeklyGridState grid,
+  DateTime today,
 ) {
-  final today = DateTime.now().effectiveDay;
   // The Grid must be showing the week that contains today, or squareFor
   // answers `none` for every habit and we would erase the day rather than
   // read it. Same guard the reports' withLiveToday uses, and for the same
@@ -601,6 +624,13 @@ class _MonthSection extends StatelessWidget {
   final Map<String, int> counts;
   final List<IslamicHabitTemplate> habits;
   final DateTime today;
+
+  /// The day clock, for which days are still open (see _HeatCell.settled).
+  final DateTime now;
+
+  /// The open days already holding a فشل, which count as settled (see
+  /// heatmapFailedOpenDays).
+  final Set<String> failedOpenDays;
   final bool dark;
   final void Function(DateTime day, int count) onTapDay;
 
@@ -616,6 +646,8 @@ class _MonthSection extends StatelessWidget {
     required this.counts,
     required this.habits,
     required this.today,
+    required this.now,
+    required this.failedOpenDays,
     required this.dark,
     required this.noteDays,
     required this.onTapDay,
@@ -792,6 +824,10 @@ class _MonthSection extends StatelessWidget {
       day: day,
       count: count,
       totalHabits: scheduled,
+      settled: day.isSettledAt(
+        now,
+        answered: failedOpenDays.contains(day.toDateKey()),
+      ),
       dark: dark,
       // Same exemption as the Grid's own cells: the real calendar day
       // during the window right after midnight isn't "future" just because
@@ -883,14 +919,60 @@ enum _DayFill { rest, empty, partial, full }
 int heatmapScheduledOn(List<IslamicHabitTemplate> habits, DateTime day) =>
     habits.where((h) => h.isScheduledFor(day)).length;
 
-_DayFill dayFill(int done, int planned) {
+/// The days still open at [now] that already hold an explicit فشل for one
+/// of [habitIds], by dateKey.
+///
+/// A فشل settles its day at once on every other surface
+/// (SquareState.answersDay): the report counts it, the recap draws it,
+/// Insights counts it. The cell here is a picture of the whole day, so an
+/// open day holding a فشل is judged at once too, and with nothing done on it
+/// gets the plate of a day judged on nothing, not the quiet cell of a day in
+/// progress (see dayFill). Only today, and yesterday until kDayCutoffHour,
+/// can be open, so only they are read.
+///
+/// Today comes from [liveToday] when the Grid has today loaded, since the
+/// mirror can lag a mark made moments ago or still hold one just cleared;
+/// yesterday, and today without the Grid, come from [mirror].
+Set<String> heatmapFailedOpenDays({
+  required Map<String, Map<String, SquareState>> mirror,
+  required Iterable<String> habitIds,
+  required DateTime now,
+  SquareState Function(String habitId)? liveToday,
+}) {
+  final today = now.effectiveDay;
+  final out = <String>{};
+  for (final day in [
+    today,
+    DateTime(today.year, today.month, today.day - 1),
+  ]) {
+    if (!day.isOpenDayAt(now)) continue;
+    final key = day.toDateKey();
+    final live = day == today ? liveToday : null;
+    for (final id in habitIds) {
+      final mark = live != null ? live(id) : mirror[id]?[key];
+      if (mark == SquareState.failed) {
+        out.add(key);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/// [settled] is whether the day can be judged yet (DateTimeGameExt
+/// .isSettledAt). A day still open with nothing done on it is drawn like a
+/// day that owed nothing, the quiet unplated cell, never the empty plate a
+/// day that closed on nothing gets: until kDayCutoffHour the next morning
+/// its habits can still be marked, so it is in progress, not missed (Aziz,
+/// 2026-09-11). Anything done on it still shows as it is.
+_DayFill dayFill(int done, int planned, {bool settled = true}) {
   if (planned <= 0) {
     // Nothing was owed. Work done anyway still reads as a full day; a day
     // with nothing owed and nothing done is a REST day, not a failure —
     // the same position the streak already takes (see commit bce64ff).
     return done > 0 ? _DayFill.full : _DayFill.rest;
   }
-  if (done <= 0) return _DayFill.empty;
+  if (done <= 0) return settled ? _DayFill.empty : _DayFill.rest;
   return done >= planned ? _DayFill.full : _DayFill.partial;
 }
 
@@ -902,6 +984,10 @@ class _HeatCell extends StatelessWidget {
   final bool isFuture;
   final void Function(DateTime day, int count) onTap;
 
+  /// Whether this day can be judged yet, closed or not (see dayFill). A day
+  /// still open with nothing done draws quiet, and stays tappable.
+  final bool settled;
+
   /// Whether this day carries writing, from the note index. Day level, not
   /// per habit: this cell is a picture of the whole day.
   final bool hasNote;
@@ -910,6 +996,7 @@ class _HeatCell extends StatelessWidget {
     required this.day,
     required this.count,
     required this.totalHabits,
+    required this.settled,
     required this.dark,
     required this.isFuture,
     required this.hasNote,
@@ -928,7 +1015,7 @@ class _HeatCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final fill = dayFill(count, totalHabits);
+    final fill = dayFill(count, totalHabits, settled: settled);
 
     // A future date is a date and nothing else: no plate, no border. The
     // old blanket Opacity(0.25) rendered the rest of the month at roughly
@@ -1098,9 +1185,12 @@ class _DayHabitOutcome {
 /// writes, so every action chosen there (skip, slip, bonus, partial) and
 /// every note shows up here exactly as recorded. Habits scheduled that day
 /// with no mark at all render as "not done", so misses are visible too, not
-/// just wins. One caveat inherited from the data model: the schedule check
-/// uses the *current* habit list (past days don't store what was scheduled
-/// back then), so a habit added today also shows "not done" on older days.
+/// just wins. On a day still open (today, or yesterday before
+/// kDayCutoffHour) they say «مطلوب» instead: they can still be marked, so
+/// they are not misses yet (Aziz, 2026-09-11). One caveat inherited from
+/// the data model: the schedule check uses the *current* habit list (past
+/// days don't store what was scheduled back then), so a habit added today
+/// also shows "not done" on older days.
 class _HeatDayDetailSheet extends ConsumerWidget {
   final DateTime day;
   const _HeatDayDetailSheet({required this.day});
@@ -1227,6 +1317,9 @@ class _HeatDayDetailSheet extends ConsumerWidget {
     // other would give a day a cell reading 1 of 2 and a sheet listing one
     // habit.
     final habits = ref.watch(allHabitsEverProvider).toList();
+    // Whether this day can still be marked. Its blank habits are not misses
+    // yet, so they say «مطلوب» instead (see _OutcomeRow.stillOpen).
+    final stillOpen = !day.isSettledAt(ref.watch(dayClockProvider));
 
     return SafeArea(
       child: Container(
@@ -1302,8 +1395,11 @@ class _HeatDayDetailSheet extends ConsumerWidget {
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       child: Container(height: 0.5, color: gp.border),
                     ),
-                    itemBuilder: (context, i) =>
-                        _OutcomeRow(outcome: outcomes[i], day: day),
+                    itemBuilder: (context, i) => _OutcomeRow(
+                      outcome: outcomes[i],
+                      day: day,
+                      stillOpen: stillOpen,
+                    ),
                   );
                 },
               ),
@@ -1321,7 +1417,17 @@ class _OutcomeRow extends StatelessWidget {
   /// The day this row belongs to, which the note block measures the
   /// free-history window against.
   final DateTime day;
-  const _OutcomeRow({required this.outcome, required this.day});
+
+  /// Whether [day] can still be marked (DateTimeGameExt.isSettledAt). A
+  /// blank habit on it is still due, not missed, so it says «مطلوب»
+  /// (reportsDayScheduled), the word the report's and the Progress tab's day
+  /// sheets use for the same habit, instead of «لم يكتمل».
+  final bool stillOpen;
+  const _OutcomeRow({
+    required this.outcome,
+    required this.day,
+    required this.stillOpen,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1376,7 +1482,9 @@ class _OutcomeRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
               child: Text(
-                s.isAr ? state.labelAr : state.label,
+                state == SquareState.none && stillOpen
+                    ? s.reportsDayScheduled
+                    : (s.isAr ? state.labelAr : state.label),
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,

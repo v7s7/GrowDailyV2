@@ -10,6 +10,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
+import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
+import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/milestones/reports/report_period.dart';
 import 'package:grow_daily_v2/features/milestones/reports/report_sections.dart';
 import 'package:grow_daily_v2/shared/widgets/segmented_tabs.dart';
@@ -190,5 +192,73 @@ void main() {
       expect(find.text('Weakest weekday: Thursday'), findsOneWidget);
     });
 
+  });
+
+  group('nothing owed yet prints a placeholder, never 0%', () {
+    // Aziz, 2026-09-11: a day still open is not a miss. At 05:00 on the 1st
+    // every due day of the month is still open, and a habit created today
+    // owes nothing until it is done, so there is no rate to print yet.
+    final adhkar = IslamicHabitTemplate(
+      id: 'adhkar',
+      name: 'adhkar',
+      description: '',
+      category: HabitCategory.faith,
+      frequencyType: HabitFrequencyType.daily,
+      frequencyTarget: 1,
+      hasTimer: false,
+      xpReward: 10,
+      goldReward: 1,
+    );
+
+    Widget monthCard({required int expected}) => HabitMonthCard(
+          stat: HabitPeriodStat(
+            habit: adhkar,
+            marks: const {},
+            expected: expected,
+          ),
+          month: DateTime(2026, 9),
+          today: DateTime(2026, 9, 1),
+          now: DateTime(2026, 9, 1, 5),
+          lockedBefore: null,
+        );
+
+    testWidgets('a month card whose habit owes nothing yet', (tester) async {
+      await host(tester, monthCard(expected: 0));
+      expect(find.text('–'), findsOneWidget);
+      expect(find.text('0%'), findsNothing);
+
+      await host(tester, monthCard(expected: 3));
+      expect(find.text('0%'), findsOneWidget,
+          reason: 'owing, with nothing done, is a real 0%');
+      expect(find.text('–'), findsNothing);
+    });
+
+    testWidgets('the header while the period owes nothing yet',
+        (tester) async {
+      const nothingOwed = PeriodSummary(
+        totalDone: 0,
+        expectedTotal: 0,
+        bestDay: null,
+        bestDayCount: 0,
+        activeDays: 0,
+        longestRun: 0,
+      );
+      await host(
+        tester,
+        const ReportHeaderCard(summary: nothingOwed, locale: 'ar'),
+      );
+      expect(find.text('0%'), findsNothing);
+
+      const owing = PeriodSummary(
+        totalDone: 0,
+        expectedTotal: 4,
+        bestDay: null,
+        bestDayCount: 0,
+        activeDays: 0,
+        longestRun: 0,
+      );
+      await host(tester, const ReportHeaderCard(summary: owing, locale: 'ar'));
+      expect(find.text('0%'), findsOneWidget);
+    });
   });
 }

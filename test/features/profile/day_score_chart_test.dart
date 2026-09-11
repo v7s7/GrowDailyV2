@@ -468,6 +468,44 @@ void main() {
       expect(line(run(const [3, 3]), isLoading: true), en.loadingReport);
     });
 
+    test('a day still open cannot turn the line before it is answered', () {
+      // Six closed days holding level, then today still open with nothing
+      // answered. Sitting in the later half at zero credit, it turned the
+      // line to startAgain at 08:00 (Aziz, 2026-09-11: a day in progress is
+      // not a miss).
+      final closed = run(const [2, 2, 2, 2, 2, 2]);
+      DayScore today({required bool isOpen}) => DayScore(
+            day: DateTime(2026, 8, 28),
+            done: 0,
+            credit: 0,
+            owed: 4,
+            failed: 0,
+            rested: 0,
+            settledOwed: isOpen ? 0 : 4,
+            settledCredit: 0,
+            isOpen: isOpen,
+          );
+      expect(line([...closed, today(isOpen: true)]), en.holdingStrong);
+      expect(line([...closed, today(isOpen: false)]), en.startAgain,
+          reason: 'the same zero, once the day has closed, is a real drop');
+    });
+
+    test('an open day whose every habit is answered still takes part', () {
+      final closed = run(const [3, 3, 3, 3, 3, 3]);
+      final answered = DayScore(
+        day: DateTime(2026, 8, 28),
+        done: 0,
+        credit: 0,
+        owed: 4,
+        failed: 4,
+        rested: 0,
+        settledOwed: 4,
+        settledCredit: 0,
+        isOpen: true,
+      );
+      expect(line([...closed, answered]), en.startAgain);
+    });
+
     test('improving reads as holding, declining reads as start again', () {
       expect(line(run(const [1, 1, 1, 3, 3, 3])), en.holdingStrong);
       expect(line(run(const [3, 3, 3, 1, 1, 1])), en.startAgain);
@@ -671,6 +709,287 @@ void main() {
       );
       expect(find.text(S(const Locale('ar')).progressRestedShort),
           findsOneWidget);
+    });
+  });
+
+  group('a day still in progress is not drawn as a zero', () {
+    // Aziz, 2026-09-11: a day still open is not a miss. The hollow ring on
+    // the floor means a day that closed on nothing, so an untouched today,
+    // or a yesterday still inside its grace, gets a quiet dot instead.
+    int hollowRings(List<DayScore> scores) {
+      final canvas = TestRecordingCanvas();
+      DayScoreLinePainter(
+        scores: scores,
+        todayIndex: scores.length - 1,
+        progress: 1,
+        showLine: true,
+        isRtl: false,
+        selectedIndex: -1,
+        lineColor: const Color(0xFF10B981),
+        todayColor: const Color(0xFFD4AF37),
+        restColor: const Color(0xFF9CA3AF),
+        failedColor: const Color(0xFFEF4444),
+        bandColor: const Color(0x2210B981),
+        baselineColor: const Color(0xFF374151),
+        silentColor: const Color(0xFF6B7280),
+      ).paint(canvas, const Size(300, 120));
+      return canvas.invocations.where((call) {
+        final invocation = call.invocation;
+        return invocation.memberName == #drawCircle &&
+            (invocation.positionalArguments[2] as Paint).style ==
+                PaintingStyle.stroke;
+      }).length;
+    }
+
+    DayScore nothingDone(int day, {required bool isOpen, int failed = 0}) =>
+        DayScore(
+          day: DateTime(2026, 9, day),
+          done: 0,
+          credit: 0,
+          owed: 2,
+          failed: failed,
+          rested: 0,
+          settledOwed: isOpen ? failed : 2,
+          settledCredit: 0,
+          isOpen: isOpen,
+        );
+
+    test('an open blank yesterday and today draw no ring', () {
+      expect(
+        hollowRings([
+          nothingDone(9, isOpen: false),
+          nothingDone(10, isOpen: true),
+          nothingDone(11, isOpen: true),
+        ]),
+        1,
+        reason: 'only Wednesday, which has closed',
+      );
+    });
+
+    test('the same days, once closed, are real zeros', () {
+      expect(
+        hollowRings([
+          nothingDone(9, isOpen: false),
+          nothingDone(10, isOpen: false),
+          nothingDone(11, isOpen: false),
+        ]),
+        3,
+      );
+    });
+
+    test('an open day with every habit answered is a real zero', () {
+      expect(hollowRings([nothingDone(11, isOpen: true, failed: 2)]), 1);
+    });
+  });
+
+  group('the line does not run down to a day still in progress', () {
+    // Aziz, 2026-09-11: a day still open is not a miss. The floor is where a
+    // day that closed on nothing sits, so an untouched open day gets its
+    // quiet dot and no line running down to it.
+    DayScore score(int d, {required int done, bool open = false}) => DayScore(
+          day: DateTime(2026, 9, d),
+          done: done,
+          credit: done.toDouble(),
+          owed: 2,
+          failed: 0,
+          rested: 0,
+          settledOwed: open ? done : 2,
+          settledCredit: done.toDouble(),
+          isOpen: open,
+        );
+
+    test('an untouched open yesterday and today sit in no run', () {
+      expect(
+        DayScoreLinePainter.lineRuns([
+          score(8, done: 1),
+          score(9, done: 2),
+          score(10, done: 0, open: true),
+          score(11, done: 0, open: true),
+        ]),
+        [
+          [0, 1],
+        ],
+      );
+    });
+
+    test('an open day with something done stays on the line', () {
+      expect(
+        DayScoreLinePainter.lineRuns([
+          score(9, done: 2),
+          score(10, done: 0, open: true),
+          score(11, done: 1, open: true),
+        ]),
+        [
+          [0],
+          [2],
+        ],
+      );
+      expect(
+        DayScoreLinePainter.lineRuns([
+          score(10, done: 1),
+          score(11, done: 2, open: true),
+        ]),
+        [
+          [0, 1],
+        ],
+      );
+    });
+
+    test('zeros that have closed are real zeros, on the line', () {
+      expect(
+        DayScoreLinePainter.lineRuns([
+          score(9, done: 0),
+          score(10, done: 0),
+          score(11, done: 0),
+        ]),
+        [
+          [0, 1, 2],
+        ],
+      );
+    });
+
+    test('the painted line stops short of an untouched open today', () {
+      final scores = [
+        score(9, done: 1),
+        score(10, done: 2),
+        score(11, done: 0, open: true),
+      ];
+      const size = Size(300, 120);
+      final canvas = TestRecordingCanvas();
+      DayScoreLinePainter(
+        scores: scores,
+        todayIndex: scores.length - 1,
+        progress: 1,
+        showLine: true,
+        isRtl: false,
+        selectedIndex: -1,
+        lineColor: const Color(0xFF10B981),
+        todayColor: const Color(0xFFD4AF37),
+        restColor: const Color(0xFF9CA3AF),
+        failedColor: const Color(0xFFEF4444),
+        bandColor: const Color(0x2210B981),
+        baselineColor: const Color(0xFF374151),
+        silentColor: const Color(0xFF6B7280),
+      ).paint(canvas, size);
+      final strokes = [
+        for (final call in canvas.invocations)
+          if (call.invocation.memberName == #drawPath &&
+              (call.invocation.positionalArguments[1] as Paint).style ==
+                  PaintingStyle.stroke)
+            call.invocation.positionalArguments[0] as Path,
+      ];
+      expect(strokes, hasLength(1));
+      final todayX =
+          DayAxis(width: size.width, count: scores.length, isRtl: false)
+              .center(2);
+      expect(strokes.single.getBounds().right, lessThan(todayX));
+    });
+  });
+
+  group('the band under a day still in progress', () {
+    // Aziz, 2026-09-11: a day still open is not a miss. The legend reads the
+    // band as how many were due, so the gap between it and the line reads as
+    // due and not done. On a day still in progress that gap may only hold
+    // habits already answered.
+    const bandColor = Color(0x2210B981);
+
+    DayScore closedOne(int d) => DayScore(
+          day: DateTime(2026, 9, d),
+          done: 1,
+          credit: 1,
+          owed: 1,
+          failed: 0,
+          rested: 0,
+        );
+
+    // 08:00: one of five done, the other four still open.
+    DayScore today({required bool isOpen}) => DayScore(
+          day: DateTime(2026, 9, 11),
+          done: 1,
+          credit: 1,
+          owed: 5,
+          failed: 0,
+          rested: 0,
+          settledOwed: isOpen ? 1 : 5,
+          settledCredit: 1,
+          isOpen: isOpen,
+        );
+
+    test('a day still in progress steps at what is already answered', () {
+      expect(today(isOpen: true).isPending, isTrue);
+      expect(DayScoreLinePainter.bandHeightOf(today(isOpen: true)), 1);
+    });
+
+    test('the same day, once closed, steps at all it owed', () {
+      expect(DayScoreLinePainter.bandHeightOf(today(isOpen: false)), 5);
+    });
+
+    test('a score built without a clock steps at what it owed, as before', () {
+      expect(
+        DayScoreLinePainter.bandHeightOf(
+          DayScore(
+            day: DateTime(2026, 9, 11),
+            done: 1,
+            credit: 1,
+            owed: 5,
+            failed: 0,
+            rested: 0,
+          ),
+        ),
+        5,
+      );
+    });
+
+    double bandTop(List<DayScore> scores, Size size) {
+      final canvas = TestRecordingCanvas();
+      DayScoreLinePainter(
+        scores: scores,
+        todayIndex: scores.length - 1,
+        progress: 1,
+        showLine: true,
+        isRtl: false,
+        selectedIndex: -1,
+        lineColor: const Color(0xFF10B981),
+        todayColor: const Color(0xFFD4AF37),
+        restColor: const Color(0xFF9CA3AF),
+        failedColor: const Color(0xFFEF4444),
+        bandColor: bandColor,
+        baselineColor: const Color(0xFF374151),
+        silentColor: const Color(0xFF6B7280),
+      ).paint(canvas, size);
+      final bands = [
+        for (final call in canvas.invocations)
+          // By ARGB value: a Paint hands its colour back as floats, which
+          // need not compare equal to the constant it was given.
+          if (call.invocation.memberName == #drawPath &&
+              (call.invocation.positionalArguments[1] as Paint)
+                      .color
+                      .toARGB32() ==
+                  bandColor.toARGB32())
+            call.invocation.positionalArguments[0] as Path,
+      ];
+      expect(bands, hasLength(1));
+      return bands.single.getBounds().top;
+    }
+
+    test('the painted band does not rise to the four habits still open', () {
+      const size = Size(300, 120);
+      // The plot runs from 8 down to a baseline 10 above the bottom, and the
+      // axis is the tallest obligation in the window: five.
+      const top = 8.0;
+      final baseline = size.height - 10;
+      final oneOfFive = baseline - (baseline - top) / 5;
+      expect(
+        bandTop([closedOne(9), closedOne(10), today(isOpen: true)], size),
+        closeTo(oneOfFive, 0.001),
+        reason: 'today steps at the one habit answered, level with the days '
+            'before it',
+      );
+      expect(
+        bandTop([closedOne(9), closedOne(10), today(isOpen: false)], size),
+        closeTo(top, 0.001),
+        reason: 'once today has closed, all five were due',
+      );
     });
   });
 }

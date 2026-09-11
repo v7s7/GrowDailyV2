@@ -303,6 +303,7 @@ void main() {
         habits: [habit()],
         history: const {},
         days: days,
+        now: null,
       );
       expect(scores.map((s) => s.day), days);
     });
@@ -335,7 +336,7 @@ void main() {
     test('a window that owed nothing has no rate', () {
       expect(windowRate(const []), isNull);
       expect(
-        windowRate(computeDayScores(habits: const [], history: const {}, days: days)),
+        windowRate(computeDayScores(habits: const [], history: const {}, days: days, now: null)),
         isNull,
       );
     });
@@ -385,6 +386,113 @@ void main() {
         silentHabitsOn(habits: stints, history: const {}, day: wed).length,
         1,
       );
+    });
+  });
+
+  group('days still open', () {
+    // Wednesday 9 to Friday 11 September 2026, two every-day habits. At 05:19
+    // on the 11th, Thursday is still open until kDayCutoffHour and Friday has
+    // only just begun (Aziz, 2026-09-11: a day in progress is not a miss).
+    final wed9 = DateTime(2026, 9, 9);
+    final thu10 = DateTime(2026, 9, 10);
+    final fri11 = DateTime(2026, 9, 11);
+    final at0519 = DateTime(2026, 9, 11, 5, 19);
+    final friCutoff = DateTime(2026, 9, 11, kDayCutoffHour);
+    final satCutoff = DateTime(2026, 9, 12, kDayCutoffHour);
+    final habits = [habit(id: 'h0'), habit(id: 'h1')];
+
+    List<DayScore> scoresAt(
+      DateTime? now, {
+      SquareState h0Friday = SquareState.none,
+    }) =>
+        computeDayScores(
+          habits: habits,
+          history: historyOf({
+            'h0': {
+              wed9: SquareState.complete,
+              thu10: SquareState.complete,
+              if (h0Friday != SquareState.none) fri11: h0Friday,
+            },
+            'h1': {wed9: SquareState.complete, fri11: SquareState.partial},
+          }),
+          days: [wed9, thu10, fri11],
+          now: now,
+        );
+
+    test('a blank or جزئي habit on an open day waits; a done one counts', () {
+      final scores = scoresAt(at0519);
+      expect(windowRate(scores), 1.0,
+          reason: 'Wednesday 2 of 2, Thursday one done, nothing else settled');
+      expect([for (final d in scores) d.isOpen], [false, true, true]);
+      expect(
+        [for (final d in scores) (d.settledOwed, d.owed)],
+        [(2, 2), (1, 2), (0, 2)],
+      );
+    });
+
+    test('yesterday enters at the cutoff', () {
+      expect(windowRate(scoresAt(friCutoff)), closeTo(3 / 4, 1e-9));
+    });
+
+    test('today enters the morning after, its جزئي at half', () {
+      expect(windowRate(scoresAt(satCutoff)), closeTo(3.5 / 6, 1e-9));
+    });
+
+    test('فشل on the open day counts at once', () {
+      expect(
+        windowRate(scoresAt(at0519, h0Friday: SquareState.failed)),
+        closeTo(3 / 4, 1e-9),
+      );
+    });
+
+    test('without a clock every day counts in full, as before', () {
+      final scores = scoresAt(null);
+      expect(windowRate(scores), closeTo(3.5 / 6, 1e-9));
+      expect(scores.every((d) => !d.isOpen && d.settledOwed == d.owed), isTrue);
+    });
+
+    test('the chart numbers themselves do not move with the clock', () {
+      final withClock = scoresAt(at0519);
+      final without = scoresAt(null);
+      for (var i = 0; i < 3; i++) {
+        expect(
+          (withClock[i].done, withClock[i].credit, withClock[i].owed),
+          (without[i].done, without[i].credit, without[i].owed),
+        );
+      }
+    });
+
+    test('isPending: open, with something on the day still unanswered', () {
+      expect([for (final d in scoresAt(at0519)) d.isPending],
+          [false, true, true]);
+      expect([for (final d in scoresAt(friCutoff)) d.isPending],
+          [false, false, true]);
+      expect([for (final d in scoresAt(null)) d.isPending],
+          [false, false, false]);
+      final allAnswered = computeDayScores(
+        habits: habits,
+        history: historyOf({
+          'h0': {fri11: SquareState.failed},
+          'h1': {fri11: SquareState.complete},
+        }),
+        days: [fri11],
+        now: at0519,
+      ).single;
+      expect((allAnswered.isOpen, allAnswered.isPending), (true, false),
+          reason: 'every habit answered: open, but nothing left to wait for');
+    });
+
+    test('a score built without settled numbers falls back to its own', () {
+      final score = DayScore(
+        day: wed9,
+        done: 1,
+        credit: 1.5,
+        owed: 3,
+        failed: 0,
+        rested: 0,
+      );
+      expect((score.settledOwed, score.settledCredit, score.isOpen),
+          (3, 1.5, false));
     });
   });
 }

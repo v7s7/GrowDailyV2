@@ -49,9 +49,18 @@ class MonthlyStoryData {
     this.hasBaseline = true,
   });
 
+  /// This month's greens against the same stretch of last month, every day
+  /// of that stretch counted in full, today included.
+  ///
+  /// Not shown anywhere, and not the change to show. The month tab prints
+  /// periodDelta (report_period.dart), which pairs the two months day by day
+  /// and never lets a day still open count against itself (its rule 3).
+  /// Kept for monthly_story_test.dart; a surface that wants a month's change
+  /// should call periodDelta, not this.
   int get delta => totalGreenSquares - prevMonthTotal;
 
-  /// Whether the delta is worth showing at all.
+  /// Whether [delta] is worth showing at all. Not read by any surface; see
+  /// [delta].
   bool get showsDelta => hasBaseline && delta != 0;
 
   /// Whether there's anything at all worth showing a story for — a month

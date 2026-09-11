@@ -6,6 +6,7 @@
 // same calendar arithmetic in completeHabit restarted that habit's streak at
 // 1 on every completion. These pin the schedule-aware counting both now use.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_schedule.dart';
 
 void main() {
@@ -125,6 +126,7 @@ void main() {
           doneDays: doneDays,
           target: target,
           lastDone: lastDone,
+          fireTime: null,
         );
 
     test('an unknown week claims nothing', () {
@@ -196,6 +198,58 @@ void main() {
       expect(f.done, 3);
       expect(f.owed, isFalse);
       expect(f.missedSinceLastDone, 0);
+    });
+
+    test('a whole empty week does not count its Friday while it is open', () {
+      // The empty week before Saturday the 15th ends on Friday the 14th,
+      // which stays open until kDayCutoffHour on the 15th. An all-empty week
+      // owes its last days, so that Friday is one of its three.
+      int missedAt(int hour) => quotaFactsOn(
+            fireDay: sat15,
+            weekStart: sat15,
+            doneDays: const {},
+            target: 3,
+            lastDone: DateTime(2026, 8, 1),
+            fireTime: DateTime(2026, 8, 15, hour),
+          ).missedSinceLastDone;
+      expect(missedAt(kDayCutoffHour - 1), 2);
+      expect(missedAt(kDayCutoffHour), 3);
+    });
+
+    test('an owed day of this week still open at the fire time is no miss',
+        () {
+      // Nothing done all week, last done the Saturday before. At 04:00 on
+      // Friday the 21st, Wednesday has closed but Thursday is still open.
+      int missedAt(int hour) => quotaFactsOn(
+            fireDay: fri21,
+            weekStart: sat15,
+            doneDays: const {},
+            target: 3,
+            lastDone: DateTime(2026, 8, 8),
+            fireTime: DateTime(2026, 8, 21, hour),
+          ).missedSinceLastDone;
+      expect(missedAt(4), 1);
+      expect(missedAt(kDayCutoffHour), 2);
+    });
+
+    test('an empty week between this week and a later fire week waits too',
+        () {
+      // The scheduler arms about four days ahead, so today a fire day never
+      // lands two weeks past the current week; quotaFactsOn is general, and
+      // this pins the branch that would. Current week met on Mon the 17th,
+      // reminder on Sat the 29th: the whole week of the 22nd sits between,
+      // empty, and owes its last three days, the 26th to Friday the 28th.
+      // At 04:00 on the 29th that Friday is still open.
+      int missedAt(int hour) => quotaFactsOn(
+            fireDay: DateTime(2026, 8, 29),
+            weekStart: sat15,
+            doneDays: const {0, 1, 2},
+            target: 3,
+            lastDone: mon17,
+            fireTime: DateTime(2026, 8, 29, hour),
+          ).missedSinceLastDone;
+      expect(missedAt(4), 2);
+      expect(missedAt(kDayCutoffHour), 3);
     });
 
     test('a reminder rolled into next week starts that week from nothing', () {

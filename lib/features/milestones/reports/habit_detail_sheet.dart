@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
@@ -83,10 +84,11 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
   @override
   void initState() {
     super.initState();
-    // effectiveDay, not the raw calendar: the app's day rolls at 10am, so
-    // between midnight and then the current month is still the previous
-    // one as far as anything the user just recorded is concerned.
-    final today = DateTime.now().effectiveDay;
+    // effectiveDay, the app's one definition of which day is current. The
+    // day rolls at midnight; yesterday stays open until kDayCutoffHour, and
+    // the numbers below read that from dayClockProvider. So does the month
+    // the sheet opens on, so both come from one clock.
+    final today = ref.read(dayClockProvider).effectiveDay;
     _month = DateTime(today.year, today.month);
   }
 
@@ -108,7 +110,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     if (delta < 0 &&
         !canBrowseHistoryMonth(
           monthStart: next,
-          now: DateTime.now().effectiveDay,
+          now: ref.read(dayClockProvider).effectiveDay,
           isPremium: ref.read(premiumAccessProvider),
         )) {
       // The sheet brings its own haptic, so none is fired here.
@@ -131,7 +133,10 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     final habit = widget.habit;
     final color = habit.customColor ?? GameColors.emerald;
     final dash = ref.watch(dashboardProvider);
-    final today = DateTime.now().effectiveDay;
+    // The self-refreshing clock the reports hub reads, so this sheet and the
+    // card it was opened from agree about which days are still open.
+    final now = ref.watch(dayClockProvider);
+    final today = now.effectiveDay;
 
     // Same live-today overlay the reports use. Without it this sheet reads the
     // raw mirror and can contradict the very day sheet it was opened from,
@@ -197,6 +202,8 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
       habits: [habit],
       history: {habit.id: marks},
       days: monthDays,
+      now: now,
+      windowEnd: DateTime(_month.year, _month.month + 1, 0),
     ).firstOrNull;
 
     final total = dash.habitTotalCompletions[habit.id] ?? marks.length;
@@ -205,7 +212,9 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     // habit abandoned three weeks ago goes on reporting the streak it died
     // on, forever. habitStreak applies the staleness rule (see its doc
     // comment): more than a day since habitLastCompletedDate and the current
-    // streak is zero, because it is.
+    // streak is zero, because it is. Read without the day clock, on purpose:
+    // holding a still-open yesterday back here would show a streak that
+    // ticking today first still restarts. See habitStreak's doc comment.
     //
     // HabitCard on the home screen has always read it correctly, so the two
     // screens disagreed about the same habit in the same session: the card
@@ -304,7 +313,11 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
             Row(
               children: [
                 _Stat(
-                  value: stat == null ? '–' : '${(stat.rate * 100).round()}%',
+                  // A placeholder while nothing is owed yet, never a 0% for
+                  // days still open. Same rule as the month cards.
+                  value: stat == null || !stat.hasRate
+                      ? '–'
+                      : '${(stat.rate * 100).round()}%',
                   label: s.habitStatsThisPeriod,
                   color: GameColors.emerald,
                 ),
@@ -337,6 +350,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
               habit: habit,
               color: color,
               today: today,
+              now: now,
               picked: _picked,
               locale: locale,
               onPick: (day) {
@@ -584,6 +598,9 @@ class _MonthCalendar extends StatelessWidget {
   final IslamicHabitTemplate habit;
   final Color color;
   final DateTime today;
+
+  /// The wall clock the still-open test reads (see cellStateFor).
+  final DateTime now;
   final DateTime? picked;
   final String locale;
   final ValueChanged<DateTime> onPick;
@@ -594,6 +611,7 @@ class _MonthCalendar extends StatelessWidget {
     required this.habit,
     required this.color,
     required this.today,
+    required this.now,
     required this.picked,
     required this.locale,
     required this.onPick,
@@ -653,6 +671,7 @@ class _MonthCalendar extends StatelessWidget {
                           stat: resolved,
                           day: day,
                           today: todayDay,
+                          now: now,
                         );
                       }(),
                       color: color,

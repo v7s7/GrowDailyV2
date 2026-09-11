@@ -78,6 +78,12 @@ enum SquareState {
   /// A filled green (or better) square — what the user is chasing.
   bool get isGreen => this == complete || this == bonus;
 
+  /// Whether this mark settles its day at once, while the day is still open:
+  /// a finished square, or an explicit فشل. A blank and a جزئي are still
+  /// finishable, and a تخطّي leaves every count anyway, so all three wait for
+  /// the day to close. See DateTimeGameExt.isSettledAt.
+  bool get answersDay => isGreen || this == failed;
+
   /// Whether this state represents any deliberate mark (not the empty default).
   bool get isMarked => this != none;
 

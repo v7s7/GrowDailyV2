@@ -233,7 +233,12 @@ class ReportHeaderCard extends StatelessWidget {
               _SummaryCell(
                 // Rounded, never ceilinged: 99.6% must not print as 100%
                 // beside a grid that visibly has a hole in it.
-                value: '${(summary.rate * 100).round()}%',
+                // A placeholder, never 0%, while nothing is owed yet: at
+                // 00:05 on the 1st every due day is still open, and 0% there
+                // would pass the very verdict an open day must not get.
+                value: summary.hasRate
+                    ? '${(summary.rate * 100).round()}%'
+                    : '–',
                 label: s.reportsRate,
                 color: GameColors.emerald,
               ),
@@ -591,6 +596,10 @@ MatrixCellState cellStateFor({
   // This day's demand for a flexible weekly quota, when the caller has the
   // whole week to compute it ([weekCellStates] does); null otherwise.
   DayDemand? demand,
+  // The wall clock for the still-open test below. Null reads the real one,
+  // which is what every caller did before the clock was passed in. Required,
+  // though nullable, so a grid cannot forget the clock its percentage reads.
+  required DateTime? now,
 }) {
   if (day.isAfter(DateTime(today.year, today.month, today.day))) {
     return MatrixCellState.future;
@@ -605,16 +614,18 @@ MatrixCellState cellStateFor({
     // single blank day of its week is a miss; the shortfall shows up in the
     // percentage and the absent PERFECT mark instead. See
     // [missIsAttributable].
-    // A day still open is not a day missed. `isOpenDay` is today AND
-    // yesterday until kDayCutoffHour, which is the same window the board
-    // lets somebody mark (Aziz, 2026-09-09: "maybe he will train before he
-    // sleep for the past day"). Without this, a blank TODAY read as a miss
-    // in the report from the moment the day began, and yesterday read as one
-    // from midnight, hours before the app stops accepting a mark for it.
+    // A day still open is not a day missed. A day is open until
+    // kDayCutoffHour the next morning, the same window the board lets
+    // somebody mark (Aziz, 2026-09-09: "maybe he will train before he sleep
+    // for the past day"). Without this, a blank TODAY read as a miss in the
+    // report from the moment the day began, and yesterday read as one from
+    // midnight, hours before the app stops accepting a mark for it.
+    // isSettledAt is the test every report percentage uses too, so a grey
+    // cell and the number beside it always agree about which days count.
     SquareState.none =>
       missIsAttributable(stat.habit) &&
               stat.habit.isScheduledFor(day) &&
-              !day.isOpenDay
+              day.isSettledAt(now ?? DateTime.now())
           ? MatrixCellState.missed
           : isCoveredDay(
               habit: stat.habit,
@@ -635,6 +646,7 @@ List<MatrixCellState> weekCellStates({
   required HabitPeriodStat stat,
   required List<DateTime> weekDays,
   required DateTime today,
+  required DateTime? now,
 }) {
   // A flexible quota's covered days can only be told with the whole week
   // in hand: which days were spare or already earned depends on what was
@@ -660,6 +672,7 @@ List<MatrixCellState> weekCellStates({
         day: weekDays[i],
         today: today,
         demand: demand?[i],
+        now: now,
       ),
   ];
 }
@@ -675,6 +688,9 @@ class WeeklyMatrixCard extends StatelessWidget {
   final List<HabitPeriodStat> stats;
   final List<DateTime> weekDays;
   final DateTime today;
+
+  /// The wall clock the still-open test reads (see [cellStateFor]).
+  final DateTime? now;
   final String locale;
 
   /// Called with the tapped day. Null makes the whole grid inert.
@@ -693,6 +709,7 @@ class WeeklyMatrixCard extends StatelessWidget {
     required this.stats,
     required this.weekDays,
     required this.today,
+    required this.now,
     required this.locale,
     this.onTapDay,
     this.muted = false,
@@ -784,6 +801,7 @@ class WeeklyMatrixCard extends StatelessWidget {
                   stat: stat,
                   weekDays: weekDays,
                   today: today,
+                  now: now,
                   cellSize: cellSize,
                   gridWidth: gridWidth,
                   onTapDay: onTapDay,
@@ -812,6 +830,7 @@ class _MatrixRow extends StatelessWidget {
   final HabitPeriodStat stat;
   final List<DateTime> weekDays;
   final DateTime today;
+  final DateTime? now;
   final double cellSize;
   final double gridWidth;
   final void Function(DateTime day)? onTapDay;
@@ -822,6 +841,7 @@ class _MatrixRow extends StatelessWidget {
     required this.stat,
     required this.weekDays,
     required this.today,
+    required this.now,
     required this.cellSize,
     required this.gridWidth,
     required this.onTapDay,
@@ -835,8 +855,12 @@ class _MatrixRow extends StatelessWidget {
     final s = S.of(context);
     final base = stat.habit.customColor ?? GameColors.emerald;
     final color = muted ? base.withOpacity(0.55) : base;
-    final states =
-        weekCellStates(stat: stat, weekDays: weekDays, today: today);
+    final states = weekCellStates(
+      stat: stat,
+      weekDays: weekDays,
+      today: today,
+      now: now,
+    );
 
     return Row(
       children: [
@@ -1042,11 +1066,16 @@ List<DateTime?> monthGridCells(DateTime month) {
 /// The percentage in the corner is [HabitPeriodStat.rate], measured against
 /// what the habit actually owed, so a Monday-and-Thursday habit that never
 /// missed reads 100% rather than the 29% a days-in-month denominator would
-/// print under an obviously full-looking card.
+/// print under an obviously full-looking card. A day still open counts only
+/// once it is answered or closes, the same rule the grey cells follow, so
+/// the percentage and the cells always describe the same days.
 class HabitMonthCard extends StatelessWidget {
   final HabitPeriodStat stat;
   final DateTime month;
   final DateTime today;
+
+  /// The wall clock the still-open test reads (see [cellStateFor]).
+  final DateTime? now;
 
   /// Days before this draw muted and answer taps with the premium gate.
   final DateTime? lockedBefore;
@@ -1064,6 +1093,7 @@ class HabitMonthCard extends StatelessWidget {
     required this.stat,
     required this.month,
     required this.today,
+    required this.now,
     required this.lockedBefore,
     this.onTapDay,
     this.muted = false,
@@ -1136,6 +1166,7 @@ class HabitMonthCard extends StatelessWidget {
                             stat: stat,
                             day: day,
                             today: todayDay,
+                            now: now,
                           );
                         }(),
                         color: color,
@@ -1151,7 +1182,10 @@ class HabitMonthCard extends StatelessWidget {
           Row(
             children: [
               Text(
-                '${(stat.rate * 100).round()}%',
+                // A placeholder while nothing is owed yet (a habit created
+                // today and not done, or a month whose only due days are
+                // still open), never a 0% for a day still being lived.
+                stat.hasRate ? '${(stat.rate * 100).round()}%' : '–',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w900,

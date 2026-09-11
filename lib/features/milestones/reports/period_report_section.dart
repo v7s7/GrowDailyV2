@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
@@ -91,11 +92,13 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
   @override
   void initState() {
     super.initState();
-    // effectiveDay, not DateTime.now(): the app's day rolls over at 10am, so
-    // between midnight and 10:00 the raw calendar would open a brand new,
-    // guaranteed-empty week while the habits just finished sat one step
-    // back. Same reasoning MonthlyStoryScreen documents for its own open.
-    _anchor = DateTime.now().effectiveDay;
+    // effectiveDay, the app's one definition of which day is current. The
+    // day rolls at midnight; yesterday stays open until kDayCutoffHour, and
+    // the numbers below read that from dayClockProvider, not from the anchor,
+    // which only picks the period to show. Read off the same provider, so
+    // the period the report opens on and the days it counts come from one
+    // clock, and a test can pin both.
+    _anchor = ref.read(dayClockProvider).effectiveDay;
   }
 
   /// Switching grain has to re-ask whether the anchor is still allowed.
@@ -286,7 +289,11 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final dash = ref.watch(dashboardProvider);
     final isPremium = ref.watch(premiumAccessProvider);
-    final today = DateTime.now().effectiveDay;
+    // One clock for the whole report, re-read at midnight and at
+    // kDayCutoffHour, so a report left open across 10:00 moves yesterday into
+    // its percentages the moment yesterday closes. See dayClockProvider.
+    final now = ref.watch(dayClockProvider);
+    final today = now.effectiveDay;
     final historyAsync = ref.watch(habitYearHistoryProvider);
 
     // allHabitsEver, not the live list: archiving a habit must not erase
@@ -480,6 +487,7 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
                               window: window,
                               dash: dash,
                               today: today,
+                              now: now,
                               locale: locale,
                               isRtl: isRtl,
                               lockedBefore: lockedBefore,
@@ -619,6 +627,7 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     required ({DateTime start, DateTime end}) window,
     required DashboardState dash,
     required DateTime today,
+    required DateTime now,
     required String locale,
     required bool isRtl,
     required DateTime? lockedBefore,
@@ -638,10 +647,17 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     // a year whose every strip was blank. The aggregate is named in this
     // file's own gating comment as "the thing actually being sold", so it
     // was the one number that most needed the floor.
+    //
+    // Both are measured at [now] against the whole window's end, so a day
+    // still open counts only once it is answered or has closed, and a quota
+    // week still running owes only the sessions that can no longer fit (see
+    // expectedCompletions).
     final stats = computeHabitPeriodStats(
       habits: habits,
       history: history,
       days: days,
+      now: now,
+      windowEnd: window.end,
     );
     final visibleDays = visibleDaysFrom(days: days, floor: lockedBefore);
     final visibleStats = identical(visibleDays, days)
@@ -650,6 +666,8 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
             habits: habits,
             history: history,
             days: visibleDays,
+            now: now,
+            windowEnd: window.end,
           );
     // Every count in the header and the rhythm card comes from this one map,
     // derived from the same per-habit truth the grids are painted from. See
@@ -666,11 +684,13 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
       today: today,
       earliestData: earliestData,
       floor: lockedBefore,
+      now: now,
     );
     final summary = computePeriodSummary(
       dayCounts: dayCounts,
       days: visibleDays,
       habitStats: visibleStats,
+      now: now,
     );
 
     if (!summary.hasAnything && stats.every((st) => st.doneCount == 0)) {
@@ -700,6 +720,7 @@ void tapDay(DateTime day) => _showDay(
           window: window,
           dash: dash,
           today: today,
+          now: now,
           locale: locale,
           onTapDay: tapDay,
         ),
@@ -711,6 +732,7 @@ void tapDay(DateTime day) => _showDay(
           delta: delta,
           dash: dash,
           today: today,
+          now: now,
           locale: locale,
           lockedBefore: lockedBefore,
           onTapDay: tapDay,
@@ -724,6 +746,7 @@ void tapDay(DateTime day) => _showDay(
           delta: delta,
           dash: dash,
           today: today,
+          now: now,
           locale: locale,
           isRtl: isRtl,
           lockedBefore: lockedBefore,
@@ -739,6 +762,7 @@ void tapDay(DateTime day) => _showDay(
     required ({DateTime start, DateTime end}) window,
     required DashboardState dash,
     required DateTime today,
+    required DateTime now,
     required String locale,
     required void Function(DateTime) onTapDay,
   }) {
@@ -758,6 +782,7 @@ void tapDay(DateTime day) => _showDay(
           stats: split.active,
           weekDays: weekDays,
           today: today,
+          now: now,
           locale: locale,
           onTapDay: onTapDay,
           onTapHabit: (stat) => _openHabit(stat.habit),
@@ -772,6 +797,7 @@ void tapDay(DateTime day) => _showDay(
                 stats: split.archived,
                 weekDays: weekDays,
                 today: today,
+                now: now,
                 locale: locale,
                 onTapDay: onTapDay,
                 muted: true,
@@ -796,6 +822,7 @@ void tapDay(DateTime day) => _showDay(
     required List<DateTime> days,
     required DashboardState dash,
     required DateTime today,
+    required DateTime now,
     required String locale,
     required DateTime? lockedBefore,
     required void Function(DateTime) onTapDay,
@@ -827,13 +854,19 @@ void tapDay(DateTime day) => _showDay(
           chips: milestoneChips(context, story),
         ),
         const SizedBox(height: 10),
-        ..._rhythm(dayCounts: dayCounts, days: days, locale: locale),
+        ..._rhythm(
+          dayCounts: dayCounts,
+          days: days,
+          now: now,
+          locale: locale,
+        ),
         _SectionLabel(s.reportsHabitsSection),
         const SizedBox(height: 8),
         _monthCards(
           stats: split.active,
           month: month,
           today: today,
+          now: now,
           lockedBefore: lockedBefore,
           onTapDay: onTapDay,
           muted: false,
@@ -852,6 +885,7 @@ void tapDay(DateTime day) => _showDay(
                 stats: split.archived,
                 month: month,
                 today: today,
+                now: now,
                 lockedBefore: lockedBefore,
                 onTapDay: onTapDay,
                 muted: true,
@@ -867,6 +901,7 @@ void tapDay(DateTime day) => _showDay(
     required List<HabitPeriodStat> stats,
     required DateTime month,
     required DateTime today,
+    required DateTime now,
     required DateTime? lockedBefore,
     required void Function(DateTime) onTapDay,
     required bool muted,
@@ -884,6 +919,7 @@ void tapDay(DateTime day) => _showDay(
               stat: stat,
               month: month,
               today: today,
+              now: now,
               lockedBefore: lockedBefore,
               onTapDay: onTapDay,
               muted: muted,
@@ -903,6 +939,7 @@ void tapDay(DateTime day) => _showDay(
     required List<DateTime> days,
     required DashboardState dash,
     required DateTime today,
+    required DateTime now,
     required String locale,
     required bool isRtl,
     required DateTime? lockedBefore,
@@ -921,7 +958,12 @@ void tapDay(DateTime day) => _showDay(
       children: [
         ReportHeaderCard(summary: summary, locale: locale, delta: delta),
         const SizedBox(height: 10),
-        ..._rhythm(dayCounts: dayCounts, days: days, locale: locale),
+        ..._rhythm(
+          dayCounts: dayCounts,
+          days: days,
+          now: now,
+          locale: locale,
+        ),
         _SectionLabel(s.reportsHabitsSection),
         const SizedBox(height: 8),
         for (final st in active) ...[
@@ -969,14 +1011,20 @@ void tapDay(DateTime day) => _showDay(
   List<Widget> _rhythm({
     required Map<String, int> dayCounts,
     required List<DateTime> days,
+    required DateTime now,
     required String locale,
   }) {
     final periodLabel = _periodLabel(locale);
-    final insight = computeWeekdayInsight(dayCounts: dayCounts, days: days);
+    // Closed days only. An open day is a sample holding a few hours of work,
+    // and averaged in it pulls its whole weekday down. One list feeds both
+    // the sentence and the bars, so they describe the same days.
+    final settled = settledDaysAt(days: days, now: now);
+    final insight =
+        computeWeekdayInsight(dayCounts: dayCounts, days: settled);
     if (insight == null || !insight.isMeaningful) return const [];
     final totals = <int, int>{};
     final counts = <int, int>{};
-    for (final day in days) {
+    for (final day in settled) {
       totals[day.weekday] =
           (totals[day.weekday] ?? 0) + (dayCounts[day.toDateKey()] ?? 0);
       counts[day.weekday] = (counts[day.weekday] ?? 0) + 1;

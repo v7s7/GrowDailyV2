@@ -540,6 +540,46 @@ class DayScoreLinePainter extends CustomPainter {
     return max;
   }
 
+  /// The stretches of the series the line is drawn through, as runs of
+  /// consecutive indices.
+  ///
+  /// A day still in progress with nothing on it done yet ([DayScore
+  /// .isPending] at zero credit) sits in no run, so the line does not run
+  /// down to the floor at an untouched today, or at a yesterday still inside
+  /// its grace. The floor is where a day that CLOSED on nothing sits (Aziz,
+  /// 2026-09-11: a day still open is not a miss), and that day already gets
+  /// a quiet dot instead of the hollow ring. A pending day with something
+  /// already done stays on the line at what is done so far, which is
+  /// progress rather than a verdict. A run of one point draws only its dot.
+  static List<List<int>> lineRuns(List<DayScore> scores) {
+    final runs = <List<int>>[];
+    var run = <int>[];
+    for (var i = 0; i < scores.length; i++) {
+      final score = scores[i];
+      if (score.isPending && score.credit == 0) {
+        if (run.isNotEmpty) runs.add(run);
+        run = <int>[];
+        continue;
+      }
+      run.add(i);
+    }
+    if (run.isNotEmpty) runs.add(run);
+    return runs;
+  }
+
+  /// How high a day's band step stands: the part of its obligation that can
+  /// already be judged ([DayScore.settledOwed]).
+  ///
+  /// The legend reads the band as how many were due, so the gap between the
+  /// band and the line reads as due and not done. On a day still in progress
+  /// that gap may only hold habits already answered: at 08:00 with one of
+  /// five done and four still open, a step at five drew those four as missed
+  /// under a line at one (Aziz, 2026-09-11: a day still open is not a miss).
+  /// It is the number windowRate divides by. A closed day, and an open one
+  /// whose every habit is answered, step at the whole [DayScore.owed] as
+  /// before, and the point and the readout still say «1 من 5»: progress.
+  static double bandHeightOf(DayScore score) => score.settledOwed.toDouble();
+
   @override
   void paint(Canvas canvas, Size size) {
     if (scores.isEmpty) return;
@@ -581,8 +621,10 @@ class DayScoreLinePainter extends CustomPainter {
     final firstX = columnWidth * 0.5;
     final lastX = columnWidth * (scores.length - 0.5);
     final band = Path()..moveTo(mirrorX(firstX), baseline);
+    // Each step at [bandHeightOf], so a day still in progress shades only
+    // what is already answered on it.
     for (var i = 0; i < scores.length; i++) {
-      final y = yOf(scores[i].owed.toDouble());
+      final y = yOf(bandHeightOf(scores[i]));
       final segStart = (columnWidth * i).clamp(firstX, lastX);
       final segEnd = (columnWidth * (i + 1)).clamp(firstX, lastX);
       band
@@ -624,21 +666,27 @@ class DayScoreLinePainter extends CustomPainter {
       return path;
     }
 
-    final fill = curveThrough(points)
-      ..lineTo(points.last.dx, baseline)
-      ..lineTo(points.first.dx, baseline)
-      ..close();
-    canvas.drawPath(fill, Paint()..color = lineColor.withOpacity(0.13));
+    // One fill and one stroke per run, never across a day still in progress
+    // with nothing done on it (see [lineRuns]).
+    for (final run in lineRuns(scores)) {
+      if (run.length < 2) continue;
+      final runPoints = [for (final i in run) points[i]];
+      final fill = curveThrough(runPoints)
+        ..lineTo(runPoints.last.dx, baseline)
+        ..lineTo(runPoints.first.dx, baseline)
+        ..close();
+      canvas.drawPath(fill, Paint()..color = lineColor.withOpacity(0.13));
 
-    canvas.drawPath(
-      curveThrough(points),
-      Paint()
-        ..color = lineColor
-        ..strokeWidth = strokeWidth
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
+      canvas.drawPath(
+        curveThrough(runPoints),
+        Paint()
+          ..color = lineColor
+          ..strokeWidth = strokeWidth
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
 
     // Under the points, over the fill: a guide the dots sit on top of, so
     // scrubbing never hides the value being read.
@@ -728,7 +776,24 @@ class DayScoreLinePainter extends CustomPainter {
           point, dotRadius * 2.06, Paint()..color = accent.withOpacity(0.22));
     }
 
-    if (score.credit == 0) {
+    if (score.credit == 0 && score.isPending) {
+      // In progress, not a zero (Aziz, 2026-09-11: a day still open is not a
+      // miss). The hollow ring below means a day that closed on nothing, so
+      // an untouched today, or a yesterday still inside its grace, gets the
+      // quiet dot a silent day gets instead. Today keeps its gold so it can
+      // still be found. The rate under the chart and the trend line already
+      // leave the same day out (DayScore.isPending), and the line does not
+      // run down to it ([lineRuns]). No early return: a فشل already recorded
+      // on the day still earns its tick below.
+      canvas.drawCircle(
+        point,
+        dotRadius * 0.6,
+        Paint()
+          ..color = isToday
+              ? accent.withOpacity(0.85)
+              : silentColor.withOpacity(0.45),
+      );
+    } else if (score.credit == 0) {
       // Zero, on purpose. Hollow so it is legible as a real recorded point
       // sitting on the floor rather than a gap in the series, which is the
       // same reason the bars this replaced kept a 3pt sliver for a zero day.

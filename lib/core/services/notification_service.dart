@@ -1373,6 +1373,12 @@ class NotificationService {
   /// If the habit is completed in the meantime the completion itself
   /// reschedules and all of this is recomputed, so "nothing happens between
   /// now and the fire day" is the honest assumption to bake in.
+  ///
+  /// A day is only a lapse once it has CLOSED at [fireTime] (see
+  /// DateTimeGameExt.isSettledAt): a reminder landing at 07:00 still finds
+  /// yesterday open and markable, and must not word it as lost. The streak,
+  /// though, is still carried only while no day before the fire day is
+  /// unfinished, open or closed; see the body for why.
   @visibleForTesting
   static ({
     int streak,
@@ -1391,6 +1397,10 @@ class NotificationService {
     required Set<int> scheduledWeekdays,
     required int? weekTarget,
     required Set<int>? weekDoneDays,
+    // The instant the reminder fires. Null judges every day before the fire
+    // day as closed, which is how every caller read it before. Required,
+    // though nullable, so the scheduler cannot drop it and still compile.
+    required DateTime? fireTime,
   }) {
     final daysAhead = calendarDaysBetween(today, fireDay);
     final lastDone =
@@ -1406,6 +1416,7 @@ class NotificationService {
         doneDays: weekDoneDays,
         target: weekTarget,
         lastDone: lastDone,
+        fireTime: fireTime,
       );
       return (
         streak: 0,
@@ -1417,11 +1428,33 @@ class NotificationService {
         everyDay: everyDay,
       );
     }
+    // The LAPSE is judged up to the fire day, or only up to the day before it
+    // while that day is still open when the reminder lands: a 07:00 reminder
+    // must not call yesterday lost while yesterday can still be marked.
+    final dayBefore = dayPlus(fireDay, -1);
+    final judgedUntil = fireTime == null || dayBefore.isSettledAt(fireTime)
+        ? fireDay
+        : dayBefore;
     final missed = lastDone == null
+        ? 0
+        : scheduledDaysStrictlyBetween(
+            lastDone,
+            judgedUntil,
+            scheduledWeekdays,
+          );
+    // The STREAK is not promised across that open day, though. Ticking the
+    // fire day before the open day restarts the streak at 1 (completeHabit
+    // measures a scheduledGap of 2, and nextHabitStreak maps it to 1), and
+    // this reminder's own Mark Done action ticks the fire day. So at 07:00
+    // with yesterday still blank the line names neither a lapse nor a
+    // streak; finishing yesterday re-arms the reminder with the streak back.
+    // DashboardState.habitStreak holds its open-day reading back for the
+    // same reason.
+    final unfinishedBefore = lastDone == null
         ? 0
         : scheduledDaysStrictlyBetween(lastDone, fireDay, scheduledWeekdays);
     return (
-      streak: missed > 0 ? 0 : streak,
+      streak: unfinishedBefore > 0 ? 0 : streak,
       completedCount: basedCompleted,
       lastDoneDaysAgo: basedLastDone,
       missedSinceLastDone: missed,
@@ -2031,12 +2064,14 @@ class NotificationService {
     // already passed rolls to the habit's next scheduled day. So the
     // day-sensitive facts are re-based onto the day this reminder actually
     // lands on, and measured on the habit's own schedule rather than the
-    // calendar; see reminderFactsAtFireDay for both rules. Effective days,
-    // not calendar ones, because the app's day runs to kDayCutoffHour and a
-    // 7am reminder belongs to the night before.
+    // calendar; see reminderFactsAtFireDay for both rules. The day rolls at
+    // midnight, so a 7am reminder belongs to its own calendar day, and the
+    // fire INSTANT goes in too: at 7am yesterday is still open until
+    // kDayCutoffHour, and cannot be worded as missed yet.
     final facts = reminderFactsAtFireDay(
       today: tz.TZDateTime.now(tz.local).effectiveDay,
       fireDay: r.fireTime.effectiveDay,
+      fireTime: r.fireTime,
       streak: r.streak,
       completedCount: r.completedCount,
       lastDoneDaysAgo: r.lastDoneDaysAgo,

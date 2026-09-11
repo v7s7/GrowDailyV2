@@ -167,12 +167,20 @@ extension DateTimeGameExt on DateTime {
   /// internally is otherwise only ever exercised at one point on the clock,
   /// and this rule has a boundary at midnight AND another at the cutoff.
   bool isOpenDayAt(DateTime now) {
-    final start = startOfDay;
-    if (now.isBefore(start)) return false;
-    return now.isBefore(
-      start.add(const Duration(days: 1, hours: kDayCutoffHour)),
-    );
+    if (now.isBefore(startOfDay)) return false;
+    return now.isBefore(closesAt);
   }
+
+  /// The instant this calendar day stops being open for marking: its own
+  /// start plus one day and [kDayCutoffHour] hours.
+  ///
+  /// That is [kDayCutoffHour] the next morning on the wall clock, except on
+  /// a day a daylight-saving change runs through, where the fixed 34 hours
+  /// land an hour either side of it. The one definition [isOpenDayAt] closes
+  /// on, and the one the day clock's timer arms for (nextDayBoundaryAfter),
+  /// so a screen left open refreshes at the instant the day really closes.
+  DateTime get closesAt =>
+      startOfDay.add(const Duration(days: 1, hours: kDayCutoffHour));
 
   /// Whether this day is open ONLY because of the grace tail — i.e. it is
   /// yesterday, and the clock has not yet reached [kDayCutoffHour].
@@ -186,6 +194,24 @@ extension DateTimeGameExt on DateTime {
   /// [isInGraceWindow] against an explicit clock — see [isOpenDayAt].
   bool isInGraceWindowAt(DateTime now) =>
       isOpenDayAt(now) && !isSameDayAs(now.effectiveDay);
+
+  /// Whether a habit-day on this date may be COUNTED at [now]: enter a
+  /// percentage, be drawn as missed, or break a streak.
+  ///
+  /// Aziz, 2026-09-11, on a monthly report read at 05:19: the 11th was
+  /// already counted as a miss, "because today still not finish". A day
+  /// stays markable until [kDayCutoffHour] the next morning ([isOpenDayAt]),
+  /// so until then a blank or half-done day is in progress, not missed. It
+  /// counts once it is [answered] (finished, or an explicit فشل the person
+  /// chose to record), or once it has closed, whichever comes first. A future
+  /// day never counts, answered or not.
+  ///
+  /// Built only on [isOpenDayAt], so the cutoff is still defined in exactly
+  /// one place. Streak code passes `answered: false`: an earned streak day
+  /// has already moved the streak's own marker, so the days a streak asks
+  /// about are only ever the unanswered ones.
+  bool isSettledAt(DateTime now, {bool answered = false}) =>
+      !now.isBefore(startOfDay) && (answered || !isOpenDayAt(now));
 
   /// The stretch in which SOME day's streak is on the line: 6pm until
   /// [kDayCutoffHour] the next morning. What "your streak is on the line"

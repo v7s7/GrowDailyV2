@@ -3,6 +3,7 @@
 // and habitCompletions both count as done, skips are excluded entirely,
 // weekday patterns need enough samples before they're called patterns.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/insights/insight_engine.dart';
@@ -36,6 +37,7 @@ void main() {
           (days(2)[0], {'squareStates': {'a': 'complete'}}),
           (days(2)[1], {'habitCompletions': {'a': 2}}),
         ],
+        now: null,
       );
       expect(result.patterns['a']!.scheduled, 2);
       expect(result.patterns['a']!.completed, 2);
@@ -49,6 +51,7 @@ void main() {
           (days(2)[0], {'squareStates': {'a': 'skipped'}}),
           (days(2)[1], const <String, dynamic>{}),
         ],
+        now: null,
       );
       expect(result.patterns['a']!.scheduled, 1); // only the real miss
       expect(result.patterns['a']!.completed, 0);
@@ -71,6 +74,7 @@ void main() {
                   : const <String, dynamic>{},
             ),
         ],
+        now: null,
       );
       expect(result.patterns[h.id]!.worstWeekday(), DateTime.monday);
     });
@@ -90,6 +94,7 @@ void main() {
               },
             ),
         ],
+        now: null,
       );
       // steady: 14/14. slipping: 14 scheduled, 0 done. Both clear the
       // >=7-sample bar, so the titles split cleanly between them.
@@ -98,7 +103,7 @@ void main() {
     });
 
     test('empty window produces zero samples and no titles', () {
-      final result = computeInsights(habits: [habit('a')], days: const []);
+      final result = computeInsights(habits: [habit('a')], days: const [], now: null);
       expect(result.totalSamples, 0);
       expect(result.strongestWeekday, isNull);
       expect(result.mostConsistentHabitId, isNull);
@@ -121,6 +126,7 @@ void main() {
           (DateTime(2026, 6, 1), {'squareStates': {'a': 'complete'}}), // Monday, done
           (DateTime(2026, 6, 2), const <String, dynamic>{}), // Tuesday, missed
         ],
+        now: null,
       );
       final p = result.patterns['a']!;
       expect(p.scheduledByWeekday[DateTime.monday], 1);
@@ -151,6 +157,7 @@ void main() {
             },
           ),
         ],
+        now: null,
       );
       expect(result.overallScheduledByWeekday[DateTime.monday], 2);
       expect(result.overallCompletedByWeekday[DateTime.monday], 2);
@@ -176,8 +183,111 @@ void main() {
                   : const <String, dynamic>{},
             ),
         ],
+        now: null,
       );
       expect(result.strongestWeekday, DateTime.monday);
+    });
+  });
+
+  group('computeInsights with a clock', () {
+    // Friday 11 September 2026 at 05:19: Thursday is still open until
+    // kDayCutoffHour, and Friday has only just begun. A blank day still open
+    // is not a miss yet (Aziz, 2026-09-11).
+    final wed9 = DateTime(2026, 9, 9);
+    final thu10 = DateTime(2026, 9, 10);
+    final fri11 = DateTime(2026, 9, 11);
+    final at0519 = DateTime(2026, 9, 11, 5, 19);
+    final atCutoff = DateTime(2026, 9, 11, kDayCutoffHour);
+
+    List<(DateTime, Map<String, dynamic>)> blanks() => [
+          (wed9, const <String, dynamic>{}),
+          (thu10, const <String, dynamic>{}),
+          (fri11, const <String, dynamic>{}),
+        ];
+
+    test('a blank day still open is not a sample yet', () {
+      final result =
+          computeInsights(habits: [habit('a')], days: blanks(), now: at0519);
+      expect(result.patterns['a']!.scheduled, 1,
+          reason: 'only Wednesday has closed');
+      expect(result.patterns['a']!.completed, 0);
+    });
+
+    test('an answered open day counts at once, done or فشل', () {
+      final result = computeInsights(
+        habits: [habit('a')],
+        days: [
+          (wed9, const <String, dynamic>{}),
+          (thu10, {'habitCompletions': {'a': 1}}),
+          (fri11, {'squareStates': {'a': 'failed'}}),
+        ],
+        now: at0519,
+      );
+      expect(result.patterns['a']!.scheduled, 3);
+      expect(result.patterns['a']!.completed, 1);
+    });
+
+    test('an open جزئي waits like a blank day', () {
+      final result = computeInsights(
+        habits: [habit('a')],
+        days: [
+          (wed9, const <String, dynamic>{}),
+          (thu10, {'squareStates': {'a': 'partial'}}),
+        ],
+        now: at0519,
+      );
+      expect(result.patterns['a']!.scheduled, 1);
+    });
+
+    test('a counted habit part way there counts the way this engine always did',
+        () {
+      // 1 of 4 on a Thursday still open at 05:19. This engine has always
+      // called any recorded count completed, so the day is answered by its
+      // own reading and counts at once, as it did before the clock existed,
+      // rather than waiting for 10:00 and then jumping in whole. The reports
+      // credit the same day as a جزئي; that difference predates this rule.
+      List<(DateTime, Map<String, dynamic>)> withThursday(int count) => [
+            (wed9, const <String, dynamic>{}),
+            (
+              thu10,
+              {
+                'habitCompletions': {'a': count},
+                'habitTargets': {'a': 4},
+              }
+            ),
+          ];
+      for (final now in [at0519, atCutoff]) {
+        for (final count in [1, 4]) {
+          final p = computeInsights(
+            habits: [habit('a')],
+            days: withThursday(count),
+            now: now,
+          ).patterns['a']!;
+          expect((p.scheduled, p.completed), (2, 1),
+              reason: '$count of 4, read at $now');
+        }
+      }
+    });
+
+    test('a blank day enters when it closes', () {
+      final result =
+          computeInsights(habits: [habit('a')], days: blanks(), now: atCutoff);
+      expect(result.patterns['a']!.scheduled, 2);
+    });
+
+    test('without a clock every day counts, as before', () {
+      final result = computeInsights(habits: [habit('a')], days: blanks(), now: null);
+      expect(result.patterns['a']!.scheduled, 3);
+    });
+
+    test('a habit whose only days are still open has no pattern yet', () {
+      final result = computeInsights(
+        habits: [habit('a')],
+        days: [(fri11, const <String, dynamic>{})],
+        now: at0519,
+      );
+      expect(result.patterns, isEmpty);
+      expect(result.totalSamples, 0);
     });
   });
 }

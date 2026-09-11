@@ -109,6 +109,7 @@ void main() {
         stat: stat,
         weekDays: weekDays,
         today: DateTime(2026, 8, 19),
+        now: null,
       );
       expect(states.sublist(5), everyElement(MatrixCellState.future));
       expect(states.sublist(0, 5), everyElement(MatrixCellState.missed));
@@ -129,6 +130,7 @@ void main() {
         stat: stat,
         weekDays: weekDays,
         today: DateTime(2026, 8, 21),
+        now: null,
       );
       expect(states.where((s) => s == MatrixCellState.missed).length, 1);
       expect(states.where((s) => s == MatrixCellState.covered).length, 6);
@@ -145,6 +147,7 @@ void main() {
         stat: stat,
         weekDays: weekDays,
         today: DateTime(2026, 8, 19),
+        now: null,
       );
       expect(states.take(3), everyElement(MatrixCellState.notDue));
       // Not covered either: a habit cannot have excused days before it was
@@ -176,6 +179,7 @@ void main() {
         stat: stat,
         weekDays: weekDays,
         today: DateTime(2026, 8, 21),
+        now: null,
       );
       expect(states.where((s) => s == MatrixCellState.missed), isEmpty);
       expect(states.where((s) => s == MatrixCellState.done).length, 3);
@@ -200,6 +204,7 @@ void main() {
         stat: stat,
         weekDays: weekDays,
         today: DateTime(2026, 8, 21),
+        now: null,
       );
       expect(states.where((s) => s == MatrixCellState.missed).length, 6);
     });
@@ -216,6 +221,7 @@ void main() {
         stat: stat,
         weekDays: weekDays,
         today: DateTime(2026, 8, 21),
+        now: null,
       );
       expect(states.first, MatrixCellState.done);
     });
@@ -231,6 +237,7 @@ void main() {
           stat: stat,
           weekDays: weekDays,
           today: DateTime(2026, 8, 21),
+          now: null,
         ).length,
         7,
       );

@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/extensions/datetime_ext.dart';
 import '../../core/l10n/app_strings.dart';
+import '../../core/providers/day_clock_provider.dart';
 import '../../features/premium/screens/premium_screen.dart';
 import '../../core/services/local_store_service.dart';
 import '../../core/theme/game_theme.dart';
@@ -23,11 +24,15 @@ const int _insightsDaysWindow = 56; // 8 full grid weeks
 /// A top-level function (not a screen method) so ProgressHubScreen's own
 /// Insights preview section can run the exact same fetch without
 /// duplicating it or depending on InsightsScreen's internals.
+///
+/// [today] is the caller's dayClockProvider day, the same clock
+/// computeInsights judges the window with, so the days read and the days
+/// judged come from one clock, and a test can pin both.
 Future<List<(DateTime, Map<String, dynamic>)>> loadInsightsWindow(
   String? uid, {
+  required DateTime today,
   int daysWindow = _insightsDaysWindow,
 }) async {
-  final today = DateTime.now().effectiveDay;
   final days = [
     for (var i = 0; i < daysWindow; i++) today.subtract(Duration(days: i)),
   ];
@@ -167,8 +172,10 @@ class InsightsScreen extends ConsumerWidget {
 }
 
 class _InsightsBody extends ConsumerWidget {
-  final Future<List<(DateTime, Map<String, dynamic>)>> Function(String? uid)
-      loadWindow;
+  final Future<List<(DateTime, Map<String, dynamic>)>> Function(
+    String? uid, {
+    required DateTime today,
+  }) loadWindow;
   const _InsightsBody({required this.loadWindow});
 
   @override
@@ -188,9 +195,12 @@ class _InsightsBody extends ConsumerWidget {
     // name instead of falling all the way back to "Deleted habit".
     final habits = ref.watch(allHabitsEverProvider);
     final isPremium = ref.watch(premiumAccessProvider);
+    // Re-read at midnight and at kDayCutoffHour, so a screen left open
+    // across 10:00 takes yesterday in when it closes. See dayClockProvider.
+    final now = ref.watch(dayClockProvider);
 
     return FutureBuilder<List<(DateTime, Map<String, dynamic>)>>(
-      future: loadWindow(uid),
+      future: loadWindow(uid, today: now.effectiveDay),
       builder: (context, snap) {
         if (!snap.hasData) {
           return Center(
@@ -198,7 +208,11 @@ class _InsightsBody extends ConsumerWidget {
                 color: GameColors.gold, strokeWidth: 2),
           );
         }
-        final result = computeInsights(habits: habits, days: snap.data!);
+        final result = computeInsights(
+          habits: habits,
+          days: snap.data!,
+          now: now,
+        );
         // ~2 weeks of a single daily habit — below that, patterns are
         // noise and the honest answer is "come back later". Same bar for
         // everyone — this is a data floor, not a Premium gate.
@@ -832,6 +846,28 @@ class _InsightDetailSheet extends StatelessWidget {
   }
 }
 
+/// The weekday wave's seven rates, Monday to Sunday, null for a weekday with
+/// no scheduled sample in the window.
+///
+/// Null, never 0.0. A weekday nobody owed anything on has no rate, and a 0%
+/// over a point on the floor read as a weekday missed every time: a
+/// Monday-and-Thursday habit showed five of them, and holding a day still
+/// open back (computeInsights) can empty a weekday for a habit created this
+/// week. The chart prints '–' for it and draws no point, the placeholder the
+/// reports print where nothing is owed.
+///
+/// Pure; see test/features/insights/insights_open_day_test.dart.
+List<double?> weekdayWaveRates({
+  required Map<int, int> scheduledByWeekday,
+  required Map<int, int> completedByWeekday,
+}) =>
+    [
+      for (var day = DateTime.monday; day <= DateTime.sunday; day++)
+        (scheduledByWeekday[day] ?? 0) == 0
+            ? null
+            : (completedByWeekday[day] ?? 0) / scheduledByWeekday[day]!,
+    ];
+
 /// Mon..Sun completion-rate wave — a smooth-line + gradient-fill chart for
 /// 7 weekday points. ProgressHubScreen's 14-day chart used to share this
 /// exact painter-based look; that one is now a bar chart with visible
@@ -879,12 +915,10 @@ class _WeekdayWaveChart extends StatelessWidget {
     // trick buildInsightHeadlines uses for the full weekday name, just with
     // the narrow ('EEEEE') form here since 7 full names won't fit a row.
     final anchor = DateTime(2026, 7, 13); // a Monday
-    final rates = [
-      for (final day in days)
-        (scheduledByWeekday[day] ?? 0) == 0
-            ? 0.0
-            : (completedByWeekday[day] ?? 0) / scheduledByWeekday[day]!,
-    ];
+    final rates = weekdayWaveRates(
+      scheduledByWeekday: scheduledByWeekday,
+      completedByWeekday: completedByWeekday,
+    );
     final highlightIndex =
         highlightWeekday == null ? null : days.indexOf(highlightWeekday!);
     // The day-label Rows below are plain Flutter Rows, so Directionality
@@ -919,7 +953,7 @@ class _WeekdayWaveChart extends StatelessWidget {
             for (var i = 0; i < days.length; i++)
               Expanded(
                 child: Text(
-                  '${(rates[i] * 100).round()}%',
+                  rates[i] == null ? '–' : '${(rates[i]! * 100).round()}%',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 10,
@@ -976,7 +1010,9 @@ class _WeekdayWaveChart extends StatelessWidget {
 }
 
 class _WeekdayWavePainter extends CustomPainter {
-  final List<double> rates; // 7 values, 0.0-1.0, Monday..Sunday
+  // 7 values, 0.0-1.0, Monday..Sunday; null where the weekday owed nothing
+  // (see weekdayWaveRates), which gets no point and breaks the line.
+  final List<double?> rates;
   final int? highlightIndex;
   final Color lineColor;
   final Color fillColor;
@@ -1002,7 +1038,8 @@ class _WeekdayWavePainter extends CustomPainter {
     // 1.0 (100%) ceiling. Falls back to 1.0 only when every day is
     // genuinely 0%, so the line draws flat along the bottom instead of
     // dividing by zero.
-    final maxRate = rates.fold<double>(0, (m, r) => r > m ? r : m);
+    final maxRate =
+        rates.fold<double>(0, (m, r) => r != null && r > m ? r : m);
     final effectiveMax = maxRate <= 0 ? 1.0 : maxRate;
 
     // Column width, not point-to-point step: each rate owns an equal
@@ -1029,41 +1066,62 @@ class _WeekdayWavePainter extends CustomPainter {
     // canvas center is what moves it there without touching the rest of
     // the drawing logic below (fill/line/dots all just consume `offsets`
     // in whatever order they come in).
-    final offsets = <Offset>[
+    final offsets = <Offset?>[
       for (var i = 0; i < rates.length; i++)
-        Offset(
-          isRtl ? size.width - stepX * (i + 0.5) : stepX * (i + 0.5),
-          chartBottom - (rates[i] / effectiveMax) * chartHeight,
-        ),
+        rates[i] == null
+            ? null
+            : Offset(
+                isRtl ? size.width - stepX * (i + 0.5) : stepX * (i + 0.5),
+                chartBottom - (rates[i]! / effectiveMax) * chartHeight,
+              ),
     ];
 
-    final fillPath = Path()..moveTo(offsets.first.dx, chartBottom);
+    // One fill and one line per run of weekdays that have a rate, never
+    // across a weekday that owed nothing (see weekdayWaveRates). A run of one
+    // point draws only its dot.
+    final runs = <List<Offset>>[];
+    var run = <Offset>[];
     for (final point in offsets) {
-      fillPath.lineTo(point.dx, point.dy);
+      if (point == null) {
+        if (run.isNotEmpty) runs.add(run);
+        run = <Offset>[];
+        continue;
+      }
+      run.add(point);
     }
-    fillPath.lineTo(offsets.last.dx, chartBottom);
-    fillPath.close();
-    canvas.drawPath(fillPath, Paint()..color = fillColor);
+    if (run.isNotEmpty) runs.add(run);
 
-    final linePath = Path()..moveTo(offsets.first.dx, offsets.first.dy);
-    for (var i = 1; i < offsets.length; i++) {
-      final prev = offsets[i - 1];
-      final next = offsets[i];
-      final midX = (prev.dx + next.dx) / 2;
-      linePath.cubicTo(midX, prev.dy, midX, next.dy, next.dx, next.dy);
+    for (final points in runs) {
+      if (points.length < 2) continue;
+      final fillPath = Path()..moveTo(points.first.dx, chartBottom);
+      for (final point in points) {
+        fillPath.lineTo(point.dx, point.dy);
+      }
+      fillPath.lineTo(points.last.dx, chartBottom);
+      fillPath.close();
+      canvas.drawPath(fillPath, Paint()..color = fillColor);
+
+      final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+      for (var i = 1; i < points.length; i++) {
+        final prev = points[i - 1];
+        final next = points[i];
+        final midX = (prev.dx + next.dx) / 2;
+        linePath.cubicTo(midX, prev.dy, midX, next.dy, next.dx, next.dy);
+      }
+      canvas.drawPath(
+        linePath,
+        Paint()
+          ..color = lineColor
+          ..strokeWidth = 3
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round,
+      );
     }
-    canvas.drawPath(
-      linePath,
-      Paint()
-        ..color = lineColor
-        ..strokeWidth = 3
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round,
-    );
 
     for (var i = 0; i < offsets.length; i++) {
       final isHighlighted = i == highlightIndex;
       final point = offsets[i];
+      if (point == null) continue;
       canvas.drawCircle(
           point, isHighlighted ? 7 : 4, Paint()..color = lineColor.withOpacity(0.18));
       canvas.drawCircle(

@@ -100,11 +100,15 @@ void main() {
         habits: [habit()],
         history: history,
         days: yearDays,
+        now: null,
+        windowEnd: null,
       );
       final visible = computeHabitPeriodStats(
         habits: [habit()],
         history: history,
         days: visibleDaysFrom(days: yearDays, floor: floor),
+        now: null,
+        windowEnd: null,
       );
 
       expect(wholeYear.single.doneCount, 17,
@@ -117,6 +121,7 @@ void main() {
         dayCounts: dayCountsFrom(visible),
         days: visibleDaysFrom(days: yearDays, floor: floor),
         habitStats: visible,
+        now: null,
       );
       expect(summary.totalDone, 10,
           reason: 'header and row must print the same number');
@@ -143,6 +148,8 @@ void main() {
         habits: [habit()],
         history: history,
         days: visibleDaysFrom(days: yearDays, floor: floor),
+        now: null,
+        windowEnd: null,
       );
       expect(stats.single.doneCount, 17,
           reason: 'the fix must not restrict anyone who paid');
@@ -164,6 +171,7 @@ void main() {
         today: today,
         earliestData: DateTime(2025),
         floor: freeHistoryFloor(today),
+        now: null,
       );
       expect(delta, isNull,
           reason: 'a delta against a year you cannot open hands back the '
@@ -185,6 +193,7 @@ void main() {
         today: today,
         earliestData: DateTime(2025),
         floor: null,
+        now: null,
       );
       expect(delta, isNotNull);
     });
@@ -205,6 +214,7 @@ void main() {
         today: today,
         earliestData: DateTime(2026),
         floor: freeHistoryFloor(today),
+        now: null,
       );
       expect(delta, isNull);
     });
@@ -222,6 +232,7 @@ void main() {
         today: DateTime(2026, 8, 10),
         earliestData: DateTime(2026),
         floor: freeHistoryFloor(DateTime(2026, 8, 10)),
+        now: null,
       );
       expect(delta, 6,
           reason: 'July and August are both inside the free window, so the '

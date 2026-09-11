@@ -794,14 +794,40 @@ class DashboardState {
   /// Wednesday read as dead by Friday and as 0 in Saturday's own reminder,
   /// though not one of its days had been missed. Today is never counted as
   /// missed, since it is not over. See scheduledDaysStrictlyBetween.
-  int habitStreak(String habitId, {Set<int> scheduledWeekdays = const {}}) {
+  ///
+  /// Neither is yesterday while it is still open. Given [now], the gap is
+  /// measured only up to the oldest day still open: at 05:19 a habit last
+  /// done on the 9th keeps its streak, because the 10th can still be marked
+  /// until kDayCutoffHour and would continue it; at 10:00, with the 10th
+  /// still blank, it reads 0. Null keeps the older reading, which judged
+  /// yesterday from midnight.
+  ///
+  /// No screen passes [now] yet, on purpose (2026-09-11). The writer is not
+  /// ready for it: ticking TODAY while yesterday is still open and blank
+  /// measures a scheduledGap of 2 in completeHabit and restarts the streak at
+  /// 1 (nextHabitStreak), and ticking yesterday afterwards cannot bring it
+  /// back. A sheet or a reminder reading [now] would show a 12-day streak at
+  /// 05:00 that the next natural tap turns into 1. Until completeHabit keeps
+  /// a streak across a still-open day, the habit detail sheet and the
+  /// reminder builder read the older rule, which never shows more than a tap
+  /// on today keeps. Pinned in habit_streak_staleness_test.dart.
+  int habitStreak(
+    String habitId, {
+    Set<int> scheduledWeekdays = const {},
+    DateTime? now,
+  }) {
     final lastKey = habitLastCompletedDate[habitId];
     if (lastKey == null) return 0;
     final last = DateTime.tryParse(lastKey);
     if (last == null) return 0;
+    final clock = now ?? DateTime.now();
+    final today = clock.effectiveDay;
+    final yesterday = dayPlus(today, -1);
+    final until =
+        now == null || yesterday.isSettledAt(clock) ? today : yesterday;
     final missed = scheduledDaysStrictlyBetween(
       last,
-      DateTime.now().effectiveDay,
+      until,
       scheduledWeekdays,
     );
     return missed == 0 ? (habitStreakCounts[habitId] ?? 0) : 0;

@@ -221,9 +221,37 @@ int expectedCompletions({
   required IslamicHabitTemplate habit,
   required List<DateTime> days,
   Set<String> restDays = const {},
+
+  /// The habit's recorded marks, by dateKey. Read only when [now] is given,
+  /// to tell an answered open day (done, or فشل) from one still in progress.
+  Map<String, SquareState> marks = const {},
+
+  /// The wall clock. Null keeps the older reading, in which every elapsed
+  /// day counts from the moment it begins; see "still open" below.
+  DateTime? now,
+
+  /// The report window's last day, which runs past [days] while the window
+  /// is still in progress. A quota week that is still running needs its
+  /// remaining days to know how many sessions can still fit. Ignored when
+  /// [now] is null.
+  DateTime? windowEnd,
 }) {
   if (days.isEmpty) return 0;
   final quotaOnly = !missIsAttributable(habit);
+  // ── Still open ───────────────────────────────────────────────────────
+  // Aziz, 2026-09-11, on a monthly card reading «2 يوم 18%» at 05:19: the
+  // 11th, still open, was already counted as a miss. A day stays markable
+  // until kDayCutoffHour the next morning, so until then a blank or جزئي day
+  // is in progress and owes nothing yet. It enters the moment it is answered
+  // (done, or فشل) or the moment it closes, whichever comes first, and a
+  // blank day that closes counts as missed exactly as it always did. See
+  // DateTimeGameExt.isSettledAt.
+  bool settled(DateTime day) =>
+      now == null ||
+      day.isSettledAt(
+        now,
+        answered: (marks[day.toDateKey()] ?? SquareState.none).answersDay,
+      );
   if (!quotaOnly) {
     var count = 0;
     for (final day in days) {
@@ -232,23 +260,73 @@ int expectedCompletions({
       // rest day is not a missed day: before it, choosing to rest lowered
       // your percentage exactly as much as forgetting would have.
       if (restDays.contains(day.toDateKey())) continue;
-      if (habit.isScheduledFor(day)) count++;
+      if (habit.isScheduledFor(day) && settled(day)) count++;
     }
     return count;
   }
   // Quota habits are counted per Saturday-anchored week: a week the habit
   // was alive for only two days can never owe three completions, so the
   // target is clamped to the days actually available in that week.
-  final aliveDaysPerWeek = <String, int>{};
-  for (final day in days) {
-    if (restDays.contains(day.toDateKey())) continue;
+  //
+  // A week still running owes the sessions it has already finished, plus
+  // every session that can no longer fit in the days it has left:
+  //
+  //   owed = min(T, max(G, T - S))
+  //
+  // T is that clamped target, G the settled days finished in full (green),
+  // S the days not yet settled (still open, or still to come). G counts
+  // greens only. A جزئي that has closed still earns its half
+  // (HabitPeriodStat.creditedUnits), but it is not a finished session:
+  // counted as one, it made the week owe a whole session more for half a
+  // session's credit, so a 3x week with Saturday done read 75% with a closed
+  // جزئي Sunday and 100% with a blank one. Its half now sits on top of what
+  // is owed, where the rate stops at 100%, the reading a week that can still
+  // reach its target already gets with nothing on Sunday. It is the reachability
+  // RoomParticipant.quotaWeekIsLost crosses a room's week out on, so a blank
+  // 4x week starts owing on the morning its fourth blank day closes: not on
+  // its first morning, and not only once Friday is over. A closed week has
+  // S = 0 and owes T, exactly the old clamp, and so does every week when
+  // [now] is null.
+  //
+  // The week is only ever the part of it inside the report window. A week a
+  // month edge cuts (Sat 26 Sep to Fri 2 Oct, read on the October card) is
+  // judged on its in-window days alone, so it can owe a session the real
+  // Saturday-to-Friday week could still fit on the days outside the window.
+  // That clamp predates the open-day rule, and the reachability claim above
+  // holds only for a week the window contains whole.
+  final walk = <DateTime>[...days];
+  if (now != null && windowEnd != null) {
+    final last = days.last;
+    for (var d = DateTime(last.year, last.month, last.day + 1);
+        !d.isAfter(windowEnd);
+        d = DateTime(d.year, d.month, d.day + 1)) {
+      walk.add(d);
+    }
+  }
+  final alivePerWeek = <String, int>{};
+  final finishedPerWeek = <String, int>{};
+  final stillOpenPerWeek = <String, int>{};
+  for (final day in walk) {
+    final dayKey = day.toDateKey();
+    if (restDays.contains(dayKey)) continue;
     if (!habit.isScheduledFor(day)) continue;
     final key = startOfGridWeek(day).toDateKey();
-    aliveDaysPerWeek[key] = (aliveDaysPerWeek[key] ?? 0) + 1;
+    alivePerWeek[key] = (alivePerWeek[key] ?? 0) + 1;
+    if (!settled(day)) {
+      stillOpenPerWeek[key] = (stillOpenPerWeek[key] ?? 0) + 1;
+    } else if (markIsDone(marks[dayKey] ?? SquareState.none)) {
+      finishedPerWeek[key] = (finishedPerWeek[key] ?? 0) + 1;
+    }
   }
   var total = 0;
-  for (final alive in aliveDaysPerWeek.values) {
-    total += alive < habit.frequencyTarget ? alive : habit.frequencyTarget;
+  for (final entry in alivePerWeek.entries) {
+    final alive = entry.value;
+    final target =
+        alive < habit.frequencyTarget ? alive : habit.frequencyTarget;
+    final finished = finishedPerWeek[entry.key] ?? 0;
+    final cannotFit = target - (stillOpenPerWeek[entry.key] ?? 0);
+    final owed = finished > cannotFit ? finished : cannotFit;
+    total += owed < target ? owed : target;
   }
   return total;
 }
@@ -300,6 +378,13 @@ class HabitPeriodStat {
     required IslamicHabitTemplate habit,
     required Map<String, SquareState> marks,
     required int expected,
+
+    /// The wall clock. When given, a day still open adds credit only once it
+    /// is answered, the rule [expectedCompletions] applies to the
+    /// denominator: a جزئي on a day still being lived is held out of both
+    /// sides until it is finished or the day closes, so marking half of today
+    /// can never pull a percentage down. Null credits every mark.
+    DateTime? now,
   }) {
     final done = <String>{};
     var rest = 0;
@@ -310,7 +395,14 @@ class HabitPeriodStat {
       if (markIsDone(mark)) done.add(entry.key);
       if (markIsRest(mark)) rest++;
       if (mark == SquareState.failed) failed++;
-      credit += markCredit(mark);
+      if (now == null) {
+        credit += markCredit(mark);
+      } else {
+        final day = DateTime.tryParse(entry.key);
+        if (day == null || day.isSettledAt(now, answered: mark.answersDay)) {
+          credit += markCredit(mark);
+        }
+      }
     }
     return HabitPeriodStat._(
       habit: habit,
@@ -335,6 +427,12 @@ class HabitPeriodStat {
       ? 0
       : (creditedUnits / expected).clamp(0.0, 1.0).toDouble();
 
+  /// Whether the period owed anything yet, which is whether [rate] means
+  /// anything. False for a habit created today and not yet done, and for a
+  /// period whose only due days are still open and unanswered: the cards
+  /// print a placeholder then, never a 0% nobody has earned.
+  bool get hasRate => expected > 0;
+
   /// The PERFECT ribbon's condition. Requires a real denominator: a habit
   /// that owed nothing this period has not earned a perfect mark, it simply
   /// was not due.
@@ -352,6 +450,16 @@ List<HabitPeriodStat> computeHabitPeriodStats({
   required List<IslamicHabitTemplate> habits,
   required Map<String, Map<String, SquareState>> history,
   required List<DateTime> days,
+
+  /// The wall clock and the window's last day; see [expectedCompletions].
+  /// Both null keep the older every-elapsed-day reading.
+  ///
+  /// Required, though nullable, so every caller has to choose. Left
+  /// optional, a screen that forgot to pass its clock compiled and quietly
+  /// printed the old number: Aziz's «2 يوم 18%» at 05:19 would come back
+  /// with every pure test still green.
+  required DateTime? now,
+  required DateTime? windowEnd,
 }) {
   final windowKeys = {for (final d in days) d.toDateKey()};
   final out = <HabitPeriodStat>[];
@@ -367,10 +475,28 @@ List<HabitPeriodStat> computeHabitPeriodStats({
       for (final entry in marks.entries)
         if (markIsRest(entry.value)) entry.key,
     };
-    final expected =
-        expectedCompletions(habit: habit, days: days, restDays: restDays);
-    if (expected == 0 && marks.isEmpty) continue;
-    out.add(HabitPeriodStat(habit: habit, marks: marks, expected: expected));
+    final expected = expectedCompletions(
+      habit: habit,
+      days: days,
+      restDays: restDays,
+      marks: marks,
+      now: now,
+      windowEnd: windowEnd,
+    );
+    // Dropped only when the habit had nothing to do with this window at all.
+    // Asked of the schedule, not of [expected], which is legitimately 0 for
+    // a live habit whose only due days are still open: judged on that, a
+    // blank habit's card vanished between midnight and 10:00 on the first
+    // day of every week and month, beside another habit already green.
+    if (marks.isEmpty && !days.any(habit.isScheduledFor)) continue;
+    out.add(
+      HabitPeriodStat(
+        habit: habit,
+        marks: marks,
+        expected: expected,
+        now: now,
+      ),
+    );
   }
   return out;
 }
@@ -464,6 +590,10 @@ class PeriodSummary {
       : (totalDone / expectedTotal).clamp(0.0, 1.0).toDouble();
 
   bool get hasAnything => totalDone > 0;
+
+  /// Whether anything was owed yet, which is whether [rate] means anything.
+  /// See [HabitPeriodStat.hasRate].
+  bool get hasRate => expectedTotal > 0;
 }
 
 /// Summarises one window from [dayCounts] (see [dayCountsFrom]) plus the
@@ -472,6 +602,13 @@ PeriodSummary computePeriodSummary({
   required Map<String, int> dayCounts,
   required List<DateTime> days,
   required List<HabitPeriodStat> habitStats,
+
+  /// The wall clock. When given, a blank day still open neither breaks the
+  /// longest run nor extends it: at 05:00 a green 9th, a still-open 10th and
+  /// a green 11th read as a run of 2, and as 1 once the 10th closes blank.
+  /// Required, though nullable, for the reason [computeHabitPeriodStats]
+  /// gives.
+  required DateTime? now,
 }) {
   var total = 0;
   var activeDays = 0;
@@ -482,6 +619,7 @@ PeriodSummary computePeriodSummary({
   for (final day in days) {
     final count = dayCounts[day.toDateKey()] ?? 0;
     if (count <= 0) {
+      if (now != null && !day.isSettledAt(now)) continue;
       run = 0;
       continue;
     }
@@ -544,6 +682,12 @@ int totalDoneIn({
 ///    DashboardState.dailyGreenCounts, which produced a July card reading
 ///    "40 مربعًا أخضر" beside "+80": both numbers correct, neither
 ///    comparable to the other.
+/// 3. A DAY STILL OPEN CANNOT COUNT AGAINST ITSELF. At 05:00 today holds
+///    only the greens finished so far, and it was compared with the whole of
+///    the same day last period, so every morning opened on a deficit. A day
+///    still open (DateTimeGameExt.isSettledAt) now takes its partner at most
+///    at its own count: it can raise the change, never lower it, and it is
+///    compared in full from the moment it closes.
 ///
 /// Returns null when there is no baseline worth comparing to, which is any
 /// period whose predecessor ended before [earliestData]. A brand new
@@ -563,6 +707,10 @@ int? periodDelta({
   /// previous window and the walled past suppresses the delta entirely.
   /// Null for premium and for any period no floor reaches.
   DateTime? floor,
+
+  /// The wall clock, for rule 3. Null compares every day in full. Required,
+  /// though nullable, for the reason [computeHabitPeriodStats] gives.
+  required DateTime? now,
 }) {
   final current = reportWindow(scope, anchor);
   final currentDays =
@@ -593,9 +741,62 @@ int? periodDelta({
       : prevWhole.length;
   final prevDays = prevWhole.take(take).toList();
 
-  return totalDoneIn(history: history, habits: habits, days: currentDays) -
-      totalDoneIn(history: history, habits: habits, days: prevDays);
+  final currentCounts =
+      _doneCountsByDay(history: history, habits: habits, days: currentDays);
+  final previousCounts =
+      _doneCountsByDay(history: history, habits: habits, days: prevDays);
+  var delta = 0;
+  for (var i = 0; i < currentDays.length; i++) {
+    final current = currentCounts[currentDays[i].toDateKey()] ?? 0;
+    delta += current;
+    if (i >= prevDays.length) continue;
+    var previous = previousCounts[prevDays[i].toDateKey()] ?? 0;
+    if (now != null &&
+        !currentDays[i].isSettledAt(now) &&
+        previous > current) {
+      previous = current;
+    }
+    delta -= previous;
+  }
+  return delta;
 }
+
+/// [totalDoneIn], kept per day, so [periodDelta] can pair each day with its
+/// partner in the previous period. Same counting rule, same source.
+Map<String, int> _doneCountsByDay({
+  required Map<String, Map<String, SquareState>> history,
+  required List<IslamicHabitTemplate> habits,
+  required List<DateTime> days,
+}) {
+  final keys = {for (final d in days) d.toDateKey()};
+  final out = <String, int>{};
+  for (final habit in habits) {
+    final marks = history[habit.id] ?? const <String, SquareState>{};
+    for (final entry in marks.entries) {
+      if (keys.contains(entry.key) && markIsDone(entry.value)) {
+        out[entry.key] = (out[entry.key] ?? 0) + 1;
+      }
+    }
+  }
+  return out;
+}
+
+/// [days] without the ones still open at [now] (see
+/// DateTimeGameExt.isSettledAt).
+///
+/// For averages with no denominator to hold a day out of. The weekday
+/// rhythm card averages greens per occurrence of each weekday, so a Friday
+/// read at 05:00 was a whole Friday sample holding five hours of work, and
+/// it pulled every Friday down with it. The card's bars and its sentence
+/// both read this one list, so they describe the same days.
+List<DateTime> settledDaysAt({
+  required List<DateTime> days,
+  required DateTime now,
+}) =>
+    [
+      for (final day in days)
+        if (day.isSettledAt(now)) day,
+    ];
 
 /// Which weekday someone actually shows up on, and which one they lose.
 ///

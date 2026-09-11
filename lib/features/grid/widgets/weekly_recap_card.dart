@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../features/premium/screens/premium_screen.dart';
+import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/providers/weekly_recap_collapsed_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
@@ -31,21 +32,41 @@ class WeeklyRecapData {
   /// is deterministic.
   final DateTime? bestDay;
 
+  /// This week against last week, compared day by day: what the delta chip,
+  /// its colour and the encouragement line all read.
+  ///
+  /// Not always [thisWeekTotal] minus [lastWeekTotal]. A day of this week
+  /// still open (DateTimeGameExt.isSettledAt) takes its partner from last
+  /// week at most at its own count, the rule periodDelta applies on the
+  /// report's week tab (Aziz, 2026-09-11: a day still open is not a miss).
+  /// The card only shows on Friday, all of Friday is still open, and so is
+  /// Thursday until kDayCutoffHour. Compared in full, a Friday morning read
+  /// as «أسبوع أهدى» before the week had had its chance, while the report
+  /// showed the same week level. An open day can still raise the change,
+  /// never lower it. The two totals stay plain totals: each is a fact about
+  /// its own week.
+  final int delta;
+
   const WeeklyRecapData({
     required this.thisWeekTotal,
     required this.lastWeekTotal,
     required this.bestDay,
+    required this.delta,
   });
-
-  int get delta => thisWeekTotal - lastWeekTotal;
 }
 
 WeeklyRecapData computeWeeklyRecap({
   required Map<String, int> dailyGreenCounts,
   required DateTime weekStart,
+
+  /// The wall clock, for [WeeklyRecapData.delta]'s still-open rule. Null
+  /// compares every day in full. Required, though nullable, so the card
+  /// cannot forget its clock and still compile.
+  required DateTime? now,
 }) {
   var thisTotal = 0;
   var lastTotal = 0;
+  var delta = 0;
   DateTime? bestDay;
   var best = 0;
   for (var i = 0; i < 7; i++) {
@@ -57,12 +78,16 @@ WeeklyRecapData computeWeeklyRecap({
       bestDay = day;
     }
     final prev = weekStart.subtract(Duration(days: 7 - i));
-    lastTotal += dailyGreenCounts[prev.toDateKey()] ?? 0;
+    final prevCount = dailyGreenCounts[prev.toDateKey()] ?? 0;
+    lastTotal += prevCount;
+    final stillOpen = now != null && !day.isSettledAt(now);
+    delta += count - (stillOpen && prevCount > count ? count : prevCount);
   }
   return WeeklyRecapData(
     thisWeekTotal: thisTotal,
     lastWeekTotal: lastTotal,
     bestDay: bestDay,
+    delta: delta,
   );
 }
 
@@ -89,6 +114,131 @@ List<int> weeklyTotals({
   ];
 }
 
+/// The habit missed most this week, or null when none was missed at least
+/// twice: one miss is life.
+///
+/// Counted day by day, for every habit shape, as the card always counted:
+/// a scheduled day that is neither green nor skipped is a miss, and a future
+/// day never counts. The one change is that a day counts only once it is
+/// SETTLED at [now] (DateTimeGameExt.isSettledAt): an explicit فشل at once,
+/// a blank or جزئي day once it closes. The card shows on Friday, and on
+/// Friday morning both Thursday (open until kDayCutoffHour) and Friday
+/// itself were counted as misses before anyone could have finished them
+/// (Aziz, 2026-09-11). A day that has closed counts exactly as before.
+///
+/// Pure, over [squareFor], so it can be asserted without a Grid; see
+/// test/features/grid/weekly_recap_test.dart.
+IslamicHabitTemplate? mostMissedHabitThisWeek({
+  required Iterable<IslamicHabitTemplate> habits,
+  required List<DateTime> days,
+  required SquareState Function(String habitId, DateTime day) squareFor,
+  required DateTime now,
+}) {
+  final today = now.effectiveDay;
+  IslamicHabitTemplate? most;
+  var worst = 1; // require >= 2, so start the bar above 1
+  for (final h in habits) {
+    var misses = 0;
+    for (final day in days) {
+      if (!h.isScheduledFor(day)) continue;
+      if (day.startOfDay.isAfter(today)) continue;
+      final sq = squareFor(h.id, day);
+      if (sq.isGreen || sq == SquareState.skipped) continue;
+      if (!day.isSettledAt(now, answered: sq.answersDay)) continue;
+      misses++;
+    }
+    if (misses > worst) {
+      worst = misses;
+      most = h;
+    }
+  }
+  return most;
+}
+
+/// One dot of a habit's week in the Premium recap, before it is coloured.
+enum RecapDot {
+  /// A day the habit asked nothing of (see isCoveredDay): soft green.
+  covered,
+
+  /// Not scheduled, still to come, or still open with nothing on it: dim,
+  /// neutral.
+  quiet,
+  done,
+  failed,
+  skipped,
+  partial,
+
+  /// Scheduled, closed, and nothing recorded: the hollow ring.
+  missed,
+}
+
+/// One habit's week in the Premium recap at [now]: its seven dots and its
+/// done/scheduled count.
+///
+/// The arithmetic the card always used, for every habit shape: each
+/// scheduled day that is not in the future counts, a تخطّي included, each
+/// green one is done, and a flexible quota habit counts every day it was
+/// alive. The one change is that a day enters the count only once it is
+/// settled, the rule every report percentage follows (Aziz, 2026-09-11). On
+/// Friday morning a blank Friday, and a blank Thursday still inside its
+/// grace, are quiet dots outside the count rather than hollow misses inside
+/// it. A day that has closed reads exactly as it did before that rule.
+///
+/// Pure, over [squareOn]; see test/features/grid/weekly_recap_test.dart.
+({int done, int scheduled, List<RecapDot> dots}) habitWeekRow({
+  required IslamicHabitTemplate habit,
+  required List<DateTime> days,
+  required SquareState Function(DateTime day) squareOn,
+  required DateTime now,
+}) {
+  final today = now.effectiveDay;
+  var done = 0;
+  var scheduled = 0;
+  final dots = <RecapDot>[];
+  for (final day in days) {
+    final sq = squareOn(day);
+    final isFuture = day.startOfDay.isAfter(today);
+    final isScheduled = habit.isScheduledFor(day);
+    final settled = day.isSettledAt(now, answered: sq.answersDay);
+    if (isScheduled && !isFuture && settled) {
+      scheduled++;
+      if (sq.isGreen) done++;
+    }
+    // An off-day the schedule never asked for is a soft green dot, not a
+    // dim one: the same covered state the Grid's squares paint, so the
+    // recap and the board agree about which days were owed.
+    final covered = !isFuture &&
+        isCoveredDay(habit: habit, day: day, today: today, square: sq);
+    dots.add(
+      covered
+          ? RecapDot.covered
+          : !isScheduled || isFuture
+              ? RecapDot.quiet
+              : sq.isGreen
+                  ? RecapDot.done
+                  : sq == SquareState.failed
+                      ? RecapDot.failed
+                      : sq == SquareState.skipped
+                          ? RecapDot.skipped
+                          : sq == SquareState.partial
+                              ? RecapDot.partial
+                              : settled
+                                  ? RecapDot.missed
+                                  : RecapDot.quiet,
+    );
+  }
+  return (done: done, scheduled: scheduled, dots: dots);
+}
+
+/// The count at the end of a recap row, from [habitWeekRow]'s numbers.
+///
+/// A placeholder while the row counts nothing yet, never «0/0»: a habit
+/// created on Thursday, or one whose only day this week is a Friday still
+/// open, has nothing to count, and the report's own cards print the same '–'
+/// for it (HabitMonthCard, the habit detail sheet).
+String recapRowCount({required int done, required int scheduled}) =>
+    scheduled <= 0 ? '–' : '$done/$scheduled';
+
 /// The Friday "حصاد الأسبوع" card on the Grid — the grid week runs Sat→Fri,
 /// so its last day doubles as the natural reflection moment (and the Gulf
 /// weekend). Renders nothing at all on any other day, or when there's
@@ -104,7 +254,10 @@ class WeeklyRecapCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final today = DateTime.now().effectiveDay;
+    // Re-read at midnight and at kDayCutoffHour, so the misses and counts
+    // below take a day in when it closes. See dayClockProvider.
+    final now = ref.watch(dayClockProvider);
+    final today = now.effectiveDay;
     if (today.weekday != DateTime.friday) return const SizedBox.shrink();
 
     // allHabitsEverProvider: the "most missed" scan below walks the whole
@@ -119,6 +272,7 @@ class WeeklyRecapCard extends ConsumerWidget {
     final recap = computeWeeklyRecap(
       dailyGreenCounts: counts,
       weekStart: weekStart,
+      now: now,
     );
     // Two silent weeks in a row = nothing to say; a recap of zeros would
     // only rub it in. The regular empty-state/nudge surfaces handle that.
@@ -139,20 +293,12 @@ class WeeklyRecapCard extends ConsumerWidget {
     final grid = ref.watch(weeklyGridProvider);
     String? mostMissedName;
     if (grid.isCurrentWeek && !grid.isLoading) {
-      var worst = 1; // require >= 2, so start the bar above 1
-      for (final h in habits) {
-        var misses = 0;
-        for (final day in grid.days) {
-          if (!h.isScheduledFor(day)) continue;
-          if (day.startOfDay.isAfter(today)) continue;
-          final sq = grid.squareFor(h.id, day);
-          if (!sq.isGreen && sq != SquareState.skipped) misses++;
-        }
-        if (misses > worst) {
-          worst = misses;
-          mostMissedName = h.localName(s.isAr);
-        }
-      }
+      mostMissedName = mostMissedHabitThisWeek(
+        habits: habits,
+        days: grid.days,
+        squareFor: grid.squareFor,
+        now: now,
+      )?.localName(s.isAr);
     }
 
     final delta = recap.delta;
@@ -262,7 +408,7 @@ class WeeklyRecapCard extends ConsumerWidget {
                       grid: grid,
                       counts: counts,
                       weekStart: weekStart,
-                      today: today,
+                      now: now,
                       locale: locale,
                     ),
             ),
@@ -287,7 +433,7 @@ class _RecapBody extends ConsumerWidget {
   final WeeklyGridState grid;
   final Map<String, int> counts;
   final DateTime weekStart;
-  final DateTime today;
+  final DateTime now;
   final String locale;
 
   const _RecapBody({
@@ -300,7 +446,7 @@ class _RecapBody extends ConsumerWidget {
     required this.grid,
     required this.counts,
     required this.weekStart,
-    required this.today,
+    required this.now,
     required this.locale,
   });
 
@@ -391,7 +537,7 @@ class _RecapBody extends ConsumerWidget {
               grid: grid,
               counts: counts,
               weekStart: weekStart,
-              today: today,
+              now: now,
             ),
       ],
     );
@@ -411,14 +557,14 @@ class _RecapDepth extends ConsumerWidget {
   final WeeklyGridState grid;
   final Map<String, int> counts;
   final DateTime weekStart;
-  final DateTime today;
+  final DateTime now;
 
   const _RecapDepth({
     required this.habits,
     required this.grid,
     required this.counts,
     required this.weekStart,
-    required this.today,
+    required this.now,
   });
 
   @override
@@ -448,11 +594,11 @@ class _RecapDepth extends ConsumerWidget {
           // currently-active habit always shows, even at 0/7: that's a real
           // miss worth seeing. See _weekDoneCount's own doc comment.
           for (final h in habits)
-            if (h.archivedAt == null || _weekDoneCount(h, grid, today) > 0)
+            if (h.archivedAt == null || _weekDoneCount(h, grid, now) > 0)
               _HabitWeekRow(
                 habit: h,
                 grid: grid,
-                today: today,
+                now: now,
                 isAr: s.isAr,
               ),
         ],
@@ -547,75 +693,58 @@ class _RecapDepth extends ConsumerWidget {
 }
 
 /// How many of [habit]'s scheduled, non-future days in [grid] are actually
-/// green — its real completions this week. Used to decide whether an
-/// archived habit is worth a row at all (see the filter above) — the exact
-/// same scheduled-and-not-future-and-green condition [_HabitWeekRow] uses
-/// for its own n/scheduled count below, just computed standalone here so
-/// the filter can run *before* that row ever gets built.
+/// green: its real completions this week. Used to decide whether an
+/// archived habit is worth a row at all (see the filter above), and read
+/// off the same [habitWeekRow] the row itself draws, so the filter and the
+/// row's own count cannot disagree.
 int _weekDoneCount(
   IslamicHabitTemplate habit,
   WeeklyGridState grid,
-  DateTime today,
-) {
-  var done = 0;
-  for (final day in grid.days) {
-    if (day.startOfDay.isAfter(today)) continue;
-    if (!habit.isScheduledFor(day)) continue;
-    if (grid.squareFor(habit.id, day).isGreen) done++;
-  }
-  return done;
-}
+  DateTime now,
+) =>
+    habitWeekRow(
+      habit: habit,
+      days: grid.days,
+      squareOn: (day) => grid.squareFor(habit.id, day),
+      now: now,
+    ).done;
 
 /// One habit's week at a glance inside the Premium recap: name, seven day
 /// dots in grid-week order (green done, red slipped, gray skipped, hollow
-/// missed, dim future/unscheduled), and its n/scheduled count.
+/// missed, dim future, unscheduled or still open), and its n/scheduled
+/// count. The arithmetic is [habitWeekRow]; this only paints it.
 class _HabitWeekRow extends StatelessWidget {
   final IslamicHabitTemplate habit;
   final WeeklyGridState grid;
-  final DateTime today;
+  final DateTime now;
   final bool isAr;
   const _HabitWeekRow({
     required this.habit,
     required this.grid,
-    required this.today,
+    required this.now,
     required this.isAr,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    var done = 0;
-    var scheduled = 0;
+    final row = habitWeekRow(
+      habit: habit,
+      days: grid.days,
+      squareOn: (day) => grid.squareFor(habit.id, day),
+      now: now,
+    );
     final dots = <Widget>[];
-    for (final day in grid.days) {
-      final isFuture = day.startOfDay.isAfter(today);
-      final isScheduled = habit.isScheduledFor(day);
-      final sq = grid.squareFor(habit.id, day);
-      if (isScheduled && !isFuture) {
-        scheduled++;
-        if (sq.isGreen) done++;
-      }
-      // An off-day the schedule never asked for is a soft green dot, not a
-      // dim one: the same covered state the Grid's squares paint, so the
-      // recap and the board agree about which days were owed.
-      final covered = !isFuture &&
-          isCoveredDay(habit: habit, day: day, today: today, square: sq);
-      final Color color;
-      if (covered) {
-        color = GameColors.emerald.withOpacity(0.45);
-      } else if (!isScheduled || isFuture) {
-        color = gp.border.withOpacity(0.45);
-      } else if (sq.isGreen) {
-        color = GameColors.emerald;
-      } else if (sq == SquareState.failed) {
-        color = GameColors.error;
-      } else if (sq == SquareState.skipped) {
-        color = gp.textTert;
-      } else if (sq == SquareState.partial) {
-        color = GameColors.warning;
-      } else {
-        color = Colors.transparent;
-      }
+    for (final dot in row.dots) {
+      final Color color = switch (dot) {
+        RecapDot.covered => GameColors.emerald.withOpacity(0.45),
+        RecapDot.quiet => gp.border.withOpacity(0.45),
+        RecapDot.done => GameColors.emerald,
+        RecapDot.failed => GameColors.error,
+        RecapDot.skipped => gp.textTert,
+        RecapDot.partial => GameColors.warning,
+        RecapDot.missed => Colors.transparent,
+      };
       dots.add(Container(
         width: 7,
         height: 7,
@@ -649,7 +778,7 @@ class _HabitWeekRow extends StatelessWidget {
           ...dots,
           const SizedBox(width: 6),
           Text(
-            '$done/$scheduled',
+            recapRowCount(done: row.done, scheduled: row.scheduled),
             style: TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w700,

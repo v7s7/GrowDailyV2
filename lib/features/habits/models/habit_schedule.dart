@@ -18,13 +18,14 @@
 /// questions the same rule: a gap is measured in the habit's own scheduled
 /// days, and a day the habit does not run on cannot widen it.
 ///
-/// Ints and dates only, no habit and no clock, so the dashboard's streak rule
-/// and the notification scheduler's wording can both call it and cannot drift
-/// apart. `weekdays` is DateTime.weekday values (1 = Monday … 7 = Sunday),
-/// empty meaning every day, exactly as IslamicHabitTemplate.scheduledWeekdays
-/// stores it.
+/// Ints and dates only, no habit, and a clock only where a caller hands one
+/// in, so the dashboard's streak rule and the notification scheduler's wording
+/// can both call it and cannot drift apart. `weekdays` is DateTime.weekday
+/// values (1 = Monday … 7 = Sunday), empty meaning every day, exactly as
+/// IslamicHabitTemplate.scheduledWeekdays stores it.
 library;
 
+import '../../../core/extensions/datetime_ext.dart';
 import 'weekly_quota_plan.dart';
 
 /// Whether a habit with [weekdays] runs on [day]. Empty means every day.
@@ -116,13 +117,20 @@ int scheduledGap({
 ///
 /// Days of the current week after [fireDay] are never counted, and days
 /// before it are read as they stand now: the text is baked when the reminder
-/// is armed, and any completion between now and then re-arms it.
+/// is armed, and any completion between now and then re-arms it. A day still
+/// open at [fireTime] is not counted either (DateTimeGameExt.isSettledAt).
 ({int? done, bool owed, int missedSinceLastDone}) quotaFactsOn({
   required DateTime fireDay,
   required DateTime weekStart,
   required Set<int>? doneDays,
   required int target,
   required DateTime? lastDone,
+
+  /// The instant the reminder fires. The day before the fire day stays open
+  /// until kDayCutoffHour, so a reminder landing before then cannot count it
+  /// as missed. Null judges every day before the fire day, as before.
+  /// Required, though nullable, so a caller has to choose.
+  required DateTime? fireTime,
 }) {
   const week = 7;
   final daysIn = calendarDaysBetween(weekStart, fireDay);
@@ -155,9 +163,22 @@ int scheduledGap({
     final lastDoneWeekStart = dayPlus(lastDone, -fromSaturday);
     final weeksBefore =
         calendarDaysBetween(lastDoneWeekStart, weekStart) ~/ week;
-    if (weeksBefore > 1) missed += (weeksBefore - 1) * effectiveTarget;
+    if (weeksBefore > 1) {
+      missed += (weeksBefore - 1) * effectiveTarget;
+      // An all-empty week owes its LAST `target` days (weeklyQuotaDemand), so
+      // its Friday is always one of them. The empty week right before the
+      // current one ends the day before weekStart, and a reminder landing on
+      // weekStart before kDayCutoffHour finds that Friday still open.
+      if (_stillOpenAt(dayPlus(weekStart, -1), fireTime)) missed--;
+    }
   }
-  if (weeksAhead > 1) missed += (weeksAhead - 1) * effectiveTarget;
+  if (weeksAhead > 1) {
+    missed += (weeksAhead - 1) * effectiveTarget;
+    // The same for the empty week right before the fire day's own week.
+    if (_stillOpenAt(dayPlus(weekStart, weeksAhead * week - 1), fireTime)) {
+      missed--;
+    }
+  }
 
   // ── The current week, square by square ────────────────────────────────
   if (doneDays == null) {
@@ -173,7 +194,9 @@ int scheduledGap({
   // when the fire day is in a later one.
   final judgedUpTo = weeksAhead == 0 ? fireIndex : week;
   for (var i = lastDoneIndex + 1; i < judgedUpTo; i++) {
-    if (i >= 0 && demand[i] == DayDemand.owed) missed++;
+    if (i < 0 || demand[i] != DayDemand.owed) continue;
+    if (_stillOpenAt(dayPlus(weekStart, i), fireTime)) continue;
+    missed++;
   }
   if (weeksAhead == 0) {
     return (
@@ -195,3 +218,9 @@ int scheduledGap({
     missedSinceLastDone: missed,
   );
 }
+
+/// Whether [day], which lies before [fireTime], is still open at that
+/// instant, and so still markable rather than missed. Always false without a
+/// fire time, which keeps every older caller's reading.
+bool _stillOpenAt(DateTime day, DateTime? fireTime) =>
+    fireTime != null && !day.isSettledAt(fireTime);

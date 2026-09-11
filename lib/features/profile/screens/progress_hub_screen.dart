@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/bidi_fraction.dart';
@@ -304,7 +305,10 @@ class _ProgressReportCardState extends ConsumerState<_ProgressReportCard> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final today = DateTime.now().effectiveDay;
+    // Re-read at midnight and at kDayCutoffHour, so the rate below moves
+    // yesterday in when it closes even while the screen stays open.
+    final now = ref.watch(dayClockProvider);
+    final today = now.effectiveDay;
     final days = List.generate(_range.days, (i) {
       final d = today.subtract(Duration(days: _range.days - 1 - i));
       return DateTime(d.year, d.month, d.day);
@@ -348,7 +352,12 @@ class _ProgressReportCardState extends ConsumerState<_ProgressReportCard> {
     // Scored once and used twice: the header's trend line and the body's
     // three numbers have to be reading the same window, and recomputing
     // would be the seam they could drift at.
-    final scores = computeDayScores(habits: habits, history: history, days: days);
+    final scores = computeDayScores(
+      habits: habits,
+      history: history,
+      days: days,
+      now: now,
+    );
 
     return _ProgressReportShell(
       range: _range,
@@ -391,6 +400,11 @@ class _ProgressReportCardState extends ConsumerState<_ProgressReportCard> {
 /// The two halves are equal in length, with the middle day dropped on an odd
 /// window. Comparing 3 days against 4 would tilt every 7-day window toward
 /// the good news by construction.
+///
+/// A day still open is left out of both halves unless everything it owes is
+/// already answered. At 08:00 an untouched today sat in the later half at
+/// zero credit and could flip the line to startAgain before the day had
+/// properly begun (Aziz, 2026-09-11: a day in progress is not a miss).
 String progressTrendLine(
   S s,
   List<DayScore> scores, {
@@ -402,12 +416,16 @@ String progressTrendLine(
   if (scores.fold<int>(0, (running, p) => running + p.done) == 0) {
     return s.noProgressYet;
   }
-  final half = scores.length ~/ 2;
+  final judged = [
+    for (final score in scores)
+      if (!score.isPending) score,
+  ];
+  final half = judged.length ~/ 2;
   if (half == 0) return s.holdingStrong;
   double creditOf(Iterable<DayScore> days) =>
       days.fold<double>(0, (running, p) => running + p.credit);
-  final earlier = creditOf(scores.take(half));
-  final later = creditOf(scores.skip(scores.length - half));
+  final earlier = creditOf(judged.take(half));
+  final later = creditOf(judged.skip(judged.length - half));
   return later >= earlier ? s.holdingStrong : s.startAgain;
 }
 
@@ -598,11 +616,19 @@ class _ProgressReportBody extends ConsumerWidget {
             _MiniReportStat(label: s.total, value: '$total'),
             const SizedBox(width: 8),
             // Replaces the old "active days" cell. Credit over obligation
-            // across the whole window, the same arithmetic التقارير prints,
-            // so the two screens agree. A plain hyphen, not an em dash
-            // (no_em_dash_in_copy_test scans every user-facing literal in
-            // lib) and never 0%, when the window owed nothing: see
-            // DayScore.rate for why that distinction is not cosmetic.
+            // across the whole window, with a day still open counted only
+            // for what is already answered on it. For daily and weekday
+            // habits that is the arithmetic التقارير prints, so the two
+            // screens agree. A flexible quota habit does NOT agree: DayScore
+            // keeps its blank days out of both sides for good, while the
+            // report's week owes a session once it can no longer fit
+            // (expectedCompletions), so a quota habit falling behind reads
+            // higher here than on a Friday report of the same week.
+            //
+            // A plain hyphen, not an em dash (no_em_dash_in_copy_test scans
+            // every user-facing literal in lib) and never 0%, when the
+            // window owed nothing: see DayScore.rate for why that
+            // distinction is not cosmetic.
             _MiniReportStat(
               label: s.progressStatRate,
               value: rate == null ? '-' : '${(rate * 100).round()}%',
@@ -1357,6 +1383,9 @@ class _InsightsPreviewSection extends ConsumerWidget {
     // archived or toggled off a habit.
     final habits = ref.watch(allHabitsEverProvider);
     final isPremium = ref.watch(premiumAccessProvider);
+    // The same clock InsightsScreen reads, so the preview and the screen
+    // take yesterday in at the same instant. See dayClockProvider.
+    final now = ref.watch(dayClockProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1387,7 +1416,7 @@ class _InsightsPreviewSection extends ConsumerWidget {
         ),
         const SizedBox(height: 12),
         FutureBuilder<List<(DateTime, Map<String, dynamic>)>>(
-          future: loadInsightsWindow(uid),
+          future: loadInsightsWindow(uid, today: now.effectiveDay),
           builder: (context, snap) {
             if (!snap.hasData) {
               // Not const: GameColors.gold is a mutable static Color (the
@@ -1401,7 +1430,11 @@ class _InsightsPreviewSection extends ConsumerWidget {
                 ),
               );
             }
-            final result = computeInsights(habits: habits, days: snap.data!);
+            final result = computeInsights(
+              habits: habits,
+              days: snap.data!,
+              now: now,
+            );
             if (result.totalSamples < 14) {
               return Container(
                 padding: const EdgeInsets.all(16),

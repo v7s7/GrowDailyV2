@@ -1,3 +1,4 @@
+import '../../core/extensions/datetime_ext.dart';
 import '../grid/models/square_state.dart';
 import '../habits/catalog/islamic_habit_catalog.dart';
 
@@ -114,9 +115,28 @@ class InsightsResult {
 /// nor missed: a deliberate skip is a decision, and it shouldn't poison a
 /// habit's miss-rate the way a real slip does — so it's excluded from the
 /// scheduled total entirely.
+///
+/// [now] holds back a day still open (see DateTimeGameExt.isSettledAt). The
+/// window always includes today, so a blank today counted as a miss from
+/// 00:00: it lowered its habit's rate and its weekday's rate, and could name
+/// a habit as needing a push before the day had begun. A day counts at once
+/// when it is answered by THIS engine's own reading: "completed" as above,
+/// or a فشل square. Anything else waits for its day to close.
+///
+/// That is not the reports' reading for a counted habit part way there (1 of
+/// 4). This engine has always called that day completed, and the reports
+/// credit it as a جزئي (half, and only once it closes). Holding it out here
+/// until 10:00 and then counting it whole would only move the same number
+/// to the cutoff, so it counts as completed at once, exactly as before the
+/// clock existed. The two screens still value that day differently; that
+/// difference predates the open-day rule.
+///
+/// [now] is required, though nullable, so a screen cannot forget its clock
+/// and compile. Null counts every day, as before.
 InsightsResult computeInsights({
   required List<IslamicHabitTemplate> habits,
   required List<(DateTime, Map<String, dynamic>)> days,
+  required DateTime? now,
 }) {
   final patterns = {for (final h in habits) h.id: HabitPattern(h.id)};
   final byId = {for (final h in habits) h.id: h};
@@ -132,6 +152,10 @@ InsightsResult computeInsights({
       final done = sq.isGreen ||
           (rawCompletions[h.id] is num &&
               (rawCompletions[h.id] as num) > 0);
+      if (now != null &&
+          !day.isSettledAt(now, answered: done || sq == SquareState.failed)) {
+        continue;
+      }
       p.scheduled++;
       p.scheduledByWeekday[day.weekday] =
           (p.scheduledByWeekday[day.weekday] ?? 0) + 1;
