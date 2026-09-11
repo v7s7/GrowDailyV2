@@ -91,17 +91,23 @@ admin.initializeApp({
 });
 
 const { resolveAccount } = require('./lib/fetchAccount');
+const { keyAtOffset, offsetOf } = require('./lib/day_key');
 
-/** Local YYYY-MM-DD for "today", matching the app's own date keys. */
-function todayKey() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+/**
+ * YYYY-MM-DD for "today" on the member's own phone, matching the app's own
+ * date keys, rather than on this machine. See lib/day_key.js.
+ */
+function todayKey(offsetMinutes) {
+  return keyAtOffset(Date.now(), offsetMinutes);
 }
 
 (async () => {
   const { uid } = await resolveAccount(userRef);
   const db = admin.firestore();
+  // users/{uid}.tzOffsetMinutes, read once, so "today" below is the member's
+  // day. An account without it falls back to +180.
+  const profileSnap = await db.collection('users').doc(uid).get();
+  const tz = offsetOf(profileSnap.exists ? profileSnap.data() : null);
   const ref = db.collection('rooms').doc(roomCode)
       .collection('participants').doc(uid);
   const snap = await ref.get();
@@ -147,7 +153,7 @@ function todayKey() {
   console.log(`  ${dateKey} after   : done=${done}` +
               `  scheduled=${scheduled === null ? `(unchanged)` : scheduled}`);
 
-  if (dateKey === todayKey()) {
+  if (dateKey === todayKey(tz.minutes)) {
     console.log(
       '\n  WARNING: that is TODAY. Today is never capped by the ' +
       'anti-backdating rule,\n  so the next sync from that phone will ' +

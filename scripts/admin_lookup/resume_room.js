@@ -68,17 +68,23 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) {
   fail(`--from must be YYYY-MM-DD, got "${from}".`);
 }
 
-/** Local YYYY-MM-DD, matching the app's own date keys. */
-function keyOf(d) {
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
+// The room's days are keyed on Asia/Bahrain, +180 with no daylight saving,
+// the basis check_rooms.js uses, never on this machine's own timezone.
+// shiftKey works on the key's own digits. See lib/day_key.js.
+const { shiftKey } = require(
+    path.join(__dirname, '..', '..', 'functions', 'room_health.js'));
+const {
+  APP_FALLBACK_OFFSET_MINUTES,
+  keyAtOffset,
+  tsKey,
+} = require('./lib/day_key');
+const ROOM_OFFSET_MINUTES = APP_FALLBACK_OFFSET_MINUTES;
+
 function dayBefore(key) {
-  const [y, m, d] = key.split('-').map(Number);
-  return keyOf(new Date(y, m - 1, d - 1));
+  return shiftKey(key, -1);
 }
 
-if (from > keyOf(new Date())) {
+if (from > keyAtOffset(Date.now(), ROOM_OFFSET_MINUTES)) {
   fail(`--from=${from} is in the future. Resume today or earlier.`);
 }
 
@@ -94,8 +100,7 @@ admin.initializeApp({
   if (!snap.exists) fail(`No room "${roomCode}".`);
   const room = snap.data();
   const spans = Array.isArray(room.pausedSpans) ? room.pausedSpans : [];
-  const endDate = room.endDate && room.endDate.toDate
-      ? keyOf(room.endDate.toDate()) : '(open)';
+  const endDate = tsKey(room.endDate, ROOM_OFFSET_MINUTES) || '(open)';
 
   console.log(`\nRoom ${roomCode} "${room.name}" by ${room.createdByName}`);
   console.log(`  endDate      ${endDate}   (unchanged)`);

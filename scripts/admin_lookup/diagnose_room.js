@@ -52,8 +52,23 @@ const DECLINED = '__declined__';
 
 // The one implementation of "is this day short", shared with check_rooms.js
 // and the nightly roomsHealthSweep, so all three agree about what is wrong.
-const { undercountedDays } = require(
+const { shiftKey, undercountedDays } = require(
     path.join(__dirname, '..', '..', 'functions', 'room_health.js'));
+const {
+  APP_FALLBACK_OFFSET_MINUTES,
+  keyAtOffset,
+  offsetOf,
+  storedDateKey,
+  tsKey,
+} = require('./lib/day_key');
+
+// The room's days are keyed on Asia/Bahrain, +180 with no daylight saving,
+// the basis check_rooms.js uses, never on this machine's own timezone: the
+// getDate() arithmetic this replaces keyed a room that starts at Bahrain
+// midnight a day early on any machine west of +180. A member's own date
+// (leftAt below) uses their users/{uid}.tzOffsetMinutes. See lib/day_key.js.
+const ROOM_OFFSET_MINUTES = APP_FALLBACK_OFFSET_MINUTES;
+const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /// The first day this member's room rule for [id] applies: the earliest
 /// `from` across their habitRules periods, or null when none is recorded
@@ -69,25 +84,15 @@ function floorOf(part, id) {
   return floor;
 }
 
-function toDate(v) {
-  if (!v) return null;
-  if (typeof v.toDate === 'function') return v.toDate();
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-function keyOf(d) {
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-function addDays(d, n) {
-  const c = new Date(d);
-  c.setDate(c.getDate() + n);
-  return c;
-}
-/** Saturday-start week, matching DateTimeGameExt.startOfDisplayWeek. */
-function weekStart(d) {
-  const iso = d.getDay() === 0 ? 7 : d.getDay(); // 1=Mon..7=Sun
-  return addDays(d, -((iso - 6 + 7) % 7));
+/**
+ * Saturday-start week, matching DateTimeGameExt.startOfDisplayWeek. Works on
+ * the key's own digits, so it never depends on this machine's timezone.
+ */
+function weekStartKey(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun..6=Sat
+  const iso = dow === 0 ? 7 : dow; // 1=Mon..7=Sun
+  return shiftKey(key, -((iso - 6 + 7) % 7));
 }
 
 (async () => {
@@ -95,9 +100,10 @@ function weekStart(d) {
   if (!roomSnap.exists) fail(`No room "${roomCode}".`);
   const room = roomSnap.data() || {};
 
-  const start = toDate(room.startDate);
-  if (!start) fail('Room has no startDate.');
-  const end = toDate(room.endDate);
+  const startKey = storedDateKey(room.startDate, ROOM_OFFSET_MINUTES);
+  if (!startKey || !KEY_RE.test(startKey)) fail('Room has no startDate.');
+  const rawEndKey = storedDateKey(room.endDate, ROOM_OFFSET_MINUTES);
+  const endKey = rawEndKey && KEY_RE.test(rawEndKey) ? rawEndKey : null;
   // No cutoff shift. The day rolls at MIDNIGHT (datetime_ext.dart:143, and
   // the doc at :47 says outright that effectiveDay no longer respects the
   // cutoff), and RoomModel.lastCountedDay is DateTime.now().effectiveDay, so
@@ -106,19 +112,23 @@ function weekStart(d) {
   // 6 and is now 10, and the subtraction dropped the newest day from every
   // table between midnight and 6am: the exact "one day out from what the app
   // shows" confusion the shift was added to prevent, inverted.
-  const todayMid = new Date();
-  todayMid.setHours(0, 0, 0, 0);
-  const last = end && end < todayMid ? end : todayMid;
+  const todayKey = keyAtOffset(Date.now(), ROOM_OFFSET_MINUTES);
+  const lastKey = endKey && endKey < todayKey ? endKey : todayKey;
 
+  // Whole calendar days, stepped on the keys themselves. This lists two days
+  // the old loop over instants could drop, both only for a room whose start
+  // is not midnight at +180 (no room on 2026-09-11): today while the room
+  // runs, and the end day of an ended room whose endDate time of day is
+  // earlier than its startDate's.
   const days = [];
-  for (let d = new Date(start); d <= last; d = addDays(d, 1)) days.push(new Date(d));
+  for (let dk = startKey; dk <= lastKey; dk = shiftKey(dk, 1)) days.push(dk);
 
   console.log(`\n${'='.repeat(74)}`);
   console.log(`ROOM ${roomCode}  ${room.name || ''}`);
   console.log(`${'='.repeat(74)}`);
   console.log(`  status      : ${room.status || '(none)'}   mode: ${room.habitMode || '?'}`);
-  console.log(`  startDate   : ${keyOf(start)}`);
-  console.log(`  counts thru : ${keyOf(last)}   -> ${days.length} day(s) elapsed`);
+  console.log(`  startDate   : ${startKey}`);
+  console.log(`  counts thru : ${lastKey}   -> ${days.length} day(s) elapsed`);
   // The one field that explains a blank run of days on the strip: while a
   // span covers a day, nobody is graded on it and the app draws it stood
   // down. PBYAS5 (2026-09-08) kept a 3-6 September span after its pause was
@@ -142,8 +152,16 @@ function weekStart(d) {
     console.log(`\n${'-'.repeat(74)}`);
     // A departed member's record is kept (RoomParticipant.leftAt) so a
     // rejoin cannot reset it; say so rather than grading them as present.
-    const left = p.leftAt && p.leftAt.toDate
-      ? `   LEFT ${p.leftAt.toDate().toISOString().slice(0, 10)}` : '';
+    // The day is the one on THEIR phone (users/{uid}.tzOffsetMinutes). The
+    // UTC date this used to print is a day early for a +180 member who left
+    // between midnight and 03:00.
+    let left = '';
+    if (p.leftAt && typeof p.leftAt.toDate === 'function') {
+      const userSnap = await db.collection('users').doc(uid).get();
+      const tz = offsetOf(userSnap.exists ? userSnap.data() : null);
+      left = `   LEFT ${tsKey(p.leftAt, tz.minutes)}` +
+          `${tz.assumed ? ` (offset not recorded, +${tz.minutes} assumed)` : ''}`;
+    }
     const away = Array.isArray(p.awaySpans) && p.awaySpans.length
       ? `   away: ${p.awaySpans.map((s) => `${s.from}..${s.to}`).join(', ')}` : '';
     console.log(`${p.displayName || uid}   (${uid})${left}${away}`);
@@ -197,8 +215,8 @@ function weekStart(d) {
 
     // Raw square state per room day, per counting habit.
     const dailySnaps = await Promise.all(
-      days.map((d) => db.collection('users').doc(uid)
-          .collection('daily').doc(keyOf(d)).get()),
+      days.map((dk) => db.collection('users').doc(uid)
+          .collection('daily').doc(dk).get()),
     );
 
     console.log('\n  day          ' + counting.map((c) =>
@@ -206,7 +224,7 @@ function weekStart(d) {
     let greenDays = 0;
     const squaresByDay = {};
     for (let i = 0; i < days.length; i++) {
-      const dk = keyOf(days[i]);
+      const dk = days[i];
       const raw = dailySnaps[i].exists
           ? (dailySnaps[i].data() || {}).squareStates || {} : {};
       // A slot the room had not asked for on this day is drawn as "n/a" and
@@ -227,8 +245,7 @@ function weekStart(d) {
     const doneMap = p.dailyDoneCount || {};
     const schedMap = p.dailyScheduledCount || {};
     const okWeeks = Array.isArray(p.quotaOkWeeks) ? p.quotaOkWeeks : [];
-    const storedTotal = days.reduce((s, d) => {
-      const dk = keyOf(d);
+    const storedTotal = days.reduce((s, dk) => {
       const sch = schedMap[dk] === undefined ? counting.length : schedMap[dk];
       const dn = doneMap[dk] || 0;
       return s + (sch === 0 ? 1 : Math.min(1, dn / sch));
@@ -256,7 +273,7 @@ function weekStart(d) {
     console.log(`  STORED restAllowanceFrom   : ${p.restAllowanceFrom || 'none'}`);
     console.log(`  Last synced                : ` +
         `${p.lastSyncedDay || '(never)'}` +
-        `${p.lastSyncedDay && p.lastSyncedDay < keyOf(last) ?
+        `${p.lastSyncedDay && p.lastSyncedDay < lastKey ?
             '   << STALE: every day since is graded from nothing' : ''}`);
     const sharedCount = Array.isArray(room.sharedHabits) ?
         room.sharedHabits.length : 0;
@@ -302,7 +319,7 @@ function weekStart(d) {
     // exactly right. A red MISMATCH on correct data is worse than no check,
     // because the next step is a set_room_day.js write that breaks it.
     const short = undercountedDays({
-      days: days.map(keyOf),
+      days,
       countingIds: counting.map((c) => c.id),
       squaresByDay,
       part: p,
@@ -316,7 +333,7 @@ function weekStart(d) {
             `--user=${uid} --date=${s.day} --done=${s.real} --confirm`);
       }
     }
-    console.log(`  This week (${keyOf(weekStart(last))}) starts Saturday.`);
+    console.log(`  This week (${weekStartKey(lastKey)}) starts Saturday.`);
   }
   console.log('');
   process.exit(0);

@@ -112,6 +112,7 @@ function fmtDate(v) {
 
 (async () => {
   const { resolveAccount } = require('./lib/fetchAccount');
+  const { keyAtOffset, offsetOf } = require('./lib/day_key');
   const { uid } = await resolveAccount(String(args.user).trim());
 
   const userRef = db.collection('users').doc(uid);
@@ -180,7 +181,11 @@ function fmtDate(v) {
     }
   }
 
-  const todayKey = new Date().toISOString().slice(0, 10);
+  // Today on the member's own phone, not in UTC: the app keys daily/{date}
+  // with local date fields (datetime_ext.dart:34-37), so between midnight
+  // and 03:00 in Bahrain the UTC key opened yesterday's doc. profile is
+  // userSnap.data() || {}, read above.
+  const todayKey = keyAtOffset(Date.now(), offsetOf(profile).minutes);
   const todaySnap = await userRef.collection('daily').doc(todayKey).get();
   console.log(`\nToday's daily doc (daily/${todayKey}):`);
   console.log('-'.repeat(90));
