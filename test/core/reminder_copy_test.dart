@@ -162,6 +162,7 @@ void main() {
       String? anchor,
       bool isAr = true,
       int variant = 0,
+      bool everyDay = true,
     }) =>
         habitReminderBody(
           offsetMinutes: offset,
@@ -169,19 +170,26 @@ void main() {
           anchorLabel: anchor,
           isAr: isAr,
           onTimeLine: isAr ? 'حان الوقت.' : "It's time.",
+          everyDay: everyDay,
           variantIndex: variant,
         );
 
     test('on time is left exactly as it was', () {
       expect(body(offset: 0), 'حان الوقت.');
       expect(body(offset: 0, isAr: false), "It's time.");
+      // With a streak too: its caller already passes the praise in as
+      // onTimeLine.
+      expect(body(offset: 0, streak: 7), 'حان الوقت.');
     });
 
-    test('a prayer-anchored habit names the prayer it is counting to', () {
-      expect(body(offset: -45, anchor: 'المغرب'), 'باقي ٤٥ دقيقة على المغرب.');
+    test('a prayer-anchored habit names the adhan it is counting to', () {
+      expect(
+        body(offset: -45, anchor: 'المغرب'),
+        'باقي ٤٥ دقيقة على أذان المغرب. خلّك جاهز.',
+      );
       expect(
         body(offset: -45, anchor: 'Maghrib', isAr: false),
-        '45 minutes until Maghrib.',
+        '45 minutes until the Maghrib adhan. Get ready.',
       );
       expect(
         body(offset: 20, anchor: 'الفجر'),
@@ -238,24 +246,33 @@ void main() {
       );
     });
 
-    test('the ask rotates instead of repeating one phrase forever', () {
-      // Aziz: «هي عادية بس فيه احلى لا تخليها تتكرر بس هي».
-      final seen = {
-        for (var v = 0; v < 8; v++) body(offset: 15, anchor: 'الفجر', variant: v)
-      };
-      expect(seen.length, greaterThan(1));
+    test("the ask rotates through Aziz's three, and the old ones are gone", () {
+      // Aziz: «هي عادية بس فيه احلى لا تخليها تتكرر بس هي». On 2026-09-11 he
+      // kept the first ask and replaced the other three.
+      expect(
+        body(offset: 15, anchor: 'الفجر'),
+        'اذن الفجر قبل ١٥ دقيقة. سوي عادتك الحين.',
+      );
       expect(
         body(offset: 15, anchor: 'الفجر', variant: 1),
-        'اذن الفجر قبل ١٥ دقيقة. مستعد تنجز هالعادة الحين؟',
+        'اذن الفجر قبل ١٥ دقيقة. تقدر تسويها الحين.',
       );
       expect(
         body(offset: 15, anchor: 'الفجر', variant: 2),
-        'اذن الفجر قبل ١٥ دقيقة. يلا يا بطل، خلص اللي عليك ولوّن.',
+        'اذن الفجر قبل ١٥ دقيقة. يلا، سويها الحين.',
       );
-      expect(
-        body(offset: 15, anchor: 'الفجر', variant: 3),
-        'اذن الفجر قبل ١٥ دقيقة. يلا يا كفو، خلص اللي عليك ولوّن.',
-      );
+      expect(lateReminderAsk(0, false), 'Do it now.');
+      expect(lateReminderAsk(1, false), 'You can do it now.');
+      expect(lateReminderAsk(2, false), 'Come on, do it now.');
+      final seen = <String>{};
+      for (var v = 0; v < 9; v++) {
+        final line = body(offset: 15, anchor: 'الفجر', variant: v);
+        seen.add(line);
+        for (final old in ['مستعد تنجز', 'يا بطل', 'يا كفو', 'ولوّن']) {
+          expect(line, isNot(contains(old)));
+        }
+      }
+      expect(seen, hasLength(3));
       // The same habit on the same day always reads the same.
       expect(
         body(offset: 15, anchor: 'الفجر', variant: 5),
@@ -284,47 +301,97 @@ void main() {
       expect(lateStreakPraise(15, true), 'ملتزم صارلك ١٥ يوم 👏🏼');
     });
 
-    test('an EARLY reminder still counts the streak forward, as before', () {
-      // Only the late branch changed. Early is a countdown, not a nudge about
-      // something outstanding, so its streak line is untouched.
+    test('a habit on set weekdays is praised in times, not days', () {
+      // Its streak counts the days it runs on, so «ملتزم صارلك ٤ أيام» would
+      // read as four calendar days and be false for a Wed/Sat habit.
+      expect(
+        body(offset: 15, anchor: 'العصر', streak: 4, everyDay: false),
+        'اذن العصر قبل ١٥ دقيقة. سوي عادتك الحين. ملتزم ٤ مرات ورا بعض 👏🏼',
+      );
+      expect(
+        body(
+          offset: 15,
+          anchor: 'Asr',
+          streak: 4,
+          everyDay: false,
+          isAr: false,
+        ),
+        "Asr was 15 minutes ago. Do it now. You've kept it up 4 times in a "
+        'row 👏🏼',
+      );
+      expect(lateStreakPraise(1, true, everyDay: false), 'سويتها آخر مرة 👏🏼');
+      expect(
+        lateStreakPraise(2, true, everyDay: false),
+        'ملتزم مرتين ورا بعض 👏🏼',
+      );
+      expect(
+        lateStreakPraise(4, true, everyDay: false),
+        'ملتزم ٤ مرات ورا بعض 👏🏼',
+      );
+      expect(
+        lateStreakPraise(10, true, everyDay: false),
+        'ملتزم ١٠ مرات ورا بعض 👏🏼',
+      );
+      expect(
+        lateStreakPraise(11, true, everyDay: false),
+        'ملتزم ١١ مرة ورا بعض 👏🏼',
+      );
+      for (final s in [1, 2, 3, 10, 11, 40]) {
+        final praise = lateStreakPraise(s, true, everyDay: false);
+        expect(praise, isNot(contains('صارلك')));
+        expect(praise, isNot(contains('أيام')));
+        expect(praise, isNot(contains('ثنتين')));
+      }
+      // The every-day tail is byte-identical to the loved reminder's.
+      expect(lateStreakPraise(3, true), 'ملتزم صارلك ٣ أيام 👏🏼');
+    });
+
+    test('an early reminder asks to get ready and praises the streak', () {
+      expect(
+        body(offset: -15, anchor: 'المغرب', streak: 3),
+        'باقي ١٥ دقيقة على أذان المغرب. خلّك جاهز. ملتزم صارلك ٣ أيام 👏🏼',
+      );
+      expect(
+        body(offset: -15, anchor: 'Maghrib', streak: 3, isAr: false),
+        "15 minutes until the Maghrib adhan. Get ready. You've kept it up 3 "
+        'days 👏🏼',
+      );
       expect(
         body(offset: -15, streak: 7),
-        'باقي ١٥ دقيقة على وقتها. ٧ أيام ورا بعض، واليوم يخليها ٨.',
+        'باقي ١٥ دقيقة على وقتها. خلّك جاهز. ملتزم صارلك ٧ أيام 👏🏼',
       );
+      expect(
+        body(offset: -15, streak: 2),
+        'باقي ١٥ دقيقة على وقتها. خلّك جاهز. ملتزم صارلك يومين 👏🏼',
+      );
+      expect(
+        body(offset: -15, streak: 15),
+        'باقي ١٥ دقيقة على وقتها. خلّك جاهز. ملتزم صارلك ١٥ يوم 👏🏼',
+      );
+      expect(
+        body(offset: -15, streak: 7, isAr: false),
+        "15 minutes to go. Get ready. You've kept it up 7 days 👏🏼",
+      );
+      expect(
+        body(offset: -45, anchor: 'الفجر', streak: 4, everyDay: false),
+        'باقي ٤٥ دقيقة على أذان الفجر. خلّك جاهز. ملتزم ٤ مرات ورا بعض 👏🏼',
+      );
+      // It no longer counts the streak forward.
+      for (final streak in [1, 2, 7, 15]) {
+        final line = body(offset: -15, streak: streak);
+        expect(line, isNot(contains('يخليها')));
+        expect(line, isNot(contains('ورا بعض،')));
+      }
     });
 
     test('a clock-time habit does not read its own clock back to itself', () {
-      expect(body(offset: -15), 'باقي ١٥ دقيقة على وقتها.');
-      expect(body(offset: -15, isAr: false), '15 minutes to go.');
+      expect(body(offset: -15), 'باقي ١٥ دقيقة على وقتها. خلّك جاهز.');
+      expect(body(offset: -15, isAr: false), '15 minutes to go. Get ready.');
       expect(body(offset: 30), 'صار لها ٣٠ دقيقة. سوي عادتك الحين.');
       expect(
         body(offset: 30, isAr: false),
         "It's been 30 minutes. Do it now.",
       );
-    });
-
-    test('the streak is still the reason to act, so it is kept', () {
-      // The day count declines like every count in this module: «٧ أيام»
-      // for 3-10, dual for two, singular from 11 up.
-      expect(
-        body(offset: -15, streak: 7),
-        'باقي ١٥ دقيقة على وقتها. ٧ أيام ورا بعض، واليوم يخليها ٨.',
-      );
-      expect(
-        body(offset: -15, streak: 2),
-        'باقي ١٥ دقيقة على وقتها. يومين ورا بعض، واليوم يخليها ٣.',
-      );
-      expect(
-        body(offset: -15, streak: 15),
-        'باقي ١٥ دقيقة على وقتها. ١٥ يوم ورا بعض، واليوم يخليها ١٦.',
-      );
-      expect(
-        body(offset: -15, streak: 7, isAr: false),
-        '15 minutes to go. 7 days in a row. Today makes it 8.',
-      );
-      // And an on-time reminder with a streak is untouched: its caller
-      // already passes the streak line in as onTimeLine.
-      expect(body(offset: 0, streak: 7), 'حان الوقت.');
     });
   });
 
@@ -357,9 +424,6 @@ void main() {
       int completedCount = 0,
       int dailyTarget = 1,
       int? lastDoneDaysAgo,
-      // Defaults to what a DAILY habit has missed: every day since the last
-      // one but today. The scheduled-habit tests below pass it explicitly.
-      int? missedSinceLastDone,
       int? timerSeconds,
       int variantIndex = 0,
       bool isAr = true,
@@ -367,14 +431,13 @@ void main() {
       int? weekTarget,
       int? weekDone,
       bool owedToday = false,
+      String? anchorLabel,
     }) =>
         habitOnTimeLine(
           streak: streak,
           completedCount: completedCount,
           dailyTarget: dailyTarget,
           lastDoneDaysAgo: lastDoneDaysAgo,
-          missedSinceLastDone: missedSinceLastDone ??
-              (lastDoneDaysAgo == null ? 0 : (lastDoneDaysAgo - 1).clamp(0, 999)),
           timerSeconds: timerSeconds,
           variantIndex: variantIndex,
           isAr: isAr,
@@ -382,180 +445,259 @@ void main() {
           weekTarget: weekTarget,
           weekDone: weekDone,
           owedToday: owedToday,
+          anchorLabel: anchorLabel,
         );
 
-    test('today\'s progress outranks everything else it could say', () {
-      // The one fact the habit's own name in the title cannot show.
+    test('a clock habit with a streak: the moment, the ask, the praise', () {
+      // Aziz's pick of 2026-09-11, in the voice of the reminder he loved.
       expect(
-        line(completedCount: 2, dailyTarget: 3),
-        '٢ من ٣ اليوم، وباقي وحدة.',
+        line(streak: 3, lastDoneDaysAgo: 1),
+        'وقتها الحين. سوي عادتك. ملتزم صارلك ٣ أيام 👏🏼',
       );
+      expect(
+        line(streak: 3, lastDoneDaysAgo: 1, isAr: false),
+        "It's time. Do it now. You've kept it up 3 days 👏🏼",
+      );
+      expect(
+        line(streak: 4, lastDoneDaysAgo: 3, everyDay: false),
+        'وقتها الحين. سوي عادتك. ملتزم ٤ مرات ورا بعض 👏🏼',
+      );
+      expect(
+        line(streak: 1, lastDoneDaysAgo: 3, everyDay: false),
+        'وقتها الحين. سوي عادتك. سويتها آخر مرة 👏🏼',
+      );
+      expect(
+        line(streak: 2, lastDoneDaysAgo: 3, everyDay: false),
+        'وقتها الحين. سوي عادتك. ملتزم مرتين ورا بعض 👏🏼',
+      );
+      // One line, not a pool: the loved shape does not rotate.
+      for (var i = 0; i < 6; i++) {
+        expect(
+          line(streak: 3, lastDoneDaysAgo: 1, variantIndex: i),
+          line(streak: 3, lastDoneDaysAgo: 1),
+        );
+      }
+    });
+
+    test('a habit never once done is asked for its first square', () {
+      for (var i = 0; i < 6; i++) {
+        final l = line(variantIndex: i);
+        expect(l, 'وقتها الحين. سوي عادتك. بسم الله، أول مربع لها.');
+        expect(l, isNot(contains('بضع دقائق لهذه العادة')));
+      }
+      expect(
+        line(isAr: false),
+        "It's time. Do it now. Bismillah, its first square.",
+      );
+    });
+
+    test('a habit done before with no streak: the moment and the ask, no gap',
+        () {
+      // The gap lines («صار لها ٣ أيام. مربع واحد اليوم وترجع السلسلة») went
+      // with the loss lines: a gap states an absence.
+      for (final ago in [1, 2, 3, 7, 14]) {
+        for (var i = 0; i < 6; i++) {
+          expect(
+            line(lastDoneDaysAgo: ago, variantIndex: i),
+            'وقتها الحين. سوي عادتك.',
+          );
+          expect(
+            line(lastDoneDaysAgo: ago, variantIndex: i, isAr: false),
+            "It's time. Do it now.",
+          );
+        }
+      }
+    });
+
+    test('at the adhan the prayer is named', () {
+      // It never was: the on-time line returned before reading the anchor.
+      expect(
+        line(streak: 3, lastDoneDaysAgo: 1, anchorLabel: 'الفجر'),
+        'اذن الفجر. سوي عادتك الحين. ملتزم صارلك ٣ أيام 👏🏼',
+      );
+      expect(
+        line(streak: 3, lastDoneDaysAgo: 1, anchorLabel: 'Fajr', isAr: false),
+        "It's Fajr. Do it now. You've kept it up 3 days 👏🏼",
+      );
+      expect(
+        line(
+          streak: 5,
+          lastDoneDaysAgo: 2,
+          anchorLabel: 'العصر',
+          everyDay: false,
+        ),
+        'اذن العصر. سوي عادتك الحين. ملتزم ٥ مرات ورا بعض 👏🏼',
+      );
+      // No streak: the moment and the ask alone. The first-square tail was
+      // only picked for a clock time.
+      expect(
+        line(lastDoneDaysAgo: 4, anchorLabel: 'المغرب'),
+        'اذن المغرب. سوي عادتك الحين.',
+      );
+      expect(line(anchorLabel: 'المغرب'), 'اذن المغرب. سوي عادتك الحين.');
+      // And the body hands it straight through on the dot.
+      final onTime =
+          line(streak: 3, lastDoneDaysAgo: 1, anchorLabel: 'الفجر');
+      expect(
+        habitReminderBody(
+          offsetMinutes: 0,
+          streak: 3,
+          anchorLabel: 'الفجر',
+          isAr: true,
+          onTimeLine: onTime,
+        ),
+        'اذن الفجر. سوي عادتك الحين. ملتزم صارلك ٣ أيام 👏🏼',
+      );
+    });
+
+    test('several times a day: which round, and what is done', () {
       expect(
         line(completedCount: 1, dailyTarget: 3),
-        '١ من ٣ اليوم، وباقي ثنتين.',
+        'وقت المرة الثانية. سويها الحين. ١ من ٣ خلّصت 👏🏼',
       );
       expect(
-        line(completedCount: 1, dailyTarget: 5),
-        '١ من ٥ اليوم، وباقي ٤ مرات.',
+        line(completedCount: 2, dailyTarget: 3),
+        'وقت المرة الأخيرة. سويها الحين. ٢ من ٣ خلّصت 👏🏼',
+      );
+      expect(
+        line(completedCount: 2, dailyTarget: 5),
+        'وقت المرة الثالثة. سويها الحين. ٢ من ٥ خلّصت 👏🏼',
+      );
+      expect(
+        line(completedCount: 9, dailyTarget: 12),
+        'وقت المرة العاشرة. سويها الحين. ٩ من ١٢ خلّصت 👏🏼',
+      );
+      expect(
+        line(completedCount: 10, dailyTarget: 12),
+        'وقت المرة رقم ١١. سويها الحين. ١٠ من ١٢ خلّصت 👏🏼',
+      );
+      expect(
+        line(completedCount: 11, dailyTarget: 12),
+        'وقت المرة الأخيرة. سويها الحين. ١١ من ١٢ خلّصت 👏🏼',
+      );
+      expect(
+        line(completedCount: 1, dailyTarget: 3, isAr: false),
+        'Time for round two. Do it now. 1 of 3 done 👏🏼',
       );
       expect(
         line(completedCount: 2, dailyTarget: 3, isAr: false),
-        '2 of 3 today. One more to go.',
+        'Time for the last one. Do it now. 2 of 3 done 👏🏼',
       );
-      // Even with a streak running: partial progress is more specific.
+      expect(
+        line(completedCount: 10, dailyTarget: 12, isAr: false),
+        'Time for round 11. Do it now. 10 of 12 done 👏🏼',
+      );
+      // Today's progress outranks the streak.
       expect(
         line(completedCount: 2, dailyTarget: 3, streak: 9),
-        startsWith('٢ من ٣'),
+        startsWith('وقت المرة الأخيرة.'),
       );
-    });
-
-    test('a streak speaks for itself once nothing is logged today', () {
-      expect(line(streak: 4), habitStreakLine(4, true));
-      expect(line(streak: 4, isAr: false), habitStreakLine(4, false));
-      // And it rotates with the state's own variant, so a long streak
-      // isn't the same sentence every single day.
-      expect(
-        line(streak: 4, variantIndex: 1),
-        habitStreakLine(4, true, variantIndex: 1),
-      );
-      expect(
-        line(streak: 4, variantIndex: 1),
-        isNot(line(streak: 4, variantIndex: 0)),
-      );
-      // A single-target habit with today already done never reaches here
-      // (the scheduler stands its reminder down), so 0-of-1 is the state
-      // that must NOT be reported as progress.
-      expect(line(streak: 4, completedCount: 0, dailyTarget: 1),
-          habitStreakLine(4, true));
-    });
-
-    test('a habit never once completed is asked for its first square', () {
-      // The exact state the old pool handled worst: it drew a generic
-      // «بضع دقائق لهذه العادة اليوم» for a habit created minutes ago.
-      for (var i = 0; i < 6; i++) {
-        final l = line(variantIndex: i);
-        expect(l, isNot(contains('بضع دقائق لهذه العادة')));
-        expect(l, isNot(contains('سلسلة')));
+      // Never «المرة الأولى»: a round is only named once one is logged.
+      for (var target = 2; target <= 12; target++) {
+        for (var done = 1; done < target; done++) {
+          expect(
+            line(completedCount: done, dailyTarget: target),
+            isNot(contains('الأولى')),
+          );
+        }
       }
+      // With none logged it is the plain on-time line, and so is the
+      // default, 0 of 1.
       expect(
-        line(variantIndex: 0),
-        'أول مربع فيها اليوم، ومن هنا تبدأ العادة.',
+        line(dailyTarget: 3, streak: 4, lastDoneDaysAgo: 1),
+        'وقتها الحين. سوي عادتك. ملتزم صارلك ٤ أيام 👏🏼',
       );
       expect(
-        line(variantIndex: 0, isAr: false),
-        'First square today. This is where it starts.',
-      );
-    });
-
-    test('a lapsed habit gets the gap named and no blame attached', () {
-      expect(
-        line(lastDoneDaysAgo: 3, variantIndex: 0),
-        'صار لها ٣ أيام. مربع واحد اليوم وترجع السلسلة.',
-      );
-      expect(
-        line(lastDoneDaysAgo: 2, variantIndex: 1),
-        'آخر مرة كانت قبل يومين، واليوم بداية جديدة لها.',
-      );
-      expect(
-        line(lastDoneDaysAgo: 3, variantIndex: 0, isAr: false),
-        "It's been 3 days. One square today and the streak is back.",
-      );
-      // Never-completed is a different state and must not borrow this one:
-      // there is no gap to name.
-      expect(line(variantIndex: 0), isNot(contains('صار لها')));
-    });
-
-    test('a timer habit states its real length instead of "a few minutes"', () {
-      expect(
-        line(timerSeconds: 120, variantIndex: 1),
-        'وقتها دقيقتين بس. عادة جديدة تنتظر أول مربع لها.',
-      );
-      expect(
-        line(timerSeconds: 600, variantIndex: 1, isAr: false),
-        'It only takes 10 minutes. A new habit waiting on its first square.',
-      );
-      // Nothing true to say: no timer, under a minute, or not a whole
-      // number of minutes.
-      expect(line(variantIndex: 1), isNot(contains('وقتها')));
-      expect(line(timerSeconds: 30, variantIndex: 1), isNot(contains('وقتها')));
-      expect(line(timerSeconds: 90, variantIndex: 1), isNot(contains('وقتها')));
-      // And a state that already carries its own numbers doesn't stack a
-      // second one on top.
-      expect(
-        line(timerSeconds: 120, streak: 4),
-        isNot(contains('وقتها دقيقتين')),
+        line(streak: 4, lastDoneDaysAgo: 1),
+        'وقتها الحين. سوي عادتك. ملتزم صارلك ٤ أيام 👏🏼',
       );
     });
 
-    test('says it is going well where there is something to say it about',
-        () {
-      // Praise belongs where the app can point at something: progress
-      // logged today, or a streak that is running.
+    test('a timer habit never done states its real length', () {
       expect(
-        line(completedCount: 2, dailyTarget: 3, variantIndex: 1),
-        '٢ من ٣ اليوم وماشية عدل، وباقي وحدة.',
+        line(timerSeconds: 120),
+        'وقتها دقيقتين بس. سوي عادتك. بسم الله، أول مربع لها.',
       );
       expect(
-        line(completedCount: 2, dailyTarget: 3, variantIndex: 1, isAr: false),
-        '2 of 3 today and going well. One more to go.',
+        line(timerSeconds: 600, isAr: false),
+        'It only takes 10 minutes. Do it now. Bismillah, its first square.',
       );
-      expect(habitStreakLine(9, true, variantIndex: 1), contains('ماشية عدل'));
+      // Done before with no streak it reads like any clock habit: Aziz saw the
+      // length only in place of «وقتها الحين.» on the first-square line
+      // (catalog A4, option 2).
       expect(
-        habitStreakLine(9, false, variantIndex: 1),
-        contains('going strong'),
+        line(timerSeconds: 120, lastDoneDaysAgo: 2),
+        'وقتها الحين. سوي عادتك.',
       );
-      // But never at someone who has already missed days: a lapsed habit
-      // has nothing going well to congratulate, and saying so would read
-      // as sarcasm.
-      for (var i = 0; i < 6; i++) {
-        final lapsed = line(lastDoneDaysAgo: 4, variantIndex: i);
-        expect(lapsed, isNot(contains('ماشية عدل')));
-        expect(lapsed, isNot(contains('going well')));
+      expect(
+        line(timerSeconds: 600, lastDoneDaysAgo: 2, isAr: false),
+        "It's time. Do it now.",
+      );
+      // Nothing true to say: no timer, under a minute, or not whole minutes.
+      expect(line(), startsWith('وقتها الحين.'));
+      expect(line(timerSeconds: 30), startsWith('وقتها الحين.'));
+      expect(line(timerSeconds: 90), startsWith('وقتها الحين.'));
+      // The praise carries its own number; no second one stacked on top.
+      expect(
+        line(timerSeconds: 120, streak: 4, lastDoneDaysAgo: 1),
+        isNot(contains('دقيقتين')),
+      );
+    });
+
+    test('the loss and waiting words are gone from every state', () {
+      const barred = [
+        'خسارة',
+        'تنتظر',
+        'يفوت',
+        'تفوت',
+        'فات',
+        'ضاع',
+        'صار لها',
+        'slip',
+        'waiting',
+        'A shame',
+        "It's been",
+      ];
+      for (var i = 0; i < 12; i++) {
+        for (final isAr in [true, false]) {
+          for (final l in [
+            line(variantIndex: i, isAr: isAr),
+            line(variantIndex: i, isAr: isAr, streak: 5, lastDoneDaysAgo: 1),
+            line(variantIndex: i, isAr: isAr, lastDoneDaysAgo: 4),
+            line(variantIndex: i, isAr: isAr, lastDoneDaysAgo: 1),
+            line(
+              variantIndex: i,
+              isAr: isAr,
+              completedCount: 1,
+              dailyTarget: 2,
+            ),
+            line(variantIndex: i, isAr: isAr, timerSeconds: 300),
+            line(
+              variantIndex: i,
+              isAr: isAr,
+              anchorLabel: isAr ? 'الفجر' : 'Fajr',
+            ),
+          ]) {
+            for (final word in barred) {
+              expect(l, isNot(contains(word)), reason: '"$l" says "$word"');
+            }
+          }
+        }
       }
-    });
-
-    test('says it would be a shame to skip where there is no praise to give',
-        () {
-      // The other half of what a reminder is for. Phrased about the day or
-      // the square, never as «لا تفوّتها», which would have to pick a
-      // gender for the person reading it.
-      expect(line(variantIndex: 3), 'أول مربع فيها اليوم، وخسارة يفوت.');
-      expect(line(variantIndex: 3, isAr: false),
-          'First square today. A shame to let it slip.');
-      expect(
-        line(lastDoneDaysAgo: 1, variantIndex: 2),
-        'وقتها الحين، وخسارة لو تفوت اليوم.',
-      );
-      expect(
-        line(lastDoneDaysAgo: 1, variantIndex: 2, isAr: false),
-        "It's time. Don't let today slip by.",
-      );
-      // A lapsed habit is told nothing is lost, not that it slipped.
-      expect(
-        line(lastDoneDaysAgo: 4, variantIndex: 2),
-        'صار لها ٤ أيام، وما ضاع شي. مربع واحد يرجعها.',
-      );
     });
 
     test('reported bug: a habit on its own schedule is never called lapsed',
         () {
       // A Wed/Sat habit done Wednesday, reminded Saturday. Three calendar
       // days, zero missed days. It used to draw «صار لها ٣ أيام، وما ضاع
-      // شي. مربع واحد يرجعها», telling someone exactly on time that it was
-      // fine to be late.
+      // شي. مربع واحد يرجعها».
       for (var i = 0; i < 6; i++) {
-        final l = line(
-          lastDoneDaysAgo: 3,
-          missedSinceLastDone: 0,
-          everyDay: false,
-          variantIndex: i,
-        );
+        final l = line(lastDoneDaysAgo: 3, everyDay: false, variantIndex: i);
         expect(l, isNot(contains('صار لها')));
-        expect(l, isNot(contains('آخر مرة')));
+        expect(l, isNot(contains('آخر مرة كانت')));
         expect(l, isNot(contains('ما ضاع')));
         final en = line(
           lastDoneDaysAgo: 3,
-          missedSinceLastDone: 0,
           everyDay: false,
           variantIndex: i,
           isAr: false,
@@ -563,48 +705,9 @@ void main() {
         expect(en, isNot(contains("It's been")));
         expect(en, isNot(contains('Last done')));
       }
-      // With nothing else to say it gets the plain on-time line.
       expect(
-        line(lastDoneDaysAgo: 3, missedSinceLastDone: 0, everyDay: false),
-        'وقتها الحين، ومربع اليوم على بعد دقايق.',
-      );
-    });
-
-    test('a scheduled habit\'s streak counts times, not days', () {
-      // Its streak is counted on the days it runs (see scheduledGap), so
-      // «٤ أيام ورا بعض» would read as four consecutive calendar days and be
-      // false for a Wed/Sat habit.
-      expect(
-        line(streak: 4, lastDoneDaysAgo: 3, missedSinceLastDone: 0,
-            everyDay: false),
-        '٤ مرات ورا بعض، واليوم يخليها ٥.',
-      );
-      expect(
-        line(streak: 1, lastDoneDaysAgo: 3, missedSinceLastDone: 0,
-            everyDay: false),
-        'مرة وحدة في السلسلة، واليوم يخليها ثنتين.',
-      );
-      expect(
-        line(streak: 2, lastDoneDaysAgo: 3, missedSinceLastDone: 0,
-            everyDay: false),
-        'ثنتين ورا بعض، واليوم يخليها ٣.',
-      );
-      expect(
-        line(streak: 4, lastDoneDaysAgo: 3, missedSinceLastDone: 0,
-            everyDay: false, isAr: false),
-        '4 in a row. Today makes it 5.',
-      );
-      // The every-day wording is byte-identical to what shipped.
-      expect(line(streak: 4), '٤ أيام ورا بعض، واليوم يخليها ٥.');
-    });
-
-    test('a real miss on a scheduled habit is still named', () {
-      // Wed/Sat habit, done a Saturday, Wednesday skipped, reminded the next
-      // Saturday. One missed day; the calendar gap is still how long it has
-      // actually been.
-      expect(
-        line(lastDoneDaysAgo: 7, missedSinceLastDone: 1, everyDay: false),
-        'صار لها ٧ أيام. مربع واحد اليوم وترجع السلسلة.',
+        line(lastDoneDaysAgo: 3, everyDay: false),
+        'وقتها الحين. سوي عادتك.',
       );
     });
 
@@ -652,40 +755,25 @@ void main() {
     });
 
     test('a weekly quota is never late by the calendar', () {
-      // Done Monday, reminded Wednesday, two of three still open: two days
-      // is a fact and not a lapse.
-      final spare = line(
-        weekTarget: 3,
-        weekDone: 0,
-        lastDoneDaysAgo: 2,
-        missedSinceLastDone: 0,
-      );
+      // Done Monday, reminded Wednesday, two of three still open.
+      final spare = line(weekTarget: 3, weekDone: 0, lastDoneDaysAgo: 2);
       expect(spare, isNot(contains('صار لها')));
-      expect(spare, 'وقتها الحين، ومربع اليوم على بعد دقايق.');
-      // An unknown week claims nothing about the week either way.
-      final unknown = line(
-        weekTarget: 3,
-        weekDone: null,
-        lastDoneDaysAgo: 2,
-        missedSinceLastDone: 0,
-      );
+      expect(spare, 'وقتها الحين. سوي عادتك.');
+      // An unknown week (no weekDone) claims nothing about the week either
+      // way.
+      final unknown = line(weekTarget: 3, lastDoneDaysAgo: 2);
       expect(unknown, isNot(contains('هذا الأسبوع')));
       expect(unknown, isNot(contains('صار لها')));
-      // And it never draws the streak line: a calendar streak says nothing
-      // true about a week.
+      // And it is never praised: a calendar streak says nothing true about a
+      // week.
+      final withStreak =
+          line(weekTarget: 3, weekDone: 0, streak: 5, lastDoneDaysAgo: 1);
+      expect(withStreak, isNot(contains('ملتزم')));
+      expect(withStreak, isNot(contains('ورا بعض')));
+      // Even a whole empty week no longer names a gap.
       expect(
-        line(weekTarget: 3, weekDone: 0, streak: 5),
-        isNot(contains('ورا بعض')),
-      );
-      // A proven lapse (a whole empty week) is still named.
-      expect(
-        line(
-          weekTarget: 3,
-          weekDone: 0,
-          lastDoneDaysAgo: 14,
-          missedSinceLastDone: 3,
-        ),
-        'صار لها ١٤ يوم. مربع واحد اليوم وترجع السلسلة.',
+        line(weekTarget: 3, weekDone: 0, lastDoneDaysAgo: 14),
+        'وقتها الحين. سوي عادتك.',
       );
     });
 
@@ -701,20 +789,20 @@ void main() {
       expect(line(variantIndex: -7), isNotEmpty);
     });
 
-    test('no line addresses the reader with a gendered verb', () {
-      // The register this file documents: the old pool's «حافظ», «ابدأ»,
-      // «لا تدع» were all masculine, and half the people reading them are
-      // not. Every line below talks about the habit or the day instead.
-      const gendered = ['حافظ', 'ابدأ', 'لا تدع', 'لوّن', 'لا تفقد', 'لا تكسر'];
+    test('no line uses the old formal imperatives', () {
+      // The old pool's «حافظ», «ابدأ», «لا تدع» were MSA commands, and «لوّن»
+      // rode two of the late asks. Aziz's picks keep one short spoken ask.
+      const formal = ['حافظ', 'ابدأ', 'لا تدع', 'لوّن', 'لا تفقد', 'لا تكسر'];
       for (var i = 0; i < 12; i++) {
         for (final state in [
           line(variantIndex: i),
-          line(variantIndex: i, streak: 5),
+          line(variantIndex: i, streak: 5, lastDoneDaysAgo: 1),
           line(variantIndex: i, lastDoneDaysAgo: 4),
           line(variantIndex: i, completedCount: 1, dailyTarget: 2),
           line(variantIndex: i, lastDoneDaysAgo: 1),
+          lateReminderAsk(i, true),
         ]) {
-          for (final verb in gendered) {
+          for (final verb in formal) {
             expect(state, isNot(contains(verb)));
           }
         }
@@ -764,65 +852,243 @@ void main() {
   });
 
   group('habitBundleTitle', () {
-    test('all on time keeps "ready", which is true of all of them', () {
-      // Two takes the dual — «2 عادات» is the exact class of error
-      // countedOffsetPhrase exists to avoid, and two is a bundle's most
-      // common size.
+    test('names the habits, joined the way Arabic joins them', () {
       expect(
-        habitBundleTitle(offsetMinutes: [0, 0], isAr: true),
-        'عادتين جاهزتين',
+        habitBundleTitle(names: ['سنة الفجر', 'أذكار الصباح'], isAr: true),
+        'سنة الفجر وأذكار الصباح',
       );
       expect(
-        habitBundleTitle(offsetMinutes: [0, 0, 0], isAr: true),
-        '٣ عادات جاهزة',
+        habitBundleTitle(
+          names: ['سنة الفجر', 'أذكار الصباح', 'الوتر'],
+          isAr: true,
+        ),
+        'سنة الفجر، أذكار الصباح والوتر',
       );
       expect(
-        habitBundleTitle(offsetMinutes: [0, 0, 0], isAr: false),
-        '3 habits ready',
-      );
-    });
-
-    test('all early by the same amount counts down for the group', () {
-      expect(
-        habitBundleTitle(offsetMinutes: [-15, -15], isAr: true),
-        'باقي ١٥ دقيقة على عادتين',
+        habitBundleTitle(names: ['Fajr Sunnah', 'Morning Adhkar'], isAr: false),
+        'Fajr Sunnah and Morning Adhkar',
       );
       expect(
-        habitBundleTitle(offsetMinutes: [-60, -60], isAr: false),
-        '1 hour until 2 habits',
+        habitBundleTitle(names: ['Fajr Sunnah', 'Witr', 'Duha'], isAr: false),
+        'Fajr Sunnah, Witr and Duha',
       );
     });
 
-    test('a mixed bundle says the one thing true of every member', () {
-      // Bundling groups by the clock and knows nothing about offsets, so a
-      // 9:00 habit reminded 15 minutes early and an 8:50 one reminded on
-      // time genuinely share a notification.
+    test('counts instead when the names do not fit one line', () {
       expect(
-        habitBundleTitle(offsetMinutes: [-15, 0], isAr: true),
-        'عادتين بانتظارك',
+        habitBundleTitle(
+          names: ['سنة الفجر', 'أذكار الصباح', 'قراءة القرآن'],
+          isAr: true,
+        ),
+        '٣ عادات',
       );
       expect(
-        habitBundleTitle(offsetMinutes: [-15, -30], isAr: true),
-        'عادتين بانتظارك',
+        habitBundleTitle(
+          names: ['قراءة سورة الكهف', 'أذكار المساء كاملة'],
+          isAr: true,
+        ),
+        'عادتين',
       );
       expect(
-        habitBundleTitle(offsetMinutes: [10, 10], isAr: false),
-        '2 habits waiting',
+        habitBundleTitle(
+          names: [for (var i = 0; i < 11; i++) 'عادة $i'],
+          isAr: true,
+        ),
+        '١١ عادة',
       );
-    });
-
-    test('"ready" is reserved for bundles that really are', () {
-      for (final offsets in [
-        [-15, -15],
-        [-15, 0],
-        [20, 20],
-        [-60, 30],
+      expect(
+        habitBundleTitle(
+          names: ['Morning Adhkar', 'Evening Adhkar', 'Quran'],
+          isAr: false,
+        ),
+        '3 habits',
+      );
+      for (final names in [
+        ['سنة الفجر', 'أذكار الصباح'],
+        ['سنة الفجر', 'أذكار الصباح', 'قراءة القرآن'],
       ]) {
         expect(
-          habitBundleTitle(offsetMinutes: offsets, isAr: true),
-          isNot(contains('جاهزة')),
-          reason: '$offsets does not describe a bundle that is ready now',
+          habitBundleTitle(names: names, isAr: true).length,
+          lessThanOrEqualTo(kBundleTitleMaxChars),
         );
+      }
+    });
+
+    test('never says the habits are waiting', () {
+      for (final names in [
+        ['سنة الفجر', 'أذكار الصباح'],
+        ['قراءة سورة الكهف', 'أذكار المساء كاملة', 'الوتر'],
+      ]) {
+        final title = habitBundleTitle(names: names, isAr: true);
+        for (final word in ['بانتظارك', 'تنتظرك', 'جاهز']) {
+          expect(title, isNot(contains(word)));
+        }
+      }
+      expect(
+        habitBundleTitle(
+          names: ['Morning Adhkar', 'Evening Adhkar', 'Quran'],
+          isAr: false,
+        ),
+        isNot(contains('waiting')),
+      );
+    });
+  });
+
+  group('habitBundleBody', () {
+    final fajr = DateTime(2026, 9, 12, 4, 17);
+    final clock = DateTime(2026, 9, 12, 8, 45);
+    BundleMember m({
+      int offset = 0,
+      String? anchor,
+      DateTime? at,
+      int streak = 0,
+      bool everyDay = true,
+      bool isQuota = false,
+    }) =>
+        (
+          offsetMinutes: offset,
+          anchorLabel: anchor,
+          fireTime: at ?? fajr,
+          streak: streak,
+          everyDay: everyDay,
+          isQuota: isQuota,
+        );
+
+    test('one prayer, the same shift after it: the loved shape, for all', () {
+      final late = fajr.add(const Duration(minutes: 15));
+      expect(
+        habitBundleBody(
+          members: [
+            m(offset: 15, anchor: 'الفجر', at: late, streak: 3),
+            m(offset: 15, anchor: 'الفجر', at: late, streak: 5),
+          ],
+          isAr: true,
+        ),
+        'اذن الفجر قبل ١٥ دقيقة. سوي عاداتك الحين. ملتزم صارلك ٣ أيام 👏🏼',
+      );
+      expect(
+        habitBundleBody(
+          members: [
+            m(offset: 15, anchor: 'Fajr', at: late, streak: 3),
+            m(offset: 15, anchor: 'Fajr', at: late, streak: 5),
+          ],
+          isAr: false,
+        ),
+        "Fajr was 15 minutes ago. Do them now. You've kept it up 3 days 👏🏼",
+      );
+    });
+
+    test('the same shift before, at the same minute', () {
+      final early = fajr.subtract(const Duration(minutes: 15));
+      expect(
+        habitBundleBody(
+          members: [
+            m(offset: -15, anchor: 'الفجر', at: early, streak: 3),
+            m(offset: -15, anchor: 'الفجر', at: early, streak: 4),
+          ],
+          isAr: true,
+        ),
+        'باقي ١٥ دقيقة على أذان الفجر. خلّك جاهز. ملتزم صارلك ٣ أيام 👏🏼',
+      );
+      expect(
+        habitBundleBody(
+          members: [
+            m(offset: -15, at: clock, streak: 2),
+            m(offset: -15, at: clock, streak: 9),
+          ],
+          isAr: true,
+        ),
+        'باقي ١٥ دقيقة على وقتها. خلّك جاهز. ملتزم صارلك يومين 👏🏼',
+      );
+      expect(
+        habitBundleBody(
+          members: [m(offset: -15, at: clock), m(offset: -15, at: clock)],
+          isAr: false,
+        ),
+        '15 minutes to go. Get ready.',
+      );
+    });
+
+    test('on the dot: one adhan, or one clock minute', () {
+      expect(
+        habitBundleBody(
+          members: [m(anchor: 'المغرب'), m(anchor: 'المغرب')],
+          isAr: true,
+        ),
+        'اذن المغرب. سوي عاداتك الحين.',
+      );
+      expect(
+        habitBundleBody(members: [m(at: clock), m(at: clock)], isAr: true),
+        'وقتها الحين. سويها وحدة وحدة.',
+      );
+      expect(
+        habitBundleBody(members: [m(at: clock), m(at: clock)], isAr: false),
+        "It's time. One at a time.",
+      );
+    });
+
+    test('a mixed bundle says only what is true of every member', () {
+      expect(
+        habitBundleBody(
+          members: [
+            m(offset: -15, at: clock, streak: 3),
+            m(at: clock, streak: 3),
+          ],
+          isAr: true,
+        ),
+        'عادتين مع بعض. سويها وحدة وحدة. ملتزم صارلك ٣ أيام 👏🏼',
+      );
+      // The same shift at different minutes: 9:00 and 9:10, both 15 early.
+      expect(
+        habitBundleBody(
+          members: [
+            m(offset: -15, at: clock),
+            m(offset: -15, at: clock.add(const Duration(minutes: 10))),
+            m(offset: -15, at: clock),
+          ],
+          isAr: true,
+        ),
+        '٣ عادات مع بعض. سويها وحدة وحدة.',
+      );
+      expect(
+        habitBundleBody(
+          members: [m(offset: -15, at: clock), m(at: clock)],
+          isAr: false,
+        ),
+        'Two habits together. One at a time.',
+      );
+    });
+
+    test('the praise is said only when it is true of every member', () {
+      String body(List<BundleMember> members) =>
+          habitBundleBody(members: members, isAr: true);
+      // The smallest streak among them.
+      expect(
+        body([m(at: clock, streak: 12), m(at: clock, streak: 4)]),
+        endsWith('ملتزم صارلك ٤ أيام 👏🏼'),
+      );
+      // All on set weekdays: counted in times.
+      expect(
+        body([
+          m(at: clock, streak: 2, everyDay: false),
+          m(at: clock, streak: 6, everyDay: false),
+        ]),
+        endsWith('ملتزم مرتين ورا بعض 👏🏼'),
+      );
+      // A member with no streak, a quota member, or a mix of cadences.
+      for (final members in [
+        [m(at: clock, streak: 5), m(at: clock)],
+        [m(at: clock, streak: 5), m(at: clock, streak: 5, isQuota: true)],
+        [m(at: clock, streak: 5), m(at: clock, streak: 5, everyDay: false)],
+        // Weekday habits whose smallest run is one: that praise, «سويتها آخر
+        // مرة», is about a single habit and would follow the plural ask.
+        [
+          m(at: clock, streak: 1, everyDay: false),
+          m(at: clock, streak: 4, everyDay: false),
+        ],
+      ]) {
+        expect(body(members), isNot(contains('👏🏼')));
+        expect(body(members), isNot(contains('ملتزم')));
       }
     });
   });

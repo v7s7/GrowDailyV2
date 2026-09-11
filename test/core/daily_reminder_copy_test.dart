@@ -15,7 +15,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/reminder_copy.dart';
 
-/// Words that turn a reminder into a verdict or a threat. Both languages.
+/// Words that turn a reminder into a verdict or a threat, and the spellings
+/// the house style bars. Both languages.
 const blame = [
   'لا تكسر',
   'على المحك',
@@ -24,13 +25,47 @@ const blame = [
   'تنتظرك',
   'لا تفقد',
   'ما سويت',
+  'بانتظارك',
+  'تنتظر',
+  'خسارة',
+  'يفوت',
+  'تفوت',
+  'فات',
+  'لسا',
+  'لسه',
+  'لسّه',
+  'لسّا',
+  'لسة',
+  'هذي',
+  'باچر',
+  '\u2014',
   "Don't break",
   'on the line',
   'No days colored',
   "Don't stop",
   'waiting for you',
   "Don't lose",
+  'waiting',
+  'slip',
+  'A shame',
 ];
+
+/// «لسا» and «هذي» are barred as words, and «لسا» is also the middle of
+/// «السادسة» and «السابعة», as «لسة» is of «جلسة». Those spellings are
+/// matched only as whole words, with no Arabic letter on either side; every
+/// other entry is matched anywhere, so a stem like «تنتظر» still catches
+/// «تنتظرك».
+///
+/// Every spelling of «لسا» the house style bars is listed, including the two
+/// no line has ever used: «لسّا» with a shadda, which the plain entry cannot
+/// catch because the shadda sits inside the word, and «لسة».
+const _wholeWords = ['لسا', 'لسه', 'لسّه', 'لسّا', 'لسة', 'هذي'];
+
+bool says(String line, String word) {
+  if (!_wholeWords.contains(word)) return line.contains(word);
+  return RegExp('(^|[^\u0600-\u06FF])$word([^\u0600-\u06FF]|\$)')
+      .hasMatch(line);
+}
 
 const warmth = ['ما شاء الله', 'بسم الله', 'الحمد لله', 'Ma sha Allah', 'Bismillah', 'Alhamdulillah'];
 
@@ -181,95 +216,333 @@ void main() {
     });
   });
 
+  group('habitsStillNeededForStreak', () {
+    test('is the 80% rule in whole numbers', () {
+      expect(habitsStillNeededForStreak(done: 0, total: 1), 1);
+      expect(habitsStillNeededForStreak(done: 0, total: 5), 4);
+      expect(habitsStillNeededForStreak(done: 2, total: 5), 2);
+      expect(habitsStillNeededForStreak(done: 3, total: 5), 1);
+      expect(habitsStillNeededForStreak(done: 4, total: 5), 0);
+      expect(habitsStillNeededForStreak(done: 4, total: 6), 1);
+      expect(habitsStillNeededForStreak(done: 8, total: 10), 0);
+      // Against the rule itself (kStreakDayCompletionThreshold: done / total
+      // >= 0.8) at every board size a day realistically has: exactly the
+      // fewest more habits that reach it.
+      for (var total = 1; total <= 30; total++) {
+        bool earns(int n) => n / total >= 0.8;
+        for (var done = 0; done <= total; done++) {
+          final needed = habitsStillNeededForStreak(done: done, total: total);
+          if (earns(done)) {
+            expect(needed, lessThanOrEqualTo(0), reason: '$done of $total');
+          } else {
+            expect(earns(done + needed), isTrue, reason: '$done of $total');
+            expect(
+              earns(done + needed - 1),
+              isFalse,
+              reason: '$done of $total',
+            );
+          }
+        }
+      }
+    });
+  });
+
   group('streakRiskCopy', () {
-    test('leads with what is done, praised, and points the streak at tomorrow',
-        () {
+    test('what is done, praised, then exactly what the streak still needs', () {
       final c = streakRiskCopy(
-          done: 3, total: 5, streak: 12, urgentTasks: 0, isAr: true);
-      expect(c.title, 'سلسلتك ١٢ يوم ماشية');
-      expect(c.body,
-          '٣ من ٥ خلّصت، والباقي عادتين بس. ١٢ يوم ورا بعض، واليوم يخليها ١٣.');
-    });
-
-    test('every other day it opens on ما شاء الله', () {
-      final c = streakRiskCopy(
-          done: 3, total: 5, streak: 12, urgentTasks: 0, isAr: true, variantIndex: 1);
-      expect(c.body,
-          'ما شاء الله، ١٢ يوم ورا بعض، واليوم يخليها ١٣. ٣ من ٥ خلّصت، والباقي عادتين بس.');
+        done: 2,
+        total: 5,
+        streak: 7,
+        urgentTasks: 0,
+        isAr: true,
+      )!;
+      expect(c.title, 'سلسلتك ماشية ٧ أيام');
+      expect(c.body, '٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام.');
+      final en = streakRiskCopy(
+        done: 2,
+        total: 5,
+        streak: 7,
+        urgentTasks: 0,
+        isAr: false,
+      )!;
+      expect(en.title, 'Your 7-day streak is going');
+      expect(en.body, '2 of 5 done 👏🏼 Just 2 more and it turns 8.');
+      // Sized to the rule, not to everything still open, and counted the way
+      // Arabic counts.
       expect(
-        streakRiskCopy(
-                done: 3, total: 5, streak: 12, urgentTasks: 0, isAr: true, variantIndex: 2)
+        streakRiskCopy(done: 3, total: 5, streak: 7, urgentTasks: 0, isAr: true)!
             .body,
-        isNot(startsWith('ما شاء الله')),
-      );
-    });
-
-    test('nothing done yet names only what is left', () {
-      final c = streakRiskCopy(
-          done: 0, total: 2, streak: 7, urgentTasks: 0, isAr: true);
-      expect(c.title, 'سلسلتك ٧ أيام ماشية');
-      expect(c.body, 'باقي عادتين اليوم. ٧ أيام ورا بعض، واليوم يخليها ٨.');
-    });
-
-    test('a streak of one is a beginning, not «سلسلتك يوم»', () {
-      expect(
-        streakRiskCopy(done: 0, total: 1, streak: 1, urgentTasks: 0, isAr: true)
-            .title,
-        'سلسلتك بدأت',
+        '٣ من ٥ خلّصت 👏🏼 سوي عادة وحدة بس، وتصير ٨ أيام.',
       );
       expect(
         streakRiskCopy(
-                done: 0, total: 1, streak: 1, urgentTasks: 0, isAr: false)
+          done: 1,
+          total: 6,
+          streak: 12,
+          urgentTasks: 0,
+          isAr: true,
+        )!
+            .body,
+        '١ من ٦ خلّصت 👏🏼 سوي ٤ عادات بس، وتصير ١٣ يوم.',
+      );
+      expect(
+        streakRiskCopy(
+          done: 1,
+          total: 15,
+          streak: 10,
+          urgentTasks: 0,
+          isAr: true,
+        )!
+            .body,
+        '١ من ١٥ خلّصت 👏🏼 سوي ١١ عادة بس، وتصير ١١ يوم.',
+      );
+      // It no longer counts the streak forward the old way.
+      expect(c.body, isNot(contains('يخليها')));
+    });
+
+    test('nothing done yet opens on بسم الله', () {
+      expect(
+        streakRiskCopy(done: 0, total: 5, streak: 7, urgentTasks: 0, isAr: true)!
+            .body,
+        'بسم الله، سوي ٤ عادات اليوم وتصير ٨ أيام.',
+      );
+      expect(
+        streakRiskCopy(
+          done: 0,
+          total: 5,
+          streak: 7,
+          urgentTasks: 0,
+          isAr: false,
+        )!
+            .body,
+        'Bismillah. 4 habits today and it turns 8.',
+      );
+      expect(
+        streakRiskCopy(done: 0, total: 2, streak: 3, urgentTasks: 0, isAr: true)!
+            .body,
+        'بسم الله، سوي عادتين اليوم وتصير ٤ أيام.',
+      );
+    });
+
+    test('a streak of one is a beginning, and the title counts in spoken order',
+        () {
+      final one = streakRiskCopy(
+        done: 0,
+        total: 1,
+        streak: 1,
+        urgentTasks: 0,
+        isAr: true,
+      )!;
+      expect(one.title, 'سلسلتك بدأت');
+      expect(one.body, 'بسم الله، سوي عادة وحدة اليوم وتصير يومين.');
+      expect(
+        streakRiskCopy(
+          done: 0,
+          total: 1,
+          streak: 1,
+          urgentTasks: 0,
+          isAr: false,
+        )!
             .title,
         'Your streak has begun',
       );
+      expect(
+        streakRiskCopy(done: 0, total: 1, streak: 2, urgentTasks: 0, isAr: true)!
+            .title,
+        'سلسلتك ماشية يومين',
+      );
+      expect(
+        streakRiskCopy(
+          done: 0,
+          total: 1,
+          streak: 11,
+          urgentTasks: 0,
+          isAr: true,
+        )!
+            .title,
+        'سلسلتك ماشية ١١ يوم',
+      );
     });
 
-    test('the Matrix line rides along only when there are urgent tasks', () {
+    test('urgent tasks get a short sentence of their own', () {
+      String withTasks(int n) => streakRiskCopy(
+            done: 2,
+            total: 5,
+            streak: 7,
+            urgentTasks: n,
+            isAr: true,
+          )!
+              .body;
       expect(
-        streakRiskCopy(done: 1, total: 2, streak: 3, urgentTasks: 2, isAr: true)
+        withTasks(1),
+        '٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام. وعندك مهمة عاجلة وحدة.',
+      );
+      expect(withTasks(2), endsWith(' وعندك مهمتين عاجلتين.'));
+      expect(withTasks(3), endsWith(' وعندك ٣ مهام عاجلة.'));
+      expect(withTasks(11), endsWith(' وعندك ١١ مهمة عاجلة.'));
+      expect(withTasks(0), isNot(contains('عاجلة')));
+      for (final n in [1, 2, 3, 11]) {
+        expect(withTasks(n), isNot(contains('·')));
+        expect(withTasks(n), isNot(contains('بانتظارك')));
+      }
+      expect(
+        streakRiskCopy(done: 0, total: 5, streak: 7, urgentTasks: 1, isAr: true)!
             .body,
-        endsWith(' · ٢ مهمة عاجلة بانتظارك'),
+        'بسم الله، سوي ٤ عادات اليوم وتصير ٨ أيام. وعندك مهمة عاجلة وحدة.',
       );
       expect(
-        streakRiskCopy(done: 1, total: 2, streak: 3, urgentTasks: 1, isAr: false)
+        streakRiskCopy(
+          done: 2,
+          total: 5,
+          streak: 7,
+          urgentTasks: 1,
+          isAr: false,
+        )!
             .body,
-        endsWith(' · 1 urgent task waiting'),
+        endsWith(' Plus 1 urgent task.'),
       );
       expect(
-        streakRiskCopy(done: 1, total: 2, streak: 3, urgentTasks: 0, isAr: false)
+        streakRiskCopy(
+          done: 2,
+          total: 5,
+          streak: 7,
+          urgentTasks: 2,
+          isAr: false,
+        )!
             .body,
-        isNot(contains('urgent')),
+        endsWith(' Plus 2 urgent tasks.'),
+      );
+    });
+
+    test('nothing to ask once the done habits already cover the streak', () {
+      expect(
+        streakRiskCopy(done: 4, total: 5, streak: 7, urgentTasks: 2, isAr: true),
+        isNull,
+      );
+      expect(
+        streakRiskCopy(done: 2, total: 5, streak: 0, urgentTasks: 0, isAr: true),
+        isNull,
       );
     });
   });
 
-  group('weeklyDigestBody', () {
-    test('a week with nothing coloured is quiet, not a verdict', () {
-      expect(weeklyDigestBody(greenDays: 0, streak: 0, isAr: true),
-          'أسبوع هادي، ويصير. مربع واحد يكفي لبداية جديدة.');
-      expect(weeklyDigestBody(greenDays: 0, streak: 0, isAr: false),
-          'A quiet week, it happens. One square is enough for a fresh start.');
+  group('weeklyNoteCopy', () {
+    test("names the week's best habit and praises its count", () {
+      expect(
+        weeklyNoteCopy(
+          habitName: 'أذكار الصباح',
+          greenDays: 5,
+          isQuit: false,
+          isAr: true,
+        ),
+        (
+          title: 'أذكار الصباح',
+          body: '٥ أيام خضرا هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.',
+        ),
+      );
+      expect(
+        weeklyNoteCopy(
+          habitName: 'ترك التدخين',
+          greenDays: 5,
+          isQuit: true,
+          isAr: true,
+        )!
+            .body,
+        '٥ أيام التزام هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.',
+      );
+      expect(
+        weeklyNoteCopy(
+          habitName: 'Morning Adhkar',
+          greenDays: 5,
+          isQuit: false,
+          isAr: false,
+        ),
+        (
+          title: 'Morning Adhkar',
+          body: 'Green 5 days this week 👏🏼 Tonight closes the week.',
+        ),
+      );
+      expect(
+        weeklyNoteCopy(
+          habitName: 'Quit Smoking',
+          greenDays: 6,
+          isQuit: true,
+          isAr: false,
+        )!
+            .body,
+        'Kept 6 days this week 👏🏼 Tonight closes the week.',
+      );
+      expect(
+        weeklyNoteCopy(habitName: 'x', greenDays: 3, isQuit: false, isAr: true)!
+            .body,
+        startsWith('٣ أيام خضرا'),
+      );
+      expect(
+        weeklyNoteCopy(habitName: 'x', greenDays: 7, isQuit: false, isAr: true)!
+            .body,
+        startsWith('٧ أيام خضرا'),
+      );
     });
 
-    test('counts the days impersonally and points the streak forward', () {
-      expect(weeklyDigestBody(greenDays: 3, streak: 0, isAr: true),
-          '٣ من ٧ أيام ملوّنة هذا الأسبوع.');
-      expect(weeklyDigestBody(greenDays: 2, streak: 1, isAr: true),
-          '٢ من ٧ أيام ملوّنة هذا الأسبوع، والسلسلة بدأت.');
-      expect(weeklyDigestBody(greenDays: 4, streak: 6, isAr: false),
-          '4 of 7 days colored this week, and a 6-day streak going.');
+    test('a week under three green days is not held up', () {
+      for (final g in [0, 1, 2]) {
+        expect(
+          weeklyNoteCopy(habitName: 'x', greenDays: g, isQuit: false, isAr: true),
+          isNull,
+        );
+      }
+    });
+  });
+
+  group('weeklyRepeatCopy', () {
+    test('stays true on any Friday: a new week, and the longest run reached',
+        () {
+      expect(
+        weeklyRepeatCopy(longestStreak: 14, isAr: true),
+        (
+          title: 'أسبوع جديد باجر',
+          body: 'سبق ووصلت ١٤ يوم ورا بعض 👏🏼 ومربع واحد يفتح الأسبوع.',
+        ),
+      );
+      expect(
+        weeklyRepeatCopy(longestStreak: 7, isAr: true).body,
+        'سبق ووصلت ٧ أيام ورا بعض 👏🏼 ومربع واحد يفتح الأسبوع.',
+      );
+      expect(
+        weeklyRepeatCopy(longestStreak: 3, isAr: true).body,
+        'سبق ووصلت ٣ أيام ورا بعض 👏🏼 ومربع واحد يفتح الأسبوع.',
+      );
+      expect(
+        weeklyRepeatCopy(longestStreak: 14, isAr: false),
+        (
+          title: 'A new week tomorrow',
+          body: "You've reached 14 days in a row before 👏🏼 One square opens "
+              'the week.',
+        ),
+      );
     });
 
-    test('five or more coloured days open on الحمد لله', () {
-      expect(weeklyDigestBody(greenDays: 5, streak: 12, isAr: true),
-          'الحمد لله، ٥ من ٧ أيام ملوّنة هذا الأسبوع، وسلسلة ١٢ يوم ماشية.');
-      expect(weeklyDigestBody(greenDays: 7, streak: 0, isAr: true),
-          'الحمد لله، ٧ من ٧ أيام ملوّنة هذا الأسبوع.');
-      expect(weeklyDigestBody(greenDays: 6, streak: 6, isAr: false),
-          'Alhamdulillah, 6 of 7 days colored this week, and a 6-day streak going.');
-      expect(weeklyDigestBody(greenDays: 4, streak: 2, isAr: true),
-          isNot(contains('الحمد لله')));
+    test('under three it only opens the week', () {
+      for (final l in [0, 1, 2]) {
+        expect(
+          weeklyRepeatCopy(longestStreak: l, isAr: true).body,
+          'مربع واحد يفتح الأسبوع.',
+        );
+        expect(
+          weeklyRepeatCopy(longestStreak: l, isAr: false).body,
+          'One square opens the week.',
+        );
+      }
+    });
+
+    test('claims nothing about the week it happens to fire in', () {
+      for (final l in [0, 3, 40]) {
+        for (final isAr in [true, false]) {
+          final c = weeklyRepeatCopy(longestStreak: l, isAr: isAr);
+          expect('${c.title} ${c.body}', isNot(contains('هذا الأسبوع')));
+          expect('${c.title} ${c.body}', isNot(contains('this week')));
+        }
+      }
     });
   });
 
@@ -286,28 +559,175 @@ void main() {
             final d = dailyReminderLine(
                 done: done, total: 5, streak: streak, variantIndex: v, isAr: isAr);
             if (d != null) lines.addAll([d.title, d.body]);
-            if (streak > 0) {
-              final s = streakRiskCopy(
-                  done: done,
-                  total: 5,
-                  streak: streak,
-                  urgentTasks: 1,
-                  isAr: isAr,
-                  variantIndex: v);
-              lines.addAll([s.title, s.body]);
-            }
+          }
+          for (final urgent in [0, 1, 2, 11]) {
+            final s = streakRiskCopy(
+              done: done,
+              total: 5,
+              streak: streak,
+              urgentTasks: urgent,
+              isAr: isAr,
+            );
+            if (s != null) lines.addAll([s.title, s.body]);
           }
         }
       }
-      for (final g in [0, 3, 5, 7]) {
-        lines.add(weeklyDigestBody(greenDays: g, streak: 4, isAr: isAr));
+      for (final g in [3, 5, 7]) {
+        for (final isQuit in [true, false]) {
+          final w = weeklyNoteCopy(
+            habitName: isAr ? 'أذكار الصباح' : 'Morning Adhkar',
+            greenDays: g,
+            isQuit: isQuit,
+            isAr: isAr,
+          )!;
+          lines.addAll([w.title, w.body]);
+        }
+      }
+      for (final longest in [0, 2, 3, 14]) {
+        final r = weeklyRepeatCopy(longestStreak: longest, isAr: isAr);
+        lines.addAll([r.title, r.body]);
       }
     }
     expect(lines, isNotEmpty);
     for (final l in lines) {
       for (final word in blame) {
-        expect(l, isNot(contains(word)), reason: '"$l" says "$word"');
+        expect(says(l, word), isFalse, reason: '"$l" says "$word"');
       }
+    }
+  });
+
+  test('no habit reminder line carries a word of blame either', () {
+    // habitOnTimeLine, habitReminderBody and the bundle copy were never in
+    // this sweep, which is how «تنتظر» and «خسارة» survived in them.
+    final lines = <String>[];
+    for (final isAr in [true, false]) {
+      final prayer = isAr ? 'الفجر' : 'Fajr';
+      for (var v = 0; v < 6; v++) {
+        lines.add(lateReminderAsk(v, isAr));
+        for (final streak in [0, 1, 2, 7, 11]) {
+          for (final everyDay in [true, false]) {
+            if (streak > 0) {
+              lines.add(lateStreakPraise(streak, isAr, everyDay: everyDay));
+            }
+            for (final ago in [null, 1, 4]) {
+              for (final anchor in [null, prayer]) {
+                final onTime = habitOnTimeLine(
+                  streak: streak,
+                  completedCount: 0,
+                  dailyTarget: 1,
+                  lastDoneDaysAgo: ago,
+                  timerSeconds: v.isEven ? null : 120,
+                  variantIndex: v,
+                  isAr: isAr,
+                  everyDay: everyDay,
+                  anchorLabel: anchor,
+                );
+                lines.add(onTime);
+                for (final offset in [-45, -15, 1, 2, 15, 60]) {
+                  lines.add(
+                    habitReminderBody(
+                      offsetMinutes: offset,
+                      streak: streak,
+                      anchorLabel: anchor,
+                      isAr: isAr,
+                      onTimeLine: onTime,
+                      everyDay: everyDay,
+                      variantIndex: v,
+                    ),
+                  );
+                }
+              }
+            }
+          }
+        }
+        for (var done = 1; done < 12; done++) {
+          lines.add(
+            habitOnTimeLine(
+              streak: 3,
+              completedCount: done,
+              dailyTarget: 12,
+              lastDoneDaysAgo: 0,
+              timerSeconds: null,
+              variantIndex: v,
+              isAr: isAr,
+            ),
+          );
+        }
+        for (final weekDone in [0, 1, 3]) {
+          lines.add(
+            habitOnTimeLine(
+              streak: 0,
+              completedCount: 0,
+              dailyTarget: 1,
+              lastDoneDaysAgo: 2,
+              timerSeconds: null,
+              variantIndex: v,
+              isAr: isAr,
+              weekTarget: 3,
+              weekDone: weekDone,
+              owedToday: v.isOdd,
+            ),
+          );
+        }
+      }
+      final at = DateTime(2026, 9, 12, 4, 17);
+      for (final offsets in [
+        [0, 0],
+        [-15, -15],
+        [15, 15],
+        [-15, 0],
+        [20, -60, 0],
+      ]) {
+        for (final anchor in [null, prayer]) {
+          lines.add(
+            habitBundleBody(
+              members: [
+                for (final o in offsets)
+                  (
+                    offsetMinutes: o,
+                    anchorLabel: anchor,
+                    fireTime: at,
+                    streak: 4,
+                    everyDay: true,
+                    isQuota: false,
+                  ),
+              ],
+              isAr: isAr,
+            ),
+          );
+        }
+        lines.add(
+          habitBundleTitle(
+            names: [for (final o in offsets) isAr ? 'عادة $o' : 'Habit $o'],
+            isAr: isAr,
+          ),
+        );
+      }
+    }
+    expect(lines, isNotEmpty);
+    for (final l in lines) {
+      for (final word in blame) {
+        expect(says(l, word), isFalse, reason: '"$l" says "$word"');
+      }
+    }
+  });
+
+  test('the sweep sees a barred word, and not a word that contains one', () {
+    // Both halves matter, and a matcher that saw nothing would pass every
+    // line above: «لسا» is barred as a word and «السادسة» is not it, and the
+    // same for «لسة» inside «جلسة».
+    expect(says('لسا ما خلّص', 'لسا'), isTrue);
+    expect(says('الساعة السادسة', 'لسا'), isFalse);
+    expect(says('لسّه ما خلّص', 'لسّه'), isTrue);
+    expect(says('لسّا ما خلّص', 'لسّا'), isTrue);
+    expect(says('لسة ما خلّص', 'لسة'), isTrue);
+    expect(says('جلسة الصباح', 'لسة'), isFalse);
+    expect(says('هذي عادتك', 'هذي'), isTrue);
+    expect(says('عاداتك تنتظرك', 'تنتظر'), isTrue,
+        reason: 'a stem is matched anywhere');
+    for (final word in _wholeWords) {
+      expect(blame, contains(word),
+          reason: 'a whole word swept but not barred sweeps for nothing');
     }
   });
 }

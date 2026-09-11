@@ -94,7 +94,8 @@ Future<void> handleBackgroundNotificationAction({
   final widgets = HomeWidgetService.instance;
   await widgets.init();
   final todayList = await widgets.readTodayHabitsJson();
-  final day = (now ?? DateTime.now()).effectiveDay.toDateKey();
+  final clock = now ?? DateTime.now();
+  final day = clock.effectiveDay.toDateKey();
 
   switch (actionId) {
     case NotificationService.actionSnooze:
@@ -127,6 +128,58 @@ Future<void> handleBackgroundNotificationAction({
       if (rewritten != null) await widgets.writeTodayHabitsJson(rewritten);
       if (finishes) {
         await NotificationService.instance.standDownHabitReminders(habitId);
+        // Tonight's evening streak note counts today's finished habits and
+        // asks for the rest («٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨
+        // أيام.»), so a habit finished here makes both numbers false and may
+        // earn the very point the note asks for. This engine cannot re-word
+        // it: it has no streak settings, no urgent task count and no goal
+        // types. So the note is cleared, and the next app open arms it again
+        // with true counts if the streak still needs anything. A tap that
+        // does not finish the habit leaves the note true, because it counts
+        // whole habits.
+        await NotificationService.instance.standDownEveningStreakNote();
+        // This Friday's numbered note («٥ أيام خضرا هذا الأسبوع 👏🏼») counts
+        // the week's green days and names the habit with the most. Before
+        // 19:00 a habit finished here can add a green day or overtake that
+        // habit, so it is cleared for the same reason, and the next app open
+        // before 19:00 arms it again with the true count. From 19:00 it has
+        // been delivered, and is left where it is.
+        if (NotificationService.weeklyNumberedNoteAhead(clock)) {
+          await NotificationService.instance.standDownWeeklyNumberedNote();
+        }
+        // Both stand-downs clear a note only while it is still PENDING, the
+        // one rule every path here follows: a note already delivered was
+        // true when it came and stays in the notification list. A Done
+        // tapped at 22:30 therefore leaves tonight's 20:30 note alone, and
+        // it takes a pending read to get that, because the plugin's cancel
+        // removes a delivered notification too on iOS (see
+        // NotificationService._cancelIfPending).
+        //
+        // The home screen widget's Done never reaches this engine, so it does
+        // the same in Swift, pending requests only: MarkHabitDoneIntent, by
+        // this same whole-habit rule, removes the pending 8000 and, on a
+        // Friday before 19:00, 9001; MarkTaskDoneIntent removes 8000 when it
+        // ticks an open Do First task, which the note's urgent tasks sentence
+        // counts. See standDownNotesWithStaleCounts in GrowDailyWidget.swift.
+        // Apple documents the notification center for app extensions, but
+        // that removal has not been seen working on a device.
+        //
+        // One path does NOT clear these notes yet: a task finished from its
+        // ringing alarm's Done button, which runs in the app's own process
+        // and only queues the completion (AlarmDoneQueue.record in
+        // AlarmKitBridge.swift). A Do First task ticked there leaves «وعندك
+        // مهمة عاجلة وحدة.» in tonight's note until the app is opened.
+        // Habit alarms carry Stop alone (Aziz, 2026-09-11), so only the task
+        // alarm is affected, and that alarm work is uncommitted in another
+        // branch: the removal belongs with it, not here.
+        //
+        // Habit reminders already armed cannot be re-worded from here or from
+        // the widget, for the same reason. Until the app opens, a copy armed
+        // for a later day can still say «بسم الله، أول مربع لها.» about a
+        // habit first done here, and a habit done several times a day keeps
+        // the round and the count it was armed with («وقت المرة الثانية.
+        // سويها الحين. ١ من ٣ خلّصت 👏🏼») after a round is ticked here
+        // without finishing the day.
       }
       await widgets.refreshHabitWidgets();
       return;

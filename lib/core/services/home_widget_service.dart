@@ -109,9 +109,10 @@ class HomeWidgetService {
                   // How far along a counted habit is, for the background
                   // action handler (NotificationActionRules.markOneDone): one
                   // tap on a three-a-day habit must not draw it done. The
-                  // Swift side ignores both keys, and its own Mark Done button
-                  // drops them when it re-encodes the list, which the rules
-                  // tolerate by treating a missing pair as one-a-day.
+                  // widget's own Mark Done button (MarkHabitDoneIntent) reads
+                  // them only to decide whether its tap finishes the habit,
+                  // then drops them when it re-encodes the list, which the
+                  // rules tolerate by treating a missing pair as one-a-day.
                   'count': h.count,
                   'perDay': h.perDay,
                 })

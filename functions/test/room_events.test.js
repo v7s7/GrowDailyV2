@@ -11,7 +11,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
-const {roomEventFor} = require("../room_events");
+const {isRoomPausedOn, roomEventFor} = require("../room_events");
 
 const DAY = "2026-08-18";
 
@@ -144,4 +144,159 @@ test("finish order does not change what the room hears", () => {
   assert.strictEqual(shuffled.total, forward.total);
   assert.strictEqual(reverse.max, forward.max);
   assert.strictEqual(shuffled.max, forward.max);
+});
+
+test("a member standing down today is never the last one left", () => {
+  const docs = [
+    {id: "u0", data: () => ({allDoneToday: true, allDoneDate: DAY})},
+    {id: "u1", data: () => ({standDownDays: [DAY]})},
+    {id: "u2", data: () => ({})},
+  ];
+  // u1 is excused today, so u2 is the only one the room is waiting on.
+  const decision = roomEventFor(docs, DAY);
+  assert.strictEqual(decision.event, "lastOne");
+  assert.deepStrictEqual(decision.recipients.map((d) => d.id), ["u2"]);
+});
+
+test("nobody standing down is told anything about the day", () => {
+  const docs = [
+    {id: "u0", data: () => ({allDoneToday: true, allDoneDate: DAY})},
+    {id: "u1", data: () => ({standDownDays: ["2026-08-17", DAY]})},
+  ];
+  // Everyone else is done and u1 stands down: no last-one push to u1, and
+  // no perfect day either, since not everyone took part.
+  assert.strictEqual(roomEventFor(docs, DAY), null);
+  // Two left and one of them standing down: first-to-finish skips them too.
+  const three = [
+    {id: "u1", data: () => ({standDownDays: [DAY]})},
+    {id: "u2", data: () => ({})},
+    {id: "u3", data: () => ({})},
+  ];
+  const first = roomEventFor(three, DAY);
+  assert.strictEqual(first.event, "firstToday");
+  assert.deepStrictEqual(first.recipients.map((d) => d.id), ["u2", "u3"]);
+});
+
+test("standing down on another day changes nothing today", () => {
+  const docs = [
+    {id: "u0", data: () => ({allDoneToday: true, allDoneDate: DAY})},
+    {id: "u1", data: () => ({standDownDays: ["2026-08-17"]})},
+  ];
+  const decision = roomEventFor(docs, DAY);
+  assert.strictEqual(decision.event, "lastOne");
+  assert.deepStrictEqual(decision.recipients.map((d) => d.id), ["u1"]);
+});
+
+test("a pause from before today stands until the phone syncs again", () => {
+  // u1 paused every habit on the 15th and has not opened the app since, so
+  // no phone has written a key for today. The last day it synced was the
+  // stand-down itself.
+  const paused = {standDownDays: ["2026-08-15"], lastSyncedDay: "2026-08-15"};
+  const docs = [
+    {id: "u0", data: () => ({allDoneToday: true, allDoneDate: DAY})},
+    {id: "u1", data: () => paused},
+    {id: "u2", data: () => ({lastSyncedDay: DAY})},
+  ];
+  const decision = roomEventFor(docs, DAY);
+  assert.strictEqual(decision.event, "lastOne");
+  assert.deepStrictEqual(decision.recipients.map((d) => d.id), ["u2"]);
+  // Nobody else left: the paused member is not asked, and it is no perfect
+  // day either.
+  const pair = [
+    {id: "u0", data: () => ({allDoneToday: true, allDoneDate: DAY})},
+    {id: "u1", data: () => paused},
+  ];
+  assert.strictEqual(roomEventFor(pair, DAY), null);
+});
+
+test("a phone that synced after the pause is asked again", () => {
+  // Synced today, or on an ordinary day since: the pause was taken back,
+  // because the sync that ran on that day would have kept its key.
+  for (const lastSyncedDay of [DAY, "2026-08-16"]) {
+    const docs = [
+      {id: "u0", data: () => ({allDoneToday: true, allDoneDate: DAY})},
+      {id: "u1", data: () => ({standDownDays: ["2026-08-15"], lastSyncedDay})},
+    ];
+    const decision = roomEventFor(docs, DAY);
+    assert.strictEqual(decision.event, "lastOne", lastSyncedDay);
+    assert.deepStrictEqual(decision.recipients.map((d) => d.id), ["u1"]);
+  }
+});
+
+test("a day the room is paused on sends no last-one or perfect push", () => {
+  // The dead days between a room ending and its leader extending it
+  // (RoomModel.pausedSpans). The room does not count them, so the complete
+  // day the last-one push promises, and the perfect push announces, never
+  // comes.
+  const spans = [{from: "2026-08-15", to: "2026-08-20"}];
+  const finished = {allDoneToday: true, allDoneDate: DAY};
+  const lastOne = [
+    {id: "u0", data: () => finished},
+    {id: "u1", data: () => ({})},
+  ];
+  assert.strictEqual(roomEventFor(lastOne, DAY).event, "lastOne");
+  assert.strictEqual(roomEventFor(lastOne, DAY, spans), null);
+  const perfect = [{id: "u0", data: () => finished}];
+  assert.strictEqual(roomEventFor(perfect, DAY).event, "perfect");
+  assert.strictEqual(roomEventFor(perfect, DAY, spans), null);
+  // First to finish still goes: it promises nothing about the room's day.
+  const open = [{id: "u1", data: () => ({})}, {id: "u2", data: () => ({})}];
+  const first = roomEventFor(open, DAY, spans);
+  assert.strictEqual(first.event, "firstToday");
+  assert.deepStrictEqual(first.recipients.map((d) => d.id), ["u1", "u2"]);
+});
+
+test("a pause holds on both of its ends and on no day outside them", () => {
+  const spans = [{from: "2026-08-17", to: "2026-08-19"}];
+  const oneLeft = [{id: "u1", data: () => ({})}];
+  const cases = [
+    ["2026-08-16", false],
+    ["2026-08-17", true],
+    ["2026-08-18", true],
+    ["2026-08-19", true],
+    ["2026-08-20", false],
+  ];
+  for (const [day, paused] of cases) {
+    assert.strictEqual(isRoomPausedOn(spans, day), paused, day);
+    const decision = roomEventFor(oneLeft, day, spans);
+    assert.strictEqual(
+        decision && decision.event, paused ? null : "lastOne", day);
+  }
+  // A one-day span, and two spans stored oldest first.
+  assert.strictEqual(isRoomPausedOn([{from: DAY, to: DAY}], DAY), true);
+  const two = [
+    {from: "2026-08-01", to: "2026-08-03"},
+    {from: "2026-08-18", to: "2026-08-25"},
+  ];
+  assert.strictEqual(isRoomPausedOn(two, DAY), true);
+  assert.strictEqual(isRoomPausedOn(two, "2026-08-10"), false);
+});
+
+test("a pause is read the way the room model reads it", () => {
+  // RoomModel.spansFrom keeps only {from, to} pairs of strings with from on
+  // or before to, and a room with no pausedSpans field has no pause.
+  const unreadable = [
+    undefined,
+    null,
+    DAY,
+    {from: DAY, to: DAY},
+    [],
+    [null],
+    [DAY],
+    [{from: DAY}],
+    [{to: DAY}],
+    [{from: 20260818, to: 20260818}],
+    [{from: "2026-08-19", to: "2026-08-17"}],
+  ];
+  const oneLeft = [{id: "u1", data: () => ({})}];
+  for (const spans of unreadable) {
+    const label = JSON.stringify(spans) || String(spans);
+    assert.strictEqual(isRoomPausedOn(spans, DAY), false, label);
+    assert.strictEqual(
+        roomEventFor(oneLeft, DAY, spans).event, "lastOne", label);
+  }
+  // An entry the model drops does not hide a good one beside it.
+  assert.strictEqual(isRoomPausedOn(
+      [{from: "2026-08-19", to: "2026-08-17"}, {from: "2026-08-10", to: DAY}],
+      DAY), true);
 });

@@ -1,11 +1,15 @@
 // What a habit reminder armed for tomorrow morning says about today.
 //
 // reminder_facts_at_fire_day_test pins NotificationService
-// .reminderFactsAtFireDay with a fire time and without one. It cannot see
-// the scheduler handing it no fire time: then a 07:00 reminder tomorrow
-// judges today as already closed, and names a lapse for a day that can
-// still be marked until 10:00 the next morning. This arms real reminders
-// through scheduleSmartReminders and reads the body that was armed.
+// .reminderFactsAtFireDay with a fire time and without one. This arms real
+// reminders through scheduleSmartReminders and reads the body that was
+// armed: a 07:00 reminder tomorrow must word today, which can still be
+// marked until 10:00 the next morning, as neither lost nor kept.
+//
+// Since Aziz's pick of 2026-09-11 (catalog A4) no on-time line names a gap,
+// so the fire time no longer changes this body; the lapse count it feeds is
+// pinned in reminder_facts_at_fire_day_test. What the body still shows is
+// the streak, which is not carried across the open day.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter/services.dart';
@@ -132,26 +136,25 @@ void main() {
     final body = tomorrowMorning.single['body'] as String;
 
     // Every wording the line can rotate to for tomorrow's facts: last done
-    // two calendar days before the fire day, no streak carried across the
-    // day between, and [missed] days of the habit's own schedule lost.
-    Set<String> linesFor({required int missed}) => {
+    // two calendar days before the fire day, on a streak of [streak].
+    Set<String> linesFor({required int streak}) => {
           for (var variant = 0; variant < 12; variant++)
             habitOnTimeLine(
-              streak: 0,
+              streak: streak,
               completedCount: 0,
               dailyTarget: 1,
               lastDoneDaysAgo: 2,
-              missedSinceLastDone: missed,
               timerSeconds: null,
               variantIndex: variant,
               isAr: true,
             ),
         };
-    expect(linesFor(missed: 0), contains(body),
+    expect(linesFor(streak: 0), contains(body),
         reason: 'at 07:00 tomorrow today can still be marked, so nothing is '
-            'lost yet');
-    expect(linesFor(missed: 1), isNot(contains(body)),
-        reason: 'judged without the fire time, today already read as a '
-            'lapse, «صار لها يومين»');
+            'lost yet, and no streak is promised across it');
+    expect(body, 'وقتها الحين. سوي عادتك.');
+    expect(linesFor(streak: 5), isNot(contains(body)),
+        reason: 'the 5-day streak is not praised across a today that is '
+            'still blank: ticking tomorrow first restarts it at 1');
   });
 }

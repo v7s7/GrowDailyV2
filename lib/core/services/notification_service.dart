@@ -7,6 +7,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../../features/grid/models/square_state.dart';
 import '../../features/habits/models/habit_schedule.dart';
 import '../../features/settings/models/notification_settings.dart';
 import '../extensions/datetime_ext.dart';
@@ -81,9 +82,10 @@ typedef HabitReminderInput = ({
   int completedCount,
   int dailyTarget,
   /// Effective days since this habit was last completed, or null if it never
-  /// has been. Feeds the reminder's own wording, not its schedule: a habit
-  /// never once done is asked for its first square, and one done before but
-  /// lapsed gets the gap named back to it. See habitOnTimeLine.
+  /// has been. Feeds the reminder's own wording, not its schedule, and now
+  /// only tells a habit never done from one done before: a habit never once
+  /// done is asked for its first square («بسم الله، أول مربع لها.»), and no
+  /// line names how long it has been since. See habitOnTimeLine.
   int? lastDoneDaysAgo,
   /// How long this habit's timer runs, when it has one, so the reminder can
   /// state the real length instead of gesturing at «بضع دقائق». Null for a
@@ -221,6 +223,51 @@ typedef QuitCheckInInput = ({
   String name,
   bool isLimit,
   bool isResolvedToday,
+});
+
+/// The habit with the most green days in the Grid's current week, which
+/// names Friday's numbered note (see NotificationService.weeklyNotePlan).
+/// [isQuit] counts its green days as «التزام» rather than «خضرا».
+typedef WeekTopHabit = ({String name, int greenDays, bool isQuit});
+
+/// One habit's week as the Friday note reads it: its name in the app's
+/// language, whether it is a quit habit, and the seven squares of the week
+/// the Grid is showing. See [NotificationService.weekTopHabit].
+typedef WeekHabitRow = ({String name, bool isQuit, List<SquareState> squares});
+
+/// One habit of today's board as the evening streak note counts it: done for
+/// the day or not, and whether it is a quit habit. See
+/// [NotificationService.todayBoardCounts].
+typedef TodayBoardHabit = ({bool isDone, bool isQuit});
+
+/// Today's board in the three numbers the evening streak note is worded
+/// from. [pendingBuild] is the build habits among [pending].
+typedef TodayBoardCounts = ({int done, int pending, int pendingBuild});
+
+/// What a recompute may say about the week, which depends on what the Grid
+/// is showing. See [NotificationService.weeklyNoteBasis].
+enum WeeklyNoteBasis {
+  /// The Grid is mid-load. Whatever the last recompute armed is left alone,
+  /// and the recompute the moment the real data lands decides.
+  skip,
+
+  /// The Grid has loaded THIS week, so its squares can be counted: the
+  /// numbered copy, if the week is worth numbering.
+  numbered,
+
+  /// The Grid has loaded another week, so this week's squares are not in
+  /// hand. Only the claim-free copy, and a numbered copy an earlier
+  /// recompute armed is cleared rather than left to fire a stale count.
+  claimFree,
+}
+
+/// One notification the Friday note arms: its id, its words, when, and
+/// whether it repeats every Friday or fires once.
+typedef WeeklyNoteSlot = ({
+  int id,
+  ReminderLine copy,
+  DateTime fireAt,
+  bool repeatsWeekly,
 });
 
 /// Real local-notification service backing daily/habit reminders,
@@ -1008,10 +1055,23 @@ class NotificationService {
   /// so a reschedule that happens to run twice in one day doesn't visibly
   /// reword a pending notification, and mixable with a habit id so two
   /// habits firing in the same minute don't pick the same sentence.
-  int get _daySeed {
-    final day = DateTime.now();
-    return day.year * 400 + day.month * 31 + day.day;
-  }
+  int get _daySeed => _seedOfDay(DateTime.now());
+
+  static int _seedOfDay(DateTime day) =>
+      day.year * 400 + day.month * 31 + day.day;
+
+  /// The rotation seed for one habit's reminder copy: the day that copy
+  /// FIRES, mixed with the habit id.
+  ///
+  /// It used to be the day the reminders were scheduled. With several days
+  /// armed ahead ([kOccurrencesPerSlot]) every copy then drew the same seed,
+  /// so a phone left closed read the same ask on every one of those
+  /// mornings. Seeded by its own day, a copy keeps one voice for that day (a
+  /// mid-day reschedule does not reword it) and the next morning's reads
+  /// differently.
+  @visibleForTesting
+  static int reminderVariantSeed(DateTime fireTime, String habitId) =>
+      _seedOfDay(fireTime) + habitId.hashCode;
 
 
   /// Schedules (or reschedules) the daily reminder at [hour]:[minute] local
@@ -1073,7 +1133,17 @@ class NotificationService {
             isAr: isAr,
           );
     if (tonight == null) {
-      await _plugin.cancel(_dailyTonightId);
+      // Pending only (see [_cancelIfPending]). Every road to a null
+      // [tonight] is a count going stale rather than the reminder being
+      // switched off: nothing is owed any more, or the reminder's time has
+      // been and gone so [next] is tomorrow, or no state was ever reported.
+      // Tonight's line counts today's board («٢ من ٥ خلّصت، والباقي ٣ بس.»)
+      // and is a one-shot, so once it is delivered it leaves the pending
+      // list, and a plain cancel here took it off the notification list on
+      // the next recompute of the same evening. Switching the reminder off
+      // is the other thing, and [cancelDailyReminder] still cancels
+      // outright.
+      await _cancelIfPending({_dailyTonightId});
     } else {
       await _plugin.zonedSchedule(
         _dailyTonightId,
@@ -1603,6 +1673,73 @@ class NotificationService {
         }
       });
 
+  /// Cancels [ids], and only the ones the OS still holds as PENDING.
+  ///
+  /// The single rule every path that clears a note whose numbers went stale
+  /// follows: a note still waiting is cleared rather than left to fire a
+  /// false count, and a note already DELIVERED was true when it came, so it
+  /// stays in the notification list. A plain cancel cannot make that
+  /// distinction on iOS: the plugin's cancel: calls
+  /// removeDeliveredNotificationsWithIdentifiers beside
+  /// removePendingNotificationRequestsWithIdentifiers (see
+  /// FlutterLocalNotificationsPlugin.m), so a Done tapped at 22:30 would
+  /// take tonight's 20:30 note off the lock screen. Reading the pending list
+  /// first is what keeps that from happening.
+  ///
+  /// The other two paths that clear these notes follow the same rule in
+  /// their own languages: the headless action engine through the two
+  /// stand-downs below, and the home screen widget by removing pending
+  /// requests only (standDownNotesWithStaleCounts in GrowDailyWidget.swift).
+  ///
+  /// Switching a note OFF is not this: that is a plain cancel, delivered
+  /// copy included, because the person asked for it to go.
+  Future<void> _cancelIfPending(Set<int> ids) async {
+    if (kIsWeb) return;
+    final pending = await _plugin.pendingNotificationRequests();
+    for (final request in pending) {
+      if (ids.contains(request.id)) await _plugin.cancel(request.id);
+    }
+  }
+
+  /// Clears tonight's evening streak note (8000) while it is still pending,
+  /// and nothing else.
+  ///
+  /// For the background action engine: a habit finished from the lock
+  /// screen or the Watch makes the note's counts false, and that engine has
+  /// none of the facts to re-word it (see notification_action_background.
+  /// dart). The next recompute arms the note again if the streak still
+  /// needs anything. A note already delivered is left alone, see
+  /// [_cancelIfPending].
+  Future<void> standDownEveningStreakNote() => _cancelIfPending(
+        {_streakRiskId},
+      );
+
+  /// Whether this Friday's numbered note (9001) is still ahead at [now]: a
+  /// Friday before 19:00 on the device clock. The window [weeklyNotePlan]
+  /// arms it in, and the one in which a finishing tap outside the app clears
+  /// it (see [standDownWeeklyNumberedNote]). At 19:00 it has been delivered.
+  static bool weeklyNumberedNoteAhead(DateTime now) =>
+      now.weekday == DateTime.friday && now.hour < 19;
+
+  /// Clears this Friday's numbered note (9001) while it is still pending,
+  /// and nothing else.
+  ///
+  /// For the background action engine, on a finishing tap while
+  /// [weeklyNumberedNoteAhead]: the note counts the week's green days and
+  /// names the habit with the most («٥ أيام خضرا هذا الأسبوع 👏🏼»), and a
+  /// habit finished from the lock screen or the Watch can add a green day
+  /// or overtake that habit. The engine has no Grid to count with, so the
+  /// note is cleared rather than left wrong, and the next recompute before
+  /// 19:00 arms it again with the true count.
+  ///
+  /// Two guards, not one, and they answer different questions. The window
+  /// says the note is about TODAY; the pending read says it has not gone out
+  /// yet (see [_cancelIfPending]). A week whose note was never armed, or one
+  /// already delivered, therefore loses nothing.
+  Future<void> standDownWeeklyNumberedNote() => _cancelIfPending(
+        {_weeklyNumberedId},
+      );
+
   /// Reminder schedules and cancels run one after another, in call order.
   ///
   /// main.dart recomputes reminders several times in a row on a resume,
@@ -2068,30 +2205,26 @@ class NotificationService {
     // midnight, so a 7am reminder belongs to its own calendar day, and the
     // fire INSTANT goes in too: at 7am yesterday is still open until
     // kDayCutoffHour, and cannot be worded as missed yet.
-    final facts = reminderFactsAtFireDay(
-      today: tz.TZDateTime.now(tz.local).effectiveDay,
-      fireDay: r.fireTime.effectiveDay,
-      fireTime: r.fireTime,
-      streak: r.streak,
-      completedCount: r.completedCount,
-      lastDoneDaysAgo: r.lastDoneDaysAgo,
-      scheduledWeekdays: r.scheduledWeekdays,
-      weekTarget: r.weekTarget,
-      weekDoneDays: r.weekDoneDays,
-    );
+    final facts = _factsAtFireDay(r);
+    // Seeded from the day this copy fires, not the day it was armed: see
+    // reminderVariantSeed.
+    final seed = reminderVariantSeed(r.fireTime, r.id);
     final onTimeLine = habitOnTimeLine(
       streak: facts.streak,
       completedCount: facts.completedCount,
       dailyTarget: r.dailyTarget,
       lastDoneDaysAgo: facts.lastDoneDaysAgo,
-      missedSinceLastDone: facts.missedSinceLastDone,
       timerSeconds: r.timerSeconds,
-      variantIndex: _daySeed + r.id.hashCode,
+      variantIndex: seed,
       isAr: isAr,
       everyDay: facts.everyDay,
       weekTarget: r.weekTarget,
       weekDone: facts.weekDone,
       owedToday: facts.owedOnFireDay,
+      // At the adhan itself the prayer is named, «اذن الفجر. سوي عادتك
+      // الحين.». It never was: the on-time line was returned before anything
+      // read the anchor.
+      anchorLabel: r.anchorLabel,
     );
     // A quit habit's reminder is a check-in, not a call to act: its own
     // question, with التزام / زلة under it (quitReminderBody). The build
@@ -2109,7 +2242,7 @@ class NotificationService {
             everyDay: facts.everyDay,
             // Same seed the on-time line rotates on, so one habit's reminder
             // keeps one voice for the day instead of two halves that drift.
-            variantIndex: _daySeed + r.id.hashCode,
+            variantIndex: seed,
           );
     // What this slot will say and when, so a wrong line can be read off the
     // run log at schedule time instead of waited for on a lock screen.
@@ -2157,6 +2290,47 @@ class NotificationService {
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       payload: r.id,
+    );
+  }
+
+  /// [reminderFactsAtFireDay] for one resolved reminder, re-based from today
+  /// onto the day [r] fires on, at the instant it fires (yesterday is still
+  /// open until kDayCutoffHour). Shared by a single reminder and a bundle, so
+  /// a bundle's praise is measured exactly the way each member's own reminder
+  /// would have been.
+  ({
+    int streak,
+    int completedCount,
+    int? lastDoneDaysAgo,
+    int missedSinceLastDone,
+    int? weekDone,
+    bool owedOnFireDay,
+    bool everyDay,
+  }) _factsAtFireDay(_ResolvedReminder r) => reminderFactsAtFireDay(
+        today: tz.TZDateTime.now(tz.local).effectiveDay,
+        fireDay: r.fireTime.effectiveDay,
+        fireTime: r.fireTime,
+        streak: r.streak,
+        completedCount: r.completedCount,
+        lastDoneDaysAgo: r.lastDoneDaysAgo,
+        scheduledWeekdays: r.scheduledWeekdays,
+        weekTarget: r.weekTarget,
+        weekDoneDays: r.weekDoneDays,
+      );
+
+  /// One bundle member as [habitBundleBody] reads it: its moment, and the
+  /// streak and cadence from the same [_factsAtFireDay] its own reminder
+  /// would use, so a bundle never praises a run that member's own reminder
+  /// on that day would not.
+  BundleMember _bundleMemberAtFireDay(_ResolvedReminder r) {
+    final facts = _factsAtFireDay(r);
+    return (
+      offsetMinutes: r.offsetMinutes,
+      anchorLabel: r.anchorLabel,
+      fireTime: r.fireTime,
+      streak: facts.streak,
+      everyDay: facts.everyDay,
+      isQuota: r.weekTarget != null,
     );
   }
 
@@ -2295,16 +2469,24 @@ class NotificationService {
       for (final r in group) {
         await _cancelHabitSlot(r.id, r.slot, r.depth);
       }
-      final names = group.map((e) => e.name).join(isAr ? '، ' : ', ');
+      // The habits by name in the title, and the moment, the ask and the
+      // praise in the body, with each member's streak re-based onto the day
+      // the bundle fires (see habitBundleBody). It used to be a count titled
+      // «عادتين بانتظارك» over a body that only listed the names.
+      final title = habitBundleTitle(
+        names: [for (final r in group) r.name],
+        isAr: isAr,
+      );
+      final body = habitBundleBody(
+        members: [for (final r in group) _bundleMemberAtFireDay(r)],
+        isAr: isAr,
+      );
+      debugPrint('[NotificationService] bundle of ${group.length} at '
+          '${group.first.fireTime}: $title / $body');
       await _plugin.zonedSchedule(
         bundleId,
-        // One title for N habits that need not share an offset — see
-        // habitBundleTitle for which of the three wordings a given mix gets.
-        habitBundleTitle(
-          offsetMinutes: [for (final r in group) r.offsetMinutes],
-          isAr: isAr,
-        ),
-        names,
+        title,
+        body,
         group.first.fireTime,
         _bundleDetails(timeSensitive: group.any((r) => r.timeSensitive)),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -2341,6 +2523,26 @@ class NotificationService {
   /// nudge, quit check-ins, snoozes and task reminders always have room.
   /// See _scheduleResolved for how the latest-firing overflow is trimmed.
   ///
+  /// What the other 16 hold. The fixed ids take up to 9 at once: the daily
+  /// reminder at most 7 (tonight's copy 1010 beside six weekday fallbacks,
+  /// or all seven fallbacks 1001 to 1007 with no copy tonight, see
+  /// scheduleDailyReminder), the evening streak note (8000) and the Friday
+  /// note (9000). On a Friday before 19:00 whose week is worth numbering the
+  /// Friday note takes 2 instead of 1: tonight's numbered copy (9001) and
+  /// the claim-free copy for next Friday (9002), in place of 9000 (see
+  /// [weeklyNotePlan]). They stay until the next recompute after that
+  /// Friday's 19:00. So the fixed ids take 9 or 10, leaving 7 or 6 for quit
+  /// check-ins (one per quit habit still open today), snoozes and task
+  /// reminders.
+  ///
+  /// What iOS does when a 65th request is added is NOT known here. It is
+  /// widely said to keep the soonest-firing 64, and it may instead refuse
+  /// the newest add, which would cost a task reminder set on a Friday
+  /// afternoon rather than a far Friday one-shot. Neither has been measured
+  /// on a device, so the claim-free window is one Friday rather than four
+  /// (see [kWeeklyRepeatFridaysAhead]): the widest the fixed ids ever get
+  /// stays 10, and the question stays academic.
+  ///
   /// This is what actually bounds [kOccurrencesPerSlot]: the window
   /// multiplies how many of these one habit takes, so a heavy user spends
   /// the budget on the near days and simply gets a shorter window. Which is
@@ -2358,22 +2560,31 @@ class NotificationService {
   /// (Do First quadrant) pending-count line to the same notification —
   /// never a separate one, so enabling it can't add to how many
   /// notifications fire, only to what one of them says.
+  ///
+  /// Whether it goes out at all, and what it says, is decided by
+  /// [eveningStreakNoteFor], pure so its gates are tested: nothing once
+  /// today's streak point is earned, and nothing unless it fires tonight.
+  /// [now] stands in for the clock, so a test can watch those gates reach
+  /// the plugin on an evening of its choosing; the real clock when null.
   Future<void> scheduleStreakRiskCheck({
     required NotificationSettings settings,
     required int streak,
+    required bool streakEarnedToday,
     required int pendingHabitCount,
+    required int pendingBuildHabitCount,
     required int doneHabitCount,
     required int urgentMatrixCount,
     required bool isAr,
+    DateTime? now,
   }) async {
     if (kIsWeb) return;
     await init();
+    final at = _clockAt(now);
 
-    final shouldFire = settings.masterEnabled &&
-        settings.streakRiskEnabled &&
-        streak > 0 &&
-        pendingHabitCount > 0;
+    final shouldFire = settings.masterEnabled && settings.streakRiskEnabled;
     if (!shouldFire) {
+      // The note switched off, which is not a count going stale: a plain
+      // cancel, so a copy already delivered goes too.
       await _plugin.cancel(_streakRiskId);
       return;
     }
@@ -2381,6 +2592,7 @@ class NotificationService {
     final fireTime = _nextInstanceOf(
       settings.streakRiskTime.hour,
       settings.streakRiskTime.minute,
+      now: at,
     );
     if (settings.quietHoursEnabled &&
         isMinuteWithinQuietHours(
@@ -2388,20 +2600,33 @@ class NotificationService {
           settings.quietHoursStart,
           settings.quietHoursEnd,
         )) {
-      await _plugin.cancel(_streakRiskId);
+      // Quiet hours reaching over the note's time is not the note being
+      // switched off. The window can be edited, or start covering 20:30,
+      // after tonight's note has already gone out, and taking a delivered
+      // note off the list is the very harm [_cancelIfPending] exists for.
+      // So a note still waiting is cleared, and a delivered one stays.
+      await _cancelIfPending({_streakRiskId});
       return;
     }
 
-    // What is done first, then what is left, then the streak pointed at
-    // tomorrow: see streakRiskCopy for why «سلسلتك على المحك» went.
-    final copy = streakRiskCopy(
-      done: doneHabitCount,
-      total: doneHabitCount + pendingHabitCount,
+    final copy = eveningStreakNoteFor(
+      now: at,
+      fireTime: fireTime,
       streak: streak,
+      streakEarnedToday: streakEarnedToday,
+      doneHabitCount: doneHabitCount,
+      pendingHabitCount: pendingHabitCount,
+      pendingBuildHabitCount: pendingBuildHabitCount,
       urgentTasks: settings.matrixNudgeEnabled ? urgentMatrixCount : 0,
       isAr: isAr,
-      variantIndex: _daySeed,
     );
+    if (copy == null) {
+      // Nothing true to ask for tonight, or tonight's note has had its
+      // moment. A note still waiting is cleared; one already delivered was
+      // true when it came and stays in the list (see [_cancelIfPending]).
+      await _cancelIfPending({_streakRiskId});
+      return;
+    }
 
     await _plugin.zonedSchedule(
       _streakRiskId,
@@ -2429,43 +2654,324 @@ class NotificationService {
   /// startOfGridWeek().
   Future<void> scheduleWeeklyDigest({
     required NotificationSettings settings,
-    required int greenDays,
-    required int streak,
+    required WeekTopHabit? topHabit,
+    required int longestStreak,
     required bool isAr,
+    // Stands in for the clock, so a test can watch weeklyNotePlan's two
+    // copies reach the plugin on a Friday of its choosing; the real clock
+    // when null.
+    DateTime? now,
   }) async {
     if (kIsWeb) return;
     await init();
 
     final shouldFire = settings.masterEnabled && settings.weeklyDigestEnabled;
     if (!shouldFire) {
-      await _plugin.cancel(_weeklyDigestId);
+      await cancelWeeklyDigest();
       return;
     }
 
-    final title = isAr ? 'أسبوعك' : 'Your week';
-    final body =
-        weeklyDigestBody(greenDays: greenDays, streak: streak, isAr: isAr);
-
-    await _plugin.zonedSchedule(
-      _weeklyDigestId,
-      title,
-      body,
-      _nextInstanceOfWeekday(DateTime.friday, 19, 0),
-      _details,
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
-      // Body-tap routing: the week's story lives on the Grid, on Today —
-      // see main.dart's _handleNotificationBodyTap. No dedicated Insights
-      // deep link exists yet; Insights is one tap from Today.
-      payload: openTodayPayload,
+    final plan = weeklyNotePlan(
+      now: _clockAt(now),
+      topHabit: topHabit,
+      longestStreak: longestStreak,
+      isAr: isAr,
     );
+    // Pending only, the same rule every other note with a lifetime follows
+    // (see [_cancelIfPending]). Nothing in this list is a note being
+    // switched off: the only reason to clear any of these ids is that a copy
+    // is ARMED for a 19:00 this plan is about to arm something else for, and
+    // that reason applies to a request still waiting and to nothing else.
+    // [_weeklyAheadBase] (9002) is the id it matters most for, being a
+    // one-shot whose normal case is having been delivered: it exists
+    // precisely for a phone left closed for a week, so a plain cancel took
+    // that delivered «أسبوع جديد باجر» off the notification list the moment
+    // the app was next opened.
+    //
+    // [_weeklyDigestId] (9000) is in the list too, and for it the read
+    // changes nothing: a weekly repeat stays PENDING for as long as it is
+    // armed, delivered copies behind it and all, so a pending read cannot
+    // tell the two apart and the repeat is cleared exactly as before. It
+    // goes through here for one rule rather than two, not for a protection
+    // it cannot have.
+    await _cancelIfPending({...plan.cancel});
+    for (final slot in plan.arm) {
+      final at = slot.fireAt;
+      await _plugin.zonedSchedule(
+        slot.id,
+        slot.copy.title,
+        slot.copy.body,
+        tz.TZDateTime(tz.local, at.year, at.month, at.day, at.hour, at.minute),
+        _details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents:
+            slot.repeatsWeekly ? DateTimeComponents.dayOfWeekAndTime : null,
+        // Body-tap routing: the week's story lives on the Grid, on Today
+        // (see main.dart's _handleNotificationBodyTap). No dedicated Insights
+        // deep link exists yet; Insights is one tap from Today.
+        payload: openTodayPayload,
+      );
+    }
+    final armed = [
+      for (final s in plan.arm)
+        '#${s.id}${s.repeatsWeekly ? ' weekly' : ''} ${s.fireAt}: '
+            '${s.copy.body}',
+    ];
+    debugPrint('[NotificationService] Friday note: ${armed.join(' | ')}');
   }
 
+  /// Clears every id the Friday note can hold: the weekly repeat (9000),
+  /// this week's numbered copy (9001) and the [kWeeklyRepeatFridaysAhead]
+  /// claim-free one-shots behind it (9002 up). Exactly the ids
+  /// [weeklyNotePlan] can arm, so the note switched off leaves nothing armed
+  /// anywhere.
+  ///
+  /// Plain cancels, not [_cancelIfPending]: this is the note being switched
+  /// off, not a count going stale.
   Future<void> cancelWeeklyDigest() async {
     if (kIsWeb) return;
     await _plugin.cancel(_weeklyDigestId);
+    await _plugin.cancel(_weeklyNumberedId);
+    for (var k = 0; k < kWeeklyRepeatFridaysAhead; k++) {
+      await _plugin.cancel(_weeklyAheadBase + k);
+    }
+  }
+
+  /// The Friday note's other ids. [_weeklyDigestId] (9000) stays the weekly
+  /// repeat; the numbered copy for this week is a one-shot of its own, and
+  /// while it is armed the claim-free copy rides on one-shots for the Fridays
+  /// after. See [weeklyNotePlan].
+  static const _weeklyNumberedId = 9001;
+  static const _weeklyAheadBase = 9002;
+
+  /// How many Fridays after a numbered note still hear the claim-free copy
+  /// if the app is not opened again in between. See [weeklyNotePlan].
+  ///
+  /// One, because each of these is a pending request against iOS's 64 on
+  /// exactly the afternoon the fixed ids are at their widest, and what iOS
+  /// does past 64 has not been measured (see [kMaxPendingHabitSlots]). Four
+  /// bought three more silent-phone Fridays for three more requests in the
+  /// tightest window there is, which is the wrong trade while the ceiling's
+  /// behaviour is a guess.
+  ///
+  /// A limit the old repeat did not have either way: a phone never opened
+  /// again after that Friday afternoon hears nothing on the Friday after the
+  /// next, where the old repeat went on for ever.
+  static const kWeeklyRepeatFridaysAhead = 1;
+
+  /// Whether tonight's evening streak note goes out, and what it says.
+  ///
+  /// Null, so nothing is sent, when:
+  ///   - there is no streak, or nothing is left today;
+  ///   - today's streak point is already earned. The note used to keep
+  ///     firing once 80% was done, asking for a streak that was already
+  ///     safe;
+  ///   - [fireTime] is not tonight. A recompute after the note's time used
+  ///     to arm TOMORROW's note with today's counts; this is the same guard
+  ///     the daily reminder has (see scheduleDailyReminder's firesTonight);
+  ///   - the build habits left cannot cover what the streak still needs. The
+  ///     note asks for habits to be done, and a quit habit is not done but
+  ///     answered, by its own check-in at the same minute.
+  @visibleForTesting
+  static ReminderLine? eveningStreakNoteFor({
+    required DateTime now,
+    required DateTime fireTime,
+    required int streak,
+    required bool streakEarnedToday,
+    required int doneHabitCount,
+    required int pendingHabitCount,
+    required int pendingBuildHabitCount,
+    required int urgentTasks,
+    required bool isAr,
+  }) {
+    if (streak <= 0 || pendingHabitCount <= 0 || streakEarnedToday) {
+      return null;
+    }
+    final firesTonight = fireTime.year == now.year &&
+        fireTime.month == now.month &&
+        fireTime.day == now.day;
+    if (!firesTonight) return null;
+    final total = doneHabitCount + pendingHabitCount;
+    final needed =
+        habitsStillNeededForStreak(done: doneHabitCount, total: total);
+    if (needed > pendingBuildHabitCount) return null;
+    return streakRiskCopy(
+      done: doneHabitCount,
+      total: total,
+      streak: streak,
+      urgentTasks: urgentTasks,
+      isAr: isAr,
+    );
+  }
+
+  /// What the Friday note arms, and what it clears, on a recompute at [now].
+  ///
+  /// Two copies with different lifetimes (Aziz's pick of 2026-09-11):
+  ///   - the numbered copy for THIS week ([weeklyNoteCopy]), worded from this
+  ///     week's squares, so it is only ever armed on the Friday it counts,
+  ///     before 19:00, as a one-shot for 19:00 that same evening. Sent once;
+  ///   - the claim-free copy ([weeklyRepeatCopy]), true on any Friday, as the
+  ///     weekly repeat.
+  ///
+  /// iOS builds a weekly repeat from the weekday and the time alone
+  /// (DateTimeComponents.dayOfWeekAndTime), so a repeat armed on a Friday
+  /// afternoon also fires that evening, and it cannot be told to skip a week.
+  /// Android is no different in the plugin version this app ships
+  /// (flutter_local_notifications 18.0.1): its zonedSchedule moves a
+  /// repeat's first date to the next matching weekday and time counted from
+  /// now, so a repeat dated next Friday still fires tonight. So on both, while
+  /// tonight's numbered copy is armed the repeat is cleared, and the
+  /// claim-free copy goes on one-shots for the [kWeeklyRepeatFridaysAhead]
+  /// Fridays after. The next recompute after 19:00 puts the repeat back.
+  ///
+  /// The numbered id is only cleared inside its own window. After 19:00 it
+  /// has already been delivered, and clearing it would remove it from the
+  /// notification list.
+  ///
+  /// A null [topHabit] covers both "no week worth numbering" and "the Grid
+  /// is not showing this week at all" ([WeeklyNoteBasis.claimFree]): either
+  /// way this week's squares are not in hand, so the claim-free copy goes
+  /// out, and a numbered copy an earlier recompute armed inside today's
+  /// window is cleared rather than left to fire a count nothing here can
+  /// still vouch for.
+  @visibleForTesting
+  static ({List<WeeklyNoteSlot> arm, List<int> cancel}) weeklyNotePlan({
+    required DateTime now,
+    required WeekTopHabit? topHabit,
+    required int longestStreak,
+    required bool isAr,
+  }) {
+    final repeat = weeklyRepeatCopy(longestStreak: longestStreak, isAr: isAr);
+    final tonight = DateTime(now.year, now.month, now.day, 19);
+    // Compared on the wall clock, not as instants: [now] is a TZDateTime in
+    // the app's zone and [tonight] a plain DateTime, which would disagree
+    // about when 19:00 is if the two zones ever differed.
+    final beforeSeven = now.hour < 19;
+    final atSeven = now.hour == 19 &&
+        now.minute == 0 &&
+        now.second == 0 &&
+        now.millisecond == 0 &&
+        now.microsecond == 0;
+    final inWindow = weeklyNumberedNoteAhead(now);
+    final numbered = !inWindow || topHabit == null
+        ? null
+        : weeklyNoteCopy(
+            habitName: topHabit.name,
+            greenDays: topHabit.greenDays,
+            isQuit: topHabit.isQuit,
+            isAr: isAr,
+          );
+    final ahead = [
+      for (var k = 0; k < kWeeklyRepeatFridaysAhead; k++) _weeklyAheadBase + k,
+    ];
+    if (numbered == null) {
+      // Same rule as _nextInstanceOfWeekday: tonight if 19:00 is still
+      // ahead, else the next Friday.
+      var next = beforeSeven || atSeven
+          ? tonight
+          : DateTime(now.year, now.month, now.day + 1, 19);
+      while (next.weekday != DateTime.friday) {
+        next = DateTime(next.year, next.month, next.day + 1, 19);
+      }
+      return (
+        arm: [
+          (id: _weeklyDigestId, copy: repeat, fireAt: next, repeatsWeekly: true),
+        ],
+        cancel: [if (inWindow) _weeklyNumberedId, ...ahead],
+      );
+    }
+    return (
+      arm: [
+        (
+          id: _weeklyNumberedId,
+          copy: numbered,
+          fireAt: tonight,
+          repeatsWeekly: false,
+        ),
+        for (var k = 0; k < kWeeklyRepeatFridaysAhead; k++)
+          (
+            id: _weeklyAheadBase + k,
+            copy: repeat,
+            fireAt: DateTime(now.year, now.month, now.day + 7 * (k + 1), 19),
+            repeatsWeekly: false,
+          ),
+      ],
+      cancel: [_weeklyDigestId],
+    );
+  }
+
+  /// Which copy of the Friday note a recompute may arm, given what the Grid
+  /// is showing. Pure, because getting it wrong is silent: the note is only
+  /// re-armed by a recompute, and a copy an earlier recompute armed keeps
+  /// whatever count it was armed with until one does.
+  ///
+  /// The case this exists for: the Grid can be PINNED to a past week
+  /// (previousWeek() in weekly_grid_notifier.dart, which refresh() respects),
+  /// and it stays there across recomputes. Skipping the note there, as a
+  /// mid-load Grid is skipped, leaves this morning's numbered copy armed with
+  /// a count that a habit finished since has made false, and 19:00 delivers
+  /// it. So a loaded Grid on another week arms the claim-free copy instead,
+  /// which is true on any Friday, and that clears the numbered one. Only a
+  /// Grid still LOADING is skipped, because its own recompute lands moments
+  /// later.
+  static WeeklyNoteBasis weeklyNoteBasis({
+    required bool gridLoading,
+    required bool gridOnCurrentWeek,
+  }) {
+    if (gridLoading) return WeeklyNoteBasis.skip;
+    return gridOnCurrentWeek
+        ? WeeklyNoteBasis.numbered
+        : WeeklyNoteBasis.claimFree;
+  }
+
+  /// The habit that names Friday's numbered note: the most GREEN days in the
+  /// week [habits] carry, and on a tie the FIRST of them, which main.dart
+  /// hands over in habit order.
+  ///
+  /// Green only. A جزئي square is a day the habit was touched and not
+  /// finished, and a red one is a day it was not kept, so neither is a day
+  /// «٥ أيام خضرا هذا الأسبوع 👏🏼» may count. Bonus counts, because
+  /// SquareState.isGreen counts it and the Grid draws it green.
+  ///
+  /// Null only when there are no habits at all: a habit with no green day is
+  /// still returned, and [weeklyNoteCopy] is the one that refuses to number
+  /// a thin week (under three days), so that refusal lives in one place.
+  static WeekTopHabit? weekTopHabit(Iterable<WeekHabitRow> habits) {
+    WeekTopHabit? top;
+    for (final habit in habits) {
+      final green = habit.squares.where((s) => s.isGreen).length;
+      if (top == null || green > top.greenDays) {
+        top = (name: habit.name, greenDays: green, isQuit: habit.isQuit);
+      }
+    }
+    return top;
+  }
+
+  /// Today's board in the numbers the evening streak note is worded from
+  /// («٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام.»), counted over one
+  /// entry per habit due today.
+  ///
+  /// [TodayBoardCounts.pendingBuild] is the build habits among the pending
+  /// ones, and it is what decides whether the note goes out at all: the note
+  /// asks for habits to be DONE, and a quit habit is not done but answered,
+  /// by its own check-in at the same minute (see [eveningStreakNoteFor]). A
+  /// quit habit therefore counts in [TodayBoardCounts.pending] and never in
+  /// [TodayBoardCounts.pendingBuild].
+  static TodayBoardCounts todayBoardCounts(Iterable<TodayBoardHabit> habits) {
+    var done = 0;
+    var pending = 0;
+    var pendingBuild = 0;
+    for (final habit in habits) {
+      if (habit.isDone) {
+        done++;
+        continue;
+      }
+      pending++;
+      if (!habit.isQuit) pendingBuild++;
+    }
+    return (done: done, pending: pending, pendingBuild: pendingBuild);
   }
 
   // Quit check-ins get their own id range (and stale-tracking set, same
@@ -2926,11 +3432,18 @@ class NotificationService {
     });
   }
 
-  tz.TZDateTime _nextInstanceOf(int hour, int minute) {
-    final now = tz.TZDateTime.now(tz.local);
+  /// [now] as a time in the app's zone, or the real clock when it is null.
+  /// The seam by which the evening streak note and the Friday note take a
+  /// test's clock. A plain DateTime is read as the instant it names.
+  static tz.TZDateTime _clockAt(DateTime? now) => now == null
+      ? tz.TZDateTime.now(tz.local)
+      : tz.TZDateTime.from(now, tz.local);
+
+  tz.TZDateTime _nextInstanceOf(int hour, int minute, {tz.TZDateTime? now}) {
+    final at = now ?? tz.TZDateTime.now(tz.local);
     var scheduled =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
-    if (scheduled.isBefore(now)) {
+        tz.TZDateTime(tz.local, at.year, at.month, at.day, hour, minute);
+    if (scheduled.isBefore(at)) {
       scheduled = scheduled.add(const Duration(days: 1));
     }
     return scheduled;

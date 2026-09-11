@@ -51,7 +51,8 @@ const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
-const {roomEventFor} = require("./room_events");
+const {isRoomPausedOn, roomEventFor} = require("./room_events");
+const {lastOneCounts, lastOneMessageFor} = require("./room_messages");
 const {claimQuota, isQuietHoursNow, pushKindFor} = require("./push_policy");
 const {
   clipSpansToPast,
@@ -173,27 +174,17 @@ const FIRST_TODAY_MESSAGES = {
 };
 
 /**
- * Event B. `gender` is the RECIPIENT's - «باقي أنت» for a man, «باقية
- * أنتِ» for a woman - because unlike every other message here the sentence
- * is about the person reading it, not about whoever finished.
+ * Event B's words live in room_messages.js (lastOneMessage), where they are
+ * tested: the room's own name as the title, and a body that says what the
+ * room has done and asks for the reader's part, «٤ من ٥ خلّصوا اليوم. سوي
+ * عادتك الحين ويصير يوم الغرفة كامل 🤝». It used to be «باقي أنت. إلى الآن
+ * فيه وقت.», a verdict about the one person still to go (Aziz, 2026-09-11).
  *
- * Deliberately says الكل خلّص rather than naming one person. Naming the
- * most recent finisher would read as though only they were done, which
- * both understates the situation and turns a fact about the room into a
- * comparison against one member.
+ * That verdict is not gone from every push. NUDGE_MESSAGES below, sent in
+ * place of this one to anyone who turned roomNudgesEnabled on, still says
+ * «باقي أنت.» / «باقية أنتِ.» and "Still waiting on you.". Aziz did not pick
+ * a change to that push, so it is left as it was.
  */
-const LAST_ONE_MESSAGES = {
-  en: (finisherName, roomName) => ({
-    title: `Everyone else finished in "${roomName}"`,
-    body: "You're the last one. Still time.",
-  }),
-  ar: (finisherName, roomName, gender) => ({
-    title: `الكل خلّص في "${roomName}"`,
-    body: isFem(gender) ?
-      "باقية أنتِ. إلى الآن فيه وقت." :
-      "باقي أنت. إلى الآن فيه وقت.",
-  }),
-};
 
 /** Event C. Nobody in particular is the subject, so no gender needed. */
 const ROOM_PERFECT_MESSAGES = {
@@ -209,14 +200,15 @@ const ROOM_PERFECT_MESSAGES = {
 
 /**
  * The opt-in playful variant of event B, sent to the last person standing
- * instead of LAST_ONE_MESSAGES.
+ * instead of the lastOneMessage push (room_messages.js).
  *
  * Deliberately an invitation and not a scoreboard. «الكل خلّص ـ باقي أنت»
  * reads as banter between friends; «الكل خلّص وأنت لا» reads as an
  * accusation, and these habits are صلاة and أذكار rather than gym sets.
  * Shame motivates for about a week and then people leave.
  *
- * `gender` is the RECIPIENT's, as in LAST_ONE_MESSAGES.
+ * `gender` is the RECIPIENT's: unlike events A and C, the sentence is about
+ * the person reading it.
  */
 const NUDGE_MESSAGES = {
   en: (finisherName, roomName) => ({
@@ -451,7 +443,8 @@ exports.notifyRoomFinish = onCall(async (request) => {
   const finisherGender = participant.gender;
   const roomSnap = await db.collection("rooms").doc(roomCode).get();
   if (!roomSnap.exists) return {sent: 0};
-  const roomName = (roomSnap.data() || {}).name || "your room";
+  const room = roomSnap.data() || {};
+  const roomName = room.name || "your room";
 
   const participantsSnap = await db
       .collection("rooms").doc(roomCode).collection("participants").get();
@@ -465,9 +458,18 @@ exports.notifyRoomFinish = onCall(async (request) => {
   // and must not be pushed about it.
   const others = participantsSnap.docs.filter(
       (d) => d.id !== uid && !(d.data() || {}).leftAt);
-  const decision = roomEventFor(others, todayKey);
-  if (!decision) return {sent: 0, suppressed: "solo-room"};
+  // Null for a solo room; for a day where nobody is left to tell once the
+  // members standing down today are set aside; and for a last-one or
+  // perfect day on a day the room is paused (see roomEventFor).
+  const decision = roomEventFor(others, todayKey, room.pausedSpans);
+  if (!decision) {
+    const paused = isRoomPausedOn(room.pausedSpans, todayKey);
+    return {sent: 0, suppressed: paused ? "room-paused" : "nobody-to-tell"};
+  }
   const {event, recipients} = decision;
+  // Event B says how much of the room is done, so the room is counted once,
+  // here, and every recipient reads the same numbers.
+  const counts = event === "lastOne" ? lastOneCounts(others, todayKey) : null;
 
   // Claimed BEFORE checking whether anyone can actually receive it. The
   // alternative - claim only once a deliverable recipient is found - would
@@ -483,7 +485,6 @@ exports.notifyRoomFinish = onCall(async (request) => {
 
   const messageFor = {
     firstToday: FIRST_TODAY_MESSAGES,
-    lastOne: LAST_ONE_MESSAGES,
     perfect: ROOM_PERFECT_MESSAGES,
   }[event];
 
@@ -526,12 +527,29 @@ exports.notifyRoomFinish = onCall(async (request) => {
       // document: a departed member's record is kept (RoomParticipant.leftAt)
       // and must not make a two-person room look like three.
       await nudgeAllowed(doc.id, other, others.length + 1);
-    const table = wantsNudge ? NUDGE_MESSAGES : messageFor;
-    // Event B's sentence is about the person reading it; A and C are about
-    // the finisher. Passing the wrong one here is invisible in English and
-    // wrong in every Arabic sentence.
-    const gender = event === "lastOne" ? other.gender : finisherGender;
-    const {title, body} = table[locale](finisherName, roomName, gender);
+    let message;
+    if (wantsNudge) {
+      // The nudge's sentence is about the person reading it, so it takes
+      // the RECIPIENT's gender.
+      message = NUDGE_MESSAGES[locale](finisherName, roomName, other.gender);
+    } else if (event === "lastOne") {
+      // Worded from the stored docs, not roomName's English "your room" or
+      // finisherName's "Someone" stand-ins: see lastOneMessageFor, where
+      // that wiring is tested.
+      message = lastOneMessageFor({
+        locale,
+        room,
+        finisher: participant,
+        counts,
+        reader: other,
+        todayKey,
+      });
+    } else {
+      // Events A and C are about the finisher. Passing the wrong gender is
+      // invisible in English and wrong in every Arabic sentence.
+      message = messageFor[locale](finisherName, roomName, finisherGender);
+    }
+    const {title, body} = message;
     for (const tokenDoc of tokensSnap.docs) {
       sends.push(
           admin.messaging().send({

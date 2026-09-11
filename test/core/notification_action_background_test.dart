@@ -10,6 +10,13 @@
 // language. None of that can be watched on a simulator from outside the
 // process, and a mistake in it loses a tap silently, which is the failure
 // this whole path exists to avoid.
+//
+// It also pins the one rule for the two notes whose numbers a tap here makes
+// false (8000 and 9001): each is cleared only while the OS still holds it
+// PENDING, because on iOS the plugin's cancel removes a delivered
+// notification as well, and a note already delivered was true when it came.
+// The mocked channel below therefore keeps a pending set, and a Done tapped
+// after the note has gone out must leave it alone.
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -18,6 +25,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/services/notification_action_background.dart';
 import 'package:grow_daily_v2/core/services/notification_action_queue.dart';
+import 'package:grow_daily_v2/core/services/notification_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +40,11 @@ void main() {
   late List<MethodCall> widgetCalls;
   late List<MethodCall> notificationCalls;
 
+  /// What the OS still holds as PENDING, which is the only thing the two
+  /// stand-downs here may cancel. A note that has fired is delivered, not
+  /// pending, so a test represents delivery by leaving its id out of this.
+  late Set<int> pending;
+
   String todayList(List<Map<String, Object?>> entries) => jsonEncode(entries);
 
   setUp(() {
@@ -44,6 +57,7 @@ void main() {
     store = <String, Object?>{};
     widgetCalls = <MethodCall>[];
     notificationCalls = <MethodCall>[];
+    pending = <int>{};
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(widgetChannel, (call) async {
@@ -64,6 +78,17 @@ void main() {
     });
     messenger.setMockMethodCallHandler(notificationsChannel, (call) async {
       notificationCalls.add(call);
+      switch (call.method) {
+        case 'cancel':
+          pending.remove(call.arguments as int);
+        case 'pendingNotificationRequests':
+          // The shape the plugin's iOS half answers in: one map per request,
+          // keyed by the Dart id (see FlutterLocalNotificationsPlugin.m).
+          return [
+            for (final id in pending)
+              {'id': id, 'title': '', 'body': '', 'payload': null},
+          ];
+      }
       return null;
     });
     messenger.setMockMethodCallHandler(
@@ -126,15 +151,21 @@ void main() {
 
     test('stands down every reminder slot of a habit now done for the day',
         () async {
+      pending.add(8000);
       store['todayHabitsJson'] = todayList([
         {'id': 'fajr', 'name': 'الفجر', 'done': false, 'count': 0, 'perDay': 1},
       ]);
       await handleBackgroundNotificationAction(
           actionId: 'mark_done', habitId: 'fajr', now: DateTime(2026, 9, 6));
       // 12 slots, each with TODAY's reminder id and a snooze id: see
-      // NotificationService.standDownHabitReminders.
-      expect(cancels().length, 24);
-      final ids = cancels().map((c) => c.arguments as int).toSet();
+      // NotificationService.standDownHabitReminders. The one other cancel
+      // is the evening streak note (8000), pinned in its own tests below.
+      final slotCancels = [
+        for (final c in cancels())
+          if (c.arguments != 8000) c.arguments as int,
+      ];
+      expect(slotCancels.length, 24);
+      final ids = slotCancels.toSet();
       expect(ids.length, 24, reason: 'every slot has its own id');
       expect(ids.every((id) => id >= 5000 && id < 7000), isTrue,
           reason: 'only the habit reminder (5000) and snooze (6000) bands');
@@ -151,13 +182,210 @@ void main() {
       ]);
       await handleBackgroundNotificationAction(
           actionId: 'mark_done', habitId: 'water', now: DateTime(2026, 9, 6));
-      expect(cancels(), isEmpty,
-          reason: 'one of three is not done; the other two reminders stand');
+      expect(
+        cancels(),
+        isEmpty,
+        reason: 'one of three is not done: the other two reminders stand, '
+            'and so does the evening note, which counts whole habits',
+      );
       expect(queued().single.habitId, 'water');
       final entry = (jsonDecode(store['todayHabitsJson'] as String) as List)
           .first as Map;
       expect(entry['count'], 1);
       expect(entry['done'], isFalse);
+    });
+
+    test('clears the evening streak note while it is still waiting', () async {
+      // Armed for 20:30 as «٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام.».
+      // A habit finished here at 19:40 makes that count false and may earn
+      // the point it asks for, and this engine cannot re-word the note.
+      pending.add(8000);
+      store['todayHabitsJson'] = todayList([
+        {'id': 'maghrib', 'name': 'المغرب', 'done': false, 'count': 0, 'perDay': 1},
+        {'id': 'isha', 'name': 'العشاء', 'done': false, 'count': 0, 'perDay': 1},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'maghrib',
+        now: DateTime(2026, 9, 11, 19, 40),
+      );
+      expect(cancels().where((c) => c.arguments == 8000), hasLength(1));
+    });
+
+    test('leaves the evening note alone once it has been delivered', () async {
+      // It came at 20:30 and is sitting on the lock screen. A Done at 22:30
+      // must not take it off the list: it was true when it came, and the
+      // plugin's cancel would remove a delivered notification too.
+      store['todayHabitsJson'] = todayList([
+        {'id': 'maghrib', 'name': 'المغرب', 'done': false, 'count': 0, 'perDay': 1},
+        {'id': 'isha', 'name': 'العشاء', 'done': false, 'count': 0, 'perDay': 1},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'maghrib',
+        now: DateTime(2026, 9, 11, 22, 30),
+      );
+      expect(
+        cancels().where((c) => c.arguments == 8000),
+        isEmpty,
+        reason: 'delivered at 20:30, so nothing pending to clear',
+      );
+      expect(
+        queued().single.habitId,
+        'maghrib',
+        reason: 'the tap itself still counts, whatever the note does',
+      );
+    });
+
+    test('clears it for a quit habit kept clean and for a last round',
+        () async {
+      pending.add(8000);
+      store['todayHabitsJson'] = todayList([
+        {'id': 'coffee', 'name': 'قهوة', 'done': false, 'count': 0, 'perDay': 1},
+        {'id': 'water', 'name': 'ماء', 'done': false, 'count': 2, 'perDay': 3},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'quit_on_track',
+        habitId: 'coffee',
+        now: DateTime(2026, 9, 11, 19),
+      );
+      expect(cancels().where((c) => c.arguments == 8000), hasLength(1));
+
+      pending.add(8000);
+      notificationCalls.clear();
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'water',
+        now: DateTime(2026, 9, 11, 19),
+      );
+      expect(
+        cancels().where((c) => c.arguments == 8000),
+        hasLength(1),
+        reason: 'the third of three finishes the habit for the day',
+      );
+    });
+
+    test("clears this Friday's numbered note on a finishing tap before 19:00",
+        () async {
+      // Armed this morning for 19:00 as «٥ أيام خضرا هذا الأسبوع 👏🏼 والليلة
+      // تختم الأسبوع.» under the habit with the most green days. A habit
+      // finished here can add a green day or overtake that habit, and this
+      // engine has no Grid to count with.
+      expect(DateTime(2026, 9, 11).weekday, DateTime.friday);
+      for (final (actionId, habitId) in [
+        ('mark_done', 'maghrib'),
+        ('quit_on_track', 'coffee'),
+      ]) {
+        notificationCalls.clear();
+        pending.addAll({8000, 9001});
+        store['todayHabitsJson'] = todayList([
+          {'id': 'maghrib', 'name': 'المغرب', 'done': false, 'count': 0, 'perDay': 1},
+          {'id': 'coffee', 'name': 'قهوة', 'done': false, 'count': 0, 'perDay': 1},
+        ]);
+        await handleBackgroundNotificationAction(
+          actionId: actionId,
+          habitId: habitId,
+          now: DateTime(2026, 9, 11, 18, 59),
+        );
+        expect(
+          cancels().where((c) => c.arguments == 9001),
+          hasLength(1),
+          reason: actionId,
+        );
+      }
+    });
+
+    test('leaves the Friday note from 19:00, on other days, and on a tap '
+        'that does not finish the habit', () async {
+      for (final now in [
+        // Delivered at 19:00: clearing it would take it off the list.
+        DateTime(2026, 9, 11, 19),
+        DateTime(2026, 9, 11, 22, 30),
+        DateTime(2026, 9, 10, 18),
+        DateTime(2026, 9, 12, 9),
+      ]) {
+        notificationCalls.clear();
+        // Listed as pending on purpose: what holds 9001 back at these
+        // moments is the WINDOW, the note being about today, and not
+        // whether the OS still has it.
+        pending.addAll({8000, 9001});
+        store['todayHabitsJson'] = todayList([
+          {'id': 'fajr', 'name': 'الفجر', 'done': false, 'count': 0, 'perDay': 1},
+        ]);
+        await handleBackgroundNotificationAction(
+          actionId: 'mark_done',
+          habitId: 'fajr',
+          now: now,
+        );
+        expect(
+          cancels().where((c) => c.arguments == 9001),
+          isEmpty,
+          reason: '$now',
+        );
+        expect(
+          cancels().where((c) => c.arguments == 8000),
+          hasLength(1),
+          reason: 'the tap still finished the habit at $now',
+        );
+      }
+      notificationCalls.clear();
+      store['todayHabitsJson'] = todayList([
+        {'id': 'water', 'name': 'ماء', 'done': false, 'count': 0, 'perDay': 3},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'water',
+        now: DateTime(2026, 9, 11, 12),
+      );
+      expect(cancels(), isEmpty, reason: 'one of three turns no square green');
+    });
+
+    test('inside the window, a note that was never armed is not cancelled',
+        () async {
+      // A Friday whose week was not worth numbering: the claim-free repeat
+      // (9000) is armed and 9001 never existed, so a finishing tap at 18:40
+      // has nothing of the note's to stand down. Neither stand-down may
+      // reach for an id it does not own.
+      expect(DateTime(2026, 9, 11).weekday, DateTime.friday);
+      pending.addAll({9000, 9002});
+      store['todayHabitsJson'] = todayList([
+        {'id': 'fajr', 'name': 'الفجر', 'done': false, 'count': 0, 'perDay': 1},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'fajr',
+        now: DateTime(2026, 9, 11, 18, 40),
+      );
+      final touched = [
+        for (final c in cancels())
+          if ((c.arguments as int) >= 8000) c.arguments as int,
+      ];
+      expect(touched, isEmpty, reason: '$touched');
+      expect(pending, {9000, 9002});
+    });
+
+    test('the Friday window is the one weeklyNotePlan arms the note in', () {
+      const top = (name: 'قراءة القرآن', greenDays: 5, isQuit: false);
+      for (final now in [
+        DateTime(2026, 9, 11),
+        DateTime(2026, 9, 11, 18, 59, 59),
+        DateTime(2026, 9, 11, 19),
+        DateTime(2026, 9, 11, 23, 59),
+        DateTime(2026, 9, 10, 18),
+        DateTime(2026, 9, 12, 9),
+      ]) {
+        final arms = NotificationService.weeklyNotePlan(
+          now: now,
+          topHabit: top,
+          longestStreak: 14,
+          isAr: true,
+        ).arm.any((s) => s.id == 9001);
+        expect(
+          NotificationService.weeklyNumberedNoteAhead(now),
+          arms,
+          reason: '$now',
+        );
+      }
     });
 
     test('still queues a habit the widget cache does not know', () async {

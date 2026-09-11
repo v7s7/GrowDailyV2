@@ -858,8 +858,26 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 !t.lastReminderAt!.isAfter(now),
           ),
       ]);
+      // The evening streak note states how many Do First tasks are open
+      // («وعندك مهمتين عاجلتين.»), and only a recompute re-words it. A task
+      // added, moved or finished with no Dashboard change (past the daily
+      // task reward cap, say) left that count stale until something else
+      // recomputed. Only a change in the count recomputes, so other edits
+      // cost nothing; the first call (previous null) is left to the
+      // Dashboard listener's own immediate recompute.
+      if (previous != null &&
+          _openDoFirstCount(previous) != _openDoFirstCount(next)) {
+        _recomputeNotifications();
+      }
     }, fireImmediately: true);
   }
+
+  /// Open Do First tasks: the count the evening streak note's urgent tasks
+  /// sentence states. One definition for the recompute that words it and
+  /// for the matrix listener that decides when to recompute.
+  static int _openDoFirstCount(MatrixState state) => state.tasks
+      .where((t) => t.quadrant == MatrixQuadrant.doFirst && !t.isDone)
+      .length;
 
   /// Do First → Schedule → Delegate → Eliminate, the same triage order the
   /// in-app board itself reads top to bottom — see [_matrixWidgetSub]. A
@@ -1088,14 +1106,18 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // miss data while the grid is still loading or showing a past week —
     // the _gridSub recompute corrects that the moment the real data lands.
     final grid = ref.read(weeklyGridProvider);
-    // Counts only what is actually owed TODAY — it feeds the evening
-    // streak-risk nudge, which is a question about today's board.
-    var pendingCount = 0;
-    for (final habit in todayHabits) {
-      if (!dash.isCompleted(habit.id, habit.effectiveDailyTarget)) {
-        pendingCount++;
-      }
-    }
+    // Counts only what is actually owed TODAY: they feed the evening
+    // streak-risk nudge, which is a question about today's board. The
+    // counting is NotificationService.todayBoardCounts, so the rule that a
+    // quit habit is never one of the build habits the note asks for is
+    // pinned in test/core instead of living here untested.
+    final board = NotificationService.todayBoardCounts([
+      for (final habit in todayHabits)
+        (
+          isDone: dash.isCompleted(habit.id, habit.effectiveDailyTarget),
+          isQuit: habit.goalType == GoalType.quit,
+        ),
+    ]);
     for (final habit in upcomingHabits) {
       final scheduledToday = habit.isScheduledFor(today);
       final isFlexibleQuota =
@@ -1147,8 +1169,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // The raw count, not the done bool: a habit counted twice a day with
         // one logged is neither "done" nor "untouched", and the scheduler
         // needs the number to know how many of today's reminders to stand
-        // down. pendingCount above is computed separately, off today's board
-        // only, and is unaffected.
+        // down. The board counts above are worked out separately, off
+        // today's board only, and are unaffected.
         //
         // Zero for a habit that is not due today: the count answers "how
         // many of TODAY's target are logged", and today's answer must not
@@ -1200,15 +1222,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // "Do First" = urgent + important, the one Matrix quadrant that's a
     // reasonable proxy for "actually time-sensitive" without the app having
     // real per-task due times yet (MatrixTask has no due-date field today).
-    // Read fresh here rather than from a dedicated Matrix listener: this
-    // only ever feeds one line of the evening nudge, so it just needs to be
-    // current by the time that fires, not instantly reactive to every
-    // Matrix edit.
-    final urgentMatrixCount = ref
-        .read(matrixProvider)
-        .tasks
-        .where((t) => t.quadrant == MatrixQuadrant.doFirst && !t.isDone)
-        .length;
+    // Read fresh here. The matrix listener (_matrixWidgetSub) recomputes
+    // whenever this count changes, so the evening note's urgent tasks
+    // sentence is current when it fires, and other Matrix edits still cost
+    // no recompute.
+    final urgentMatrixCount = _openDoFirstCount(ref.read(matrixProvider));
     // The daily reminder is worded from today's board, so it is scheduled
     // here, once the counts exist, rather than at the top of this method.
     final reminderTime = ref.read(reminderTimeProvider);
@@ -1217,7 +1235,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         hour: reminderTime.hour,
         minute: reminderTime.minute,
         isAr: isAr,
-        done: todayHabits.length - pendingCount,
+        done: board.done,
         total: todayHabits.length,
         streak: dash.streak,
       );
@@ -1228,8 +1246,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     NotificationService.instance.scheduleStreakRiskCheck(
       settings: settings,
       streak: dash.streak,
-      doneHabitCount: todayHabits.length - pendingCount,
-      pendingHabitCount: pendingCount,
+      // Once today's point is earned the note has nothing true to ask for.
+      streakEarnedToday: dash.streakEarnedToday,
+      doneHabitCount: board.done,
+      pendingHabitCount: board.pending,
+      pendingBuildHabitCount: board.pendingBuild,
       urgentMatrixCount: urgentMatrixCount,
       isAr: isAr,
     );
@@ -1268,23 +1289,42 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     NotificationService.instance
         .scheduleQuitCheckIns(quitCheckIns, settings, isAr: isAr);
 
-    // Weekly digest content ("N of 7 days colored") comes straight off the
-    // same grid read above — only recomputed (and rescheduled) once that
-    // grid is actually showing the current week and done loading; a stale
-    // or mid-load read would either undercount or briefly show 0, so this
-    // cycle just leaves the previous schedule alone and lets the next
-    // recompute (moments later, once the real data lands) correct it —
-    // same eventually-consistent pattern as the quit check-ins above.
-    if (grid.isCurrentWeek && !grid.isLoading) {
-      final greenDaysThisWeek = grid.days
-          .where((d) => (grid.states[d.toDateKey()] ?? const {})
-              .values
-              .any((s) => s.isGreen))
-          .length;
+    // The Friday note's numbered copy («٥ أيام خضرا هذا الأسبوع 👏🏼») comes
+    // straight off the same grid read above, so what this recompute may
+    // claim depends on what the Grid is showing: this week's squares while
+    // it is on this week, nothing about this week from another week (the
+    // Grid stays pinned to a past week across recomputes), and nothing at
+    // all mid-load, where the recompute moments later corrects it, the same
+    // eventually-consistent pattern as the quit check-ins above. That
+    // three-way choice, and why a pinned week must not simply be skipped, is
+    // NotificationService.weeklyNoteBasis.
+    final weeklyNoteBasis = NotificationService.weeklyNoteBasis(
+      gridLoading: grid.isLoading,
+      gridOnCurrentWeek: grid.isCurrentWeek,
+    );
+    if (weeklyNoteBasis != WeeklyNoteBasis.skip) {
       NotificationService.instance.scheduleWeeklyDigest(
         settings: settings,
-        greenDays: greenDaysThisWeek,
-        streak: dash.streak,
+        // The habit with the most green days this week names the numbered
+        // copy, in habit order so a tie keeps the first. Null from any other
+        // week: this week's squares are not in hand, so the claim-free copy
+        // goes out instead and the numbered one is cleared.
+        topHabit: weeklyNoteBasis == WeeklyNoteBasis.numbered
+            ? NotificationService.weekTopHabit([
+                for (final habit in ref.read(habitListProvider))
+                  (
+                    name: habit.localName(isAr),
+                    isQuit: habit.goalType == GoalType.quit,
+                    squares: [
+                      for (final day in grid.days)
+                        grid.squareFor(habit.id, day),
+                    ],
+                  ),
+              ])
+            : null,
+        // The longest run ever reached cannot go down, so the repeat that
+        // quotes it stays true on every Friday it fires.
+        longestStreak: dash.longestStreak,
         isAr: isAr,
       );
     }

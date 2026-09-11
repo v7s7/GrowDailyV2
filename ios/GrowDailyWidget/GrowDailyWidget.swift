@@ -15,6 +15,7 @@
 import WidgetKit
 import SwiftUI
 import AppIntents
+import UserNotifications
 
 // Must match HomeWidgetService's _appGroupId exactly (lib/core/services/
 // home_widget_service.dart) — this is how the widget reads what the Flutter
@@ -164,12 +165,15 @@ struct GrowDailyProvider: TimelineProvider {
 /// completeHabit's XP/streak/gold logic here — a widget's AppIntent runs in
 /// its own process with none of that state, and getting a reward
 /// calculation silently wrong in Swift no one can unit-test is worse than
-/// just deferring it. Instead this only ever touches shared UserDefaults:
+/// just deferring it. Instead this only ever touches shared UserDefaults,
+/// and two of the app's pending notes:
 ///
 ///  1. Flips this habit's `done` flag in the cached today-list, so the one
 ///     reload iOS guarantees right after `perform()` returns shows it
 ///     checked immediately.
 ///  2. Appends the habit id to a small pending-completions queue.
+///  3. When the tap finishes the habit for the day, removes the pending
+///     notes that count finished habits (standDownNotesWithStaleCounts).
 ///
 /// The Flutter app drains that queue (HomeWidgetService.
 /// takePendingCompletions, called from main.dart whenever the app comes to
@@ -192,6 +196,9 @@ struct MarkHabitDoneIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         let defaults = UserDefaults(suiteName: appGroupId)
+        // Decided before the list is rewritten: TodayHabit has no count
+        // keys, so the rewrite below drops the ones this reads.
+        let finishes = habitTapFinishesDay(habitId, in: defaults)
 
         if var habits = readJSON("todayHabitsJson", from: defaults, as: [TodayHabit].self) {
             for i in habits.indices where habits[i].id == habitId {
@@ -206,8 +213,72 @@ struct MarkHabitDoneIntent: AppIntent {
         }
         writeJSON(pending, to: "pendingWidgetCompletions", in: defaults)
 
+        if finishes {
+            standDownNotesWithStaleCounts(includingFridayNote: true)
+        }
         return .result()
     }
+}
+
+/// The count keys the app writes on each entry of the cached today-list
+/// (home_widget_service.dart). TodayHabit does not carry them, so they are
+/// read on their own.
+private struct TodayHabitCount: Decodable {
+    let id: String
+    let count: Int?
+    let perDay: Int?
+}
+
+/// Whether one more completion of [habitId] finishes it for the day, by the
+/// rule a lock-screen or Watch tap uses (NotificationActionRules.finishesDay
+/// in notification_action_queue.dart): count + 1 reaches perDay. True when
+/// that cannot be known, as there: no list, the habit absent, or its counts
+/// missing, which is how a list this intent already re-encoded reads.
+private func habitTapFinishesDay(_ habitId: String, in defaults: UserDefaults?) -> Bool {
+    guard let list = readJSON("todayHabitsJson", from: defaults, as: [TodayHabitCount].self),
+          let entry = list.first(where: { $0.id == habitId }),
+          let count = entry.count,
+          let perDay = entry.perDay else { return true }
+    return count + 1 >= perDay
+}
+
+/// Removes the app's pending notes whose numbers a tap here has just made
+/// false. Silence over a stale count, the rule a lock-screen or Watch tap
+/// follows (notification_action_background.dart); the next app open arms
+/// each again with true numbers.
+///
+/// flutter_local_notifications names each request by its Dart id as a
+/// string (getIdentifier in its FlutterLocalNotificationsPlugin.m), so:
+///   - "8000" is tonight's evening streak note, which counts today's
+///     finished habits and open Do First tasks;
+///   - "9001" is this Friday's numbered note, which counts the week's green
+///     days. Only on a Friday before 19:00 on this device's clock, the
+///     window the app arms it in (NotificationService.weeklyNumberedNoteAhead);
+///     from 19:00 it has been delivered.
+///
+/// Pending requests only: a note already delivered was true when it came and
+/// stays in the notification list. That is the single rule on every path, and
+/// the app's own two paths have to work for it: the plugin's cancel removes a
+/// delivered notification beside a pending one on iOS, so the lock screen and
+/// Watch path reads the pending list first before cancelling anything (see
+/// NotificationService._cancelIfPending). Here it is free, because
+/// removePendingNotificationRequests is already pending-only.
+///
+/// Apple documents UNUserNotificationCenter for app extensions as well as
+/// apps; that this removal reaches the app's requests from the widget
+/// extension has not been seen on a device.
+private func standDownNotesWithStaleCounts(includingFridayNote: Bool) {
+    var identifiers = ["8000"]
+    if includingFridayNote {
+        // Gregorian whatever the device's own calendar, as the app's
+        // DateTime is: weekday 6 is Friday, counting Sunday as 1.
+        let calendar = Calendar(identifier: .gregorian)
+        let now = Date()
+        if calendar.component(.weekday, from: now) == 6 && calendar.component(.hour, from: now) < 19 {
+            identifiers.append("9001")
+        }
+    }
+    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers)
 }
 
 // MARK: - Shared pieces
@@ -1566,8 +1637,13 @@ struct MarkTaskDoneIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         let defaults = UserDefaults(suiteName: appGroupId)
+        var closesDoFirstTask = false
 
         if var tasks = readJSON("matrixTasksJson", from: defaults, as: [WidgetMatrixTask].self) {
+            // Decided before the flip: tonight's evening streak note counts
+            // open Do First tasks («وعندك مهمة عاجلة وحدة.»), so ticking one
+            // off here makes that count false.
+            closesDoFirstTask = tasks.contains { $0.id == taskId && $0.quadrant == "doFirst" && !$0.isDone }
             for i in tasks.indices where tasks[i].id == taskId {
                 tasks[i].isDone = true
             }
@@ -1589,6 +1665,9 @@ struct MarkTaskDoneIntent: AppIntent {
         }
         writeJSON(pending, to: "pendingWidgetTaskCompletions", in: defaults)
 
+        if closesDoFirstTask {
+            standDownNotesWithStaleCounts(includingFridayNote: false)
+        }
         return .result()
     }
 }
