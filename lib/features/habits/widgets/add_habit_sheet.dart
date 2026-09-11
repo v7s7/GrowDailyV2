@@ -41,7 +41,6 @@ import '../notifiers/newly_added_habit_provider.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import 'habit_color_picker.dart';
 import 'habit_offset_sheet.dart';
-import '../../matrix/widgets/custom_offset_sheet.dart' show formatOffsetVerbose;
 import '../../../shared/widgets/app_snackbar.dart';
 import '../../../shared/widgets/overlay_notice.dart';
 import '../../../shared/widgets/reminder_style_choice.dart';
@@ -144,6 +143,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// _freqTarget, and only _submit ever folds them together.
   int _timesPerDay = 1;
   Set<int> _selectedWeekdays = {};
+
+  /// The «قبل | بعد» answer written into a custom text cue's own words
+  /// («قبل العمل», see [_cueWithRelation]). Seeded from the stored cue and
+  /// changed only by a tap on the chips, in either mode, as it always was.
+  /// A reminder's side never writes it: that is [_reminderLean].
   _CueRelation _cueRelation = _CueRelation.after;
   ReductionType _reductionType = ReductionType.avoid;
   LimitUnit _limitUnit = LimitUnit.minutes;
@@ -301,14 +305,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// person picks alarm AND the platform grants it; see [_setAlarm].
   bool _alarm = false;
 
-  // ── Reminder offset — signed minutes from the resolved time/prayer
-  // moment to when the notification actually fires: negative = before,
-  // 0 = on time, positive = after. Only meaningful for Time/Prayer modes
-  // (Custom Text has no resolved moment to offset from) — see
-  // _reminderOffsetSection.
+  // ── Reminder offset: signed minutes from the resolved time or prayer
+  // moment to when the notification actually fires. Negative is before, 0 is
+  // on time, positive is after. Only meaningful for Time and Prayer modes,
+  // since Custom Text has no resolved moment to offset from.
   //
-  // Ordered earliest → latest so the row reads like a timeline, with "On
-  // time" (0) sitting naturally in the middle as the default.
+  // These presets are the per-occurrence chips a multi-time row opens (see
+  // _timeRow), ordered earliest to latest so the grid reads like a timeline
+  // with «في الوقت» in the middle. A single time and a prayer no longer use
+  // them: their reminders are rows that open the offset sheet (see
+  // _reminderOffsetSection), whose presets live in reminder_copy.dart.
   static const _offsetPresets = [-30, -15, 0, 15, 30];
   /// The habit-level shift, as SIGNED minutes. One number, one home.
   ///
@@ -338,6 +344,71 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   List<int> get _allReminderOffsets =>
       ({_reminderOffset, ..._extraOffsets}.toList()..sort());
 
+  /// The reminders as one stack, for the rules that read them together.
+  HabitReminderStack get _reminderStack =>
+      HabitReminderStack(primary: _reminderOffset, extras: _extraOffsets);
+
+  /// The side prayer mode's chips fall back to, and the offset sheet leans
+  /// to, when the reminders cannot say: every one on time, or a Premium
+  /// stack on both sides. A tap on the chips sets it along with
+  /// [_cueRelation]; after that [_followReminderSide] keeps it on the side
+  /// the reminders were last on, or the side last chosen in the sheet.
+  ///
+  /// Its own field, because [_cueRelation] is saved into a custom text cue.
+  /// While the two were one, an edit in the offset sheet rewrote the typed
+  /// cue unseen: «العمل» switched to a prayer, its reminder set to 15 before
+  /// and switched back saved «قبل العمل» under a field reading «العمل», and
+  /// «قبل العمل» with 15 after saved «العمل». A prayer habit whose reminders
+  /// are all before also reopened with قبل lit in custom text.
+  _CueRelation _reminderLean = _CueRelation.after;
+
+  /// Whether the main step's chip for [relation] is lit.
+  ///
+  /// In prayer mode the chips are the reminders' side, not a second answer
+  /// beside it: they light where the shifts are, both at once for a Premium
+  /// stack with one on each side. Only reminders with no side at all (every
+  /// one on time) light from [_reminderLean], which is the side they were
+  /// last on or the chip tapped since (see [_followReminderSide]). Custom
+  /// text has no reminders, so there the chips are the relation typed into
+  /// the cue, [_cueRelation], as they always were.
+  ///
+  /// Before a prayer is picked no reminder row is on screen, so the chips
+  /// read [_reminderLean] alone: a clock habit switched to «وقت الصلاة» must
+  /// not light, or be moved by, reminders the person cannot see.
+  bool _relationLit(_CueRelation relation) {
+    if (_timingMode != _TimingMode.prayer) return _cueRelation == relation;
+    if (_selectedPrayer == null) return _reminderLean == relation;
+    return switch (_reminderStack.side) {
+      HabitReminderSide.both => true,
+      HabitReminderSide.before => relation == _CueRelation.before,
+      HabitReminderSide.after => relation == _CueRelation.after,
+      HabitReminderSide.none => _reminderLean == relation,
+    };
+  }
+
+  /// The side the offset sheet opens on for a reminder with no side of its
+  /// own (on time, or being added): the main step's side in prayer mode, so
+  /// «بعد» lit there is «بعد» lit in the sheet and one tap on 15 saves 15
+  /// after. A clock time has no chips to agree with and keeps opening on
+  /// «قبل». A Premium stack on both sides leans to [_reminderLean]: the side
+  /// last chosen in the sheet, or the one the reminders were on before.
+  bool get _sheetLeanAfter =>
+      _timingMode == _TimingMode.prayer &&
+      switch (_reminderStack.side) {
+        HabitReminderSide.after => true,
+        HabitReminderSide.before => false,
+        HabitReminderSide.none ||
+        HabitReminderSide.both =>
+          _reminderLean == _CueRelation.after,
+      };
+
+  /// The picked prayer's label («الفجر»), or null outside prayer mode. What
+  /// the rows and the offset sheet name as the moment a shift is from.
+  String? _prayerName(S s) =>
+      _timingMode == _TimingMode.prayer && _selectedPrayer != null
+          ? HabitCue.preset(_selectedPrayer!).labelForLocale(s.isAr)
+          : null;
+
   /// Why the last chip tap did nothing, shown inline under the grid.
   ///
   /// Inline rather than a SnackBar for the same reason the Tasks picker gives:
@@ -347,8 +418,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   String? _offsetNotice;
   Timer? _offsetNoticeTimer;
 
-  void _showOffsetNotice(String message) {
-    setState(() => _offsetNotice = message);
+  /// Whether [_offsetNotice] is drawn under the main step's «قبل | بعد»
+  /// chips instead of under the reminder list. The both-sides refusal is
+  /// about the chip that was just tapped, so it shows where the finger is.
+  bool _offsetNoticeAtRelation = false;
+
+  void _showOffsetNotice(String message, {bool atRelation = false}) {
+    setState(() {
+      _offsetNotice = message;
+      _offsetNoticeAtRelation = atRelation;
+    });
     _offsetNoticeTimer?.cancel();
     // Roughly a SnackBar's dwell, then cleared, so the section doesn't keep a
     // permanent scolding line under it.
@@ -425,6 +504,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _cueRelation = _startsWithBefore(storedCue)
           ? _CueRelation.before
           : _CueRelation.after;
+      // The chips showed this one answer in every mode, so prayer mode starts
+      // from it too; «قبل العمل» switched to a prayer still opens on قبل.
+      _reminderLean = _cueRelation;
       final parsed = HabitCue.fromStoredValue(storedCue);
       final storedTimes = parsed.clockTimes;
       if (storedTimes.isNotEmpty) {
@@ -453,6 +535,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       final storedOffset = existing.reminderOffsetMinutes;
       _reminderOffset = storedOffset;
       _extraOffsets = {...existing.extraReminderOffsets}..remove(storedOffset);
+      // A prayer cue is stored as the bare key, so its «قبل | بعد» can only
+      // come from the reminders' signs. It used to reopen on بعد every time,
+      // which put صلاة التهجد (45 before Fajr) under a lit «بعد». Reminders
+      // on both sides light both chips without this, and all on time keeps
+      // the default. The helper does nothing outside prayer mode, and writes
+      // only [_reminderLean]: custom text still reopens on the stored words.
+      _followReminderSide();
       _ignoreQuietHours = existing.ignoreQuietHours;
       _alarm = existing.alarm;
       _category = _canonicalCategory(existing.category);
@@ -765,9 +854,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             .toggle(signed, isPremium: ref.read(premiumAccessProvider)),
       );
 
+  /// [chosen] is the value the offset sheet returned when the tap came from
+  /// «أضف تذكير», and 0 for a × (see [_followReminderSide]).
   void _applyOffsetTap(
-    ({HabitReminderStack stack, HabitOffsetTap outcome}) result,
-  ) {
+    ({HabitReminderStack stack, HabitOffsetTap outcome}) result, {
+    int chosen = 0,
+  }) {
     final s = S.of(context);
     switch (result.outcome) {
       case HabitOffsetTap.refusedLast:
@@ -785,6 +877,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         setState(() {
           _reminderOffset = result.stack.primary;
           _extraOffsets = result.stack.extras;
+          _followReminderSide(chosen: chosen);
         });
     }
   }
@@ -2367,7 +2460,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   void _selectTimingMode(_TimingMode mode) {
     HapticFeedback.selectionClick();
-    setState(() => _timingMode = mode);
+    setState(() {
+      _timingMode = mode;
+      // The reminders carry over from a clock time, so the side the chips
+      // fall back to comes with them (see _followReminderSide).
+      _followReminderSide();
+    });
   }
 
   Widget _timeModeContent(S s) {
@@ -2377,7 +2475,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       children: [
         for (var i = 0; i < count; i++) ...[
           if (i > 0) const SizedBox(height: 8),
-          _timeRow(s, i, count),
+          // What _timeRow's Ink and InkWell paint on, so a press shows.
+          // Transparent: the row's own Ink still owns its look.
+          Material(
+            type: MaterialType.transparency,
+            child: _timeRow(s, i, count),
+          ),
         ],
         // The offset section below is for the SINGLE-time case only. With
         // several times it moves inside each row instead: a floating
@@ -2430,7 +2533,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // the shift chip beside it opens this occurrence's before/after choices.
     // Making the whole row one target and hiding "change the time" a level
     // down would tax the frequent action to make room for the rare one.
-    return Container(
+    // Ink, not a filled Container: InkWell paints its press highlight on the
+    // nearest Material, and a Container's solid fill sat on top of that and
+    // hid it. The transparent Material it paints on is wrapped round this row
+    // in _timeModeContent.
+    return Ink(
       width: double.infinity,
       decoration: BoxDecoration(
         color: gp.surface,
@@ -2454,7 +2561,14 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   borderRadius: BorderRadius.circular(14),
                   onTap: () => _pickTime(slot),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
+                    // With the chevron inside, the row ends in its own
+                    // padding. Beside the shift chip it hands that edge on.
+                    // Directional both ways: a left and right inset put the
+                    // clock 6pt from the right edge in Arabic on a two-time
+                    // row, against 14pt on a one-time row.
+                    padding: count > 1 && picked != null
+                        ? const EdgeInsetsDirectional.fromSTEB(14, 14, 6, 14)
+                        : const EdgeInsetsDirectional.fromSTEB(14, 14, 14, 14),
                     child: Row(
                       children: [
                         Icon(
@@ -2474,7 +2588,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                           ),
                           const SizedBox(width: 8),
                         ],
-                        Flexible(
+                        Expanded(
                           child: Text(
                             picked == null
                                 ? s.pickATime
@@ -2493,6 +2607,17 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                             ),
                           ),
                         ),
+                        // Inside the tap area, not beside it: the chevron was
+                        // the row's only tap cue and tapping it did nothing.
+                        // Gold like «أضف تذكير», so it reads as the way in.
+                        if (!(count > 1 && picked != null)) ...[
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 20,
+                            color: context.gp.goldInk,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -2509,7 +2634,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     setState(() => _openOffsetRow = open ? -1 : slot);
                   },
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 14, 12, 14),
+                    padding:
+                        const EdgeInsetsDirectional.fromSTEB(4, 14, 12, 14),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -2534,12 +2660,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                       ],
                     ),
                   ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.only(left: 14, right: 14),
-                  child: Icon(Icons.chevron_right_rounded,
-                      size: 18, color: gp.textTert),
                 ),
             ],
           ),
@@ -2635,6 +2755,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       context,
       current: current,
       anchor: anchor,
+      // Opened on an occurrence that exists, so its button says «حفظ».
+      editing: true,
     );
     // Null is a dismissal, 0 is a deliberate "on the dot" — a bare int could
     // not tell those apart, and backing out would silently clear the shift.
@@ -2655,6 +2777,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _relationToggle(s),
+          // The both-sides refusal, drawn under the chips it refused.
+          if (_offsetNotice != null && _offsetNoticeAtRelation)
+            _offsetNoticeLine(_offsetNotice!),
           const SizedBox(height: 12),
           _SectionLabel(s.pickAPrayer),
           const SizedBox(height: 8),
@@ -2668,7 +2793,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     label: HabitCue.preset(key).labelFor(context),
                     onTap: () {
                       HapticFeedback.selectionClick();
-                      setState(() => _selectedPrayer = key);
+                      setState(() => _pickPrayer(key));
                       _ensureLocationForPrayerCue();
                     },
                   ),
@@ -2680,26 +2805,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
       );
 
-  /// "Remind me [30 before · 15 before · On time · 15 after · 30 after ·
-  /// Custom]" — sits under Time/Prayer mode once a concrete anchor is
-  /// picked (see the two call sites above). Custom Text mode never shows
-  /// this: a freeform cue has no resolved clock/prayer moment for an offset
-  /// to mean anything against.
+  /// «ذكّرني», under Time and Prayer mode once a concrete anchor is picked
+  /// (see the two call sites above). Custom Text mode never shows this: a
+  /// freeform cue has no resolved clock or prayer moment for an offset to
+  /// mean anything against.
   ///
-  /// A 3-column [_ChipGrid] in timeline order (earliest → latest), so all
-  /// six choices are visible at once on any screen width — no horizontal
-  /// scrolling to discover that "after" even exists, and no gesture fight
-  /// with the vertically-scrolling sheet this sits inside. _ChipGrid's
-  /// LayoutBuilder divides whatever width is available, so this lays out
-  /// identically on a small phone and a tablet; it's the same grid the
-  /// category/frequency pickers above already use, so it needs no new
-  /// visual language.
-  ///
-  /// Picking "after Fajr" costs exactly as many taps as "before Fajr", and
-  /// neither is behind a mode switch. Custom (a plain minutes field plus a
-  /// two-chip direction choice, each on its own full-width row so nothing
-  /// can overflow on a narrow device) is the escape hatch, mirroring the
-  /// LimitUnit.custom pattern elsewhere in this file.
   /// One row per reminder, each naming its shift and the clock time it
   /// lands on today, then a row that adds another. Tapping a row opens the
   /// offset sheet with that reminder loaded; the add row opens it empty.
@@ -2736,40 +2846,54 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
         _addReminderRow(s, locked: gate.locked, full: !gate.allowed),
         _reminderLocationNotice(s),
-        if (_offsetNotice != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.info_outline_rounded,
-                    size: 13, color: context.gp.textTert),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    _offsetNotice!,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: context.gp.textTert,
-                      height: 1.3,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        if (_offsetNotice != null && !_offsetNoticeAtRelation)
+          _offsetNoticeLine(_offsetNotice!),
         if (_goalType == GoalType.build) _reminderStyleRow(s),
         _quietHoursWarning(s),
       ],
     );
   }
 
-  /// A reminder the habit carries: its shift in words («قبل ١٥ دقيقة»),
-  /// and where that lands today once the anchor resolves. Same box as a
-  /// time row so the two lists read as one family. The close mark only
-  /// shows once there is a second row to fall back on; the last reminder
-  /// is edited, never removed, which is the rule HabitReminderStack keeps.
+  /// [_offsetNotice] as a line: under the reminder list for a refused tap
+  /// there, or under the main step's chips for the both-sides refusal.
+  Widget _offsetNoticeLine(String message) => Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline_rounded,
+                size: 13, color: context.gp.textTert),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: context.gp.textTert,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  /// A reminder the habit carries, written as the whole reminder: with a
+  /// prayer «قبل الفجر بـ15 دقيقة» (see habitReminderSentence), with a clock
+  /// time its shift in words, «قبل 15 دقيقة». Then where that lands today
+  /// once the anchor resolves, at the far end beside the chevron. Same box
+  /// as a time row so the two lists read as one family.
+  ///
+  /// The whole box is one tap target, chevron included. The chevron used to
+  /// sit outside the InkWell, so the row's only tap cue did nothing when it
+  /// was tapped, and a solid Container fill hid the press highlight. The fill
+  /// is Ink on a transparent Material now, so a press shows.
+  ///
+  /// The close mark only shows once there is a second row to fall back on;
+  /// the last reminder is edited, never removed, which is the rule
+  /// HabitReminderStack keeps. It sits after a thin divider in its own tap
+  /// area, and the row keeps its chevron beside it.
   Widget _reminderRow(
     S s,
     int offset, {
@@ -2777,74 +2901,115 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     required bool removable,
   }) {
     final gp = context.gp;
-    final time = anchor == null
+    final landsAt = anchor?.add(Duration(minutes: offset));
+    // Built the way the offset sheet builds its times, from plain integers.
+    // DateFormat('h:mm a', 'ar') picks up flutter_localizations' Arabic digit
+    // data, which drew ٤:٠٣ on this row while the sheet drew 4:03.
+    final time = landsAt == null
         ? null
-        : DateFormat('h:mm a', s.isAr ? 'ar' : 'en')
-            .format(anchor.add(Duration(minutes: offset)));
-    return Container(
-      decoration: BoxDecoration(
-        color: gp.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: gp.border, width: 0.5),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () => _editReminder(offset),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 13, 6, 13),
-                child: Row(
-                  children: [
-                    Icon(Icons.notifications_active_rounded,
-                        size: 18, color: context.gp.goldInk),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        _offsetRowLabel(s, offset),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: gp.textPrimary,
-                        ),
+        : HabitCue.time(landsAt.hour, landsAt.minute).labelForLocale(s.isAr);
+    final sentence = _offsetRowLabel(s, offset);
+    final radius = BorderRadius.circular(14);
+    return Material(
+      type: MaterialType.transparency,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: radius,
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              // One button to a screen reader: the sentence, then the time.
+              child: Semantics(
+                container: true,
+                button: true,
+                label: time == null
+                    ? sentence
+                    : s.habitReminderRowSemantics(sentence, time),
+                child: InkWell(
+                  borderRadius: radius,
+                  onTap: () => _editReminder(offset),
+                  child: ExcludeSemantics(
+                    child: Padding(
+                      padding: EdgeInsetsDirectional.fromSTEB(
+                        14,
+                        13,
+                        removable ? 8 : 12,
+                        13,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.notifications_active_rounded,
+                              size: 18, color: context.gp.goldInk),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            // Two lines before any «…»: the amount comes
+                            // last in Arabic, and one line cut it off.
+                            child: Text(
+                              sentence,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: gp.textPrimary,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                          if (time != null) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              time,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: gp.textSec,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 20,
+                            color: context.gp.goldInk,
+                          ),
+                        ],
                       ),
                     ),
-                    if (time != null) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        time,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: gp.textTert,
-                        ),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-          if (removable)
-            InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () => _toggleReminderOffset(offset),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 14, 12, 14),
-                child:
-                    Icon(Icons.close_rounded, size: 18, color: gp.textTert),
+            if (removable) ...[
+              Container(width: 0.5, height: 24, color: gp.divider),
+              Semantics(
+                container: true,
+                button: true,
+                label: s.habitReminderRemove,
+                child: InkWell(
+                  borderRadius: radius,
+                  onTap: () => _toggleReminderOffset(offset),
+                  child: ExcludeSemantics(
+                    child: Padding(
+                      // 12 + 18 + 14: a 44pt target, the minimum, beside a
+                      // divider where a near miss opens the sheet instead.
+                      padding:
+                          const EdgeInsetsDirectional.fromSTEB(12, 14, 14, 14),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: gp.textTert,
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.only(left: 10, right: 12),
-              child: Icon(Icons.chevron_right_rounded,
-                  size: 18, color: gp.textTert),
-            ),
-        ],
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -2888,12 +3053,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ),
       );
 
+  /// The row's sentence: the prayer and the side in prayer mode («قبل الفجر
+  /// بـ15 دقيقة»), the words it always had for a clock time. See
+  /// habitReminderSentence.
   String _offsetRowLabel(S s, int offset) =>
-      offset == 0 ? s.leadAtTime : formatOffsetVerbose(offset, s.isAr, s);
+      habitReminderSentence(offset, s, prayer: _prayerName(s));
 
   /// What the offset sheet shifts from, as a clock time: the picked time,
-  /// or today's prayer once a location is known. Null leaves the sheet
-  /// without its "relative to" line and resolved preview.
+  /// or today's prayer once a location is known. Null leaves the sheet with
+  /// no time in its "relative to" line and no resolved preview; a prayer is
+  /// still named there (see [_prayerName]).
   TimeOfDay? get _sheetAnchor {
     final anchor = _reminderAnchorTime(ref.read(notificationSettingsProvider));
     return anchor == null
@@ -2901,15 +3070,52 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         : TimeOfDay(hour: anchor.hour, minute: anchor.minute);
   }
 
+  /// Keeps the chip the main step falls back to in step with the reminders.
+  /// Called after every change to them (edit, add, ×) and on entering prayer
+  /// mode, inside the caller's setState.
+  ///
+  /// While the reminders sit on one side, [_reminderLean] is that side. So
+  /// once they are all back on time, which lights from [_reminderLean], the
+  /// chips stay where they were. It used to follow only the value the sheet
+  /// returned, and a × removal was not one: on «ذكر», 10 before and 30
+  /// after, × on the after row left بعد stored under a lit قبل, and setting
+  /// the one left on time then jumped the chips to بعد with nothing tapped.
+  /// A clock habit switched to a prayer carried the same stale answer in.
+  ///
+  /// On both sides the chips are both lit and cannot say which one is meant,
+  /// so [chosen], the value the sheet just returned, picks the side the next
+  /// sheet leans to. Prayer mode only, since a clock time has no chips. It
+  /// never writes [_cueRelation]: a reminder's side is not the «قبل» in a
+  /// typed cue's words.
+  void _followReminderSide({int chosen = 0}) {
+    if (_timingMode != _TimingMode.prayer) return;
+    switch (_reminderStack.side) {
+      case HabitReminderSide.before:
+        _reminderLean = _CueRelation.before;
+      case HabitReminderSide.after:
+        _reminderLean = _CueRelation.after;
+      case HabitReminderSide.both:
+        if (chosen != 0) {
+          _reminderLean = chosen > 0 ? _CueRelation.after : _CueRelation.before;
+        }
+      case HabitReminderSide.none:
+        break;
+    }
+  }
+
   /// A row tapped: the sheet opens on that reminder, and whatever comes
   /// back takes its place. The count never changes here, so no tier rule
   /// is asked; HabitReminderStack.replace keeps the roles straight.
   Future<void> _editReminder(int offset) async {
+    final s = S.of(context);
     final chosen = await showHabitOffsetSheet(
       context,
       current: offset,
       anchor: _sheetAnchor,
       presets: true,
+      leanAfter: _sheetLeanAfter,
+      editing: true,
+      anchorName: _prayerName(s),
     );
     if (chosen == null || !mounted || chosen == offset) return;
     HapticFeedback.selectionClick();
@@ -2919,6 +3125,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               .replace(offset, chosen);
       _reminderOffset = next.primary;
       _extraOffsets = next.extras;
+      _followReminderSide(chosen: chosen);
     });
   }
 
@@ -2948,9 +3155,14 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       current: null,
       anchor: _sheetAnchor,
       presets: true,
+      leanAfter: _sheetLeanAfter,
+      anchorName: _prayerName(s),
     );
     if (chosen == null || !mounted) return;
-    _applyOffsetTap(stack.addTyped(chosen, isPremium: isPremium));
+    _applyOffsetTap(
+      stack.addTyped(chosen, isPremium: isPremium),
+      chosen: chosen,
+    );
   }
 
   /// Notification or alarm: the one choice about HOW a reminder arrives,
@@ -3280,21 +3492,26 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
       );
 
+  /// The «قبل | بعد» pair on the main step, قبل first. A Row's first child
+  /// lays out on the start side, so in Arabic قبل sits on the right, where
+  /// the offset sheet and the Tasks picker already put it (Aziz, 2026-09-11:
+  /// "In arabic قبل should be first and on right"). Lit from [_relationLit],
+  /// so in prayer mode the pair shows the side the reminders are on.
   Widget _relationToggle(S s) => Row(
         children: [
           Expanded(
             child: _SmallPick(
-              label: s.cueAfterOption,
-              selected: _cueRelation == _CueRelation.after,
-              onTap: () => _setCueRelation(_CueRelation.after),
+              label: s.cueBeforeOption,
+              selected: _relationLit(_CueRelation.before),
+              onTap: () => _setCueRelation(_CueRelation.before),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: _SmallPick(
-              label: s.cueBeforeOption,
-              selected: _cueRelation == _CueRelation.before,
-              onTap: () => _setCueRelation(_CueRelation.before),
+              label: s.cueAfterOption,
+              selected: _relationLit(_CueRelation.after),
+              onTap: () => _setCueRelation(_CueRelation.after),
             ),
           ),
         ],
@@ -3502,10 +3719,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   /// A running "here's what you're about to create" confirmation — icon,
   /// name, frequency, and the XP it'll pay out, so the reward is visible
-  /// before you commit, not just after. When there's a cue on a build goal,
-  /// the full "After Fajr, I will Read Quran" implementation-intention
-  /// sentence — the actual behavior-science reason the cue field exists —
-  /// appears below it too.
+  /// before you commit, not just after.
+  ///
+  /// It used to end in an «بعد الفجر، سأقوم بـ ...» sentence for a build goal
+  /// with a cue. Aziz removed it on 2026-09-11 ("no goal from it"): it said
+  /// «بعد» whatever the chips above it said. The cue itself is still named on
+  /// the summary line.
   Widget _goalPreviewCard(S s) {
     final gp = context.gp;
     // A picked icon color takes over the whole preview card's accent (not
@@ -3515,10 +3734,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     final color = _iconColorHex != null
         ? (_iconColor ?? context.gp.textTert)
         : (_goalType == GoalType.build ? GameColors.gold : GameColors.iconXp);
-    final cue = _currentCue();
-    final cueText = cue.labelForLocale(s.isAr);
     final name = _nameCtrl.text.trim();
-    final showPlanSentence = _goalType == GoalType.build && !cue.isEmpty;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -3611,21 +3827,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ],
             ),
           ],
-          if (showPlanSentence) ...[
-            const SizedBox(height: 10),
-            Container(height: 0.5, color: color.withOpacity(0.18)),
-            const SizedBox(height: 10),
-            Text(
-              s.planPreview(cueText, name),
-              style: TextStyle(
-                fontSize: 12.5,
-                fontStyle: FontStyle.italic,
-                fontWeight: FontWeight.w600,
-                color: gp.textSec,
-                height: 1.3,
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -3667,17 +3868,96 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return S.of(context).isAr ? 'قبل $trimmed' : 'Before $trimmed';
   }
 
+  /// «قبل» or «بعد» tapped on the main step.
+  ///
+  /// In prayer mode the pair is the reminders' side, so a tap on the other
+  /// side moves every reminder that has a shift over to it by the same amount
+  /// (HabitReminderStack.mirrored), and the rows' times follow at once. With
+  /// reminders on both sides (Premium) one chip cannot mean both, so the tap
+  /// changes nothing and says where each one is changed instead. A tap on
+  /// the side already lit moves nothing. With every reminder on time there
+  /// is no side to move: the tapped chip is kept, and it is the side the
+  /// offset sheet then opens on. Until one is tapped, the chips show the
+  /// side the reminders were last on (see [_followReminderSide]).
+  ///
+  /// It used to set a value nothing read: a prayer cue is saved as the bare
+  /// key and the scheduler reads only the signed shifts, so «قبل» here was
+  /// forgotten on save while the sheet's own «قبل | بعد» decided everything.
+  ///
+  /// A tap, in either mode, still sets [_cueRelation] and [_reminderLean]
+  /// together, so a chip tapped in one mode is lit in the other, as the one
+  /// shared answer always was. Only the reminders' side is kept out of the
+  /// typed cue.
+  ///
+  /// Only once a prayer is picked, though. Until then the rows are not drawn,
+  /// so a tap moves nothing and refuses nothing: it only sets the side, as it
+  /// does for reminders that are all on time, and the rows open on that side
+  /// when a prayer is picked (see [_pickPrayer]). Without this, a clock habit
+  /// with a reminder 15 before, switched to «وقت الصلاة» and tapped بعد with
+  /// no prayer picked, went back to «وقت مخصص» reading 15 after.
   void _setCueRelation(_CueRelation relation) {
+    if (_timingMode == _TimingMode.prayer && _selectedPrayer != null) {
+      if (_reminderStack.side == HabitReminderSide.both) {
+        HapticFeedback.lightImpact();
+        _showOffsetNotice(
+          S.of(context).habitReminderBothSides,
+          atRelation: true,
+        );
+        return;
+      }
+      HapticFeedback.selectionClick();
+      setState(() {
+        _cueRelation = relation;
+        _reminderLean = relation;
+        _moveRemindersTo(relation);
+      });
+      return;
+    }
     HapticFeedback.selectionClick();
     setState(() {
       _cueRelation = relation;
-      // Only Custom Text mode has a live field to keep in sync — Prayer
-      // mode applies the relation at read time (see _currentCue), since
-      // there's no text of its own to rewrite.
+      _reminderLean = relation;
+      // Custom Text keeps the relation in the cue's own words, so its live
+      // field is rewritten to match.
       if (_timingMode == _TimingMode.text && _cueCtrl.text.trim().isNotEmpty) {
         _cueCtrl.text = _cueWithRelation(_cueCtrl.text);
       }
     });
+  }
+
+  /// A prayer pill tapped, inside the caller's setState.
+  ///
+  /// The first pick is when the reminder rows appear, and they open on the
+  /// side the chips above already show. The chips come first on the screen,
+  /// so «بعد» then «الفجر» is the natural order, and on a clock habit with a
+  /// reminder 15 before it now reads «بعد الفجر بـ15 دقيقة» under a lit بعد.
+  /// Before, with the chip tap held back until a prayer is picked, the rows
+  /// came back «قبل» and put out the chip that was just tapped. Nothing
+  /// tapped means nothing moves: entering prayer mode set [_reminderLean] to
+  /// the reminders' own side (see [_followReminderSide]).
+  ///
+  /// A later pick, from one prayer to another, keeps the rows as they are,
+  /// and a stack on both sides is never moved: both chips light and the rows
+  /// say which is which.
+  void _pickPrayer(String key) {
+    if (_selectedPrayer == null) _moveRemindersTo(_reminderLean);
+    _selectedPrayer = key;
+  }
+
+  /// Mirrors the reminders onto [relation]'s side when they all sit on the
+  /// other one, keeping each amount. Reminders on time, already on that side,
+  /// or on both sides stay as they are. Inside the caller's setState.
+  void _moveRemindersTo(_CueRelation relation) {
+    final stack = _reminderStack;
+    final moves = switch (stack.side) {
+      HabitReminderSide.before => relation == _CueRelation.after,
+      HabitReminderSide.after => relation == _CueRelation.before,
+      HabitReminderSide.none || HabitReminderSide.both => false,
+    };
+    if (!moves) return;
+    final next = stack.mirrored();
+    _reminderOffset = next.primary;
+    _extraOffsets = next.extras;
   }
 
   List<(int, String)> _weekdays(BuildContext context) {

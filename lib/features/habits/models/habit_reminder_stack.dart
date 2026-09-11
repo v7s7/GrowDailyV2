@@ -33,6 +33,13 @@ enum HabitOffsetTap {
   locked,
 }
 
+/// Which side of its anchor a habit's reminders sit on. See
+/// [HabitReminderStack.side].
+///
+/// [both] is reachable only with a stack (Premium, or one kept through a
+/// lapsed subscription): 10 before Fajr and 30 after it on the same habit.
+enum HabitReminderSide { none, before, after, both }
+
 /// A habit's reminder shifts: one primary plus the stack around it.
 ///
 /// Mirrors how they are stored (IslamicHabitTemplate.reminderOffsetMinutes
@@ -54,6 +61,35 @@ class HabitReminderStack {
   int get length => all.length;
 
   bool contains(int signed) => primary == signed || extras.contains(signed);
+
+  /// The side of the anchor the shifts sit on, read off their signs.
+  ///
+  /// This is the only direction a habit reminder has anywhere: the scheduler
+  /// reads nothing but the signed minutes (NotificationService), so Add
+  /// Habit's «قبل | بعد» chips light from this rather than keeping a second
+  /// answer of their own that could disagree with the reminders under them.
+  /// An on-time reminder belongs to neither side, so 0 alone is [none] and
+  /// 0 beside -15 is [HabitReminderSide.before].
+  HabitReminderSide get side {
+    final before = all.any((o) => o < 0);
+    final after = all.any((o) => o > 0);
+    if (before && after) return HabitReminderSide.both;
+    if (before) return HabitReminderSide.before;
+    if (after) return HabitReminderSide.after;
+    return HabitReminderSide.none;
+  }
+
+  /// Every shift moved to the other side of the anchor by the same amount:
+  /// 15 before becomes 15 after, and on time stays on time.
+  ///
+  /// What tapping the other chip on the main step does. Negation cannot make
+  /// two different shifts equal, so the count never changes and the primary
+  /// stays the primary: notification slot 0 keeps its id and keeps meaning
+  /// the same reminder. Mirroring twice gives the stack back.
+  HabitReminderStack mirrored() => HabitReminderStack(
+        primary: -primary,
+        extras: {for (final e in extras) -e},
+      );
 
   /// The result of tapping the chip for [signed].
   ///

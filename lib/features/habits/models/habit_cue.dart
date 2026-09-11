@@ -383,11 +383,11 @@ class HabitCue {
     return '$hour12:${_pad2(minute)} $period';
   }
 
-  /// Joined with "و" / "and" rather than commas, because this label is
-  /// dropped into a SENTENCE ([previewTextForLocale] → S.planPreview: «بعد
-  /// {cue}، سأقوم بـ {name}»). A comma-separated run reads as a broken list
-  /// inside that frame, and the last item needs the conjunction in both
-  /// languages anyway.
+  /// Joined with "و" / "and" rather than commas, because this label is read
+  /// as a phrase: Add Habit's preview card prints it after the cadence
+  /// («يومياً · 12:00 ص و12:00 م»), where a comma-separated run reads as a
+  /// broken list, and the last item needs the conjunction in both languages
+  /// anyway.
   String _timeLabel(bool isAr) {
     final labels = [
       _oneTimeLabel(_hour24!, _minute!, isAr),
@@ -398,15 +398,4 @@ class HabitCue {
     return '${labels.sublist(0, labels.length - 1).join(isAr ? '، ' : ', ')}'
         '$join${labels.last}';
   }
-
-  /// "After Maghrib, I will X." / "بعد المغرب، سأقوم بـ X." — pure form,
-  /// directly testable without a BuildContext.
-  String previewTextForLocale(bool isAr, String habitName) {
-    if (isEmpty) return '';
-    return S(Locale(isAr ? 'ar' : 'en'))
-        .planPreview(labelForLocale(isAr), habitName);
-  }
-
-  String previewTextFor(BuildContext context, String habitName) =>
-      previewTextForLocale(S.of(context).isAr, habitName);
 }

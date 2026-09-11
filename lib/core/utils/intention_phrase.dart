@@ -2,7 +2,7 @@
 /// sleep" — must not be prefixed with "After" again, or the sentence reads
 /// as nonsense: "After Before sleep, I will ...". This lets every
 /// "implementation intention" sentence in the app (stored habit
-/// descriptions, the live add-habit preview) stay grammatical regardless of
+/// descriptions) stay grammatical regardless of
 /// which routine anchor the user picks from the chips or types themselves.
 bool cueHasOwnPreposition(String cue) {
   final trimmed = cue.trim();

@@ -3,11 +3,12 @@ import 'package:flutter/services.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/l10n/reminder_copy.dart'
-    show kReminderOffsetPresets, reminderOffsetLabel;
+    show countedOffsetPhrase, kReminderOffsetPresets, reminderOffsetLabel;
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import '../../matrix/widgets/custom_offset_sheet.dart'
-    show ReminderUnit, splitOffsetUnit;
+    show ReminderUnit, formatOffsetVerbose, splitOffsetUnit;
 import '../models/habit_cue.dart';
 
 /// The largest shift a habit reminder can carry, in minutes.
@@ -39,16 +40,31 @@ const int kMaxHabitOffsetMinutes = 12 * 60;
 /// clock time it started from and means nothing. Offering it would be
 /// offering a no-op.
 ///
-/// [presets] adds the quick chips (في الوقت, ٥, ١٠, ١٥, ٣٠, ساعة) above
+/// [presets] adds the quick chips (في الوقت, 5, 10, 15, 30, ساعة) above
 /// the number field and returns the moment one is tapped; the field stays
 /// for anything else. That is the sheet the reminder rows in AddHabitSheet
 /// open, so a person never has to type to move a reminder by a quarter
 /// hour. [current] may be null there: a row being added has no value yet.
+///
+/// [leanAfter] is the side a reminder with no side of its own opens on: one
+/// on time, or one being added. Add Habit passes the side its main step
+/// shows for a prayer habit, so «بعد» lit there is «بعد» lit here and one
+/// tap on 15 saves 15 after, not 15 before. A reminder that already has a
+/// shift always opens on its own side, whatever the lean.
+///
+/// [editing] says the sheet was opened on a reminder that exists, and the
+/// button says so: «حفظ» there, «إضافة» only when a reminder is being added.
+///
+/// [anchorName] names what the shift is measured from, the prayer («الفجر»),
+/// so the subtitle can say it even before a location gives it a time.
 Future<int?> showHabitOffsetSheet(
   BuildContext context, {
   required int? current,
   required TimeOfDay? anchor,
   bool presets = false,
+  bool leanAfter = false,
+  bool editing = false,
+  String? anchorName,
 }) {
   HapticFeedback.selectionClick();
   return showModalBottomSheet<int>(
@@ -60,18 +76,58 @@ Future<int?> showHabitOffsetSheet(
       current: current,
       anchor: anchor,
       presets: presets,
+      leanAfter: leanAfter,
+      editing: editing,
+      anchorName: anchorName,
     ),
   );
+}
+
+/// One habit reminder as the sentence its row in Add Habit shows.
+///
+/// With a [prayer] (its label, «الفجر») the row names the prayer and the
+/// side in one line: «في وقت الفجر», «قبل الفجر بـ15 دقيقة», «بعد المغرب
+/// بساعة». It used to say only «قبل ١٥ دقيقة», under a lit «بعد» chip on the
+/// same screen, and nothing on it said before WHAT.
+///
+/// The amount is counted by [countedOffsetPhrase], the function the
+/// notification itself counts with, so the row and the reminder that fires
+/// can never disagree about «دقيقتين» against «2 دقائق». Its digits are then
+/// made Latin, the app's rule for anything on screen; the notification copy
+/// keeps its own.
+///
+/// Without a prayer (a picked clock time) the row keeps the words it always
+/// had, «في الوقت» or [formatOffsetVerbose]'s «قبل 15 دقيقة», with Latin
+/// digits too. The time beside it and the sheet it opens were made Latin,
+/// and the shared phrase left alone drew «قبل ١٥ دقيقة» next to «7:15 ص» in
+/// one row.
+String habitReminderSentence(int offset, S s, {String? prayer}) {
+  if (prayer == null) {
+    return offset == 0
+        ? s.leadAtTime
+        : toWesternDigits(formatOffsetVerbose(offset, s.isAr, s));
+  }
+  if (offset == 0) return s.habitReminderAtPrayer(prayer);
+  final amount = toWesternDigits(countedOffsetPhrase(offset.abs(), s.isAr));
+  return offset < 0
+      ? s.habitReminderBeforePrayer(prayer, amount)
+      : s.habitReminderAfterPrayer(prayer, amount);
 }
 
 class _HabitOffsetSheet extends StatefulWidget {
   final int? current;
   final TimeOfDay? anchor;
   final bool presets;
+  final bool leanAfter;
+  final bool editing;
+  final String? anchorName;
   const _HabitOffsetSheet({
     required this.current,
     required this.anchor,
     required this.presets,
+    required this.leanAfter,
+    required this.editing,
+    required this.anchorName,
   });
 
   @override
@@ -91,7 +147,10 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
     // shows 2 and Hours rather than 120 and Minutes. Same helper the task
     // sheet uses, so the two can never disagree about which unit a value is.
     final current = widget.current ?? 0;
-    _isAfter = current > 0;
+    // A shift carries its own side. Only a reminder with none (on time, or
+    // one being added) takes the lean, which is the side Add Habit's main
+    // step shows, so the two screens open agreeing.
+    _isAfter = current > 0 || (current == 0 && widget.leanAfter);
     final (value, unit) = splitOffsetUnit(current.abs());
     // Minutes on a fresh sheet. splitOffsetUnit(0) answers DAYS — zero divides
     // evenly by everything, so the largest unit wins — which would open the
@@ -116,9 +175,33 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
     super.dispose();
   }
 
-  /// The signed value the field currently describes, or null when there is
+  /// The preset the reminder being edited already has, by amount: 0 for
+  /// «في الوقت», 15 for 15 before or after, null for a typed value or a
+  /// reminder being added. By amount rather than by signed value, which is
+  /// what keeps the chip lit through a flip of قبل and بعد.
+  int? get _litPreset {
+    final current = widget.current;
+    if (!widget.presets || current == null) return null;
+    final amount = current.abs();
+    return amount == 0 || kReminderOffsetPresets.contains(amount)
+        ? amount
+        : null;
+  }
+
+  /// The signed value the sheet currently describes, or null when there is
   /// nothing usable in it yet.
+  ///
+  /// A typed number wins. With the field empty, a lit amount stands in, so
+  /// flipping 15 before to بعد keeps 15, shows where 15 after lands and lets
+  /// «حفظ» save it (Aziz, 2026-09-11), exactly as a typed 45 always behaved.
+  /// It used to read the field alone, which is empty for every preset, so
+  /// the flip unlit the amount and left the button dead. «في الوقت» has no
+  /// side to flip and stays a tap on its own chip.
   int? get _pending {
+    if (_ctrl.text.trim().isEmpty) {
+      final lit = _litPreset;
+      return lit == null || lit == 0 ? null : _signed(lit);
+    }
     final raw = int.tryParse(_ctrl.text.trim());
     if (raw == null || raw <= 0) return null;
     final minutes = raw * _unit.inMinutes;
@@ -134,6 +217,16 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
       return s.habitOffsetTooLarge;
     }
     return null;
+  }
+
+  /// The anchor as a clock label, «4:03 ص», or null with no anchor. Built
+  /// the way [_resolved] builds its time, so the subtitle and the preview
+  /// never draw the same minute in two digit sets.
+  String? _anchorLabel(S s) {
+    final anchor = widget.anchor;
+    return anchor == null
+        ? null
+        : HabitCue.time(anchor.hour, anchor.minute).labelForLocale(s.isAr);
   }
 
   /// Where the reminder actually lands. Wraps at midnight, which a shift on
@@ -196,13 +289,17 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                   color: gp.textPrimary,
                 ),
               ),
-              if (widget.anchor != null) ...[
+              // A prayer is named even before a location gives it a time:
+              // the shift is from Fajr whether or not Fajr has a clock yet.
+              if (widget.anchorName != null || widget.anchor != null) ...[
                 const SizedBox(height: 4),
                 Text(
-                  s.habitOffsetFromTime(
-                    HabitCue.time(widget.anchor!.hour, widget.anchor!.minute)
-                        .labelForLocale(s.isAr),
-                  ),
+                  widget.anchorName != null
+                      ? s.habitOffsetFromPrayer(
+                          widget.anchorName!,
+                          time: _anchorLabel(s),
+                        )
+                      : s.habitOffsetFromTime(_anchorLabel(s)!),
                   style: TextStyle(fontSize: 11.5, color: gp.textTert),
                 ),
               ],
@@ -242,15 +339,18 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                   columns: 3,
                   items: [
                     PlainChoiceChip(
-                      selected: widget.current == 0,
+                      selected: _litPreset == 0,
                       label: s.leadAtTime,
                       selectedColor: accent,
                       onTap: () => _pick(0),
                     ),
                     for (final m in kReminderOffsetPresets)
                       PlainChoiceChip(
-                        selected: widget.current == _signed(m),
-                        label: reminderOffsetLabel(m, s.isAr),
+                        // By amount, so it stays lit through a flip.
+                        selected: _litPreset == m,
+                        // Latin digits, the rule for anything on screen. The
+                        // shared label keeps its own for the Tasks picker.
+                        label: toWesternDigits(reminderOffsetLabel(m, s.isAr)),
                         selectedColor: accent,
                         onTap: () => _pick(_signed(m)),
                       ),
@@ -368,7 +468,10 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                   foregroundColor: GameColors.onGold,
                   minimumSize: const Size(double.infinity, 48),
                 ),
-                child: Text(s.customReminderAdd),
+                // «إضافة» on an edit read as adding a second reminder.
+                child: Text(
+                  widget.editing ? s.habitOffsetSave : s.customReminderAdd,
+                ),
               ),
               // The way back to no shift at all, without having to know that
               // clearing the field and confirming would do it (it would not —

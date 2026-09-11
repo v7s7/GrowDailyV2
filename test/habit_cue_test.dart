@@ -182,30 +182,4 @@ void main() {
       expect(HabitCue.fromStoredValue('maghrib').isEmpty, isFalse);
     });
   });
-
-  group('HabitCue — preview sentence grammar', () {
-    test('Arabic preview leads with "بعد" for a plain prayer cue', () {
-      final cue = HabitCue.fromStoredValue('maghrib');
-      expect(cue.previewTextForLocale(true, 'قراءة سورة الملك'),
-          'بعد المغرب، سأقوم بـ قراءة سورة الملك.');
-    });
-
-    test('Arabic preview does not double-prefix a cue with its own '
-        'preposition ("before sleep")', () {
-      final cue = HabitCue.fromStoredValue('before_sleep');
-      final preview = cue.previewTextForLocale(true, 'قراءة سورة الملك');
-      expect(preview, isNot(contains('بعد قبل')));
-      expect(preview, startsWith('قبل النوم'));
-    });
-
-    test('English preview leads with "After" for a plain prayer cue', () {
-      final cue = HabitCue.fromStoredValue('maghrib');
-      expect(cue.previewTextForLocale(false, 'read Surat Al-Mulk'),
-          'After Maghrib, I will read Surat Al-Mulk.');
-    });
-
-    test('empty cue has no preview text', () {
-      expect(HabitCue.empty.previewTextForLocale(true, 'X'), '');
-    });
-  });
 }

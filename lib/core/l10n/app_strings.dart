@@ -9,7 +9,6 @@ import '../constants/deep_links.dart';
 import '../extensions/datetime_ext.dart';
 import '../services/local_store_service.dart';
 import '../utils/bidi_fraction.dart';
-import '../utils/intention_phrase.dart';
 import '../../features/grid/models/square_state.dart';
 
 // ─── Locale provider ──────────────────────────────────────────────────────────
@@ -1238,9 +1237,11 @@ class S {
   String get cuePrayerOption => isAr ? 'وقت الصلاة' : 'Prayer time';
   String get pickAPrayer => isAr ? 'اختر صلاة' : 'Pick a prayer';
   // ── Reminder lead time (Add Habit → When step) ─────────────────────
-  // When the notification fires relative to the picked time/prayer —
-  // separate from _CueRelation's "before/after [routine]" text above, which
-  // only affects the habit's own display label, not scheduling.
+  // When the notification fires relative to the picked time or prayer. In
+  // prayer mode the «قبل | بعد» chips above are this same direction: they
+  // light from the signs of the reminders and move them when tapped (see
+  // _setCueRelation in add_habit_sheet.dart). Only custom text keeps the
+  // relation in the cue's own words, since it has no moment to shift from.
   // Deliberately just "Remind me" (not "Remind me before"): the row this
   // labels now covers both directions, so naming one of them in the header
   // would contradict half its own options.
@@ -1377,23 +1378,6 @@ class S {
           'money' => 'money',
           _ => 'custom',
         };
-  // A cue like "Fajr" reads naturally as "After Fajr, I will X." — but a
-  // cue that already carries its own preposition, like "Before sleep",
-  // would read as "After Before sleep, I will X." if we always prepended
-  // "After"/"بعد". Detect that case so the preview stays grammatical no
-  // matter which routine anchor the user picks or types.
-  String planPreview(String cue, String habit) {
-    final trimmedCue = cue.trim();
-    final selfContained = cueHasOwnPreposition(trimmedCue);
-    if (isAr) {
-      final clause = selfContained ? trimmedCue : 'بعد $trimmedCue';
-      return '$clause، سأقوم بـ $habit.';
-    }
-    final clause =
-        selfContained ? capitalizeFirst(trimmedCue) : 'After $trimmedCue';
-    return '$clause, I will $habit.';
-  }
-
   String get tinyHintDefault => isAr
       ? 'اجعلها صغيرة لدرجة أنك تستطيع فعلها حتى في أصعب يوم.'
       : 'Make it tiny enough that you can do it even on a hard day.';
@@ -1657,6 +1641,51 @@ class S {
       ? 'أكثر شي ١٢ ساعة تقديم أو تأخير. غيّر الوقت نفسه إذا تبي أبعد من هذا.'
       : 'Twelve hours is the most. Change the time itself for anything further.';
   String get customReminderAdd => isAr ? 'إضافة' : 'Add';
+
+  /// The offset sheet's button when it was opened on a reminder that already
+  /// exists. «إضافة» on an edit read as adding a second reminder.
+  String get habitOffsetSave => isAr ? 'حفظ' : 'Save';
+
+  /// The offset sheet's subtitle for a prayer reminder. Names the prayer,
+  /// and its time today once a location gives one; without a location it
+  /// still names the prayer, so the sheet never shifts from an unnamed
+  /// moment.
+  String habitOffsetFromPrayer(String prayer, {String? time}) => isAr
+      ? (time == null ? 'بالنسبة لوقت $prayer' : 'بالنسبة لوقت $prayer، $time')
+      : (time == null ? 'Relative to $prayer' : 'Relative to $prayer, $time');
+
+  // ── A prayer reminder as one sentence (Add Habit's reminder rows) ──────
+  // [prayer] is the prayer's own label («الفجر») and [amount] the counted
+  // shift with Latin digits («15 دقيقة», «ساعة»), built by
+  // habitReminderSentence (habit_offset_sheet.dart) so a row counts exactly
+  // the way its notification does.
+  String habitReminderAtPrayer(String prayer) =>
+      isAr ? 'في وقت $prayer' : 'At $prayer time';
+  String habitReminderBeforePrayer(String prayer, String amount) =>
+      isAr ? 'قبل $prayer ${_byAmount(amount)}' : '$amount before $prayer';
+  String habitReminderAfterPrayer(String prayer, String amount) =>
+      isAr ? 'بعد $prayer ${_byAmount(amount)}' : '$amount after $prayer';
+
+  /// «بـ» before a digit, «ب» joined straight onto a word: «بـ15 دقيقة» but
+  /// «بدقيقة» and «بساعتين». The kashida is there because ب cannot join a
+  /// digit, and «ب15» reads as a stray letter beside a number.
+  static String _byAmount(String amount) =>
+      RegExp(r'^[0-9٠-٩]').hasMatch(amount) ? 'بـ$amount' : 'ب$amount';
+
+  /// A reminder row read aloud: its sentence, then the time it lands on.
+  String habitReminderRowSemantics(String sentence, String time) =>
+      isAr ? '$sentence، $time' : '$sentence, $time';
+
+  /// Screen reader only: the × beside a reminder row once there are two or
+  /// more. Never drawn as text.
+  String get habitReminderRemove => isAr ? 'احذف التذكير' : 'Remove reminder';
+
+  /// Under the main step's «قبل | بعد» chips when a Premium habit has
+  /// reminders on both sides. One chip cannot move both, so the tap changes
+  /// nothing and this says where each one is changed instead.
+  String get habitReminderBothSides => isAr
+      ? 'عندك تذكير قبل وتذكير بعد. غيّر كل واحد من القائمة.'
+      : 'You have a reminder before and one after. Change each one in the list.';
   // Heading over the list of everything currently set, each row removable.
   String get customReminderAdded =>
       isAr ? 'التذكيرات المضافة' : 'Added reminders';

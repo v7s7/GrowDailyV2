@@ -365,8 +365,8 @@ void main() {
     });
 
     test('a multi-time label reads as a sentence, not a list', () {
-      // It is dropped into «بعد {cue}، سأقوم بـ {name}», where a trailing
-      // comma would collide with the template's own.
+      // The preview card prints it after the cadence («يومياً · {cue}»),
+      // where a run of commas would read as a broken list.
       final cue = HabitCue.times(times([(0, 0), (12, 0)]));
       expect(cue.labelForLocale(false), '12:00 AM and 12:00 PM');
       expect(cue.labelForLocale(true), contains('و'));
