@@ -1303,6 +1303,12 @@ class RoomParticipant {
   /// leaderboard. So the inference only runs when there is no other kind of
   /// habit for it to speak over.
   ///
+  /// [quotaWeekIsLost] and the room streak ([_keepsStreak]) ask this before
+  /// trusting quotaOkWeeks too, so the strip, the lost-week cross-out and the
+  /// flame always agree about which plans the set can speak for. The streak
+  /// skipped it until 2026-09-11 (room ELQVF8, see
+  /// room_streak_quota_scope_test.dart).
+  ///
   /// Fails safe twice over. A missing rule means this device has not yet
   /// recorded what cadence that habit was on, and an unproven habit is
   /// treated as not-weekly, so the inference simply doesn't run and the old
@@ -2040,10 +2046,18 @@ class RoomParticipant {
   /// startDate], and is always 0 before anything is linked.
   ///
   /// A day keeps a streak if it was genuinely finished, OR if it sits inside a
-  /// week whose weekly quota was satisfied (see [quotaOkWeeks]) - that second
-  /// clause IS the flexible-quota rule, and the only reason a rest day can
-  /// count. For an ordinary daily habit only the first clause ever applies, so
-  /// nothing changes for it.
+  /// week whose weekly quota was satisfied (see [quotaOkWeeks]) on a plan made
+  /// only of weekly habits. That second clause IS the flexible-quota rule.
+  ///
+  /// The plan check is the one [scheduledCountFor] and [quotaWeekIsLost] make,
+  /// for the same reason: quotaOkWeeks attests to the weekly habits and to
+  /// nothing else (the grader skips every non-weekly habit before deciding a
+  /// week held), so it cannot speak for a daily habit sharing the plan.
+  /// Without it, room ELQVF8 on 2026-09-11 showed Hoor a 7-day streak at 02:30
+  /// with both daily habits still owed, and would have kept showing 7 once
+  /// the day ended blank. A weekly habit's own rest days on a mixed plan still
+  /// keep the streak through the first clause: the sync stores the daily
+  /// habits' count on those days, so isFullyDone answers them.
   ///
   /// Both inputs fail safe: [isFullyDone] reads stored counts (absent = not
   /// done) and [quotaOkWeeks] is an explicit allow-list (absent = not
@@ -2051,7 +2065,8 @@ class RoomParticipant {
   /// phantom streak.
   bool _keepsStreak(String dateKey, DateTime day) {
     if (isFullyDone(dateKey)) return true;
-    return quotaOkWeeks.contains(day.startOfDisplayWeek.toDateKey());
+    return quotaOkWeeks.contains(day.startOfDisplayWeek.toDateKey()) &&
+        _everyCountedHabitIsWeeklyOn(dateKey);
   }
 
   /// Consecutive streak-keeping days counting backward from "now" (see
@@ -2063,10 +2078,19 @@ class RoomParticipant {
   /// the streak alive instead of declaring it broken mid-day. Once the room
   /// has ended, its last countable day is final: if that day didn't hold, the
   /// streak the room ended on is 0, same as any habit streak that lapses.
-  int currentStreak(RoomModel room) {
+  ///
+  /// [now] is injectable for the same reason [RoomModel.lastCountedDayAt] is:
+  /// a live room's streak turns on which day is today, and a test pinned to
+  /// real dates cannot otherwise reach the unfinished-today branch. Both
+  /// callers pass nothing.
+  int currentStreak(RoomModel room, {DateTime? now}) {
     if (!hasCountedHabits) return 0;
-    var day = room.lastCountedDay;
-    if (!room.isEnded &&
+    final clock = now ?? DateTime.now();
+    var day = room.lastCountedDayAt(clock);
+    // RoomModel.isEnded, read at the same clock.
+    final end = room.endDate;
+    final roomEnded = end != null && clock.effectiveDay.isAfter(end);
+    if (!roomEnded &&
         !isStoodDownOn(day.toDateKey()) &&
         !_keepsStreak(day.toDateKey(), day)) {
       day = day.subtract(const Duration(days: 1));

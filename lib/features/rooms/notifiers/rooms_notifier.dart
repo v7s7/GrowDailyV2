@@ -3965,10 +3965,13 @@ class RoomsController {
       // too, so nothing can be farmed by shrinking a day's obligations.
       final storedScheduled = mineNow.scheduledCountFor(dateKey);
       final asksMoreThanBefore = scheduled > storedScheduled;
-      // Capping the credit is all that's needed to deny the streak too: the
-      // streak reads isFullyDone, which reads these very counts, so a day held
-      // down to 0 can't hold a streak either. That's the "no XP, no gold, no
-      // streak" rule falling out of one clamp instead of two places.
+      // Capping the credit also denies the streak on any plan with a daily
+      // habit in it: the streak reads isFullyDone, which reads these very
+      // counts, so a day held down to 0 can't hold a streak either. Not on a
+      // plan made only of weekly habits, though: pass 2 banks the week from
+      // the same raw squares, and RoomParticipant._keepsStreak still keeps a
+      // day inside a banked week (YW68B9, m7md, 2026-08-24 and 08-25). Whether
+      // it should is an open question, not something this clamp settles.
       if (isPastDay &&
           !asksMoreThanBefore &&
           !markedWhileOpen &&

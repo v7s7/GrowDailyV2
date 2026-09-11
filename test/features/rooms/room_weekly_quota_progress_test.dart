@@ -608,7 +608,8 @@ void main() {
 
   // What a room streak actually does for each of the three cadences, pinned
   // because only one of them is obvious. RoomParticipant._keepsStreak is
-  // `isFullyDone(day) || quotaOkWeeks.contains(weekStart)`, and isFullyDone
+  // `isFullyDone(day) || (quotaOkWeeks.contains(weekStart) && every counted
+  // habit is weekly that day)`, and isFullyDone
   // answers TRUE for a day nothing was scheduled on — so an excused rest day
   // keeps a streak through the first clause, before quotaOkWeeks is even
   // consulted. That is the whole reason weekly and named-weekday habits
