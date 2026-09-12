@@ -1680,12 +1680,6 @@ class S {
   /// more. Never drawn as text.
   String get habitReminderRemove => isAr ? 'احذف التذكير' : 'Remove reminder';
 
-  /// Under the main step's «قبل | بعد» chips when a Premium habit has
-  /// reminders on both sides. One chip cannot move both, so the tap changes
-  /// nothing and this says where each one is changed instead.
-  String get habitReminderBothSides => isAr
-      ? 'عندك تذكير قبل وتذكير بعد. غيّر كل واحد من القائمة.'
-      : 'You have a reminder before and one after. Change each one in the list.';
   // Heading over the list of everything currently set, each row removable.
   String get customReminderAdded =>
       isAr ? 'التذكيرات المضافة' : 'Added reminders';
@@ -3551,6 +3545,14 @@ class S {
   String get roomCalendarChipMissed => isAr ? 'ما أُنجز' : 'Missed';
   String get roomCalendarChipRest => isAr ? 'راحة' : 'Rest';
 
+  /// The habits the grouped rows above are drawn from, when the day knows
+  /// their names but cannot say which one landed which way. Deliberately
+  /// not «أُنجز: وتر، قرآن», which would read as a claim that both were
+  /// done. See RoomDayBreakdown.groupNames.
+  String roomCalendarGroupPool(List<String> names) => isAr
+      ? 'من بين: ${names.join('، ')}'
+      : 'Among: ${names.join(', ')}';
+
   /// A plan slot this member never took on, or dropped.
   String get roomCalendarSlotDeclined =>
       isAr ? 'ما اشترك فيها' : 'Not taken';
@@ -3565,6 +3567,9 @@ class S {
   /// habit contributed, because on a one-habit day the row IS the total and
   /// printing it twice was the first thing Aziz caught (2026-09-10).
   String get roomCalendarTotal => isAr ? 'المجموع' : 'Total';
+
+  /// The round X in the corner of a member's sheet. Spoken, never shown.
+  String get roomSheetClose => isAr ? 'إغلاق' : 'Close';
   String roomStartedOn(String date) => isAr ? 'بدأت $date' : 'Started $date';
   String roomStartsOn(String date) => isAr ? 'تبدأ $date' : 'Starts $date';
 

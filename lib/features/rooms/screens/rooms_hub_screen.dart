@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/app_guide_provider.dart';
+import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/push_notification_service.dart';
@@ -323,6 +324,11 @@ class _RoomListTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
+    // The tile's own progress bar reads a percentage that changes at midnight
+    // and again when yesterday closes at 10:00 (see
+    // RoomParticipant.dayIsCountableAt), so the clock has to be able to
+    // rebuild this tile by itself. See dayClockProvider.
+    ref.watch(dayClockProvider);
     final roomAsync = ref.watch(roomProvider(code));
 
     // Self-healing: a room this account used to belong to can vanish (the

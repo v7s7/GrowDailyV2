@@ -88,6 +88,17 @@ fi
 command -v flutter  >/dev/null || die "flutter not on PATH"
 command -v firebase >/dev/null || warn "firebase CLI not found (needed for --firebase)"
 
+# Bahrain's official prayer table ships inside the app and ends on the last
+# day the government published. Past it, Bahrain falls back to calculated
+# times (a minute or two off), which alarms set around Fajr would feel.
+TABLE_LAST="$(python3 -c 'import json; print(json.load(open("assets/prayer/bahrain_official.json"))["last"])' 2>/dev/null || true)"
+if [ -n "$TABLE_LAST" ]; then
+  TABLE_DAYS=$(( ( $(date -j -f %Y-%m-%d "$TABLE_LAST" +%s) - $(date +%s) ) / 86400 ))
+  [ "$TABLE_DAYS" -lt 30 ] && die "Bahrain prayer table ends $TABLE_LAST ($TABLE_DAYS days). Run scripts/refresh_bahrain_prayer_table.py"
+  [ "$TABLE_DAYS" -lt 120 ] && warn "Bahrain prayer table ends $TABLE_LAST ($TABLE_DAYS days). Run scripts/refresh_bahrain_prayer_table.py"
+  echo "  prayer table to $TABLE_LAST ($TABLE_DAYS days left)"
+fi
+
 # ── Signing ──────────────────────────────────────────────────────────
 # A provisioning profile freezes the App ID's capabilities at the moment
 # it is made. Add an entitlement to the app and the archive fails AFTER

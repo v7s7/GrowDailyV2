@@ -477,25 +477,36 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   ) async {
     final from = state.pendingStreakGapFrom;
     if (from == null) return;
-    final today = DateTime.now().effectiveDay;
+    final now = DateTime.now();
 
-    // Strictly between: the last earning day is settled, and today is
-    // still in progress and must never be judged as missed.
+    // Strictly between: the last earning day is settled, and no day that is
+    // still OPEN may be judged as missed. Aziz's rule for Reports (d1729b7)
+    // says a day counts once it is done or has closed; this is the streak's
+    // half of it, and firstOpenDayAt is where that bound is defined.
+    final settledBefore = firstOpenDayAt(now);
     var owedDays = 0;
     for (var d = from.add(const Duration(days: 1));
-        d.isBefore(today);
+        d.isBefore(settledBefore);
         d = d.add(const Duration(days: 1))) {
       if (habits.any((h) => h.isScheduledFor(d))) owedDays++;
     }
 
     if (owedDays == 0) {
-      // Every day in the gap was a rest day. Nothing was missed, so
-      // nothing is spent and nothing is lost; close the gap by moving the
-      // marker to yesterday, the same way the freeze path always has.
-      final yesterday = today.subtract(const Duration(days: 1));
+      // Every day in the gap was a rest day, or the only days still in it
+      // have not closed yet. Nothing was missed, so nothing is spent and
+      // nothing is lost; close the gap by moving the marker forward.
+      //
+      // Never onto a day that is still OPEN. The marker is what the loader
+      // measures the next gap from, so parking it on an unjudged day claims
+      // that day as active: before the cutoff an unfinished yesterday would
+      // be adopted here, and by 10:00 the loader would see a one-day gap,
+      // ask nothing, and forgive a real miss for good. Advancing only as far
+      // as the last SETTLED day leaves that day to be judged when it closes.
+      final lastSettled = settledBefore.subtract(const Duration(days: 1));
+      final marker = lastSettled.isAfter(from) ? lastSettled : from;
       state = state.copyWith(clearPendingStreakGap: true);
       if (_uid == null) {
-        await _saveGuestState(lastActiveDate: yesterday);
+        await _saveGuestState(lastActiveDate: marker);
       } else {
         // BOTH fields, not just the Timestamp. The loader prefers the
         // 'lastActiveDay' string whenever it exists (see
@@ -505,8 +516,8 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         // refresh, re-spending freezes / re-breaking the streak that this
         // write just settled.
         _userRef.set({
-          'lastActiveDate': Timestamp.fromDate(yesterday),
-          'lastActiveDay': yesterday.toDateKey(),
+          'lastActiveDate': Timestamp.fromDate(marker),
+          'lastActiveDay': marker.toDateKey(),
         }, SetOptions(merge: true)).ignore();
       }
       return;
@@ -526,7 +537,14 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // streak-loss branch below, so no freeze is ever burned on a gap it
     // cannot actually close.
     if (state.streak > 0 && state.streakFreezes >= owedDays) {
-      final yesterday = today.subtract(const Duration(days: 1));
+      // The last SETTLED day, for the reason spelled out in the rest-day
+      // branch above. The freezes just paid for the days this gap owed, and
+      // those are only ever closed days now, so stamping a still-open
+      // yesterday would claim a day no freeze covered and no one has
+      // finished: the loader would read a one-day gap after the cutoff and
+      // wave that day through forever.
+      final lastSettled = settledBefore.subtract(const Duration(days: 1));
+      final marker = lastSettled.isAfter(from) ? lastSettled : from;
       final newFreezes = state.streakFreezes - owedDays;
       state = state.copyWith(
         streakFreezes: newFreezes,
@@ -534,16 +552,16 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         clearPendingStreakGap: true,
       );
       if (_uid == null) {
-        await _saveGuestState(lastActiveDate: yesterday);
+        await _saveGuestState(lastActiveDate: marker);
       } else {
         _userRef.set({
           'streakFreezes': newFreezes,
-          'lastActiveDate': Timestamp.fromDate(yesterday),
+          'lastActiveDate': Timestamp.fromDate(marker),
           // Same both-fields rule as the rest-day branch above: leaving the
           // stale 'lastActiveDay' string in place made the loader re-detect
           // this exact gap on the next app resume and drain the remaining
           // freezes (or break the streak) for days already paid for.
-          'lastActiveDay': yesterday.toDateKey(),
+          'lastActiveDay': marker.toDateKey(),
         }, SetOptions(merge: true)).ignore();
       }
       return;

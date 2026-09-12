@@ -156,9 +156,13 @@ test('the day panel names a Grid-only mark instead of calling the day empty', ()
   assert.ok(html.includes('square and the completion disagree'), 'must warn about the mismatch');
 });
 
-test('a pre-cutoff mark is named as such, not as an ordinary backfill', () => {
+test('a mark made before dawn on its OWN date is on time, not a backfill', () => {
   // Hoor's real write: 2026-09-04T23:18:45Z at UTC+3 is 02:18 on 2026-09-05,
-  // its own calendar date but hours before the 10:00 reward-day rollover.
+  // its own calendar date. This used to be shouted about as "the pre-cutoff
+  // case", on the reasoning that the app's reward day was still the 4th
+  // until 10:00. effectiveDay stopped shifting in build 65: the day rolls at
+  // midnight, so 02:18 on the 5th is simply the 5th, and the mark pays in
+  // full. The branch outlived the rule it was describing.
   const html = renderDailyDetail('2026-09-05',
     {
       squareStates: { [WITR]: 'complete' },
@@ -166,8 +170,37 @@ test('a pre-cutoff mark is named as such, not as an ordinary backfill', () => {
     },
     { habitCtx: { [WITR]: { name: 'صلاة الوتر' } }, tzOffsetMinutes: 180 });
   assert.ok(html.includes('02:18'), 'names the wall-clock time it was written');
-  assert.ok(html.includes('pre-cutoff case'), 'says which of the two causes this is');
+  assert.ok(!html.includes('pre-cutoff case'), 'that branch is gone');
+  assert.ok(!html.includes('filled in after the fact'), 'nothing was backfilled');
+  assert.ok(html.includes('still open'), 'says the mark was made in time');
+});
+
+test('a mark made in the grace tail, before 10:00, is still on time', () => {
+  // Aziz's 2026-09-03, last written 2026-09-04T00:19:16Z, which is 03:19 the
+  // next morning at +180 and comfortably inside the day's grace tail. The
+  // old rule compared calendar dates only, so any write dated later than the
+  // day read as "filled in after the fact" and this honest night was
+  // reported as a backfill.
+  const html = renderDailyDetail('2026-09-03',
+    {
+      squareStates: { [GYM]: 'complete' },
+      lastUpdated: new Date('2026-09-04T00:19:16Z'),
+    },
+    { habitCtx: { [GYM]: { name: 'تمرين' } }, tzOffsetMinutes: 180 });
+  assert.ok(html.includes('03:19'));
   assert.ok(!html.includes('filled in after the fact'));
+});
+
+test('a write past the 10:00 close on the next day IS a backfill', () => {
+  // One minute the other side of the same boundary, so the test pins the
+  // close and not merely the date.
+  const html = renderDailyDetail('2026-09-03',
+    {
+      squareStates: { [GYM]: 'complete' },
+      lastUpdated: new Date('2026-09-04T07:01:00Z'), // 10:01 at +180
+    },
+    { habitCtx: { [GYM]: { name: 'تمرين' } }, tzOffsetMinutes: 180 });
+  assert.ok(html.includes('filled in after the fact'));
 });
 
 test('a genuinely backfilled day says so instead of crying bug', () => {
@@ -180,6 +213,29 @@ test('a genuinely backfilled day says so instead of crying bug', () => {
   assert.ok(html.includes('filled in after the fact'));
   assert.ok(html.includes('day-warn calm'), 'a designed behaviour gets the calm banner');
   assert.ok(!html.includes('pre-cutoff case'));
+});
+
+test('the Earned row reads the live ledger, not the dead totals', () => {
+  // Aziz's 2026-09-10 really paid 235 XP and 80 gold. The row printed +0 XP
+  // for it, because totalXpEarned has had no writer since the per-day paid
+  // ledger landed.
+  const html = renderDailyDetail('2026-09-10', {
+    habitPaidXp: { a: 30, b: 40, c: 20, d: 45, e: 60, f: 40 },
+    habitPaidGold: { a: 8, b: 16, c: 8, d: 8, e: 24, f: 16 },
+    dayEarnedXp: 120,
+  }, { habitCtx: {} });
+  assert.ok(html.includes('+235 XP'), 'the real figure, summed from habitPaidXp');
+  assert.ok(html.includes('+80 gold'));
+  // dayEarnedXp is a running grace-window total, not a delta: folding it in
+  // would have printed 355.
+  assert.ok(!html.includes('+355 XP'));
+});
+
+test('a day with no ledger says so rather than asserting a confident zero', () => {
+  const html = renderDailyDetail('2026-07-14',
+    { totalXpEarned: 40, totalGoldEarned: 9 }, { habitCtx: {} });
+  assert.ok(html.includes('no payout ledger'));
+  assert.ok(!html.includes('+40 XP'), 'the dead field must not resurrect');
 });
 
 test('a day with no usable timestamp explains neither cause rather than guessing', () => {

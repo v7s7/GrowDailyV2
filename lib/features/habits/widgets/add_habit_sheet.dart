@@ -146,8 +146,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   /// The «قبل | بعد» answer written into a custom text cue's own words
   /// («قبل العمل», see [_cueWithRelation]). Seeded from the stored cue and
-  /// changed only by a tap on the chips, in either mode, as it always was.
-  /// A reminder's side never writes it: that is [_reminderLean].
+  /// changed only by a tap on custom text's chips, the one mode that draws
+  /// them. A reminder's side never writes it: that is [_reminderLean].
   _CueRelation _cueRelation = _CueRelation.after;
   ReductionType _reductionType = ReductionType.avoid;
   LimitUnit _limitUnit = LimitUnit.minutes;
@@ -348,50 +348,29 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   HabitReminderStack get _reminderStack =>
       HabitReminderStack(primary: _reminderOffset, extras: _extraOffsets);
 
-  /// The side prayer mode's chips fall back to, and the offset sheet leans
-  /// to, when the reminders cannot say: every one on time, or a Premium
-  /// stack on both sides. A tap on the chips sets it along with
-  /// [_cueRelation]; after that [_followReminderSide] keeps it on the side
-  /// the reminders were last on, or the side last chosen in the sheet.
+  /// The side a prayer habit's offset sheet leans to when the reminders
+  /// cannot say: every one on time, or a Premium stack on both sides.
+  /// [_followReminderSide] keeps it on the side the reminders were last on,
+  /// or the side last chosen in the sheet, which is the one place a prayer
+  /// reminder's side is chosen (see [_prayerModeContent]). «بعد» until then.
   ///
   /// Its own field, because [_cueRelation] is saved into a custom text cue.
   /// While the two were one, an edit in the offset sheet rewrote the typed
   /// cue unseen: «العمل» switched to a prayer, its reminder set to 15 before
   /// and switched back saved «قبل العمل» under a field reading «العمل», and
   /// «قبل العمل» with 15 after saved «العمل». A prayer habit whose reminders
-  /// are all before also reopened with قبل lit in custom text.
+  /// are all before also reopened with قبل lit in custom text. For the same
+  /// reason a tap on custom text's chips does not write this: the «قبل» in
+  /// «قبل العمل» is not the side of a prayer's reminder.
   _CueRelation _reminderLean = _CueRelation.after;
 
-  /// Whether the main step's chip for [relation] is lit.
-  ///
-  /// In prayer mode the chips are the reminders' side, not a second answer
-  /// beside it: they light where the shifts are, both at once for a Premium
-  /// stack with one on each side. Only reminders with no side at all (every
-  /// one on time) light from [_reminderLean], which is the side they were
-  /// last on or the chip tapped since (see [_followReminderSide]). Custom
-  /// text has no reminders, so there the chips are the relation typed into
-  /// the cue, [_cueRelation], as they always were.
-  ///
-  /// Before a prayer is picked no reminder row is on screen, so the chips
-  /// read [_reminderLean] alone: a clock habit switched to «وقت الصلاة» must
-  /// not light, or be moved by, reminders the person cannot see.
-  bool _relationLit(_CueRelation relation) {
-    if (_timingMode != _TimingMode.prayer) return _cueRelation == relation;
-    if (_selectedPrayer == null) return _reminderLean == relation;
-    return switch (_reminderStack.side) {
-      HabitReminderSide.both => true,
-      HabitReminderSide.before => relation == _CueRelation.before,
-      HabitReminderSide.after => relation == _CueRelation.after,
-      HabitReminderSide.none => _reminderLean == relation,
-    };
-  }
-
   /// The side the offset sheet opens on for a reminder with no side of its
-  /// own (on time, or being added): the main step's side in prayer mode, so
-  /// «بعد» lit there is «بعد» lit in the sheet and one tap on 15 saves 15
-  /// after. A clock time has no chips to agree with and keeps opening on
-  /// «قبل». A Premium stack on both sides leans to [_reminderLean]: the side
-  /// last chosen in the sheet, or the one the reminders were on before.
+  /// own (on time, or being added). In prayer mode that is the side the
+  /// other reminders are on, so one added beside 15 before Fajr opens on
+  /// «قبل». With no single side to follow (all on time, or a Premium stack
+  /// on both sides) it is [_reminderLean], which on a habit that has had no
+  /// side yet is «بعد»: one tap on 15 saves 15 after. A clock time keeps
+  /// opening on «قبل».
   bool get _sheetLeanAfter =>
       _timingMode == _TimingMode.prayer &&
       switch (_reminderStack.side) {
@@ -418,16 +397,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   String? _offsetNotice;
   Timer? _offsetNoticeTimer;
 
-  /// Whether [_offsetNotice] is drawn under the main step's «قبل | بعد»
-  /// chips instead of under the reminder list. The both-sides refusal is
-  /// about the chip that was just tapped, so it shows where the finger is.
-  bool _offsetNoticeAtRelation = false;
-
-  void _showOffsetNotice(String message, {bool atRelation = false}) {
-    setState(() {
-      _offsetNotice = message;
-      _offsetNoticeAtRelation = atRelation;
-    });
+  void _showOffsetNotice(String message) {
+    setState(() => _offsetNotice = message);
     _offsetNoticeTimer?.cancel();
     // Roughly a SnackBar's dwell, then cleared, so the section doesn't keep a
     // permanent scolding line under it.
@@ -504,9 +475,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _cueRelation = _startsWithBefore(storedCue)
           ? _CueRelation.before
           : _CueRelation.after;
-      // The chips showed this one answer in every mode, so prayer mode starts
-      // from it too; «قبل العمل» switched to a prayer still opens on قبل.
-      _reminderLean = _cueRelation;
       final parsed = HabitCue.fromStoredValue(storedCue);
       final storedTimes = parsed.clockTimes;
       if (storedTimes.isNotEmpty) {
@@ -535,12 +503,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       final storedOffset = existing.reminderOffsetMinutes;
       _reminderOffset = storedOffset;
       _extraOffsets = {...existing.extraReminderOffsets}..remove(storedOffset);
-      // A prayer cue is stored as the bare key, so its «قبل | بعد» can only
-      // come from the reminders' signs. It used to reopen on بعد every time,
-      // which put صلاة التهجد (45 before Fajr) under a lit «بعد». Reminders
-      // on both sides light both chips without this, and all on time keeps
-      // the default. The helper does nothing outside prayer mode, and writes
-      // only [_reminderLean]: custom text still reopens on the stored words.
+      // A prayer cue is stored as the bare key, so the side its offset sheet
+      // leans to can only come from the reminders' signs: صلاة التهجد, 45
+      // before Fajr, set back on time still opens its sheet on «قبل». All on
+      // time, or a stack on both sides, keeps the default. The helper does
+      // nothing outside prayer mode, and writes only [_reminderLean]: custom
+      // text still reopens on the stored words.
       _followReminderSide();
       _ignoreQuietHours = existing.ignoreQuietHours;
       _alarm = existing.alarm;
@@ -2462,8 +2430,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     HapticFeedback.selectionClick();
     setState(() {
       _timingMode = mode;
-      // The reminders carry over from a clock time, so the side the chips
-      // fall back to comes with them (see _followReminderSide).
+      // The reminders carry over from a clock time, so the side the offset
+      // sheet leans to comes with them (see _followReminderSide).
       _followReminderSide();
     });
   }
@@ -2773,14 +2741,18 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return HabitCue.time(m ~/ 60, m % 60).labelForLocale(s.isAr);
   }
 
+  /// The prayers, then the picked prayer's reminder rows.
+  ///
+  /// No «قبل | بعد» pair above the prayers. One stood here, first saving
+  /// nothing for a prayer habit and then (395968d) standing for the
+  /// reminders' side, while the offset sheet every row opens asked the same
+  /// question again, so Aziz had it taken off this step (2026-09-12). A
+  /// prayer reminder's side is chosen in that sheet and read back on its
+  /// row, «قبل الفجر بـ15 دقيقة». Custom text keeps its pair: there it writes
+  /// the typed words, and nothing else asks.
   Widget _prayerModeContent(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _relationToggle(s),
-          // The both-sides refusal, drawn under the chips it refused.
-          if (_offsetNotice != null && _offsetNoticeAtRelation)
-            _offsetNoticeLine(_offsetNotice!),
-          const SizedBox(height: 12),
           _SectionLabel(s.pickAPrayer),
           const SizedBox(height: 8),
           Row(
@@ -2793,7 +2765,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     label: HabitCue.preset(key).labelFor(context),
                     onTap: () {
                       HapticFeedback.selectionClick();
-                      setState(() => _pickPrayer(key));
+                      setState(() => _selectedPrayer = key);
                       _ensureLocationForPrayerCue();
                     },
                   ),
@@ -2846,16 +2818,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
         _addReminderRow(s, locked: gate.locked, full: !gate.allowed),
         _reminderLocationNotice(s),
-        if (_offsetNotice != null && !_offsetNoticeAtRelation)
-          _offsetNoticeLine(_offsetNotice!),
+        if (_offsetNotice != null) _offsetNoticeLine(_offsetNotice!),
         if (_goalType == GoalType.build) _reminderStyleRow(s),
         _quietHoursWarning(s),
       ],
     );
   }
 
-  /// [_offsetNotice] as a line: under the reminder list for a refused tap
-  /// there, or under the main step's chips for the both-sides refusal.
+  /// [_offsetNotice] as a line under the reminder list, for a tap there
+  /// that was refused.
   Widget _offsetNoticeLine(String message) => Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Row(
@@ -3070,23 +3041,23 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         : TimeOfDay(hour: anchor.hour, minute: anchor.minute);
   }
 
-  /// Keeps the chip the main step falls back to in step with the reminders.
+  /// Keeps the side the offset sheet leans to in step with the reminders.
   /// Called after every change to them (edit, add, ×) and on entering prayer
   /// mode, inside the caller's setState.
   ///
-  /// While the reminders sit on one side, [_reminderLean] is that side. So
-  /// once they are all back on time, which lights from [_reminderLean], the
-  /// chips stay where they were. It used to follow only the value the sheet
-  /// returned, and a × removal was not one: on «ذكر», 10 before and 30
-  /// after, × on the after row left بعد stored under a lit قبل, and setting
-  /// the one left on time then jumped the chips to بعد with nothing tapped.
-  /// A clock habit switched to a prayer carried the same stale answer in.
+  /// While the reminders sit on one side, [_reminderLean] is that side, so
+  /// once they are all back on time the next sheet still opens where they
+  /// were. Following only the value the sheet returns would miss a ×, which
+  /// returns none: on «ذكر», 10 before and 30 after, × on the after row and
+  /// then the one left set on time would open the next sheet on بعد with
+  /// nothing chosen. A clock habit switched to a prayer would carry the same
+  /// stale side in.
   ///
-  /// On both sides the chips are both lit and cannot say which one is meant,
-  /// so [chosen], the value the sheet just returned, picks the side the next
-  /// sheet leans to. Prayer mode only, since a clock time has no chips. It
-  /// never writes [_cueRelation]: a reminder's side is not the «قبل» in a
-  /// typed cue's words.
+  /// On both sides the reminders cannot say which side is meant, so
+  /// [chosen], the value the sheet just returned, picks the side the next
+  /// sheet leans to. Prayer mode only, since a clock time's sheet always
+  /// opens on «قبل». It never writes [_cueRelation]: a reminder's side is
+  /// not the «قبل» in a typed cue's words.
   void _followReminderSide({int chosen = 0}) {
     if (_timingMode != _TimingMode.prayer) return;
     switch (_reminderStack.side) {
@@ -3401,6 +3372,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       return const SizedBox.shrink();
     }
     if (!settings.quietHoursEnabled) return const SizedBox.shrink();
+    // An alarm is the person asking to be woken, and the scheduler lets it
+    // through quiet hours (see NotificationService's exemption), so telling
+    // them it will be silenced would be untrue.
+    if (_alarm) return const SizedBox.shrink();
     if (_timingMode == _TimingMode.prayer &&
         !settings.quietHoursAppliesToPrayer) {
       return const SizedBox.shrink();
@@ -3492,17 +3467,17 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         ],
       );
 
-  /// The «قبل | بعد» pair on the main step, قبل first. A Row's first child
-  /// lays out on the start side, so in Arabic قبل sits on the right, where
-  /// the offset sheet and the Tasks picker already put it (Aziz, 2026-09-11:
-  /// "In arabic قبل should be first and on right"). Lit from [_relationLit],
-  /// so in prayer mode the pair shows the side the reminders are on.
+  /// Custom text's «قبل | بعد» pair, قبل first. A Row's first child lays out
+  /// on the start side, so in Arabic قبل sits on the right, where the offset
+  /// sheet and the Tasks picker already put it (Aziz, 2026-09-11: "In arabic
+  /// قبل should be first and on right"). Prayer mode draws no pair (see
+  /// [_prayerModeContent]).
   Widget _relationToggle(S s) => Row(
         children: [
           Expanded(
             child: _SmallPick(
               label: s.cueBeforeOption,
-              selected: _relationLit(_CueRelation.before),
+              selected: _cueRelation == _CueRelation.before,
               onTap: () => _setCueRelation(_CueRelation.before),
             ),
           ),
@@ -3510,7 +3485,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           Expanded(
             child: _SmallPick(
               label: s.cueAfterOption,
-              selected: _relationLit(_CueRelation.after),
+              selected: _cueRelation == _CueRelation.after,
               onTap: () => _setCueRelation(_CueRelation.after),
             ),
           ),
@@ -3868,96 +3843,23 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return S.of(context).isAr ? 'قبل $trimmed' : 'Before $trimmed';
   }
 
-  /// «قبل» or «بعد» tapped on the main step.
+  /// «قبل» or «بعد» tapped in custom text mode, the one mode that draws the
+  /// pair.
   ///
-  /// In prayer mode the pair is the reminders' side, so a tap on the other
-  /// side moves every reminder that has a shift over to it by the same amount
-  /// (HabitReminderStack.mirrored), and the rows' times follow at once. With
-  /// reminders on both sides (Premium) one chip cannot mean both, so the tap
-  /// changes nothing and says where each one is changed instead. A tap on
-  /// the side already lit moves nothing. With every reminder on time there
-  /// is no side to move: the tapped chip is kept, and it is the side the
-  /// offset sheet then opens on. Until one is tapped, the chips show the
-  /// side the reminders were last on (see [_followReminderSide]).
-  ///
-  /// It used to set a value nothing read: a prayer cue is saved as the bare
-  /// key and the scheduler reads only the signed shifts, so «قبل» here was
-  /// forgotten on save while the sheet's own «قبل | بعد» decided everything.
-  ///
-  /// A tap, in either mode, still sets [_cueRelation] and [_reminderLean]
-  /// together, so a chip tapped in one mode is lit in the other, as the one
-  /// shared answer always was. Only the reminders' side is kept out of the
-  /// typed cue.
-  ///
-  /// Only once a prayer is picked, though. Until then the rows are not drawn,
-  /// so a tap moves nothing and refuses nothing: it only sets the side, as it
-  /// does for reminders that are all on time, and the rows open on that side
-  /// when a prayer is picked (see [_pickPrayer]). Without this, a clock habit
-  /// with a reminder 15 before, switched to «وقت الصلاة» and tapped بعد with
-  /// no prayer picked, went back to «وقت مخصص» reading 15 after.
+  /// It writes the typed cue's relation and nothing else. Prayer mode drew
+  /// this pair too, as its reminders' side, until the offset sheet became
+  /// the one place that side is chosen (see [_prayerModeContent]), and
+  /// [_reminderLean] follows the reminders alone.
   void _setCueRelation(_CueRelation relation) {
-    if (_timingMode == _TimingMode.prayer && _selectedPrayer != null) {
-      if (_reminderStack.side == HabitReminderSide.both) {
-        HapticFeedback.lightImpact();
-        _showOffsetNotice(
-          S.of(context).habitReminderBothSides,
-          atRelation: true,
-        );
-        return;
-      }
-      HapticFeedback.selectionClick();
-      setState(() {
-        _cueRelation = relation;
-        _reminderLean = relation;
-        _moveRemindersTo(relation);
-      });
-      return;
-    }
     HapticFeedback.selectionClick();
     setState(() {
       _cueRelation = relation;
-      _reminderLean = relation;
       // Custom Text keeps the relation in the cue's own words, so its live
       // field is rewritten to match.
       if (_timingMode == _TimingMode.text && _cueCtrl.text.trim().isNotEmpty) {
         _cueCtrl.text = _cueWithRelation(_cueCtrl.text);
       }
     });
-  }
-
-  /// A prayer pill tapped, inside the caller's setState.
-  ///
-  /// The first pick is when the reminder rows appear, and they open on the
-  /// side the chips above already show. The chips come first on the screen,
-  /// so «بعد» then «الفجر» is the natural order, and on a clock habit with a
-  /// reminder 15 before it now reads «بعد الفجر بـ15 دقيقة» under a lit بعد.
-  /// Before, with the chip tap held back until a prayer is picked, the rows
-  /// came back «قبل» and put out the chip that was just tapped. Nothing
-  /// tapped means nothing moves: entering prayer mode set [_reminderLean] to
-  /// the reminders' own side (see [_followReminderSide]).
-  ///
-  /// A later pick, from one prayer to another, keeps the rows as they are,
-  /// and a stack on both sides is never moved: both chips light and the rows
-  /// say which is which.
-  void _pickPrayer(String key) {
-    if (_selectedPrayer == null) _moveRemindersTo(_reminderLean);
-    _selectedPrayer = key;
-  }
-
-  /// Mirrors the reminders onto [relation]'s side when they all sit on the
-  /// other one, keeping each amount. Reminders on time, already on that side,
-  /// or on both sides stay as they are. Inside the caller's setState.
-  void _moveRemindersTo(_CueRelation relation) {
-    final stack = _reminderStack;
-    final moves = switch (stack.side) {
-      HabitReminderSide.before => relation == _CueRelation.after,
-      HabitReminderSide.after => relation == _CueRelation.before,
-      HabitReminderSide.none || HabitReminderSide.both => false,
-    };
-    if (!moves) return;
-    final next = stack.mirrored();
-    _reminderOffset = next.primary;
-    _extraOffsets = next.extras;
   }
 
   List<(int, String)> _weekdays(BuildContext context) {

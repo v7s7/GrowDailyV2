@@ -8,7 +8,16 @@
  * home page) - kept in one module so the two never drift into showing
  * different things for the same account. Nothing in this file touches
  * Firestore/Auth directly; it only turns already-fetched data into HTML.
+ *
+ * Every rule about what a day MEANS lives in ./day_rules, ported from the
+ * Dart: which square is green, what a جزئي is worth, when a day closes,
+ * whether a counted habit is finished, which days a weekly quota owed, and
+ * what a room actually stored. This file decides how to draw those answers
+ * and must never compute one of its own, because each time it did it drifted
+ * from the phone in a different direction.
  */
+
+const DayRules = require('./day_rules');
 
 // Friendlier section titles for the subcollections known to exist today
 // (see firestore.rules' top-of-file doc comment for the canonical map).
@@ -137,7 +146,10 @@ function toJsDate(value) {
 // Day tab showed an empty board for a day they had not reached yet and
 // scored yesterday's real work as missed. Anything comparing this constant
 // against the app must read the Dart file, not this line's history.
-const DAY_CUTOFF_HOUR = 10;
+//
+// Re-exported from ./day_rules rather than declared a second time: two
+// copies of one constant in one tool is how the first drift started.
+const DAY_CUTOFF_HOUR = DayRules.DAY_CUTOFF_HOUR;
 
 // Same computation as DateTime.now().effectiveDay, ported to plain JS.
 //
@@ -380,18 +392,17 @@ function dayKeyParts(key) {
   return { year: y, month: m, day: d, weekday, key };
 }
 
-// 0 (nothing done) to 4 (fully done) for one day's real completion ratio -
-// the same graduated heat-tier idea as heatmapLevelFor (rooms_notifier.dart,
-// the app's own Rooms feature) and heatLevel (monthly_heatmap_screen.dart,
-// the app's own Grid heatmap): a day with SOME but not all scheduled habits
-// done reads visibly lighter than a fully perfect one, never identical
-// all-or-nothing shading. `scheduled` of 0 (a day nothing was actually due,
-// or an account with no habits yet at all) reads as level 0, not a false
-// "full" - there's nothing here to call complete either way.
+// 0 (nothing done) to 4 (fully done) for one day's real completion ratio,
+// delegating to the app's OWN tiers (DayRules.heatLevel, ported from
+// monthly_heatmap_screen.dart). `scheduled` of 0 reads as level 0, not a
+// false "full" - there's nothing here to call complete either way.
+//
+// This used to be its own `ceil(ratio * 4)`, which is not the app's rule and
+// is not even the same SHAPE of rule: it put everything from 0.76 upward on
+// the top tier, so Aziz's 2026-09-10 at 7 of 9 was painted exactly like a
+// spotless day while his phone drew it two tiers lighter.
 function dayHeatLevel(done, scheduled) {
-  if (scheduled <= 0 || done <= 0) return 0;
-  const ratio = Math.min(1, done / scheduled);
-  return Math.min(4, Math.max(1, Math.ceil(ratio * 4)));
+  return DayRules.heatLevel(done, scheduled);
 }
 
 
@@ -609,11 +620,30 @@ function summarizeHabitDay(dayData, scheduledIds, receiptsByKey, dayKey) {
  * one function and every surface reads it rather than each writing its own
  * sentence about the same pair of flags.
  */
-function ledgerTag(row) {
-  if (row.rewarded && row.roomCounts) return { where: 'Room and XP', cls: 'w-both' };
-  if (row.roomCounts) return { where: 'Room only', cls: 'w-room' };
-  if (row.rewarded) return { where: 'XP only', cls: 'w-xp' };
-  return { where: 'Neither', cls: 'w-none' };
+function ledgerTag(row, rooms) {
+  // [rooms] is the rooms that actually LINK this habit on this day, each
+  // already carrying that room's own stored numbers for the date (see
+  // DayRules.roomCountsHabitOn and roomDayCounts). Undefined means the
+  // caller has no room context, and the old square-only answer stands.
+  //
+  // Without it this column was guessing from the square alone, and got both
+  // directions wrong on real accounts: Hoor's المشي 10 دقائق on 2026-09-05
+  // was tagged "Room only" though not one room links that habit, and Aziz's
+  // جزئي تمرين on 2026-09-03 was tagged "Neither" though ELQVF8 stored it
+  // as a partial and scored the day 0.75.
+  if (rooms === undefined) {
+    if (row.rewarded && row.roomCounts) return { where: 'Room and XP', cls: 'w-both' };
+    if (row.roomCounts) return { where: 'Room only', cls: 'w-room' };
+    if (row.rewarded) return { where: 'XP only', cls: 'w-xp' };
+    return { where: 'Neither', cls: 'w-none' };
+  }
+  const named = rooms.map((r) => `${r.code} ${r.stored}`).join(', ');
+  if (rooms.length && row.rewarded) {
+    return { where: `XP, and ${named}`, cls: 'w-both' };
+  }
+  if (rooms.length) return { where: named, cls: 'w-room' };
+  if (row.rewarded) return { where: 'XP only, no room links it', cls: 'w-xp' };
+  return { where: 'No room links it', cls: 'w-none' };
 }
 
 // Printed once per day card and once per calendar day panel. Says what the
@@ -665,7 +695,7 @@ function renderDayTally({ scheduled, paid, roomCounted, why, calm }) {
  * tool has never shown at all.
  */
 function renderRecordLedger(rows, opts) {
-  const { habitCtx, mirrorFor, notesFor } = opts || {};
+  const { habitCtx, mirrorFor, notesFor, roomsFor } = opts || {};
   if (!rows.length) return '<p class="muted">Nothing recorded on this day.</p>';
 
   const cell = (value, cls) => value === null || value === undefined || value === ''
@@ -673,7 +703,7 @@ function renderRecordLedger(rows, opts) {
     : `<td class="${cls}"><span class="lg-val">${value}</span></td>`;
 
   const body = rows.map((r) => {
-    const tag = ledgerTag(r);
+    const tag = ledgerTag(r, roomsFor ? roomsFor(r.habitId) : undefined);
     const disagrees = r.rewarded !== r.roomCounts;
     const meta = SQUARE_META[r.square] || SQUARE_META.none;
     const label = habitLabelParts(r.habitId, habitCtx, r.receipt && r.receipt.category);
@@ -757,8 +787,20 @@ const CAL_WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // instead of by year.
 function renderCalendarSection(dailyDocs, habitDocs, habitCtx, todayKey, receiptsByKey, tzOffsetMinutes) {
   const byKey = new Map();
-  for (const doc of dailyDocs) byKey.set(doc.id, doc.data());
+  // The document's creation time, which is what says whether a day was
+  // OPENED on time even if a later write reopened it. See dayWriteContext.
+  const createdByKey = new Map();
+  for (const doc of dailyDocs) {
+    byKey.set(doc.id, doc.data());
+    if (doc.createTime) createdByKey.set(doc.id, doc.createTime);
+  }
   const receipts = receiptsByKey || {};
+  // Scored the way the app scores a day, so a calendar cell cannot disagree
+  // with the phone: deleted habits leave both sides, a quota's spare day is
+  // not a miss, a counted habit is done only at its target, and a جزئي is
+  // half. See DayRules.scoreDay.
+  const allHabits = (habitDocs || []).map((h) => ({ id: h.id, data: h.data() }));
+  const nowLocalMs = DayRules.localNowMs(Date.now(), tzOffsetMinutes);
 
   const monthKeys = new Set();
   for (const doc of dailyDocs) monthKeys.add(doc.id.slice(0, 7));
@@ -786,12 +828,21 @@ function renderCalendarSection(dailyDocs, habitDocs, habitCtx, todayKey, receipt
       let gridOnly = 0;
       let undone = 0;
       let moodMeta = null;
+      let credit = 0;
       if (data) {
         const parts = dayKeyParts(key);
         const scheduledIds = habitDocs
           .filter((h) => habitScheduledOnParts(h.data(), parts))
           .map((h) => h.id);
-        scheduled = scheduledIds.length;
+        // owed and credit, not "every habit alive" over "every green square".
+        // The old pair counted a deleted habit's square in the numerator and
+        // a quota's spare day in the denominator, so Aziz's 2026-09-01 read
+        // 2 of 5 where his phone read 1 of 5.
+        const score = DayRules.scoreDay({
+          habits: allHabits, dayData: data, dayKey: key, nowLocalMs, todayKey,
+        });
+        credit = score.credit;
+        scheduled = score.owed;
         // greens, not the reward-backed count: a day whose square was
         // painted outside the reward window has no completion at all, and
         // shading it as an empty day is precisely how a marked day became
@@ -805,7 +856,7 @@ function renderCalendarSection(dailyDocs, habitDocs, habitCtx, todayKey, receipt
         monthGridOnly += gridOnly;
         monthUndone += undone;
       }
-      const level = dayHeatLevel(greens, scheduled);
+      const level = dayHeatLevel(credit, scheduled);
       const isToday = key === todayKey;
       if (data) {
         detailPanels.push(`<div class="day-detail" data-date="${key}" hidden>
@@ -813,7 +864,7 @@ function renderCalendarSection(dailyDocs, habitDocs, habitCtx, todayKey, receipt
             <strong>${escapeHtml(fmtDate(new Date(Date.UTC(yy, mm - 1, day))) || key)}</strong>
             <span class="muted">${key}</span>
           </div>
-          ${renderDailyDetail(key, data, { habitCtx, receiptsByKey: receipts, tzOffsetMinutes })}
+          ${renderDailyDetail(key, data, { habitCtx, receiptsByKey: receipts, tzOffsetMinutes, createdAt: createdByKey.get(key) })}
         </div>`);
       }
       const flags = [
@@ -826,7 +877,7 @@ function renderCalendarSection(dailyDocs, habitDocs, habitCtx, todayKey, receipt
           <span class="cal-day-num">${day}</span>
           ${moodMeta ? `<span class="cal-mood">${moodMeta.emoji}</span>` : ''}
           ${flags}
-          ${scheduled > 0 ? `<span class="cal-ratio">${greens}/${scheduled}</span>` : ''}
+          ${scheduled > 0 ? `<span class="cal-ratio">${Math.round(credit * 100) / 100}/${scheduled}</span>` : ''}
         </button>
       `);
     }
@@ -981,7 +1032,7 @@ function detailRow(label, valueHtml) {
 // would show them, instead of a flat A-Z field dump. [data.iconColorHex],
 // when the user picked one, renders as a real color swatch - the same
 // per-habit color the app itself paints, not a generic admin-tool color.
-function renderHabitDetail(data) {
+function renderHabitDetail(data, ctx) {
   const cat = CATEGORY_META[data.category] || { emoji: '⭐', label: data.category || 'Custom' };
   const freq = data.frequencyType === 'weekly'
     ? `${data.frequencyTarget || 1}× per week`
@@ -1005,7 +1056,7 @@ function renderHabitDetail(data) {
     detailRow('Goal', escapeHtml(goal)),
     data.cueAfter ? detailRow('Cue', `After ${escapeHtml(data.cueAfter)}`) : '',
     data.hasTimer ? detailRow('Timer', `${Math.round((data.timerDurationSeconds || 0) / 60)} min`) : '',
-    detailRow('Rewards', `+${data.xpReward ?? 0} XP · +${data.goldReward ?? 0} gold per completion`),
+    renderRewardRow(data, ctx && ctx.boostedRooms),
     detailRow('Created', fmtDate(data.createdAt) || '<span class="muted">not recorded</span>'),
     data.archivedAt ? detailRow('Archived', fmtDate(data.archivedAt)) : '',
   ].join('');
@@ -1060,45 +1111,148 @@ function renderTaskDetail(data) {
 // Screen itself does at render time; a habit id with no match (deleted
 // since, or never existed) just falls back to showing the bare id.
 /**
- * When this day document was last written, in the ACCOUNT's own wall clock,
- * and what that says about a Grid-only mark on it.
+ * When this day document was written, in the ACCOUNT's own wall clock, and
+ * whether that was in time.
  *
- * A green square with no completion behind it has two very different
- * causes, and they need different words:
+ * ── There is only ONE cause now, and it is not the one this used to name ──
  *
- *   backfilled  the day was coloured in later, from an older week. Earning
- *               nothing is the DESIGNED behaviour there - see
- *               WeeklyGridNotifier.setSquare's anti-backdating comment. Not
- *               a bug, just worth knowing the Room counts it.
- *   pre-cutoff  the square was painted on its own calendar date but before
- *               DAY_CUTOFF_HOUR, when the app's reward day was still
- *               yesterday. The person tapped the square under the gold
- *               "today" ring and got a rewardless one. That IS the trap.
+ * This function had two branches, and the loud one has been dead since build
+ * 65. It called a square "pre-cutoff" whenever the day was written on its own
+ * calendar date before 10:00, on the reasoning that the app's REWARD day was
+ * still yesterday until the cutoff, so the square under the gold ring paid
+ * nothing. effectiveDay no longer shifts (datetime_ext.dart: the day rolls at
+ * midnight, and the previous day merely stays OPEN until kDayCutoffHour), so
+ * a square painted at 02:18 on its own date is simply on time and pays in
+ * full. The branch survived anyway and shouted "that IS the trap" at three
+ * perfectly ordinary nights: Hoor's 2026-09-05, created 02:18 that morning,
+ * and Aziz's 2026-09-03 and 2026-09-05, last written 03:19 and 02:43 the
+ * NEXT morning, both comfortably inside the grace tail.
  *
- * Inferred from lastUpdated, which is the day's LAST write and not
- * necessarily the mark's own, so it is reported as "last written", never as
- * "marked at". Null when the day carries no usable timestamp.
+ * So the only question left is the one the app itself asks
+ * (roomDayMarkedWhileOpen): did the write land before the day CLOSED, which
+ * is DAY_CUTOFF_HOUR the following morning?
+ *
+ *   onTime      written while the day was still open. Every mark on it was
+ *               made in time and paid in full. Nothing to explain.
+ *   backfilled  written after the close, so the day was coloured in later.
+ *               Earning nothing is the DESIGNED behaviour there - see
+ *               setSquare's anti-backdating branch - and it is worth knowing
+ *               a Room grades off the square regardless.
+ *
+ * [createdAt] is the document's Firestore createTime, which says when the day
+ * was FIRST opened. lastUpdated is the LAST write and not necessarily the
+ * mark's own, so a day first written on time and touched again next week
+ * reads as backfilled here; the creation time is what lets the page say the
+ * day was opened on time rather than implying the whole day was invented
+ * afterwards. Null when the day carries no usable timestamp.
  */
-function dayWriteContext(data, tzOffsetMinutes) {
+function dayWriteContext(data, tzOffsetMinutes, createdAt) {
   const at = toJsDate(data && data.lastUpdated);
   if (!at) return null;
-  const localMs = typeof tzOffsetMinutes === 'number'
-    ? at.getTime() + tzOffsetMinutes * 60000
-    : at.getTime() - at.getTimezoneOffset() * 60000;
-  const d = new Date(localMs);
-  const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-  const hour = d.getUTCHours();
-  const clock = `${String(hour).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
-  return { key, hour, clock };
+  const local = (d) => {
+    const ms = typeof tzOffsetMinutes === 'number'
+      ? d.getTime() + tzOffsetMinutes * 60000
+      : d.getTime() - d.getTimezoneOffset() * 60000;
+    const x = new Date(ms);
+    return {
+      ms,
+      key: `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, '0')}-${String(x.getUTCDate()).padStart(2, '0')}`,
+      hour: x.getUTCHours(),
+      clock: `${String(x.getUTCHours()).padStart(2, '0')}:${String(x.getUTCMinutes()).padStart(2, '0')}`,
+    };
+  };
+  const w = local(at);
+  const made = toJsDate(createdAt);
+  const c = made ? local(made) : null;
+  return {
+    key: w.key,
+    hour: w.hour,
+    clock: w.clock,
+    localMs: w.ms,
+    createdKey: c ? c.key : null,
+    createdClock: c ? c.clock : null,
+    createdLocalMs: c ? c.ms : null,
+  };
+}
+
+/**
+ * Whether [write] landed after [dayKey] had closed, i.e. after
+ * DAY_CUTOFF_HOUR the next morning. The one test that separates a genuine
+ * backfill from an ordinary late night. See dayWriteContext.
+ */
+function writtenAfterClose(write, dayKey) {
+  return !!write && write.localMs >= DayRules.closesAtLocalMs(dayKey);
+}
+
+/**
+ * What the day actually paid, as a detail row.
+ *
+ * This read `totalXpEarned` / `totalGoldEarned`, which are DEAD fields:
+ * daily_log_model.dart still declares them and nothing in the app has
+ * written either since the per-day paid ledger landed, so the row printed
+ * "+0 XP - +0 gold" on every recent day. Aziz's 2026-09-10 really paid 235
+ * XP and 80 gold.
+ *
+ * [boostedRooms] optionally names the rooms whose 2x boost was in force on
+ * this day, so a doubled payout reads as the boost rather than as a puzzle.
+ * The figure itself is always the STORED one: the daily cap and the level
+ * curve both move a payout, so nothing here re-derives what a completion
+ * "should" have paid.
+ */
+function renderEarnedRow(data, boostedRooms) {
+  const paid = DayRules.dayPayout(data);
+  if (!paid.hasLedger) {
+    // A day written before the ledger existed. Saying "+0" about it is a
+    // claim; saying nothing was recorded is the fact.
+    return detailRow('Earned', '<span class="muted">no payout ledger on this '
+      + 'day (written before the per-day ledger existed)</span>');
+  }
+  // Worded as "includes", not "this was doubled": a day usually pays for
+  // some habits that are linked in a room and some that are not, so a flat
+  // "2x while linked in ..." beside the TOTAL claims more than it knows.
+  const boost = boostedRooms && boostedRooms.length
+    ? ` <span class="muted">(includes a 2x room boost, on the habits linked in ${escapeHtml(boostedRooms.join(', '))})</span>`
+    : '';
+  const grace = paid.graceXp
+    ? ` <span class="muted">&middot; ${escapeHtml(String(paid.graceXp))} XP of it inside the grace window</span>`
+    : '';
+  return detailRow('Earned',
+    `+${escapeHtml(String(paid.xp))} XP &middot; +${escapeHtml(String(paid.gold))} gold${boost}${grace}`);
+}
+
+/**
+ * What one completion of this habit pays, which is NOT always the number on
+ * the habit document.
+ *
+ * xpReward/goldReward are the BASE, and roomBoostedReward doubles both while
+ * the habit is linked in a running room (rooms_notifier.dart). This card
+ * printed the base flatly, so Aziz's صلاة الوتر read "+20 XP - +8 gold per
+ * completion" on days ELQVF8 actually paid it 40 and 16.
+ *
+ * The boost is NAMED rather than multiplied out: the daily cap and the level
+ * curve both move a real payout, so the only honest figure for a given day is
+ * the one in that day's ledger (see renderEarnedRow), and a card about the
+ * habit in general should not pretend to predict it.
+ */
+function renderRewardRow(data, boostedRooms) {
+  const base = `+${escapeHtml(String(data.xpReward ?? 0))} XP &middot; `
+    + `+${escapeHtml(String(data.goldReward ?? 0))} gold per completion`;
+  const boost = boostedRooms && boostedRooms.length
+    ? ` <span class="muted">(doubled to +${escapeHtml(String((data.xpReward ?? 0) * 2))} XP `
+      + `&middot; +${escapeHtml(String((data.goldReward ?? 0) * 2))} gold while linked in `
+      + `${escapeHtml(boostedRooms.join(', '))}, before the daily cap)</span>`
+    : '';
+  return detailRow('Rewards', `${base}${boost}`);
 }
 
 function renderDailyDetail(id, data, ctx) {
   const habitCtx = (ctx && ctx.habitCtx) || {};
   const receipts = (ctx && ctx.receiptsByKey) || {};
-  const write = dayWriteContext(data, ctx && ctx.tzOffsetMinutes);
-  // Painted on its own date, before the reward day had rolled over to it.
-  const preCutoff = !!write && write.key === id && write.hour < DAY_CUTOFF_HOUR;
-  const backfilled = !!write && write.key > id;
+  const write = dayWriteContext(data, ctx && ctx.tzOffsetMinutes, ctx && ctx.createdAt);
+  // Written after the day CLOSED, which is the cutoff the next morning, not
+  // merely on a later calendar date. See dayWriteContext for the "pre-cutoff"
+  // branch that used to sit here and had been dead since build 65.
+  const backfilled = writtenAfterClose(write, id);
   const mood = data.mood ? MOOD_META[data.mood] : null;
 
   // Every habit that left ANY trace, not just the ones with a completion.
@@ -1120,20 +1274,23 @@ function renderDailyDetail(id, data, ctx) {
     sum.gridOnly ? `${sum.gridOnly === 1 ? 'One habit is' : `${sum.gridOnly} habits are`} green with no completion written` : '',
     sum.undone ? `${sum.undone} ${sum.undone === 1 ? 'was' : 'were'} completed and then un-marked` : '',
   ].filter(Boolean).join(', and ');
-  const cause = preCutoff && sum.gridOnly > 0
-    ? ` Marked at ${escapeHtml(write.clock)}. This is the pre-cutoff case, a square tapped before the reward day rolled over, not an ordinary backfill.`
-    : backfilled && sum.gridOnly > 0
-      ? ` Last written on ${escapeHtml(write.key)}, so this day was filled in after the fact. A backfilled square never pays, by design.`
-      : '';
+  const openedOnTime = !!write && write.createdLocalMs !== null &&
+    write.createdLocalMs < DayRules.closesAtLocalMs(id);
+  const cause = !write || sum.gridOnly === 0 ? ''
+    : backfilled
+      ? ` Last written ${escapeHtml(write.clock)} on ${escapeHtml(write.key)}, after this day closed at ${DAY_CUTOFF_HOUR}:00 on ${escapeHtml(DayRules.shiftKey(id, 1))}, so it was filled in after the fact. A backfilled square never pays, by design.${openedOnTime ? ` The day itself was opened on time, at ${escapeHtml(write.createdClock)} on ${escapeHtml(write.createdKey)}.` : ''}`
+      : ` Last written ${escapeHtml(write.clock)} on ${escapeHtml(write.key)}, while this day was still open, so the mark was made in time and should have been paid for.`;
   const tally = (sum.gridOnly > 0 || sum.undone > 0)
     ? renderDayTally({
         scheduled: seen.length,
         paid: sum.done,
         roomCounted: sum.roomGreens,
         why: `${why}. A Room reads the square; XP, gold and the streak read the completion, so the two report different numbers for this day.${cause}`,
-        // Loud for the pre-cutoff case, which nobody chose. Calm for a
-        // backfill, which is the rule working.
-        calm: !(preCutoff && sum.gridOnly > 0),
+        // Loud only for the case that is genuinely wrong: a mark made while
+        // the day was still open, which the app should have paid for and
+        // did not. A backfill is the anti-backdating rule working as
+        // designed, and a day with no timestamp explains nothing either way.
+        calm: !(write && !backfilled && sum.gridOnly > 0),
       })
     : renderDayTally({ scheduled: seen.length, paid: sum.done, roomCounted: sum.roomGreens });
 
@@ -1152,7 +1309,7 @@ function renderDailyDetail(id, data, ctx) {
       ? detailRow('Reflection', `<span class="prose">${escapeHtml(data.dailyReflection)}</span>`)
       : '',
     detailRow('Night review', data.nightReviewDone ? '<span class="bool true">&#10003; Done</span>' : '<span class="muted">Not done</span>'),
-    detailRow('Earned', `+${data.totalXpEarned ?? 0} XP &middot; +${data.totalGoldEarned ?? 0} gold`),
+    renderEarnedRow(data, ctx && ctx.boostedRooms),
   ].join('');
 
   return `
@@ -1271,7 +1428,7 @@ function renderUndoneSection(profileData, habitCtx) {
 function renderDocDetail(collectionId, id, data, ctx) {
   switch (collectionId) {
     case 'custom_habits':
-      return renderHabitDetail(data);
+      return renderHabitDetail(data, ctx);
     case 'matrix_tasks':
       return renderTaskDetail(data);
     case 'daily':
@@ -1497,8 +1654,8 @@ const QUADRANT_ORDER = { doFirst: 0, schedule: 1, delegate: 2, eliminate: 3 };
  */
 function renderDayCard({
   dayKey, isToday, habitRows, mood, nightReviewDone, reflection, triage, rooms,
-  taskDayKey, xp, gold, hasDoc, todayKey, writeNote, habitCtx, summary,
-  offSchedule, mirrorFor, notesFor,
+  taskDayKey, dayData, boostedRooms, hasDoc, todayKey, writeNote, habitCtx,
+  summary, offSchedule, mirrorFor, notesFor, roomsFor,
 }) {
   // Older callers (and the tests) still hand over bare rows with no summary
   // beside them, so derive the same three numbers from the rows themselves
@@ -1532,7 +1689,7 @@ function renderDayCard({
     calm,
   });
 
-  const ledger = renderRecordLedger(habitRows, { habitCtx, mirrorFor, notesFor });
+  const ledger = renderRecordLedger(habitRows, { habitCtx, mirrorFor, notesFor, roomsFor });
 
   // Named with the reason, rather than dropped in silence.
   const off = (offSchedule && offSchedule.length)
@@ -1546,7 +1703,7 @@ function renderDayCard({
       ? '<span class="bool true">✓ Done</span>'
       : `<span class="muted">Not done${isToday ? ' yet' : ''}</span>`),
     reflection ? detailRow('Reflection', `<span class="prose">${escapeHtml(reflection)}</span>`) : '',
-    (xp || gold) ? detailRow('Earned', `+${xp || 0} XP · +${gold || 0} gold`) : '',
+    renderEarnedRow(dayData || {}, boostedRooms),
   ].join('');
 
   // The board, in the four states an admin actually asks about. This used to
@@ -1607,14 +1764,21 @@ function renderDayCard({
 
   const roomsHtml = rooms.length
     ? '<div class="today-rooms">' + rooms.map((r) => `
-        <div class="today-room${r.allDone ? ' done' : ''}">
-          <span>${r.known === false ? '·' : r.allDone ? '✅' : '⬜'}</span>
+        <div class="today-room${(r.stored ? r.full : r.allDone) ? ' done' : ''}">
+          <span>${r.stored ? (r.full ? '✅' : '⬜') : (r.known === false ? '·' : r.allDone ? '✅' : '⬜')}</span>
           <span class="today-room-name">${escapeHtml(r.name)}</span>
           ${r.code ? `<span class="rm-code">${escapeHtml(r.code)}</span>` : ''}
-          <span class="rm-note${r.known === false ? '' : ' stale'}" style="margin-inline-start:auto;">${
-            r.known === false
-              ? 'the room stores one all-done flag, and it is not about this day'
-              : r.allDone ? 'the room counted this day as done' : 'the room did not count this day'
+          <span class="rm-note${r.stored ? '' : (r.known === false ? '' : ' stale')}" style="margin-inline-start:auto;">${
+            // The room's OWN stored numbers for this date, which is the only
+            // thing that can answer for a past day. This used to read
+            // allDoneToday, a single finish-push flag with a single date
+            // beside it, so it announced "the room did not count this day"
+            // about days the room had scored 2 of 3.
+            r.stored
+              ? escapeHtml(r.stored)
+              : r.known === false
+                ? 'the room stores one all-done flag, and it is not about this day'
+                : r.allDone ? 'the room counted this day as done' : 'the room did not count this day'
           }</span>
           ${r.muted ? '<span class="muted">muted</span>' : ''}
         </div>
@@ -2905,6 +3069,8 @@ module.exports = {
   habitLabel,
   habitLabelParts,
   dayWriteContext,
+  writtenAfterClose,
+  renderEarnedRow,
   DAY_CUTOFF_HOUR,
   renderUndoneSection,
   renderValue,

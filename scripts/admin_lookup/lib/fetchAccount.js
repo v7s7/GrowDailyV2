@@ -31,9 +31,13 @@ const {
   renderUndoneSection,
   readUndoneReceipts,
   dayWriteContext,
+  writtenAfterClose,
   DAY_CUTOFF_HOUR,
   dayKeyParts,
 } = require('./render');
+// The app's own day rules. See lib/day_rules.js for why this tool has one
+// copy of them rather than a fresh guess per surface.
+const DayRules = require('./day_rules');
 
 function db() {
   return admin.firestore();
@@ -257,38 +261,102 @@ function buildDaySection(raw, dateKey) {
 
   // `allDoneToday` is a SINGLE stored flag with a single stored date beside
   // it (room_model.dart:752), so it can only ever answer for the one day it
-  // was last computed. On any other day the honest answer is "this flag was
-  // not about this day", and the card used to print a plain empty box, which
-  // reads as "the room says they did not do it" while the banner two inches
-  // above said the room counted the day. Two contradictory claims about the
-  // same room on the same screen.
+  // was last computed. Reading it for every day is how this card announced
+  // "the room did not count this day" about a day room ELQVF8 had scored 2
+  // of 3, while the Rooms section on the same page credited it.
   //
-  // Grading a past day off the room's own per-day ledger is the real fix and
-  // is not in this pass; `known: false` at least stops the page asserting
-  // something it cannot know.
+  // The real fix, now that the rules are ported: grade the day off the
+  // room's OWN per-day ledger (dailyDoneCount / dailyPartialCount /
+  // dailyScheduledCount, exactly what RoomParticipant.creditFor reads), so
+  // the line states what the room stored instead of guessing from a flag.
   const rooms = roomRows.map((r) => {
     const known = r.participant.allDoneDate === dayKey;
+    const c = DayRules.roomDayCounts({
+      room: r.room, participant: r.participant, dayKey, offsetMinutes: tz,
+    });
+    const credited = c.done + c.partial * 0.5;
+    let stored;
+    if (!c.running) {
+      stored = 'the room was not running on this day';
+    } else if (c.stoodDown) {
+      stored = 'stood down, so this day was not graded either way';
+    } else if (c.isRest) {
+      stored = 'nothing was asked of them this day, so it counts in full';
+    } else {
+      stored = `the room stored ${credited} of ${c.scheduled}`
+        + (c.partial > 0 ? ` (${c.partial} جزئي, worth half each)` : '');
+    }
     return {
       name: r.room.name || r.code,
       code: r.code,
       known,
       allDone: known && r.participant.allDoneToday === true,
+      stored,
+      full: c.running && !c.stoodDown && c.credit >= 1,
       muted: r.participant.notificationsMuted === true,
     };
   });
 
-  // `done` is what was PAID. The card prints it beside the room-counted
-  // green squares rather than instead of them, so the two can visibly
-  // disagree instead of one silently standing in for the other.
-  const done = summary.done;
-  const total = habitRows.length;
+  // Which rooms actually LINK each habit on this day, with that room's own
+  // stored numbers, so the ledger's "Counts where" column stops inferring a
+  // room from a green square. See DayRules.roomCountsHabitOn.
+  const roomsFor = (habitId) => roomRows
+    .filter((r) => DayRules.roomCountsHabitOn({
+      room: r.room, participant: r.participant, habitId, dayKey,
+    }))
+    .map((r) => {
+      const c = DayRules.roomDayCounts({
+        room: r.room, participant: r.participant, dayKey, offsetMinutes: tz,
+      });
+      const credited = c.done + c.partial * 0.5;
+      return {
+        code: r.code,
+        stored: c.stoodDown ? 'stood down'
+          : c.isRest ? 'rest day' : `${credited}/${c.scheduled}`,
+      };
+    });
+
+  // The rooms whose 2x boost was in force on this day, for the Earned row,
+  // and only for the habits this day ACTUALLY PAID for.
+  //
+  // Taking the union across every habit row named the person's whole room
+  // list beside a total that was mostly not boosted: on 2026-09-10 Aziz's
+  // صلاة الوتر and قراءة القرآن were doubled by their rooms, while سنة
+  // الفجر, which the same day paid 30 XP for, is linked in no room at all.
+  const paidToday = DayRules.dayPayout(dayData);
+  const boostedRooms = Array.from(new Set(
+    Object.keys({ ...paidToday.perHabitXp, ...paidToday.flatXp })
+      .flatMap((habitId) => DayRules.boostRoomsFor({ roomRows, habitId, dayKey })),
+  ));
+
+  // The day scored the way the APP scores it (DayRules.scoreDay): deleted
+  // habits leave both sides, a weekly quota's spare day is not a miss, a
+  // counted habit is done only at its target, and a جزئي is half.
+  //
+  // And an OPEN day is not judged at all. Aziz read his own 2026-09-11 at
+  // 02:11 the next morning and this tab said "5 of 9" with four habits drawn
+  // as missed, while his phone showed the day still in progress: a day stays
+  // markable until kDayCutoffHour, so until then only the ANSWERED habits
+  // may be counted. See DateTimeGameExt.isSettledAt.
+  const score = DayRules.scoreDay({
+    habits: habitDocs.map((d) => ({ id: d.id, data: d.data() })),
+    dayData,
+    dayKey,
+    nowLocalMs: DayRules.localNowMs(Date.now(), tz),
+    todayKey: todayParts.key,
+  });
+  const credit = score.isOpen ? score.settledCredit : score.credit;
+  const owed = score.isOpen ? score.settledOwed : score.owed;
+  const done = score.done;
+  const total = owed;
 
   return {
     id: 'today',
     label: 'Day',
-    count: `${done}/${total}`,
+    count: `${Math.round(credit * 100) / 100}/${owed}`,
     done,
     total,
+    open: score.isOpen,
     roomGreens: summary.roomGreens,
     // Whether this day's records disagree at all. `roomGreens > done` is NOT
     // the same question: on 2026-09-05 this account had one green square with
@@ -306,26 +374,33 @@ function buildDaySection(raw, dateKey) {
       // Says WHICH kind of uncredited mark this is, when the day's own last
       // write can tell - see dayWriteContext. Only reaches the card when
       // there is a disagreement to explain; renderDayCard drops it otherwise.
+      // Which kind of uncredited mark this is, when the day's own write times
+      // can tell. The "tapped before the cutoff" branch that used to lead
+      // here described a rule the app dropped in build 65: effectiveDay no
+      // longer shifts, so a square painted at 02:18 is on its own day and
+      // pays in full. What is left is the one question the app still asks,
+      // whether the write landed before the day CLOSED. See dayWriteContext.
       writeNote: (() => {
-        const w = dayWriteContext(dayData, tz);
+        const w = dayWriteContext(dayData, tz, dayDoc && dayDoc.createTime);
         if (!w) return '';
-        if (w.key === dayKey && w.hour < DAY_CUTOFF_HOUR) {
-          return `Tapped at ${w.clock}, before the ${DAY_CUTOFF_HOUR}:00 cutoff, so the app's reward day was still the day before. The Grid had already moved on to this date and put the "today" ring on it, so the square shown as today was not the day that pays.`;
+        if (writtenAfterClose(w, dayKey)) {
+          return `Last written ${w.clock} on ${w.key}, after this day closed at ${DAY_CUTOFF_HOUR}:00 on ${DayRules.shiftKey(dayKey, 1)}, so it was filled in after the fact. A backfilled square never pays, by design.`;
         }
-        if (w.key > dayKey) {
-          return `Last written on ${w.key}, so this day was filled in after the fact. A backfilled square never pays, by design.`;
-        }
-        return '';
+        return `Last written ${w.clock} on ${w.key}, while this day was still open, so the mark was made in time and should have been paid for.`;
       })(),
       mood: dayData.mood ? MOOD_META[dayData.mood] : null,
       nightReviewDone: !!dayData.nightReviewDone,
       reflection: dayData.dailyReflection || '',
-      xp: dayData.totalXpEarned || 0,
-      gold: dayData.totalGoldEarned || 0,
+      // The day document itself, so the card's Earned row can read the live
+      // ledger (habitPaidXp / habitPaidGold / squareFlatXp) instead of
+      // totalXpEarned, which is dead and always printed +0.
+      dayData,
+      boostedRooms,
       hasDoc: !!dayDoc,
       triage,
       taskDayKey: taskParts.key,
       rooms,
+      roomsFor,
       habitCtx: raw.habitCtx,
       summary,
       offSchedule,

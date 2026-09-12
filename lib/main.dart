@@ -1403,7 +1403,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // (registerForUser's onTokenRefresh listener already catches one
         // that rotates while the app is actually running).
         PushNotificationService.instance.registerForUser(uid);
-        _resyncMyRooms();
+        _resyncMyRoomsOnResume();
       }
       // A phone left open overnight crosses the app-day boundary without any
       // provider noticing: NightReviewNotifier loads once in its constructor
@@ -1435,6 +1435,43 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// Fire-and-forget and deliberately unawaited: it's a background freshening
   /// nothing on screen is waiting for, and a failure just means the next
   /// resume tries again.
+  /// The last time a RESUME ran a full resync.
+  DateTime? _lastResumeResync;
+
+  /// How long a resume waits before it is worth re-reading every room again.
+  ///
+  /// A resume is not evidence that anything changed. iOS fires it every time
+  /// the app returns to the foreground, which for a habit app full of
+  /// reminders is easily a dozen times a day, and each run costs one
+  /// participant read plus up to [kRoomSyncWindowDays] daily reads PER ROOM
+  /// this account is in. Measured against the live project on 2026-09-12:
+  /// rooms traffic was the second largest source of reads in the whole app,
+  /// and almost none of those reads discovered anything new.
+  ///
+  /// Deliberately ONLY on the resume path. Marking a square, opening a room
+  /// and the quit-day auto-clean above all still sync immediately, so nothing
+  /// a person actually DOES ever waits on this gap.
+  static const Duration _resumeResyncGap = Duration(minutes: 5);
+
+  /// [_resyncMyRooms], skipped when a resume already ran one moments ago.
+  ///
+  /// A day rollover always syncs regardless of the gap. Crossing
+  /// kDayCutoffHour is precisely when a room re-grades on its own, with no
+  /// input from anybody, so it is the one moment a stale board would be
+  /// visible rather than merely late.
+  void _resyncMyRoomsOnResume() {
+    final now = DateTime.now();
+    if (!shouldResyncOnResume(
+      last: _lastResumeResync,
+      now: now,
+      gap: _resumeResyncGap,
+    )) {
+      return;
+    }
+    _lastResumeResync = now;
+    _resyncMyRooms();
+  }
+
   void _resyncMyRooms() {
     // Waits for the room streams inside the controller. Reading their
     // valueOrNull here skipped every room on a cold start, when none had

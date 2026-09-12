@@ -320,6 +320,11 @@ typedef WeeklyNoteSlot = ({
 /// stands down only the copies that belong to today, so finishing a habit
 /// silences today and leaves tomorrow morning armed.
 ///
+/// A reminder that rings as a real alarm keeps a month instead
+/// ([kAlarmWindowDays]): alarms sit outside the notification budget, and a
+/// wake-up alarm is the one reminder that must not go quiet because the app
+/// was left closed for a few days.
+///
 /// The window is bounded by iOS's hard 64-pending limit rather than by
 /// appetite — see [kMaxPendingHabitSlots] and _scheduleResolved's trim,
 /// which drops the latest-firing entries first, so a heavy user loses the
@@ -1548,7 +1553,8 @@ class NotificationService {
   /// Not larger, because every extra day multiplies how much of iOS's hard
   /// 64-pending budget one habit takes (see [kMaxPendingHabitSlots]), and
   /// the value of a further day falls away fast — a habit app is opened
-  /// often, and each open re-arms the whole window anyway.
+  /// often, and each open re-arms the whole window anyway. A reminder that
+  /// rings as an alarm is the exception, see [kAlarmWindowDays].
   static const int kOccurrencesPerSlot = 4;
 
   /// Where depth 1 and up live: 400000, 401000, 402000, one 1000-wide band
@@ -1566,6 +1572,45 @@ class NotificationService {
   /// bands) and far below the 32-bit ceiling Android notification ids are
   /// bounded by, with 12 slots x 3 extra depths reaching 402999 at most.
   static const int _aheadBandBase = 400000;
+
+  /// How far ahead a reminder that rings as a real ALARM stays armed: every
+  /// one of its moments in the next thirty days, each resolved against its
+  /// own day, where a notification keeps [kOccurrencesPerSlot].
+  ///
+  /// iOS gives an app no way to wake itself each night and arm tomorrow, and
+  /// a repeating alarm cannot follow a prayer that moves every day, so the
+  /// exact alarms are set in advance and topped up on every open. With four
+  /// of them, four days without opening the app was all it took to lose a
+  /// Fajr alarm someone relies on to wake up. AlarmKit alarms are not part of
+  /// iOS's 64-request notification budget (see [kMaxPendingHabitSlots]),
+  /// which is what makes a month affordable; a reminder whose alarm cannot be
+  /// made keeps the ordinary four, as notifications.
+  static const int kAlarmWindowDays = 30;
+
+  /// The deepest occurrence an alarm slot is armed at: one a day for
+  /// [kAlarmWindowDays]. Depth [kOccurrencesPerSlot] and deeper is the
+  /// EXTENDED window, armed in one reconciling call rather than one schedule
+  /// per id (see _syncAlarmWindow).
+  static const int _alarmDepthLimit = kAlarmWindowDays;
+
+  /// Where the extended window lives: one 1000-wide band per calendar DAY,
+  /// the day's number since 1970 modulo [_alarmWindowBands], plus the same
+  /// slot hash as every other habit id, so 500000 to 599999, clear of every
+  /// other band. Keyed by the day rather than by depth so the month does not
+  /// shift every alarm one id along each morning: the next open finds each
+  /// day's alarm already under its id and arms only the day that came into
+  /// range. More bands than days in the window, so no two of its days share
+  /// one. See [windowAlarmId].
+  static const int _alarmWindowBase = 500000;
+  static const int _alarmWindowBands = 100;
+  static const int _alarmWindowLowId = _alarmWindowBase;
+  static const int _alarmWindowHighId =
+      _alarmWindowBase + _alarmWindowBands * 1000 - 1;
+
+  /// Most extended-window alarms armed across all habits at once. Shallowest
+  /// depths are armed first, so a heavy user gets a shorter month, never a
+  /// missing tomorrow, and every open refills it.
+  static const int kMaxWindowAlarms = 120;
 
   int _habitReminderId(String habitId, [int slot = 0, int depth = 0]) =>
       depth == 0
@@ -1829,12 +1874,25 @@ class NotificationService {
         await _plugin.cancel(_bundleSlotBase + i);
       }
       _habitReminderHabitIds.clear();
+      // The month armed ahead for alarm reminders is not in the per-slot
+      // sweep above; an empty window cancels all of it.
+      await _syncAlarmWindow(const [], isAr);
       debugPrint('[NotificationService] Habit reminders off — cleared');
       return;
     }
 
     final resolved = <_ResolvedReminder>[];
     final now = tz.TZDateTime.now(tz.local);
+    // The rest of every alarm reminder's month, past the ordinary window,
+    // armed in one call once the ordinary window is (see _syncAlarmWindow).
+    final windowed = <_ResolvedReminder>[];
+    // Whether an alarm reminder really rings as an alarm here: iOS 26 or
+    // newer with the permission granted. Only then does it get the month; a
+    // reminder that falls back to a notification is bound by iOS's 64-request
+    // budget like any other and keeps the ordinary four.
+    final alarmsReady = habits.any((h) => h.alarm && !h.isQuit) &&
+        await AlarmService.instance.isAuthorized();
+    final alarmHorizon = now.add(const Duration(days: kAlarmWindowDays));
     // Prayer times for the whole window, resolved at most ONCE per call
     // (not once per habit, and not once per day): every prayer-linked habit
     // shares the same location, method and madhab, so one run of days
@@ -1851,10 +1909,16 @@ class NotificationService {
     // one day per occurrence plus today; one pinned to specific weekdays
     // can need a whole week per occurrence, so it is only paid for when
     // such a habit is actually present.
-    final prayerWindowDays = habits.any((h) =>
+    final baseWindowDays = habits.any((h) =>
             h.prayerKey != null && h.scheduledWeekdays.isNotEmpty)
         ? 1 + 7 * kOccurrencesPerSlot
         : 1 + kOccurrencesPerSlot;
+    // An alarm's month needs a month of prayer times: today plus thirty.
+    final prayerWindowDays = alarmsReady &&
+            baseWindowDays < kAlarmWindowDays + 1 &&
+            habits.any((h) => h.prayerKey != null && h.alarm && !h.isQuit)
+        ? kAlarmWindowDays + 1
+        : baseWindowDays;
 
     for (final habit in habits) {
       // The (slot, depth) pairs this habit will hold after this pass.
@@ -1864,6 +1928,10 @@ class NotificationService {
       // them any more — and, now that a slot holds a window of days rather
       // than a single moment, what disarms the days that fell out of it.
       final keptSlots = <({int slot, int depth})>{};
+
+      // Whether this habit's reminders really ring as alarms, which is what
+      // earns them a month-long window (see [kAlarmWindowDays]).
+      final alarmWindow = alarmsReady && habit.alarm && !habit.isQuit;
 
       // Every moment a PRAYER-anchored habit fires at: one per shift it
       // carries, times the next few days of each (see
@@ -1876,14 +1944,21 @@ class NotificationService {
 
       if (habit.clockTimes.isNotEmpty) {
         // ── The multi-time path ──────────────────────────────────────────
-        final candidates = resolveClockOccurrences(
+        final allTimes = resolveClockOccurrences(
           habit.clockTimes,
           habit.clockOffsets,
           now,
           scheduledWeekdays: habit.scheduledWeekdays,
-          occurrences: kOccurrencesPerSlot,
+          occurrences: alarmWindow ? _alarmDepthLimit : kOccurrencesPerSlot,
         );
-        final exempt = habit.ignoreQuietHours;
+        // The ordinary window; an alarm's further days are armed below.
+        final candidates = [
+          for (final c in allTimes)
+            if (c.depth < kOccurrencesPerSlot) c,
+        ];
+        // An alarm is the person asking to be woken, so quiet hours do not
+        // silence it, the same exemption the prayer branch below applies.
+        final exempt = habit.ignoreQuietHours || (habit.alarm && !habit.isQuit);
         // Quiet hours are judged PER TIME, not per habit. The old rule
         // cancelled the whole habit the moment its one time landed inside the
         // window, and carried straight over would have been the protein bug:
@@ -1970,6 +2045,37 @@ class NotificationService {
             isLimit: habit.isLimit,
           ));
         }
+        // The rest of an alarm's month. Never today (four occurrences out at
+        // the nearest), so the done count above has nothing to stand down.
+        for (final c in allTimes) {
+          if (c.depth < kOccurrencesPerSlot ||
+              !c.fireTime.isBefore(alarmHorizon)) {
+            continue;
+          }
+          windowed.add((
+            id: habit.id,
+            name: habit.name,
+            fireTime: c.fireTime,
+            streak: habit.streak,
+            slot: c.slot,
+            depth: c.depth,
+            offsetMinutes: c.slot < habit.clockOffsets.length
+                ? habit.clockOffsets[c.slot]
+                : 0,
+            anchorLabel: null,
+            completedCount: habit.completedCount,
+            dailyTarget: habit.dailyTarget,
+            lastDoneDaysAgo: habit.lastDoneDaysAgo,
+            timerSeconds: habit.timerSeconds,
+            scheduledWeekdays: habit.scheduledWeekdays,
+            weekTarget: habit.weekTarget,
+            weekDoneDays: habit.weekDoneDays,
+            timeSensitive: false,
+            alarm: habit.alarm,
+            isQuit: habit.isQuit,
+            isLimit: habit.isLimit,
+          ));
+        }
         // Every armed copy this habit did not keep — dropped for quiet
         // hours, suppressed as done, beyond a count that just shrank, or a
         // depth left over from a window that used to reach further (a habit
@@ -2027,8 +2133,10 @@ class NotificationService {
           // recomputed just after Maghrib, a −10 nudge belongs to tomorrow's
           // Maghrib while a +30 one is still ahead today.
           var depth = 0;
+          final depthLimit =
+              alarmWindow ? _alarmDepthLimit : kOccurrencesPerSlot;
           for (var dayOffset = 0;
-              dayOffset < days.length && depth < kOccurrencesPerSlot;
+              dayOffset < days.length && depth < depthLimit;
               dayOffset++) {
             // Written as an explicit null-check + reassignment rather than a
             // `?.add(...)` chain — Dart's "null-shorting" would make that
@@ -2041,6 +2149,11 @@ class NotificationService {
             if (!candidate.isAfter(now)) continue;
             if (!_fireDayIsScheduled(candidate, habit.scheduledWeekdays)) {
               continue;
+            }
+            // Past the ordinary four, an alarm's month ends at the horizon.
+            if (depth >= kOccurrencesPerSlot &&
+                !candidate.isBefore(alarmHorizon)) {
+              break;
             }
             prayerFires.add((
               slot: slot,
@@ -2058,19 +2171,29 @@ class NotificationService {
         continue;
       }
 
-      // Two ways to be exempt: a prayer-linked reminder (whose whole point
+      // The ordinary window, which the quiet-hours and done-today rules
+      // below judge; an alarm's further days are armed after them.
+      final nearFires = [
+        for (final f in prayerFires)
+          if (f.depth < kOccurrencesPerSlot) f,
+      ];
+
+      // Three ways to be exempt: a prayer-linked reminder (whose whole point
       // is landing near a prayer that's often inside a normal night-time
-      // quiet window — see quietHoursAppliesToPrayer), or this specific
-      // habit having been explicitly opted out via Add Habit's "Allow
-      // anyway" after being warned about the conflict.
+      // quiet window — see quietHoursAppliesToPrayer), a reminder that rings
+      // as an ALARM (the person asked to be woken; with quiet hours set to
+      // cover prayers too, a Fajr alarm used to be never armed at all), or
+      // this specific habit having been explicitly opted out via Add Habit's
+      // "Allow anyway" after being warned about the conflict.
       final exemptFromQuietHours = habit.ignoreQuietHours ||
+          (habit.alarm && !habit.isQuit) ||
           (isPrayerLinked && !settings.quietHoursAppliesToPrayer);
       // Judged per shift, matching the clock branch above: a stack whose
       // "an hour before Fajr" entry lands inside the night window loses that
       // one entry, not the on-time reminder beside it that is perfectly
       // deliverable.
       final awakeFires = [
-        for (final f in prayerFires)
+        for (final f in nearFires)
           if (exemptFromQuietHours ||
               !settings.quietHoursEnabled ||
               !isMinuteWithinQuietHours(
@@ -2147,6 +2270,33 @@ class NotificationService {
           isLimit: habit.isLimit,
         ));
       }
+      // The rest of an alarm's month: never today, so the stand-down above
+      // has nothing to say about it, and exempt from quiet hours like the
+      // alarm it extends.
+      for (final f in prayerFires) {
+        if (f.depth < kOccurrencesPerSlot) continue;
+        windowed.add((
+          id: habit.id,
+          name: habit.name,
+          fireTime: f.at,
+          streak: habit.streak,
+          slot: f.slot,
+          depth: f.depth,
+          offsetMinutes: f.offsetMinutes,
+          anchorLabel: habit.anchorLabel,
+          completedCount: habit.completedCount,
+          dailyTarget: habit.dailyTarget,
+          lastDoneDaysAgo: habit.lastDoneDaysAgo,
+          timerSeconds: habit.timerSeconds,
+          scheduledWeekdays: habit.scheduledWeekdays,
+          weekTarget: habit.weekTarget,
+          weekDoneDays: habit.weekDoneDays,
+          timeSensitive: true,
+          alarm: habit.alarm,
+          isQuit: habit.isQuit,
+          isLimit: habit.isLimit,
+        ));
+      }
     }
 
     // Swept BEFORE anything is scheduled, never after.
@@ -2165,6 +2315,7 @@ class NotificationService {
     }
 
     await _scheduleResolved(resolved, settings.bundleEnabled, isAr);
+    await _syncAlarmWindow(windowed, isAr);
 
     _habitReminderHabitIds
       ..clear()
@@ -2264,7 +2415,6 @@ class NotificationService {
           subtitle: body,
           kind: 'habit',
           targetId: r.id,
-          doneLabel: markDoneAction(isAr),
           stopLabel: alarmStopAction(isAr),
         )) {
       await _plugin.cancel(slotId);
@@ -2339,8 +2489,8 @@ class NotificationService {
     bool bundleEnabled,
     bool isAr,
   ) async {
-    // An alarm is one habit ringing with one Done button; folding it into a
-    // «عادتان جاهزتان» bundle would lose both. Alarm slots are scheduled on
+    // An alarm is one habit ringing on its own; folding it into a
+    // «عادتان جاهزتان» bundle would lose that. Alarm slots are scheduled on
     // their own, first, and only the notification slots go through the
     // bundling and the 64-request budget below (AlarmKit has no such cap).
     // A quit habit's check-in is kept out of bundles for the same reason:
@@ -2517,6 +2667,98 @@ class NotificationService {
           'slot(s) to stay under the iOS 64-pending budget');
     }
   }
+
+  /// Arms the extended part of every alarm reminder's window, depth
+  /// [kOccurrencesPerSlot] and deeper (see [kAlarmWindowDays]), in ONE native
+  /// call that also cancels whatever that id range holds and [entries] no
+  /// longer asks for: a habit deleted, switched back to a notification, given
+  /// fewer reminders, or reminders switched off.
+  ///
+  /// One call rather than a schedule and a cancel per id, because the range
+  /// holds a month of days for every slot of every habit, and cancelling each
+  /// id blindly would be hundreds of round trips on every resume. The bridge
+  /// compares with what AlarmKit actually holds and touches only what
+  /// changed, which with ids keyed by day (see [windowAlarmId]) is the one
+  /// day per slot that came into range since the last open. It runs after
+  /// [_scheduleResolved], so no day is ever left without its alarm while it
+  /// moves from this window into the ordinary one.
+  ///
+  /// The line under each alarm is plain on purpose. These ring up to a month
+  /// out, so nothing about the habit's record can honestly be said about the
+  /// day they land on; the ringing screen shows only the habit's name anyway,
+  /// and the line is read only if the app happens to be open when it rings
+  /// (see [showForegroundAlarm]). Each day is re-armed with the full wording
+  /// once it comes within [kOccurrencesPerSlot].
+  Future<void> _syncAlarmWindow(
+    List<_ResolvedReminder> entries,
+    bool isAr,
+  ) async {
+    // Shallowest depth first, the same "how much does losing this cost"
+    // order as _scheduleResolved's trim, so the cap takes the far days.
+    final ordered = [...entries]
+      ..sort((a, b) {
+        final byDepth = a.depth.compareTo(b.depth);
+        return byDepth != 0 ? byDepth : a.fireTime.compareTo(b.fireTime);
+      });
+    final armed = ordered.take(kMaxWindowAlarms).toList();
+    final result = await AlarmService.instance.syncWindow(
+      lowId: _alarmWindowLowId,
+      highId: _alarmWindowHighId,
+      alarms: [
+        for (final r in armed)
+          (
+            id: windowAlarmId(r.id, r.slot, r.fireTime),
+            fireAt: r.fireTime,
+            title: r.name,
+            subtitle: windowAlarmLine(
+              offsetMinutes: r.offsetMinutes,
+              anchorLabel: r.anchorLabel,
+              isAr: isAr,
+            ),
+            kind: 'habit',
+            targetId: r.id,
+            stopLabel: alarmStopAction(isAr),
+          ),
+      ],
+    );
+    if (result == null) return;
+    final capped = ordered.length - armed.length;
+    debugPrint('[NotificationService] alarm window: ${armed.length} armed '
+        'ahead $result${capped > 0 ? ', $capped past the cap' : ''}');
+  }
+
+  /// The extended-window id of [habitId]'s [slot] on [fireTime]'s calendar
+  /// day, see [_alarmWindowBase]. The same day always gets the same id, however
+  /// far ahead it was armed.
+  @visibleForTesting
+  static int windowAlarmId(String habitId, int slot, DateTime fireTime) {
+    final day = DateTime.utc(fireTime.year, fireTime.month, fireTime.day)
+            .millisecondsSinceEpoch ~/
+        Duration.millisecondsPerDay;
+    return _alarmWindowBase +
+        (day % _alarmWindowBands) * 1000 +
+        reminderSlotOffset(habitId, slot);
+  }
+
+  /// What an alarm in the extended window says under the habit's name: only
+  /// its timing («باقي ٣٠ دقيقة على الفجر.»), never the habit's record, see
+  /// [_syncAlarmWindow]. Null for an on-time alarm: the habit's name on the
+  /// ringing screen already says it.
+  @visibleForTesting
+  static String? windowAlarmLine({
+    required int offsetMinutes,
+    required String? anchorLabel,
+    required bool isAr,
+  }) =>
+      offsetMinutes == 0
+          ? null
+          : habitReminderBody(
+              offsetMinutes: offsetMinutes,
+              streak: 0,
+              anchorLabel: anchorLabel,
+              isAr: isAr,
+              onTimeLine: '',
+            );
 
   /// Global ceiling on scheduled habit-reminder notifications, kept well
   /// under iOS's hard 64-pending limit so the daily reminder, streak-risk
@@ -3285,9 +3527,9 @@ class NotificationService {
   /// uses it.
   ///
   /// [alarm] is the task's own choice to ring as an alarm (MatrixTask.alarm):
-  /// each slot then goes through AlarmService, with the Done button on the
-  /// ringing screen queueing the completion for the app, and falls back to
-  /// an alarm-style notification where a real alarm cannot be made. Same
+  /// each slot then goes through AlarmService (Stop, and «خلّصت المهمة»,
+  /// which ticks the task at the next open), and falls back to an
+  /// alarm-style notification where a real alarm cannot be made. Same
   /// slot ids either way, so switching a task between the two never leaves
   /// both scheduled; see [_cancelTaskSlot].
   Future<void> scheduleTaskReminders({

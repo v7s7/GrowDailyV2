@@ -8,8 +8,9 @@ import SwiftUI
 
 // Real alarms for reminders, through Apple's AlarmKit (iOS 26 and newer).
 // The Dart half is lib/core/services/alarm_service.dart; this file is the
-// other end of its MethodChannel, plus the App Intent behind the Done button
-// on the ringing screen.
+// other end of its MethodChannel, plus the intents behind the ringing
+// screen's buttons. A habit's alarm carries Stop only, a task's also carries
+// «خلّصت المهمة»; see schedule().
 //
 // Alarm ids: the Dart side passes the integer id it uses for the same slot's
 // notification, and the bridge folds it into a fixed-prefix UUID. Being
@@ -39,7 +40,7 @@ enum AlarmKitBridge {
         result(false)
       case "authorizationState":
         result("unsupported")
-      case "cancel":
+      case "cancel", "syncWindow":
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
@@ -48,8 +49,8 @@ enum AlarmKitBridge {
   }
 }
 
-/// Rides along with the alarm so the Done intent and any future Live
-/// Activity know what the alarm is about. `kind` is "habit" or "task".
+/// Rides along with the alarm so its Live Activity and the foreground
+/// hand-off know what the alarm is about. `kind` is "habit" or "task".
 @available(iOS 26.0, *)
 struct GrowDailyAlarmMetadata: AlarmMetadata {
   let kind: String
@@ -110,13 +111,13 @@ enum AlarmKitBridgeImpl {
             let fireAtMs = args["fireAtMs"] as? Double ?? (args["fireAtMs"] as? Int).map(Double.init),
             let title = args["title"] as? String,
             let kind = args["kind"] as? String,
-            let targetId = args["targetId"] as? String,
-            let doneLabel = args["doneLabel"] as? String
+            let targetId = args["targetId"] as? String
       else {
         result(false)
         return
       }
       let subtitle = args["subtitle"] as? String
+      let doneLabel = args["doneLabel"] as? String
       let stopLabel = args["stopLabel"] as? String ?? "Stop"
       onLane {
         result(await schedule(
@@ -136,7 +137,23 @@ enum AlarmKitBridgeImpl {
       }
       onLane {
         try? AlarmManager.shared.cancel(id: alarmId(for: id))
+        AlarmSlotRecords.forget(slot: id)
         result(nil)
+      }
+    case "syncWindow":
+      guard let args = call.arguments as? [String: Any],
+            let low = args["lowId"] as? Int,
+            let high = args["highId"] as? Int,
+            let raw = args["alarms"] as? [Any]
+      else {
+        result(nil)
+        return
+      }
+      let items = raw.compactMap { entry in
+        (entry as? [String: Any]).flatMap { AlarmWindowItem($0) }
+      }
+      onLane {
+        result(await syncWindow(low: low, high: high, items: items))
       }
     default:
       result(FlutterMethodNotImplemented)
@@ -203,7 +220,8 @@ enum AlarmKitBridgeImpl {
 
   static func schedule(
     id: Int, fireAt: Date, title: String, subtitle: String?,
-    kind: String, targetId: String, doneLabel: String, stopLabel: String
+    kind: String, targetId: String, doneLabel: String? = nil, stopLabel: String,
+    signature: String? = nil
   ) async -> Bool {
     let manager = AlarmManager.shared
     guard manager.authorizationState == .authorized else { return false }
@@ -211,23 +229,30 @@ enum AlarmKitBridgeImpl {
     // the notification schedule's business (see the catch-up there), not ours.
     guard fireAt > Date() else { return false }
 
-    // The system draws this button as a circle filled with the tint, so
-    // the mark on it is the dark surface green from the widget palette
-    // rather than white, which vanished on gold.
-    let done = AlarmButton(
-      text: LocalizedStringResource(stringLiteral: doneLabel),
-      textColor: Color(red: 0x10 / 255.0, green: 0x1B / 255.0, blue: 0x17 / 255.0),
-      systemImageName: "checkmark")
-    // Only the second button is really ours: Done, which records the habit
-    // or task through MarkAlarmTargetDoneIntent below. From iOS 26.1 the
-    // stop control is the system's own, localized by iOS; 26.0 still wants
-    // one from the app, in the app's language.
+    // A habit's alarm carries Stop only. It wakes the person, often well
+    // before the habit itself, and the habit is recorded in the app (Aziz,
+    // 2026-09-11), so nothing is marked done from its ringing screen and the
+    // next alarm of the same habit still rings. A task's alarm also carries
+    // Done, which the Dart side labels «خلّصت المهمة» so it says what it
+    // records, and sends for tasks only. The system draws that button as a
+    // circle filled with the tint, so its mark is the dark surface green from
+    // the widget palette rather than white, which vanished on gold.
+    let done = doneLabel.map { label in
+      AlarmButton(
+        text: LocalizedStringResource(stringLiteral: label),
+        textColor: Color(red: 0x10 / 255.0, green: 0x1B / 255.0, blue: 0x17 / 255.0),
+        systemImageName: "checkmark")
+    }
+    let doneBehavior: AlarmPresentation.Alert.SecondaryButtonBehavior? =
+      done == nil ? nil : .custom
+    // From iOS 26.1 the stop control is the system's own, localized by iOS;
+    // 26.0 still wants one from the app, in the app's language.
     let alert: AlarmPresentation.Alert
     if #available(iOS 26.1, *) {
       alert = AlarmPresentation.Alert(
         title: LocalizedStringResource(stringLiteral: title),
         secondaryButton: done,
-        secondaryButtonBehavior: .custom)
+        secondaryButtonBehavior: doneBehavior)
     } else {
       alert = AlarmPresentation.Alert(
         title: LocalizedStringResource(stringLiteral: title),
@@ -236,7 +261,7 @@ enum AlarmKitBridgeImpl {
           textColor: .white,
           systemImageName: "stop.fill"),
         secondaryButton: done,
-        secondaryButtonBehavior: .custom)
+        secondaryButtonBehavior: doneBehavior)
     }
     let attributes = AlarmAttributes<GrowDailyAlarmMetadata>(
       presentation: AlarmPresentation(alert: alert),
@@ -244,23 +269,75 @@ enum AlarmKitBridgeImpl {
         kind: kind, targetId: targetId, title: title, subtitle: subtitle),
       tintColor: tint)
     let alarmId = alarmId(for: id)
+    // Done runs MarkAlarmTargetDoneIntent below; no Done, no second intent.
+    var doneIntent: (any LiveActivityIntent)?
+    if done != nil {
+      doneIntent = MarkAlarmTargetDoneIntent(
+        kind: kind, targetId: targetId, alarmId: alarmId.uuidString)
+    }
     let configuration = AlarmManager.AlarmConfiguration<GrowDailyAlarmMetadata>.alarm(
       schedule: .fixed(fireAt),
       attributes: attributes,
       stopIntent: nil,
-      secondaryIntent: MarkAlarmTargetDoneIntent(
-        kind: kind, targetId: targetId, alarmId: alarmId.uuidString),
+      secondaryIntent: doneIntent,
       sound: .default)
     // Replace rather than duplicate: the same slot rescheduled (a recompute
     // after any change) must end up with exactly one alarm.
     try? manager.cancel(id: alarmId)
     do {
       _ = try await manager.schedule(id: alarmId, configuration: configuration)
+      AlarmSlotRecords.remember(
+        slot: id, uuid: alarmId, kind: kind, targetId: targetId,
+        fireAt: fireAt, signature: signature)
       return true
     } catch {
       NSLog("[AlarmKitBridge] schedule \(id) failed: \(error)")
+      AlarmSlotRecords.forget(slot: id)
       return false
     }
+  }
+
+  /// NotificationService._syncAlarmWindow's other end: every alarm in
+  /// [low]...[high] ends up exactly what [items] says, in one pass.
+  ///
+  /// What the range holds and [items] no longer names is cancelled first,
+  /// which is how a deleted habit's month of alarms goes away. What [items]
+  /// names is scheduled, unless an alarm at the same moment with the same
+  /// words is already armed under that id, so a resume that changes nothing
+  /// schedules nothing. "Holds" is what AlarmKit lists joined with what this
+  /// bridge recorded scheduling, so a failed listing still cancels; "already
+  /// armed" needs both: listed at that moment, and recorded with those words.
+  static func syncWindow(low: Int, high: Int, items: [AlarmWindowItem]) async -> [String: Int] {
+    let manager = AlarmManager.shared
+    var listed: [Int: Date] = [:]
+    for alarm in (try? manager.alarms) ?? [] {
+      guard let slot = slotId(for: alarm.id), slot >= low, slot <= high,
+            case .fixed(let date)? = alarm.schedule
+      else { continue }
+      listed[slot] = date
+    }
+    let wanted = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    var counts = ["scheduled": 0, "kept": 0, "cancelled": 0, "failed": 0]
+    for slot in Set(listed.keys).union(AlarmSlotRecords.slots(in: low...high))
+    where wanted[slot] == nil {
+      try? manager.cancel(id: alarmId(for: slot))
+      AlarmSlotRecords.forget(slot: slot)
+      counts["cancelled", default: 0] += 1
+    }
+    for item in wanted.values.sorted(by: { $0.fireAt < $1.fireAt })
+    where item.id >= low && item.id <= high {
+      if let date = listed[item.id], abs(date.timeIntervalSince(item.fireAt)) < 1,
+         AlarmSlotRecords.signature(slot: item.id) == item.signature {
+        counts["kept", default: 0] += 1
+        continue
+      }
+      let armed = await schedule(
+        id: item.id, fireAt: item.fireAt, title: item.title, subtitle: item.subtitle,
+        kind: item.kind, targetId: item.targetId,
+        stopLabel: item.stopLabel, signature: item.signature)
+      counts[armed ? "scheduled" : "failed", default: 0] += 1
+    }
+    return counts
   }
 }
 
@@ -285,18 +362,24 @@ struct StopGrowDailyAlarmIntent: LiveActivityIntent {
   }
 }
 
-/// The Done button on a ringing alarm. Runs in the app's process, with the
-/// app possibly not running, so it does the one thing that is safe without
-/// the app's state: it queues the completion in the App Group store the way
-/// the home screen widget's Mark Done and a background notification tap do,
-/// and the app pays the reward through its normal path at the next open.
-/// Habits go into the day-stamped notification-action queue
-/// (pendingNotificationActions, drained by main.dart), tasks into the
-/// widget's task queue (pendingWidgetTaskCompletions).
+/// The Done button on a task's ringing alarm, «خلّصت المهمة». Runs in the
+/// app's process, with the app possibly not running, so it does the one thing
+/// that is safe without the app's state: it stops the alarm and queues the
+/// completion in the App Group store the way the Home Screen widget's task
+/// checkmark does, and main.dart ticks the task through its normal path at
+/// the next open (_processPendingWidgetTaskCompletions, which skips a task
+/// already done or deleted).
+///
+/// A habit is never recorded here. Habit alarms carry Stop only since
+/// 2026-09-11 (Aziz's call: the alarm wakes the person, and a tap on it must
+/// not mark the habit done), but an alarm armed by an earlier build still
+/// names this intent as its second button until the app's next open re-arms
+/// it without one, so for a habit it only stops. Copy in
+/// GrowDailyAlarmLiveActivity.swift.
 @available(iOS 26.0, *)
 struct MarkAlarmTargetDoneIntent: LiveActivityIntent {
-  static var title: LocalizedStringResource = "Mark done"
-  static var description = IntentDescription("Records the habit or task behind an alarm as done.")
+  static var title: LocalizedStringResource = "Mark task done"
+  static var description = IntentDescription("Stops a ringing Grow Daily alarm and records its task as done.")
 
   @Parameter(title: "Kind")
   var kind: String
@@ -323,71 +406,27 @@ struct MarkAlarmTargetDoneIntent: LiveActivityIntent {
     if let uuid = UUID(uuidString: alarmId) {
       try? AlarmManager.shared.stop(id: uuid)
     }
-    AlarmDoneQueue.record(kind: kind, targetId: targetId)
+    if kind == "task" {
+      AlarmDoneQueue.recordTask(targetId)
+    }
     return .result()
   }
 }
 
-/// The App Group writes behind the Done button. Key names and JSON shapes
-/// must match lib/core/services/home_widget_service.dart and
-/// notification_action_queue.dart exactly, and the today-list flip mirrors
-/// MarkHabitDoneIntent in GrowDailyWidget.swift.
+/// The App Group write behind a task alarm's Done. The key name and JSON
+/// shape must match lib/core/services/home_widget_service.dart exactly; it is
+/// the same queue MarkTaskDoneIntent in GrowDailyWidget.swift appends to.
 enum AlarmDoneQueue {
   static let appGroupId = "group.com.growdaily.v2.widget"
 
-  static func record(kind: String, targetId: String) {
-    guard !targetId.isEmpty, let defaults = UserDefaults(suiteName: appGroupId) else { return }
-    switch kind {
-    case "habit":
-      appendHabitTap(targetId, to: defaults)
-      markHabitDoneInTodayList(targetId, in: defaults)
-    case "task":
-      appendTaskCompletion(targetId, to: defaults)
-    default:
-      return
+  static func recordTask(_ taskId: String) {
+    guard !taskId.isEmpty, let defaults = UserDefaults(suiteName: appGroupId) else { return }
+    var queue = readJSONArray("pendingWidgetTaskCompletions", from: defaults)
+    if !queue.compactMap({ $0 as? String }).contains(taskId) {
+      queue.append(taskId)
+      writeJSON(queue, to: "pendingWidgetTaskCompletions", in: defaults)
     }
     WidgetCenter.shared.reloadAllTimelines()
-  }
-
-  /// Today's date key the way the Dart side writes it: the local calendar
-  /// day in Western digits. The app's effective day rolls at midnight, so
-  /// the calendar day at the tap is the day the tap belongs to.
-  static func todayKey() -> String {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.calendar = Calendar(identifier: .gregorian)
-    formatter.timeZone = TimeZone.current
-    formatter.dateFormat = "yyyy-MM-dd"
-    return formatter.string(from: Date())
-  }
-
-  static func appendHabitTap(_ habitId: String, to defaults: UserDefaults) {
-    var queue = readJSONArray("pendingNotificationActions", from: defaults)
-    queue.append(["action": "mark_done", "habitId": habitId, "day": todayKey()])
-    // Same ceiling as NotificationActionRules.maxQueued, oldest first out.
-    if queue.count > 200 { queue.removeFirst(queue.count - 200) }
-    writeJSON(queue, to: "pendingNotificationActions", in: defaults)
-  }
-
-  static func appendTaskCompletion(_ taskId: String, to defaults: UserDefaults) {
-    var queue = readJSONArray("pendingWidgetTaskCompletions", from: defaults)
-    let ids = queue.compactMap { $0 as? String }
-    if ids.contains(taskId) { return }
-    queue.append(taskId)
-    writeJSON(queue, to: "pendingWidgetTaskCompletions", in: defaults)
-  }
-
-  static func markHabitDoneInTodayList(_ habitId: String, in defaults: UserDefaults) {
-    var list = readJSONArray("todayHabitsJson", from: defaults)
-    var changed = false
-    for i in list.indices {
-      guard var entry = list[i] as? [String: Any], entry["id"] as? String == habitId else { continue }
-      entry["done"] = true
-      if let perDay = entry["perDay"] as? Int { entry["count"] = perDay }
-      list[i] = entry
-      changed = true
-    }
-    if changed { writeJSON(list, to: "todayHabitsJson", in: defaults) }
   }
 
   static func readJSONArray(_ key: String, from defaults: UserDefaults) -> [Any] {
@@ -403,5 +442,87 @@ enum AlarmDoneQueue {
           let string = String(data: data, encoding: .utf8)
     else { return }
     defaults.set(string, forKey: key)
+  }
+}
+
+/// One alarm of the extended window, as NotificationService._syncAlarmWindow
+/// sends it.
+struct AlarmWindowItem: Sendable {
+  let id: Int
+  let fireAt: Date
+  let title: String
+  let subtitle: String?
+  let kind: String
+  let targetId: String
+  let stopLabel: String
+
+  init?(_ raw: [String: Any]) {
+    guard let id = raw["id"] as? Int,
+          let fireAtMs = raw["fireAtMs"] as? Double ?? (raw["fireAtMs"] as? Int).map(Double.init),
+          let title = raw["title"] as? String,
+          let kind = raw["kind"] as? String,
+          let targetId = raw["targetId"] as? String
+    else { return nil }
+    self.id = id
+    self.fireAt = Date(timeIntervalSince1970: fireAtMs / 1000)
+    self.title = title
+    self.subtitle = raw["subtitle"] as? String
+    self.kind = kind
+    self.targetId = targetId
+    self.stopLabel = raw["stopLabel"] as? String ?? "Stop"
+  }
+
+  /// Everything rescheduling would change, so an alarm that matches can be
+  /// left armed as it is.
+  var signature: String {
+    let ms = Int64((fireAt.timeIntervalSince1970 * 1000).rounded())
+    return "\(ms)|\(title)|\(subtitle ?? "")|\(stopLabel)"
+  }
+}
+
+/// What each alarm this app armed is about, one App Group key per slot id,
+/// so the window sync can see what it armed even when AlarmKit cannot be
+/// listed, and tell an alarm already armed with the same words from one that
+/// needs arming again. Keyed by the fixed slot ids, so it never grows with the
+/// days that pass: an id rescheduled overwrites its own record.
+@available(iOS 26.0, *)
+enum AlarmSlotRecords {
+  static let prefix = "alarmSlot."
+  static let appGroupId = "group.com.growdaily.v2.widget"
+
+  private static var store: UserDefaults? {
+    UserDefaults(suiteName: appGroupId)
+  }
+
+  static func remember(
+    slot: Int, uuid: UUID, kind: String, targetId: String, fireAt: Date, signature: String?
+  ) {
+    store?.set(
+      [
+        "uuid": uuid.uuidString,
+        "kind": kind,
+        "targetId": targetId,
+        "at": fireAt.timeIntervalSince1970,
+        "sig": signature ?? "",
+      ],
+      forKey: prefix + String(slot))
+  }
+
+  static func forget(slot: Int) {
+    store?.removeObject(forKey: prefix + String(slot))
+  }
+
+  static func signature(slot: Int) -> String? {
+    store?.dictionary(forKey: prefix + String(slot))?["sig"] as? String
+  }
+
+  static func slots(in range: ClosedRange<Int>) -> [Int] {
+    guard let all = store?.dictionaryRepresentation() else { return [] }
+    return all.keys.compactMap { key in
+      guard key.hasPrefix(prefix), let slot = Int(key.dropFirst(prefix.count)),
+            range.contains(slot)
+      else { return nil }
+      return slot
+    }
   }
 }

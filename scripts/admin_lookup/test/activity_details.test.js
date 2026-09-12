@@ -115,8 +115,11 @@ test('the day carries its mood, night review, reflection and takings', () => {
     mood: 'great',
     nightReviewDone: true,
     dailyReflection: '  alhamdulillah,   a  good day  ',
-    totalXpEarned: 40,
-    totalGoldEarned: 9,
+    // The live ledger, not totalXpEarned/totalGoldEarned: those are dead
+    // fields with no writer left, so a feed built on them printed no
+    // earnings chip at all for days that really paid.
+    habitPaidXp: { [QURAN]: 40 },
+    habitPaidGold: { [QURAN]: 9 },
     timerSeconds: { [QURAN]: 900 },
   }, []));
   assert.ok(texts.some((t) => /Great/.test(t)), 'mood missing');

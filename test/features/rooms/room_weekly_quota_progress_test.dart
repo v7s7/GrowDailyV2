@@ -855,6 +855,44 @@ void main() {
         reason: 'grading stopped at endDate; nothing can change anymore',
       );
     });
+
+    // The week's last day keeps the same grace every other day gets: it is
+    // markable until kDayCutoffHour the next morning, so the week cannot be
+    // graded as final at midnight. Before this, a 4x week closed at 00:00 on
+    // Saturday and allocated its shortfall over a Friday the member could
+    // still finish, then re-split the same week when they did (measured on
+    // ELQVF8, 2026-09-12).
+    final saturday = weekStart.add(const Duration(days: 7));
+
+    test('still open just after midnight on the day after it', () {
+      expect(
+        isQuotaWeekClosed(
+          weekStart: weekStart,
+          lastCountedDay: saturday,
+          roomEnded: false,
+          now: DateTime(saturday.year, saturday.month, saturday.day, 0, 5),
+        ),
+        isFalse,
+        reason: 'its Friday is still markable until 10:00',
+      );
+    });
+
+    test('closed once its last day closes at the cutoff', () {
+      expect(
+        isQuotaWeekClosed(
+          weekStart: weekStart,
+          lastCountedDay: saturday,
+          roomEnded: false,
+          now: DateTime(
+            saturday.year,
+            saturday.month,
+            saturday.day,
+            kDayCutoffHour,
+          ),
+        ),
+        isTrue,
+      );
+    });
   });
 
   // The streak consequence of day-local placement, stated out loud: it can

@@ -778,6 +778,34 @@ const EVENING_REMINDER_MESSAGES = {
   }),
 };
 
+/**
+ * Every room that is live, the way the APP decides that.
+ *
+ * RoomModel.fromFirestore reads `status` as `(d['status'] as String?) ??
+ * 'active'` - a MISSING status field means active, because rooms predate the
+ * lobby era and were born running. A `where("status", "==", "active")` query
+ * cannot see those documents at all: Firestore matches on stored fields, and
+ * a room with no status field is simply not in the index. On 2026-09-12 that
+ * hid rooms ZCNGFT and 5S84CL, plus five empty room documents, from both
+ * scheduled functions and from check_rooms.js, so their members got no
+ * evening reminder and their pause spans and undercounts were never swept.
+ *
+ * Reading the whole collection and filtering here is the only way to apply
+ * the app's own default. The collection is small (single digits per this
+ * project's whole history), so the cost is a rounding error against being
+ * wrong about which rooms exist.
+ * @return {Promise<{docs: Array, size: number}>} The same shape a query
+ * snapshot exposes to the two callers below.
+ */
+async function activeRooms() {
+  const all = await db.collection("rooms").get();
+  const docs = all.docs.filter((d) => {
+    const status = (d.data() || {}).status;
+    return status === undefined || status === null || status === "active";
+  });
+  return {docs, size: docs.length};
+}
+
 /** Local-clock window for the evening reminder, [start, end). */
 const EVENING_HOUR_START = 19;
 const EVENING_HOUR_END = 21;
@@ -798,8 +826,7 @@ exports.roomEveningReminder = onSchedule(
     {schedule: "every 60 minutes"},
     async () => {
       const nowMs = Date.now();
-      const roomsSnap = await db
-          .collection("rooms").where("status", "==", "active").get();
+      const roomsSnap = await activeRooms();
       // Any UTC day that could still be someone's local "today", given
       // real offsets span -12h to +14h.
       const candidateDays = new Set([-1, 0, 1].map((d) =>
@@ -932,8 +959,7 @@ exports.roomsHealthSweep = onSchedule(
       // The newest day that has fully closed: not today, not yesterday
       // (still payable until 10:00), the day before.
       const lastClosed = todayKeyIn(Date.now() - 2 * DAY_MS, HEALTH_TZ);
-      const roomsSnap = await db
-          .collection("rooms").where("status", "==", "active").get();
+      const roomsSnap = await activeRooms();
 
       let clippedRooms = 0;
       let undercounts = 0;
@@ -973,14 +999,36 @@ exports.roomsHealthSweep = onSchedule(
               .collection("users").doc(partDoc.id)
               .collection("daily").doc(d).get()));
           const squaresByDay = {};
+          // The day document's own write times, which are what tell a day the
+          // room is HOLDING on purpose from one it genuinely missed. See
+          // undercountedDays: without them this sweep logged the app's
+          // anti-backdating clamp working as designed, with a repair command
+          // beside it.
+          const lastUpdatedByDay = {};
+          const createdByDay = {};
           days.forEach((d, i) => {
-            if (daySnaps[i].exists) {
-              squaresByDay[d] = (daySnaps[i].data() || {}).squareStates || {};
-            }
+            if (!daySnaps[i].exists) return;
+            squaresByDay[d] = (daySnaps[i].data() || {}).squareStates || {};
+            lastUpdatedByDay[d] = (daySnaps[i].data() || {}).lastUpdated;
+            createdByDay[d] = daySnaps[i].createTime;
           });
           const short = undercountedDays({days, countingIds, squaresByDay,
-            part});
+            part, lastUpdatedByDay, createdByDay});
           for (const u of short) {
+            if (u.held) {
+              logger.info("roomsHealthSweep saw a closed day the room is " +
+                  "holding on purpose, no action", {
+                room: code,
+                name: room.name,
+                member: part.displayName || partDoc.id,
+                uid: partDoc.id,
+                day: u.day,
+                stored: u.stored,
+                squares: u.real,
+                why: u.why,
+              });
+              continue;
+            }
             undercounts++;
             logger.warn("roomsHealthSweep found a closed day whose stored " +
                 "count trails the member's squares", {

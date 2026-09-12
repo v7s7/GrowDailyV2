@@ -838,6 +838,15 @@ void main() {
         expect(label.length, lessThanOrEqualTo(12));
       }
     });
+
+    test("a task alarm's Done names what the tap records", () {
+      // It sits beside the system's Stop, where a bare «تم» did not say
+      // whether it stopped the alarm or finished the task. Still inside the
+      // length bound above, since a button label is truncated hard.
+      expect(taskDoneAction(true), 'خلّصت المهمة');
+      expect(taskDoneAction(false), 'I did the task');
+      expect(taskDoneAction(true).length, lessThanOrEqualTo(12));
+    });
   });
 
   group('snoozedReminderBody', () {

@@ -108,6 +108,25 @@ class RoomHabitRule {
     this.scheduledWeekdays = const [],
   });
 
+  /// A FLEXIBLE quota: "N times a week, any days". The only cadence whose
+  /// empty square is ambiguous, and so the only one a share can be spread
+  /// across a week (see RoomParticipant.dailyScheduledWeight).
+  ///
+  /// Both halves matter. "Specific days" is ALSO stored as
+  /// [HabitFrequencyType.weekly] and is told apart only by
+  /// [scheduledWeekdays] being set: the catalog ships صيام الإثنين والخميس as
+  /// weekly with [monday, thursday] and صلاة الجمعة as weekly with [friday],
+  /// and Add Habit separates the two the same way
+  /// (`_freqType == weekly && _selectedWeekdays.isEmpty`). Testing the type
+  /// alone turns a Mon/Thu habit into a 2x-a-week quota, which excuses the
+  /// very days it should be asking for.
+  ///
+  /// No room links such a habit today (32 rule periods across all 15 rooms on
+  /// 2026-09-12, none weekly-with-weekdays), so the several places still
+  /// testing the type alone are a trap rather than a live fault.
+  bool get isFlexibleQuota =>
+      frequencyType == HabitFrequencyType.weekly && scheduledWeekdays.isEmpty;
+
   /// Whether [other] grades days any differently than this rule does - the
   /// check behind the room's "your habit's settings no longer match what
   /// this room is scoring you on" warning. Compares only the three things
@@ -424,7 +443,22 @@ class RoomModel {
   /// tested at a chosen moment.
   bool isEndedAt(DateTime now) {
     final end = endDate;
-    return end != null && now.effectiveDay.isAfter(end);
+    // The last day has to CLOSE, not merely fall behind today.
+    //
+    // effectiveDay rolls at midnight, so a room ended at 00:00 on the
+    // morning after its final day, while that day stayed markable until
+    // kDayCutoffHour. In those ten hours the podium could be claimed on a
+    // record missing every rival's night marks, the 2x boost stopped, and
+    // both sync paths skipped the room (rooms_notifier: linkedRoomsFor and
+    // resyncAllMyRooms), so a completion made in the grace tail of the last
+    // day never reached the room at all. The next finales this protects are
+    // 648CF8 on 09-23 and ELQVF8 on 09-30.
+    //
+    // Against closesAt, NOT !isOpenDayAt: a day is also "not open" before it
+    // begins, so that spelling called every room with a future end date
+    // ended, announced their finales and stopped their boost. Pinned by
+    // room_end_closes_at_cutoff_test.dart.
+    return end != null && !now.isBefore(end.closesAt);
   }
 
   /// The last day progress counts toward this room - today, unless the room
@@ -566,6 +600,74 @@ class RoomModel {
 /// character fields are a denormalized snapshot so the leaderboard can
 /// render real avatars without a second lookup per row; refreshed whenever
 /// progress syncs.
+/// What one linked habit did on one day, as the room itself graded it.
+///
+/// The per-habit half of a day that the counts ([RoomParticipant.
+/// dailyDoneCount] and its siblings) only ever describe in total. See
+/// [RoomParticipant.dailyHabitMarks] for why it exists and for the wall that
+/// keeps it away from every score.
+enum RoomHabitMark {
+  /// Asked for, and completed.
+  done('d'),
+
+  /// Asked for, and marked جزئي: half a habit, exactly as creditFor weighs it.
+  partial('p'),
+
+  /// Asked for, and stood down with تخطّي. Worth nothing, the same as a miss;
+  /// only the drawing differs.
+  skipped('s'),
+
+  /// Asked for, and nothing was recorded.
+  missed('m'),
+
+  /// In the plan that day, but its own schedule asked nothing of it: a day
+  /// off its named weekdays, or a day its weekly quota had already bought.
+  rest('r');
+
+  const RoomHabitMark(this.code);
+
+  /// One letter on the wire. A room can run for a year with several habits,
+  /// and the map stores one of these per habit per day.
+  final String code;
+
+  /// Whether this habit was part of the day's denominator.
+  bool get wasAsked => this != rest;
+
+  static RoomHabitMark? fromCode(Object? code) {
+    for (final m in values) {
+      if (m.code == code) return m;
+    }
+    return null;
+  }
+}
+
+/// Whether [marks] describe the same day the counts do: the same number
+/// done, the same number جزئي, and the same number asked.
+///
+/// The one test both sides of [RoomParticipant.dailyHabitMarks] share. The
+/// sync stores a day's marks only when they pass it against the counts it is
+/// about to write, so a square the anti-backdating clamp refused is never
+/// drawn as done. The day card names habits only when they pass it against
+/// the counts it is about to print, so a document an older build regraded
+/// without the marks falls back to the grouped view instead of naming the
+/// wrong habit.
+bool habitMarksAgree(
+  Map<String, RoomHabitMark> marks, {
+  required int done,
+  required int partial,
+  required int scheduled,
+}) {
+  var d = 0;
+  var p = 0;
+  var asked = 0;
+  for (final m in marks.values) {
+    if (m == RoomHabitMark.done) d++;
+    if (m == RoomHabitMark.partial) p++;
+    if (m.wasAsked) asked++;
+  }
+  return d == done && p == partial && asked == scheduled;
+}
+
 class RoomParticipant {
   final String uid;
   final String displayName;
@@ -672,6 +774,111 @@ class RoomParticipant {
   ///
   /// Sparse and remove-when-zero, exactly like its siblings.
   final Map<String, int> dailyPartialCount;
+
+  /// What a day DEMANDED and what it EARNED, in fractions of a habit, for the
+  /// days whole-habit counts cannot describe.
+  ///
+  /// A flexible weekly quota is binary in [dailyScheduledCount]: a whole slot
+  /// on the days weeklyQuotaScheduledDays makes answerable, and absent from
+  /// the ones it excuses. Aziz ruled on 2026-09-12 that it should carry its
+  /// SHARE instead, target/7 per day of a closed week, so a week with 1 of 4
+  /// sessions stops being carried by the daily habits beside it, while a week
+  /// with 4 of 4 still reads 100% (the property rooms_notifier.dart's
+  /// weeklyQuotaScheduledDays doc exists to protect).
+  ///
+  /// Written only by the grader, because only the grader holds the squares: a
+  /// participant document records per-day TOTALS, so nothing reading ANOTHER
+  /// member's doc could work out which of a week's sessions were the quota
+  /// habit. Sparse, and absent means "use the counts", so every day graded by
+  /// an older build reads exactly as it did.
+  ///
+  /// Deliberately NOT read by [scheduledCountFor], [isRestDay] or
+  /// [isFullyDone]. This moves the percentage and nothing else: what counts as
+  /// a finished day is unchanged, so the strip's colours and the room streak
+  /// are untouched by the weighting.
+  final Map<String, double> dailyScheduledWeight;
+
+  /// The earned half of [dailyScheduledWeight], carrying جزئي at 0.5 the same
+  /// way [creditFor] always has.
+  final Map<String, double> dailyDoneWeight;
+
+  /// Which way each linked habit landed, per day: date key -> habit id ->
+  /// [RoomHabitMark]. Written by RoomsController.syncLinkedHabitsProgress
+  /// and syncTodayForHabit beside the counts, for the tapped-day card.
+  ///
+  /// ── A DISPLAY FIELD, BEHIND THE SAME WALL AS [dailyRestedCount] ───────
+  /// The counts are the record the room ranks and pays on; this only NAMES
+  /// them. Nothing that produces a number a leaderboard sorts, renders or
+  /// pays out on may read it, and there is a test that fails if it does.
+  ///
+  /// It exists because the counts cannot say which habit each one was. A day
+  /// where two of three habits were asked and one was done could only print
+  /// «1 من عادتين» with no names, and Aziz asked for the names every time
+  /// (2026-09-11: "why some times it says the habit that done, and sometimes
+  /// the name is not mention? lets make it mention all the time").
+  ///
+  /// Trusted only where it agrees with the counts ([habitMarksFor]). Two
+  /// reasons it may not: the anti-backdating clamp held a closed day below
+  /// what its squares now show (the sync then keeps the day's earlier marks
+  /// or writes none, see reconciledHabitMarks), or an older build regraded
+  /// the counts without touching this. Either way the card falls back to the
+  /// counts alone. The one case agreement cannot catch is an older build on
+  /// a second device regrading a day where one habit was swapped for another
+  /// with the totals unchanged; the next sync from a current build rewrites
+  /// that day.
+  ///
+  /// Keyed by habit id, not by slot, because that is what the sync grades:
+  /// the habit that filled a since-declined slot keeps its marks on the days
+  /// it was graded, and [habitInSlotOn] finds it again. A habit with no mark
+  /// on a day was not part of that day. Empty on every document written
+  /// before this existed, and on every member whose phone has not synced on
+  /// a build that writes it.
+  final Map<String, Map<String, RoomHabitMark>> dailyHabitMarks;
+
+  /// This day's [dailyHabitMarks], when they describe the same day the
+  /// counts do (see [habitMarksAgree]); null otherwise.
+  Map<String, RoomHabitMark>? habitMarksFor(String dateKey) {
+    final marks = dailyHabitMarks[dateKey];
+    if (marks == null || marks.isEmpty) return null;
+    return habitMarksAgree(
+      marks,
+      done: dailyDoneCount[dateKey] ?? 0,
+      partial: partialCountFor(dateKey),
+      scheduled: scheduledCountFor(dateKey),
+    )
+        ? marks
+        : null;
+  }
+
+  /// [dailyHabitMarks] from its stored shape, dropping anything that is not
+  /// a date key holding habit ids with a known mark.
+  static Map<String, Map<String, RoomHabitMark>> habitMarksFrom(Object? raw) {
+    if (raw is! Map) return const {};
+    final out = <String, Map<String, RoomHabitMark>>{};
+    for (final day in raw.entries) {
+      final habits = day.value;
+      if (habits is! Map) continue;
+      final marks = <String, RoomHabitMark>{
+        for (final e in habits.entries)
+          if (RoomHabitMark.fromCode(e.value) case final RoomHabitMark m)
+            e.key.toString(): m,
+      };
+      if (marks.isNotEmpty) out[day.key.toString()] = marks;
+    }
+    return out;
+  }
+
+  /// [marks] in the shape Firestore stores: one letter per habit per day.
+  static Map<String, Map<String, String>> habitMarksToFirestore(
+    Map<String, Map<String, RoomHabitMark>> marks,
+  ) =>
+      {
+        for (final day in marks.entries)
+          if (day.value.isNotEmpty)
+            day.key: {
+              for (final e in day.value.entries) e.key: e.value.code,
+            },
+      };
 
   /// The first day this participant's rest concessions may apply from.
   ///
@@ -973,6 +1180,9 @@ class RoomParticipant {
     this.dailyScheduledCount = const {},
     this.dailyRestedCount = const {},
     this.dailyPartialCount = const {},
+    this.dailyScheduledWeight = const {},
+    this.dailyDoneWeight = const {},
+    this.dailyHabitMarks = const {},
     this.restAllowanceFrom,
     this.quotaOkWeeks = const [],
     this.standDownDays = const [],
@@ -1310,7 +1520,7 @@ class RoomParticipant {
         (dailyDoneCount[dateKey] ?? 0) == 0 &&
         (dailyPartialCount[dateKey] ?? 0) == 0 &&
         _everyCountedHabitIsWeeklyOn(dateKey) &&
-        _weekQuotaWasMet(dateKey)) {
+        quotaWeekWasMet(dateKey)) {
       return 0;
     }
     // The plan AS IT STOOD on this day, not as it stands now. A slot the
@@ -1365,7 +1575,7 @@ class RoomParticipant {
   /// [_keepsStreak] uses, so the two can never disagree about which seven
   /// days a week is. Empty for a purely daily-habit room, since the grader
   /// only ever records a week when it saw a weekly habit.
-  bool _weekQuotaWasMet(String dateKey) {
+  bool quotaWeekWasMet(String dateKey) {
     final day = DateTime.tryParse(dateKey);
     if (day == null) return false;
     return quotaOkWeeks.contains(day.startOfDisplayWeek.toDateKey());
@@ -1409,7 +1619,7 @@ class RoomParticipant {
     final clock = now ?? DateTime.now();
     final day = DateTime.tryParse(dateKey);
     if (day == null) return false;
-    if (_weekQuotaWasMet(dateKey)) return false;
+    if (quotaWeekWasMet(dateKey)) return false;
     if (!_everyCountedHabitIsWeeklyOn(dateKey)) return false;
 
     final weekStart = day.startOfDisplayWeek;
@@ -1835,6 +2045,18 @@ class RoomParticipant {
   /// [dailyPartialCount].
   int partialCountFor(String dateKey) => dailyPartialCount[dateKey] ?? 0;
 
+  /// The demand [dateKey] carried, in fractions of a habit, falling back to
+  /// the whole-habit count when the grader recorded no weight for that day.
+  /// See [dailyScheduledWeight].
+  double scheduledWeightFor(String dateKey) =>
+      dailyScheduledWeight[dateKey] ?? scheduledCountFor(dateKey).toDouble();
+
+  /// The credit [dateKey] earned against [scheduledWeightFor], falling back to
+  /// the whole-habit counts with جزئي at half a habit.
+  double doneWeightFor(String dateKey) =>
+      dailyDoneWeight[dateKey] ??
+      ((dailyDoneCount[dateKey] ?? 0) + partialCountFor(dateKey) * 0.5);
+
   /// Whether [dateKey] should be DRAWN as a rest rather than a miss.
   ///
   /// Requires that nothing was done, so a mixed day (one habit done, one
@@ -1894,7 +2116,6 @@ class RoomParticipant {
     if (isStoodDownOn(dateKey)) return 0;
     final scheduled = scheduledCountFor(dateKey);
     if (scheduled == 0) return 1.0;
-    final done = dailyDoneCount[dateKey] ?? 0;
     // A جزئي habit is half a habit. The weight is 0.5 everywhere in this app
     // (SquareState.xpValue pays it 5 against complete's 10, the Grid's own
     // day ratio scores it 0.5, and the reports credit it 0.5), and Rooms was
@@ -1904,8 +2125,16 @@ class RoomParticipant {
     // جزئي can only ever earn LESS than marking مكتمل, so it is never worth
     // reaching for. Compare dailyRestedCount, which must not score because
     // it would shrink the denominator instead of adding to the numerator.
-    final credited = done + partialCountFor(dateKey) * 0.5;
-    return (credited / scheduled).clamp(0.0, 1.0);
+    //
+    // Both sides are the WEIGHTED ones since the weekly-share ruling, so a
+    // flexible quota on a mixed plan carries target/7 of a closed week's
+    // demand on every day rather than a whole slot on the days it is asked
+    // for and nothing on the days it excuses. A day the grader recorded no
+    // weight for falls back to the whole-habit counts, which is the identical
+    // arithmetic this line did before. See [dailyScheduledWeight].
+    final demand = scheduledWeightFor(dateKey);
+    if (demand <= 0) return 1.0;
+    return (doneWeightFor(dateKey) / demand).clamp(0.0, 1.0);
   }
 
   /// Whether [dateKey] asked nothing of this participant — a rest day a
@@ -1993,8 +2222,8 @@ class RoomParticipant {
   /// The ratios below deliberately do NOT use this: they want [_liveDaysIn]'s
   /// unclamped count, because zero days asked and one day asked are different
   /// facts and this method cannot tell them apart.
-  int daysElapsedIn(RoomModel room) {
-    final live = _liveDaysIn(room).live;
+  int daysElapsedIn(RoomModel room, {DateTime? now}) {
+    final live = _liveDaysIn(room, now ?? DateTime.now()).live;
     return live < 1 ? 1 : live;
   }
 
@@ -2006,7 +2235,32 @@ class RoomParticipant {
   /// it through `allRest`: a window the plan never asked a single thing of is
   /// nothing fallen short of, while a window excused by a pause or a
   /// stand-down keeps the zero it has always had.
-  ({int live, bool allRest}) _liveDaysIn(RoomModel room) {
+  /// Whether [dateKey] may enter a score yet, read at [now].
+  ///
+  /// Aziz's rule for Reports (d1729b7), asked of a room: a day counts once it
+  /// is SETTLED, which is closed (kDayCutoffHour the next morning) or
+  /// answered. A room day is answered when everything it asked for was done
+  /// ([isFullyDone]); a half-done day that can still be finished waits, the
+  /// same way a جزئي on an open day waits in a report.
+  ///
+  /// Before this, every percentage and every streak in a room counted the new
+  /// day from its own midnight, so both members' numbers dipped at 00:00 and
+  /// climbed back through the day. Measured on ELQVF8 across midnight on
+  /// 2026-09-12: Hoor 69.7% to 63.9% and her 6-day streak to 0, with her own
+  /// 09-11 still markable until 10:00. A day that is not countable yet leaves
+  /// BOTH sides, exactly as a rest day does, so nothing is scored against a
+  /// day the room has not finished asking about.
+  ///
+  /// Deliberately NOT [isSettledAt]'s `answered: false` reading: a room day
+  /// that is already finished counts the moment it is finished, or marking
+  /// everything at 21:00 would show nothing until the next morning.
+  bool dayIsCountableAt(String dateKey, DateTime now) {
+    final day = DateTime.tryParse(dateKey);
+    if (day == null) return true;
+    return day.isSettledAt(now, answered: isFullyDone(dateKey));
+  }
+
+  ({int live, bool allRest}) _liveDaysIn(RoomModel room, DateTime now) {
     final start = countedStartIn(room);
     final last = room.lastCountedDay;
     if (last.isBefore(start)) return (live: 1, allRest: false);
@@ -2063,7 +2317,11 @@ class RoomParticipant {
       if (room.isPausedOn(key) ||
           conceded.contains(key) ||
           isStoodDownOn(key) ||
-          resting) {
+          resting ||
+          // Still open and unfinished, so the room has not finished asking
+          // about it: out of the denominator exactly as it is out of
+          // daysCompleted's numerator. See dayIsCountableAt.
+          !dayIsCountableAt(key, now)) {
         excused++;
       }
     }
@@ -2132,12 +2390,19 @@ class RoomParticipant {
     return out;
   }
 
-  double daysCompleted(RoomModel room) {
+  double daysCompleted(RoomModel room, {DateTime? now}) {
+    final clock = now ?? DateTime.now();
     var total = 0.0;
     var day = countedStartIn(room);
     final last = room.lastCountedDay;
     while (!day.isAfter(last)) {
       final key = day.toDateKey();
+      // A day that is still open and unfinished is not scored yet, and
+      // leaves the denominator too (see dayIsCountableAt and _liveDaysIn).
+      if (!dayIsCountableAt(key, clock)) {
+        day = day.add(const Duration(days: 1));
+        continue;
+      }
       // Skipped on both sides, matching daysElapsedIn — a paused day adds
       // nothing to the numerator and nothing to the denominator, so an
       // extension leaves every existing percentage exactly where it was.
@@ -2155,9 +2420,10 @@ class RoomParticipant {
 
   /// 0.0-1.0 completion ratio for [room] - the number every leaderboard row
   /// sorts and renders by.
-  double progressRatio(RoomModel room) {
+  double progressRatio(RoomModel room, {DateTime? now}) {
+    final clock = now ?? DateTime.now();
     // Their own window, not the room's — see [countedStartIn].
-    final window = _liveDaysIn(room);
+    final window = _liveDaysIn(room, clock);
     if (window.live <= 0) {
       // Every day they have been here was excused, so there is no fraction
       // to take. Which answer that deserves depends on WHY.
@@ -2172,7 +2438,7 @@ class RoomParticipant {
       // Someone who parked every habit on day one has not completed a room.
       return window.allRest ? 1.0 : 0.0;
     }
-    return (daysCompleted(room) / window.live).clamp(0.0, 1.0);
+    return (daysCompleted(room, now: clock) / window.live).clamp(0.0, 1.0);
   }
 
   // ── The room score ────────────────────────────────────────────────────
@@ -2355,12 +2621,21 @@ class RoomParticipant {
   }
 
   /// [daysCompleted] on the room score.
-  double roomDaysCompleted(RoomModel room) {
+  double roomDaysCompleted(RoomModel room, {DateTime? now}) {
+    final clock = now ?? DateTime.now();
     var total = 0.0;
     var day = countedStartIn(room);
     final last = room.lastCountedDay;
     while (!day.isAfter(last)) {
       final key = day.toDateKey();
+      // Still open and unfinished leaves BOTH sides here too (see
+      // dayIsCountableAt). An away day is the one exception: it is a zero the
+      // room keeps whatever else was true of it, and somebody who left is not
+      // going to finish it.
+      if (!isAwayOn(key) && !dayIsCountableAt(key, clock)) {
+        day = day.add(const Duration(days: 1));
+        continue;
+      }
       // An away day contributes its zero whether or not it was also stood
       // down, or a rest day; see [roomDaysElapsedIn] for the other half of
       // that rule. A rest day the plan never asked for leaves both sides
@@ -2385,8 +2660,9 @@ class RoomParticipant {
   /// excused instead of scored zero. On the room score an away day is in the
   /// denominator no matter what else was true of it. A day the whole ROOM
   /// was paused is still nobody's day.
-  int roomDaysElapsedIn(RoomModel room) {
-    var elapsed = _liveDaysIn(room).live;
+  int roomDaysElapsedIn(RoomModel room, {DateTime? now}) {
+    final clock = now ?? DateTime.now();
+    var elapsed = _liveDaysIn(room, clock).live;
     final conceded = concededDaysIn(room);
     var day = countedStartIn(room);
     final last = room.lastCountedDay;
@@ -2404,6 +2680,7 @@ class RoomParticipant {
         elapsed++;
       } else if (!isAwayOn(key) &&
           isRestDay(key) &&
+          dayIsCountableAt(key, clock) &&
           phantomWeightOn(room, key) != 0) {
         // daysElapsedIn excused this day because this member's own linked
         // habits asked nothing of it. The ROOM still did: a slot they never
@@ -2418,14 +2695,15 @@ class RoomParticipant {
   }
 
   /// 0.0-1.0 - the number the board ranks by. See the section comment above.
-  double roomProgressRatio(RoomModel room) {
-    final elapsed = roomDaysElapsedIn(room);
+  double roomProgressRatio(RoomModel room, {DateTime? now}) {
+    final clock = now ?? DateTime.now();
+    final elapsed = roomDaysElapsedIn(room, now: clock);
     // Same reading as [progressRatio]: an all-rest window asked nothing, a
     // paused or stood-down one keeps its zero. In a shared room this is
     // rarely reached at all, because an unlinked slot's phantom puts those
     // days straight back into the denominator above.
-    if (elapsed <= 0) return _liveDaysIn(room).allRest ? 1.0 : 0.0;
-    return (roomDaysCompleted(room) / elapsed).clamp(0.0, 1.0);
+    if (elapsed <= 0) return _liveDaysIn(room, clock).allRest ? 1.0 : 0.0;
+    return (roomDaysCompleted(room, now: clock) / elapsed).clamp(0.0, 1.0);
   }
 
   /// How much of [room]'s plan this member carries TODAY: linked, live slots
@@ -2479,16 +2757,23 @@ class RoomParticipant {
   /// [_keepsStreak]), for the leaderboard's streak badge. Never looks earlier
   /// than [RoomModel.startDate], and is always 0 before anything is linked.
   ///
-  /// While the room is still running, an unfinished *today* doesn't zero this
-  /// out - there's still time left, so this looks at whether yesterday keeps
-  /// the streak alive instead of declaring it broken mid-day. Once the room
-  /// has ended, its last countable day is final: if that day didn't hold, the
-  /// streak the room ended on is 0, same as any habit streak that lapses.
+  /// While the room is still running, a day that is still OPEN and unfinished
+  /// doesn't zero this out - there is still time left on it, so the walk
+  /// passes straight through it (see [dayIsCountableAt]). That is today at
+  /// every hour, and yesterday until it closes at kDayCutoffHour. Once the
+  /// room has ended, its last countable day is final: if that day didn't
+  /// hold, the streak the room ended on is 0, same as any habit streak that
+  /// lapses.
+  ///
+  /// It used to grant that grace to TODAY alone, which broke the streak at
+  /// midnight over a day the member could still finish: ELQVF8 on 2026-09-12
+  /// showed Hoor 0 from 00:00, with her own 09-11 open until 10:00, and 6
+  /// again the moment she marked it.
   ///
   /// [now] is injectable for the same reason [RoomModel.lastCountedDayAt] is:
   /// a live room's streak turns on which day is today, and a test pinned to
-  /// real dates cannot otherwise reach the unfinished-today branch. Both
-  /// callers pass nothing.
+  /// real dates cannot otherwise reach the open-day branch. Both callers pass
+  /// nothing.
   int currentStreak(RoomModel room, {DateTime? now}) {
     if (!hasCountedHabits) return 0;
     final clock = now ?? DateTime.now();
@@ -2496,11 +2781,6 @@ class RoomParticipant {
     // RoomModel.isEnded, read at the same clock.
     final end = room.endDate;
     final roomEnded = end != null && clock.effectiveDay.isAfter(end);
-    if (!roomEnded &&
-        !isStoodDownOn(day.toDateKey()) &&
-        !_keepsStreak(day.toDateKey(), day)) {
-      day = day.subtract(const Duration(days: 1));
-    }
     var count = 0;
     // Floors at the day THEY joined, not the room's start — a streak can't
     // run back through days they weren't here for. See [countedStartIn].
@@ -2519,6 +2799,14 @@ class RoomParticipant {
       // trained. Note the gap is visible either way — the leaderboard row
       // carries a pause badge for as long as it lasts.
       if (isStoodDownOn(key)) {
+        day = day.subtract(const Duration(days: 1));
+        continue;
+      }
+      // Still open and unfinished: transparent for the same reason, and this
+      // is the streak half of the open-day rule. It neither extends the
+      // streak nor ends it, because the room has not finished asking about
+      // the day. An ended room has no open days left to grant this to.
+      if (!roomEnded && !dayIsCountableAt(key, clock)) {
         day = day.subtract(const Duration(days: 1));
         continue;
       }
@@ -2570,6 +2858,20 @@ class RoomParticipant {
             (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
           ) ??
           const <String, int>{},
+      // toDouble, not a cast: Firestore hands a whole number back as an int,
+      // and a weight of exactly 1 or 2 is the commonest value there is, so
+      // `as double` would throw on the ordinary case rather than the rare one.
+      dailyScheduledWeight: (d['dailyScheduledWeight'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), (v as num?)?.toDouble() ?? 0.0),
+          ) ??
+          const <String, double>{},
+      dailyDoneWeight: (d['dailyDoneWeight'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), (v as num?)?.toDouble() ?? 0.0),
+          ) ??
+          const <String, double>{},
+      // Empty on a doc written before the marks existed, which the day card
+      // reads as "name nothing it cannot pin down from the counts".
+      dailyHabitMarks: habitMarksFrom(d['dailyHabitMarks']),
       restAllowanceFrom: d['restAllowanceFrom'] as String?,
       dailyDoneCount: (d['dailyDoneCount'] as Map?)?.map(
             (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
@@ -2671,6 +2973,14 @@ class RoomParticipant {
         'dailyDoneCount': dailyDoneCount,
         'dailyRestedCount': dailyRestedCount,
         'dailyPartialCount': dailyPartialCount,
+        // Sparse like the marks beside them: a plan with no flexible quota
+        // never needs a weight, and writing empty maps onto every document in
+        // every room would be a schema change for nothing.
+        if (dailyScheduledWeight.isNotEmpty)
+          'dailyScheduledWeight': dailyScheduledWeight,
+        if (dailyDoneWeight.isNotEmpty) 'dailyDoneWeight': dailyDoneWeight,
+        if (dailyHabitMarks.isNotEmpty)
+          'dailyHabitMarks': habitMarksToFirestore(dailyHabitMarks),
         if (restAllowanceFrom != null) 'restAllowanceFrom': restAllowanceFrom,
         'dailyScheduledCount': dailyScheduledCount,
         'quotaOkWeeks': quotaOkWeeks,
@@ -2725,6 +3035,9 @@ class RoomParticipant {
     Map<String, int>? dailyDoneCount,
     Map<String, int>? dailyRestedCount,
     Map<String, int>? dailyPartialCount,
+    Map<String, double>? dailyScheduledWeight,
+    Map<String, double>? dailyDoneWeight,
+    Map<String, Map<String, RoomHabitMark>>? dailyHabitMarks,
     String? restAllowanceFrom,
     Map<String, int>? dailyScheduledCount,
     List<String>? quotaOkWeeks,
@@ -2761,6 +3074,10 @@ class RoomParticipant {
         dailyScheduledCount: dailyScheduledCount ?? this.dailyScheduledCount,
         dailyRestedCount: dailyRestedCount ?? this.dailyRestedCount,
         dailyPartialCount: dailyPartialCount ?? this.dailyPartialCount,
+        dailyScheduledWeight:
+            dailyScheduledWeight ?? this.dailyScheduledWeight,
+        dailyDoneWeight: dailyDoneWeight ?? this.dailyDoneWeight,
+        dailyHabitMarks: dailyHabitMarks ?? this.dailyHabitMarks,
         restAllowanceFrom: restAllowanceFrom ?? this.restAllowanceFrom,
         quotaOkWeeks: quotaOkWeeks ?? this.quotaOkWeeks,
         standDownDays: standDownDays ?? this.standDownDays,

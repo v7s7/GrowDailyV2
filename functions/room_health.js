@@ -32,6 +32,45 @@
 const GREEN = new Set(["complete", "bonus"]); // SquareState.isGreen
 const DECLINED = "__declined__";
 
+// lib/core/extensions/datetime_ext.dart's kDayCutoffHour: a day stays open
+// for marking until this hour the NEXT morning, and a mark made in that tail
+// is paid in full by the Grid.
+const DAY_CUTOFF_HOUR = 10;
+
+// Asia/Bahrain, +180 with no daylight saving, the calendar every room key is
+// written on. Used only to place a day's close on the real clock.
+const APP_OFFSET_MINUTES = 180;
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The real instant [key] stops being open, for comparing against a Firestore
+ * Timestamp without moving the timestamp into anybody's calendar first.
+ *
+ * 2026-09-10 at +180 closes at 2026-09-11T07:00Z, which is 10:00 the next
+ * morning on the member's own clock.
+ * @param {string} key "YYYY-MM-DD"
+ * @param {number} [offsetMinutes] Phone offset, positive east of UTC.
+ * @return {number} Epoch milliseconds.
+ */
+function closesAtInstantMs(key, offsetMinutes) {
+  const off = typeof offsetMinutes === "number" && Number.isFinite(offsetMinutes) ?
+      offsetMinutes : APP_OFFSET_MINUTES;
+  const [y, m, d] = String(key).split("-").map(Number);
+  return Date.UTC(y, m - 1, d) - off * 60 * 1000 + (24 + DAY_CUTOFF_HOUR) * HOUR_MS;
+}
+
+/** Epoch ms of anything Firestore hands back as a time, or null. */
+function instantMsOf(v) {
+  if (!v) return null;
+  if (typeof v.toDate === "function") {
+    const d = v.toDate();
+    return d && typeof d.getTime === "function" ? d.getTime() : null;
+  }
+  if (v instanceof Date) return v.getTime();
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
 /**
  * "YYYY-MM-DD" for a Date, in that Date's own local calendar.
  * @param {Date} d
@@ -145,15 +184,56 @@ function closedDaysToCheck(r, lastClosedKey, lookback) {
 /**
  * The days on which a member's stored done count is lower than the number
  * of counting habits their own squares say were done.
+ *
+ * ── HELD days, and why they must never be "fixed" ─────────────────────────
+ *
+ * A lower stored count is not automatically a fault. The rooms' own
+ * anti-backdating clamp HOLDS a closed day at the count it already had,
+ * deliberately, so nobody colours in last month for room credit
+ * (syncLinkedHabitsProgress, rooms_notifier.dart). This check ignored the
+ * clamp entirely and so reported the app working as designed: room ELQVF8,
+ * Aziz, 2026-09-10, "stored 2, squares say 3", where square_audit shows the
+ * تمرين square was painted after the day had closed, carried no completion
+ * and paid no XP. The report printed a set_room_day.js --confirm line for
+ * it, and running that would have written the day up and lifted him from
+ * 65.9% to 68.9% on a ranked board for a day he did not train.
+ *
+ * The clamp stands aside for exactly one case, roomDayMarkedWhileOpen: a day
+ * whose document was LAST written before it closed can only hold marks made
+ * on time, so the room missed them rather than the person making them late.
+ * The day's `lastUpdated` is a server timestamp and cannot be moved by a
+ * device clock, which is what makes it usable as evidence here.
+ *
+ * So a day is HELD, and gets no repair command, when both are true:
+ *   1. the day document's last write landed at or after the day's close, and
+ *   2. the room had already graded that day (lastSyncedAt at or after the
+ *      same close, RoomParticipant.wasObservedOn).
+ *
+ * Absent evidence never produces a HELD verdict: a caller that passes no
+ * [lastUpdatedByDay] gets exactly the old behaviour, because claiming the
+ * app is holding a day when we cannot see when it was written would hide a
+ * real undercount. Reporting is the safe side, since nothing here writes.
+ *
  * @param {object} args
  * @param {Array<string>} args.days The closed day keys to check.
  * @param {Array<string>} args.countingIds From [countingHabitIds].
  * @param {Object<string, object>} args.squaresByDay day key -> the day
  * doc's squareStates map (habit id -> state), or undefined for no doc.
  * @param {object} args.part The participant doc's data.
- * @return {Array<{day: string, real: number, stored: number}>}
+ * @param {Object<string, *>} [args.lastUpdatedByDay] day key -> that day
+ * document's `lastUpdated` (Timestamp, Date or epoch ms). The evidence for
+ * rule 1 above.
+ * @param {Object<string, *>} [args.createdByDay] day key -> the document's
+ * Firestore createTime. Never changes a verdict; it only lets the report say
+ * that a held day was first opened on time.
+ * @param {number} [args.offsetMinutes] The member's phone offset, positive
+ * east of UTC. Defaults to Asia/Bahrain.
+ * @return {Array<{day: string, real: number, stored: number, held: boolean,
+ * why: string}>} `held` days are reported for information and must never be
+ * handed a set_room_day.js command.
  */
-function undercountedDays({days, countingIds, squaresByDay, part}) {
+function undercountedDays({days, countingIds, squaresByDay, part,
+  lastUpdatedByDay, createdByDay, offsetMinutes}) {
   const done = part.dailyDoneCount || {};
   const scheduled = part.dailyScheduledCount || {};
   const stood = new Set(Array.isArray(part.standDownDays) ?
@@ -188,7 +268,35 @@ function undercountedDays({days, countingIds, squaresByDay, part}) {
       return GREEN.has(String(squares[id]));
     }).length;
     const stored = done[day] || 0;
-    if (real > stored) out.push({day, real, stored});
+    if (real <= stored) continue;
+
+    // The two pieces of evidence the clamp itself turns on. `syncedMs` is
+    // read the same way RoomParticipant.wasObservedOn reads it, falling back
+    // to the day watermark for a document written before the instant was
+    // recorded.
+    const closes = closesAtInstantMs(day, offsetMinutes);
+    const writtenMs = instantMsOf((lastUpdatedByDay || {})[day]);
+    const syncedMs = instantMsOf(part.lastSyncedAt);
+    const observed = syncedMs !== null ? syncedMs >= closes :
+        (typeof part.lastSyncedDay === "string" && day <= part.lastSyncedDay);
+    const writtenLate = writtenMs !== null && writtenMs >= closes;
+
+    if (writtenLate && observed) {
+      const madeMs = instantMsOf((createdByDay || {})[day]);
+      const opened = madeMs !== null && madeMs < closes ?
+        " The day document was first written while the day was still open, " +
+        "so the room graded what was there at the time." : "";
+      out.push({
+        day, real, stored, held: true,
+        why: "the room is holding this day on purpose: its record was last " +
+            `written ${new Date(writtenMs).toISOString()}, after the day ` +
+            `closed ${new Date(closes).toISOString()}, and the room had ` +
+            "already graded it. A square painted after a day closes earns " +
+            `nothing in the app either.${opened}`,
+      });
+      continue;
+    }
+    out.push({day, real, stored, held: false, why: ""});
   }
   return out;
 }

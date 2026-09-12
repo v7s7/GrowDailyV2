@@ -824,14 +824,19 @@ void main() {
         'a 3-day-old lastActiveDate (2+ non-qualifying days) resets the '
         'streak, even though "some" activity may have happened in between',
         () async {
-      final today = DateTime.now().effectiveDay;
+      // Anchored on the first day that is still OPEN, never on today. A day
+      // stays markable until kDayCutoffHour, so before 10:00 "three days
+      // ago" is only two settled days back, and this test used to pass or
+      // fail purely on the hour the suite happened to run. Three days back
+      // from the first open day owes exactly two settled days at any hour.
+      final firstOpen = firstOpenDayAt(DateTime.now());
       await LocalStoreService.putSettingsMap(
         LocalStoreService.guestDashboardKey,
         {
           'currentStreak': 5,
           'streakFreezes': 1,
           'lastActiveDate':
-              today.subtract(const Duration(days: 3)).toIso8601String(),
+              firstOpen.subtract(const Duration(days: 3)).toIso8601String(),
         },
       );
 
@@ -850,8 +855,9 @@ void main() {
       expect(container.read(dashboardProvider).streak, 5,
           reason: 'and nothing is destroyed before it is judged');
 
-      // Judged against an every-day habit: all three days genuinely owed
-      // something, so the streak is gone.
+      // Judged against an every-day habit: both settled days in the gap
+      // genuinely owed something, and one freeze cannot cover two owed
+      // days, so the streak is gone.
       await container
           .read(dashboardProvider.notifier)
           .resolveStreakGap([_everyDayHabit()]);
@@ -909,17 +915,80 @@ void main() {
       expect(dash.pendingStreakGapFrom, isNull, reason: 'question settled');
     });
 
+    test('a gap that owes nothing never adopts a day that is still open',
+        () async {
+      // The hole the open-day bound could have opened. owedDays can now be 0
+      // simply because the only day left in the gap has not closed yet, and
+      // this branch used to close such a gap by moving the marker to
+      // yesterday. Before 10:00 that adopts an unfinished yesterday as the
+      // last active day, and the loader then measures a one-day gap, asks
+      // nothing, and forgives a real miss for good.
+      final firstOpen = firstOpenDayAt(DateTime.now());
+      final from = firstOpen.subtract(const Duration(days: 3));
+      await LocalStoreService.putSettingsMap(
+        LocalStoreService.guestDashboardKey,
+        {
+          'currentStreak': 5,
+          'streakFreezes': 1,
+          'lastActiveDate': from.toIso8601String(),
+        },
+      );
+
+      final container = await freshContainer();
+      addTearDown(container.dispose);
+
+      // Scheduled only on the gap's own first day and on today, so every day
+      // strictly between them asked for nothing and the gap owes zero at
+      // whatever hour this runs.
+      final restOnly = IslamicHabitTemplate(
+        id: 'daily-habit',
+        name: 'daily',
+        description: '',
+        category: HabitCategory.custom,
+        frequencyType: HabitFrequencyType.daily,
+        frequencyTarget: 1,
+        hasTimer: false,
+        xpReward: 10,
+        goldReward: 5,
+        scheduledWeekdays: [
+          from.weekday,
+          DateTime.now().effectiveDay.weekday,
+        ],
+      );
+      await container
+          .read(dashboardProvider.notifier)
+          .resolveStreakGap([restOnly]);
+
+      final saved = await LocalStoreService.getSettingsMap(
+        LocalStoreService.guestDashboardKey,
+      );
+      final marker = DateTime.parse(saved['lastActiveDate'] as String);
+      expect(
+        marker.isOpenDay,
+        isFalse,
+        reason: 'the marker must never land on a day still open for marking',
+      );
+      expect(
+        marker,
+        firstOpen.subtract(const Duration(days: 1)),
+        reason: 'it advances to the last settled day and no further',
+      );
+    });
+
     test(
         'a 2-day-old lastActiveDate (exactly one non-qualifying day) auto-'
         'consumes a freeze instead of resetting', () async {
-      final today = DateTime.now().effectiveDay;
+      // Same anchor as the 3-day test above, and for the same reason: two
+      // days back from the first still-open day owes exactly one settled
+      // day whatever the clock says.
+      final firstOpen = firstOpenDayAt(DateTime.now());
       await LocalStoreService.putSettingsMap(
         LocalStoreService.guestDashboardKey,
         {
           'currentStreak': 5,
           'streakFreezes': 1,
           'lastActiveDate':
-              today.subtract(const Duration(days: 2)).toIso8601String(),
+              firstOpen.subtract(const Duration(days: 2)).toIso8601String(),
         },
       );
 
@@ -934,6 +1003,17 @@ void main() {
       expect(dash.streakFreezes, 0);
       expect(dash.didUseStreakFreeze, isTrue);
       expect(dash.previousStreak, 0);
+
+      // And the freeze leaves the marker on the last SETTLED day. Stamping
+      // a still-open yesterday would claim a day the freeze never paid for
+      // and nobody has finished, and the loader would then read a one-day
+      // gap after the cutoff and never judge it at all.
+      final saved = await LocalStoreService.getSettingsMap(
+        LocalStoreService.guestDashboardKey,
+      );
+      final marker = DateTime.parse(saved['lastActiveDate'] as String);
+      expect(marker.isOpenDay, isFalse);
+      expect(marker, firstOpen.subtract(const Duration(days: 1)));
     });
   });
 

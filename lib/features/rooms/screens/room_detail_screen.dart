@@ -18,6 +18,7 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../../core/providers/room_rows_view_provider.dart';
 import '../../../core/providers/room_cards_collapse_provider.dart';
@@ -238,6 +239,12 @@ class _RoomDetailScreenState extends ConsumerState<RoomDetailScreen> {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    // Watched, not read: every percentage and streak below asks whether a day
+    // is still open (RoomParticipant.dayIsCountableAt), and those answers
+    // change at midnight and again when yesterday closes at kDayCutoffHour.
+    // A screen left open across either instant would otherwise keep showing
+    // the old numbers until something else rebuilt it. See dayClockProvider.
+    ref.watch(dayClockProvider);
     final roomAsync = ref.watch(roomProvider(widget.code));
 
     return roomAsync.when(

@@ -52,7 +52,6 @@ void main() {
       subtitle: 'باقي ١٠ دقائق',
       kind: 'habit',
       targetId: 'fajr_prayer',
-      doneLabel: 'تمت',
       stopLabel: 'إيقاف',
     );
     expect(ok, isTrue);
@@ -64,9 +63,24 @@ void main() {
       'subtitle': 'باقي ١٠ دقائق',
       'kind': 'habit',
       'targetId': 'fajr_prayer',
-      'doneLabel': 'تمت',
       'stopLabel': 'إيقاف',
     });
+  });
+
+  // The habit above sends no doneLabel key at all (the map is compared
+  // whole), which is what keeps a habit alarm to Stop alone.
+  test('a task alarm sends its Done label to the bridge', () async {
+    await AlarmService.instance.schedule(
+      id: 6123,
+      fireAt: DateTime(2026, 9, 7, 16),
+      title: 'اتصل بأمي',
+      kind: 'task',
+      targetId: 'task-1',
+      doneLabel: 'خلّصت المهمة',
+      stopLabel: 'إيقاف',
+    );
+    final call = calls.singleWhere((c) => c.method == 'schedule');
+    expect((call.arguments as Map)['doneLabel'], 'خلّصت المهمة');
   });
 
   test('a native refusal or error is a false, never a throw', () async {
@@ -78,7 +92,6 @@ void main() {
         title: 't',
         kind: 'task',
         targetId: 'x',
-        doneLabel: 'Done',
         stopLabel: 'Stop',
       ),
       isFalse,
@@ -91,7 +104,6 @@ void main() {
         title: 't',
         kind: 'task',
         targetId: 'x',
-        doneLabel: 'Done',
         stopLabel: 'Stop',
       ),
       isFalse,
@@ -149,7 +161,6 @@ void main() {
       subtitle: 'باقي ٥ دقائق',
       kind: 'habit',
       targetId: 'quran',
-      doneLabel: 'تمت',
       stopLabel: 'إيقاف',
     );
     final known = AlarmService.instance.scheduledFor(7001);
@@ -174,7 +185,6 @@ void main() {
             title: 't',
             kind: 'task',
             targetId: 'x',
-            doneLabel: 'Done',
             stopLabel: 'Stop',
           ),
           isFalse);

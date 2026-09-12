@@ -1,6 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+/// One alarm of the month armed ahead for an alarm reminder, see
+/// [AlarmService.syncWindow].
+typedef WindowAlarm = ({
+  int id,
+  DateTime fireAt,
+  String title,
+  String? subtitle,
+  String kind,
+  String targetId,
+  String stopLabel,
+});
+
 /// Real alarms, as opposed to notifications, for the reminders a person
 /// asks to be woken by.
 ///
@@ -13,11 +25,14 @@ import 'package:flutter/services.dart';
 /// caller treats a false from [schedule] as "use the notification instead".
 ///
 /// The native half is ios/Runner/AlarmKitBridge.swift, reached over one
-/// small MethodChannel, the same shape as AppBadgeService. It also owns the
-/// Done button on the ringing screen: that runs an App Intent in the app's
-/// process which queues the completion exactly the way the widget's Mark
-/// Done and a background notification tap do, so the reward is paid through
-/// the one canonical path at the next open.
+/// small MethodChannel, the same shape as AppBadgeService. A habit's alarm
+/// carries Stop and nothing else: it wakes the person, often well before the
+/// habit itself, and the habit is recorded in the app as usual (Aziz,
+/// 2026-09-11), so stopping one never marks anything done and the next alarm
+/// still rings. A task's alarm has a second button, «خلّصت المهمة» (the
+/// doneLabel of [schedule]), which stops it and queues the task's completion
+/// the way the Home Screen widget's checkmark does; main.dart ticks the task
+/// at the next open.
 ///
 /// Alarm ids are the same integers the notification schedule uses for the
 /// same slot (NotificationService._habitReminderId / _taskReminderId), so
@@ -117,10 +132,11 @@ class AlarmService {
   /// Schedules one alarm under [id] at [fireAt], replacing any alarm already
   /// under that id. [title] is the ringing screen's headline (the habit or
   /// task name), [subtitle] the line under it. [kind] is 'habit' or 'task'
-  /// and [targetId] the habit or task id, which the Done button hands back
-  /// to the app. [doneLabel] and [stopLabel] are the two buttons' text in
-  /// the app's language (iOS 26.1 and later draw their own Stop and ignore
-  /// the label).
+  /// and [targetId] the habit or task id the alarm is about. [stopLabel] is
+  /// the Stop button's text in the app's language (iOS 26.1 and later draw
+  /// their own Stop and ignore it). [doneLabel] adds the second button,
+  /// which records the task as done, and is for tasks only: without it the
+  /// alarm carries Stop alone, as every habit alarm does.
   ///
   /// False whenever the alarm could not be made: unsupported, permission
   /// missing, a moment already past, or a native failure. The caller then
@@ -133,7 +149,7 @@ class AlarmService {
     String? subtitle,
     required String kind,
     required String targetId,
-    required String doneLabel,
+    String? doneLabel,
     required String stopLabel,
   }) async {
     if (!await isSupported()) return false;
@@ -151,13 +167,63 @@ class AlarmService {
             if (subtitle != null) 'subtitle': subtitle,
             'kind': kind,
             'targetId': targetId,
-            'doneLabel': doneLabel,
+            if (doneLabel != null) 'doneLabel': doneLabel,
             'stopLabel': stopLabel,
           }) ??
           false;
     } catch (e) {
       debugPrint('[AlarmService] schedule $id failed: $e');
       return false;
+    }
+  }
+
+  /// Makes every alarm with an id in [lowId]..[highId] exactly [alarms], in
+  /// one native call: anything that range holds and [alarms] does not name
+  /// is cancelled, and an alarm already armed at the same moment with the
+  /// same words is left alone. This is the far end of an alarm reminder's
+  /// window (NotificationService.kAlarmWindowDays), which is too many ids to
+  /// schedule and cancel one call at a time on every resume.
+  ///
+  /// Returns the bridge's counts (scheduled, kept, cancelled, failed), or
+  /// null where there are no real alarms or the call failed. An alarm that
+  /// fails here has no notification fallback on purpose: the near days of
+  /// the same reminder already have one, and a month of notifications would
+  /// not fit in iOS's 64-request budget.
+  Future<Map<String, int>?> syncWindow({
+    required int lowId,
+    required int highId,
+    required List<WindowAlarm> alarms,
+  }) async {
+    if (!await isSupported()) return null;
+    _scheduled.removeWhere((id, _) => id >= lowId && id <= highId);
+    for (final a in alarms) {
+      _scheduled[a.id] = (
+        title: a.title,
+        subtitle: a.subtitle,
+        kind: a.kind,
+        targetId: a.targetId,
+      );
+    }
+    try {
+      return await _channel.invokeMapMethod<String, int>('syncWindow', {
+        'lowId': lowId,
+        'highId': highId,
+        'alarms': [
+          for (final a in alarms)
+            {
+              'id': a.id,
+              'fireAtMs': a.fireAt.millisecondsSinceEpoch,
+              'title': a.title,
+              if (a.subtitle != null) 'subtitle': a.subtitle,
+              'kind': a.kind,
+              'targetId': a.targetId,
+              'stopLabel': a.stopLabel,
+            },
+        ],
+      });
+    } catch (e) {
+      debugPrint('[AlarmService] window sync skipped: $e');
+      return null;
     }
   }
 

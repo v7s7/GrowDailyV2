@@ -53,6 +53,8 @@ const {
   fmtMinutes,
   dayWriteContext,
 } = require('./render');
+// The app's own day rules, so a feed row cannot disagree with the phone.
+const DayRules = require('./day_rules');
 
 function db() {
   return admin.firestore();
@@ -273,6 +275,12 @@ function dailyDetails(data, sum, habitCtx, dayKey, tzOffsetMinutes) {
     return at(a) - at(b);
   });
 
+  // Whether this day is still markable, on the account's own clock. A day
+  // runs until kDayCutoffHour the NEXT morning, so between midnight and
+  // 10:00 there are two open days and neither owes anything yet.
+  const dayIsOpen = DayRules.isOpenDayAt(
+    dayKey, DayRules.localNowMs(Date.now(), tzOffsetMinutes));
+
   for (const r of rows) {
     const name = habitLabel(r.habitId, habitCtx, r.receipt ? r.receipt.category : null);
     const at = r.stampedAt !== null ? fmtMinutes(r.stampedAt) : '';
@@ -297,7 +305,14 @@ function dailyDetails(data, sum, habitCtx, dayKey, tzOffsetMinutes) {
         break;
       }
       default:
-        out.push(chip(`\u2b1c ${name} \u00b7 not marked`, 'miss'));
+        // A day still open owes nothing yet: it stays markable until
+        // kDayCutoffHour the next morning, so a blank habit is in progress
+        // rather than missed. Aziz's own 2026-09-11, read at 02:11 the next
+        // morning, carried four of these drawn as misses while his phone
+        // showed the day unfinished. See DateTimeGameExt.isSettledAt.
+        out.push(dayIsOpen
+          ? chip(`\u2b1c ${name} \u00b7 not marked yet, the day is still open`, 'note')
+          : chip(`\u2b1c ${name} \u00b7 not marked`, 'miss'));
     }
   }
 
@@ -308,9 +323,14 @@ function dailyDetails(data, sum, habitCtx, dayKey, tzOffsetMinutes) {
   const reflection = clip(d.dailyReflection, 180);
   if (reflection) out.push(chip(`\u201c${reflection}\u201d`, 'quote'));
 
-  const xp = Number(d.totalXpEarned) || 0;
-  const gold = Number(d.totalGoldEarned) || 0;
-  if (xp || gold) out.push(chip(`+${xp} XP \u00b7 +${gold} gold`, 'note'));
+  // The live per-day ledger. totalXpEarned / totalGoldEarned are dead:
+  // daily_log_model.dart still declares them and nothing has written either
+  // since the per-day paid ledger landed, so this chip simply never appeared
+  // on a recent day. Aziz's 2026-09-10 paid 235 XP and 80 gold.
+  const paid = DayRules.dayPayout(d);
+  if (paid.xp || paid.gold) {
+    out.push(chip(`+${paid.xp} XP \u00b7 +${paid.gold} gold`, 'note'));
+  }
 
   const timers = d.timerSeconds && typeof d.timerSeconds === 'object' ? d.timerSeconds : {};
   const timerSecs = Object.values(timers).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -459,11 +479,23 @@ async function scanOneAccount(uid, profile, authRow) {
     // else - see readHabitDay in render.js.
     const sum = summarizeHabitDay(d, scheduledIds, receiptsByKey, doc.id);
     const bits = [];
-    // greens, not done: what the PERSON did, by either route. The two ways
-    // those can differ are both called out on the next lines, so folding
-    // them together in the headline number hides nothing.
-    if (scheduledIds.length > 0) bits.push(`${sum.greens} of ${scheduledIds.length} done`);
-    else if (sum.greens > 0) bits.push(`${sum.greens} done`);
+    // Scored the app's way (DayRules.scoreDay), not greens over habits
+    // scheduled: a deleted habit's square used to inflate the numerator, a
+    // quota's spare day used to sit in the denominator, and an OPEN day was
+    // judged at all, which it must not be. On an open day only the answered
+    // habits count, which is what the phone shows.
+    const score = DayRules.scoreDay({
+      habits: habitDocs.map((h) => ({ id: h.id, data: h.data() })),
+      dayData: d,
+      dayKey: doc.id,
+      nowLocalMs: DayRules.localNowMs(Date.now(), tzOffsetMinutes),
+    });
+    const credit = score.isOpen ? score.settledCredit : score.credit;
+    const owed = score.isOpen ? score.settledOwed : score.owed;
+    if (owed > 0) {
+      bits.push(`${Math.round(credit * 100) / 100} of ${owed} done` +
+        (score.isOpen ? ', day still open' : ''));
+    } else if (score.done > 0) bits.push(`${score.done} done`);
     if (sum.gridOnly > 0) bits.push(`${sum.gridOnly} marked on the Grid only (no completion)`);
     if (sum.undone > 0) bits.push(`${sum.undone} completed then un-marked`);
     if (sum.marked > 0) bits.push(`${sum.marked} non-green mark${sum.marked === 1 ? '' : 's'}`);
@@ -765,13 +797,30 @@ async function scanDay(dateKey) {
     // flat zero, which is how a Room and this dashboard came to report
     // different numbers for the same person on the same day.
     const sum = summarizeHabitDay(data, scheduledIds, {}, dateKey);
+    // Scored the app's way, so this table and a person's own report can
+    // never disagree about one day: a deleted habit leaves both sides, a
+    // weekly quota's spare day is not owed, a counted habit is done only at
+    // its target, and an OPEN day is judged on its answered habits alone.
+    //
+    // No per-account offset here: this is a cross-account table and nothing
+    // in this scan reads users/{uid}. The Asia/Bahrain fallback is the same
+    // one lib/day_key.js uses when an offset was never recorded, and it can
+    // only shift the open/closed boundary by the hours between offsets.
+    const score = DayRules.scoreDay({
+      habits: habitDocs.map((h) => ({ id: h.id, data: h.data() })),
+      dayData: data,
+      dayKey: dateKey,
+      nowLocalMs: DayRules.localNowMs(Date.now()),
+    });
     return {
       uid,
-      done: sum.greens,
+      done: score.done,
+      credit: score.isOpen ? score.settledCredit : score.credit,
+      open: score.isOpen,
       completed: sum.done,
       gridOnly: sum.gridOnly,
       undone: sum.undone,
-      scheduled: scheduledIds.length,
+      scheduled: score.isOpen ? score.settledOwed : score.owed,
       mood: data && data.mood ? data.mood : '',
       nightReviewDone: !!(data && data.nightReviewDone),
       reflection: (data && data.dailyReflection) || '',

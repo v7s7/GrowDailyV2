@@ -161,6 +161,39 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
   bool _isOpenDay(DateTime day) =>
       !roomDayIsClosedAt(day, DateTime.now());
 
+  /// How far past its top the content has to be pulled before the sheet
+  /// closes. About a thumb's travel: far enough that the bounce at the end of
+  /// a quick scroll back up cannot close it by accident.
+  static const double _pullToCloseDistance = 72;
+
+  bool _closing = false;
+
+  void _close() {
+    if (_closing) return;
+    _closing = true;
+    HapticFeedback.selectionClick();
+    Navigator.of(context).maybePop();
+  }
+
+  /// Pulling the content down past its top closes the sheet.
+  ///
+  /// The modal sheet's own drag never sees this gesture: the scroll view
+  /// claims every vertical drag that starts inside it. Only a live drag
+  /// counts ([ScrollUpdateNotification.dragDetails]), so the bounce settling
+  /// after a fling cannot close anything.
+  bool _onScroll(ScrollUpdateNotification n) {
+    // The sheet's own vertical scroll only (depth 0). Anything scrollable
+    // nested inside it later must not be able to close the sheet by being
+    // overscrolled.
+    if (n.depth == 0 &&
+        n.metrics.axis == Axis.vertical &&
+        n.dragDetails != null &&
+        n.metrics.pixels < -_pullToCloseDistance) {
+      _close();
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
@@ -168,43 +201,68 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     final dark = gp.dark;
     final selected = _selected;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        0,
-        16,
-        20 + MediaQuery.of(context).padding.bottom,
-      ),
-      child: Container(
-        // Capped and scrollable. The header below is deliberately tall (the
-        // character is the point of opening a member), and a Column with
-        // mainAxisSize.min will happily overflow a short phone in landscape
-        // or at a large text size rather than scroll.
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.86,
+    // ── Every way out, because there used to be one and it hid ─────────────
+    //
+    // The sheet could only be closed by tapping the backdrop ABOVE it: a band
+    // about 14pt tall under the status bar, and a tap on the status bar itself
+    // never reaches the app. Its own bottom padding ran to the edge of the
+    // screen, so the dimmed rows showing under the card were part of the sheet
+    // and ignored taps, and the grab handle sat inside the scroll view, so
+    // dragging it scrolled instead of closing. Aziz, 2026-09-11: "its stuck
+    // some times... its nice if there is a slide smoother to close the pop up
+    // or a nice designed x mark". Now:
+    //
+    //  * a round X in the corner, outside the scroll view so it never scrolls
+    //    away (_SheetTopBar);
+    //  * the handle bar is outside the scroll view too, so the modal sheet's
+    //    own drag follows the finger from there and closes on release;
+    //  * pulling the content down past its top closes it (_onScroll);
+    //  * the margins around the card close it, as a backdrop should.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _close,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          0,
+          16,
+          20 + MediaQuery.of(context).padding.bottom,
         ),
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-        decoration: BoxDecoration(
-          color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: gp.border),
-        ),
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Column(
+        // Takes the taps that land on the card itself, so only the margins
+        // close it. Everything interactive inside still wins its own tap.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {},
+          child: Container(
+            // Capped and scrollable. The header below is deliberately tall
+            // (the character is the point of opening a member), and a Column
+            // with mainAxisSize.min will happily overflow a short phone in
+            // landscape or at a large text size rather than scroll.
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.86,
+            ),
+            decoration: BoxDecoration(
+              color: gp.surfaceHigh,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: gp.border),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _SheetTopBar(onClose: _close),
+                Flexible(
+                  child: NotificationListener<ScrollUpdateNotification>(
+                    onNotification: _onScroll,
+                    child: SingleChildScrollView(
+                      // AlwaysScrollable underneath, or a sheet whose content
+                      // fits would not move at all and could not be pulled.
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: gp.border,
-                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
             // Who this is, before what they did.
             //
             // The sheet used to open on a bare "تقويم m7md" and a grid of
@@ -268,6 +326,10 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
                           tone: _fillFor(selected, dark),
                           scored: _isScoredDay(selected),
                           stillOpen: _isOpenDay(selected),
+                          // The same privacy line the header draws: your own
+                          // names always, somebody else's unless they hid them.
+                          namesVisible: widget.isYou ||
+                              !widget.participant.hideDetails,
                         ),
                         // The day-1 note. Its own banded row rather than
                         // another word in the status line, because it says
@@ -312,7 +374,99 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
                     ),
             ),
           ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// The part of a member's sheet that never scrolls: the grab handle, where
+/// the modal sheet's own drag takes over, and the close button.
+class _SheetTopBar extends StatelessWidget {
+  final VoidCallback onClose;
+
+  const _SheetTopBar({required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return SizedBox(
+      height: 48,
+      width: double.infinity,
+      child: Stack(
+        children: [
+          Positioned(
+            top: 10,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                ),
+              ),
+            ),
+          ),
+          PositionedDirectional(
+            top: 4,
+            end: 4,
+            child: _SheetCloseButton(onTap: onClose),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A round X: a 32pt disc inside a 44pt target, quiet enough to sit beside
+/// the character's glow without competing with it.
+class _SheetCloseButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _SheetCloseButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Semantics(
+      button: true,
+      label: S.of(context).roomSheetClose,
+      excludeSemantics: true,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkResponse(
+          onTap: onTap,
+          radius: 22,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: gp.surface,
+                  border: Border.all(color: gp.border),
+                ),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: gp.textSec,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -360,6 +514,10 @@ class _DayScoreCard extends StatelessWidget {
   /// has not been failed, it has not finished.
   final bool stillOpen;
 
+  /// Whether this viewer may read the member's own habit names. Only an
+  /// own-mode room asks: a shared room's plan is public.
+  final bool namesVisible;
+
   const _DayScoreCard({
     required this.room,
     required this.participant,
@@ -368,6 +526,7 @@ class _DayScoreCard extends StatelessWidget {
     required this.tone,
     required this.scored,
     required this.stillOpen,
+    required this.namesVisible,
   });
 
   /// 1, or 2.5. Trailing zeros dropped, because "2.0 / 3" reads like a
@@ -382,6 +541,7 @@ class _DayScoreCard extends StatelessWidget {
   static SquareState _mark(RoomSlotOutcome outcome) => switch (outcome) {
         RoomSlotOutcome.done => SquareState.complete,
         RoomSlotOutcome.partial => SquareState.partial,
+        RoomSlotOutcome.skipped => SquareState.skipped,
         RoomSlotOutcome.missed => SquareState.failed,
         RoomSlotOutcome.rest => SquareState.skipped,
         RoomSlotOutcome.declined => SquareState.none,
@@ -396,13 +556,18 @@ class _DayScoreCard extends StatelessWidget {
             room: room,
             participant: participant,
             dateKey: day.toDateKey(),
+            namesVisible: namesVisible,
           )
         : null;
     final rows = b?.slots ?? const <RoomSlotDay>[];
-    // Declined slots are listed but score nothing, so they cannot make a day
-    // need a sum line.
-    final contributing =
-        rows.where((r) => r.outcome != RoomSlotOutcome.declined).length;
+    // Declined slots are listed but score nothing, and a habit the day never
+    // asked for is not part of its arithmetic at all, so neither can make a
+    // day need a sum line.
+    final contributing = rows
+        .where((r) =>
+            r.outcome != RoomSlotOutcome.declined &&
+            r.outcome != RoomSlotOutcome.rest)
+        .length;
 
     return Container(
       width: double.infinity,
@@ -430,6 +595,15 @@ class _DayScoreCard extends StatelessWidget {
                   s,
                   roundedShares([for (final r in rows) r.share])[i],
                 ),
+              ],
+              // Named rows AND groups together: the day could name some of
+              // its habits but not all of them. Hoor's 11 September names
+              // تمرين, which her banked quota week proves she did, and leaves
+              // the other two as a pair because nothing stored can say which
+              // of them she missed.
+              if (b.groups.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _groups(context, b, s),
               ],
             ],
             if (b.asksNothing) ...[
@@ -460,7 +634,7 @@ class _DayScoreCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 _groups(context, b, s),
               ],
-            ] else if (contributing > 1) ...[
+            ] else if (contributing > 1 || b.groups.isNotEmpty) ...[
               const SizedBox(height: 11),
               Divider(height: 1, thickness: 1, color: gp.divider),
               const SizedBox(height: 10),
@@ -557,7 +731,9 @@ class _DayScoreCard extends StatelessWidget {
       textBaseline: TextBaseline.alphabetic,
       children: [
         Text(
-          _count(b.credited),
+          // Whole habits, not the weighted credit: the percentage beside it
+          // carries the weighting. See RoomDayBreakdown.plainCredited.
+          _count(b.plainCredited),
           textDirection: TextDirection.ltr,
           style: TextStyle(
             fontSize: 25,
@@ -611,7 +787,7 @@ class _DayScoreCard extends StatelessWidget {
           ),
         ),
         Text(
-          s.roomCalendarTotalOf(_count(b.credited), b.scheduled),
+          s.roomCalendarTotalOf(_count(b.plainCredited), b.scheduled),
           textDirection: s.isAr ? null : TextDirection.ltr,
           style: TextStyle(
             fontSize: 16,
@@ -688,7 +864,7 @@ class _DayScoreCard extends StatelessWidget {
         RoomSlotOutcome.done ||
         RoomSlotOutcome.partial =>
           _share(printedShare),
-        RoomSlotOutcome.missed => '0',
+        RoomSlotOutcome.missed || RoomSlotOutcome.skipped => '0',
         RoomSlotOutcome.rest => s.roomCalendarChipRest,
         RoomSlotOutcome.declined => s.roomCalendarSlotDeclined,
       };
@@ -704,6 +880,11 @@ class _DayScoreCard extends StatelessWidget {
         : _mark(slot.outcome);
     final scores = slot.outcome == RoomSlotOutcome.done ||
         slot.outcome == RoomSlotOutcome.partial;
+    // A habit the day never asked for wears the calendar's own rest tone,
+    // not the تخطّي glyph: nobody stood it down, its schedule simply had
+    // nothing for it that day (a weekly quota already met, or a day off its
+    // named weekdays).
+    final restFromSchedule = slot.outcome == RoomSlotOutcome.rest;
     return Row(
       children: [
         Container(
@@ -711,11 +892,13 @@ class _DayScoreCard extends StatelessWidget {
           height: 22,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: mark.fill(dark),
+            color: restFromSchedule ? roomStripRestTone() : mark.fill(dark),
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: mark.border(dark)),
+            border: restFromSchedule
+                ? null
+                : Border.all(color: mark.border(dark)),
           ),
-          child: mark.icon == null
+          child: restFromSchedule || mark.icon == null
               ? null
               : Icon(mark.icon, size: 13, color: mark.accent(dark)),
         ),
@@ -762,8 +945,10 @@ class _DayScoreCard extends StatelessWidget {
       RoomSlotOutcome.rest: s.roomCalendarChipRest,
       RoomSlotOutcome.declined: s.roomCalendarSlotDeclined,
     };
+    final gp = context.gp;
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < b.groups.length; i++) ...[
           if (i > 0) const SizedBox(height: 8),
@@ -772,6 +957,24 @@ class _DayScoreCard extends StatelessWidget {
             b.groups[i],
             label[b.groups[i].outcome] ?? '',
             roundedShares([for (final g in b.groups) g.share])[i],
+          ),
+        ],
+        // WHICH habits those rows are about. Indented to the labels above
+        // them (the 22pt mark box plus its 9pt gap) so it reads as a footnote
+        // to the rows rather than as one more scoring line.
+        if (b.groupNames.isNotEmpty) ...[
+          const SizedBox(height: 7),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(start: 31),
+            child: Text(
+              s.roomCalendarGroupPool(b.groupNames),
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+                color: gp.textSec,
+              ),
+            ),
           ),
         ],
       ],

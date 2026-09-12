@@ -230,3 +230,62 @@ extension DateTimeGameExt on DateTime {
   /// both deserve the same warning.
   bool get isDayClosing => hour >= 18 || hour < kDayCutoffHour;
 }
+
+/// The earliest day still open for marking at [now]: yesterday while the
+/// grace tail runs, today once the cutoff has passed.
+///
+/// Every day strictly before this one is settled, so this is the exclusive
+/// bound for any loop that judges past days: the one place that answers how
+/// far back it is safe to look before accusing someone of missing a day they
+/// can still finish.
+///
+/// It is a named helper because the bound used to be spelled inline as
+/// `today`, which rolls at midnight while a day stays markable until
+/// [kDayCutoffHour] the next morning (see [DateTimeGameExt.isOpenDayAt]).
+/// Between midnight and the cutoff that judged a day the person could still
+/// finish: an app opened in that window spent a streak freeze, or ended the
+/// streak outright when the bank was empty, for a day that was not yet
+/// missed. Hoor lost her only freeze that way at about 02:42 on 2026-09-08,
+/// having finished the 7th inside its own grace window.
+DateTime firstOpenDayAt(DateTime now) {
+  final today = now.effectiveDay;
+  final yesterday = today.subtract(const Duration(days: 1));
+  return yesterday.isOpenDayAt(now) ? yesterday : today;
+}
+
+/// Whether a RESUME should run a full room resync, given when the last one
+/// ran.
+///
+/// A resume is not evidence that anything changed: iOS fires it every time
+/// the app returns to the foreground, which for a habit app full of reminders
+/// is easily a dozen times a day. Each resync costs one participant read plus
+/// up to kRoomSyncWindowDays daily reads PER ROOM the account is in, and
+/// measured against the live project on 2026-09-12 almost none of those reads
+/// discovered anything at all.
+///
+/// Two things always force a sync through, and both matter more than the
+/// saving:
+///
+///  * no resync has run yet this session ([last] null), so there is nothing
+///    to be stale relative to; and
+///  * the day has rolled over since the last one. [DateTimeGameExt.
+///    effectiveDay] rolls at MIDNIGHT, not at kDayCutoffHour (which is when
+///    yesterday stops being markable), and midnight is when today's squares
+///    reset. A board carried across it would be showing the wrong DAY rather
+///    than merely old news.
+///
+/// Yesterday settling at kDayCutoffHour is deliberately NOT forced through
+/// here. It is a re-grade nobody is sitting and watching for, and [gap]
+/// already bounds how late it can be.
+///
+/// Pure and top-level for the same reason [firstOpenDayAt] is: a rule the
+/// tests cannot reach is a rule that drifts from the behaviour it describes.
+bool shouldResyncOnResume({
+  required DateTime? last,
+  required DateTime now,
+  required Duration gap,
+}) {
+  if (last == null) return true;
+  if (last.effectiveDay != now.effectiveDay) return true;
+  return now.difference(last) >= gap;
+}

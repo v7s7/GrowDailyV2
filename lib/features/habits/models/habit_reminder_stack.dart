@@ -66,8 +66,8 @@ class HabitReminderStack {
   ///
   /// This is the only direction a habit reminder has anywhere: the scheduler
   /// reads nothing but the signed minutes (NotificationService), so Add
-  /// Habit's «قبل | بعد» chips light from this rather than keeping a second
-  /// answer of their own that could disagree with the reminders under them.
+  /// Habit's offset sheet leans from this rather than from a second answer
+  /// of its own that could disagree with the reminders.
   /// An on-time reminder belongs to neither side, so 0 alone is [none] and
   /// 0 beside -15 is [HabitReminderSide.before].
   HabitReminderSide get side {
@@ -78,18 +78,6 @@ class HabitReminderStack {
     if (after) return HabitReminderSide.after;
     return HabitReminderSide.none;
   }
-
-  /// Every shift moved to the other side of the anchor by the same amount:
-  /// 15 before becomes 15 after, and on time stays on time.
-  ///
-  /// What tapping the other chip on the main step does. Negation cannot make
-  /// two different shifts equal, so the count never changes and the primary
-  /// stays the primary: notification slot 0 keeps its id and keeps meaning
-  /// the same reminder. Mirroring twice gives the stack back.
-  HabitReminderStack mirrored() => HabitReminderStack(
-        primary: -primary,
-        extras: {for (final e in extras) -e},
-      );
 
   /// The result of tapping the chip for [signed].
   ///

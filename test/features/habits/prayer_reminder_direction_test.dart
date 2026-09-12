@@ -1,22 +1,26 @@
-// The «قبل | بعد» chips on Add Habit's main step, and the reminder rows under
-// them, for a habit anchored to a prayer.
+// The reminder rows on Add Habit's main step for a habit anchored to a
+// prayer, and the offset sheet each row opens, which is where such a
+// reminder's «قبل | بعد» is set.
 //
-// Before this (Aziz's IMG 1, 2026-09-11) the chips saved nothing for a prayer
-// habit: the cue is stored as the bare key, the scheduler reads only the
-// signed shifts, and a prayer habit reopened on بعد whatever its reminders
-// said, so صلاة التهجد (45 before Fajr) opened under a lit بعد. The row said
-// «قبل ٤٥ دقيقة» with no prayer in it, drew its time in Arabic-Indic digits
-// while the sheet drew Latin ones, and its only tap cue, a grey chevron, sat
-// outside the tap area. Under the step a preview sentence said «بعد الفجر،
-// سأقوم بـ ...» whatever was lit.
+// Before 395968d (Aziz's IMG 1, 2026-09-11) the main step's «قبل | بعد» chips
+// saved nothing for a prayer habit: the cue is stored as the bare key, the
+// scheduler reads only the signed shifts, and a prayer habit reopened on بعد
+// whatever its reminders said, so صلاة التهجد (45 before Fajr) opened under a
+// lit بعد. The row said «قبل ٤٥ دقيقة» with no prayer in it, drew its time in
+// Arabic-Indic digits while the sheet drew Latin ones, and its only tap cue, a
+// grey chevron, sat outside the tap area. Under the step a preview sentence
+// said «بعد الفجر، سأقوم بـ ...» whatever was lit.
 //
-// Now the chips are the reminders' side: they light from the signs and move
-// the reminders when tapped. Once every reminder is back on time they stay on
-// the side the reminders were last on, whether the last change was an edit,
-// an add, a × or a switch from a clock time. That side is never the «قبل» in
-// a custom text cue's words: a trip through prayer mode and back saves the
-// typed cue as it was. These drive the real sheet the way a person does, in
-// Arabic, and read back what _submit handed the habits notifier.
+// 395968d made the chips the reminders' side, but the sheet kept asking the
+// same question, and on 2026-09-12 Aziz had the pair taken off the prayer
+// step. The side is now chosen in the sheet alone and read back on the row.
+// For a reminder with no side (on time, or being added) the sheet leans to
+// the side the reminders were last on or last chosen in it, whether the last
+// change was an edit, an add, a × or a switch from a clock time, and never to
+// the «قبل» in a custom text cue's words. Custom text keeps its own pair, and
+// a trip through prayer mode and back saves the typed cue as it was. These
+// drive the real sheet the way a person does, in Arabic, and read back what
+// _submit handed the habits notifier.
 //
 // Three harness rules this file learned the hard way, each of which hung or
 // failed it once:
@@ -79,7 +83,7 @@ void main() {
   /// Every habit a test opens, seeded once per test in [boot]: 45 before
   /// Fajr, 20 after it, on time, a quit habit, a single clock time shifted
   /// and on time, a clock time twice a day, two custom text cues (one with
-  /// قبل, one without), and the Premium stacks: two on a prayer, one on a
+  /// قبل, one without), and the Premium stacks: one on a prayer, one on a
   /// clock time.
   late Map<String, IslamicHabitTemplate> habits;
 
@@ -176,10 +180,6 @@ void main() {
       'text': add('تخطيط', cue: 'قبل العمل', offset: 0),
       'textAfter': add('مراجعة', cue: 'العمل', offset: 0),
       'bothSides': add('ذكر', offset: -10, extras: [30]),
-      // Primary 30 before, extra 10 before: after a mirror the primary is
-      // no longer the earliest, so "keeps the primary" and "the earliest
-      // becomes the primary" save different things.
-      'twoBefore': add('صدقة', offset: -30, extras: [-10]),
       'clockBothSides': add(
         'تمر',
         cue: 'custom_time:07:30',
@@ -243,11 +243,37 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Whether the main step's chip is lit. _SmallPick carries its state in
-  /// the label's weight.
+  /// A new habit, «قراءة» daily, on the When step with the timing switch on
+  /// and «وقت الصلاة» picked.
+  Future<void> openNewInPrayerMode(WidgetTester tester) async {
+    await open(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(find.byType(TextField).first, 'قراءة');
+    await tester.pump();
+    await tapText(tester, ar.continueAction);
+    await tester.tap(
+      find
+          .ancestor(of: find.text(ar.daily), matching: find.byType(InkWell))
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    await tapText(tester, ar.cuePrayerOption);
+  }
+
+  /// Whether custom text's chip is lit. _SmallPick carries its state in the
+  /// label's weight.
   bool lit(WidgetTester tester, String label) =>
       tester.widget<Text>(find.text(label)).style?.fontWeight ==
       FontWeight.w800;
+
+  /// That the step draws no «قبل | بعد» pair. Only with the offset sheet
+  /// closed: the sheet's own pair uses the same two words.
+  void expectNoRelationPair(WidgetTester tester, {String? reason}) {
+    expect(find.text(ar.cueBeforeOption), findsNothing, reason: reason);
+    expect(find.text(ar.cueAfterOption), findsNothing, reason: reason);
+  }
 
   /// Custom text mode's cue field, labelled with [S.afterWhatRoutine] on a
   /// habit being built.
@@ -267,6 +293,15 @@ void main() {
   /// In the offset sheet: tap a chip and let the sheet close.
   Future<void> tapSheetChip(WidgetTester tester, String label) async {
     await tester.tap(find.widgetWithText(PlainChoiceChip, label));
+    await tester.pumpAndSettle();
+  }
+
+  /// In the offset sheet: tap [side], keep the amount that is lit or typed,
+  /// and press «حفظ».
+  Future<void> flipInSheet(WidgetTester tester, String side) async {
+    await tester.tap(find.widgetWithText(PlainChoiceChip, side));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, ar.habitOffsetSave));
     await tester.pumpAndSettle();
   }
 
@@ -315,16 +350,14 @@ void main() {
     setUp(() => boot());
 
     testWidgets(
-        '45 before Fajr reopens on قبل and the row says the whole reminder',
-        (tester) async {
+        '45 before Fajr: no «قبل | بعد» on the step, and the row says the '
+        'whole reminder', (tester) async {
       await open(tester, habits['tahajjud']);
 
-      expect(
-        lit(tester, ar.cueBeforeOption),
-        isTrue,
-        reason: 'صلاة التهجد used to reopen under a lit بعد',
+      expectNoRelationPair(
+        tester,
+        reason: 'the sheet every row opens asks it, so the step does not',
       );
-      expect(lit(tester, ar.cueAfterOption), isFalse);
       expect(find.text('قبل الفجر بـ45 دقيقة'), findsOneWidget);
       expect(
         find.text(fajrPlus(-45)),
@@ -353,13 +386,15 @@ void main() {
       expect(saved.extraReminderOffsets, isEmpty);
     });
 
-    testWidgets('tapping بعد moves the reminder to 45 after', (tester) async {
+    testWidgets('بعد in the sheet moves 45 before Fajr to 45 after',
+        (tester) async {
       final habit = habits['tahajjud']!;
       await open(tester, habit);
-      await tapText(tester, ar.cueAfterOption);
+      await tapText(tester, 'قبل الفجر بـ45 دقيقة');
+      expect(sheetChip(tester, ar.offsetBeforeLabel).selected, isTrue);
 
-      expect(lit(tester, ar.cueAfterOption), isTrue);
-      expect(lit(tester, ar.cueBeforeOption), isFalse);
+      await flipInSheet(tester, ar.offsetAfterLabel);
+
       expect(find.text('بعد الفجر بـ45 دقيقة'), findsOneWidget);
       expect(
         find.text(fajrPlus(45)),
@@ -372,90 +407,34 @@ void main() {
       expect(stored(habit.id).cueAfter, 'fajr');
     });
 
-    testWidgets(
-        'tapping قبل when قبل is already lit moves nothing: the saved '
-        'reminder keeps its time', (tester) async {
-      final habit = habits['tahajjud']!;
-      await open(tester, habit);
-      await tapText(tester, ar.cueBeforeOption);
-
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
-      expect(find.text('قبل الفجر بـ45 دقيقة'), findsOneWidget);
-      expect(find.text(fajrPlus(-45)), findsOneWidget);
-
-      await save(tester);
-      expect(
-        stored(habit.id).reminderOffsetMinutes,
-        -45,
-        reason: 'only a tap on the other side mirrors the reminders',
-      );
-    });
-
-    testWidgets(
-        'tapping بعد when بعد is already lit moves nothing: the saved '
-        'reminder keeps its time', (tester) async {
-      final habit = habits['afterFajr']!;
-      await open(tester, habit);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
-      expect(find.text('بعد الفجر بـ20 دقيقة'), findsOneWidget);
-
-      await tapText(tester, ar.cueAfterOption);
-
-      expect(lit(tester, ar.cueAfterOption), isTrue);
+    testWidgets('20 after Fajr: the row says بعد and its sheet opens on بعد',
+        (tester) async {
+      await open(tester, habits['afterFajr']);
       expect(find.text('بعد الفجر بـ20 دقيقة'), findsOneWidget);
       expect(find.text(fajrPlus(20)), findsOneWidget);
 
-      await save(tester);
-      expect(stored(habit.id).reminderOffsetMinutes, 20);
+      await tapText(tester, 'بعد الفجر بـ20 دقيقة');
+      expect(sheetChip(tester, ar.offsetAfterLabel).selected, isTrue);
+      expect(sheetChip(tester, ar.offsetBeforeLabel).selected, isFalse);
     });
 
     testWidgets(
-        'reopened on قبل, it stays on قبل once its reminder is set back on '
-        'time', (tester) async {
+        'reopened on قبل, its sheet still opens on قبل once the reminder is '
+        'set back on time', (tester) async {
       await open(tester, habits['tahajjud']);
       await tapText(tester, 'قبل الفجر بـ45 دقيقة');
       await tapSheetChip(tester, ar.leadAtTime);
-
       expect(find.text('في وقت الفجر'), findsOneWidget);
-      expect(
-        lit(tester, ar.cueBeforeOption),
-        isTrue,
-        reason: 'with no side left the chips fall back to the side the habit '
-            'was opened on, which for 45 before Fajr is قبل',
-      );
-      expect(lit(tester, ar.cueAfterOption), isFalse);
 
       await tapText(tester, 'في وقت الفجر');
       expect(
         sheetChip(tester, ar.offsetBeforeLabel).selected,
         isTrue,
-        reason: 'and the sheet opens on the side the chips show, not on the '
-            'بعد a bare prayer cue carries as its words',
+        reason: 'with no side left the sheet leans to the side the habit was '
+            'opened on, which for 45 before Fajr is قبل, not to the بعد a '
+            'bare prayer cue carries as its words',
       );
-    });
-
-    testWidgets('قبل is the first chip, and in Arabic that is the right',
-        (tester) async {
-      await open(tester, habits['tahajjud']);
-
-      final before = find.text(ar.cueBeforeOption);
-      final after = find.text(ar.cueAfterOption);
-      final row = tester.widget<Row>(
-        find.ancestor(of: before, matching: find.byType(Row)).first,
-      );
-      expect(
-        find.descendant(
-          of: find.byWidget(row.children.first),
-          matching: before,
-        ),
-        findsOneWidget,
-        reason: 'قبل is the Row\'s first child',
-      );
-      expect(
-        tester.getCenter(before).dx,
-        greaterThan(tester.getCenter(after).dx),
-        reason: 'and a first child lays out on the right under RTL',
-      );
+      expect(sheetChip(tester, ar.offsetAfterLabel).selected, isFalse);
     });
 
     testWidgets('tapping the chevron itself opens the sheet', (tester) async {
@@ -490,10 +469,9 @@ void main() {
 
     testWidgets(
         'on time: «في وقت الفجر», the sheet opens on بعد, 15 saves 15 after, '
-        'and قبل then moves it', (tester) async {
+        'and قبل there keeps the 15', (tester) async {
       final habit = habits['onTime']!;
       await open(tester, habit);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
       expect(find.text('في وقت الفجر'), findsOneWidget);
       expect(find.text(fajrPlus(0)), findsOneWidget);
 
@@ -501,7 +479,7 @@ void main() {
       expect(
         sheetChip(tester, ar.offsetAfterLabel).selected,
         isTrue,
-        reason: 'the sheet opens on the side the main step shows',
+        reason: 'a prayer reminder with no side yet opens on بعد',
       );
       expect(sheetChip(tester, ar.offsetBeforeLabel).selected, isFalse);
       expect(sheetChip(tester, ar.leadAtTime).selected, isTrue);
@@ -514,122 +492,101 @@ void main() {
         reason: 'one tap on 15 under a lit بعد is 15 after, as it reads',
       );
       expect(find.text(fajrPlus(15)), findsOneWidget);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
 
-      await tapText(tester, ar.cueBeforeOption);
-      expect(find.text('قبل الفجر بـ15 دقيقة'), findsOneWidget);
+      await tapText(tester, 'بعد الفجر بـ15 دقيقة');
+      await flipInSheet(tester, ar.offsetBeforeLabel);
+      expect(
+        find.text('قبل الفجر بـ15 دقيقة'),
+        findsOneWidget,
+        reason: 'the flip keeps the amount',
+      );
       expect(find.text(fajrPlus(-15)), findsOneWidget);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
 
       await save(tester);
       expect(stored(habit.id).reminderOffsetMinutes, -15);
     });
 
     testWidgets(
-        'the chip follows the side the sheet returned, also once that '
+        'the sheet leans to the side last chosen in it, also once that '
         'reminder is back on time', (tester) async {
       await open(tester, habits['onTime']);
-      await tapText(tester, ar.cueBeforeOption);
-      expect(
-        lit(tester, ar.cueBeforeOption),
-        isTrue,
-        reason: 'on time has no side, so the tapped chip stays lit',
-      );
-
       await tapText(tester, 'في وقت الفجر');
-      expect(sheetChip(tester, ar.offsetBeforeLabel).selected, isTrue);
       await tester.tap(
-        find.widgetWithText(PlainChoiceChip, ar.offsetAfterLabel),
+        find.widgetWithText(PlainChoiceChip, ar.offsetBeforeLabel),
       );
       await tester.pumpAndSettle();
       await tapSheetChip(tester, '15');
-      expect(find.text('بعد الفجر بـ15 دقيقة'), findsOneWidget);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
-
-      await tapText(tester, 'بعد الفجر بـ15 دقيقة');
-      await tapSheetChip(tester, ar.leadAtTime);
-      expect(find.text('في وقت الفجر'), findsOneWidget);
-      expect(
-        lit(tester, ar.cueAfterOption),
-        isTrue,
-        reason: 'the side last chosen in the sheet, not the chip tapped '
-            'before it',
-      );
-      expect(lit(tester, ar.cueBeforeOption), isFalse);
-    });
-
-    testWidgets(
-        'a clock habit switched to a prayer keeps قبل once its reminder is '
-        'on time', (tester) async {
-      await open(tester, habits['clock']);
-      await tapText(tester, ar.cuePrayerOption);
-      await tapText(tester, 'الفجر');
       expect(find.text('قبل الفجر بـ15 دقيقة'), findsOneWidget);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
 
       await tapText(tester, 'قبل الفجر بـ15 دقيقة');
       await tapSheetChip(tester, ar.leadAtTime);
       expect(find.text('في وقت الفجر'), findsOneWidget);
+
+      await tapText(tester, 'في وقت الفجر');
       expect(
-        lit(tester, ar.cueBeforeOption),
+        sheetChip(tester, ar.offsetBeforeLabel).selected,
         isTrue,
-        reason: 'the clock cue carried بعد in as its default, and the chips '
-            'jumped to it with nothing tapped',
+        reason: 'قبل was chosen last, not the بعد the habit opened on',
       );
-      expect(lit(tester, ar.cueAfterOption), isFalse);
+      expect(sheetChip(tester, ar.offsetAfterLabel).selected, isFalse);
     });
 
-    // The last review of this change caught these: before a prayer is picked
-    // no reminder row is drawn, yet a chip tap moved the reminders anyway.
     testWidgets(
-        'a clock habit: بعد tapped before a prayer is picked, then back to '
-        '«وقت مخصص», still reads 15 before', (tester) async {
+        'a clock habit switched to a prayer draws no pair, and keeps 15 '
+        'before onto Fajr', (tester) async {
       final habit = habits['clock']!;
       await open(tester, habit);
       await tapText(tester, ar.cuePrayerOption);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
+      expectNoRelationPair(tester, reason: 'nor before a prayer is picked');
 
-      await tapText(tester, ar.cueAfterOption);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
-      expect(lit(tester, ar.cueBeforeOption), isFalse);
-
-      await tapText(tester, ar.customTime);
+      await tapText(tester, 'الفجر');
       expect(
-        find.text('قبل 15 دقيقة'),
+        find.text('قبل الفجر بـ15 دقيقة'),
         findsOneWidget,
-        reason: 'no row was on screen to move, so the tap moved none: it '
-            'used to come back «بعد 15 دقيقة»',
+        reason: 'a reminder brings its own side into prayer mode',
       );
+      expectNoRelationPair(tester);
+
+      await save(tester);
+      expect(stored(habit.id).cueAfter, 'fajr');
+      expect(stored(habit.id).reminderOffsetMinutes, -15);
+    });
+
+    testWidgets(
+        'a clock habit switched to a prayer keeps قبل in its sheet once its '
+        'reminder is on time', (tester) async {
+      await open(tester, habits['clock']);
+      await tapText(tester, ar.cuePrayerOption);
+      await tapText(tester, 'الفجر');
+      await tapText(tester, 'قبل الفجر بـ15 دقيقة');
+      await tapSheetChip(tester, ar.leadAtTime);
+      expect(find.text('في وقت الفجر'), findsOneWidget);
+
+      await tapText(tester, 'في وقت الفجر');
+      expect(
+        sheetChip(tester, ar.offsetBeforeLabel).selected,
+        isTrue,
+        reason: 'the side came over with the reminder; a clock cue\'s default '
+            'relation is بعد, and the sheet must not lean to that',
+      );
+      expect(sheetChip(tester, ar.offsetAfterLabel).selected, isFalse);
+    });
+
+    testWidgets(
+        'a clock habit through a prayer and back to «وقت مخصص» still reads '
+        '15 before', (tester) async {
+      final habit = habits['clock']!;
+      await open(tester, habit);
+      await tapText(tester, ar.cuePrayerOption);
+      await tapText(tester, 'الفجر');
+      await tapText(tester, ar.customTime);
+
+      expect(find.text('قبل 15 دقيقة'), findsOneWidget);
       expect(find.text('بعد 15 دقيقة'), findsNothing);
 
       await save(tester);
       expect(stored(habit.id).reminderOffsetMinutes, -15);
       expect(stored(habit.id).cueAfter, startsWith('custom_time:'));
-    });
-
-    testWidgets(
-        'a clock habit: بعد and then الفجر opens the row 15 after Fajr, '
-        'under the chip that was tapped', (tester) async {
-      final habit = habits['clock']!;
-      await open(tester, habit);
-      await tapText(tester, ar.cuePrayerOption);
-      await tapText(tester, ar.cueAfterOption);
-      await tapText(tester, 'الفجر');
-
-      expect(find.text('بعد الفجر بـ15 دقيقة'), findsOneWidget);
-      expect(find.text('قبل الفجر بـ15 دقيقة'), findsNothing);
-      expect(
-        lit(tester, ar.cueAfterOption),
-        isTrue,
-        reason: 'the chips come before the prayers on screen, so this is the '
-            'order a person taps them in, and the pick must not put out the '
-            'chip just tapped',
-      );
-      expect(lit(tester, ar.cueBeforeOption), isFalse);
-
-      await save(tester);
-      expect(stored(habit.id).cueAfter, 'fajr');
-      expect(stored(habit.id).reminderOffsetMinutes, 15);
     });
 
     testWidgets('no preview sentence on an existing habit', (tester) async {
@@ -640,20 +597,7 @@ void main() {
 
     testWidgets('no preview sentence on a new habit once a prayer is picked',
         (tester) async {
-      await open(tester);
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.enterText(find.byType(TextField).first, 'قراءة');
-      await tester.pump();
-      await tapText(tester, ar.continueAction);
-      await tester.tap(
-        find
-            .ancestor(of: find.text(ar.daily), matching: find.byType(InkWell))
-            .first,
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(Switch));
-      await tester.pumpAndSettle();
-      await tapText(tester, ar.cuePrayerOption);
+      await openNewInPrayerMode(tester);
       await tapText(tester, 'الفجر');
 
       expect(
@@ -669,6 +613,34 @@ void main() {
       expect(find.textContaining('الفجر،'), findsNothing);
     });
 
+    testWidgets(
+        'a new habit: no pair in prayer mode before or after a prayer is '
+        'picked, while custom text keeps its own', (tester) async {
+      await openNewInPrayerMode(tester);
+      expect(
+        find.text(ar.pickAPrayer),
+        findsOneWidget,
+        reason: 'sanity: prayer mode is open',
+      );
+      expectNoRelationPair(tester);
+
+      await tapText(tester, 'الفجر');
+      expect(find.text('في وقت الفجر'), findsOneWidget);
+      expectNoRelationPair(tester);
+
+      await tapText(tester, 'في وقت الفجر');
+      expect(
+        sheetChip(tester, ar.offsetAfterLabel).selected,
+        isTrue,
+        reason: 'the side is set here now, and a first reminder opens on بعد',
+      );
+      await tapSheetChip(tester, ar.leadAtTime);
+
+      await tapText(tester, ar.customText);
+      expect(find.text(ar.cueBeforeOption), findsOneWidget);
+      expect(find.text(ar.cueAfterOption), findsOneWidget);
+    });
+
     // A guard: this already held before the change.
     testWidgets('the add row still opens the Premium gate', (tester) async {
       await open(tester, habits['tahajjud']);
@@ -679,10 +651,11 @@ void main() {
     testWidgets('a quit habit behaves the same', (tester) async {
       final habit = habits['quit']!;
       await open(tester, habit);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
+      expectNoRelationPair(tester);
       expect(find.text('قبل الفجر بـ15 دقيقة'), findsOneWidget);
 
-      await tapText(tester, ar.cueAfterOption);
+      await tapText(tester, 'قبل الفجر بـ15 دقيقة');
+      await flipInSheet(tester, ar.offsetAfterLabel);
       expect(find.text('بعد الفجر بـ15 دقيقة'), findsOneWidget);
 
       await save(tester);
@@ -743,8 +716,8 @@ void main() {
       expect(
         sheetChip(tester, ar.offsetBeforeLabel).selected,
         isTrue,
-        reason: 'the lean is for a prayer: this step has no chips to agree '
-            'with, and its default relation is بعد',
+        reason: 'the lean is only for a prayer; a clock time opens on قبل '
+            'whatever its default relation, بعد, says',
       );
       expect(sheetChip(tester, ar.offsetAfterLabel).selected, isFalse);
 
@@ -772,9 +745,9 @@ void main() {
       expect(lit(tester, ar.cueBeforeOption), isFalse);
     });
 
-    // The review of this change caught these three: the prayer chips' side
-    // and the custom text relation were one field, so an edit in the offset
-    // sheet rewrote the typed cue. Before the change each saved as below.
+    // The review of 395968d caught these three: the prayer chips' side and
+    // the custom text relation were one field, so an edit in the offset
+    // sheet rewrote the typed cue. Before that change each saved as below.
     testWidgets(
         '«العمل» through a prayer set 15 before and back saves «العمل»',
         (tester) async {
@@ -790,7 +763,6 @@ void main() {
       await tester.pumpAndSettle();
       await tapSheetChip(tester, '15');
       expect(find.text('قبل الفجر بـ15 دقيقة'), findsOneWidget);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
 
       await tapText(tester, ar.customText);
       expect(cueField(tester).controller!.text, 'العمل');
@@ -815,21 +787,17 @@ void main() {
       final habit = habits['text']!;
       await open(tester, habit);
       await tapText(tester, ar.cuePrayerOption);
+      expectNoRelationPair(tester);
       await tapText(tester, 'الفجر');
-      expect(
-        lit(tester, ar.cueBeforeOption),
-        isTrue,
-        reason: 'prayer mode starts from the answer the chips showed',
-      );
       await tapText(tester, 'في وقت الفجر');
-      expect(sheetChip(tester, ar.offsetBeforeLabel).selected, isTrue);
-      await tester.tap(
-        find.widgetWithText(PlainChoiceChip, ar.offsetAfterLabel),
+      expect(
+        sheetChip(tester, ar.offsetAfterLabel).selected,
+        isTrue,
+        reason: 'the typed قبل is words in a cue, not a side for the sheet '
+            'to lean to',
       );
-      await tester.pumpAndSettle();
       await tapSheetChip(tester, '15');
       expect(find.text('بعد الفجر بـ15 دقيقة'), findsOneWidget);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
 
       await tapText(tester, ar.customText);
       expect(cueField(tester).controller!.text, 'قبل العمل');
@@ -849,7 +817,6 @@ void main() {
         'routine saves without قبل', (tester) async {
       final habit = habits['tahajjud']!;
       await open(tester, habit);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
 
       await tapText(tester, ar.customText);
       expect(
@@ -865,22 +832,32 @@ void main() {
       expect(stored(habit.id).cueAfter, 'العمل');
     });
 
-    // A guard: a chip TAPPED in one mode is still lit in the other, as the
-    // one shared answer always was. Only the reminders' side stays out.
-    testWidgets('a chip tapped in prayer mode is lit in custom text, and back',
-        (tester) async {
+    testWidgets(
+        'قبل tapped in custom text stays there: the Fajr sheet still opens '
+        'on بعد', (tester) async {
       await open(tester, habits['onTime']);
+      await tapText(tester, ar.customText);
       await tapText(tester, ar.cueBeforeOption);
       expect(lit(tester, ar.cueBeforeOption), isTrue);
 
-      await tapText(tester, ar.customText);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
-      expect(lit(tester, ar.cueAfterOption), isFalse);
-
-      await tapText(tester, ar.cueAfterOption);
       await tapText(tester, ar.cuePrayerOption);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
-      expect(lit(tester, ar.cueBeforeOption), isFalse);
+      expectNoRelationPair(tester);
+      await tapText(tester, 'في وقت الفجر');
+      expect(
+        sheetChip(tester, ar.offsetAfterLabel).selected,
+        isTrue,
+        reason: 'the «قبل» of typed words is not the side of a prayer\'s '
+            'reminder',
+      );
+      await tapSheetChip(tester, ar.leadAtTime);
+
+      await tapText(tester, ar.customText);
+      expect(
+        lit(tester, ar.cueBeforeOption),
+        isTrue,
+        reason: 'and custom text keeps the قبل that was tapped there',
+      );
+      expect(lit(tester, ar.cueAfterOption), isFalse);
     });
 
     testWidgets('a two-time habit: «مخصص» on a row opens the sheet with «حفظ»',
@@ -935,10 +912,23 @@ void main() {
             .any((f) => f.controller?.text == 'قبل العمل'),
         isTrue,
       );
+      final before = find.text(ar.cueBeforeOption);
+      final after = find.text(ar.cueAfterOption);
+      final row = tester.widget<Row>(
+        find.ancestor(of: before, matching: find.byType(Row)).first,
+      );
       expect(
-        tester.getCenter(find.text(ar.cueBeforeOption)).dx,
-        greaterThan(tester.getCenter(find.text(ar.cueAfterOption)).dx),
-        reason: 'the same order in custom text mode',
+        find.descendant(
+          of: find.byWidget(row.children.first),
+          matching: before,
+        ),
+        findsOneWidget,
+        reason: 'قبل is the Row\'s first child',
+      );
+      expect(
+        tester.getCenter(before).dx,
+        greaterThan(tester.getCenter(after).dx),
+        reason: 'and a first child lays out on the right under RTL',
       );
 
       await save(tester);
@@ -951,13 +941,16 @@ void main() {
     setUp(() => boot(premium: true));
 
     testWidgets(
-        '10 before and 30 after: both chips lit, and a chip tap changes '
-        'nothing and says why under the chips', (tester) async {
+        '10 before and 30 after: a row for each with its own chevron and ×, '
+        'and no pair above them', (tester) async {
       final habit = habits['bothSides']!;
       await open(tester, habit);
 
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
+      expectNoRelationPair(
+        tester,
+        reason: 'one pair cannot stand for both sides; it used to refuse '
+            'every tap on this habit',
+      );
       expect(find.text('قبل الفجر بـ10 دقائق'), findsOneWidget);
       expect(find.text('بعد الفجر بـ30 دقيقة'), findsOneWidget);
       expect(
@@ -967,95 +960,31 @@ void main() {
       );
       expect(find.byIcon(Icons.close_rounded), findsNWidgets(2));
 
-      await tester.tap(find.text(ar.cueAfterOption));
-      await tester.pump();
-      expect(find.text(ar.habitReminderBothSides), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.text(ar.habitReminderBothSides)).dy,
-        lessThan(tester.getTopLeft(find.text(ar.pickAPrayer)).dy),
-        reason: 'drawn under the chips it refused, above the prayers',
-      );
-      expect(find.text('قبل الفجر بـ10 دقائق'), findsOneWidget);
-      expect(find.text('بعد الفجر بـ30 دقيقة'), findsOneWidget);
-
-      // The notice's own dwell, so no timer outlives the test.
-      await tester.pump(const Duration(seconds: 5));
-      await tester.pumpAndSettle();
-      expect(find.text(ar.habitReminderBothSides), findsNothing);
-
       await save(tester);
       expect(stored(habit.id).reminderOffsetMinutes, -10);
       expect(stored(habit.id).extraReminderOffsets, [30]);
     });
 
     testWidgets(
-        'the both-sides refusal writes no relation: custom text next still '
-        'lights بعد', (tester) async {
-      await open(tester, habits['bothSides']);
-      // قبل, the side a prayer habit's relation does not default to, so a
-      // refused tap that wrote it would show.
-      await tester.tap(find.text(ar.cueBeforeOption));
-      await tester.pump();
-      expect(find.text(ar.habitReminderBothSides), findsOneWidget);
-      await tester.pump(const Duration(seconds: 5));
-      await tester.pumpAndSettle();
-
-      await tapText(tester, ar.customText);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
-      expect(lit(tester, ar.cueBeforeOption), isFalse);
-    });
-
-    testWidgets(
-        'a clock time on both sides: chips tapped before a prayer is picked '
-        'say nothing and move nothing', (tester) async {
+        'a clock time on both sides, through a prayer and back, keeps both '
+        'reminders where they were', (tester) async {
       final habit = habits['clockBothSides']!;
       await open(tester, habit);
       expect(find.text('قبل 10 دقائق'), findsOneWidget);
       expect(find.text('بعد 30 دقيقة'), findsOneWidget);
-      await tapText(tester, ar.cuePrayerOption);
 
-      for (final (tap, other) in [
-        (ar.cueBeforeOption, ar.cueAfterOption),
-        (ar.cueAfterOption, ar.cueBeforeOption),
-      ]) {
-        await tester.tap(find.text(tap));
-        await tester.pump();
-        expect(
-          find.text(ar.habitReminderBothSides),
-          findsNothing,
-          reason: 'no rows are drawn yet, so there is nothing to refuse',
-        );
-        expect(lit(tester, tap), isTrue);
-        expect(lit(tester, other), isFalse);
-      }
-      await tester.pumpAndSettle();
+      await tapText(tester, ar.cuePrayerOption);
+      expectNoRelationPair(tester);
+      await tapText(tester, 'الفجر');
+      expect(find.text('قبل الفجر بـ10 دقائق'), findsOneWidget);
+      expect(find.text('بعد الفجر بـ30 دقيقة'), findsOneWidget);
 
       await tapText(tester, ar.customTime);
       expect(find.text('قبل 10 دقائق'), findsOneWidget);
       expect(find.text('بعد 30 دقيقة'), findsOneWidget);
 
       await save(tester);
-      expect(stored(habit.id).reminderOffsetMinutes, -10);
-      expect(stored(habit.id).extraReminderOffsets, [30]);
-    });
-
-    testWidgets(
-        'a clock time on both sides: قبل tapped, then الفجر, lights both and '
-        'keeps both rows', (tester) async {
-      final habit = habits['clockBothSides']!;
-      await open(tester, habit);
-      await tapText(tester, ar.cuePrayerOption);
-      await tapText(tester, ar.cueBeforeOption);
-      await tapText(tester, 'الفجر');
-
-      expect(find.text('قبل الفجر بـ10 دقائق'), findsOneWidget);
-      expect(find.text('بعد الفجر بـ30 دقيقة'), findsOneWidget);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
-      expect(find.text(ar.habitReminderBothSides), findsNothing);
-
-      await save(tester);
-      expect(stored(habit.id).cueAfter, 'fajr');
+      expect(stored(habit.id).cueAfter, startsWith('custom_time:'));
       expect(stored(habit.id).reminderOffsetMinutes, -10);
       expect(stored(habit.id).extraReminderOffsets, [30]);
     });
@@ -1144,8 +1073,8 @@ void main() {
     });
 
     testWidgets(
-        '× on the after row, then the one left set on time: قبل stays lit',
-        (tester) async {
+        '× on the after row, then the one left set on time: the next sheet '
+        'opens on قبل', (tester) async {
       await open(tester, habits['bothSides']);
       final afterRow = find
           .ancestor(
@@ -1160,36 +1089,33 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-
       expect(find.text('بعد الفجر بـ30 دقيقة'), findsNothing);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
-      expect(lit(tester, ar.cueAfterOption), isFalse);
 
       await tapText(tester, 'قبل الفجر بـ10 دقائق');
       await tapSheetChip(tester, ar.leadAtTime);
-
       expect(find.text('في وقت الفجر'), findsOneWidget);
+
+      await tapText(tester, 'في وقت الفجر');
       expect(
-        lit(tester, ar.cueBeforeOption),
+        sheetChip(tester, ar.offsetBeforeLabel).selected,
         isTrue,
-        reason: 'the × did not move the fallback, so the chips jumped to بعد '
-            'with nothing tapped',
+        reason: 'a × returns no value, so a lean that followed only returned '
+            'values would still say بعد here, with nothing chosen',
       );
-      expect(lit(tester, ar.cueAfterOption), isFalse);
+      expect(sheetChip(tester, ar.offsetAfterLabel).selected, isFalse);
     });
 
     testWidgets(
-        '«أضف تذكير» opens on the side the main step shows, says «إضافة», '
+        '«أضف تذكير» on an on-time Fajr habit opens on بعد, says «إضافة», '
         'and 15 adds 15 after', (tester) async {
       final habit = habits['onTime']!;
       await open(tester, habit);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
 
       await tapText(tester, ar.habitAddReminderRow);
       expect(
         sheetChip(tester, ar.offsetAfterLabel).selected,
         isTrue,
-        reason: 'بعد lit on the main step is بعد lit in the sheet',
+        reason: 'a prayer habit whose reminders have had no side leans بعد',
       );
       expect(sheetChip(tester, ar.offsetBeforeLabel).selected, isFalse);
       expect(
@@ -1207,8 +1133,8 @@ void main() {
     });
 
     testWidgets(
-        'a reminder added before, then set on time: قبل stays lit',
-        (tester) async {
+        'a reminder added before, then set on time: the next sheet opens on '
+        'قبل', (tester) async {
       await open(tester, habits['onTime']);
       await tapText(tester, ar.habitAddReminderRow);
       await tester.tap(
@@ -1217,20 +1143,20 @@ void main() {
       await tester.pumpAndSettle();
       await tapSheetChip(tester, '15');
       expect(find.text('قبل الفجر بـ15 دقيقة'), findsOneWidget);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
 
       await tapText(tester, 'قبل الفجر بـ15 دقيقة');
       await tapSheetChip(tester, ar.leadAtTime);
-
       expect(find.text('في وقت الفجر'), findsOneWidget);
       expect(find.text('قبل الفجر بـ15 دقيقة'), findsNothing);
+
+      await tapText(tester, 'في وقت الفجر');
       expect(
-        lit(tester, ar.cueBeforeOption),
+        sheetChip(tester, ar.offsetBeforeLabel).selected,
         isTrue,
         reason: 'the side of the reminder that was added, not the بعد the '
             'habit opened on',
       );
-      expect(lit(tester, ar.cueAfterOption), isFalse);
+      expect(sheetChip(tester, ar.offsetAfterLabel).selected, isFalse);
     });
 
     testWidgets(
@@ -1258,37 +1184,15 @@ void main() {
       await tester.pumpAndSettle();
       await tapSheetChip(tester, '30');
       expect(find.text('بعد الفجر بـ30 دقيقة'), findsOneWidget);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
-      expect(lit(tester, ar.cueAfterOption), isTrue);
 
       await tapText(tester, 'في وقت الفجر');
       expect(
         sheetChip(tester, ar.offsetAfterLabel).selected,
         isTrue,
-        reason: 'both chips are lit, so the sheet leans to the side chosen '
-            'last, 30 after',
+        reason: 'the reminders are on both sides, so the sheet leans to the '
+            'side chosen last, 30 after',
       );
       expect(sheetChip(tester, ar.offsetBeforeLabel).selected, isFalse);
-    });
-
-    testWidgets('30 and 10 before: mirroring keeps the old primary as primary',
-        (tester) async {
-      final habit = habits['twoBefore']!;
-      await open(tester, habit);
-      expect(lit(tester, ar.cueBeforeOption), isTrue);
-
-      await tapText(tester, ar.cueAfterOption);
-      expect(find.text('بعد الفجر بـ10 دقائق'), findsOneWidget);
-      expect(find.text('بعد الفجر بـ30 دقيقة'), findsOneWidget);
-
-      await save(tester);
-      expect(
-        stored(habit.id).reminderOffsetMinutes,
-        30,
-        reason: 'notification slot 0 stays the same reminder, not whichever '
-            'is earliest after the flip',
-      );
-      expect(stored(habit.id).extraReminderOffsets, [10]);
     });
   });
 

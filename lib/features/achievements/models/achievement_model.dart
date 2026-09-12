@@ -186,16 +186,17 @@ abstract final class AchievementCatalog {
     ),
     // Appended, never inserted beside their sibling ladders:
     // achievements_screen.dart renders `families` in list order, so slotting
-    // 'ascent' next to 'level' would silently reorder a shipped screen.
+    // a new family beside its sibling ladder would silently reorder a
+    // shipped screen.
+    //
+    // A family 'ascent' (the level medals 40, 60, 75 and 90) sat here until
+    // 2026-09-12, when Aziz had all four removed: «السفح صار تحت» and «Thin
+    // Air» read as hard words in both languages. Unlocked ids are never
+    // pruned, so an old 'ascent_*' can still sit in a saved list; findById
+    // returns null for it and nothing renders.
     //
     // النَفَس carries the fatha on purpose: undiacritised نفس reads as نَفْس
     // (self) rather than نَفَس (breath).
-    AchievementFamily(
-      id: 'ascent',
-      title: 'Thin Air',
-      titleAr: 'المرتفعات',
-      icon: Icons.terrain_rounded,
-    ),
     AchievementFamily(
       id: 'endurance',
       title: 'The Long Haul',
@@ -473,68 +474,6 @@ abstract final class AchievementCatalog {
       threshold: 2000,
       xpReward: 2500,
       goldReward: 600,
-    ),
-    // ── Ascent: the level rungs above 35 ────────────────────────
-    //
-    // A SEPARATE family rather than extra rungs on 'level'. The catalog test
-    // indexes tiersFor('level') by position and requires exactly four, so
-    // extending it would break two assertions at once.
-    //
-    // xpReward is 0 on all four for the same reason it is 0 on the shipped
-    // level medals: _resolveUnlocks feeds achievement XP back through
-    // applyXpGain inside its own fixed-point loop, so a level medal paying
-    // XP would advance the very ladder that granted it.
-    AchievementModel(
-      id: 'ascent_40',
-      familyId: 'ascent',
-      tier: AchievementTier.bronze,
-      name: 'Above the Foothills',
-      nameAr: 'السفح صار تحت',
-      description: 'Reach level 40',
-      descriptionAr: 'الوصول للمستوى 40',
-      trigger: AchievementTrigger.level,
-      threshold: 40,
-      xpReward: 0,
-      goldReward: 75,
-    ),
-    AchievementModel(
-      id: 'ascent_60',
-      familyId: 'ascent',
-      tier: AchievementTier.silver,
-      name: 'Past the Clouds',
-      nameAr: 'فوق الغيم',
-      description: 'Reach level 60',
-      descriptionAr: 'الوصول للمستوى 60',
-      trigger: AchievementTrigger.level,
-      threshold: 60,
-      xpReward: 0,
-      goldReward: 125,
-    ),
-    AchievementModel(
-      id: 'ascent_75',
-      familyId: 'ascent',
-      tier: AchievementTier.gold,
-      name: 'Three Quarters Up',
-      nameAr: 'باقي الربع',
-      description: 'Reach level 75',
-      descriptionAr: 'الوصول للمستوى 75',
-      trigger: AchievementTrigger.level,
-      threshold: 75,
-      xpReward: 0,
-      goldReward: 175,
-    ),
-    AchievementModel(
-      id: 'ascent_90',
-      familyId: 'ascent',
-      tier: AchievementTier.platinum,
-      name: 'The Summit in Sight',
-      nameAr: 'القمة بانت',
-      description: 'Reach level 90',
-      descriptionAr: 'الوصول للمستوى 90',
-      trigger: AchievementTrigger.level,
-      threshold: 90,
-      xpReward: 0,
-      goldReward: 250,
     ),
     // ── Endurance: the streak rungs past 100 ────────────────────
     //

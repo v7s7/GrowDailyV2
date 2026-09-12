@@ -16,6 +16,13 @@
  *          diagnose_room.js --room=CODE first for a day you do not expect,
  *          because a habit done on a day it was not scheduled can also
  *          show here and is not a fault.
+ *   HELD   the same arithmetic, but the app is holding that day ON PURPOSE:
+ *          the square was painted after the day closed, on a day the room
+ *          had already graded, so it earned nothing in the app either. Not
+ *          a fault, and deliberately printed WITHOUT a repair command. This
+ *          report used to print one, and running it on room ELQVF8 for
+ *          Aziz's 2026-09-10 would have moved him 65.9% to 68.9% on a
+ *          ranked board for a day he did not train.
  *   note   a room that carries spans, or was extended: the places where the
  *          two faults above come from.
  *
@@ -40,6 +47,9 @@ const {
   todayKeyIn,
   undercountedDays,
 } = require(path.join(__dirname, '..', '..', 'functions', 'room_health.js'));
+// The app's own close rule, rather than a day-count guess. See day_rules.js.
+const { localNowMs, newestClosedKey } = require('./lib/day_rules');
+const { offsetOf } = require('./lib/day_key');
 
 function fail(msg) {
   console.error(`\n${msg}\n`);
@@ -62,7 +72,11 @@ admin.initializeApp({ credential: admin.credential.cert(require(KEY_PATH)) });
 const db = admin.firestore();
 
 const TZ = 'Asia/Bahrain';
-const DAY_MS = 24 * 60 * 60 * 1000;
+// The calendar a room's own keys are written on: +180, no daylight saving.
+// A MEMBER's days are closed on their own recorded offset instead (see the
+// offsetOf call below), which is what a day's close has to be measured
+// against when the evidence is a server timestamp.
+const ROOM_OFFSET_MINUTES = 180;
 
 function keyOfTs(v) {
   if (!v || typeof v.toDate !== 'function') return null;
@@ -72,9 +86,14 @@ function keyOfTs(v) {
 (async () => {
   const nowMs = Date.now();
   const todayKey = todayKeyIn(nowMs, TZ);
-  // Yesterday is still payable until 10:00, so the newest fully closed day
-  // is the day before yesterday.
-  const lastClosed = todayKeyIn(nowMs - 2 * DAY_MS, TZ);
+  // The newest day that has FULLY closed, on the app's own rule: a day is
+  // open until kDayCutoffHour the next morning, so before 10:00 that is the
+  // day before yesterday and from 10:00 onward it is yesterday.
+  //
+  // This used to be a flat `now - 2 days`, which is right for the ten hours
+  // before the cutoff and a day short for the other fourteen: run at noon
+  // and the newest closed day went unchecked entirely.
+  const lastClosed = newestClosedKey(localNowMs(nowMs, ROOM_OFFSET_MINUTES));
 
   let roomsSnap;
   if (onlyRoom) {
@@ -82,8 +101,17 @@ function keyOfTs(v) {
     if (!one.exists) fail(`No room "${onlyRoom}".`);
     roomsSnap = { size: 1, docs: [one] };
   } else {
-    roomsSnap = await db.collection('rooms')
-        .where('status', '==', 'active').get();
+    // Every room, filtered here rather than by the query. RoomModel
+    // .fromFirestore treats a MISSING status as active (rooms predate the
+    // lobby era), and a `where('status','==','active')` query cannot match a
+    // document that has no such field: on 2026-09-12 that hid ZCNGFT and
+    // 5S84CL plus five empty room docs from this check entirely.
+    const all = await db.collection('rooms').get();
+    const docs = all.docs.filter((d) => {
+      const status = (d.data() || {}).status;
+      return status === undefined || status === null || status === 'active';
+    });
+    roomsSnap = { size: docs.length, docs };
   }
 
   console.log(`\nRooms health check   today ${todayKey} (${TZ})   ` +
@@ -136,21 +164,41 @@ function keyOfTs(v) {
           if (part.leftAt) continue;
           const countingIds = countingHabitIds(room, part);
           if (countingIds.length === 0) continue;
-          const daySnaps = await Promise.all(days.map((day) => db
-              .collection('users').doc(partDoc.id)
-              .collection('daily').doc(day).get()));
+          const [daySnaps, userSnap] = await Promise.all([
+            Promise.all(days.map((day) => db
+                .collection('users').doc(partDoc.id)
+                .collection('daily').doc(day).get())),
+            db.collection('users').doc(partDoc.id).get(),
+          ]);
           const squaresByDay = {};
+          // The write times are the evidence that separates a day the room
+          // is holding on purpose from one it genuinely missed. Without them
+          // this script printed a set_room_day.js line for the clamp doing
+          // its job. createTime never changes a verdict; it only lets the
+          // HELD line say the day was first opened on time.
+          const lastUpdatedByDay = {};
+          const createdByDay = {};
           days.forEach((day, i) => {
-            if (daySnaps[i].exists) {
-              squaresByDay[day] =
-                  (daySnaps[i].data() || {}).squareStates || {};
-            }
+            if (!daySnaps[i].exists) return;
+            squaresByDay[day] = (daySnaps[i].data() || {}).squareStates || {};
+            lastUpdatedByDay[day] = (daySnaps[i].data() || {}).lastUpdated;
+            createdByDay[day] = daySnaps[i].createTime;
           });
+          const tz = offsetOf(userSnap.exists ? userSnap.data() : null);
           const short = undercountedDays({ days, countingIds, squaresByDay,
-            part });
+            part, lastUpdatedByDay, createdByDay, offsetMinutes: tz.minutes });
           for (const u of short) {
+            const who = part.displayName || partDoc.id;
+            if (u.held) {
+              lines.push(`  HELD   ${who}  ${u.day}: stored ${u.stored}, ` +
+                  `squares say ${u.real}, and that is correct`);
+              lines.push(`         ${u.why}`);
+              lines.push('         no fix: writing this day would pay for a ' +
+                  'square the app itself refused to pay for.');
+              continue;
+            }
             checks++;
-            lines.push(`  CHECK  ${part.displayName || partDoc.id}  ` +
+            lines.push(`  CHECK  ${who}  ` +
                 `${u.day}: stored ${u.stored}, squares say ${u.real}`);
             lines.push(`         fix: node set_room_day.js --room=${code} ` +
                 `--user=${partDoc.id} --date=${u.day} --done=${u.real} ` +

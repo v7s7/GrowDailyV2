@@ -109,7 +109,8 @@ void main() {
     expect(alarm['kind'], 'task');
     expect(alarm['targetId'], 'task-1');
     expect(alarm['title'], 'اتصل بأمي');
-    expect(alarm['doneLabel'], 'تم');
+    expect(alarm['doneLabel'], 'خلّصت المهمة',
+        reason: 'a task alarm says what its second button records');
     expect(alarm['fireAtMs'], fireAt.millisecondsSinceEpoch);
     expect(scheduled(), isEmpty,
         reason: 'the alarm replaces the notification for this slot');
@@ -280,6 +281,12 @@ void main() {
       alarmSchedules().length,
       NotificationService.kOccurrencesPerSlot,
       reason: 'the surviving pass arms its whole window, one alarm per day',
+    );
+    expect(
+      alarmSchedules().where((a) => a.containsKey('doneLabel')),
+      isEmpty,
+      reason: 'a habit alarm carries Stop only, so no tap on it records the '
+          'habit',
     );
   });
 }

@@ -626,10 +626,13 @@ String habitReminderBody({
 /// "Done" for a habit reminder's completion button.
 String markDoneAction(bool isAr) => isAr ? 'تمت' : 'Mark Done';
 
-/// The Done button on a task's ringing alarm. «تم» rather than «تمت»: a
-/// task is masculine where a habit is feminine, and the button sits under
-/// the task's own title.
-String taskDoneAction(bool isAr) => isAr ? 'تم' : 'Done';
+/// The Done button on a task's ringing alarm. It says what the tap records,
+/// because it sits beside the system's Stop and a bare «تم» did not (Aziz
+/// chose these words on 2026-09-11). A verb, unlike the nominal buttons
+/// above, but first person past has no gender to get wrong: «خلّصت» is the
+/// same word whoever taps it. Tasks only; a habit's alarm carries Stop
+/// alone, see AlarmService.
+String taskDoneAction(bool isAr) => isAr ? 'خلّصت المهمة' : 'I did the task';
 
 /// The Stop button on a ringing alarm, where iOS asks the app for one.
 String alarmStopAction(bool isAr) => isAr ? 'إيقاف' : 'Stop';

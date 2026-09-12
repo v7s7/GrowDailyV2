@@ -76,9 +76,11 @@ struct GrowDailyAlarmLiveActivity: Widget {
         .activitySystemActionForegroundColor(Self.gold)
     }
 
-    /// Stop, and the Done the app configured. Both run intents declared
+    /// Stop, and on a task's alarm the Done the app configured («خلّصت
+    /// المهمة»); a habit's alarm carries Stop alone. Both run intents declared
     /// below; the alarm's own id rides in the activity's alarmID so the
-    /// buttons know which alarm to stop.
+    /// buttons know which alarm to stop. The kind check also hides the Done
+    /// that habit alarms armed by an earlier build still carry.
     @ViewBuilder
     private func controls(
         attributes: AlarmAttributes<GrowDailyAlarmMetadata>,
@@ -96,8 +98,8 @@ struct GrowDailyAlarmLiveActivity: Widget {
                 .frame(maxWidth: .infinity)
             }
             .tint(.secondary)
-            if let done = attributes.presentation.alert.secondaryButton,
-               let metadata = attributes.metadata {
+            if let metadata = attributes.metadata, metadata.kind == "task",
+               let done = attributes.presentation.alert.secondaryButton {
                 Button(intent: MarkAlarmTargetDoneIntent(
                     kind: metadata.kind, targetId: metadata.targetId, alarmId: alarmId)) {
                     Label {
@@ -154,10 +156,14 @@ struct StopGrowDailyAlarmIntent: LiveActivityIntent {
     }
 }
 
+/// Copy of MarkAlarmTargetDoneIntent in AlarmKitBridge.swift, see the note
+/// there: on a task's alarm it stops the alarm and queues the task as done;
+/// for a habit (only alarms armed by an earlier build still carry the
+/// button) it only stops.
 @available(iOS 26.0, *)
 struct MarkAlarmTargetDoneIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Mark done"
-    static var description = IntentDescription("Records the habit or task behind an alarm as done.")
+    static var title: LocalizedStringResource = "Mark task done"
+    static var description = IntentDescription("Stops a ringing Grow Daily alarm and records its task as done.")
 
     @Parameter(title: "Kind")
     var kind: String
@@ -184,65 +190,27 @@ struct MarkAlarmTargetDoneIntent: LiveActivityIntent {
         if let uuid = UUID(uuidString: alarmId) {
             try? AlarmManager.shared.stop(id: uuid)
         }
-        AlarmDoneQueue.record(kind: kind, targetId: targetId)
+        if kind == "task" {
+            AlarmDoneQueue.recordTask(targetId)
+        }
         return .result()
     }
 }
 
 /// Copy of AlarmDoneQueue in ios/Runner/AlarmKitBridge.swift, see the note
-/// above the intents. Keys and shapes match lib/core/services/
-/// home_widget_service.dart and notification_action_queue.dart.
+/// above the intents. The key and its shape match lib/core/services/
+/// home_widget_service.dart.
 enum AlarmDoneQueue {
     static let appGroupId = "group.com.growdaily.v2.widget"
 
-    static func record(kind: String, targetId: String) {
-        guard !targetId.isEmpty, let defaults = UserDefaults(suiteName: appGroupId) else { return }
-        switch kind {
-        case "habit":
-            appendHabitTap(targetId, to: defaults)
-            markHabitDoneInTodayList(targetId, in: defaults)
-        case "task":
-            appendTaskCompletion(targetId, to: defaults)
-        default:
-            return
+    static func recordTask(_ taskId: String) {
+        guard !taskId.isEmpty, let defaults = UserDefaults(suiteName: appGroupId) else { return }
+        var queue = readJSONArray("pendingWidgetTaskCompletions", from: defaults)
+        if !queue.compactMap({ $0 as? String }).contains(taskId) {
+            queue.append(taskId)
+            writeJSON(queue, to: "pendingWidgetTaskCompletions", in: defaults)
         }
         WidgetCenter.shared.reloadAllTimelines()
-    }
-
-    static func todayKey() -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
-    }
-
-    static func appendHabitTap(_ habitId: String, to defaults: UserDefaults) {
-        var queue = readJSONArray("pendingNotificationActions", from: defaults)
-        queue.append(["action": "mark_done", "habitId": habitId, "day": todayKey()])
-        if queue.count > 200 { queue.removeFirst(queue.count - 200) }
-        writeJSON(queue, to: "pendingNotificationActions", in: defaults)
-    }
-
-    static func appendTaskCompletion(_ taskId: String, to defaults: UserDefaults) {
-        var queue = readJSONArray("pendingWidgetTaskCompletions", from: defaults)
-        if queue.compactMap({ $0 as? String }).contains(taskId) { return }
-        queue.append(taskId)
-        writeJSON(queue, to: "pendingWidgetTaskCompletions", in: defaults)
-    }
-
-    static func markHabitDoneInTodayList(_ habitId: String, in defaults: UserDefaults) {
-        var list = readJSONArray("todayHabitsJson", from: defaults)
-        var changed = false
-        for i in list.indices {
-            guard var entry = list[i] as? [String: Any], entry["id"] as? String == habitId else { continue }
-            entry["done"] = true
-            if let perDay = entry["perDay"] as? Int { entry["count"] = perDay }
-            list[i] = entry
-            changed = true
-        }
-        if changed { writeJSON(list, to: "todayHabitsJson", in: defaults) }
     }
 
     static func readJSONArray(_ key: String, from defaults: UserDefaults) -> [Any] {

@@ -47,10 +47,11 @@ const int kMaxHabitOffsetMinutes = 12 * 60;
 /// hour. [current] may be null there: a row being added has no value yet.
 ///
 /// [leanAfter] is the side a reminder with no side of its own opens on: one
-/// on time, or one being added. Add Habit passes the side its main step
-/// shows for a prayer habit, so «بعد» lit there is «بعد» lit here and one
-/// tap on 15 saves 15 after, not 15 before. A reminder that already has a
-/// shift always opens on its own side, whatever the lean.
+/// on time, or one being added. Add Habit passes it for a prayer habit, from
+/// the side its other reminders are on or the side last chosen here, so one
+/// tap on 15 lands on the side the person has been using. This sheet is the
+/// one place a prayer reminder's side is chosen. A reminder that already
+/// has a shift always opens on its own side, whatever the lean.
 ///
 /// [editing] says the sheet was opened on a reminder that exists, and the
 /// button says so: «حفظ» there, «إضافة» only when a reminder is being added.
@@ -148,8 +149,7 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
     // sheet uses, so the two can never disagree about which unit a value is.
     final current = widget.current ?? 0;
     // A shift carries its own side. Only a reminder with none (on time, or
-    // one being added) takes the lean, which is the side Add Habit's main
-    // step shows, so the two screens open agreeing.
+    // one being added) takes the lean Add Habit passes (see leanAfter).
     _isAfter = current > 0 || (current == 0 && widget.leanAfter);
     final (value, unit) = splitOffsetUnit(current.abs());
     // Minutes on a fresh sheet. splitOffsetUnit(0) answers DAYS — zero divides
