@@ -560,6 +560,12 @@ class PeriodSummary {
   /// What every habit in the window owed, summed.
   final int expectedTotal;
 
+  /// What every habit in the window earned, summed: each habit's
+  /// [HabitPeriodStat.creditedUnits], so a جزئي is worth half and one on a
+  /// day still open waits, exactly as on the cards. [rate]'s numerator;
+  /// [totalDone] stays a count of green squares, for the headline.
+  final double creditedTotal;
+
   final DateTime? bestDay;
   final int bestDayCount;
 
@@ -578,16 +584,24 @@ class PeriodSummary {
   const PeriodSummary({
     required this.totalDone,
     required this.expectedTotal,
+    required this.creditedTotal,
     required this.bestDay,
     required this.bestDayCount,
     required this.activeDays,
     required this.longestRun,
   });
 
-  /// 0..1. Capped for the same reason [HabitPeriodStat.rate] is.
+  /// 0..1: credit over what was owed, both summed across the window's
+  /// habits, so a report holding one habit reads what that habit's card
+  /// reads. It used to divide [totalDone]: two greens and a جزئي in five owed
+  /// days read 40% above a card reading 50%. Aziz, 2026-09-11, asked whether
+  /// جزئي counts as half here too: "yes".
+  ///
+  /// Only the total is capped, for the reason [HabitPeriodStat.rate] is. No
+  /// habit is capped before the sum, as when this counted green squares.
   double get rate => expectedTotal == 0
       ? 0
-      : (totalDone / expectedTotal).clamp(0.0, 1.0).toDouble();
+      : (creditedTotal / expectedTotal).clamp(0.0, 1.0).toDouble();
 
   bool get hasAnything => totalDone > 0;
 
@@ -597,7 +611,7 @@ class PeriodSummary {
 }
 
 /// Summarises one window from [dayCounts] (see [dayCountsFrom]) plus the
-/// per-habit denominators.
+/// per-habit denominators and credit.
 PeriodSummary computePeriodSummary({
   required Map<String, int> dayCounts,
   required List<DateTime> days,
@@ -632,13 +646,19 @@ PeriodSummary computePeriodSummary({
       bestDay = day;
     }
   }
+  // Both sides of the rate are read off the cards' own stats, never
+  // re-derived here, so they cover the same days at the same clock: the free
+  // floor and a جزئي still open are already settled in [habitStats].
   var expected = 0;
+  var credited = 0.0;
   for (final stat in habitStats) {
     expected += stat.expected;
+    credited += stat.creditedUnits;
   }
   return PeriodSummary(
     totalDone: total,
     expectedTotal: expected,
+    creditedTotal: credited,
     bestDay: bestDay,
     bestDayCount: best,
     activeDays: activeDays,

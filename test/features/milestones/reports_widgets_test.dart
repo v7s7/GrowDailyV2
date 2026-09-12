@@ -49,6 +49,7 @@ void main() {
   const summary = PeriodSummary(
     totalDone: 128,
     expectedTotal: 200,
+    creditedTotal: 128,
     bestDay: null,
     bestDayCount: 9,
     activeDays: 20,
@@ -238,6 +239,7 @@ void main() {
       const nothingOwed = PeriodSummary(
         totalDone: 0,
         expectedTotal: 0,
+        creditedTotal: 0,
         bestDay: null,
         bestDayCount: 0,
         activeDays: 0,
@@ -252,6 +254,7 @@ void main() {
       const owing = PeriodSummary(
         totalDone: 0,
         expectedTotal: 4,
+        creditedTotal: 0,
         bestDay: null,
         bestDayCount: 0,
         activeDays: 0,
