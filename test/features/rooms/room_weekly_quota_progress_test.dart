@@ -131,7 +131,7 @@ void main() {
       expect(result.toSet(), {0, 1, 2, 4});
     });
 
-    test('exceeding the target still counts every day actually done', () {
+    test('exceeding the target caps room credit at the commitment', () {
       final result = weeklyQuotaScheduledDays(
         presentDays: const [0, 1, 2, 3, 4, 5, 6],
         doneDays: const {0, 1, 2, 3, 4, 5},
@@ -140,8 +140,9 @@ void main() {
       );
       expect(
         result.toSet(),
-        {0, 1, 2, 3, 4, 5},
-        reason: 'six sessions is six done days, not four',
+        {0, 1, 2, 3},
+        reason: 'six sessions are celebrated personally, but only four count '
+            'toward a 4x room commitment',
       );
     });
 
@@ -224,11 +225,11 @@ void main() {
       );
     });
 
-    test('every day done is answerable in every case', () {
-      // The numerator invariant: a day genuinely completed must never be
-      // dropped from the answerable set, or its own credit would vanish.
+    test('only target completed days are answerable once the quota is met', () {
+      // The room's invariant: a 4x commitment is worth at most four days,
+      // however many additional sessions someone chooses to do personally.
       for (final closed in [true, false]) {
-        for (var done = 0; done <= 7; done++) {
+        for (var done = 4; done <= 7; done++) {
           final doneSet = {for (var i = 0; i < done; i++) i};
           final result = weeklyQuotaScheduledDays(
             presentDays: const [0, 1, 2, 3, 4, 5, 6],
@@ -237,9 +238,9 @@ void main() {
             isWeekClosed: closed,
           ).toSet();
           expect(
-            result.containsAll(doneSet),
-            isTrue,
-            reason: 'done=$done closed=$closed dropped a completed day',
+            result.length,
+            done > 4 ? 4 : done,
+            reason: 'done=$done closed=$closed must cap at the 4x promise',
           );
         }
       }
@@ -264,12 +265,12 @@ void main() {
         dailyScheduledCount: stored.scheduled,
       );
 
-      // Five answerable days, five done. The two untouched days are not in
+      // Four answerable days, four done. The three rest/extra-session days are not in
       // the numerator any more and not in the denominator either — a rest
       // day leaves BOTH sides now, where it used to be paid a full 1.0 and
       // still counted, which is what let an empty week score 43%.
-      expect(p.daysCompleted(week), 5.0);
-      expect(p.daysElapsedIn(week), 5);
+      expect(p.daysCompleted(week), 4.0);
+      expect(p.daysElapsedIn(week), 4);
       expect(p.progressRatio(week), 1.0);
       // The original bug, asserted as explicitly NOT the answer: every day
       // of the week in the denominator meant the two untouched rest days

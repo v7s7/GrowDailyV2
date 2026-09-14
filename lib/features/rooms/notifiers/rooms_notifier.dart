@@ -184,6 +184,7 @@ final gradedRoomRosterHistoryProvider =
 /// view of a single participant. See [myRoomRaceSnapshotProvider].
 class RoomRaceRow {
   final String name;
+
   /// 1-based, SHARED between members who are level, and 0 for a member
   /// with no place yet (see RoomLeaderboard.standings). The widget renders
   /// this straight, so both halves of a tie show #1 and a member still at
@@ -890,7 +891,14 @@ List<int> weeklyQuotaScheduledDays({
   if (presentDays.isEmpty) return const [];
   final effectiveTarget = target.clamp(1, presentDays.length);
   final done = presentDays.where(doneDays.contains).toList();
-  if (done.length >= effectiveTarget) return done;
+  // A weekly target is the commitment, not a seven-day multiplier. Once it
+  // has been met, the first `target` sessions are the room's completed work;
+  // later sessions remain visible in the person's own Grid, but are rest
+  // days as far as this room's score is concerned. Otherwise a 4x habit
+  // could cover a miss in a daily habit simply by being done on days five,
+  // six and seven.
+  if (done.length >= effectiveTarget)
+    return done.take(effectiveTarget).toList();
   if (!isWeekClosed) return presentDays;
   // Closed and short. weeklyQuotaDemand works in week positions (0-based),
   // presentDays holds indices into the sync's own day range — translate in,
@@ -1610,8 +1618,7 @@ class RoomsController {
       // falls back to neutral phrasing, which is better than confidently
       // misgendering someone.
       if (!character.isLoading)
-        'gender':
-            CharacterCatalog.findById(character.characterId)?.gender.name,
+        'gender': CharacterCatalog.findById(character.characterId)?.gender.name,
       if (!character.isLoading && character.equippedAccessoryId != null)
         'accessoryId': character.equippedAccessoryId,
       'prestigeTierId': prestigeTierId,
@@ -1904,8 +1911,8 @@ class RoomsController {
       final was = RoomParticipant.fromFirestore(existing);
       final left = was.leftAt;
       final yesterday = DateTime.now().effectiveDay.subtract(
-        const Duration(days: 1),
-      );
+            const Duration(days: 1),
+          );
       // Left before the room ever counted a day (a lobby departure): nothing
       // was played and nothing was withdrawn from, so this is a first join
       // in every sense - the clock is stamped now and no away stretch exists.
@@ -1915,10 +1922,10 @@ class RoomsController {
       final leftKey = left == null || leftInLobby
           ? null
           : DateTime(left.year, left.month, left.day).toDateKey();
-      final awaySpan = leftKey != null &&
-              leftKey.compareTo(yesterday.toDateKey()) <= 0
-          ? {'from': leftKey, 'to': yesterday.toDateKey()}
-          : null;
+      final awaySpan =
+          leftKey != null && leftKey.compareTo(yesterday.toDateKey()) <= 0
+              ? {'from': leftKey, 'to': yesterday.toDateKey()}
+              : null;
       // Slots the member already holds are KEPT, exactly as resolvePlanHabit
       // insists ("must be exactly the next slot"): the join sheet used to
       // rewrite the whole list, which (a) let a member swap a slot they were
@@ -2145,7 +2152,8 @@ class RoomsController {
   Future<AddSharedHabitResult> addSharedHabit(
       RoomModel room, String habitId) async {
     final uid = _uid;
-    if (uid == null || uid != room.createdBy) return AddSharedHabitResult.refused;
+    if (uid == null || uid != room.createdBy)
+      return AddSharedHabitResult.refused;
     if (room.habitMode != RoomHabitMode.shared) {
       return AddSharedHabitResult.refused;
     }
@@ -2845,7 +2853,8 @@ class RoomsController {
       final snap = await txn.get(participantRef);
       if (!snap.exists) return false;
       final claimed = snap.data()?['teamStreakClaims'];
-      if (claimed is List && claimed.any((v) => v is num && v.toInt() == milestone)) {
+      if (claimed is List &&
+          claimed.any((v) => v is num && v.toInt() == milestone)) {
         return false;
       }
       txn.set(
@@ -2858,9 +2867,8 @@ class RoomsController {
       return true;
     });
     if (!didClaim) return;
-    await _ref
-        .read(dashboardProvider.notifier)
-        .awardBonus(xp: prize.xp, gold: prize.gold, countsTowardDailyCap: false);
+    await _ref.read(dashboardProvider.notifier).awardBonus(
+        xp: prize.xp, gold: prize.gold, countsTowardDailyCap: false);
   }
 
   /// The end-of-room prize for finishing in [rank] (1-based), or null for
@@ -2971,9 +2979,7 @@ class RoomsController {
       return true;
     });
     if (!didClaim) return;
-    await _ref
-        .read(dashboardProvider.notifier)
-        .awardBonus(
+    await _ref.read(dashboardProvider.notifier).awardBonus(
           xp: prize.xp,
           gold: prize.gold,
           // A podium prize is settled once when the room ends.
@@ -3485,8 +3491,7 @@ class RoomsController {
       }
       final raw = snaps[dayIndex].data()?['squareStates'];
       return raw is Map &&
-          SquareState.fromJson(raw[habitId]?.toString()) ==
-              SquareState.partial;
+          SquareState.fromJson(raw[habitId]?.toString()) == SquareState.partial;
     }
 
     /// Whether this habit was deliberately stood down (تخطّي) that day.
@@ -3501,8 +3506,7 @@ class RoomsController {
       }
       final raw = snaps[dayIndex].data()?['squareStates'];
       return raw is Map &&
-          SquareState.fromJson(raw[habitId]?.toString()) ==
-              SquareState.skipped;
+          SquareState.fromJson(raw[habitId]?.toString()) == SquareState.skipped;
     }
 
     // The rules this ROOM grades each linked habit by, which is
@@ -3675,7 +3679,10 @@ class RoomsController {
       for (final stint in stintsById[id] ?? const <(DateTime?, DateTime)>[]) {
         final start = stint.$1;
         // A null start is already unbounded, so nothing is damaged here.
-        if (start == null) { earliest = null; break; }
+        if (start == null) {
+          earliest = null;
+          break;
+        }
         if (earliest == null || start.isBefore(earliest)) earliest = start;
       }
       if (earliest == null) continue;
@@ -3768,6 +3775,7 @@ class RoomsController {
       if (isSkipped(dayIndex, habitId)) return RoomHabitMark.skipped;
       return RoomHabitMark.missed;
     }
+
     // Weeks whose weekly-quota habits all held - see
     // RoomParticipant.quotaOkWeeks. Filled in pass 2.
     final okWeeks = <String>{};
@@ -3937,9 +3945,8 @@ class RoomsController {
           if (isClosed) {
             var sessions = 0.0;
             for (final i in present) {
-              sessions += done.contains(i)
-                  ? 1.0
-                  : (isPartial(i, id) ? 0.5 : 0.0);
+              sessions +=
+                  done.contains(i) ? 1.0 : (isPartial(i, id) ? 0.5 : 0.0);
             }
             final share = weeklyShareFor(
               target: weekRule.frequencyTarget,
@@ -4551,8 +4558,8 @@ class RoomsController {
     final allDoneTodayUpdate = finishScheduled == null
         ? const <String, Object?>{}
         : <String, Object?>{
-            'allDoneToday':
-                finishScheduled == 0 || doneCount[finishKey]! >= finishScheduled,
+            'allDoneToday': finishScheduled == 0 ||
+                doneCount[finishKey]! >= finishScheduled,
             'allDoneDate': finishKey,
           };
     // The false/missing -> true edge, for *that day specifically* - checking
@@ -4633,8 +4640,7 @@ class RoomsController {
                 mineNow.slotDeclinedFrom[e.key] == null,
           ))
         'slotDeclinedFrom': {
-          for (final e in mineNow.slotDeclinedFrom.entries)
-            '${e.key}': e.value,
+          for (final e in mineNow.slotDeclinedFrom.entries) '${e.key}': e.value,
           for (final e in mineNow.linkedHabitIds.asMap().entries)
             if (e.value == kDeclinedSlot &&
                 mineNow.slotDeclinedFrom[e.key] == null)
@@ -4739,7 +4745,8 @@ class RoomsController {
       if (room.isEnded) continue;
       final participants = await _ref
           .read(roomParticipantsProvider(room.code).future)
-          .timeout(_roomLoadTimeout, onTimeout: () => const <RoomParticipant>[]);
+          .timeout(_roomLoadTimeout,
+              onTimeout: () => const <RoomParticipant>[]);
       final mine = participants.where((p) => p.uid == uid);
       if (mine.isEmpty) continue;
       if (mine.first.countedHabitIdsIn(room).contains(habitId)) out.add(room);
@@ -5043,11 +5050,10 @@ class RoomsController {
                   (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
                 ) ??
                 const <String, int>{};
-        final existingRested =
-            (snap.data()?['dailyRestedCount'] as Map?)?.map(
-                  (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
-                ) ??
-                const <String, int>{};
+        final existingRested = (snap.data()?['dailyRestedCount'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+            ) ??
+            const <String, int>{};
         final existingScheduled =
             (snap.data()?['dailyScheduledCount'] as Map?)?.map(
                   (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
@@ -5071,9 +5077,10 @@ class RoomsController {
         // slot cannot join the plan in the future), so this is belt and
         // braces rather than a behaviour change - but it keeps the one
         // invariant this file keeps relearning stated in exactly one way.
-        final newScheduled = scheduledIds.length == mine.countedHabitCountOn(today)
-            ? null
-            : scheduledIds.length;
+        final newScheduled =
+            scheduledIds.length == mine.countedHabitCountOn(today)
+                ? null
+                : scheduledIds.length;
         // Today's names beside today's counts. Never held, since today is
         // never clamped, so they are stored whenever they agree, which by
         // construction is always. See reconciledHabitMarks.

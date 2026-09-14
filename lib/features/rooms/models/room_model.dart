@@ -352,8 +352,9 @@ class RoomModel {
     if (i < 0 || i >= sharedHabits.length) return startKey;
     final added = sharedHabits[i].addedAt;
     if (added == null) return startKey;
-    final asks = DateTime(added.year, added.month, added.day + kNewSlotGraceDays)
-        .toDateKey();
+    final asks =
+        DateTime(added.year, added.month, added.day + kNewSlotGraceDays)
+            .toDateKey();
     return asks.compareTo(startKey) > 0 ? asks : startKey;
   }
 
@@ -1236,7 +1237,8 @@ class RoomParticipant {
   /// no date was ever recorded), or inside one of its closed
   /// [slotDeclinedSpans].
   bool slotDeclinedOn(int i, String dateKey) {
-    for (final s in slotDeclinedSpans[i] ?? const <({String from, String to})>[]) {
+    for (final s
+        in slotDeclinedSpans[i] ?? const <({String from, String to})>[]) {
       if (dateKey.compareTo(s.from) >= 0 && dateKey.compareTo(s.to) <= 0) {
         return true;
       }
@@ -1637,7 +1639,9 @@ class RoomParticipant {
       }
 
       var reachable = 0;
-      for (var d = weekStart; !d.isAfter(weekEnd); d = d.add(const Duration(days: 1))) {
+      for (var d = weekStart;
+          !d.isAfter(weekEnd);
+          d = d.add(const Duration(days: 1))) {
         final key = d.toDateKey();
         // A day the room was not running, or the member's plan was stood
         // down on, was never theirs to spend and cannot be spent now.
@@ -2237,11 +2241,12 @@ class RoomParticipant {
   /// stand-down keeps the zero it has always had.
   /// Whether [dateKey] may enter a score yet, read at [now].
   ///
-  /// Aziz's rule for Reports (d1729b7), asked of a room: a day counts once it
-  /// is SETTLED, which is closed (kDayCutoffHour the next morning) or
-  /// answered. A room day is answered when everything it asked for was done
-  /// ([isFullyDone]); a half-done day that can still be finished waits, the
-  /// same way a جزئي on an open day waits in a report.
+  /// A room day starts contributing as soon as the member has recorded real
+  /// work on it, and otherwise counts once it is settled (closed at
+  /// [kDayCutoffHour] the next morning or fully answered). This lets the
+  /// visible room total move after each completed habit instead of looking
+  /// stuck until the final habit of the day is done, while a new blank day
+  /// still cannot lower anyone's score.
   ///
   /// Before this, every percentage and every streak in a room counted the new
   /// day from its own midnight, so both members' numbers dipped at 00:00 and
@@ -2251,13 +2256,18 @@ class RoomParticipant {
   /// BOTH sides, exactly as a rest day does, so nothing is scored against a
   /// day the room has not finished asking about.
   ///
-  /// Deliberately NOT [isSettledAt]'s `answered: false` reading: a room day
-  /// that is already finished counts the moment it is finished, or marking
-  /// everything at 21:00 would show nothing until the next morning.
+  /// A future date cannot enter a score even if stale data happens to exist
+  /// for it. A partial square earns half credit everywhere else, so it too is
+  /// enough to make today's live room total move.
   bool dayIsCountableAt(String dateKey, DateTime now) {
     final day = DateTime.tryParse(dateKey);
     if (day == null) return true;
-    return day.isSettledAt(now, answered: isFullyDone(dateKey));
+    final today = now.effectiveDay;
+    if (day.isAfter(today)) return false;
+    if (didCompleteAnythingOn(dateKey) || partialCountFor(dateKey) > 0) {
+      return true;
+    }
+    return day.isSettledAt(now, answered: false);
   }
 
   ({int live, bool allRest}) _liveDaysIn(RoomModel room, DateTime now) {
@@ -2674,9 +2684,7 @@ class RoomParticipant {
       }
       // An away day is in the denominator whatever else was true of it.
       if (isAwayOn(key) &&
-          (isStoodDownOn(key) ||
-              conceded.contains(key) ||
-              isRestDay(key))) {
+          (isStoodDownOn(key) || conceded.contains(key) || isRestDay(key))) {
         elapsed++;
       } else if (!isAwayOn(key) &&
           isRestDay(key) &&
@@ -2802,11 +2810,12 @@ class RoomParticipant {
         day = day.subtract(const Duration(days: 1));
         continue;
       }
-      // Still open and unfinished: transparent for the same reason, and this
-      // is the streak half of the open-day rule. It neither extends the
-      // streak nor ends it, because the room has not finished asking about
-      // the day. An ended room has no open days left to grant this to.
-      if (!roomEnded && !dayIsCountableAt(key, clock)) {
+      // Still open and unfinished: transparent for the streak, even though
+      // a partial day now appears in the live score. The score should show
+      // each completed habit immediately; the streak must not reset merely
+      // because there is still time to finish the rest of today's plan.
+      // An ended room has no open days left to grant this to.
+      if (!roomEnded && !day.isSettledAt(clock, answered: isFullyDone(key))) {
         day = day.subtract(const Duration(days: 1));
         continue;
       }
@@ -3074,8 +3083,7 @@ class RoomParticipant {
         dailyScheduledCount: dailyScheduledCount ?? this.dailyScheduledCount,
         dailyRestedCount: dailyRestedCount ?? this.dailyRestedCount,
         dailyPartialCount: dailyPartialCount ?? this.dailyPartialCount,
-        dailyScheduledWeight:
-            dailyScheduledWeight ?? this.dailyScheduledWeight,
+        dailyScheduledWeight: dailyScheduledWeight ?? this.dailyScheduledWeight,
         dailyDoneWeight: dailyDoneWeight ?? this.dailyDoneWeight,
         dailyHabitMarks: dailyHabitMarks ?? this.dailyHabitMarks,
         restAllowanceFrom: restAllowanceFrom ?? this.restAllowanceFrom,
@@ -3199,7 +3207,8 @@ extension RoomLeaderboard on RoomModel {
     if (required < 1) required = 1;
     final start = p.countedStartIn(this);
     final last = lastCountedDay;
-    final present = last.isBefore(start) ? 1 : last.difference(start).inDays + 1;
+    final present =
+        last.isBefore(start) ? 1 : last.difference(start).inDays + 1;
     return present >= required;
   }
 
@@ -3242,23 +3251,22 @@ extension RoomLeaderboard on RoomModel {
     // 0% is not a place, and neither is a day (see [holdsPlaceIn]). Decided
     // once here so the sort and the numbering below cannot disagree.
     final eligible = <String, bool>{
-      for (final p in participants)
-        p.uid: percentOf(p) > 0 && holdsPlaceIn(p),
+      for (final p in participants) p.uid: percentOf(p) > 0 && holdsPlaceIn(p),
     };
     bool placedOf(RoomParticipant p) => eligible[p.uid] ?? false;
 
     final sorted = [...participants]..sort((a, b) {
-      // Members who hold a place come first, whatever their number: a
-      // one-day joiner reading 100% sits below the cup-holder at 97%, not
-      // above them with no cup, which reads as a board that forgot to draw
-      // one. 0% rows already sorted last for the same reason.
-      final byPlaced = (placedOf(b) ? 1 : 0).compareTo(placedOf(a) ? 1 : 0);
-      if (byPlaced != 0) return byPlaced;
-      final byPercent = percentOf(b).compareTo(percentOf(a));
-      if (byPercent != 0) return byPercent;
-      final byRatio = ratioOf(b).compareTo(ratioOf(a));
-      return byRatio != 0 ? byRatio : a.uid.compareTo(b.uid);
-    });
+        // Members who hold a place come first, whatever their number: a
+        // one-day joiner reading 100% sits below the cup-holder at 97%, not
+        // above them with no cup, which reads as a board that forgot to draw
+        // one. 0% rows already sorted last for the same reason.
+        final byPlaced = (placedOf(b) ? 1 : 0).compareTo(placedOf(a) ? 1 : 0);
+        if (byPlaced != 0) return byPlaced;
+        final byPercent = percentOf(b).compareTo(percentOf(a));
+        if (byPercent != 0) return byPercent;
+        final byRatio = ratioOf(b).compareTo(ratioOf(a));
+        return byRatio != 0 ? byRatio : a.uid.compareTo(b.uid);
+      });
 
     final placed = <({RoomParticipant participant, int rank})>[];
     var place = 0;
