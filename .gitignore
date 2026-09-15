@@ -71,3 +71,13 @@ functions/node_modules/
 /android/key.properties
 *.jks
 *.keystore
+
+# Creator outreach research (2026-09-15) — this repo is public on GitHub.
+# tools/build_creator_sheet.mjs and marketing_outputs/ compile real people's
+# names, handles, follower counts and engagement rates from third-party
+# influencer directories for outreach targeting. GROWTH_LAUNCH.md's own
+# outreach-queue table carries the same names/handles. None of that belongs
+# in a public repo, same reasoning as the admin_lookup reports above.
+tools/build_creator_sheet.mjs
+marketing_outputs/
+GROWTH_LAUNCH.md
