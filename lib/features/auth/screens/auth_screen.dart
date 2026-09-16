@@ -18,6 +18,44 @@ import '../widgets/social_sign_in_buttons.dart';
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
+  /// The banner text for a failed sign-in.
+  ///
+  /// [fromSocial] is true when the Google or Apple button raised it. Those
+  /// never involve a typed email or password, so Firebase's
+  /// `invalid-credential` (a provider token it refused) must not read as
+  /// "Invalid email or password": that exact banner is what App Review
+  /// photographed on build 70 after tapping Continue with Apple, and it sent
+  /// them looking for a password they never entered. It gets the generic
+  /// line instead, which is at least true.
+  static String errorMessageFor(
+    S s,
+    Object error, {
+    required bool fromSocial,
+  }) {
+    if (error is! FirebaseAuthException) return s.errGeneric;
+    return switch (error.code) {
+      'user-not-found' ||
+      'wrong-password' ||
+      'invalid-credential' =>
+        fromSocial ? s.errGeneric : s.errInvalidCredential,
+      'email-already-in-use' => s.errEmailInUse,
+      'invalid-email' => s.errInvalidEmail,
+      'weak-password' => s.errWeakPassword,
+      'network-request-failed' => s.errNetwork,
+      // Social sign-in adds these two. The first is the common one: the
+      // address behind the Google or Apple account already has a password
+      // account here, and the way out is entirely in their hands. The second
+      // only fires when the provider is switched off in the Firebase
+      // console, so it must not read as their mistake or invite a retry that
+      // will fail identically.
+      'account-exists-with-different-credential' =>
+        s.errAccountExistsWithEmail,
+      'operation-not-allowed' => s.errSignInMethodUnavailable,
+      'apple-account-required' => s.errAppleAccountRequired,
+      _ => s.errGeneric,
+    };
+  }
+
   @override
   ConsumerState<AuthScreen> createState() => _AuthScreenState();
 }
@@ -70,29 +108,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       next.whenOrNull(
         error: (e, _) {
           if (!mounted) return;
-          final s = S.of(context);
-          String msg = s.errGeneric;
-          if (e is FirebaseAuthException) {
-            msg = switch (e.code) {
-              'user-not-found' || 'wrong-password' || 'invalid-credential' =>
-                s.errInvalidCredential,
-              'email-already-in-use' => s.errEmailInUse,
-              'invalid-email' => s.errInvalidEmail,
-              'weak-password' => s.errWeakPassword,
-              'network-request-failed' => s.errNetwork,
-              // Social sign-in adds these two. The first is the common one:
-              // the address behind the Google or Apple account already has a
-              // password account here, and the way out is entirely in their
-              // hands. The second only fires when the provider is switched
-              // off in the Firebase console, so it must not read as their
-              // mistake or invite a retry that will fail identically.
-              'account-exists-with-different-credential' =>
-                s.errAccountExistsWithEmail,
-              'operation-not-allowed' => s.errSignInMethodUnavailable,
-              'apple-account-required' => s.errAppleAccountRequired,
-              _ => s.errGeneric,
-            };
-          }
+          final msg = AuthScreen.errorMessageFor(
+            S.of(context),
+            e,
+            fromSocial: !_bannerInForm,
+          );
           setState(() => _errorMessage = msg);
           if (_bannerInForm) _revealSubmit();
         },

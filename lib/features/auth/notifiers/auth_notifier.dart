@@ -227,6 +227,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       state = const AsyncData(null);
       return;
     } catch (e, st) {
+      _trackSocialFailure(provider, 'provider', e);
       state = AsyncError<void>(e, st);
       return;
     }
@@ -293,6 +294,36 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
         props: {'method': provider.name},
       );
     });
+    final failure = state;
+    if (failure is AsyncError) {
+      _trackSocialFailure(provider, 'firebase', failure.error);
+    }
+  }
+
+  /// Records WHY a Google or Apple sign-in failed: which provider, which half
+  /// ('provider' for the vendor's own sheet, 'firebase' for everything from
+  /// signInWithCredential on) and the error's code. Never a token, an email
+  /// or a message body.
+  ///
+  /// Apple sign-in failed on every attempt from the day it shipped until App
+  /// Review rejected build 70 for it, and nothing said so: the screen showed
+  /// a banner, the notifier swallowed the exception into AsyncError, and
+  /// Firebase keeps no request log. The cause had to be reconstructed from a
+  /// screenshot and a Cloud Console error-rate chart. One event per failure
+  /// is the difference.
+  static void _trackSocialFailure(
+    SocialProvider provider,
+    String stage,
+    Object error,
+  ) {
+    AnalyticsService.instance.track(
+      'auth_social_failed',
+      props: {
+        'method': provider.name,
+        'stage': stage,
+        'code': SocialAuthService.failureCode(error),
+      },
+    );
   }
 
   Future<void> signOut() async {

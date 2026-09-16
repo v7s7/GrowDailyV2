@@ -30,6 +30,24 @@ class SocialSignInCancelled implements Exception {
   const SocialSignInCancelled();
 }
 
+/// Apple's `unknown` or `notHandled`, shown as "needs an Apple Account".
+///
+/// A [FirebaseAuthException] with code `apple-account-required` so the auth
+/// screen maps it like any other code, but it keeps the Apple code it was
+/// translated from. `unknown` is Apple's catch-all (error 1000): a missing
+/// entitlement or a stale provisioning profile raises it too, on a phone
+/// that has an Apple Account, and the failure event has to be able to tell
+/// those apart from a phone that really has none.
+class AppleAccountRequiredException extends FirebaseAuthException {
+  AppleAccountRequiredException(this.appleCode)
+      : super(
+          code: 'apple-account-required',
+          message: 'Sign in with Apple needs an Apple Account on the device.',
+        );
+
+  final AuthorizationErrorCode appleCode;
+}
+
 /// A provider credential plus the profile details that come with it, before
 /// any of it reaches Firebase.
 ///
@@ -55,8 +73,10 @@ class SocialCredential {
   /// which is the ONLY thing that can revoke the app's Apple token.
   ///
   /// Deliberately not folded into [credential] as an accessToken: Firebase's
-  /// apple.com provider wants an idToken and a rawNonce and nothing else,
-  /// and revocation is a separate call
+  /// apple.com provider wants an idToken and a rawNonce and nothing else
+  /// (even an EMPTY accessToken fails the sign-in, see
+  /// [SocialAuthService.appleFirebaseCredential]), and revocation is a
+  /// separate call
   /// ([FirebaseAuth.revokeTokenWithAuthorizationCode]) that happens at
   /// deletion time. Apple has required apps offering Sign in with Apple to
   /// revoke on account deletion since June 2022, so this is a review
@@ -211,10 +231,7 @@ class SocialAuthService {
       // anyone with a newly wiped phone would be holding.
       if (e.code == AuthorizationErrorCode.unknown ||
           e.code == AuthorizationErrorCode.notHandled) {
-        throw FirebaseAuthException(
-          code: 'apple-account-required',
-          message: 'Sign in with Apple needs an Apple Account on the device.',
-        );
+        throw AppleAccountRequiredException(e.code);
       }
       rethrow;
     }
@@ -229,13 +246,75 @@ class SocialAuthService {
 
     return SocialCredential(
       provider: SocialProvider.apple,
-      credential: OAuthProvider(appleProviderId).credential(
-        idToken: identityToken,
+      credential: appleFirebaseCredential(
+        identityToken: identityToken,
         rawNonce: rawNonce,
+        givenName: apple.givenName,
+        familyName: apple.familyName,
       ),
       displayName: _appleFullName(apple),
       appleAuthorizationCode: apple.authorizationCode,
     );
+  }
+
+  /// The Firebase credential for an Apple identity token.
+  ///
+  /// Must be [AppleAuthProvider.credentialWithIDToken], never the generic
+  /// `OAuthProvider('apple.com').credential(idToken:, rawNonce:)`, and the
+  /// difference is the whole of the 2.1(a) rejection on build 70. The
+  /// generic form is tagged sign-in method `oauth`, so firebase_auth 5.7.0's
+  /// iOS plugin takes its generic OAuth branch and hands a nil accessToken
+  /// to FirebaseAuth 11's Swift API, where accessToken is a non-optional
+  /// String: the nil arrives as "", and the request goes out with an empty
+  /// `access_token=`. Firebase reads that as an OAuth code response and
+  /// answers "Invalid OAuth response from apple.com" before it ever looks at
+  /// the identity token, which the app shows as the wrong email or password
+  /// banner. Measured against this project on 2026-09-16 with dummy tokens:
+  /// with `access_token=` that message, without it "Unable to verify the ID
+  /// Token signature", the check a real token passes, with or without a name
+  /// item. flutterfire#18445.
+  ///
+  /// This form is tagged `apple.com`, so the plugin calls
+  /// appleCredentialWithIDToken:rawNonce:fullName: and accessToken stays nil.
+  /// It also carries the name, which Firebase stores on the new user (nothing
+  /// in the app reads it back; the profile name is [SocialCredential.
+  /// displayName]). Apple hands the name over only on the first
+  /// authorization, both halves null after. Blank halves go as null: the SDK
+  /// sends any non-nil half, empty strings included, as a `user` JSON item.
+  static OAuthCredential appleFirebaseCredential({
+    required String identityToken,
+    required String rawNonce,
+    String? givenName,
+    String? familyName,
+  }) {
+    String? clean(String? part) {
+      final trimmed = part?.trim();
+      return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+    }
+
+    return AppleAuthProvider.credentialWithIDToken(
+      identityToken,
+      rawNonce,
+      AppleFullPersonName(
+        givenName: clean(givenName),
+        familyName: clean(familyName),
+      ),
+    );
+  }
+
+  /// A short, loggable code for a failed Google or Apple sign-in: the vendor
+  /// SDK's own code where it has one, Firebase's otherwise, and the type name
+  /// as the last resort. Never the message, which can carry an email.
+  static String failureCode(Object error) {
+    return switch (error) {
+      SignInWithAppleAuthorizationException(:final code) ||
+      AppleAccountRequiredException(appleCode: final code) =>
+        'apple/${code.name}',
+      GoogleSignInException(:final code) => 'google/${code.name}',
+      FirebaseAuthException(:final code) => code,
+      FirebaseException(:final plugin, :final code) => '$plugin/$code',
+      _ => error.runtimeType.toString(),
+    };
   }
 
   /// Clears the Google session so the next sign-in shows the account chooser
