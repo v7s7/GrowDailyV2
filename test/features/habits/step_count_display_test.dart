@@ -64,8 +64,26 @@ void main() {
     });
   });
 
+  group('fullStepCount', () {
+    // Aziz, 2026-09-16: "show it 2700, and if more than 4 digit, 10k, if 9999
+    // it will appear 9999".
+    test('every digit up to 9,999, no separator', () {
+      expect(fullStepCount(0), isNull);
+      expect(fullStepCount(950), '950');
+      expect(fullStepCount(2730), '2730');
+      expect(fullStepCount(9999), '9999');
+    });
+
+    test('whole thousands from ten thousand, rounded down', () {
+      expect(fullStepCount(10000), '10k');
+      expect(fullStepCount(12640), '12k');
+      expect(fullStepCount(19999), '19k');
+      expect(fullStepCount(123456), '123k');
+    });
+  });
+
   group('stepSquareCount', () {
-    String? count({
+    int? count({
       int? steps = 8420,
       int? goal = 8000,
       bool scheduled = true,
@@ -85,7 +103,7 @@ void main() {
         SquareState.complete,
         SquareState.bonus,
       ]) {
-        expect(count(square: square), '8.4k', reason: '$square');
+        expect(count(square: square), 8420, reason: '$square');
       }
     });
 

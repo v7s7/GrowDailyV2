@@ -39,8 +39,8 @@ import '../../habits/step_auto_complete.dart'
         stepFillFraction,
         stepSquareCount,
         stepsByDayProvider,
-        stepsFailureProvider,
-        stepsTodayProvider;
+        readStepsToday,
+        stepsFailureProvider;
 import '../../habits/widgets/steps_day_card.dart';
 import '../../habits/notifiers/newly_added_habit_provider.dart';
 import '../../habits/widgets/pause_until_sheet.dart';
@@ -58,6 +58,7 @@ import '../notifiers/square_audit.dart'
 import '../notifiers/weekly_grid_notifier.dart';
 import '../widgets/daily_quote_line.dart';
 import '../widgets/note_corner.dart';
+import '../widgets/step_count_label.dart';
 import '../notifiers/grid_journal_notifier.dart';
 import 'grid_journal_screen.dart';
 import '../../../shared/widgets/app_snackbar.dart';
@@ -402,9 +403,10 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // the board for the rest of the day — see showHabitActions's isPaused.
     final isPaused = habit.archivedAt != null;
     // A steps-linked habit's live progress, shown under the sheet's title.
-    // stepsTodayProvider holds whatever runStepAutoComplete last read; a
-    // null there (no read yet this session) just hides the count and
-    // shows the goal, so this line never blocks on a health call.
+    // readStepsToday gives whatever the last read of TODAY found; a null
+    // there (no read of today yet, including the minutes after midnight)
+    // just hides the count and shows the goal, so this line never blocks on
+    // a health call.
     //
     // This sheet is where somebody comes to ask why a linked habit is not
     // completing itself, so it is also where the answer belongs. A stalled
@@ -414,7 +416,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     final s = S.of(context);
     final goal = habit.stepGoal;
     final failure = goal == null ? null : ref.read(stepsFailureProvider);
-    final steps = goal == null ? null : ref.read(stepsTodayProvider);
+    final steps = goal == null ? null : readStepsToday(ref);
     final stepsLine = goal == null
         ? null
         : s.stepsProgressLine(failure == null ? steps : null, goal);
@@ -919,8 +921,11 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                     // board drops the fill: the last good count is stale, and
                     // a percentage is the last place to quietly spend a
                     // number the app can no longer vouch for.
+                    // By date, like the board: see readStepsToday for how a
+                    // dateless count showed yesterday's walk after midnight.
                     stepsToday: ref.watch(stepsFailureProvider) == null
-                        ? ref.watch(stepsTodayProvider)
+                        ? ref.watch(stepsByDayProvider)[
+                            DateTime.now().effectiveDay.toDateKey()]
                         : null,
                   )
                       .animate()

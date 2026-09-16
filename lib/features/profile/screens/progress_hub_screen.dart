@@ -709,6 +709,13 @@ void _showDayDetailSheet(
     context: context,
     backgroundColor: Colors.transparent,
     useSafeArea: true,
+    // Without this Flutter caps a modal sheet at 9/16 of the screen, and a
+    // day with a dozen habits needed more: the header, the score card and
+    // the list's own 42% cap added up past it, and the sheet painted
+    // "BOTTOM OVERFLOWED BY 186 PIXELS" over its rows (2026-09-17, twelve
+    // habits). The list is Flexible below, so the sheet now takes what the
+    // screen has and the list scrolls inside whatever is left.
+    isScrollControlled: true,
     builder: (ctx) => _DayDetailSheet(
       score: score,
       silent: silent,
@@ -1080,27 +1087,34 @@ class _DayDetailSheet extends ConsumerWidget {
               const SizedBox(height: 4),
               // Capped height + scroll: a heavy day with a dozen habits and
               // long notes would otherwise push this sheet past the screen.
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.42,
-                ),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  padding: EdgeInsets.zero,
-                  itemCount: rows.length,
-                  separatorBuilder: (_, __) =>
-                      Divider(height: 1, color: gp.border),
-                  itemBuilder: (_, i) {
-                    final r = rows[i];
-                    return _DayHabitRow(
-                      name: r.name,
-                      completions: r.completions,
-                      note: r.note,
-                      day: score.day,
-                      state: r.state,
-                      isSilent: r.isSilent,
-                    );
-                  },
+              // Flexible as well as capped: the cap alone is a share of the
+              // screen, not of the room left under the header, so a short
+              // screen or large text could still push the column past the
+              // sheet. Flexible hands the list only what is left, and the
+              // list scrolls within it.
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.42,
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) =>
+                        Divider(height: 1, color: gp.border),
+                    itemBuilder: (_, i) {
+                      final r = rows[i];
+                      return _DayHabitRow(
+                        name: r.name,
+                        completions: r.completions,
+                        note: r.note,
+                        day: score.day,
+                        state: r.state,
+                        isSilent: r.isSilent,
+                      );
+                    },
+                  ),
                 ),
               ),
             ],

@@ -56,7 +56,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" style="position: relative"><path fill="#2ECF8F" d="M9 16.17 5.53 12.7a.996.996 0 1 0-1.41 1.41l4.18 4.18c.39.39 1.02.39 1.41 0L20.29 7.71a.996.996 0 1 0-1.41-1.41L9 16.17z"></path></svg>
               </sc-if>
               <sc-if value="{{c.num}}" hint-placeholder-val="{{ false }}">
-                <div dir="ltr" style="position: relative; font-size: 11px; font-weight: 700; letter-spacing: -0.2px; line-height: 1; color: {{c.ink}}">{{c.num}}</div>
+                <div dir="ltr" style="position: relative; font-size: 11px; font-weight: 700; line-height: 1; color: {{c.ink}}">{{c.num}}</div>
               </sc-if>
             </div>
           </div>
@@ -105,7 +105,7 @@ class Component extends DCLogic {
         { name: 'سورة الملك', tile: 'rgba(46,207,143,0.14)', book: true, fit: false,
           cells: [done(), done(), done(), none(), ring(done()), future(), future()] },
         { name: 'المشي اليومي', tile: 'rgba(255,138,76,0.14)', book: false, fit: true,
-          cells: [sDone('9.1k'), sPart('3.2k', '40%'), sBonus('10k'), sHalf('5.4k'), ring(sPart('2.7k', '34%')), future(), future()] },
+          cells: [sDone('9120'), sPart('3210', '40%'), sBonus('10k'), sHalf('5480'), ring(sPart('2730', '34%')), future(), future()] },
         { name: 'أذكار الصباح', tile: 'rgba(46,207,143,0.14)', book: true, fit: false,
           cells: [done(), half(), done(), done(), ring(none()), future(), future()] },
       ],

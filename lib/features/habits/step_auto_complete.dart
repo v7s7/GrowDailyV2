@@ -15,9 +15,34 @@ import 'models/habit_day_demand.dart';
 import 'notifiers/custom_habits_notifier.dart';
 
 /// Today's step count as last read from the platform (null before the
-/// first successful read). Written only by [runStepAutoComplete]; read by
-/// any surface that wants to show the number without its own health call.
+/// first successful read). Written by [runStepAutoComplete] and
+/// [refreshStepsFor].
+///
+/// Read it through [readStepsToday], never directly. The number carries no
+/// date, and at midnight it silently becomes YESTERDAY's count until the next
+/// read: on 2026-09-17 at 00:06 the board drew yesterday's "12k" on a new day
+/// Health had no steps for. [readStepsToday] only hands it over while it is
+/// still the count of the day it is being shown for.
 final stepsTodayProvider = StateProvider<int?>((ref) => null);
+
+/// The date key [stepsTodayProvider]'s count was read for.
+String? _stepsTodayDayKey;
+
+void _setStepsToday(WidgetRef ref, DateTime day, int? steps) {
+  _stepsTodayDayKey = day.toDateKey();
+  ref.read(stepsTodayProvider.notifier).state = steps;
+}
+
+/// Today's step count, or null when the last read was of another day (or
+/// there has been none). The actions sheet needs this rather than the day
+/// log because it tells "read, and zero" apart from "not read": a zero is
+/// never stored in [stepsByDayProvider].
+int? readStepsToday(WidgetRef ref) {
+  final steps = ref.read(stepsTodayProvider);
+  return _stepsTodayDayKey == DateTime.now().effectiveDay.toDateKey()
+      ? steps
+      : null;
+}
 
 /// Every day this session has a step count for, keyed by date key.
 ///
@@ -323,7 +348,7 @@ Future<HealthStepsRangeOutcome> refreshStepsFor(
   final todayKey = today.toDateKey();
   final heldToday = ref.read(stepsByDayProvider)[todayKey];
   if (steps.containsKey(todayKey) && heldToday != null) {
-    ref.read(stepsTodayProvider.notifier).state = heldToday;
+    _setStepsToday(ref, today, heldToday);
   }
   return outcome;
 }
@@ -353,16 +378,33 @@ Future<void> refreshStepsForOlderWeek(
   if (outcome.steps == null) _olderWeeksRead.remove(key);
 }
 
-/// A day's step count the short way, for inside a Grid square: 950, 8.4k,
-/// 12k. Null for zero, which draws nothing.
+/// A day's step count as a Grid square draws it: every digit up to 9,999
+/// ("2730", "9999"), whole thousands from ten thousand ("10k", "12k"). Null
+/// for zero, which draws nothing.
 ///
-/// Always rounded DOWN. Rounding to nearest would draw 9,960 as "10.0k" on a
-/// 10,000 goal, a square that reads as the goal met on a day it was not;
-/// cutting instead means a square can only ever claim less than was walked,
-/// and the held square's card has the exact figure. One decimal below ten
-/// thousand, where it is the difference between 8.1k and 8.9k, and none from
-/// ten thousand up, where "12.6k" no longer fits a 30pt square. A trailing
-/// ".0" is dropped (5k, not 5.0k). Latin digits, like every number in the app.
+/// Aziz, 2026-09-16: "show it 2700, and if more than 4 digit, 10k, if 9999
+/// it will appear 9999, if it fits correct on devices screen, if not, it be
+/// 9.9k". Four digits fit every square this app draws (StepCountLabel
+/// measures, and falls back to [compactStepCount] when they do not). No
+/// thousands separator: "2,730" is five characters in a 30pt square.
+///
+/// Thousands are rounded DOWN, so 9,999 is never drawn as "10k" and 19,960
+/// never as "20k": a square can only ever claim less than was walked, never
+/// a goal met on a day it was not. Latin digits, like every number here.
+String? fullStepCount(int steps) {
+  if (steps <= 0) return null;
+  if (steps < 10000) return '$steps';
+  return '${steps ~/ 1000}k';
+}
+
+/// [fullStepCount]'s fallback for a square too narrow for four digits: 950,
+/// 8.4k, 12k. Null for zero.
+///
+/// Always rounded DOWN, for the same reason: rounding to nearest would draw
+/// 9,960 as "10.0k" on a 10,000 goal, a square that reads as the goal met on
+/// a day it was not. One decimal below ten thousand, where it is the
+/// difference between 8.1k and 8.9k, and none from ten thousand up. A
+/// trailing ".0" is dropped (5k, not 5.0k).
 String? compactStepCount(int steps) {
   if (steps <= 0) return null;
   if (steps < 1000) return '$steps';
@@ -375,7 +417,9 @@ String? compactStepCount(int steps) {
   return '${steps ~/ 1000}k';
 }
 
-/// The count to draw inside a linked walking habit's square, or null.
+/// The step count to draw inside a linked walking habit's square, or null.
+/// How it is written is StepCountLabel's call ([fullStepCount], or
+/// [compactStepCount] where four digits will not fit).
 ///
 /// The sibling of [stepFillFraction], and like it takes no date. Drawn in
 /// place of the square's glyph on the four rungs the count itself can reach
@@ -385,15 +429,15 @@ String? compactStepCount(int steps) {
 /// the count does not get to talk over them on the board, and the held
 /// square's card still has the figure. Null too for a day the habit does
 /// not run on, for an unlinked habit, and for a day with no count.
-String? stepSquareCount({
+int? stepSquareCount({
   required int? steps,
   required int? goal,
   required bool scheduled,
   required SquareState square,
 }) {
-  if (steps == null || goal == null || !scheduled) return null;
+  if (steps == null || steps <= 0 || goal == null || !scheduled) return null;
   if (stepSquareRank(square) < 0) return null;
-  return compactStepCount(steps);
+  return steps;
 }
 
 /// Where a square sits on the ladder the step count may climb: -1 for the
@@ -505,8 +549,11 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
   // no-zero rule protects the number every surface shows. A stalled read
   // that comes back as zero at 4pm must not tell somebody who walked 9,000
   // steps this morning that they have walked none.
-  ref.read(stepsTodayProvider.notifier).state =
-      ref.read(stepsByDayProvider)[effectiveDay.toDateKey()] ?? steps;
+  _setStepsToday(
+    ref,
+    effectiveDay,
+    ref.read(stepsByDayProvider)[effectiveDay.toDateKey()] ?? steps,
+  );
 
   // The days before today, re-read every pass rather than trusted from the
   // log. The board shows a count on every linked square now, and the log

@@ -316,27 +316,20 @@ class _GridTableState extends ConsumerState<_GridTable> {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
     final today = DateTime.now().effectiveDay;
-    // Today's step count as runStepAutoComplete last read it, for the
-    // part-done fill on a linked walking habit's square below. Watched
-    // unconditionally rather than only for linked habits: the provider stays
-    // null forever on accounts that never linked one (runStepAutoComplete
-    // returns before writing it), so an unlinked board pays nothing for this,
-    // and a conditional watch would be re-subscribed on every rebuild.
-    //
-    // Dropped entirely while the link is stalled. A failed read deliberately
-    // leaves the last good count in place rather than zeroing it, which is
-    // right for a number the actions sheet can caption ("the link is
-    // stalled") and wrong for a fill on the board, where a square painted
-    // 60% full is an unqualified claim about today that nothing currently
-    // supports.
-    final stepsToday = ref.watch(stepsFailureProvider) == null
-        ? ref.watch(stepsTodayProvider)
-        : null;
-    // Every day this session has a count for, so a walk short of the goal
-    // keeps its fill after midnight instead of the day going blank. Today
-    // still comes from stepsToday above, which the stall check can withdraw;
-    // a past day cannot go stale, because the count that filled it was a
-    // read OF that day (see stepsByDayProvider).
+    // Today's count is dropped entirely while the link is stalled. A failed
+    // read deliberately leaves the last good count in place rather than
+    // zeroing it, which is right for a number the actions sheet can caption
+    // ("the link is stalled") and wrong for the board, where a square
+    // painted 60% full is an unqualified claim about today that nothing
+    // currently supports.
+    final stepsStalled = ref.watch(stepsFailureProvider) != null;
+    // Every day's count, today's included, looked up by its date. Today used
+    // to come from stepsTodayProvider, which carries no date: at midnight it
+    // still held yesterday's walk, and the new day's square drew yesterday's
+    // "12k" (seen 2026-09-17, 00:06). The day log is keyed by date, so a day
+    // can only ever show a read OF that day. Watched unconditionally: it
+    // stays empty on accounts that never linked a habit, so an unlinked board
+    // pays nothing for it.
     final stepsByDay = ref.watch(stepsByDayProvider);
 
     return SizedBox(
@@ -638,7 +631,9 @@ class _GridTableState extends ConsumerState<_GridTable> {
               // measured count — the same precedence _effectiveSquare gives
               // those marks over a times-per-day tally.
               final steps =
-                  day.isToday ? stepsToday : stepsByDay[day.toDateKey()];
+                  day.isToday && stepsStalled
+                      ? null
+                      : stepsByDay[day.toDateKey()];
               final stepGoal = habit.stepGoal;
               final stepFraction = stepFillFraction(
                 steps: steps,
@@ -1703,15 +1698,15 @@ class _SquareCell extends StatelessWidget {
   /// the habit's actions sheet.
   final double? stepFraction;
 
-  /// A linked walking habit's count for this day, already shortened ("8.4k"),
-  /// or null for every other square.
+  /// A linked walking habit's step count for this day, or null for every
+  /// other square. Written out by StepCountLabel ("2730", "12k").
   ///
   /// Drawn in the middle in place of the square's glyph: the colour still
   /// says what the walk earned, the number says how much it was. The fill
   /// under it keeps its colour and loses its 1pt waterline, which would
   /// otherwise run straight through the digits whenever the walk sat near
   /// half. The exact figure is in the held square's card (StepsDayCard).
-  final String? stepCount;
+  final int? stepCount;
 
   /// Whether the tap about to happen is the one that finishes this day, which
   /// is the only moment worth firing the completion burst for.
@@ -1937,30 +1932,10 @@ class _SquareCell extends StatelessWidget {
             ),
           if (_showsStepCount)
             Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                // scaleDown, and no text scaling: the square is a fixed
-                // 30..60pt, and "9.9k" at an accessibility size would leave
-                // it. The exact number is one hold away at any size.
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    // Isolated left-to-right: "8.4k" is Latin inside an RTL
-                    // row, and the "k" must not land on the wrong side.
-                    // bidiIsolate rather than textDirection, because intl's
-                    // TextDirection shadows dart:ui's in this library.
-                    bidiIsolate(stepCount!),
-                    maxLines: 1,
-                    textScaler: TextScaler.noScaling,
-                    style: TextStyle(
-                      fontSize: size * 0.30,
-                      height: 1,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.2,
-                      color: _stepCountInk(context),
-                    ),
-                  ),
-                ),
+              child: StepCountLabel(
+                steps: stepCount!,
+                squareSize: size,
+                color: _stepCountInk(context),
               ),
             ),
           // The count itself, standing in for the partial state's own glyph.

@@ -78,9 +78,10 @@ class _StepsDayCardState extends ConsumerState<StepsDayCard> {
     final dark = gp.dark;
     final s = S.of(context);
     final isHealthConnect = HealthStepsService.usesHealthConnect;
-    final isToday = widget.day.isSameDayAs(DateTime.now().effectiveDay);
-    final steps = ref.watch(stepsByDayProvider)[widget.day.toDateKey()] ??
-        (isToday ? ref.watch(stepsTodayProvider) : null);
+    // By date only. Falling back to stepsTodayProvider for today put
+    // yesterday's count on today's card in the minutes after midnight, before
+    // the first read of the new day (see readStepsToday).
+    final steps = ref.watch(stepsByDayProvider)[widget.day.toDateKey()];
 
     // Health Connect refusing, which only Android can say (see
     // HealthStepsFailure.permissionDenied). A passing failure with nothing
