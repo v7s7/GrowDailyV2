@@ -223,7 +223,9 @@ void main() {
       for (final a in far)
         if (a['subtitle'] != null) a['subtitle'],
     };
-    expect(early, {'باقي ${countedOffsetPhrase(30, true)} على الفجر.'});
+    // The early line is the clock fact and the ask («خلّك جاهز», added
+    // 2026-09-11), and on a far day nothing about the streak.
+    expect(early, {'باقي ${countedOffsetPhrase(30, true)} على أذان الفجر. خلّك جاهز.'});
     expect(far.where((a) => a['subtitle'] == null), isNotEmpty,
         reason: "an on-time alarm is its habit's name and nothing else");
     expect({for (final a in far) a['title']}, {'fajr-alarm'});
