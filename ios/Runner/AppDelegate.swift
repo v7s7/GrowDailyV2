@@ -130,6 +130,11 @@ import flutter_local_notifications
     // badge below; below iOS 26 the bridge answers unsupported.
     AlarmKitBridge.register(with: engineBridge.applicationRegistrar.messenger())
 
+    // Step totals per calendar day, queried the way the Health app queries
+    // them, so a count the app shows is the count Health shows. See
+    // HealthStepsBridge.swift and HealthStepsService.stepsForDays.
+    HealthStepsBridge.register(with: engineBridge.applicationRegistrar.messenger())
+
     // App icon badge — see lib/core/services/app_badge_service.dart. A tiny
     // direct MethodChannel rather than a third-party plugin, since
     // flutter_local_notifications explicitly doesn't offer a "just set the

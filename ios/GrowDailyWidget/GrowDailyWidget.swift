@@ -87,6 +87,25 @@ struct TodayHabit: Codable, Identifiable {
     let id: String
     let name: String
     var done: Bool
+
+    /// Whether today asked for this habit at all. A flexible weekly quota
+    /// ("4 times a week, any days") keeps its row on every day of the week,
+    /// because any of them will do — but on the days its own week never
+    /// needed, the row is an invitation, not an outstanding task, and it is
+    /// left out of completedToday/totalToday (habitOwesDay /
+    /// boardHabitsOn on the app side).
+    ///
+    /// Optional, and it must stay optional: a payload written before this
+    /// existed has no such key, and a non-optional Bool would fail to decode
+    /// the whole list and blank the widget. nil reads as "due", the way every
+    /// row read before.
+    var notDue: Bool? = nil
+
+    /// Unlike `count`/`perDay`, which this struct does not carry and which
+    /// MarkHabitDoneIntent's re-encode therefore drops, this survives that
+    /// round trip — so a rest-day row tapped from the home screen does not
+    /// come back as an outstanding one.
+    var isDue: Bool { notDue != true }
 }
 
 struct HeatmapDay: Codable {
@@ -249,12 +268,15 @@ private func habitTapFinishesDay(_ habitId: String, in defaults: UserDefaults?) 
 ///
 /// flutter_local_notifications names each request by its Dart id as a
 /// string (getIdentifier in its FlutterLocalNotificationsPlugin.m), so:
-///   - "8000" is tonight's evening streak note, which counts today's
-///     finished habits and open Do First tasks;
-///   - "9001" is this Friday's numbered note, which counts the week's green
-///     days. Only on a Friday before 19:00 on this device's clock, the
-///     window the app arms it in (NotificationService.weeklyNumberedNoteAhead);
-///     from 19:00 it has been delivered.
+///   - "1010" is tonight's evening note, which counts today's finished
+///     habits, the streak it is asking for, the quit habits still
+///     unanswered and open Do First tasks. It was "8000", the streak note,
+///     while that was a second banner of its own; the two merged into this
+///     one id (NotificationService.scheduleEveningNote);
+///   - "9001" is the week's numbered note, which counts the week's green
+///     days. Only on a Friday on this device's clock, the window the app
+///     arms it in (NotificationService.weeklyNumberedNoteAhead); it goes
+///     out on the Saturday morning after, once the week has sealed.
 ///
 /// Pending requests only: a note already delivered was true when it came and
 /// stays in the notification list. That is the single rule on every path, and
@@ -268,13 +290,14 @@ private func habitTapFinishesDay(_ habitId: String, in defaults: UserDefaults?) 
 /// apps; that this removal reaches the app's requests from the widget
 /// extension has not been seen on a device.
 private func standDownNotesWithStaleCounts(includingFridayNote: Bool) {
-    var identifiers = ["8000"]
+    var identifiers = ["1010"]
     if includingFridayNote {
         // Gregorian whatever the device's own calendar, as the app's
-        // DateTime is: weekday 6 is Friday, counting Sunday as 1.
+        // DateTime is: weekday 6 is Friday, counting Sunday as 1. The whole
+        // Friday, with no hour bound: the note does not fire until Saturday
+        // morning, so a habit finished at 22:00 still changes what it says.
         let calendar = Calendar(identifier: .gregorian)
-        let now = Date()
-        if calendar.component(.weekday, from: now) == 6 && calendar.component(.hour, from: now) < 19 {
+        if calendar.component(.weekday, from: Date()) == 6 {
             identifiers.append("9001")
         }
     }
@@ -632,19 +655,41 @@ struct GrowDailyLargeView: View {
                         .foregroundColor(.white.opacity(0.6))
                 } else {
                     ForEach(Array(entry.habits.prefix(5))) { habit in
+                        // A row the day did not ask for stays here and stays
+                        // tappable — you may always train on a rest day — but
+                        // it is drawn as an invitation, not as something
+                        // outstanding: the app's own soft emerald for a
+                        // covered square, and a label saying so. Without it
+                        // the list showed a plain empty circle beside a count
+                        // that had already left it out, which is the same
+                        // "two answers on one screen" the counts were fixed
+                        // to end.
+                        let resting = !habit.isDue && !habit.done
                         HStack(spacing: 8) {
                             Button(intent: MarkHabitDoneIntent(habitId: habit.id)) {
                                 Image(systemName: habit.done ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 16))
-                                    .foregroundColor(habit.done ? .gdEmerald : .white.opacity(0.35))
+                                    .foregroundColor(habit.done
+                                                     ? .gdEmerald
+                                                     : (resting
+                                                        ? .gdEmerald.opacity(0.45)
+                                                        : .white.opacity(0.35)))
                             }
                             .buttonStyle(.plain)
                             Text(habit.name)
                                 .font(.system(size: 12, weight: .medium))
                                 .strikethrough(habit.done)
-                                .foregroundColor(habit.done ? .white.opacity(0.5) : .white)
+                                .foregroundColor(habit.done || resting
+                                                 ? .white.opacity(0.5)
+                                                 : .white)
                                 .lineLimit(1)
                             Spacer(minLength: 0)
+                            if resting {
+                                Text("not due")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(.gdEmerald.opacity(0.7))
+                                    .lineLimit(1)
+                            }
                         }
                     }
                     if entry.habits.count > 5 {

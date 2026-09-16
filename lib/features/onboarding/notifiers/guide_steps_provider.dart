@@ -5,6 +5,7 @@ import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider;
 import '../../matrix/notifiers/matrix_notifier.dart';
+import '../../rooms/notifiers/rooms_notifier.dart' show myRoomCodesProvider;
 
 /// One step of the guide, and whether this person has already done it.
 class GuideStep {
@@ -42,17 +43,26 @@ final guideStepsProvider = Provider<List<GuideStep>>((ref) {
   final dash = ref.watch(dashboardProvider);
   final matrixState = ref.watch(matrixProvider);
   final roomsSeen = ref.watch(appGuideRoomsSeenProvider);
+  // Being IN a room settles the step on its own, whatever the flag says.
+  // asData, so a stream that has not answered yet leaves the flag to decide
+  // rather than briefly un-ticking a step that is done.
+  final inARoom =
+      ref.watch(myRoomCodesProvider).asData?.value.isNotEmpty ?? false;
   return [
     GuideStep(AppGuideLesson.addHabit, habits.isNotEmpty),
     // cumulativeXp, not a green-square count: any coloured square earns XP,
     // and the lesson is "a square responds to you", not "get it green".
     GuideStep(AppGuideLesson.colorSquare, dash.cumulativeXp > 0),
     GuideStep(AppGuideLesson.addTask, matrixState.tasks.isNotEmpty),
-    // Rooms can't derive "done" from data the way the others can - a guest
-    // can't join at all, and a signed-in person may look without joining - so
-    // this one remembers that the guide took them there. See
-    // appGuideRoomsSeenProvider.
-    GuideStep(AppGuideLesson.discoverRooms, roomsSeen),
+    // Rooms is the one step with no single source of truth. A guest cannot
+    // join at all and a signed-in person may look without joining, so the
+    // flag remembers that the guide took them there — but the flag is LOCAL
+    // and membership is not, so on a new device (or a reinstall) somebody
+    // sitting in three rooms was told to go and join one. That is the guide
+    // arguing with what it can plainly see, which the doc comment above
+    // gives as the reason this list derives from real data wherever it can.
+    // Either signal completes it: visited, or actually in one.
+    GuideStep(AppGuideLesson.discoverRooms, roomsSeen || inARoom),
   ];
 });
 

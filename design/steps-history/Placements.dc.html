@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; background: #07100D; font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Segoe UI', Arial, sans-serif; }
+    a { color: #E4B45F; } a:hover { color: #F0CB86; }
+  </style>
+</helmet>
+<div dir="rtl" style="width: 402px; height: 560px; background: #07100D; color: #F7F3E8; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; overflow: hidden">
+
+  <sc-for list="{{options}}" as="o" hint-placeholder-count="3">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <div style="font-size: 13px; font-weight: 700; color: #F7F3E8">{{o.title}}</div>
+        <div style="font-size: 11.5px; line-height: 1.4; color: #B5BCA8">{{o.note}}</div>
+      </div>
+      <div style="height: 56px; display: flex; align-items: center">
+        <div style="width: 77.7px; flex-shrink: 0; box-sizing: border-box; padding-left: 8px; display: flex; align-items: center; gap: 6px">
+          <div style="position: relative; width: 22px; height: 22px; flex-shrink: 0; border-radius: 7px; background: rgba(255,138,76,0.14); display: flex; align-items: center; justify-content: center">
+            <svg width="13" height="13" viewBox="0 0 24 24"><path fill="#FF8A4C" d="M20.57 14.86 22 13.43 20.57 12 17 15.57 8.43 7 12 3.43 10.57 2 9.14 3.43 7.71 2 5.57 4.14 4.14 2.71 2.71 4.14l1.43 1.43L2 7.71l1.43 1.43L2 10.57 3.43 12 7 8.43 15.57 17 12 20.57 13.43 22l1.43-1.43L16.29 22l2.14-2.14 1.43 1.43 1.43-1.43-1.43-1.43L22 16.29z"></path></svg>
+            <div style="position: absolute; left: -3px; bottom: -3px; width: 11px; height: 11px; box-sizing: border-box; border-radius: 50%; background: #2ECF8F; border: 1.2px solid #101B17; display: flex; align-items: center; justify-content: center">
+              <svg width="7" height="7" viewBox="0 0 24 24"><path fill="#FFFFFF" d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9 7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"></path></svg>
+            </div>
+          </div>
+          <div style="font-size: 11.5px; font-weight: 600; line-height: 1.15; color: #F7F3E8">المشي اليومي</div>
+        </div>
+        <sc-for list="{{o.cells}}" as="c" hint-placeholder-count="7">
+          <div style="padding-left: 5px; display: flex; flex-direction: column; align-items: center; gap: 3px">
+            <div style="width: 36px; height: 36px; box-sizing: border-box; border-radius: 9px; border: 0.8px solid {{c.border}}; background: {{c.bg}}; opacity: {{c.op}}; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center">
+              <div style="position: absolute; left: 0; right: 0; bottom: 0; height: {{c.fill}}; background: {{c.fillBg}}"></div>
+              <div style="position: absolute; left: 0; right: 0; bottom: {{c.fill}}; height: 1px; background: {{c.line}}"></div>
+              <sc-if value="{{c.check}}" hint-placeholder-val="{{ false }}">
+                <svg width="18" height="18" viewBox="0 0 24 24" style="position: relative"><path fill="#2ECF8F" d="M9 16.17 5.53 12.7a.996.996 0 1 0-1.41 1.41l4.18 4.18c.39.39 1.02.39 1.41 0L20.29 7.71a.996.996 0 1 0-1.41-1.41L9 16.17z"></path></svg>
+              </sc-if>
+              <sc-if value="{{c.spark}}" hint-placeholder-val="{{ false }}">
+                <svg width="18" height="18" viewBox="0 0 24 24" style="position: relative"><path fill="#5DADEC" d="M19.46 8l.79-1.75L22 5.46c.39-.18.39-.73 0-.91l-1.75-.79L19.46 2c-.18-.39-.73-.39-.91 0l-.79 1.75-1.76.79c-.39.18-.39.73 0 .91l1.75.79.79 1.76c.18.39.74.39.92 0zM11.5 9.5 9.91 6c-.35-.78-1.47-.78-1.82 0L6.5 9.5 3 11.09c-.78.36-.78 1.47 0 1.82l3.5 1.59L8.09 18c.36.78 1.47.78 1.82 0l1.59-3.5 3.5-1.59c.78-.36.78-1.47 0-1.82L11.5 9.5zm7.95 6.5-.79 1.75-1.75.79c-.39.18-.39.73 0 .91l1.75.79.79 1.76c.18.39.73.39.91 0l.79-1.75 1.76-.79c.39-.18.39-.73 0-.91l-1.75-.79-.79-1.76c-.18-.39-.74-.39-.92 0z"></path></svg>
+              </sc-if>
+              <sc-if value="{{c.num}}" hint-placeholder-val="{{ false }}">
+                <div dir="ltr" style="position: relative; font-size: 11px; font-weight: 700; letter-spacing: -0.2px; line-height: 1; color: {{c.ink}}">{{c.num}}</div>
+              </sc-if>
+            </div>
+            <sc-if value="{{c.under}}" hint-placeholder-val="{{ false }}">
+              <div dir="ltr" style="height: 10px; font-size: 9px; line-height: 10px; font-weight: 600; color: #B5BCA8">{{c.under}}</div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":402,"height":560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const base = { border: '#2D4037', bg: '#2B2B2B', op: 1, fill: '0%', fillBg: 'transparent', line: 'transparent', check: false, spark: false, num: '', ink: '#F7F3E8', under: '' };
+    const amber = 'rgba(247,201,72,0.30)';
+    const ring = (c) => ({ ...c, border: '#9C7436' });
+    const future = () => ({ ...base, op: 0.35 });
+    const green = { bg: 'rgba(46,207,143,0.34)', border: 'rgba(46,207,143,0.55)' };
+    const blue = { bg: 'rgba(93,173,236,0.32)', border: 'rgba(93,173,236,0.55)' };
+    const yellow = { bg: amber, border: 'rgba(247,201,72,0.55)' };
+
+    // A: the count replaces the glyph, fill kept without its line.
+    const a = [
+      { ...base, ...green, num: '9.1k', ink: '#2ECF8F' },
+      { ...base, fill: '40%', fillBg: amber, num: '3.2k' },
+      { ...base, ...blue, num: '10k', ink: '#5DADEC' },
+      { ...base, ...yellow, fill: '50%', fillBg: amber, num: '5.4k' },
+      ring({ ...base, fill: '34%', fillBg: amber, num: '2.7k' }),
+      future(), future(),
+    ];
+    // B: the squares exactly as they are today, the count under each one.
+    const b = [
+      { ...base, ...green, check: true, under: '9.1k' },
+      { ...base, fill: '40%', fillBg: amber, line: '#F7C948', under: '3.2k' },
+      { ...base, ...blue, spark: true, under: '10k' },
+      { ...base, ...yellow, fill: '50%', fillBg: amber, line: '#F7C948', under: '5.4k' },
+      ring({ ...base, fill: '34%', fillBg: amber, line: '#F7C948', under: '2.7k' }),
+      { ...future(), under: ' ' }, { ...future(), under: ' ' },
+    ];
+    // C: flat colours, no fill at all, the count is the whole picture.
+    const c = [
+      { ...base, ...green, num: '9.1k', ink: '#2ECF8F' },
+      { ...base, num: '3.2k', ink: '#B5BCA8' },
+      { ...base, ...blue, num: '10k', ink: '#5DADEC' },
+      { ...base, ...yellow, num: '5.4k', ink: '#F7C948' },
+      ring({ ...base, num: '2.7k', ink: '#B5BCA8' }),
+      future(), future(),
+    ];
+    return {
+      options: [
+        { title: 'أ. الرقم داخل المربّع', note: 'مقترح. اللون يقول الحالة، والرقم مكان علامة الصح. التعبئة تبقى بدون خطها عشان ما يقطع الرقم.', cells: a },
+        { title: 'ب. الرقم تحت المربّع', note: 'المربّعات تبقى كما هي بالضبط. لكن الرقم صغير (9pt) والصف يزدحم.', cells: b },
+        { title: 'ج. الرقم فقط', note: 'أنظف شكل. لكن تختفي التعبئة اللي تبيّن كم مشى تحت نص الهدف.', cells: c },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

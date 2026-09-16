@@ -4,7 +4,10 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/constants/game_constants.dart';
 import '../../../core/extensions/datetime_ext.dart';
+import '../../../core/services/habit_mirror.dart';
 import '../../../core/services/local_store_service.dart';
+import '../../../core/services/notification_service.dart';
+import '../../../core/services/user_doc.dart';
 import '../../../core/utils/intention_phrase.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
@@ -31,6 +34,13 @@ class CustomHabitsNotifier
   /// question actually needs.
   bool isLoading = true;
 
+  /// Whether the load ended in the catch rather than with a real answer.
+  /// [isLoading] cannot say this: it is cleared on failure too, so "settled"
+  /// and "trustworthy" are different questions. Anything that writes what it
+  /// read back to the device must ask this one, or one offline boot gets
+  /// saved as the truth.
+  bool loadFailed = false;
+
   /// Archived custom habits — everything [archive] has ever removed from
   /// [state]. Plain field, same isLoading/activatedAt pattern used
   /// throughout this file: it only ever changes alongside a [state]
@@ -41,8 +51,35 @@ class CustomHabitsNotifier
   /// Insights after it's gone from every "active" list.
   List<IslamicHabitTemplate> archived = [];
 
+  /// Whether [state] was filled from the device's copy before any read ran.
+  /// Drives the PAINT gate only (habitsHydratedProvider); [isLoading] stays
+  /// true until the server answers, so nothing that decides anything can
+  /// mistake a mirrored board for a settled one. See [HabitMirror].
+  bool hydratedFromMirror = false;
+
   CustomHabitsNotifier(this._uid) : super([]) {
     if (_uid != null) {
+      // Synchronously, before the first build: this is the only moment early
+      // enough for the rows to be in the first frame instead of arriving
+      // after a round trip. Guests never read it — they have their own Hive
+      // store, and a signed-in board must not appear for a signed-out one.
+      final mirror = HabitMirror.snapshot;
+      if (mirror != null && mirror.uid == _uid) {
+        final restored = [
+          for (final raw in mirror.customHabits)
+            if (raw['id'] is String)
+              IslamicHabitTemplate.fromMap(raw['id'] as String, raw),
+        ];
+        // Only claim hydration if EVERY stored habit came back. A partial
+        // parse is a board missing rows, and saying "hydrated" about it
+        // replaces the honest spinner with a wrong list — or, for an account
+        // whose habits are all custom, with the "no habits yet" empty state.
+        // That is exactly what a writer omitting the id did.
+        if (restored.length == mirror.customHabits.length) {
+          state = restored;
+          hydratedFromMirror = true;
+        }
+      }
       _load().then((_) => _migrateLegacyPrayerOffset());
     } else {
       _loadGuest().then((_) => _migrateLegacyPrayerOffset());
@@ -262,19 +299,39 @@ class CustomHabitsNotifier
   Future<void> _load() async {
     if (_uid == null) return;
     try {
-      final snap = await _col.get();
       // Read from the user doc, not the habit docs: the stints live beside the
       // habits (see customStintHistory) so no per-habit copy helper can lose
       // them. A failure here leaves the map empty, which degrades to exactly
       // the old single-window behaviour rather than to wrong history.
-      try {
-        final userSnap = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(_uid)
-            .get();
+      //
+      // Started HERE, in the same synchronous tick as the other three
+      // notifiers, and deliberately not awaited. Both halves matter. Not
+      // awaited, because it was a second full server round trip standing
+      // between launch and the board painting, for a map the board never
+      // renders (it feeds allHabitsEverProvider and habitStintsProvider —
+      // the Heatmap, Insights and room grading). And started before the
+      // collection read below rather than after it, because [UserDoc] shares
+      // only the IN-FLIGHT read: issued after an await, this one lands too
+      // late to join the other three and pays for a second document read.
+      UserDoc.read(_uid).then((data) {
+        if (!mounted) return;
         customStintHistory =
-            _parseStintHistory(userSnap.data()?['customHabitStintHistory']);
-      } catch (_) {}
+            _parseStintHistory(data?['customHabitStintHistory']);
+        // customStintHistory is a plain field, so nothing watches it
+        // directly; a fresh state reference is what makes its readers
+        // re-run. Same trick the finally block below uses.
+        state = List.of(state);
+      }).catchError((Object _) {});
+      final snap = await _col.get();
+      // An empty answer that came from Firestore's own cache is not evidence
+      // that this person has no habits — offline with nothing cached looks
+      // exactly like that. We have a board on screen from the mirror, which
+      // came from a real server answer, so keep it and mark the read
+      // untrusted rather than blanking the list and saving that emptiness.
+      if (snap.metadata.isFromCache && snap.docs.isEmpty && hydratedFromMirror) {
+        loadFailed = true;
+        return;
+      }
       if (mounted) {
         // Same collection for both — an archived habit's doc survives
         // with archivedAt stamped on it (see [archive]) rather than being
@@ -285,6 +342,7 @@ class CustomHabitsNotifier
         archived = all.where((h) => h.archivedAt != null).toList();
       }
     } catch (_) {
+      loadFailed = true;
     } finally {
       // Guards a redundant second notification on the success path above
       // (which already reassigned `state` once) while still guaranteeing
@@ -522,6 +580,17 @@ class CustomHabitsNotifier
     if (existing.isEmpty) return;
     final habit = existing.first;
 
+    // Both branches below drop this habit out of habitListProvider, so its
+    // reminders and alarms must stop either way — and BEFORE the `state =`
+    // that drops it, never after. Changing the list synchronously kicks
+    // main.dart's recompute, which schedules every surviving habit on the
+    // same serial lane; a cancel queued after that lands after they are
+    // armed, and reminder ids are hashes folded into shared bands, so on a
+    // collision it would silently kill a surviving habit's just-scheduled
+    // reminder with no recompute due to repair it (the same ordering trap
+    // NotificationService's own stale sweep is careful to avoid).
+    NotificationService.instance.cancelHabitReminders(id).ignore();
+
     if (!everCompleted && eraseIfEmpty) {
       state = state.where((h) => h.id != id).toList();
       if (_uid != null) {
@@ -568,6 +637,10 @@ class CustomHabitsNotifier
     final wasActive = state.any((h) => h.id == id);
     final wasArchived = archived.any((h) => h.id == id);
     if (!wasActive && !wasArchived) return;
+    // Before the `state =` below, for the ordering reason spelled out in
+    // [archive]. Unconditional: a habit reachable here can be either still
+    // active or already paused, and either can be alarm-mode.
+    NotificationService.instance.cancelHabitReminders(id).ignore();
     state = state.where((h) => h.id != id).toList();
     archived = archived.where((h) => h.id != id).toList();
     if (_uid != null) {
@@ -990,6 +1063,25 @@ final habitsArchivedTodayProvider = Provider<List<IslamicHabitTemplate>>((ref) {
 /// type can safely carry a loading flag of its own without changing what
 /// every existing reader of [customHabitsProvider]/[activeCatalogProvider]
 /// gets back.
+/// Whether there are rows worth DRAWING yet — true either because the read
+/// has finished, or because the device's own copy filled the board first.
+///
+/// Deliberately separate from [habitsStillLoadingProvider], which stays the
+/// CORRECTNESS signal: "the server has answered". Only pixels may use this
+/// one. Everything that DECIDES something keeps waiting for the server,
+/// because a mirrored list is a good guess and a guess is not a basis for
+/// action: an empty or short habit list is indistinguishable from "this
+/// person has no habits", and the reminder sweep reconciles real AlarmKit
+/// alarms against the list it is handed, the queued widget and notification
+/// taps are consumed destructively, and room grading freezes a rule from it.
+/// Wire a decision to this provider and those all act on a guess.
+final habitsHydratedProvider = Provider<bool>((ref) {
+  if (!ref.watch(habitsStillLoadingProvider)) return true;
+  return ref.watch(customHabitsProvider.notifier).hydratedFromMirror &&
+      ref.watch(activeCatalogProvider.notifier).hydratedFromMirror &&
+      ref.watch(catalogOverridesProvider.notifier).hydratedFromMirror;
+});
+
 final habitsStillLoadingProvider = Provider<bool>((ref) {
   ref.watch(customHabitsProvider);
   ref.watch(activeCatalogProvider);

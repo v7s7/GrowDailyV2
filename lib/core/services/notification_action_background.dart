@@ -128,22 +128,21 @@ Future<void> handleBackgroundNotificationAction({
       if (rewritten != null) await widgets.writeTodayHabitsJson(rewritten);
       if (finishes) {
         await NotificationService.instance.standDownHabitReminders(habitId);
-        // Tonight's evening streak note counts today's finished habits and
-        // asks for the rest («٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨
-        // أيام.»), so a habit finished here makes both numbers false and may
-        // earn the very point the note asks for. This engine cannot re-word
-        // it: it has no streak settings, no urgent task count and no goal
-        // types. So the note is cleared, and the next app open arms it again
-        // with true counts if the streak still needs anything. A tap that
-        // does not finish the habit leaves the note true, because it counts
-        // whole habits.
-        await NotificationService.instance.standDownEveningStreakNote();
-        // This Friday's numbered note («٥ أيام خضرا هذا الأسبوع 👏🏼») counts
-        // the week's green days and names the habit with the most. Before
-        // 19:00 a habit finished here can add a green day or overtake that
-        // habit, so it is cleared for the same reason, and the next app open
-        // before 19:00 arms it again with the true count. From 19:00 it has
-        // been delivered, and is left where it is.
+        // Tonight's evening note counts today's finished habits and asks
+        // for the rest («٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام.»), so
+        // a habit finished here makes both numbers false and may earn the
+        // very point the note asks for. This engine cannot re-word it: it
+        // has no streak settings, no urgent task count and no goal types.
+        // So the note is cleared, and the next app open arms it again with
+        // true counts if anything is still owed. A tap that does not finish
+        // the habit leaves the note true, because it counts whole habits.
+        await NotificationService.instance.standDownEveningNote();
+        // The week's numbered note («٥ أيام خضرا في أسبوعك 👏🏼») counts the
+        // week's green days and names the habit with the most. On the
+        // Friday it is armed, a habit finished here can add a green day or
+        // overtake that habit, so it is cleared for the same reason, and
+        // the next app open that Friday arms it again with the true count.
+        // From Saturday it has been delivered, and is left where it is.
         if (NotificationService.weeklyNumberedNoteAhead(clock)) {
           await NotificationService.instance.standDownWeeklyNumberedNote();
         }
@@ -157,8 +156,8 @@ Future<void> handleBackgroundNotificationAction({
         //
         // The home screen widget's Done never reaches this engine, so it does
         // the same in Swift, pending requests only: MarkHabitDoneIntent, by
-        // this same whole-habit rule, removes the pending 8000 and, on a
-        // Friday before 19:00, 9001; MarkTaskDoneIntent removes 8000 when it
+        // this same whole-habit rule, removes the pending 1010 and, on a
+        // Friday, 9001; MarkTaskDoneIntent removes 1010 when it
         // ticks an open Do First task, which the note's urgent tasks sentence
         // counts. See standDownNotesWithStaleCounts in GrowDailyWidget.swift.
         // Apple documents the notification center for app extensions, but

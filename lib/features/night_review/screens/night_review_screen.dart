@@ -10,6 +10,7 @@ import '../../achievements/models/achievement_model.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart';
+import '../../habits/models/habit_day_demand.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../matrix/notifiers/matrix_notifier.dart';
 import '../models/mood.dart';
@@ -93,8 +94,11 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
     // against each habit's own frequencyTarget (same isCompleted rule
     // Today's list itself uses), out of the ones scheduled for today at
     // all, so a Tuesday-only habit doesn't drag Monday's review down.
-    final todayHabits =
-        habits.where((h) => h.isScheduledFor(today)).toList();
+    final todayHabits = boardHabitsOn(
+      habits: habits,
+      day: today,
+      isGreen: ref.watch(weeklyGridProvider).currentWeekGreen,
+    );
     final habitsDoneToday = todayHabits
         .where((h) => dash.isCompleted(h.id, h.effectiveDailyTarget))
         .length;

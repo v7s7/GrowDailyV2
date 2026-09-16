@@ -698,10 +698,15 @@ class _SummaryCard extends StatelessWidget {
     final s = S.of(context);
     final today = DateTime.now().effectiveDay;
     final habitIds = habits.map((h) => h.id).toList();
-    final scheduledTodayIds = habits
-        .where((h) => h.isScheduledFor(today))
-        .map((h) => h.id)
-        .toList();
+    // What today is answerable for, not merely what is allowed today: a
+    // flexible quota's rest day leaves the ring's denominator (see
+    // boardHabitsOn), so a 4x-a-week habit stops holding the day at 3 of 4 on
+    // days its own week never asked for.
+    final scheduledTodayIds = boardHabitsOn(
+      habits: habits,
+      day: today,
+      isGreen: state.currentWeekGreen,
+    ).map((h) => h.id).toList();
     final greens = state.greenSquares(habitIds);
     final ratio = state.todayCompletionRatio(
       scheduledTodayIds,

@@ -411,6 +411,12 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                         for (final entry in marks.entries)
                           if (markIsDone(entry.value)) entry.key,
                       },
+                      restDays: {
+                        for (final entry in marks.entries)
+                          if (markIsRest(entry.value)) entry.key,
+                      },
+                      restColor: SquareState.skipped.accent(gp.dark)
+                          .withOpacity(0.35),
                       color: color,
                       // The REAL calendar day for the ring, matching every
                       // other strip in the app: this is a calendar, and

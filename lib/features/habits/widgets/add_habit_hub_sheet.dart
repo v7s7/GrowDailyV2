@@ -12,6 +12,7 @@ import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../rooms/notifiers/rooms_notifier.dart' show roomsControllerProvider;
 import '../../../shared/widgets/overlay_notice.dart';
 import '../../../core/extensions/datetime_ext.dart';
+import '../models/habit_model.dart' show GoalType;
 import '../notifiers/custom_habits_notifier.dart';
 import '../notifiers/habit_resume_notifier.dart';
 import 'add_habit_sheet.dart';
@@ -65,6 +66,12 @@ class AddHabitHub extends ConsumerStatefulWidget {
 
 class _AddHabitHubState extends ConsumerState<AddHabitHub> {
   late HubTab _tab = widget.initialTab;
+
+  /// Build or Quit, reported up by the embedded form. The switch that sets
+  /// it lives inside the form, but the heading that names what is being made
+  /// is here, above it — so without this the sheet said «إضافة عادة» over a
+  /// form asking «ما الذي تريد تقليله؟», on both steps.
+  GoalType _goalType = GoalType.build;
 
   /// Step the embedded Add Goal form is on (0 = What, 1 = When).
   ///
@@ -177,6 +184,10 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
             child: AddHabitSheet(
               embedded: true,
               onStepChanged: (step) => setState(() => _addGoalStep = step),
+              onGoalTypeChanged: (type) {
+                if (type == _goalType) return;
+                setState(() => _goalType = type);
+              },
               // The Plans link only stands in for the pills while they are
               // hidden; with the pills on screen it would be a second copy.
               onBrowsePlans: pillsHidden
@@ -273,7 +284,12 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
                 children: [
                   Expanded(
                     child: Text(
-                      s.hubTitle,
+                      // Plans keeps the plain title: the form is still alive
+                      // behind the other tab and may well be on Quit, but
+                      // that is not what this tab is showing.
+                      _tab == HubTab.addGoal && _goalType == GoalType.quit
+                          ? s.hubTitleQuit
+                          : s.hubTitle,
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,

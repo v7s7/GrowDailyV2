@@ -35,8 +35,6 @@ const AUTO_MUTE_LIMIT = 12;
 const BAHRAIN = 180;
 const LOS_ANGELES = -420;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const EVENING_HOUR_START = 19;
-const EVENING_HOUR_END = 21;
 
 /** A moment on 2026-09-05, given as Bahrain wall-clock hours. */
 const bahrain = (hour, minute = 0) =>
@@ -156,37 +154,9 @@ function finish(world, code, uid, nowMs) {
   return out;
 }
 
-/** The hourly sweep, exactly as roomEveningReminder decides. */
-function eveningSweep(world, nowMs) {
-  const candidateDays = new Set([-1, 0, 1].map((d) =>
-    new Date(nowMs + d * DAY_MS).toISOString().slice(0, 10)));
-  let sent = 0;
-  for (const [code, room] of world.rooms) {
-    if (room.participants.size < 2) continue;
-    const someoneFinished = [...room.participants.values()].some((q) =>
-      q.allDoneToday === true && candidateDays.has(q.allDoneDate));
-    if (someoneFinished) continue;
-    for (const [uid, part] of room.participants) {
-      const u = world.users.get(uid);
-      if (part.notificationsMuted) continue;
-      if (isQuietHoursNow(u.settings, u.tz, nowMs)) continue;
-      if (typeof u.tz !== "number") continue;
-      const local = new Date(nowMs + u.tz * 60 * 1000);
-      const hour = local.getUTCHours();
-      if (hour < EVENING_HOUR_START || hour >= EVENING_HOUR_END) continue;
-      const dayKey = local.toISOString().slice(0, 10);
-      if (!u.token) continue;
-      if (u.eveningNudgeDate === dayKey) continue;
-      u.eveningNudgeDate = dayKey;
-      const claim = claimQuota(u.quota, dayKey, "nudge");
-      if (!claim.allowed) continue;
-      u.quota = claim.next;
-      sent++;
-      world.sent.push({uid, code, event: "eveningReminder", kind: "nudge", nowMs});
-    }
-  }
-  return sent;
-}
+// The hourly evening sweep (roomEveningReminder) was simulated here until
+// it was removed on 2026-09-16. Every push this file still models is
+// caused by a person finishing; nothing here fires from inactivity.
 
 /** Deterministic shuffle so a failure reproduces. */
 function shuffled(items, seed) {
@@ -386,7 +356,7 @@ test("five rooms starting the day: one heads-up, not five", () => {
   }
 });
 
-test("last one standing in five rooms: one nudge, then the evening is silent",
+test("last one standing in five rooms is one nudge for the whole day",
     () => {
       const world = makeWorld();
       addUser(world, "aziz");
@@ -396,7 +366,8 @@ test("last one standing in five rooms: one nudge, then the evening is silent",
         addRoom(world, `R${r}`, ["aziz", ...others]);
         others.forEach((u, i) => finish(world, `R${r}`, u, bahrain(10 + r, i)));
       }
-      // A sixth room where nothing happened all day.
+      // A sixth room where nothing happened all day, which nothing in the
+      // server now reacts to: a quiet room is quiet.
       const quiet = uids(3, "qm");
       quiet.forEach((u) => addUser(world, u));
       addRoom(world, "Q", ["aziz", ...quiet]);
@@ -405,29 +376,9 @@ test("last one standing in five rooms: one nudge, then the evening is silent",
       assert.deepEqual(mine.map((s) => s.event), ["firstToday", "lastOne"],
           "one heads-up from the first room to start, one nudge from the " +
           "first room to reach last-one; the other four lastOnes were capped");
-
-      // 20:00: the silent room's sweep. Aziz's nudge for today is spent, so
-      // he is not asked again; his three quiet roommates are, once each.
-      const sent = eveningSweep(world, bahrain(20));
-      assert.equal(sent, 3);
-      assert.equal(world.sent.filter((s) => s.uid === "aziz").length, 2);
+      assert.equal(world.sent.filter((s) => s.uid.startsWith("qm")).length, 0,
+          "the silent room's members hear nothing at all");
     });
-
-test("a silent day in three rooms is one evening nudge, not three", () => {
-  const world = makeWorld();
-  addUser(world, "aziz");
-  for (let r = 0; r < 3; r++) {
-    const others = uids(2, `r${r}m`);
-    others.forEach((u) => addUser(world, u));
-    addRoom(world, `R${r}`, ["aziz", ...others]);
-  }
-  assert.equal(eveningSweep(world, bahrain(19, 30)), 1 + 3 * 2,
-      "everyone in the three silent rooms hears once");
-  assert.equal(world.sent.filter((s) => s.uid === "aziz").length, 1);
-  // The sweep runs hourly and the window is two hours wide: the second
-  // pass through it sends nothing more.
-  assert.equal(eveningSweep(world, bahrain(20, 30)), 0);
-});
 
 // ── Clocks ───────────────────────────────────────────────────────────────
 
@@ -473,21 +424,16 @@ test("two time zones in one room are judged on their own clocks", () => {
   assert.equal(world.users.get("la0").quota.date, "2026-09-04");
 });
 
-test("a member whose offset was never reported gets pushes but no sweep", () => {
+test("a member whose offset was never reported still gets pushes", () => {
   const world = makeWorld();
   addUser(world, "known");
   addUser(world, "unknown", {tz: undefined});
   addUser(world, "third");
   addRoom(world, "R", ["known", "unknown", "third"]);
-  // Daytime: the unknown-offset member cannot be judged quiet, so hears it.
+  // The unknown-offset member cannot be judged quiet, so hears it rather
+  // than being silenced for a guess (push_policy rule 1).
   const r = finish(world, "R", "third", bahrain(15));
   assert.deepEqual(r.sent.sort(), ["known", "unknown"]);
-  // But a guess at their evening is never made.
-  const world2 = makeWorld();
-  addUser(world2, "known");
-  addUser(world2, "unknown", {tz: undefined});
-  addRoom(world2, "R", ["known", "unknown"]);
-  assert.equal(eveningSweep(world2, bahrain(20)), 1);
 });
 
 // ── Repeats and days ─────────────────────────────────────────────────────
@@ -553,10 +499,8 @@ test("a solo room and a room where nothing happens send nothing", () => {
       "solo-room");
   uids(4).forEach((u) => addUser(world, u));
   addRoom(world, "R", uids(4));
-  // Nobody finishes; the sweep outside the window is silent too.
-  assert.equal(eveningSweep(world, bahrain(15)), 0);
-  assert.equal(eveningSweep(world, bahrain(21)), 0);
+  // Nobody finishes, so nothing is sent — at any hour. The evening sweep
+  // used to be the exception here; it was removed on 2026-09-16, and a
+  // room that stays quiet now stays quiet.
   assert.equal(world.sent.length, 0);
-  // Inside it, every member hears once; the solo room never does.
-  assert.equal(eveningSweep(world, bahrain(19)), 4);
 });

@@ -741,7 +741,9 @@ class _HabitWeekRow extends StatelessWidget {
         RecapDot.quiet => gp.border.withOpacity(0.45),
         RecapDot.done => GameColors.emerald,
         RecapDot.failed => GameColors.error,
-        RecapDot.skipped => gp.textTert,
+        // The same neutral every other surface gives a تخطّي, rather than
+        // this card's own textTert. It was the one place that never moved.
+        RecapDot.skipped => SquareState.skipped.accent(gp.dark),
         RecapDot.partial => GameColors.warning,
         RecapDot.missed => Colors.transparent,
       };

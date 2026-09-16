@@ -43,6 +43,7 @@ import 'shared/widgets/app_logo.dart';
 import 'shared/widgets/overlay_notice.dart';
 import 'core/services/purchase_service.dart';
 import 'core/theme/game_theme.dart';
+import 'core/services/habit_mirror.dart';
 import 'core/services/local_store_service.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/notifiers/guest_reconnect_provider.dart';
@@ -56,6 +57,11 @@ import 'features/habits/catalog/habit_plans.dart'
 import 'features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitCatalog, IslamicHabitTemplate;
 import 'features/habits/models/habit_cue.dart';
+import 'features/habits/models/habit_day_demand.dart';
+import 'features/habits/notifiers/catalog_overrides_notifier.dart'
+    show catalogOverridesProvider;
+import 'features/habits/notifiers/habit_order_notifier.dart'
+    show habitOrderProvider;
 import 'features/insights/insights_screen.dart';
 import 'features/habits/models/habit_model.dart'
     show GoalType, HabitFrequencyType, ReductionType;
@@ -127,7 +133,15 @@ import 'shared/widgets/app_snackbar.dart';
 typedef _TodayHabitStats = ({
   int completed,
   int total,
-  List<({String id, String name, bool done, int count, int perDay})> habits,
+  List<
+      ({
+        String id,
+        String name,
+        bool done,
+        int count,
+        int perDay,
+        bool notDue,
+      })> habits,
 });
 
 Future<void> main() async {
@@ -161,6 +175,13 @@ Future<void> main() async {
     ]);
     await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform);
+    // One get on the settings box, already open above. Awaited here because
+    // it has to be in memory before the habit notifiers are constructed:
+    // they read it synchronously in their constructors, which is the only
+    // moment early enough to put rows in the FIRST frame rather than after
+    // a server round trip. currentUser is restored by the initializeApp
+    // above, so this is the real uid, not a guess.
+    await HabitMirror.load(FirebaseAuth.instance.currentUser?.uid);
 
     // Crash reporting: three layers, matching Firebase's own documented
     // Flutter setup, since no single one of them catches everything on its
@@ -400,6 +421,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   ProviderSubscription<TimeOfDay?>? _reminderSub;
   ProviderSubscription<Locale>? _localeSub;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitRemindersSub;
+  ProviderSubscription<bool>? _habitsLoadedSub;
+  ProviderSubscription<List<IslamicHabitTemplate>>? _habitMirrorSub;
+  ProviderSubscription<Map<String, double>>? _habitOrderMirrorSub;
+  Timer? _habitMirrorDebounce;
   ProviderSubscription<DashboardState>? _widgetSub;
   ProviderSubscription<NotificationSettings>? _notificationSettingsSub;
   ProviderSubscription<WeeklyGridState>? _gridSub;
@@ -685,6 +710,35 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       reminderTimeProvider,
       (previous, next) => _recomputeNotifications(),
       fireImmediately: true,
+    );
+
+    // The other half of _recomputeNotifications' still-loading guard: every
+    // trigger that fired while the habit store was reading was turned away,
+    // so something has to ask again once it has finished. Watching the list
+    // itself is not enough — a store that loads to the same list it started
+    // with (nobody's habits changed since last launch, or there are none)
+    // notifies no one, and the reminders would then wait for an unrelated
+    // trigger or the next resume.
+    _habitsLoadedSub = ref.listenManual(
+      habitsStillLoadingProvider,
+      (previous, stillLoading) {
+        if (!stillLoading) _recomputeNotifications();
+      },
+    );
+
+    // The board's local copy, written from ONE place rather than from each
+    // of the fifteen methods that can change a habit. Watching the composed
+    // list catches every mutation path — add, archive, unarchive, preset
+    // toggle, plan apply, override, reorder — including ones added later,
+    // and writes all five slices together so a half-updated envelope cannot
+    // be stored. See [HabitMirror].
+    _habitMirrorSub = ref.listenManual(
+      habitListProvider,
+      (previous, next) => _scheduleHabitMirrorWrite(),
+    );
+    _habitOrderMirrorSub = ref.listenManual(
+      habitOrderProvider,
+      (previous, next) => _scheduleHabitMirrorWrite(),
     );
 
     // Language change re-bakes every scheduled notification's copy. The
@@ -1065,16 +1119,118 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// scans) and means every trigger path (habit list, dashboard, settings,
   /// or a plain app resume — see didChangeAppLifecycleState) produces the
   /// exact same result instead of four subtly different code paths.
+  Timer? _recomputeDebounce;
+
+  /// Coalesces the burst of listener fires one change produces into a single
+  /// pass.
+  ///
+  /// Marking one square changes the dashboard AND the grid, and Riverpod
+  /// notifies listenManual synchronously, so the two landed either side of
+  /// an await and each kicked a full pass. [NotificationService]'s own
+  /// token only drops a pass still QUEUED, so the first had already started
+  /// and both ran whole: two complete re-derivations of every reminder and
+  /// alarm the account owns, per tap. On iOS those channel hops run on the
+  /// platform main thread — the thread that hands touches to the engine —
+  /// which is why a tap felt stuck rather than merely slow.
+  ///
+  /// 200ms is deliberately short: long enough to span one mark's own
+  /// dashboard/grid pair, too short to swallow a real change. It is NOT
+  /// stretched to also coalesce app-open passes, which are seconds apart on
+  /// Firestore latency; a window that wide would start delaying the
+  /// stand-down that stops a just-finished habit being reminded about.
   void _recomputeNotifications() {
+    _recomputeDebounce?.cancel();
+    _recomputeDebounce =
+        Timer(const Duration(milliseconds: 200), _runRecomputeNotifications);
+  }
+
+  void _scheduleHabitMirrorWrite() {
+    _habitMirrorDebounce?.cancel();
+    _habitMirrorDebounce =
+        Timer(const Duration(milliseconds: 400), _writeHabitMirror);
+  }
+
+  /// Saves the board to the device, but only from an answer worth trusting.
+  ///
+  /// The three gates are the whole safety argument. Signed in, because the
+  /// guest path has its own storage. Finished loading, because a list that
+  /// is still filling in is not this person's board. And no failed read:
+  /// [isLoading] is cleared on failure too (deliberately, so one offline
+  /// boot cannot block room grading forever), so it cannot tell a real empty
+  /// list from a read that threw — and saving the second kind would hand the
+  /// next launch an empty board as though it were the truth.
+  void _writeHabitMirror() {
+    final uid = ref.read(authStateProvider).asData?.value?.uid;
+    if (uid == null) return;
+    if (ref.read(habitsStillLoadingProvider)) return;
+    if (ref.read(customHabitsProvider.notifier).loadFailed ||
+        ref.read(activeCatalogProvider.notifier).loadFailed ||
+        ref.read(catalogOverridesProvider.notifier).loadFailed) {
+      return;
+    }
+    final catalog = ref.read(activeCatalogProvider.notifier);
+    HabitMirror.save(
+      uid: uid,
+      customHabits: [
+        // The id is injected, exactly as the guest writer does: toFirestore()
+        // deliberately omits it because in Firestore the DOCUMENT carries it,
+        // and fromFirestore is just fromMap(doc.id, doc.data()). Written bare
+        // here, every habit came back without an id and was dropped on
+        // hydrate — the mirror restored nothing, and said it had.
+        for (final habit in ref.read(customHabitsProvider))
+          {'id': habit.id, ...habit.toFirestore()},
+      ],
+      activeCatalogIds: ref.read(activeCatalogProvider).toList(),
+      activatedAt: {
+        for (final entry in catalog.activatedAt.entries)
+          entry.key: entry.value.toIso8601String(),
+      },
+      catalogOverrides: {
+        for (final entry in ref.read(catalogOverridesProvider).entries)
+          entry.key: entry.value.toMap(),
+      },
+      habitOrder: ref.read(habitOrderProvider),
+    ).ignore();
+  }
+
+  void _runRecomputeNotifications() {
+    // Nothing is scheduled from a habit list that has not loaded yet.
+    //
+    // Most of the listeners that call this fire during launch, while the
+    // custom-habit store and the catalog are still reading. The pass they
+    // kicked saw an empty list — and an empty list is indistinguishable
+    // from "this person has no habits", so it cancelled every armed
+    // reminder and every alarm, leaving the pass that ran once the habits
+    // arrived to build all of them again from nothing. Measured on a real
+    // account (12 habits, 24 slots): 52 window alarms plus 8 near-band ones
+    // thrown away and re-armed on every single cold start, and the rebuild
+    // pass took 59 seconds of serialised channel calls. Worse than slow —
+    // between the two passes the person's next alarm genuinely did not
+    // exist, so an app killed in that gap lost it until the next launch.
+    //
+    // [_habitsLoadedSub] recomputes the moment the store settles, so
+    // waiting costs nothing. A genuinely empty list still sweeps: this
+    // reads false once loading is done, however few habits there are.
+    if (ref.read(habitsStillLoadingProvider)) return;
+
     final settings = ref.read(notificationSettingsProvider);
     final isAr = ref.read(localeProvider).languageCode == 'ar';
 
     final dash = ref.read(dashboardProvider);
     final today = DateTime.now().effectiveDay;
-    final todayHabits = ref
-        .read(habitListProvider)
-        .where((h) => h.isScheduledFor(today))
-        .toList();
+    // Today's BOARD — what the day is answerable for — which is not the same
+    // as what may be done today. A flexible quota stays available all week
+    // (see upcomingHabits below, which still arms its reminders every day),
+    // but on a day its own week never asked for it is not outstanding, so it
+    // does not inflate «٣ من ٨» or the evening streak-risk nudge. See
+    // boardHabitsOn. Read after `grid` below would be tidier; the grid read
+    // is moved up rather than this moved down because the reminder loop needs
+    // this list.
+    final todayHabits = boardHabitsOn(
+      habits: ref.read(habitListProvider),
+      day: today,
+      isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+    );
 
     // Reminders are scheduled from every habit due in the WEEK AHEAD, not
     // just today's.
@@ -1227,53 +1383,14 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // sentence is current when it fires, and other Matrix edits still cost
     // no recompute.
     final urgentMatrixCount = _openDoFirstCount(ref.read(matrixProvider));
-    // The daily reminder is worded from today's board, so it is scheduled
-    // here, once the counts exist, rather than at the top of this method.
-    final reminderTime = ref.read(reminderTimeProvider);
-    if (reminderTime != null && settings.masterEnabled) {
-      NotificationService.instance.scheduleDailyReminder(
-        hour: reminderTime.hour,
-        minute: reminderTime.minute,
-        isAr: isAr,
-        done: board.done,
-        total: todayHabits.length,
-        streak: dash.streak,
-      );
-    } else {
-      NotificationService.instance.cancelDailyReminder();
-    }
-
-    NotificationService.instance.scheduleStreakRiskCheck(
-      settings: settings,
-      streak: dash.streak,
-      // Once today's point is earned the note has nothing true to ask for.
-      streakEarnedToday: dash.streakEarnedToday,
-      doneHabitCount: board.done,
-      pendingHabitCount: board.pending,
-      pendingBuildHabitCount: board.pendingBuild,
-      urgentMatrixCount: urgentMatrixCount,
-      isAr: isAr,
-    );
-
-    // Matrix task reminders previously only resynced once, at cold start/
-    // sign-in — every other reminder type above already gets re-derived on
-    // every call to this method (including a plain resume, see
-    // didChangeAppLifecycleState), so a Matrix reminder that silently
-    // failed to schedule earlier (e.g. notification permission was off,
-    // then granted later from system Settings) had no chance to self-heal
-    // short of the user manually re-touching that exact task. See
-    // MatrixNotifier.resyncReminders' own doc comment.
-    ref.read(matrixProvider.notifier).resyncReminders();
-
     // Quit habits resolve in the evening, not (only) at a cue time — their
     // success is the absence of something, so the day gets settled by an
-    // evening check-in instead of relying on the user remembering to tap
-    // (see NotificationService.scheduleQuitCheckIns). Resolved = affirmed
-    // on-track (completed) or logged as a slip (today's square already
-    // red). Same single-tap-only rule as HabitCard's slip link. The grid
-    // read above can transiently miss a slip while the grid is still
-    // loading or showing a past week — the _gridSub recompute corrects
-    // that the moment the real data lands.
+    // evening ask instead of relying on the user remembering to tap.
+    // Resolved = affirmed on-track (completed) or logged as a slip (today's
+    // square already red). Same single-tap-only rule as HabitCard's slip
+    // link. The grid read above can transiently miss a slip while the grid
+    // is still loading or showing a past week — the _gridSub recompute
+    // corrects that the moment the real data lands.
     final quitCheckIns = <QuitCheckInInput>[
       for (final habit in todayHabits)
         if (habit.goalType == GoalType.quit && habit.effectiveDailyTarget == 1)
@@ -1286,8 +1403,49 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                     grid.squareFor(habit.id, today) == SquareState.failed,
           ),
     ];
-    NotificationService.instance
-        .scheduleQuitCheckIns(quitCheckIns, settings, isAr: isAr);
+
+    // ONE evening notification, worded from today's board, so it is
+    // scheduled here rather than at the top of this method. It carries what
+    // used to be three separate banners inside half an hour: the daily
+    // reminder, the streak ask and one check-in per quit habit. See
+    // NotificationService.scheduleEveningNote.
+    //
+    // Its clock is the reminder time the person picked; with none picked it
+    // falls back to the streak note's own time, which is the setting the
+    // streak ask used to fire on. So turning the daily reminder off does not
+    // silently take the streak ask with it.
+    final reminderTime = ref.read(reminderTimeProvider);
+    final eveningAt = reminderTime ??
+        (settings.streakRiskEnabled ? settings.streakRiskTime : null);
+    if (eveningAt != null && settings.masterEnabled) {
+      NotificationService.instance.scheduleEveningNote(
+        settings: settings,
+        hour: eveningAt.hour,
+        minute: eveningAt.minute,
+        isAr: isAr,
+        done: board.done,
+        total: todayHabits.length,
+        streak: dash.streak,
+        // Once today's point is earned the streak ask has nothing true to
+        // want, and the note falls through to the plain board line.
+        streakEarnedToday: dash.streakEarnedToday,
+        pendingBuildHabitCount: board.pendingBuild,
+        quitHabits: quitCheckIns,
+        urgentTasks: urgentMatrixCount,
+      );
+    } else {
+      NotificationService.instance.cancelDailyReminder();
+    }
+
+    // Matrix task reminders previously only resynced once, at cold start/
+    // sign-in — every other reminder type above already gets re-derived on
+    // every call to this method (including a plain resume, see
+    // didChangeAppLifecycleState), so a Matrix reminder that silently
+    // failed to schedule earlier (e.g. notification permission was off,
+    // then granted later from system Settings) had no chance to self-heal
+    // short of the user manually re-touching that exact task. See
+    // MatrixNotifier.resyncReminders' own doc comment.
+    ref.read(matrixProvider.notifier).resyncReminders();
 
     // The Friday note's numbered copy («٥ أيام خضرا هذا الأسبوع 👏🏼») comes
     // straight off the same grid read above, so what this recompute may
@@ -1349,6 +1507,17 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// showing whatever they last saw until a full restart.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A mark made in the last 200ms has a pass still waiting on the timer,
+    // and going away is exactly when it stops being safe to wait: that
+    // pending pass carries the stand-down that keeps tonight's reminder
+    // from asking about a habit already ticked. Run it now instead.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      if (_recomputeDebounce?.isActive ?? false) {
+        _recomputeDebounce!.cancel();
+        _runRecomputeNotifications();
+      }
+    }
     if (state == AppLifecycleState.resumed) {
       _processPendingWidgetCompletions();
       _processPendingWidgetTaskCompletions();
@@ -1928,30 +2097,68 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// drift apart.
   _TodayHabitStats _todayHabitStats() {
     final today = DateTime.now().effectiveDay;
-    final scheduled =
-        ref.read(habitListProvider).where((h) => h.isScheduledFor(today));
+    final scheduled = ref
+        .read(habitListProvider)
+        .where((h) => h.isScheduledFor(today))
+        .toList();
     final dash = ref.read(dashboardProvider);
     final isAr = ref.read(localeProvider).languageCode == 'ar';
-    var completed = 0;
-    final habits =
-        <({String id, String name, bool done, int count, int perDay})>[];
+
+    // The LIST stays everything allowed today, so every row on the home
+    // screen is still tappable — a flexible quota's rest day is a day you may
+    // still train, just not one you owe. The COUNT under it narrows to what
+    // the day actually asked for (boardHabitsOn), so a 4x-a-week habit stops
+    // holding the ring at 9 of 10 on the days its own week never wanted it.
+    // The rows it drops carry `notDue` instead, and the widget draws them as
+    // not counted rather than as outstanding.
+    //
+    // A habit already DONE is owed by definition — that is what alsoOwing
+    // carries here — so it lands on both sides of the ring and an extra
+    // session can never push the ring past full.
+    final doneIds = {
+      for (final h in scheduled)
+        if (dash.isCompleted(h.id, h.effectiveDailyTarget)) h.id,
+    };
+    final owedIds = boardHabitsOn(
+      habits: scheduled,
+      day: today,
+      isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+      alsoOwing: doneIds,
+    ).map((h) => h.id).toSet();
+
+    final habits = <({
+      String id,
+      String name,
+      bool done,
+      int count,
+      int perDay,
+      bool notDue,
+    })>[];
     for (final h in scheduled) {
-      final done = dash.isCompleted(h.id, h.effectiveDailyTarget);
-      if (done) completed++;
       habits.add((
         id: h.id,
         name: h.localName(isAr),
-        done: done,
+        done: doneIds.contains(h.id),
         // For the background action handler, which has to know whether one
         // more tap finishes a counted habit; see HomeWidgetService.
         count: dash.completions[h.id] ?? 0,
         perDay: h.effectiveDailyTarget,
+        notDue: !owedIds.contains(h.id),
       ));
     }
-    return (completed: completed, total: habits.length, habits: habits);
+    // doneIds is a subset of owedIds, so this is the done count of the board
+    // and can never exceed the total below it.
+    return (
+      completed: doneIds.length,
+      total: owedIds.length,
+      habits: habits,
+    );
   }
 
-  /// However many of today's scheduled habits are still incomplete.
+  /// However many of the habits today actually OWED are still incomplete —
+  /// `total` is the board, not the roster (see [_todayHabitStats]), so a
+  /// flexible quota's rest day no longer puts a 1 on the app icon for
+  /// something nobody asked for.
   /// flutter_local_notifications has no standalone "set the badge" call
   /// (see AppBadgeService's doc comment), so this is the one place that
   /// decides what the app icon badge should say right now. [stats] is
@@ -2086,10 +2293,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // was a single-tap habit finishing just now — the Grid square is
       // mirrored to green too, same as tapping it from Today's Habits would.
       final dashState = ref.read(dashboardProvider);
-      final todayHabits = ref
-          .read(habitListProvider)
-          .where((h) => h.isScheduledFor(actionDay))
-          .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
+      // boardHabitsOn, not isScheduledFor: a flexible quota's rest day is not
+      // part of the day's roster (see habitOwesDay). alsoOwing keeps the habit
+      // being completed right now on the board whatever its week says —
+      // willCompleteAllHabitsToday answers false for a habit it cannot find.
+      final todayHabits = boardHabitsOn(
+        habits: ref.read(habitListProvider),
+        day: actionDay,
+        isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+        alsoOwing: {habit.id},
+      ).map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
       final mirroredBySingleTap =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
@@ -2213,6 +2426,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _reminderSub?.close();
     _localeSub?.close();
     _habitRemindersSub?.close();
+    _habitsLoadedSub?.close();
+    _habitMirrorSub?.close();
+    _habitOrderMirrorSub?.close();
+    // Before super.dispose(): the bodies they would have run read providers.
+    _recomputeDebounce?.cancel();
+    _habitMirrorDebounce?.cancel();
     _widgetSub?.close();
     _notificationSettingsSub?.close();
     _gridSub?.close();

@@ -5,9 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/deep_links.dart';
 import '../../../core/services/analytics_service.dart';
+import '../../../core/services/habit_mirror.dart';
 import '../../../core/services/local_store_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/utils/text_moderation.dart';
+import '../../habits/notifiers/custom_habits_notifier.dart'
+    show habitListProvider, pausedHabitsProvider;
+import '../../matrix/notifiers/matrix_notifier.dart' show matrixProvider;
 import '../services/social_auth_service.dart';
 import 'guest_reconnect_provider.dart';
 
@@ -483,11 +488,59 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
           // still goes.
         }
       }
+      // Read now, cancel after: the ids have to be captured while the
+      // account's habits and tasks are still loaded, but the cancelling
+      // itself must not happen until the delete has actually gone through.
+      // A delete that throws (it can, on the very first Firestore read)
+      // leaves the person signed in with every habit still on their Grid —
+      // and, if this had already run, every reminder and alarm silently
+      // disarmed, with nothing due to re-arm them.
+      final localReminders = _localReminderIds();
       await _deleteAllUserData(user.uid);
       await user.delete();
+      _cancelLocalReminders(localReminders);
+      // The board this device kept so it could paint instantly (see
+      // HabitMirror). Same placement and same reasoning as the cancel above:
+      // after the delete has actually gone through, so a delete that throws
+      // leaves the person's device exactly as it was.
+      HabitMirror.drop(user.uid).ignore();
       AnalyticsService.instance.track('account_deleted');
     });
     return true;
+  }
+
+  /// Every habit and task this account holds a local reminder for, active
+  /// or paused — read before the account goes, cancelled after (see
+  /// [deleteAccount]).
+  ({List<String> habits, List<String> tasks}) _localReminderIds() => (
+        habits: [
+          for (final habit in [
+            ..._ref.read(habitListProvider),
+            ..._ref.read(pausedHabitsProvider),
+          ])
+            habit.id,
+        ],
+        tasks: [for (final task in _ref.read(matrixProvider).tasks) task.id],
+      );
+
+  /// Cancels the reminders and AlarmKit alarms [ids] named.
+  ///
+  /// [_deleteAllUserData] wipes Firestore directly and never goes through
+  /// CustomHabitsNotifier.archive/deleteForever, ActiveCatalogNotifier.
+  /// toggle or MatrixNotifier.delete — the notifier methods that otherwise
+  /// cancel these on a normal delete — so without this, deleting the
+  /// account would leave every alarm-mode reminder it had armed ringing
+  /// forever, with no account left to open and stop them. Fire-and-forget
+  /// like every other cancel call in this app: cancelling something never
+  /// scheduled is a safe no-op, and a person who asked to be deleted must
+  /// not be blocked on it.
+  void _cancelLocalReminders(({List<String> habits, List<String> tasks}) ids) {
+    for (final habitId in ids.habits) {
+      NotificationService.instance.cancelHabitReminders(habitId).ignore();
+    }
+    for (final taskId in ids.tasks) {
+      NotificationService.instance.cancelTaskReminder(taskId).ignore();
+    }
   }
 
   // ── Helpers ─────────────────────────────────────────────────

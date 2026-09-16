@@ -227,6 +227,33 @@ class AlarmService {
     }
   }
 
+  /// Cancels every alarm the system still holds between [lowId] and
+  /// [highId] that [keep] does not name, and returns how many went.
+  ///
+  /// The reality check [cancel] cannot be: cancelling by id only reaches an
+  /// alarm the app can still name, and a habit deleted while its alarms
+  /// were armed takes its id with it. This asks the system what it is
+  /// actually holding instead, which is the only thing that still knows.
+  Future<int?> reapOrphans({
+    required int lowId,
+    required int highId,
+    required Set<int> keep,
+  }) async {
+    if (!await isSupported()) return null;
+    _scheduled.removeWhere(
+        (id, _) => id >= lowId && id <= highId && !keep.contains(id));
+    try {
+      return await _channel.invokeMethod<int>('reapOrphans', {
+        'lowId': lowId,
+        'highId': highId,
+        'keepIds': keep.toList(),
+      });
+    } catch (e) {
+      debugPrint('[AlarmService] reap $lowId-$highId skipped: $e');
+      return null;
+    }
+  }
+
   /// Removes the alarm under [id], if any. Safe to call for a slot that
   /// never held one, which is the common case: every notification schedule
   /// clears its slot's alarm so a reminder switched back from alarm to

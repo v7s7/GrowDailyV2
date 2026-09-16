@@ -57,9 +57,9 @@ void main() {
 
   test('a zero from a refused read cannot talk the stored day down',
       () async {
-    // The merge on the way back in is stepsMapWith's, the same never-downward
-    // rule two live reads get. On iOS a refused read is indistinguishable
-    // from a quiet morning and arrives as a well-formed zero.
+    // A zero never lands on a measured day, the same rule two live reads
+    // get (stepsMapWith). On iOS a refused read is indistinguishable from a
+    // quiet morning and arrives as a well-formed zero.
     await LocalStoreService.putSettingsMap(
       LocalStoreService.stepsByDayKey,
       const {'2026-09-09': 9000},

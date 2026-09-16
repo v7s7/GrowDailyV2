@@ -17,6 +17,7 @@ import '../../../shared/widgets/history_demo_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/models/habit_day_demand.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../milestones/notifiers/habit_history_notifier.dart';
 import '../../milestones/reports/habit_day_marks.dart';
@@ -203,6 +204,19 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
           },
           orElse: () => {...dash.dailyGreenCounts, todayKey: todayDone},
         );
+    // Which sessions a flexible weekly quota banked, day by day — the input
+    // [heatmapScheduledOn] needs to tell a quota's rest days from the days it
+    // genuinely owed. The Grid is layered over the mirror for the week it has
+    // loaded, the same freshness problem [_todayDoneCount] solves for the
+    // numerator, and greenFromMirror unions the two rather than letting a
+    // half-loaded Grid blank a week.
+    final isGreen = greenFromMirror(
+      ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
+      live: (id, day) => grid.weekStart == startOfGridWeek(day)
+          ? grid.squareFor(id, day)
+          : null,
+    );
+
     // The days still open that already hold a فشل, which settles its day at
     // once. See heatmapFailedOpenDays.
     final failedOpenDays = heatmapFailedOpenDays(
@@ -324,6 +338,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
                           month: ordered[i],
                           counts: counts,
                           habits: habits,
+                          isGreen: isGreen,
                           today: today,
                           now: now,
                           failedOpenDays: failedOpenDays,
@@ -623,6 +638,10 @@ class _MonthSection extends StatelessWidget {
   final DateTime month;
   final Map<String, int> counts;
   final List<IslamicHabitTemplate> habits;
+
+  /// Which days a flexible weekly quota banked a session on, for
+  /// [heatmapScheduledOn]. See its doc comment.
+  final GreenOnDay isGreen;
   final DateTime today;
 
   /// The day clock, for which days are still open (see _HeatCell.settled).
@@ -645,6 +664,7 @@ class _MonthSection extends StatelessWidget {
     required this.month,
     required this.counts,
     required this.habits,
+    required this.isGreen,
     required this.today,
     required this.now,
     required this.failedOpenDays,
@@ -819,7 +839,7 @@ class _MonthSection extends StatelessWidget {
     final count = counts[day.toDateKey()] ?? 0;
     // Named rather than inlined so the "no archived filter" rule has one
     // place to live and one place to be tested — see heatmapScheduledOn.
-    final scheduled = heatmapScheduledOn(habits, day);
+    final scheduled = heatmapScheduledOn(habits, day, isGreen);
     return _HeatCell(
       day: day,
       count: count,
@@ -916,8 +936,23 @@ enum _DayFill { rest, empty, partial, full }
 /// than it was. See the long note at the `habits` declaration in
 /// [MonthlyHeatmapScreen.build], and
 /// test/features/grid/heatmap_archived_denominator_test.dart.
-int heatmapScheduledOn(List<IslamicHabitTemplate> habits, DateTime day) =>
-    habits.where((h) => h.isScheduledFor(day)).length;
+///
+/// A flexible weekly quota is windowed a second way, through [habitOwesDay]:
+/// "4 times a week, any days" is true of all seven days, so counting it here
+/// every day made a 4x habit fail three days of every week by construction,
+/// and 13 September 2026 drew a partial cell over a day whose Grid row read
+/// covered. It now enters only on the days its own week actually asked for —
+/// the days it was done, and the days skipping it put the target out of
+/// reach. [isGreen] is what tells those apart, hence the extra argument:
+/// nothing about one day can answer it.
+int heatmapScheduledOn(
+  List<IslamicHabitTemplate> habits,
+  DateTime day,
+  GreenOnDay isGreen,
+) =>
+    habits
+        .where((h) => habitOwesDay(habit: h, day: day, isGreen: isGreen))
+        .length;
 
 /// The days still open at [now] that already hold an explicit فشل for one
 /// of [habitIds], by dateKey.
@@ -1172,11 +1207,18 @@ class _DayHabitOutcome {
   final bool isDeleted;
   final SquareState state;
   final String note;
+
+  /// The day asked nothing of this habit — an off-day of a specific-days
+  /// schedule, or a flexible quota's rest day (see [habitOwesDay]). Only ever
+  /// true alongside [SquareState.none]: a day that carries a real mark is
+  /// whatever that mark says, and extra work is never "not due".
+  final bool notDue;
   const _DayHabitOutcome({
     required this.name,
     required this.isDeleted,
     required this.state,
     required this.note,
+    this.notDue = false,
   });
 }
 
@@ -1215,6 +1257,7 @@ class _HeatDayDetailSheet extends ConsumerWidget {
   List<_DayHabitOutcome> _outcomes(
     Map<String, dynamic> doc,
     List<IslamicHabitTemplate> habits,
+    GreenOnDay isGreen,
     bool isAr,
     String deletedLabel,
   ) {
@@ -1275,6 +1318,13 @@ class _HeatDayDetailSheet extends ConsumerWidget {
       return done is num && done > 0 ? SquareState.complete : SquareState.none;
     }
 
+    // The habits this day genuinely asked for — the same set the cell above
+    // counts (heatmapScheduledOn), so the sheet can never itemise a miss the
+    // cell did not count, or the reverse. A blank row outside it says «غير
+    // مطلوب» rather than «لم يكتمل»: 13 September listed تمرين as not done on
+    // the second day of its own 4x week.
+    final owed = owedHabitIdsOn(habits: habits, day: day, isGreen: isGreen);
+
     final outcomes = <_DayHabitOutcome>[
       for (final id in ids)
         _DayHabitOutcome(
@@ -1282,16 +1332,24 @@ class _HeatDayDetailSheet extends ConsumerWidget {
           isDeleted: byId[id] == null,
           state: stateFor(id),
           note: (rawNotes[id] as String?)?.trim() ?? '',
+          // A deleted habit's leftover note has no habit to ask, and nothing
+          // owes a day it is not in the list for.
+          notDue: stateFor(id) == SquareState.none &&
+              byId[id] != null &&
+              !owed.contains(id),
         ),
     ];
 
-    // Marked outcomes first (the day's actual story), misses last — and a
-    // stable order inside each group so the sheet doesn't reshuffle
-    // between opens.
+    // Marked outcomes first (the day's actual story), then the rows the day
+    // never asked for, and the real gaps last where they read as the day's
+    // shortfall — and a stable order inside each group so the sheet doesn't
+    // reshuffle between opens.
     outcomes.sort((a, b) {
-      final ga = a.state == SquareState.none ? 1 : 0;
-      final gb = b.state == SquareState.none ? 1 : 0;
-      if (ga != gb) return ga - gb;
+      int rank(_DayHabitOutcome o) =>
+          o.state != SquareState.none ? 0 : (o.notDue ? 1 : 2);
+      final ra = rank(a);
+      final rb = rank(b);
+      if (ra != rb) return ra - rb;
       return a.name.compareTo(b.name);
     });
     return outcomes;
@@ -1317,6 +1375,14 @@ class _HeatDayDetailSheet extends ConsumerWidget {
     // other would give a day a cell reading 1 of 2 and a sheet listing one
     // habit.
     final habits = ref.watch(allHabitsEverProvider).toList();
+    // The same quota reader the cell uses, built the same way, so this sheet
+    // and the cell that opened it agree about which habits the day owed.
+    final grid = ref.watch(weeklyGridProvider);
+    final isGreen = greenFromMirror(
+      ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
+      live: (id, d) =>
+          grid.weekStart == startOfGridWeek(d) ? grid.squareFor(id, d) : null,
+    );
     // Whether this day can still be marked. Its blank habits are not misses
     // yet, so they say «مطلوب» instead (see _OutcomeRow.stillOpen).
     final stillOpen = !day.isSettledAt(ref.watch(dayClockProvider));
@@ -1372,6 +1438,7 @@ class _HeatDayDetailSheet extends ConsumerWidget {
                   final outcomes = _outcomes(
                     snap.data!,
                     habits,
+                    isGreen,
                     s.isAr,
                     s.gridJournalDeletedHabit,
                   );
@@ -1434,7 +1501,12 @@ class _OutcomeRow extends StatelessWidget {
     final gp = context.gp;
     final s = S.of(context);
     final state = outcome.state;
-    final accent = state.accent(gp.dark);
+    // A day that asked nothing of this habit wears the Grid's own covered
+    // tone — the system emerald, soft — instead of the blank square's grey.
+    // Same decision as isCoveredDay: a third state between done and missed
+    // that leans toward done, because nothing was owed and nothing was lost.
+    final accent =
+        outcome.notDue ? GameColors.emerald : state.accent(gp.dark);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1482,9 +1554,13 @@ class _OutcomeRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
               ),
               child: Text(
-                state == SquareState.none && stillOpen
-                    ? s.reportsDayScheduled
-                    : (s.isAr ? state.labelAr : state.label),
+                // «غير مطلوب» wins over «مطلوب»: a quota's rest day is not
+                // outstanding just because the day is still open.
+                outcome.notDue
+                    ? s.reportsDayNotDue
+                    : (state == SquareState.none && stillOpen
+                        ? s.reportsDayScheduled
+                        : (s.isAr ? state.labelAr : state.label)),
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,

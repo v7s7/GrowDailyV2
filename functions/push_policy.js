@@ -24,15 +24,19 @@
  *     them for a guess.
  *
  *  2. At most one HEADS-UP, one NUDGE and one CELEBRATION per person per
- *     day. The four pushes fall into those three kinds: "first to finish"
- *     informs, "you're the last one" and the evening "nobody has finished"
- *     ask for something, and "perfect day" celebrates. The old rule was
- *     three of anything, first come first served, so someone in five rooms
- *     could spend all three on morning heads-ups from three rooms and then
- *     never hear the one push that actually needed them in the evening.
- *     Separate caps mean an informational push can never crowd out an
- *     actionable one. One nudge is enough: it opens the app, where every
- *     room is visible.
+ *     day. The three pushes fall into those three kinds: "first to finish"
+ *     informs, "you're the last one" asks for something, and "perfect day"
+ *     celebrates. The old rule was three of anything, first come first
+ *     served, so someone in five rooms could spend all three on morning
+ *     heads-ups from three rooms and then never hear the one push that
+ *     actually needed them in the evening. Separate caps mean an
+ *     informational push can never crowd out an actionable one. One nudge
+ *     is enough: it opens the app, where every room is visible.
+ *
+ *     A fourth push, the evening "nobody has finished in your room yet",
+ *     also took the nudge slot until it was removed on 2026-09-16. The
+ *     kinds and the caps are unchanged by that: they were never a count of
+ *     how many pushes exist, they are a ceiling on what one person hears.
  *
  *     The celebration has its own slot rather than sharing the heads-up's
  *     because of how a room-day actually plays out: everyone but the first
@@ -123,7 +127,6 @@ const PUSH_KIND = Object.freeze({
   firstToday: "info",
   perfect: "celebrate",
   lastOne: "nudge",
-  eveningReminder: "nudge",
 });
 
 /** How many of each kind one person may receive in one local day. */

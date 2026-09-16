@@ -134,15 +134,24 @@ class _SafeWrapTextState extends State<SafeWrapText> {
         int effectiveMaxLines = maxLines;
         bool overflowed = false;
 
+        // [overflowed] is read for one thing only — whether to wrap this in
+        // the tap-to-reveal Tooltip below — so measuring it when the caller
+        // did not ask for that is a full TextPainter layout built, used for
+        // nothing and thrown away, on every rebuild of every label. On the
+        // Grid that is one per habit name per board pass, and the board
+        // rebuilds on every mark. [wordExceedsWidth] below stays
+        // unconditional: it decides effectiveMaxLines, which changes what
+        // is actually rendered.
         if (maxLines <= 1) {
-          overflowed = textOverflowsAt(
-            text,
-            constraints.maxWidth,
-            maxLines: 1,
-            style: effectiveStyle,
-            textDirection: textDirection,
-            textScaler: textScaler,
-          );
+          overflowed = tapToRevealWhenTruncated &&
+              textOverflowsAt(
+                text,
+                constraints.maxWidth,
+                maxLines: 1,
+                style: effectiveStyle,
+                textDirection: textDirection,
+                textScaler: textScaler,
+              );
         } else {
           // A single word wider than the available space can't be helped by
           // more lines - it still won't fit on any one of them - so this
@@ -157,14 +166,15 @@ class _SafeWrapTextState extends State<SafeWrapText> {
           );
           effectiveMaxLines = singleLine ? 1 : maxLines;
           overflowed = singleLine ||
-              textOverflowsAt(
-                text,
-                constraints.maxWidth,
-                maxLines: effectiveMaxLines,
-                style: effectiveStyle,
-                textDirection: textDirection,
-                textScaler: textScaler,
-              );
+              (tapToRevealWhenTruncated &&
+                  textOverflowsAt(
+                    text,
+                    constraints.maxWidth,
+                    maxLines: effectiveMaxLines,
+                    style: effectiveStyle,
+                    textDirection: textDirection,
+                    textScaler: textScaler,
+                  ));
         }
 
         final textWidget = Text(

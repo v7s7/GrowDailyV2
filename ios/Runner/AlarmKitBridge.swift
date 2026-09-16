@@ -140,6 +140,18 @@ enum AlarmKitBridgeImpl {
         AlarmSlotRecords.forget(slot: id)
         result(nil)
       }
+    case "reapOrphans":
+      guard let args = call.arguments as? [String: Any],
+            let low = args["lowId"] as? Int,
+            let high = args["highId"] as? Int,
+            let keep = args["keepIds"] as? [Int]
+      else {
+        result(nil)
+        return
+      }
+      onLane {
+        result(await reapOrphans(low: low, high: high, keep: Set(keep)))
+      }
     case "syncWindow":
       guard let args = call.arguments as? [String: Any],
             let low = args["lowId"] as? Int,
@@ -295,6 +307,34 @@ enum AlarmKitBridgeImpl {
       AlarmSlotRecords.forget(slot: id)
       return false
     }
+  }
+
+  /// Cancels every alarm this app holds in [low]...[high] that [keep] does
+  /// not name, and nothing else. Returns how many went.
+  ///
+  /// [syncWindow]'s cancel half without its schedule half, for the near
+  /// bands — the ones armed one slot at a time by the ordinary reminder
+  /// pass rather than reconciled wholesale, and so never checked against
+  /// what is really armed. A habit deleted while those were armed leaves
+  /// them ringing under ids nothing in the app points at any more: the
+  /// habit is gone, so no per-habit cancel can name them, and only this
+  /// list knows they exist. "Holds" is what AlarmKit lists joined with what
+  /// this bridge recorded scheduling, same as [syncWindow], so a failed
+  /// listing still reaps.
+  static func reapOrphans(low: Int, high: Int, keep: Set<Int>) async -> Int {
+    let manager = AlarmManager.shared
+    var held = Set(AlarmSlotRecords.slots(in: low...high))
+    for alarm in (try? manager.alarms) ?? [] {
+      guard let slot = slotId(for: alarm.id), slot >= low, slot <= high else { continue }
+      held.insert(slot)
+    }
+    var cancelled = 0
+    for slot in held where !keep.contains(slot) {
+      try? manager.cancel(id: alarmId(for: slot))
+      AlarmSlotRecords.forget(slot: slot)
+      cancelled += 1
+    }
+    return cancelled
   }
 
   /// NotificationService._syncAlarmWindow's other end: every alarm in

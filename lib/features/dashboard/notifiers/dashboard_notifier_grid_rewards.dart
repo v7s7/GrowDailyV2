@@ -472,9 +472,18 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   /// [habits] should be everything that has EVER been scheduled, not just
   /// what is active now (allHabitsEverProvider) - a habit paused since the
   /// gap still demanded those days at the time.
+  ///
+  /// [isGreen] resolves a flexible weekly quota's week, so "4 times a week"
+  /// owes only the days that were load-bearing rather than all seven (see
+  /// [habitOwesDay]). Its default reads nothing green, which is exactly right
+  /// for the inside of a real gap - a gap is a stretch with no activity in it
+  /// - and makes an empty week owe its last `target` days, no more. A caller
+  /// holding the history mirror can pass a reader and get the gap's first
+  /// partial week right too.
   Future<void> resolveStreakGap(
-    Iterable<IslamicHabitTemplate> habits,
-  ) async {
+    Iterable<IslamicHabitTemplate> habits, {
+    GreenOnDay isGreen = _nothingGreen,
+  }) async {
     final from = state.pendingStreakGapFrom;
     if (from == null) return;
     final now = DateTime.now();
@@ -488,7 +497,10 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     for (var d = from.add(const Duration(days: 1));
         d.isBefore(settledBefore);
         d = d.add(const Duration(days: 1))) {
-      if (habits.any((h) => h.isScheduledFor(d))) owedDays++;
+      if (habits
+          .any((h) => habitOwesDay(habit: h, day: d, isGreen: isGreen))) {
+        owedDays++;
+      }
     }
 
     if (owedDays == 0) {
@@ -906,3 +918,8 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   /// app-resume after the cutoff correctly picks up the new day for both.
   Future<void> refresh() => _uid != null ? _loadToday() : _loadGuestToday();
 }
+
+/// The default [GreenOnDay] for [DashboardNotifierGridRewards.resolveStreakGap]
+/// - see its doc comment for why "nothing green" is the honest reading of a
+/// gap rather than a fallback.
+bool _nothingGreen(String habitId, DateTime day) => false;

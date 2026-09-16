@@ -42,10 +42,11 @@ class ComebackCard extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final user = FirebaseAuth.instance.currentUser;
-    // Localized fallback, not a literal 'Warrior': every guest session hits
-    // this, and an English word spliced into the Arabic welcome line is exactly
-    // the kind of seam this card exists to avoid.
-    final name = user?.email?.split('@').first ?? s.comebackGuestName;
+    // No invented name when there is none: a guest session used to be
+    // greeted as "Warrior" / «بطل», which both spliced an English word into
+    // the Arabic line and handed a stranger a title. The greeting simply
+    // drops the name instead.
+    final name = user?.email?.split('@').first;
     // A banked freeze turns this from "here is a consolation bonus" into a
     // real choice, so the two layouts differ in more than a button.
     final canRestore = state.streakFreezes > 0 && state.previousStreak > 0;
@@ -135,13 +136,17 @@ class ComebackCard extends ConsumerWidget {
 
 /// Sunrise mark, name, and the one reassurance the card exists to give.
 class _Header extends StatelessWidget {
-  final String name;
+  /// Null for a guest, or an account with no email — the greeting drops the
+  /// name rather than inventing one.
+  final String? name;
   const _Header({required this.name});
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    // Local copy: a public final field is not promoted by a null check.
+    final who = name;
     return Row(
       children: [
         // The halo breathes rather than shimmers: a shimmer sweep on a
@@ -181,7 +186,7 @@ class _Header extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(s.welcomeBack(name),
+              Text(who == null ? s.welcomeBackNoName : s.welcomeBack(who),
                   style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,

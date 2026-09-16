@@ -17,6 +17,7 @@ import '../grid/models/square_state.dart';
 import '../grid/notifiers/square_audit.dart' show kSquareSourceTasbih;
 import '../grid/notifiers/weekly_grid_notifier.dart';
 import '../habits/catalog/islamic_habit_catalog.dart';
+import '../habits/models/habit_day_demand.dart';
 import '../habits/models/habit_model.dart';
 import '../habits/notifiers/custom_habits_notifier.dart';
 import '../rooms/notifiers/rooms_notifier.dart';
@@ -189,10 +190,15 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
   Future<void> _markHabit(IslamicHabitTemplate habit) async {
     unawaited(HapticFeedback.mediumImpact());
     final dashState = ref.read(dashboardProvider);
-    final todayHabits = ref
-        .read(habitListProvider)
-        .where((h) => h.isScheduledFor(DateTime.now().effectiveDay))
-        .map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
+    // Today's answerable board, the same rule main.dart's Mark Done branch
+    // uses — a flexible quota's rest day is not part of it, and alsoOwing
+    // keeps the habit landing right now on it regardless. See boardHabitsOn.
+    final todayHabits = boardHabitsOn(
+      habits: ref.read(habitListProvider),
+      day: DateTime.now().effectiveDay,
+      isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+      alsoOwing: {habit.id},
+    ).map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
     final isAr = Directionality.of(context) == TextDirection.rtl;
     final perDay = habit.effectiveDailyTarget;
     final mirroredBySingleTap =

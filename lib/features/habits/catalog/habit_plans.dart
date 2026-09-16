@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
+import '../../../core/services/habit_mirror.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/user_doc.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import 'islamic_habit_catalog.dart';
 
@@ -52,8 +54,11 @@ class HabitPlan {
 const habitPlans = <HabitPlan>[
   HabitPlan(
     id: 'morning_warrior',
-    nameEn: 'Morning Warrior',
-    nameAr: 'محارب الفجر',
+    // Named for what it is, the way 'Night Routine' below is. It was
+    // 'Morning Warrior' / «محارب الفجر», which hands the reader a costume
+    // before they have done anything.
+    nameEn: 'Morning Routine',
+    nameAr: 'روتين الصباح',
     descEn: 'Fajr, athkar, a page of Quran, no phone. The hour that decides your day.',
     descAr: 'فجر، أذكار، صفحة قرآن، وبدون تلفون. أول ساعة تحدد يومك.',
     color: Color(0xFF4A9EFF),
@@ -260,8 +265,34 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
   /// archive, not a map slot that gets reused.
   Map<String, List<(DateTime?, DateTime)>> catalogStintHistory = {};
 
+  /// Whether [state] was filled from the device's copy before the read ran.
+  /// Paint signal only; [isLoading] still says whether the server answered.
+  bool hydratedFromMirror = false;
+
+  /// The mirrored ids exactly as hydrated, so [_load] can tell what the
+  /// person changed while the mirrored board was on screen from what was
+  /// simply already there.
+  Set<String> _hydratedIds = const {};
+
+  /// Whether the signed-in read has come back. Until it has, [state] is the
+  /// device's copy, which is good enough to DRAW and not good enough to
+  /// write back: [_save] sends activeCatalogIds as an absolute array.
+  bool _serverSettled = false;
+  bool _savePending = false;
+
   ActiveCatalogNotifier(this._uid) : super(const {}) {
     if (_uid != null) {
+      final mirror = HabitMirror.snapshot;
+      if (mirror != null && mirror.uid == _uid) {
+        state = Set.of(mirror.activeCatalogIds);
+        _hydratedIds = Set.of(mirror.activeCatalogIds);
+        activatedAt = {
+          for (final entry in mirror.activatedAt.entries)
+            if (DateTime.tryParse(entry.value) != null)
+              entry.key: DateTime.parse(entry.value),
+        };
+        hydratedFromMirror = true;
+      }
       _load();
     } else {
       _loadGuest();
@@ -337,25 +368,86 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     isLoading = false;
   }
 
+  /// The server's set, with whatever the person changed while the mirrored
+  /// board was on screen put back on top.
+  ///
+  /// Without this, toggling a preset in the second before the read lands
+  /// would be silently undone by the answer. Computed as a diff against the
+  /// ids as hydrated rather than recorded by each mutating method, so every
+  /// path that can change the set — [toggle], [applyPlanSelection],
+  /// [deactivatePlan], and any added later — is covered without having to
+  /// remember to instrument it.
+  Set<String> _withLocalIntent(Set<String> fromServer) {
+    if (!hydratedFromMirror) return fromServer;
+    final turnedOn = state.difference(_hydratedIds);
+    final turnedOff = _hydratedIds.difference(state);
+    return {...fromServer, ...turnedOn}..removeAll(turnedOff);
+  }
+
+  /// Marks the server's answer in, and flushes a save that was held back
+  /// because it would have written the mirrored set as though it were the
+  /// server's.
+  void _settleServer() {
+    if (_serverSettled) return;
+    _serverSettled = true;
+    if (_savePending) {
+      _savePending = false;
+      _kickSave();
+    }
+  }
+
   Future<void> _load() async {
     if (_uid == null) return;
     try {
-      final snap = await _userRef.get();
+      // Shared with the three other notifiers that want a field from this
+      // same document on the same launch — see [UserDoc].
+      final data = await UserDoc.read(_uid!);
       if (!mounted) return;
       // The read came back, so everything derived below is genuinely the
       // server's answer — clear any earlier failure so saving works again
       // (a resume-triggered reload is the usual way back).
       loadFailed = false;
-      activatedAt =
-          _parseActivatedAt(snap.data()?['activeCatalogActivatedAt']);
-      catalogArchivedAt =
-          _parseActivatedAt(snap.data()?['activeCatalogArchivedAt']);
+      // Captured BEFORE state is reassigned below, because that is what
+      // [_withLocalIntent] compares against.
+      //
+      // The set is not the whole story: a preset toggled while the mirrored
+      // board was up also wrote its dates. Taking the server's maps wholesale
+      // kept the membership change and threw the dates away — a paused preset
+      // with no catalogArchivedAt stamp is absent from the paused list and
+      // cannot be resumed, and a newly activated one with no activatedAt has
+      // no birth date, so every earlier day reads as a miss and room grading
+      // counts days before it existed. Worse, [_settleServer] then flushed
+      // the held save and made the mismatch permanent.
+      final localActivatedAt = activatedAt;
+      final localArchivedAt = catalogArchivedAt;
+      final touchedHere = hydratedFromMirror
+          ? state.difference(_hydratedIds).union(_hydratedIds.difference(state))
+          : const <String>{};
+      activatedAt = _parseActivatedAt(data?['activeCatalogActivatedAt']);
+      catalogArchivedAt = _parseActivatedAt(data?['activeCatalogArchivedAt']);
       catalogStintHistory =
-          _parseStintHistory(snap.data()?['activeCatalogStintHistory']);
-      final raw = snap.data()?['activeCatalogIds'];
+          _parseStintHistory(data?['activeCatalogStintHistory']);
+      // Only the ids this session actually touched keep their local dates;
+      // everything else takes the server's, which is the newer answer.
+      for (final id in touchedHere) {
+        final localBorn = localActivatedAt[id];
+        if (localBorn == null) {
+          activatedAt.remove(id);
+        } else {
+          activatedAt[id] = localBorn;
+        }
+        final localEnded = localArchivedAt[id];
+        if (localEnded == null) {
+          catalogArchivedAt.remove(id);
+        } else {
+          catalogArchivedAt[id] = localEnded;
+        }
+      }
+      final raw = data?['activeCatalogIds'];
       if (raw is List) {
-        state = Set<String>.from(raw.whereType<String>());
+        state = _withLocalIntent(Set<String>.from(raw.whereType<String>()));
         isLoading = false;
+        _settleServer();
         return;
       }
       // No Firestore field yet — either a brand-new account, or one that
@@ -368,9 +460,10 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       final box = await LocalStoreService.settingsBox();
       final localRaw = box.get(_kActiveKey);
       if (localRaw is List) {
-        state = Set<String>.from(localRaw.whereType<String>());
+        state = _withLocalIntent(Set<String>.from(localRaw.whereType<String>()));
         if (state.isNotEmpty) _kickSave();
       }
+      _settleServer();
     } catch (_) {
       // The signed-in read failed, so `state` is still the empty set this
       // notifier started with and none of it came from the server. Flag it
@@ -424,6 +517,17 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     // Guests are not covered on purpose: `_uid == null` means there is no
     // server list to truncate, and _loadGuest owns its own failure path.
     if (_uid != null && loadFailed) return;
+
+    // Same argument one step earlier: before the read comes back, `state` is
+    // the device's mirrored copy, and writing it as an absolute array would
+    // overwrite anything the server has that this device has not seen yet —
+    // a preset turned on from another phone, say. Held rather than dropped:
+    // [_settleServer] runs it once the real answer is in, by which point
+    // [_withLocalIntent] has folded this change into the server's set.
+    if (_uid != null && !_serverSettled) {
+      _savePending = true;
+      return;
+    }
 
     // ISO strings both paths (Hive can't hold Timestamps; Firestore holds
     // strings fine) — and always the WHOLE map as one nested field, never
@@ -481,6 +585,11 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     bool eraseIfEmpty = true,
   }) {
     if (state.contains(catalogId)) {
+      // Both off branches below drop this id out of the active set, so its
+      // reminders and alarms stop either way — and before the `state =`
+      // that drops it, for the ordering reason spelled out in
+      // [CustomHabitsNotifier.archive].
+      NotificationService.instance.cancelHabitReminders(catalogId).ignore();
       if (!everCompleted && eraseIfEmpty) {
         activatedAt = {...activatedAt}..remove(catalogId);
         state = Set.of(state)..remove(catalogId);
@@ -627,6 +736,14 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
       ...catalogArchivedAt,
       for (final id in toArchive) id: today,
     }..removeWhere((id, _) => selected.contains(id));
+    // Same direct cancel as [toggle]'s own off branch, for every id this
+    // bulk reconciliation is turning off rather than just one, and before
+    // the `state =` below for the ordering reason spelled out in
+    // [CustomHabitsNotifier.archive]. An id being turned off and back on in
+    // the same pass is re-armed by the recompute that `state =` kicks.
+    for (final id in toDeactivate) {
+      NotificationService.instance.cancelHabitReminders(id).ignore();
+    }
     state = {...state}
       ..removeAll(toDeactivate)
       ..addAll(selected);
@@ -648,6 +765,13 @@ class ActiveCatalogNotifier extends StateNotifier<Set<String>> {
     };
     activatedAt = {...activatedAt}
       ..removeWhere((id, _) => toHardDelete.contains(id));
+    // Same direct cancel as [toggle]'s own off branch, for every id this
+    // whole-plan deactivation is turning off, and before the `state =`
+    // below for the ordering reason spelled out in
+    // [CustomHabitsNotifier.archive].
+    for (final id in deactivating) {
+      NotificationService.instance.cancelHabitReminders(id).ignore();
+    }
     state = state.difference(plan.catalogIds.toSet());
     _kickSave();
   }
@@ -725,7 +849,7 @@ class ReminderTimeNotifier extends StateNotifier<TimeOfDay?> {
     // listener just scheduled localized, and the parameter's default is
     // English, so omitting it re-wrote an Arabic user's daily reminder in
     // English until the next recompute happened to run.
-    await NotificationService.instance.scheduleDailyReminder(
+    await NotificationService.instance.scheduleEveningNote(
       hour: time.hour,
       minute: time.minute,
       isAr: NotificationService.instance.isArabic,
@@ -751,7 +875,7 @@ class ReminderTimeNotifier extends StateNotifier<TimeOfDay?> {
   /// reminder time, if any, but ONLY fills it in when this device doesn't
   /// already have a time of its own (an existing device-local time always
   /// wins, since it's the one actually scheduled here). Deliberately does
-  /// NOT request notification permission or call scheduleDailyReminder by
+  /// NOT request notification permission or call scheduleEveningNote by
   /// itself: doing that automatically right after sign-in, rather than from
   /// an explicit tap on the Daily Reminder row, is exactly the kind of
   /// out-of-context permission prompt that's poor practice (and against

@@ -6,9 +6,16 @@
  * lib/features/settings/models/notification_settings.dart's
  * roomActivityEnabled doc comment for the feature end to end. This is the
  * ONE server-side component this app has; everything else the app does
- * (habit reminders, streak-risk nudges, celebrations) is scheduled or shown
+ * (habit reminders, the evening note, celebrations) is scheduled or shown
  * entirely on-device by NotificationService, with no backend involved at
  * all.
+ *
+ * Every push sent from here is caused by a PERSON DOING SOMETHING: someone
+ * finishing their day, or a room's habit being added. Nothing fires from
+ * inactivity. The one exception was the evening reminder to a room where
+ * nobody had finished yet, removed on 2026-09-16 (Aziz) as part of cutting
+ * notification spam. Keep it that way: a push nobody's action caused has to
+ * justify itself against the evening note the app already sends.
  *
  * Originally a Firestore-triggered function (onDocumentWritten on
  * rooms/{code}/participants/{uid}), edge-detected off allDoneToday flipping
@@ -269,32 +276,6 @@ async function claimPushSlot(otherUid, dayKey, kind) {
 }
 
 /**
- * Claim this person's single evening reminder for [dayKey], across every
- * room they are in.
- *
- * Fails CLOSED (unlike claimPushSlot): this push is triggered by
- * inactivity rather than by anything the recipient did, so the cost of an
- * unnecessary one is higher than the cost of a missed one.
- * @param {string} uid The recipient.
- * @param {string} dayKey Their local day, "YYYY-MM-DD".
- * @return {Promise<boolean>} True if this caller won the claim.
- */
-async function claimEveningNudge(uid, dayKey) {
-  const ref = db.collection("users").doc(uid);
-  try {
-    return await db.runTransaction(async (txn) => {
-      const snap = await txn.get(ref);
-      if ((snap.data() || {}).eveningNudgeDate === dayKey) return false;
-      txn.set(ref, {eveningNudgeDate: dayKey}, {merge: true});
-      return true;
-    });
-  } catch (err) {
-    logger.warn("evening nudge claim failed", uid, err);
-    return false;
-  }
-}
-
-/**
  * The recipient's own calendar day, from their mirrored UTC offset.
  * @param {number|undefined} tzOffsetMinutes Their device offset.
  * @return {string} "YYYY-MM-DD" in their local time.
@@ -477,8 +458,13 @@ exports.notifyRoomFinish = onCall(async (request) => {
   // both get that far. The cost is that an event whose whole audience is
   // asleep, muted or device-less is spent rather than retried, which is
   // intended: a "first to finish today" that goes out on the fifth
-  // person's finish is no longer true. roomEveningReminder is what covers
-  // a room that ends up hearing nothing.
+  // person's finish is no longer true.
+  //
+  // So a room whose whole audience was inside quiet hours when the first
+  // person finished hears nothing from the server that day. The evening
+  // reminder used to be the floor under that; it was removed on 2026-09-16
+  // and nothing replaced it, deliberately. Everyone still has the app's own
+  // evening note, which is about their own board rather than the room's.
   if (!await claimRoomEvent(roomCode, event, todayKey)) {
     return {sent: 0, suppressed: event + "-already-sent-today"};
   }
@@ -746,37 +732,14 @@ exports.notifyRoomHabitAdded = onCall(async (request) => {
   return {sent: sends.length};
 });
 
-/**
- * The evening reminder, sent to a room where NOBODY has finished today.
- *
- * The only push in this file not caused by someone finishing, and the only
- * one triggered by inactivity - which is the closest thing here to
- * nagging, so it is deliberately the narrowest. One per person per room
- * per day, only in a two-hour evening window on their own clock, only when
- * not a single member has moved, and worded as an opening rather than a
- * reprimand: "still time to be first", not "nobody has done anything".
- * The title used to say exactly that («ما خلّص أحد») above a body that
- * said the opposite; on 2026-09-07 Aziz read it as an accusation, so the
- * title is now the invitation itself, gendered for the recipient.
- *
- * It also covers the one hole in the three-event model. Those events are
- * claimed once per room per day, so a room whose whole audience happened
- * to be inside quiet hours when the first person finished hears nothing at
- * all that day. This is the floor under that.
- * @param {string|undefined} gender The RECIPIENT's stored gender.
- */
-const EVENING_REMINDER_MESSAGES = {
-  en: (roomName) => ({
-    title: `Be the first to finish in "${roomName}" today`,
-    body: "There's still time, and one square is enough.",
-  }),
-  ar: (roomName, gender) => ({
-    title: isFem(gender) ?
-      `كوني أول وحدة تخلّص في "${roomName}" اليوم` :
-      `كن أول واحد يخلّص في "${roomName}" اليوم`,
-    body: "إلى الآن فيه وقت، ومربع واحد يكفي.",
-  }),
-};
+// REMOVED 2026-09-16: the evening reminder, a push sent to a room where
+// nobody had finished yet. It was the only push here not caused by someone
+// finishing, and the only one triggered by inactivity. Aziz removed it as
+// part of cutting notification spam: a member of a silent room was hearing
+// it between 19:00 and 21:00 on top of the app's own evening note, and a
+// room going quiet for a day is not by itself worth a notification.
+//
+// Every push this file still sends is caused by a person doing something.
 
 /**
  * Every room that is live, the way the APP decides that.
@@ -786,16 +749,16 @@ const EVENING_REMINDER_MESSAGES = {
  * lobby era and were born running. A `where("status", "==", "active")` query
  * cannot see those documents at all: Firestore matches on stored fields, and
  * a room with no status field is simply not in the index. On 2026-09-12 that
- * hid rooms ZCNGFT and 5S84CL, plus five empty room documents, from both
- * scheduled functions and from check_rooms.js, so their members got no
- * evening reminder and their pause spans and undercounts were never swept.
+ * hid rooms ZCNGFT and 5S84CL, plus five empty room documents, from the
+ * scheduled functions and from check_rooms.js, so their pause spans and
+ * undercounts were never swept.
  *
  * Reading the whole collection and filtering here is the only way to apply
  * the app's own default. The collection is small (single digits per this
  * project's whole history), so the cost is a rounding error against being
  * wrong about which rooms exist.
  * @return {Promise<{docs: Array, size: number}>} The same shape a query
- * snapshot exposes to the two callers below.
+ * snapshot exposes to the caller below.
  */
 async function activeRooms() {
   const all = await db.collection("rooms").get();
@@ -806,121 +769,11 @@ async function activeRooms() {
   return {docs, size: docs.length};
 }
 
-/** Local-clock window for the evening reminder, [start, end). */
-const EVENING_HOUR_START = 19;
-const EVENING_HOUR_END = 21;
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Hourly sweep for silent rooms.
- *
- * Runs every hour rather than once a day because "evening" is each
- * member's own evening, and members of one room are not necessarily in one
- * timezone - the hour filter below is what actually picks the moment, on
- * the recipient's clock. A member whose device has never reported an
- * offset is skipped outright rather than assumed to be in UTC: guessing
- * wrong here means a push at three in the morning, which is far worse than
- * not sending one.
- */
-exports.roomEveningReminder = onSchedule(
-    {schedule: "every 60 minutes"},
-    async () => {
-      const nowMs = Date.now();
-      const roomsSnap = await activeRooms();
-      // Any UTC day that could still be someone's local "today", given
-      // real offsets span -12h to +14h.
-      const candidateDays = new Set([-1, 0, 1].map((d) =>
-        new Date(nowMs + d * DAY_MS).toISOString().slice(0, 10)));
-
-      let sent = 0;
-      for (const roomDoc of roomsSnap.docs) {
-        const room = roomDoc.data() || {};
-        const start = room.startDate && room.startDate.toDate ?
-          room.startDate.toDate() : null;
-        const end = room.endDate && room.endDate.toDate ?
-          room.endDate.toDate() : null;
-        // Not yet counting, or already over. endDate is the last day that
-        // counts, stored at midnight, so it is live through that whole day.
-        if (start && start.getTime() > nowMs) continue;
-        if (end && end.getTime() + DAY_MS < nowMs) continue;
-
-        const partsSnap = await roomDoc.ref.collection("participants").get();
-        // Departed members keep their document (RoomParticipant.leftAt) but
-        // are not in the room: not counted, not consulted, not nudged.
-        const present = partsSnap.docs.filter((d) => !(d.data() || {}).leftAt);
-        if (present.length < 2) continue;
-        // Cheap pre-filter, and the reason this sweep is affordable: if
-        // anyone has finished on any day that could still be current for
-        // anyone, the room is not silent and no member needs the per-user
-        // timezone read below. Busy rooms cost one read; only genuinely
-        // dead ones pay per member.
-        const someoneFinished = present.some((d) => {
-          const q = d.data() || {};
-          return q.allDoneToday === true && candidateDays.has(q.allDoneDate);
-        });
-        if (someoneFinished) continue;
-
-        const roomName = room.name || "your room";
-        for (const doc of present) {
-          const part = doc.data() || {};
-          const {eligible, locale, tzOffsetMinutes} =
-            await isEligible(doc.id, part);
-          if (!eligible) continue;
-          if (typeof tzOffsetMinutes !== "number") continue;
-
-          const local = new Date(nowMs + tzOffsetMinutes * 60 * 1000);
-          const hour = local.getUTCHours();
-          if (hour < EVENING_HOUR_START || hour >= EVENING_HOUR_END) continue;
-          const dayKey = local.toISOString().slice(0, 10);
-
-          const tokensSnap = await db
-              .collection("users").doc(doc.id)
-              .collection("fcmTokens").get();
-          if (tokensSnap.empty) continue;
-          // Claimed on the USER, not on this participant doc, so somebody
-          // in three silent rooms gets one evening reminder rather than
-          // three near-identical ones landing in the same minute. It also
-          // covers the two-hour window being wide enough for the hourly
-          // schedule to pass through it twice.
-          if (!await claimEveningNudge(doc.id, dayKey)) continue;
-          if (!await claimPushSlot(doc.id, dayKey, "nudge")) continue;
-          const {title, body} =
-            EVENING_REMINDER_MESSAGES[locale](roomName, part.gender);
-          for (const tokenDoc of tokensSnap.docs) {
-            await admin.messaging().send({
-              token: tokenDoc.id,
-              notification: {title, body},
-              data: {
-                roomCode: roomDoc.id,
-                type: "roomFinish",
-                event: "eveningReminder",
-              },
-              apns: {payload: {aps: {sound: "default"}}},
-            }).then(() => {
-              sent++;
-            }).catch((err) => {
-              const code = err && err.code;
-              if (
-                code === "messaging/registration-token-not-registered" ||
-                code === "messaging/invalid-registration-token"
-              ) {
-                return tokenDoc.ref.delete().catch(() => {});
-              }
-              logger.warn("evening reminder push failed", {code, uid: doc.id});
-              return null;
-            });
-          }
-        }
-      }
-      logger.info("roomEveningReminder swept", {
-        rooms: roomsSnap.size,
-        sent,
-      });
-    });
 
 // ── Rooms health sweep ─────────────────────────────────────────────────────
 //
-// Once a day, every active room is checked for the two ways a room quietly
+// Once a week, every active room is checked for the two ways a room quietly
 // stops telling the truth (room_health.js has the rules and the story):
 //
 //  1. A pause span that reaches today or later. Clipped to yesterday on
@@ -934,10 +787,11 @@ exports.roomEveningReminder = onSchedule(
 // The sweep is a scheduled function rather than a Firestore trigger for
 // the reason at the top of this file: this project cannot create Eventarc
 // resources in me-central2, so nothing can watch rooms/{code} for writes.
-// Daily at 04:00 in Bahrain, the app's home timezone, when yesterday is
+// Mondays at 04:00 in Bahrain, the app's home timezone, when yesterday is
 // still open (the day rolls at midnight and stays payable until 10:00) and
 // the day before is fully closed, which is why the undercount check stops
-// two days back.
+// two days back. HEALTH_LOOKBACK_DAYS is wider than the weekly gap, so a
+// day is never skipped between runs.
 const HEALTH_TZ = "Asia/Bahrain";
 const HEALTH_LOOKBACK_DAYS = 10;
 
@@ -953,7 +807,12 @@ function healthKeyOf(v) {
 }
 
 exports.roomsHealthSweep = onSchedule(
-    {schedule: "every day 04:00", timeZone: HEALTH_TZ},
+    // Weekly, not daily. Nothing here is user-facing: it clips a pause span
+    // no current build can even write, and otherwise only LOGS undercounts
+    // with the admin command that fixes them. A daily run of a diagnostic
+    // nobody reads daily is seven reads of every room for one look. The
+    // lookback below is wider than the gap, so nothing falls through.
+    {schedule: "every monday 04:00", timeZone: HEALTH_TZ},
     async () => {
       const todayKey = todayKeyIn(Date.now(), HEALTH_TZ);
       // The newest day that has fully closed: not today, not yesterday

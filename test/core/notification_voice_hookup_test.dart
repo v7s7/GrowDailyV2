@@ -354,16 +354,26 @@ void main() {
     return DateTime(at.year, at.month, at.day, at.hour, at.minute);
   }
 
-  group('the evening streak note, where it is armed', () {
-    Future<void> recompute({required bool earned, required DateTime now}) =>
-        NotificationService.instance.scheduleStreakRiskCheck(
-          settings: settings,
+  // ONE evening notification, id 1010. The streak ask, the daily reminder's
+  // board line and the quit habits' check-ins are sentences inside it now,
+  // not three notifications inside half an hour — see scheduleEveningNote.
+  group('the evening note, where it is armed', () {
+    Future<void> recompute({
+      required bool earned,
+      required DateTime now,
+      NotificationSettings? with_,
+      List<QuitCheckInInput> quit = const [],
+    }) =>
+        NotificationService.instance.scheduleEveningNote(
+          settings: with_ ?? settings,
+          hour: 20,
+          minute: 30,
           streak: 7,
           streakEarnedToday: earned,
-          doneHabitCount: 2,
-          pendingHabitCount: 3,
+          done: 2,
+          total: 5,
           pendingBuildHabitCount: 3,
-          urgentMatrixCount: 0,
+          quitHabits: quit,
           isAr: true,
           now: now,
         );
@@ -371,7 +381,7 @@ void main() {
     test('with the point still open, armed once for 20:30 tonight', () async {
       final sixPm = fridayAhead(18);
       await recompute(earned: false, now: sixPm);
-      final note = armedUnder(8000).single;
+      final note = armedUnder(1010).single;
       expect(note['title'], 'سلسلتك ماشية ٧ أيام');
       expect(note['body'], '٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام.');
       expect(
@@ -381,18 +391,89 @@ void main() {
       expect(note.containsKey('matchDateTimeComponents'), isFalse);
     });
 
-    test("once today's point is earned, the note waiting is cleared",
-        () async {
+    // The whole point of the merge: the board is counted ONCE.
+    test('one banner, never the streak note beside the board line', () async {
+      await recompute(earned: false, now: fridayAhead(18));
+      expect(
+        pending.where((id) => id == 1010 || id == 8000).toSet(),
+        {1010},
+        reason: 'the tester of 2026-09-13 had «٤ من ١١ خلّصت» twice, at '
+            '20:00 and again at 20:33',
+      );
+    });
+
+    // A quit habit is a sentence in the same banner, not one banner each.
+    test('quit habits ride along in the one note', () async {
+      await recompute(
+        earned: false,
+        now: fridayAhead(18),
+        quit: [
+          (id: 'a', name: 'تدخين', isLimit: false, isResolvedToday: false),
+          (id: 'b', name: 'قهوة', isLimit: true, isResolvedToday: false),
+        ],
+      );
+      final note = armedUnder(1010).single;
+      expect(note['body'], endsWith('وعندك عادتين تسجّلهن، التزام أو زلة.'));
+      expect(
+        pending.where((id) => id >= 70000 && id < 71000),
+        isEmpty,
+        reason: 'two quit habits used to mean two more banners, both '
+            'stamped the same minute as the streak note',
+      );
+    });
+
+    // With exactly one waiting, the banner keeps that habit's two buttons,
+    // so the day can still be settled without opening the app.
+    test('a lone quit habit keeps its actions and its payload', () async {
+      await recompute(
+        earned: false,
+        now: fridayAhead(18),
+        quit: [
+          (id: 'habit-a', name: 'تدخين', isLimit: false, isResolvedToday: false),
+        ],
+      );
+      final note = armedUnder(1010).single;
+      expect(note['body'], endsWith('و«تدخين»: التزمت اليوم؟'));
+      expect(note['payload'], 'habit-a');
+    });
+
+    test("once today's point is earned, the streak ask gives way to the "
+        'board line', () async {
+      final sixPm = fridayAhead(18);
+      await recompute(earned: true, now: sixPm);
+      final note = armedUnder(1010).single;
+      expect(note['title'], 'يومك ماشي عدل');
+      expect(
+        note['body'],
+        contains('٢ من ٥ خلّصت'),
+        reason: 'what is left today is still true and still worth one note',
+      );
+    });
+
+    test('with the whole board done and nothing to ask, the note waiting is '
+        'cleared', () async {
       final sixPm = fridayAhead(18);
       await recompute(earned: false, now: sixPm);
-      expect(pending, contains(8000));
+      expect(pending, contains(1010));
       notificationCalls.clear();
-      await recompute(earned: true, now: sixPm);
-      expect(armedUnder(8000), isEmpty);
+      await NotificationService.instance.scheduleEveningNote(
+        settings: settings,
+        hour: 20,
+        minute: 30,
+        streak: 7,
+        streakEarnedToday: true,
+        done: 5,
+        total: 5,
+        pendingBuildHabitCount: 0,
+        isAr: true,
+        now: sixPm,
+      );
+      expect(armedUnder(1010), isEmpty);
       expect(
         cancelled(),
-        contains(8000),
-        reason: 'a note armed before the point landed must not go out',
+        contains(1010),
+        reason: 'a banner counting «٢ من ٥» must not fire once the board is '
+            'finished',
       );
     });
 
@@ -408,71 +489,103 @@ void main() {
         resolvedCountryCode: 'BH',
       );
       Future<void> recomputeQuiet(DateTime now) =>
-          NotificationService.instance.scheduleStreakRiskCheck(
-            settings: quiet,
-            streak: 7,
-            streakEarnedToday: false,
-            doneHabitCount: 2,
-            pendingHabitCount: 3,
-            pendingBuildHabitCount: 3,
-            urgentMatrixCount: 0,
-            isAr: true,
-            now: now,
-          );
+          recompute(earned: false, now: now, with_: quiet);
 
       final sixPm = fridayAhead(18);
       await recompute(earned: false, now: sixPm);
-      expect(pending, contains(8000));
+      expect(pending, contains(1010));
       notificationCalls.clear();
       await recomputeQuiet(sixPm);
-      expect(armedUnder(8000), isEmpty);
+      expect(armedUnder(1010), isEmpty);
       expect(
         cancelled(),
-        contains(8000),
+        contains(1010),
         reason: 'quiet hours now cover 20:30 and it had not gone out yet',
       );
 
       // The same window edited after the note went out at 20:30.
       await recompute(earned: false, now: sixPm);
-      pending.remove(8000);
+      pending.remove(1010);
       notificationCalls.clear();
       await recomputeQuiet(fridayAhead(21));
       expect(
         cancelled(),
-        isNot(contains(8000)),
+        isNot(contains(1010)),
         reason: 'a delivered note was true when it came and stays on the list',
+      );
+    });
+
+    // The seven weekday fallbacks sit at the note's own minute, so the same
+    // window covers them. Leaving them armed would answer one setting two
+    // ways: silent tonight, generic line next Tuesday at the same time.
+    test('quiet hours take the weekday fallbacks with the note', () async {
+      const quiet = NotificationSettings(
+        quietHoursEnabled: true,
+        quietHoursStart: TimeOfDay(hour: 20, minute: 0),
+        quietHoursEnd: TimeOfDay(hour: 7, minute: 0),
+        location: _manama,
+        resolvedCountryCode: 'BH',
+      );
+      await recompute(earned: false, now: fridayAhead(18));
+      expect(
+        pending.where((id) => id > 1000 && id <= 1007),
+        isNotEmpty,
+        reason: 'armed while the window did not reach 20:30',
+      );
+      notificationCalls.clear();
+      await recompute(earned: false, now: fridayAhead(18), with_: quiet);
+      expect(
+        pending.where((id) => id > 1000 && id <= 1007),
+        isEmpty,
+        reason: 'the window now covers 20:30, on every weekday',
       );
     });
 
     test('after 20:30: never armed for tomorrow, and a delivered note stays',
         () async {
       await recompute(earned: false, now: fridayAhead(18));
-      expect(pending, contains(8000));
+      expect(pending, contains(1010));
       // 20:30 came and went: the note is delivered, so it is not pending.
-      pending.remove(8000);
+      pending.remove(1010);
       notificationCalls.clear();
       await recompute(earned: false, now: fridayAhead(21));
       expect(
-        armedUnder(8000),
+        armedUnder(1010),
         isEmpty,
         reason: "tomorrow's note must not carry today's counts",
       );
       expect(
         cancelled(),
-        isNot(contains(8000)),
+        isNot(contains(1010)),
         reason: 'it went out at 20:30, and the plugin cancel would take it '
             'off the notification list as well',
       );
 
       // The same recompute, with the note somehow still waiting, clears it.
-      pending.add(8000);
+      pending.add(1010);
       notificationCalls.clear();
       await recompute(earned: false, now: fridayAhead(21));
-      expect(cancelled(), contains(8000));
+      expect(cancelled(), contains(1010));
+    });
+
+    // Every pass clears the ids the merge retired, so a phone upgrading
+    // from a build that armed them does not keep hearing them tonight.
+    test('the retired streak and quit ids are swept', () async {
+      NotificationService.instance.debugResetRetiredEveningSweep();
+      pending..add(8000)..add(70123);
+      await recompute(earned: false, now: fridayAhead(18));
+      expect(cancelled(), containsAll([8000, 70123]));
+
+      // And only once per app run: nothing in this build can arm either id
+      // again, so a later recompute must not spend another pending read.
+      pending..add(8000)..add(70123);
+      notificationCalls.clear();
+      await recompute(earned: false, now: fridayAhead(18));
+      expect(cancelled(), isNot(contains(70123)));
     });
   });
 
-  group('the Friday note, where it is armed', () {
+  group("the week's note, where it is armed", () {
     const top = (name: 'أذكار الصباح', greenDays: 5, isQuit: false);
     final repeat = weeklyRepeatCopy(longestStreak: 14, isAr: true);
 
@@ -485,7 +598,7 @@ void main() {
           now: now,
         );
 
-    test('Friday before 19:00: this week counted once, and no weekly repeat',
+    test('on Friday: the sealing week counted once, and no weekly repeat',
         () async {
       final friday = fridayAhead(15);
       // A repeat left armed by a recompute on an earlier week. It is
@@ -499,16 +612,18 @@ void main() {
       expect(numbered['title'], 'أذكار الصباح');
       expect(
         numbered['body'],
-        '٥ أيام خضرا هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.',
+        '٥ أيام خضرا في أسبوعك 👏🏼 واليوم يبدأ أسبوع جديد.',
       );
       expect(
         firesAt(numbered),
-        DateTime(friday.year, friday.month, friday.day, 19),
+        DateTime(friday.year, friday.month, friday.day + 1, 10),
+        reason: 'the week seals at the day cutoff on Saturday, and only '
+            'then can its count no longer move',
       );
       expect(
         numbered.containsKey('matchDateTimeComponents'),
         isFalse,
-        reason: "a repeat would say this week's count every Friday after",
+        reason: "a repeat would say this week's count every week after",
       );
 
       for (var k = 0; k < NotificationService.kWeeklyRepeatFridaysAhead; k++) {
@@ -517,7 +632,7 @@ void main() {
         expect(ahead['body'], repeat.body);
         expect(
           firesAt(ahead),
-          DateTime(friday.year, friday.month, friday.day + 7 * (k + 1), 19),
+          DateTime(friday.year, friday.month, friday.day + 1 + 7 * (k + 1), 10),
         );
         expect(ahead.containsKey('matchDateTimeComponents'), isFalse);
       }
@@ -536,17 +651,19 @@ void main() {
       );
     });
 
-    test('Friday after 19:00: only the claim-free weekly repeat', () async {
-      final friday = fridayAhead(19, 30);
-      // This afternoon's recompute armed both one-shots, and 19:00 has
+    test('Saturday after 10:00: only the claim-free weekly repeat', () async {
+      final friday = fridayAhead(15);
+      final saturday =
+          DateTime(friday.year, friday.month, friday.day + 1, 11);
+      // Friday's recompute armed both one-shots, and Saturday 10:00 has
       // since delivered the numbered one, so it is no longer pending.
-      await recompute(fridayAhead(15));
+      await recompute(friday);
       pending.remove(9001);
       notificationCalls.clear();
-      await recompute(friday);
+      await recompute(saturday);
 
       final weekly = armedUnder(9000).single;
-      expect(weekly['title'], 'أسبوع جديد باجر');
+      expect(weekly['title'], 'أسبوع جديد بدأ');
       expect(
         weekly['body'],
         'سبق ووصلت ١٤ يوم ورا بعض 👏🏼 ومربع واحد يفتح الأسبوع.',
@@ -557,20 +674,20 @@ void main() {
       );
       expect(
         firesAt(weekly),
-        DateTime(friday.year, friday.month, friday.day + 7, 19),
+        DateTime(saturday.year, saturday.month, saturday.day + 7, 10),
       );
       expect(armedUnder(9001), isEmpty);
       expect(
         cancelled(),
         isNot(contains(9001)),
-        reason: 'delivered at 19:00, and clearing it would take it out of '
+        reason: 'delivered at 10:00, and clearing it would take it out of '
             'the notification list',
       );
       expect(
         cancelled().where((id) => id >= 9000 && id < 9010).toSet(),
         {9002},
         reason: 'the claim-free one-shot behind it was still waiting, and '
-            'two copies must not be armed for one 19:00',
+            'two copies must not be armed for one Saturday morning',
       );
     });
 
@@ -580,16 +697,17 @@ void main() {
       // afternoon armed both one-shots, 19:00 delivered the numbered one,
       // and the Friday after delivered 9002 with the app never opened in
       // between, so neither is pending any more.
-      await recompute(fridayAhead(15));
+      final friday = fridayAhead(15);
+      await recompute(friday);
       pending..remove(9001)..remove(9002);
       notificationCalls.clear();
-      await recompute(fridayAhead(19, 30));
+      await recompute(DateTime(friday.year, friday.month, friday.day + 1, 11));
 
       expect(
         cancelled().where((id) => id >= 9000 && id < 9010).toSet(),
         isEmpty,
         reason: 'delivered, and the plugin cancel would take «أسبوع جديد '
-            'باجر» off the notification list on the next app open',
+            'بدأ» off the notification list on the next app open',
       );
       // The weekly repeat still goes back up, which is the whole point of
       // this recompute.
@@ -636,31 +754,66 @@ void main() {
       expect(armedUnder(9000).single['body'], repeat.body);
       expect(cancelled(), containsAll([9001, 9002]));
 
-      // Back on this week before 19:00: the numbered copy again, with
+      // Back on this week, still Friday: the numbered copy again, with
       // nothing left over to fire beside it.
       notificationCalls.clear();
       await recompute(friday);
       expect(armedNoteIds(), {9001, 9002});
       expect(
         armedUnder(9001).single['body'],
-        '٥ أيام خضرا هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.',
+        '٥ أيام خضرا في أسبوعك 👏🏼 واليوم يبدأ أسبوع جديد.',
       );
       expect(cancelled(), contains(9000));
     });
+
+    // Saturday morning is the one window where the Grid has already rolled
+    // to the NEW week, so nothing this pass can read still counts the week
+    // the armed note is about. It holds rather than overwriting it.
+    test('Saturday before 10:00 leaves what Friday armed alone', () async {
+      final friday = fridayAhead(15);
+      await recompute(friday);
+      expect(
+        pending.where((id) => id >= 9000 && id < 9010).toSet(),
+        {9001, 9002},
+      );
+      notificationCalls.clear();
+      // The Grid is on the new week now, so topHabit is null — the reading
+      // that would otherwise swap in the claim-free copy.
+      await NotificationService.instance.scheduleWeeklyDigest(
+        settings: settings,
+        topHabit: null,
+        longestStreak: 14,
+        isAr: true,
+        now: DateTime(friday.year, friday.month, friday.day + 1, 8),
+      );
+      expect(
+        [
+          for (final c in notificationCalls)
+            if (c.method != 'pendingNotificationRequests') c.method,
+        ],
+        isEmpty,
+        reason: 'arming the repeat for this same 10:00 would land a second '
+            'banner beside the numbered one it stands in for',
+      );
+    });
   });
 
-  group("the daily reminder's own line", () {
+  group("the evening note's own line", () {
     // Nothing is owed once the whole board is done, so there is no line to
-    // arm tonight (dailyReminderLine returns null at done == total) and
-    // scheduleDailyReminder takes its clearing path. The same path covers
-    // the reminder's time having passed and no state ever being reported.
+    // arm tonight (eveningNoteLine returns null at done == total, with no
+    // quit habit waiting) and scheduleEveningNote takes its clearing path.
+    // The same path covers the note's time having passed and no state ever
+    // being reported.
     Future<void> recomputeWithNothingOwed() =>
-        NotificationService.instance.scheduleDailyReminder(
+        NotificationService.instance.scheduleEveningNote(
+          settings: settings,
           hour: 20,
           isAr: true,
           done: 5,
           total: 5,
           streak: 7,
+          streakEarnedToday: true,
+          pendingBuildHabitCount: 0,
         );
 
     test("tonight's line is cleared while waiting, and left once delivered",

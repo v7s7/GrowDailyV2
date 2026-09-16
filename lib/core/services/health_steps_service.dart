@@ -1,7 +1,11 @@
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter/services.dart'
+    show MethodChannel, MissingPluginException, PlatformException;
 
 import 'package:health/health.dart';
+
+import '../extensions/datetime_ext.dart';
 
 /// Why [HealthStepsService] could not produce a step count — every case the
 /// caller shows some explanation for, mirroring [DeviceLocationFailure].
@@ -42,6 +46,24 @@ class HealthStepsOutcome {
   bool get isSuccess => steps != null;
 }
 
+/// A run of days' step totals, or why there are none: [HealthStepsOutcome]
+/// for [HealthStepsService.stepsForDays].
+class HealthStepsRangeOutcome {
+  /// Date key to that day's total, one entry for every day asked for, zeros
+  /// included. What a zero means is the caller's question, exactly as for a
+  /// single day (see [HealthStepsService.stepsForDay]).
+  final Map<String, int>? steps;
+  final HealthStepsFailure? failure;
+
+  const HealthStepsRangeOutcome._({this.steps, this.failure});
+
+  factory HealthStepsRangeOutcome.success(Map<String, int> steps) =>
+      HealthStepsRangeOutcome._(steps: steps);
+
+  factory HealthStepsRangeOutcome.failed(HealthStepsFailure reason) =>
+      HealthStepsRangeOutcome._(failure: reason);
+}
+
 /// Read-only bridge to the platform step counter: Apple Health on iOS
 /// (which already aggregates iPhone and Apple Watch, deduplicated by the
 /// OS), Health Connect on Android. One data type (STEPS), one permission
@@ -56,6 +78,9 @@ class HealthStepsService {
 
   final Health _health = Health();
   bool _configured = false;
+
+  /// The app's own HealthKit day query, ios/Runner/HealthStepsBridge.swift.
+  static const _dayChannel = MethodChannel('com.growdaily.v2/health_steps');
 
   static const _types = [HealthDataType.STEPS];
   static const _permissions = [HealthDataAccess.READ];
@@ -72,6 +97,9 @@ class HealthStepsService {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   static bool get usesHealthConnect => _isAndroid;
+
+  static bool get _isIOS =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   Future<void> _ensureConfigured() async {
     if (_configured) return;
@@ -147,8 +175,9 @@ class HealthStepsService {
   /// which graded Tuesday's walk against Wednesday's near-zero in the hours
   /// after midnight (seen live at 12:23 AM). The caller passes the day it
   /// wants; the platform's own counter resets at calendar midnight, so a
-  /// past day always comes back final and a fresh read of it can only ever
-  /// confirm what was already measured.
+  /// past day comes back final. Final is not frozen, though: a Watch that
+  /// syncs late, or an entry somebody deletes in the Health app, still moves
+  /// a past day's total, and a fresh read is how the app follows it.
   ///
   /// Note the day this is asked for is a CALENDAR day even though a habit-day
   /// stays markable until kDayCutoffHour the next morning
@@ -169,8 +198,84 @@ class HealthStepsService {
   /// steps yet" (Apple hides which), so it resolves to a zero-step success
   /// here and the surfaces that show it say so in words rather than
   /// asserting a cause they cannot know. Android has no such excuse and
-  /// reports the refusal properly — see the branch below.
+  /// reports the refusal properly — see [_pluginStepsForDay].
+  ///
+  /// On iOS the total comes from [stepsForDays]'s own HealthKit query rather
+  /// than the plugin's, because the plugin's is not the query the Health app
+  /// runs and can land a few steps away from it (see HealthStepsBridge.swift).
   Future<HealthStepsOutcome> stepsForDay(DateTime day) async {
+    final range = await stepsForDays(day, 1);
+    final failure = range.failure;
+    if (failure != null) return HealthStepsOutcome.failed(failure);
+    return HealthStepsOutcome.success(range.steps!.values.single);
+  }
+
+  /// The step total of each of [days] calendar days starting with the one
+  /// containing [first], keyed by date key.
+  ///
+  /// Built for showing a past day's count, which is only worth showing if it
+  /// is the count the Health app shows for that day ("it should match the
+  /// health app 100%", Aziz, 2026-09-16). On iOS this is ONE query for the
+  /// whole run, through ios/Runner/HealthStepsBridge.swift, which asks
+  /// HealthKit the way the Health app does: calendar-day buckets from local
+  /// midnight, iPhone and Watch merged by HealthKit itself, the total rounded
+  /// rather than cut. Android has no such query to mirror, and Health
+  /// Connect's aggregate is already its own merged total, so there it is one
+  /// plugin read per day.
+  ///
+  /// All or nothing: one day that cannot be read fails the run, because a
+  /// caller that got six days back and one missing could not tell the missing
+  /// one from a day with no steps.
+  Future<HealthStepsRangeOutcome> stepsForDays(DateTime first, int days) async {
+    final start = DateTime(first.year, first.month, first.day);
+    // Same calendar arithmetic as the day ends in _pluginStepsForDay: the
+    // Nth day after start is DateTime(y, m, d + N), never start plus N times
+    // 24 hours, which lands an hour off on a daylight-saving day.
+    DateTime dayAt(int offset) =>
+        DateTime(start.year, start.month, start.day + offset);
+    if (days <= 0) return HealthStepsRangeOutcome.success(const {});
+    if (_isIOS) {
+      try {
+        final totals = await _dayChannel.invokeListMethod<int>('stepsByDay', {
+          'year': start.year,
+          'month': start.month,
+          'day': start.day,
+          'days': days,
+        });
+        if (totals == null || totals.length != days) {
+          return HealthStepsRangeOutcome.failed(
+            HealthStepsFailure.unavailable,
+          );
+        }
+        return HealthStepsRangeOutcome.success({
+          for (var i = 0; i < days; i++) dayAt(i).toDateKey(): totals[i],
+        });
+      } on MissingPluginException {
+        // A Dart bundle running on a binary built before the bridge existed
+        // (a hot restart onto an old install). The plugin's read is a few
+        // steps less faithful and otherwise the same, so fall through to it
+        // rather than showing nothing.
+      } on PlatformException {
+        // HealthKit refused the query, most often because the phone is
+        // locked and its store encrypted. A failed read, never a zero.
+        return HealthStepsRangeOutcome.failed(HealthStepsFailure.unavailable);
+      } catch (_) {
+        return HealthStepsRangeOutcome.failed(HealthStepsFailure.unavailable);
+      }
+    }
+    final out = <String, int>{};
+    for (var i = 0; i < days; i++) {
+      final outcome = await _pluginStepsForDay(dayAt(i));
+      final failure = outcome.failure;
+      if (failure != null) return HealthStepsRangeOutcome.failed(failure);
+      out[dayAt(i).toDateKey()] = outcome.steps!;
+    }
+    return HealthStepsRangeOutcome.success(out);
+  }
+
+  /// One calendar day through the health plugin: Health Connect's aggregate
+  /// on Android, and the fallback on iOS when the app's own query is missing.
+  Future<HealthStepsOutcome> _pluginStepsForDay(DateTime day) async {
     try {
       await _ensureConfigured();
       if (_isAndroid && !await _health.isHealthConnectAvailable()) {

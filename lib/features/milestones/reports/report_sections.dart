@@ -959,9 +959,12 @@ class _MatrixCell extends StatelessWidget {
           false,
         ),
       // Rest reads as deliberate, not as a hole: a filled, calm tone rather
-      // than an empty outline.
+      // than an empty outline. NEUTRAL rather than the gold it used to be:
+      // this cell is a تخطّي, which earns nothing and costs nothing, and a
+      // reward colour claimed something the day never paid. Same ink the
+      // Grid square and the room surfaces use, so one act has one colour.
       MatrixCellState.rest => (
-          GameColors.gold.withOpacity(0.16),
+          SquareState.skipped.fill(gp.dark),
           null,
           false,
         ),

@@ -26,13 +26,22 @@ void main() {
       expect(stepsMapWith(const {today: 4000}, today, 9000), {today: 9000});
     });
 
-    test('a SMALLER count for the same day is refused', () {
+    test('a ZERO for a day already measured is refused', () {
       // The bug this exists for: on iOS a refused read is indistinguishable
       // from a quiet morning and arrives as a well-formed zero. Letting one
       // land on a day already measured is what turned 9,000 steps into "you
       // never walked".
       expect(stepsMapWith(const {today: 9000}, today, 0), {today: 9000});
-      expect(stepsMapWith(const {today: 9000}, today, 4000), {today: 9000});
+      expect(stepsMapWith(const {today: 9000}, today, -1), {today: 9000});
+    });
+
+    test('a smaller POSITIVE count replaces it, because Health lowered it', () {
+      // Since 2026-09-16 the board shows the count and it has to match the
+      // Health app. A refusal can only ever produce a zero, so a smaller
+      // positive number is Health's own answer: a Watch that synced late and
+      // re-merged the day, or an entry deleted in Health. Refusing it kept
+      // the higher number on the board for good.
+      expect(stepsMapWith(const {today: 9000}, today, 8420), {today: 8420});
     });
 
     test('the same count changes nothing, and says so by identity', () {
@@ -54,6 +63,45 @@ void main() {
         5000,
       );
       expect(next, {'2026-09-08': 12000, today: 5000});
+    });
+  });
+
+  group('stepsLogToSave', () {
+    final now = DateTime(2026, 9, 16, 12);
+
+    test('a save that knows only a few days keeps the rest of the log', () {
+      // A held square's fresh read can publish before the stored log has
+      // been merged into memory. Saving memory alone would replace sixty
+      // days on disk with the one day just read.
+      expect(
+        stepsLogToSave(
+          stored: const {'2026-09-01': 7000, '2026-09-14': 9000},
+          memory: const {'2026-09-15': 5480},
+          now: now,
+        ),
+        {'2026-09-01': 7000, '2026-09-14': 9000, '2026-09-15': 5480},
+      );
+    });
+
+    test('memory wins a day both hold, including a count Health lowered', () {
+      expect(
+        stepsLogToSave(
+          stored: const {'2026-09-14': 9000},
+          memory: const {'2026-09-14': 8420},
+          now: now,
+        ),
+        {'2026-09-14': 8420},
+      );
+    });
+
+    test('still pruned', () {
+      final saved = stepsLogToSave(
+        stored: const {'2026-06-01': 7000},
+        memory: const {'2026-09-17': 100},
+        now: now,
+      );
+      expect(saved, isEmpty,
+          reason: 'older than the kept window, and a future day');
     });
   });
 

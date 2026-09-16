@@ -1,0 +1,12 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "title": "Board: count in each square", "x": 0, "y": 0, "w": 402, "h": 300 },
+    { "file": "HoldSheet.dc.html", "title": "Hold a square: exact count", "x": 482, "y": 0, "w": 402, "h": 874 },
+    { "file": "Placements.dc.html", "title": "Where the number sits", "x": 964, "y": 0, "w": 402, "h": 560 }
+  ],
+  "annotations": [
+    { "id": "number-rule", "x": 0, "y": 380, "w": 402, "text": "Short count on the board\n\nUnder 1,000: the exact number (950).\n1,000 to 9,999: one decimal, rounded DOWN (9,960 shows 9.9k, so a square never reads 10k before the goal is really met).\n10,000 and up: whole thousands, rounded down (12,640 shows 12k).\nNo reading, or zero: the square stays empty.\n\nGoal in this mockup: 8,000. Sat 9,120 green, Sun 3,210 under half, Mon 10,240 blue, Tue 5,480 half, Wed (today) 2,730 so far." },
+    { "id": "health-match", "x": 0, "y": 640, "w": 402, "text": "Matching Apple Health\n\nThe sheet reads that one day fresh from Apple Health the moment it opens: midnight to midnight, the same merged iPhone + Watch total the Health app shows. The board shows the last reading and refreshes the visible week each time the app opens. Android reads Health Connect the same way." }
+  ],
+  "launch": { "view": "canvas" }
+}

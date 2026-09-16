@@ -65,13 +65,15 @@ test("no reported offset means nothing can be judged, so it is not quiet", () =>
       false);
 });
 
-test("the four pushes split into a heads-up, a nudge and a celebration", () => {
+test("the three pushes split into a heads-up, a nudge and a celebration", () => {
   assert.equal(pushKindFor("firstToday"), "info");
   assert.equal(pushKindFor("perfect"), "celebrate");
   assert.equal(pushKindFor("lastOne"), "nudge");
-  assert.equal(pushKindFor("eveningReminder"), "nudge");
   assert.equal(pushKindFor("somethingNew"), "info",
       "an event nobody classified gets the plain heads-up slot");
+  assert.equal(pushKindFor("eveningReminder"), "info",
+      "the evening reminder was removed on 2026-09-16; an event this file " +
+      "no longer knows falls back to the heads-up slot like any other");
 });
 
 test("one of each kind a day, and none crowds out another", () => {

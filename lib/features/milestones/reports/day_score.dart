@@ -39,8 +39,8 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../grid/models/square_state.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
+import '../../habits/models/habit_day_demand.dart';
 import 'habit_day_marks.dart';
-import 'report_period.dart' show missIsAttributable;
 
 /// What one day asked for and what it got.
 ///
@@ -164,16 +164,23 @@ DayScore dayScoreFor({
   DateTime? now,
 }) {
   final key = day.toDateKey();
+  final isGreen = greenFromMirror(history);
   final everyId = <String>{};
   final dueIds = <String>{};
   for (final habit in habits) {
     everyId.add(habit.id);
-    // missIsAttributable is what keeps a quota habit ("three times a week,
-    // any three") out of a PER-DAY denominator: nobody owed Tuesday in
-    // particular, so a blank Tuesday is not a miss. Sharing the predicate
-    // with expectedCompletions is what stops this file and the reports hub
-    // disagreeing about which habits have day-level obligations.
-    if (missIsAttributable(habit) && habit.isScheduledFor(day)) {
+    // [habitOwesDay] is what gets a quota habit ("three times a week, any
+    // three") into a PER-DAY denominator on the right days and no others.
+    //
+    // This used to be `missIsAttributable`, which kept a quota habit out of
+    // every day: safe against false misses, but it also meant a week where
+    // the target became unreachable printed a chart of untroubled days while
+    // the Grid beside it painted red squares on the days that broke it. The
+    // week-level arithmetic in expectedCompletions still counts a quota week
+    // as a week; this counts the same shortfall day by day, and
+    // weeklyQuotaDemand guarantees the two add up to the same number of
+    // missed sessions.
+    if (habitOwesDay(habit: habit, day: day, isGreen: isGreen)) {
       dueIds.add(habit.id);
     }
   }
@@ -255,10 +262,11 @@ List<IslamicHabitTemplate> silentHabitsOn({
   required DateTime day,
 }) {
   final key = day.toDateKey();
+  final isGreen = greenFromMirror(history);
   final out = <IslamicHabitTemplate>[];
   final seen = <String>{};
   for (final habit in habits) {
-    if (!missIsAttributable(habit) || !habit.isScheduledFor(day)) continue;
+    if (!habitOwesDay(habit: habit, day: day, isGreen: isGreen)) continue;
     if (!seen.add(habit.id)) continue;
     final mark = history[habit.id]?[key] ?? SquareState.none;
     if (mark != SquareState.none) continue;

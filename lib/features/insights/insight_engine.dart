@@ -1,6 +1,7 @@
 import '../../core/extensions/datetime_ext.dart';
 import '../grid/models/square_state.dart';
 import '../habits/catalog/islamic_habit_catalog.dart';
+import '../habits/models/habit_day_demand.dart';
 
 /// One habit's aggregated record over the analysis window — scheduled vs
 /// completed, overall and per weekday (DateTime.monday..sunday keys).
@@ -141,11 +142,35 @@ InsightsResult computeInsights({
   final patterns = {for (final h in habits) h.id: HabitPattern(h.id)};
   final byId = {for (final h in habits) h.id: h};
 
+  // Which sessions a flexible weekly quota banked, so [habitOwesDay] can tell
+  // its rest days from the days it really owed. Without this a 4x-a-week habit
+  // was measured against all seven days of every week and could never read
+  // above 57%, which named it as the one "needing a push" for doing exactly
+  // what it promised.
+  //
+  // Read from [days] alone, so a week only partly inside the window is missing
+  // the sessions that fell outside it and can show an owed day that was really
+  // spare. It errs at the window's first week and nowhere else; every whole
+  // week in it is exact.
+  final greenIdsByDay = <String, Set<String>>{};
+  for (final (day, doc) in days) {
+    final states = (doc['squareStates'] as Map?) ?? const {};
+    final completions = (doc['habitCompletions'] as Map?) ?? const {};
+    greenIdsByDay[day.toDateKey()] = {
+      for (final h in habits)
+        if (SquareState.fromJson(states[h.id]?.toString()).isGreen ||
+            (completions[h.id] is num && (completions[h.id] as num) > 0))
+          h.id,
+    };
+  }
+  bool isGreen(String habitId, DateTime day) =>
+      greenIdsByDay[day.toDateKey()]?.contains(habitId) ?? false;
+
   for (final (day, doc) in days) {
     final rawStates = (doc['squareStates'] as Map?) ?? const {};
     final rawCompletions = (doc['habitCompletions'] as Map?) ?? const {};
     for (final h in habits) {
-      if (!h.isScheduledFor(day)) continue;
+      if (!habitOwesDay(habit: h, day: day, isGreen: isGreen)) continue;
       final p = patterns[h.id]!;
       final sq = SquareState.fromJson(rawStates[h.id]?.toString());
       if (sq == SquareState.skipped) continue;

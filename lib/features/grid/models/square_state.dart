@@ -130,13 +130,20 @@ enum SquareState {
   /// theme and drop under AA on the light one. Same rule as
   /// [Mood.visual]; the sibling method below already took [dark] for its
   /// fills.
+  /// The app's own secondary text ink, which is the one neutral already
+  /// proven to read on both modes' surfaces. [skipped] is drawn from it so a
+  /// rest the person CHOSE stays neutral, follows every preset, and never
+  /// needs a grey of its own invented and kept in sync.
+  static Color _neutralInk(bool dark) =>
+      dark ? GameColors.textSecondary : GameColors.lightTextSecondary;
+
   Color accent(bool dark) => switch (this) {
         none => const Color(0xFF9AA397),
         partial => GameColors.warning,
         complete => GameColors.emeraldInkFor(dark),
         failed => GameColors.error,
         bonus => GameColors.iconXpFor(dark),
-        skipped => const Color(0xFF8C9A92),
+        skipped => _neutralInk(dark),
       };
 
   // Dark-mode fill for the empty state — deliberately flat, hue-free gray,
@@ -171,8 +178,34 @@ enum SquareState {
         complete => GameColors.emerald.withOpacity(dark ? 0.34 : 0.26),
         failed => GameColors.error.withOpacity(dark ? 0.30 : 0.22),
         bonus => GameColors.iconXp.withOpacity(dark ? 0.32 : 0.24),
-        skipped => (dark ? const Color(0xFF3A463F) : const Color(0xFFDCD5C5))
-            .withOpacity(dark ? 0.6 : 1),
+        // Neutral, because neutral is what a تخطّي is WORTH. It earns
+        // nothing and it costs nothing: no credit, and never counted against
+        // you. Gold said "reward" over a day that pays none, and the emerald
+        // family says "credited", which only the schedule's own rest day is.
+        //
+        // FLAT, OPAQUE and hue-free, on the same fixed scale as
+        // [_noneFillDark] rather than derived from the preset — and measured
+        // against that square, because its whole job is being distinguishable
+        // from it.
+        //
+        // Every other state on this board separates from empty by HUE:
+        // complete is 1.69:1 in dark and 1.02:1 in light, partial 1.71 and
+        // 1.05, failed 1.24 and 1.09. They read instantly anyway, because
+        // green, amber and red against a neutral need no help from
+        // brightness. Grey has no hue to spend, so it is the one fill that
+        // has to buy its separation with VALUE, and two earlier attempts
+        // priced it like a hued fill: the old grey-green sat 1.11:1 from
+        // empty, and a wash derived from the secondary ink sat 1.11:1 in
+        // dark and 1.00:1 in light, i.e. the same luminance.
+        //
+        // 1.81:1 rather than a textbook 3:1 is deliberate. In dark every
+        // fill is a wash over a near-black card, so a grey bright enough for
+        // 3:1 (#767676) would out-shout every complete square on the board
+        // and make rest days the loudest thing on it. #525252 sits level
+        // with the brightest complete square. The fill is one of three
+        // separators here, not the only one: the border carries 4.12:1 dark
+        // and 4.47:1 light, and the dash says the rest.
+        skipped => dark ? const Color(0xFF525252) : const Color(0xFFA6A6A6),
       };
 
   /// Border color for the square.

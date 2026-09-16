@@ -277,7 +277,9 @@ class MilestoneCelebration extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final bonus = milestoneXpBonus(milestone);
-    final title = s.milestoneTitle(milestone);
+    // null at the top of the ladder, where the closing line says so instead
+    // of pointing at a number that does not exist.
+    final next = nextStreakMilestone(milestone);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Center(
@@ -337,7 +339,7 @@ class MilestoneCelebration extends StatelessWidget {
               ).animate(delay: 320.ms).fadeIn().slideY(begin: 0.2),
               const SizedBox(height: 8),
               Text(
-                s.nowWarrior(title),
+                s.milestoneUnbroken,
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -347,7 +349,7 @@ class MilestoneCelebration extends StatelessWidget {
               ).animate(delay: 380.ms).fadeIn(),
               const SizedBox(height: 8),
               Text(
-                s.consistencyBuildsCharacter,
+                next == null ? s.milestoneLastStop : s.milestoneNextStop(next),
                 style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.5)),
                 textAlign: TextAlign.center,
               ).animate(delay: 420.ms).fadeIn(),

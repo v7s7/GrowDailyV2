@@ -61,6 +61,14 @@ class _GridTableState extends ConsumerState<_GridTable> {
       if (ctx != null && mounted) {
         Scrollable.ensureVisible(ctx, alignment: 1);
       }
+      // An older week's step squares carry the counts the log last saw, which
+      // can be short of Health's (a day stops being read once its square is
+      // marked). One fresh read the first time the week is shown this
+      // session; the current week is runStepAutoComplete's. Same once-per-week
+      // timing as the scroll above, for the same reason.
+      if (mounted) {
+        unawaited(refreshStepsForOlderWeek(ref, widget.state.days));
+      }
     });
   }
 
@@ -643,6 +651,17 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 scheduled: habit.isScheduledFor(day),
                 square: _effectiveSquare(habit, day, doneToday),
               );
+              // "8.4k" inside the square, so a week of walking reads at a
+              // glance instead of only through a held square (Aziz,
+              // 2026-09-16, design option A). Same count, same schedule gate
+              // as the fill above; see stepSquareCount for which marks keep
+              // their glyph instead.
+              final stepCount = stepSquareCount(
+                steps: steps,
+                goal: stepGoal,
+                scheduled: habit.isScheduledFor(day),
+                square: _effectiveSquare(habit, day, doneToday),
+              );
               // Hoisted so the marker and the spoken label cannot disagree.
               // trim() because clearing a note used to store '' rather than
               // deleting the key, so old days carry tombstones.
@@ -738,6 +757,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       ? (done: doneToday, target: habit.effectiveDailyTarget)
                       : null,
                   stepFraction: stepFraction,
+                  stepCount: stepCount,
                   hasNote: hasNote,
                   onTap: widget.selectionMode
                       ? null
@@ -1541,6 +1561,82 @@ Widget _levelFill({
       ),
     );
 
+/// The green square's one-shot celebration, which stops existing once it
+/// has run.
+///
+/// The shimmer itself is unchanged; what changed is that it used to be
+/// permanent. flutter_animate leaves its ShaderMask in the tree after the
+/// animation ends, and a ShaderMask is a saveLayer plus a gradient shader
+/// every time the square paints — so a well-filled board carried up to 84
+/// of them, forever, for a 450ms effect that had long since finished. They
+/// cost real raster time on a phone, which is what made a full board feel
+/// heavier to scroll than an empty one. Dropping the wrapper on completion
+/// leaves exactly the same pixels behind: the effect ends at full opacity,
+/// so the last shimmer frame and the bare square are identical.
+class _CelebrationShimmer extends StatefulWidget {
+  const _CelebrationShimmer({required this.square, required this.child});
+
+  final SquareState square;
+  final Widget child;
+
+  @override
+  State<_CelebrationShimmer> createState() => _CelebrationShimmerState();
+}
+
+class _CelebrationShimmerState extends State<_CelebrationShimmer> {
+  /// The square value the current celebration belongs to. Held rather than a
+  /// bare bool so a cell whose state lands on a NEW green (tapped, or the
+  /// week scrolled onto different data under the same element) celebrates
+  /// again, while one merely rebuilt for an unrelated reason does not.
+  SquareState? _celebratingFor;
+
+  @override
+  void initState() {
+    super.initState();
+    _celebratingFor = widget.square;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CelebrationShimmer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.square != oldWidget.square) _celebratingFor = widget.square;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_celebratingFor != widget.square) return widget.child;
+    return widget.child
+        .animate(
+          key: ValueKey(widget.square),
+          onComplete: (_) {
+            // Post-frame: onComplete fires during the animation's own build,
+            // and setState is not allowed to reenter that.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _celebratingFor = null);
+            });
+          },
+        )
+        .shimmer(
+          delay: 80.ms,
+          duration: 450.ms,
+          color: Colors.white.withOpacity(0.55),
+          // ShimmerEffect is NOT layout-neutral by default: it wraps the
+          // square in Padding(EdgeInsets.all(0.5)) — a full extra logical
+          // pixel of width/height per green square, for as long as the
+          // effect widget is in the tree. Measured live: every green
+          // square rendered 1pt wider than its empty neighbours, so a row
+          // accumulated +1pt of drift per green square and weekday columns
+          // visibly bent at exactly the well-filled rows — the more of the
+          // week done, the more broken the board looked. `padding: 0`
+          // opts out (the 0.5 default only softens a ShaderMask
+          // antialiasing artifact at the very edge, invisible on these
+          // rounded squares). Locked by the marked-squares case in
+          // grid_square_alignment_test.dart.
+          padding: 0,
+        );
+  }
+}
+
 class _SquareCell extends StatelessWidget {
   final double size;
   final DateTime day;
@@ -1607,6 +1703,16 @@ class _SquareCell extends StatelessWidget {
   /// the habit's actions sheet.
   final double? stepFraction;
 
+  /// A linked walking habit's count for this day, already shortened ("8.4k"),
+  /// or null for every other square.
+  ///
+  /// Drawn in the middle in place of the square's glyph: the colour still
+  /// says what the walk earned, the number says how much it was. The fill
+  /// under it keeps its colour and loses its 1pt waterline, which would
+  /// otherwise run straight through the digits whenever the walk sat near
+  /// half. The exact figure is in the held square's card (StepsDayCard).
+  final String? stepCount;
+
   /// Whether the tap about to happen is the one that finishes this day, which
   /// is the only moment worth firing the completion burst for.
   ///
@@ -1656,6 +1762,7 @@ class _SquareCell extends StatelessWidget {
     required this.square,
     this.dayCount,
     this.stepFraction,
+    this.stepCount,
     required this.hasNote,
     required this.onTap,
     required this.onLongPress,
@@ -1676,6 +1783,24 @@ class _SquareCell extends StatelessWidget {
   /// square already draws its real proportion and its real number, and "half"
   /// would be a worse answer than "2 of 4" on top of being a wrong one.
   bool get _isHalfFill => square == SquareState.partial && !_isCounting;
+
+  /// Whether [stepCount] is drawn. A times-per-day tally outranks it, as it
+  /// outranks every other glyph: "2 of 4" is the question that square raises.
+  bool get _showsStepCount => stepCount != null && !_isCounting;
+
+  /// The ink for [stepCount], on whichever fill it lands on.
+  ///
+  /// The green and blue squares take their own state ink, the same colour
+  /// the check and the sparkle were, so a finished day still reads as
+  /// finished. Anything amber (a جزئي, or a part-done fill) takes the
+  /// primary text colour instead of amber: the number straddles two washes
+  /// of amber there, and amber on the deeper one measures about 3.2:1 in
+  /// dark mode, while the primary ink clears 4.5:1 on both halves.
+  Color _stepCountInk(BuildContext context) => switch (square) {
+        SquareState.complete || SquareState.bonus =>
+          square.accent(context.gp.dark),
+        _ => context.gp.textPrimary,
+      };
 
   /// The ink for the note corner, one branch per fill it can land on.
   ///
@@ -1790,7 +1915,9 @@ class _SquareCell extends StatelessWidget {
             _levelFill(
               factor: SquareState.partial.levelFactor!,
               fill: SquareState.partial.levelFill(dark),
-              line: SquareState.partial.levelLine(dark),
+              line: _showsStepCount
+                  ? null
+                  : SquareState.partial.levelLine(dark),
               radius: _squareInnerRadius,
             ),
           // The same picture again for a walking habit part-way to its step
@@ -1803,8 +1930,38 @@ class _SquareCell extends StatelessWidget {
             _levelFill(
               factor: stepFraction!,
               fill: SquareState.partial.levelFill(dark),
-              line: SquareState.partial.levelLine(dark),
+              line: _showsStepCount
+                  ? null
+                  : SquareState.partial.levelLine(dark),
               radius: _squareInnerRadius,
+            ),
+          if (_showsStepCount)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                // scaleDown, and no text scaling: the square is a fixed
+                // 30..60pt, and "9.9k" at an accessibility size would leave
+                // it. The exact number is one hold away at any size.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    // Isolated left-to-right: "8.4k" is Latin inside an RTL
+                    // row, and the "k" must not land on the wrong side.
+                    // bidiIsolate rather than textDirection, because intl's
+                    // TextDirection shadows dart:ui's in this library.
+                    bidiIsolate(stepCount!),
+                    maxLines: 1,
+                    textScaler: TextScaler.noScaling,
+                    style: TextStyle(
+                      fontSize: size * 0.30,
+                      height: 1,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                      color: _stepCountInk(context),
+                    ),
+                  ),
+                ),
+              ),
             ),
           // The count itself, standing in for the partial state's own glyph.
           // Both cannot be shown — the glyph is centred and would sit on top
@@ -1821,12 +1978,45 @@ class _SquareCell extends StatelessWidget {
                 ),
               ),
             ),
-          if (square.icon != null && !_isCounting && !_isHalfFill)
+          if (square.icon != null &&
+              !_isCounting &&
+              !_isHalfFill &&
+              !_showsStepCount)
             Center(
               child: Icon(
                 square.icon,
                 size: size * 0.5,
                 color: square.accent(dark),
+              ),
+            ),
+          // A covered day says so, instead of only being tinted.
+          //
+          // It is empty by definition — nothing was owed, so no state was
+          // ever written — and it used to carry no mark at all, which left a
+          // 4x habit's rest days looking like days nothing happened on.
+          // Nothing IS what happened; the point is that nothing was ASKED.
+          // The dash is the app's existing "this day wanted nothing of you"
+          // mark (see SquareState.skipped), and emerald says the day is
+          // settled rather than missed. emeraldInkFor, not the emerald
+          // token: emerald-on-emerald measures 1.63:1 in light mode, which
+          // is why this square carried no glyph in the first place.
+          if (isCovered &&
+              square == SquareState.none &&
+              !_isCounting &&
+              !_showsStepCount)
+            Center(
+              child: Icon(
+                Icons.remove_rounded,
+                size: size * 0.5,
+                // Full strength in light, softened only in dark. The ink
+                // token is DERIVED by darkening until it clears 4.5:1
+                // against the light floor, so thinning it in light mode
+                // throws away the one guarantee it carries and puts this
+                // mark back where the missing glyph started. Dark has the
+                // headroom, and there the softening is what keeps a rest
+                // day from shouting as loudly as a finished one.
+                color: GameColors.emeraldInkFor(dark)
+                    .withOpacity(dark ? 0.55 : 1),
               ),
             ),
           // The folded corner that says "you wrote here". It replaced a 9pt
@@ -1867,24 +2057,7 @@ class _SquareCell extends StatelessWidget {
     // `size`×`size`, no exceptions; celebration stays as light-only
     // effects (shimmer/fade) that never move a pixel of layout.
     if (square.isGreen) {
-      cell = cell.animate(key: ValueKey(square)).shimmer(
-            delay: 80.ms,
-            duration: 450.ms,
-            color: Colors.white.withOpacity(0.55),
-            // ShimmerEffect is NOT layout-neutral by default: it wraps the
-            // square in Padding(EdgeInsets.all(0.5)) — a full extra logical
-            // pixel of width/height per green square, for as long as the
-            // effect widget is in the tree. Measured live: every green
-            // square rendered 1pt wider than its empty neighbours, so a row
-            // accumulated +1pt of drift per green square and weekday columns
-            // visibly bent at exactly the well-filled rows — the more of the
-            // week done, the more broken the board looked. `padding: 0`
-            // opts out (the 0.5 default only softens a ShaderMask
-            // antialiasing artifact at the very edge, invisible on these
-            // rounded squares). Locked by the marked-squares case in
-            // grid_square_alignment_test.dart.
-            padding: 0,
-          );
+      cell = _CelebrationShimmer(square: square, child: cell);
     } else if (square.isMarked) {
       cell = cell
           .animate(key: ValueKey(square))

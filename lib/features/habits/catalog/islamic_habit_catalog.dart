@@ -785,7 +785,7 @@ abstract final class IslamicHabitCatalog {
       // A quit-style habit (avoid, all day) rather than a one-tap task —
       // success is the *absence* of something, so it gets the full quit
       // flow for free: the emerald "stayed on track" pill, the quiet slip
-      // log, and the evening check-in (see scheduleQuitCheckIns).
+      // log, and the evening note's quit ask (see scheduleEveningNote).
       goalType: GoalType.quit,
       category: HabitCategory.faith,
       frequencyType: HabitFrequencyType.daily,

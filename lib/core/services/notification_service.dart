@@ -350,7 +350,16 @@ class NotificationService {
   static const _dailyTonightId = 1010;
   /// Today's board as last reported by main.dart's recompute, kept so a
   /// caller with no state of its own cannot reword tonight's line.
-  ({int done, int total, int streak})? _dailyState;
+  ({
+    int done,
+    int total,
+    int streak,
+    bool streakEarnedToday,
+    int pendingBuild,
+  })? _dailyState;
+  /// The notification settings as last reported by main.dart's recompute,
+  /// kept for the same reason [_dailyState] is: see [scheduleEveningNote].
+  NotificationSettings? _eveningSettings;
   /// The channel every ordinary reminder and celebration posts to.
   ///
   /// ── Why the id has a v2 on it ────────────────────────────────────────
@@ -1027,7 +1036,7 @@ class NotificationService {
 
   /// Same shape as [_habitReminderDetails], tagged with the quit check-in
   /// category instead so its On Track / Slipped actions show up — see
-  /// [scheduleQuitCheckIns].
+  /// [scheduleEveningNote].
   NotificationDetails _quitCheckInDetails(bool isAr) => NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,
@@ -1060,8 +1069,10 @@ class NotificationService {
   /// so a reschedule that happens to run twice in one day doesn't visibly
   /// reword a pending notification, and mixable with a habit id so two
   /// habits firing in the same minute don't pick the same sentence.
-  int get _daySeed => _seedOfDay(DateTime.now());
-
+  ///
+  /// Taken off the pass's own clock ([_clockAt]) rather than DateTime.now()
+  /// wherever a test supplies one, so the variant a test asserts on is the
+  /// variant of the day it set, not of the day the suite happens to run.
   static int _seedOfDay(DateTime day) =>
       day.year * 400 + day.month * 31 + day.day;
 
@@ -1079,16 +1090,37 @@ class NotificationService {
       _seedOfDay(fireTime) + habitId.hashCode;
 
 
-  /// Schedules (or reschedules) the daily reminder at [hour]:[minute] local
-  /// time. Safe to call every time the user changes the time or the day
-  /// moves: it replaces the previous schedules under the same ids.
+  /// THE evening notification, scheduled (or rescheduled) at [hour]:[minute]
+  /// local time. Safe to call every time the user changes the time or the
+  /// day moves: it replaces the previous schedules under the same ids.
   ///
-  /// Two notifications, not one. Tonight ([_dailyTonightId]) is a one-shot
-  /// worded from where the day stands ([dailyReminderLine]): how many of
-  /// today's habits are done, what is left, the streak pointed at tomorrow.
-  /// It is skipped outright when nothing is owed, because "your habits are
-  /// waiting" after a finished day is the exact complaint that led here
-  /// (Aziz, 2026-09-07). The fallback is seven WEEKLY repeats, one per
+  /// ── One banner an evening, and why ──────────────────────────────────
+  /// This one method replaces three that each armed their own notification
+  /// and none of which could see the others: the daily reminder, the
+  /// streak-risk note (its own clock, [NotificationSettings.streakRiskTime])
+  /// and one quit check-in PER quit habit, on that same clock. On
+  /// 2026-09-13 a tester's lock screen carried «٤ من ١١ خلّصت، والباقي ٧
+  /// عادات بس» at 20:00 and «٤ من ١١ خلّصت 👏🏼 سوي ٥ عادات بس» at 20:33,
+  /// the same board counted twice inside half an hour, and Aziz's own
+  /// carried the streak note and a check-in stamped the same minute.
+  ///
+  /// The cap is structural rather than counted: there is one id, armed in
+  /// one place, so nothing else CAN arm an evening banner. A daily budget
+  /// that counts would not work here anyway — these are scheduled ahead and
+  /// fire with the app closed, so there is nothing running to count them.
+  /// [eveningNoteLine] decides what the single banner says.
+  ///
+  /// Quiet hours cover it, as they covered two of the three notifications
+  /// it replaces: a window reaching over [hour]:[minute] silences the
+  /// evening rather than letting a picked time overrule a picked window.
+  ///
+  /// ── What is still two notifications ─────────────────────────────────
+  /// Tonight ([_dailyTonightId]) is a one-shot worded from where the day
+  /// stands ([eveningNoteLine]): how many of
+  /// today's habits are done, what is left, the streak pointed at tomorrow,
+  /// and the quit habits still unanswered. It is skipped outright when
+  /// nothing is owed, because "your habits are waiting" after a finished day
+  /// is the exact complaint that led here (Aziz, 2026-09-07). The fallback is seven WEEKLY repeats, one per
   /// weekday ([_dailyFallbackBase] + weekday), each with a line that claims
   /// nothing about the day ([dailyFallbackLine]), so a phone that stays
   /// closed for days still hears something. Tonight's weekday is skipped
@@ -1103,38 +1135,96 @@ class NotificationService {
   /// reminders for one evening. A weekday repeat carries the weekday, so
   /// today's can be left out.
   ///
-  /// [done], [total] and [streak] describe today. When omitted (the
+  /// [done], [total], [streak], [streakEarnedToday] and
+  /// [pendingBuildHabitCount] describe today. When omitted (the
   /// reminder-time picker's post-permission call has none of them) the last
   /// reported state is reused, so that call cannot overwrite tonight's line
   /// with a generic one; with no state ever reported, the fallback simply
   /// starts tonight.
-  Future<void> scheduleDailyReminder({
+  Future<void> scheduleEveningNote({
+    /// The current notification settings. Optional for the one caller that
+    /// has none — the reminder-time picker's post-permission reschedule
+    /// (ReminderTimeNotifier.setTime), which knows only the new time. It
+    /// reuses the last settings main.dart reported, exactly as it already
+    /// reuses the last board state, so that call cannot quietly re-arm the
+    /// evening under defaults the person has changed. Before any recompute
+    /// has run there is nothing to reuse, and the defaults are the honest
+    /// answer.
+    NotificationSettings? settings,
     int hour = 20,
     int minute = 0,
     bool isAr = false,
     int? done,
     int? total,
     int? streak,
+    bool? streakEarnedToday,
+    int? pendingBuildHabitCount,
+    List<QuitCheckInInput> quitHabits = const [],
+    int urgentTasks = 0,
+    DateTime? now,
   }) async {
     if (kIsWeb) return;
     await init();
+    final config = settings ?? _eveningSettings ?? const NotificationSettings();
+    if (settings != null) _eveningSettings = settings;
     if (done != null && total != null) {
-      _dailyState = (done: done, total: total, streak: streak ?? 0);
+      _dailyState = (
+        done: done,
+        total: total,
+        streak: streak ?? 0,
+        streakEarnedToday: streakEarnedToday ?? false,
+        pendingBuild: pendingBuildHabitCount ?? (total - done),
+      );
     }
     final state = _dailyState;
-    final next = _nextInstanceOf(hour, minute);
-    final now = tz.TZDateTime.now(tz.local);
-    final firesTonight = next.year == now.year &&
-        next.month == now.month &&
-        next.day == now.day;
+    // The quit habits still unanswered tonight, in the order main.dart
+    // hands them over. Gated on the same switch their own check-in was:
+    // they are habit reminders, and a person who has turned those off has
+    // turned these off too.
+    final pendingQuit = !config.habitRemindersEnabled
+        ? const <({String name, bool isLimit})>[]
+        : [
+            for (final h in quitHabits)
+              if (!h.isResolvedToday) (name: h.name, isLimit: h.isLimit),
+          ];
+    // Every quit id this instance has ever armed, cleared unconditionally:
+    // the per-habit check-ins are gone, folded into this one note, and a
+    // build that armed them before the merge must not leave them ringing.
+    await _cancelRetiredEveningIds();
 
-    final tonight = state == null || !firesTonight
+    final at = _clockAt(now);
+    final next = _nextInstanceOf(hour, minute, now: at);
+    final firesTonight = next.year == at.year &&
+        next.month == at.month &&
+        next.day == at.day;
+
+    // Quiet hours cover the whole evening note, as they covered two of the
+    // three notifications it replaces. A window that reaches over the
+    // note's time silences it; the window is the person's own setting and
+    // moving it is one tap.
+    final muted = config.quietHoursEnabled &&
+        isMinuteWithinQuietHours(
+          next.hour * 60 + next.minute,
+          config.quietHoursStart,
+          config.quietHoursEnd,
+        );
+
+    final tonight = state == null || !firesTonight || muted
         ? null
-        : dailyReminderLine(
+        : eveningNoteLine(
             done: state.done,
             total: state.total,
             streak: state.streak,
-            variantIndex: _daySeed,
+            streakEarnedToday: state.streakEarnedToday,
+            pendingBuildHabitCount: state.pendingBuild,
+            pendingQuit: pendingQuit,
+            // The streak ask is the strongest sentence the note can carry,
+            // and it is also the one with its own switch. Off means the
+            // note falls through to the plain board line, not that the
+            // note goes quiet.
+            streakAskEnabled: config.streakRiskEnabled,
+            urgentTasks: config.matrixNudgeEnabled ? urgentTasks : 0,
+            variantIndex: _seedOfDay(at),
             isAr: isAr,
           );
     if (tonight == null) {
@@ -1150,18 +1240,27 @@ class NotificationService {
       // outright.
       await _cancelIfPending({_dailyTonightId});
     } else {
+      // With exactly ONE quit habit waiting, the note keeps that habit's
+      // two action buttons (التزام / زلة) and its id as the payload, so the
+      // day can still be settled from the lock screen without opening the
+      // app — the whole reason the quit check-in exists. With two or more
+      // there is no honest way to carry buttons for all of them in one
+      // banner, so the note names the count and opens Today instead.
+      final soleQuit = pendingQuit.length == 1
+          ? quitHabits.firstWhere((h) => !h.isResolvedToday)
+          : null;
       await _plugin.zonedSchedule(
         _dailyTonightId,
         tonight.title,
         tonight.body,
         next,
-        _details,
+        soleQuit != null ? _quitCheckInDetails(isAr) : _details,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         // Body-tap routing: land on Today, where the habits this reminder
         // is about actually live, see main.dart's _handleNotificationBodyTap.
-        payload: openTodayPayload,
+        payload: soleQuit != null ? soleQuit.id : openTodayPayload,
       );
     }
 
@@ -1169,10 +1268,17 @@ class NotificationService {
     // silent), so today's weekday sits out this week; the next recompute,
     // on any later day, arms it again. With no state at all every weekday
     // is armed, tonight included.
-    final skipToday = firesTonight && state != null;
+    // The fallbacks sit at the SAME hour:minute as the note, so a quiet
+    // window reaching over that minute reaches over all seven of them.
+    // Silencing tonight's worded note and leaving next Tuesday's generic one
+    // to fire inside the window would be the same setting answering two
+    // ways. Plain cancels: a window edited to cover the time is that
+    // reminder being switched off for as long as the window says so, and a
+    // weekly repeat is pending for its whole life anyway.
+    final skipToday = muted || (firesTonight && state != null);
     for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++) {
       final id = _dailyFallbackBase + weekday;
-      if (skipToday && weekday == now.weekday) {
+      if (muted || (skipToday && weekday == at.weekday)) {
         await _plugin.cancel(id);
         continue;
       }
@@ -1190,14 +1296,57 @@ class NotificationService {
         payload: openTodayPayload,
       );
     }
-    debugPrint('[NotificationService] Daily reminder set, '
+    debugPrint('[NotificationService] Evening note set, '
         '$hour:${minute.toString().padLeft(2, '0')}, tonight: '
-        '${!firesTonight ? 'already passed' : state == null ? 'no state, fallback' : tonight == null ? 'nothing owed, skipped' : 'from today\'s board'}');
+        '${!firesTonight ? 'already passed' : muted ? 'quiet hours' : state == null ? 'no state, fallback' : tonight == null ? 'nothing owed, skipped' : 'one note, ${pendingQuit.length} quit'}');
+  }
+
+  /// Cancels the ids the evening note RETIRED: the streak-risk note (8000)
+  /// and every per-habit quit check-in this instance has armed.
+  ///
+  /// Both used to be separate notifications at the same minute as each
+  /// other; they are sentences inside the evening note now. Unconditional
+  /// plain cancels, because there is nothing left that may hold them: an
+  /// id nothing can arm again is not a count going stale, so the
+  /// pending-only rule ([_cancelIfPending]) does not apply.
+  bool _retiredEveningIdsSwept = false;
+
+  /// Re-arms the once-per-run sweep of the retired evening ids, so a test
+  /// can watch it happen more than once. The service is a singleton, so
+  /// without this the first test to schedule an evening note spends the
+  /// sweep for the whole file.
+  @visibleForTesting
+  void debugResetRetiredEveningSweep() => _retiredEveningIdsSwept = false;
+
+  Future<void> _cancelRetiredEveningIds() async {
+    // Once per app run, not once per recompute. Nothing in this build can
+    // arm either id, so after one sweep there is never anything to find,
+    // and a recompute runs several times on a plain resume (see the serial
+    // lane below). The pending read is the expensive part of this method
+    // and the sweep is already competing with the reminder pass for it.
+    if (_retiredEveningIdsSwept) return;
+    _retiredEveningIdsSwept = true;
+    await _plugin.cancel(_streakRiskId);
+    // The quit band is swept from what the system actually holds rather
+    // than from a set this instance kept, because the ids that matter most
+    // here were armed by the PREVIOUS build: [_quitCheckInHabitIds] was
+    // in-memory only, so on the first cold start after this merge it is
+    // empty while up to one check-in per quit habit is still armed for
+    // tonight. A pending read names them all; with no read (the plugin can
+    // refuse it) nothing is cancelled blind, and the next pass tries again.
+    final live = await _liveNotificationIds();
+    if (live == null) return;
+    for (final id in live) {
+      if (id >= _quitCheckInBase && id < _quitCheckInBase + 1000) {
+        await _plugin.cancel(id);
+      }
+    }
   }
 
   Future<void> cancelDailyReminder() async {
     if (kIsWeb) return;
     await _plugin.cancel(_dailyTonightId);
+    await _cancelRetiredEveningIds();
     for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++) {
       await _plugin.cancel(_dailyFallbackBase + weekday);
     }
@@ -1212,6 +1361,25 @@ class NotificationService {
   // start, since main.dart calls this with fireImmediately on the habit
   // list provider.
   final Set<String> _habitReminderHabitIds = {};
+
+  // Near-band alarm ids the pass currently running has actually armed. The
+  // comment above is the reason this exists: _habitReminderHabitIds is the
+  // app's own memory of what it scheduled, and a habit deleted while the
+  // app was closed, or by a build that did not cancel on delete, is not in
+  // it — so nothing names that habit's alarms and they ring forever. What
+  // is really armed is known only to the system, so at the end of a pass
+  // this is what it is allowed to still be holding, and everything else in
+  // the band goes (see [_reapOrphanHabitAlarms]).
+  final Set<int> _armedHabitAlarmIds = {};
+
+  // What the notification system actually holds, read once at the start of
+  // the pass now running (see [_liveNotificationIds]). Null means the read
+  // failed and the sweep falls back to cancelling blind.
+  Set<int>? _sweepLiveNoteIds;
+
+  // Whether the pass now running can arm AlarmKit alarms at all. False makes
+  // every alarm reminder a notification, which spends the pending budget.
+  bool _alarmsReady = false;
 
   /// The most reminder slots one habit can hold in a day.
   ///
@@ -1612,9 +1780,14 @@ class NotificationService {
   /// missing tomorrow, and every open refills it.
   static const int kMaxWindowAlarms = 120;
 
+  /// Where a habit's next-occurrence (depth 0) ids start. Named because
+  /// [_reapOrphanHabitAlarms] has to sweep exactly this band and would
+  /// silently spare orphans, or eat live alarms, if the two ever drifted.
+  static const int _habitBandBase = 5000;
+
   int _habitReminderId(String habitId, [int slot = 0, int depth = 0]) =>
       depth == 0
-          ? 5000 + reminderSlotOffset(habitId, slot)
+          ? _habitBandBase + reminderSlotOffset(habitId, slot)
           : _aheadBandBase +
               (depth - 1) * 1000 +
               reminderSlotOffset(habitId, slot);
@@ -1634,6 +1807,58 @@ class NotificationService {
     for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
       await _cancelHabitSlotAllDepths(habitId, slot);
       await _plugin.cancel(_snoozeId(habitId, slot));
+    }
+  }
+
+  /// Public entry point for a habit that is gone for good: every near-window
+  /// slot and depth in both systems (see [_cancelAllHabitReminderSlots]),
+  /// serialized against any in-flight recompute the same way
+  /// [cancelTaskReminder] is. Deleting or archiving a habit must call this
+  /// directly rather than waiting for the next [scheduleSmartReminders]
+  /// sweep to notice it is gone — that sweep only catches a habit this
+  /// session already remembers scheduling (see [_habitReminderHabitIds]),
+  /// which is empty on every cold launch.
+  ///
+  /// The far, day-keyed extended window (see [kAlarmWindowDays]) is not
+  /// touched here: those ids are keyed by calendar day, not by habit, and
+  /// are reconciled against the real AlarmKit list on the next
+  /// [scheduleSmartReminders] sweep regardless (see [_syncAlarmWindow]).
+  Future<void> cancelHabitReminders(String habitId) {
+    if (kIsWeb) return Future.value();
+    return _serialized(() => _cancelAllHabitReminderSlots(habitId));
+  }
+
+  /// Drops every habit alarm the system is still holding in the near bands
+  /// that the pass just finished did not arm.
+  ///
+  /// The near bands' equivalent of what [_syncAlarmWindow] does for the far
+  /// one, and the only thing that can reach an alarm whose habit is already
+  /// gone: [cancelHabitReminders] needs a habit id to name, and a habit
+  /// deleted by a build that did not cancel on delete left none. Runs at
+  /// the end of every full pass, so such an alarm dies the next time the
+  /// app works out its reminders rather than ringing for the rest of its
+  /// month.
+  ///
+  /// Safe against eating live alarms because it runs AFTER the pass has
+  /// armed everything it wants: the keep set is what was really armed a
+  /// moment ago, not a prediction. A slot the pass deliberately left off
+  /// (quiet hours, habit done, alarm refused and gone to a notification
+  /// instead) is supposed to lose its alarm, and does.
+  Future<void> _reapOrphanHabitAlarms() async {
+    const bands = [
+      (_habitBandBase, _habitBandBase + 999),
+      (_aheadBandBase, _aheadBandBase + (kOccurrencesPerSlot - 1) * 1000 - 1),
+    ];
+    for (final (low, high) in bands) {
+      final reaped = await AlarmService.instance.reapOrphans(
+        lowId: low,
+        highId: high,
+        keep: _armedHabitAlarmIds,
+      );
+      if (reaped != null && reaped > 0) {
+        debugPrint('[NotificationService] reaped $reaped orphaned alarm(s) '
+            'in $low..$high');
+      }
     }
   }
 
@@ -1661,10 +1886,21 @@ class NotificationService {
     for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
       for (var depth = 0; depth < kOccurrencesPerSlot; depth++) {
         if (kept.contains((slot: slot, depth: depth))) continue;
-        await _cancelHabitSlot(habitId, slot, depth);
+        // Notification only. This loop is blind — it walks all 12 slots x 4
+        // depths for every habit whether or not anything was ever armed
+        // there — so pairing it with an alarm cancel cost a second channel
+        // round trip per cell: 576 of them per pass on a 12-habit account,
+        // measured, to arm 8 things. The alarms are covered instead by
+        // [_reapOrphanHabitAlarms], which runs at the end of this same pass
+        // and clears, in ONE call per band, every alarm the system really
+        // holds that this pass did not arm — the same ids, judged by what
+        // is actually armed rather than guessed at. That pass is load-
+        // bearing for this: if it ever goes, the alarm cancel has to come
+        // back here.
+        await _cancelIfHeld(_habitReminderId(habitId, slot, depth));
       }
       if (!liveTodaySlots.contains(slot)) {
-        await _plugin.cancel(_snoozeId(habitId, slot));
+        await _cancelIfHeld(_snoozeId(habitId, slot));
       }
     }
   }
@@ -1746,36 +1982,81 @@ class NotificationService {
     }
   }
 
-  /// Clears tonight's evening streak note (8000) while it is still pending,
-  /// and nothing else.
+  /// Every notification id the system is really holding right now — still to
+  /// fire, or already delivered and sitting on the lock screen. Null if it
+  /// could not be read.
+  ///
+  /// Read once per pass so the blind sweep below can skip ids that hold
+  /// nothing. Both halves are needed to make that skip EXACT rather than
+  /// merely cheap: pending alone would stop the sweep clearing a delivered
+  /// copy, which it does today and which some callers rely on. An id in
+  /// neither list cannot be cancelled into anything, so not cancelling it
+  /// is equivalent to cancelling it, minus a channel round trip — and there
+  /// were roughly 60 such round trips per habit per pass, because
+  /// [_sweepUnkeptSlots] walks a fixed 12x4 grid for every habit whether or
+  /// not that habit ever used those slots. Two calls here replace all of
+  /// them.
+  /// Cancels [id] unless this pass already knows the system is not holding
+  /// it. Same end state either way; see [_liveNotificationIds].
+  Future<void> _cancelIfHeld(int id) async {
+    if (_sweepLiveNoteIds?.contains(id) ?? true) await _plugin.cancel(id);
+  }
+
+  Future<Set<int>?> _liveNotificationIds() async {
+    if (kIsWeb) return null;
+    try {
+      final pending = await _plugin.pendingNotificationRequests();
+      final active = await _plugin.getActiveNotifications();
+      return {
+        for (final request in pending) request.id,
+        for (final note in active)
+          if (note.id != null) note.id!,
+      };
+    } catch (_) {
+      // Unreadable: fall back to cancelling unconditionally, exactly as
+      // this did before the read existed. Slower, never wrong.
+      return null;
+    }
+  }
+
+  /// Clears tonight's evening note (1010) while it is still pending, and
+  /// nothing else.
   ///
   /// For the background action engine: a habit finished from the lock
   /// screen or the Watch makes the note's counts false, and that engine has
   /// none of the facts to re-word it (see notification_action_background.
-  /// dart). The next recompute arms the note again if the streak still
-  /// needs anything. A note already delivered is left alone, see
-  /// [_cancelIfPending].
-  Future<void> standDownEveningStreakNote() => _cancelIfPending(
-        {_streakRiskId},
+  /// dart). The next recompute arms the note again if anything is still
+  /// owed. A note already delivered is left alone, see [_cancelIfPending].
+  ///
+  /// It used to clear 8000, the streak note, while the board line at 1010
+  /// went out with stale numbers beside it; there is one id now, and it is
+  /// the one that carries every count a tap here can falsify.
+  Future<void> standDownEveningNote() => _cancelIfPending(
+        {_dailyTonightId},
       );
 
-  /// Whether this Friday's numbered note (9001) is still ahead at [now]: a
-  /// Friday before 19:00 on the device clock. The window [weeklyNotePlan]
-  /// arms it in, and the one in which a finishing tap outside the app clears
-  /// it (see [standDownWeeklyNumberedNote]). At 19:00 it has been delivered.
+  /// Whether the week's numbered note (9001) is still ahead at [now]: any
+  /// Friday, since the note it arms does not go out until the Saturday
+  /// morning after (see [kWeeklyNoteHour]). The window [weeklyNotePlan] arms
+  /// it in, and the one in which a finishing tap outside the app clears it
+  /// (see [standDownWeeklyNumberedNote]).
+  ///
+  /// It used to stop at Friday 19:00, when the note fired. A Friday evening
+  /// is inside the window now: the note has not gone out, and a habit
+  /// finished at 22:00 still lands on a Friday square the note counts.
   static bool weeklyNumberedNoteAhead(DateTime now) =>
-      now.weekday == DateTime.friday && now.hour < 19;
+      now.weekday == DateTime.friday;
 
-  /// Clears this Friday's numbered note (9001) while it is still pending,
-  /// and nothing else.
+  /// Clears the week's numbered note (9001) while it is still pending, and
+  /// nothing else.
   ///
   /// For the background action engine, on a finishing tap while
   /// [weeklyNumberedNoteAhead]: the note counts the week's green days and
-  /// names the habit with the most («٥ أيام خضرا هذا الأسبوع 👏🏼»), and a
+  /// names the habit with the most («٥ أيام خضرا في أسبوعك 👏🏼»), and a
   /// habit finished from the lock screen or the Watch can add a green day
   /// or overtake that habit. The engine has no Grid to count with, so the
-  /// note is cleared rather than left wrong, and the next recompute before
-  /// 19:00 arms it again with the true count.
+  /// note is cleared rather than left wrong, and the next recompute on that
+  /// Friday arms it again with the true count.
   ///
   /// Two guards, not one, and they answer different questions. The window
   /// says the note is about TODAY; the pending read says it has not gone out
@@ -1864,6 +2145,12 @@ class NotificationService {
   }) async {
     await init();
 
+    // Reset before either path below arms anything, so what it collects is
+    // this pass's alarms and the reap at the end of both paths judges
+    // against those, never against a previous pass's.
+    _armedHabitAlarmIds.clear();
+    _sweepLiveNoteIds = await _liveNotificationIds();
+
     final nextHabitIds = habits.map((h) => h.id).toSet();
 
     if (!settings.masterEnabled || !settings.habitRemindersEnabled) {
@@ -1877,6 +2164,9 @@ class NotificationService {
       // The month armed ahead for alarm reminders is not in the per-slot
       // sweep above; an empty window cancels all of it.
       await _syncAlarmWindow(const [], isAr);
+      // Nor is anything the per-slot sweep above could not name: it can
+      // only reach habits this session remembers scheduling.
+      await _reapOrphanHabitAlarms();
       debugPrint('[NotificationService] Habit reminders off — cleared');
       return;
     }
@@ -1892,6 +2182,10 @@ class NotificationService {
     // budget like any other and keeps the ordinary four.
     final alarmsReady = habits.any((h) => h.alarm && !h.isQuit) &&
         await AlarmService.instance.isAuthorized();
+    // Held for _scheduleResolved's budget check: when alarms cannot be armed
+    // at all, an alarm reminder is a notification like any other and has to
+    // be trimmed like one.
+    _alarmsReady = alarmsReady;
     final alarmHorizon = now.add(const Duration(days: kAlarmWindowDays));
     // Prayer times for the whole window, resolved at most ONCE per call
     // (not once per habit, and not once per day): every prayer-linked habit
@@ -2316,6 +2610,10 @@ class NotificationService {
 
     await _scheduleResolved(resolved, settings.bundleEnabled, isAr);
     await _syncAlarmWindow(windowed, isAr);
+    // Last, because it judges by what this pass actually armed: anything
+    // else the near bands still hold belongs to no habit the app has any
+    // more (see [_reapOrphanHabitAlarms]).
+    await _reapOrphanHabitAlarms();
 
     _habitReminderHabitIds
       ..clear()
@@ -2342,7 +2640,11 @@ class NotificationService {
   /// _resolveHabit does an exact-id lookup, so a slot-qualified payload would
   /// resolve to null, fall through to the task branch, poll for two seconds
   /// and do nothing at all when the person tapped the notification.
-  Future<void> _scheduleOne(_ResolvedReminder r, bool isAr) async {
+  /// Returns whether this slot spent one of iOS's 64 pending notification
+  /// requests — false when it rang through AlarmKit instead, which has no
+  /// such budget. The caller needs to know, because an alarm that is REFUSED
+  /// falls through to a notification here and spends the budget after all.
+  Future<bool> _scheduleOne(_ResolvedReminder r, bool isAr) async {
     // What this reminder says when its timing is "on the dot", which
     // habitReminderBody keeps as-is and an early or late reminder replaces
     // the lead sentence of.
@@ -2418,9 +2720,10 @@ class NotificationService {
           stopLabel: alarmStopAction(isAr),
         )) {
       await _plugin.cancel(slotId);
+      _armedHabitAlarmIds.add(slotId);
       debugPrint('[NotificationService] ${r.name} (${r.id}#${r.slot}'
           '${r.depth == 0 ? '' : '+${r.depth}'}) rings as an alarm');
-      return;
+      return false;
     }
     // A slot that was an alarm on an earlier pass and is a notification now.
     await AlarmService.instance.cancel(slotId);
@@ -2441,6 +2744,7 @@ class NotificationService {
           UILocalNotificationDateInterpretation.absoluteTime,
       payload: r.id,
     );
+    return true;
   }
 
   /// [reminderFactsAtFireDay] for one resolved reminder, re-based from today
@@ -2502,8 +2806,42 @@ class NotificationService {
     for (final r in resolved) {
       (r.alarm || r.isQuit ? alone : notified).add(r);
     }
+    // Sorted the same way the groups below are, and for the same reason:
+    // whatever the budget cannot cover has to be the far end of the window,
+    // never somebody's next reminder. See the groups sort.
+    alone.sort((a, b) {
+      final byDepth = a.depth.compareTo(b.depth);
+      return byDepth != 0 ? byDepth : a.fireTime.compareTo(b.fireTime);
+    });
+    var scheduledCount = 0;
+    var trimmed = 0;
     for (final r in alone) {
-      await _scheduleOne(r, isAr);
+      // A quit check-in is NOT an alarm — [_scheduleOne]'s alarm branch
+      // excludes isQuit on purpose, because التزام / زلة is not a thing to
+      // be woken by — so it is always a notification and always spends one
+      // of iOS's 64 pending requests. It used to spend them off the books:
+      // this whole list skipped the budget below, so an account with enough
+      // quit habits pushed the real total past 64, where iOS silently
+      // discards the excess, AND left the trim under-counting, so ordinary
+      // habits were measured against a number that was already wrong.
+      // Anything that WILL spend a pending request is checked before it is
+      // scheduled, not merely counted after. A quit check-in always will; so
+      // does an alarm reminder on a device where alarms cannot be armed at
+      // all, which falls back to a notification every time. Counting those
+      // without also trimming them let the total run past the budget again,
+      // and because this list is scheduled before the groups below, the
+      // overrun came straight out of the ordinary habits' share.
+      if ((r.isQuit || !_alarmsReady) &&
+          scheduledCount >= kMaxPendingHabitSlots) {
+        await _cancelHabitSlot(r.id, r.slot, r.depth);
+        trimmed++;
+        continue;
+      }
+      // Alarms are never trimmed here: AlarmKit has no such budget, so one
+      // costs nothing to keep. It only counts when it could not be made and
+      // fell through to a notification, which is exactly what the return
+      // value reports.
+      if (await _scheduleOne(r, isAr)) scheduledCount++;
     }
     final rawGroups = groupByFireTimeWindow<_ResolvedReminder>(
       notified,
@@ -2566,8 +2904,11 @@ class NotificationService {
     // and the next recompute re-creates them once earlier slots have fired.
     // Headroom under 64 is reserved for everything that is not a habit
     // slot.
-    var scheduledCount = 0;
-    var trimmed = 0;
+    //
+    // scheduledCount and trimmed are carried over from the alone loop
+    // above, not restarted: quit check-ins and refused alarms are pending
+    // notifications like any other, and counting them separately is what
+    // let the real total run past 64.
     for (final group in groups) {
       if (scheduledCount >= kMaxPendingHabitSlots) {
         for (final r in group) {
@@ -2660,7 +3001,7 @@ class NotificationService {
     // last time) — clear anything unused so nothing orphaned lingers.
     for (var i = 0; i < _maxBundleSlots; i++) {
       final id = _bundleSlotBase + i;
-      if (!usedBundleIds.contains(id)) await _plugin.cancel(id);
+      if (!usedBundleIds.contains(id)) await _cancelIfHeld(id);
     }
     if (trimmed > 0) {
       debugPrint('[NotificationService] trimmed $trimmed latest-firing '
@@ -2792,98 +3133,6 @@ class NotificationService {
   /// the next reminder.
   static const kMaxPendingHabitSlots = 48;
 
-  /// The evening "you're about to lose your streak" nudge. Re-evaluated
-  /// from scratch on every relevant state change instead of being a blind
-  /// daily recurring notification — it only actually schedules anything
-  /// when there's a real streak to protect *and* something is genuinely
-  /// still unfinished today; finishing everything (or never having a
-  /// streak yet) cancels it for the day rather than firing a hollow "check
-  /// your progress" ping. [urgentMatrixCount] optionally adds a Matrix
-  /// (Do First quadrant) pending-count line to the same notification —
-  /// never a separate one, so enabling it can't add to how many
-  /// notifications fire, only to what one of them says.
-  ///
-  /// Whether it goes out at all, and what it says, is decided by
-  /// [eveningStreakNoteFor], pure so its gates are tested: nothing once
-  /// today's streak point is earned, and nothing unless it fires tonight.
-  /// [now] stands in for the clock, so a test can watch those gates reach
-  /// the plugin on an evening of its choosing; the real clock when null.
-  Future<void> scheduleStreakRiskCheck({
-    required NotificationSettings settings,
-    required int streak,
-    required bool streakEarnedToday,
-    required int pendingHabitCount,
-    required int pendingBuildHabitCount,
-    required int doneHabitCount,
-    required int urgentMatrixCount,
-    required bool isAr,
-    DateTime? now,
-  }) async {
-    if (kIsWeb) return;
-    await init();
-    final at = _clockAt(now);
-
-    final shouldFire = settings.masterEnabled && settings.streakRiskEnabled;
-    if (!shouldFire) {
-      // The note switched off, which is not a count going stale: a plain
-      // cancel, so a copy already delivered goes too.
-      await _plugin.cancel(_streakRiskId);
-      return;
-    }
-
-    final fireTime = _nextInstanceOf(
-      settings.streakRiskTime.hour,
-      settings.streakRiskTime.minute,
-      now: at,
-    );
-    if (settings.quietHoursEnabled &&
-        isMinuteWithinQuietHours(
-          fireTime.hour * 60 + fireTime.minute,
-          settings.quietHoursStart,
-          settings.quietHoursEnd,
-        )) {
-      // Quiet hours reaching over the note's time is not the note being
-      // switched off. The window can be edited, or start covering 20:30,
-      // after tonight's note has already gone out, and taking a delivered
-      // note off the list is the very harm [_cancelIfPending] exists for.
-      // So a note still waiting is cleared, and a delivered one stays.
-      await _cancelIfPending({_streakRiskId});
-      return;
-    }
-
-    final copy = eveningStreakNoteFor(
-      now: at,
-      fireTime: fireTime,
-      streak: streak,
-      streakEarnedToday: streakEarnedToday,
-      doneHabitCount: doneHabitCount,
-      pendingHabitCount: pendingHabitCount,
-      pendingBuildHabitCount: pendingBuildHabitCount,
-      urgentTasks: settings.matrixNudgeEnabled ? urgentMatrixCount : 0,
-      isAr: isAr,
-    );
-    if (copy == null) {
-      // Nothing true to ask for tonight, or tonight's note has had its
-      // moment. A note still waiting is cleared; one already delivered was
-      // true when it came and stays in the list (see [_cancelIfPending]).
-      await _cancelIfPending({_streakRiskId});
-      return;
-    }
-
-    await _plugin.zonedSchedule(
-      _streakRiskId,
-      copy.title,
-      copy.body,
-      fireTime,
-      _details,
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      // Body-tap routing: what's pending lives on Today — see main.dart's
-      // _handleNotificationBodyTap.
-      payload: openTodayPayload,
-    );
-  }
 
   /// Friday-evening "how was your week" push — a proactive companion to
   /// Insights/Monthly Heatmap, which are both pull-only (someone has to go
@@ -2927,7 +3176,7 @@ class NotificationService {
     // [_weeklyAheadBase] (9002) is the id it matters most for, being a
     // one-shot whose normal case is having been delivered: it exists
     // precisely for a phone left closed for a week, so a plain cancel took
-    // that delivered «أسبوع جديد باجر» off the notification list the moment
+    // that delivered «أسبوع جديد بدأ» off the notification list the moment
     // the app was next opened.
     //
     // [_weeklyDigestId] (9000) is in the list too, and for it the read
@@ -3002,6 +3251,22 @@ class NotificationService {
   /// again after that Friday afternoon hears nothing on the Friday after the
   /// next, where the old repeat went on for ever.
   static const kWeeklyRepeatFridaysAhead = 1;
+
+  /// The hour on Saturday the week's note goes out: [kDayCutoffHour], the
+  /// instant Friday stops being payable.
+  ///
+  /// It used to be Friday 19:00, and that was wrong twice over. It landed
+  /// in the middle of the evening's own notifications, and it counted a
+  /// week that was not over: Friday runs until Saturday 10:00 (see
+  /// DateTimeGameExt.closesAt), so «٥ أيام خضرا هذا الأسبوع» could be made
+  /// false by a habit finished after it was read, and the app's weekly
+  /// screens would then disagree with the banner the person was looking at.
+  ///
+  /// At the cutoff the week is sealed, the number can no longer move, and
+  /// the note is a morning on a fresh day rather than a fourth banner in
+  /// one evening. It is also clear of the default quiet window (22:00 to
+  /// 07:00), which a midnight note would have sat inside.
+  static const kWeeklyNoteHour = kDayCutoffHour;
 
   /// Whether tonight's evening streak note goes out, and what it says.
   ///
@@ -3086,16 +3351,21 @@ class NotificationService {
     required bool isAr,
   }) {
     final repeat = weeklyRepeatCopy(longestStreak: longestStreak, isAr: isAr);
-    final tonight = DateTime(now.year, now.month, now.day, 19);
-    // Compared on the wall clock, not as instants: [now] is a TZDateTime in
-    // the app's zone and [tonight] a plain DateTime, which would disagree
-    // about when 19:00 is if the two zones ever differed.
-    final beforeSeven = now.hour < 19;
-    final atSeven = now.hour == 19 &&
-        now.minute == 0 &&
-        now.second == 0 &&
-        now.millisecond == 0 &&
-        now.microsecond == 0;
+    // Saturday, before the note's own hour: whatever yesterday armed for
+    // this morning is the truth about the week that just sealed, and this
+    // pass cannot improve on it — the Grid has already rolled to the NEW
+    // week, so nothing here can still count last week's squares. Arm
+    // nothing, clear nothing, and let it fire.
+    //
+    // Without this hold the repeat branch below would arm the claim-free
+    // copy for TODAY's 10:00, landing a second banner beside the numbered
+    // one it is supposed to stand in for.
+    if (now.weekday == DateTime.saturday && now.hour < kWeeklyNoteHour) {
+      return (arm: const [], cancel: const []);
+    }
+    // Tomorrow morning, once the week has actually sealed. Built off the
+    // Friday this runs on, so it is the Saturday right after it.
+    final sealsAt = DateTime(now.year, now.month, now.day + 1, kWeeklyNoteHour);
     final inWindow = weeklyNumberedNoteAhead(now);
     final numbered = !inWindow || topHabit == null
         ? null
@@ -3109,13 +3379,14 @@ class NotificationService {
       for (var k = 0; k < kWeeklyRepeatFridaysAhead; k++) _weeklyAheadBase + k,
     ];
     if (numbered == null) {
-      // Same rule as _nextInstanceOfWeekday: tonight if 19:00 is still
-      // ahead, else the next Friday.
-      var next = beforeSeven || atSeven
-          ? tonight
-          : DateTime(now.year, now.month, now.day + 1, 19);
-      while (next.weekday != DateTime.friday) {
-        next = DateTime(next.year, next.month, next.day + 1, 19);
+      // Same rule as _nextInstanceOfWeekday: this Saturday if its hour is
+      // still ahead, else the Saturday after.
+      var next =
+          DateTime(now.year, now.month, now.day, kWeeklyNoteHour);
+      if (next.weekday != DateTime.saturday || !next.isAfter(now)) {
+        do {
+          next = DateTime(next.year, next.month, next.day + 1, kWeeklyNoteHour);
+        } while (next.weekday != DateTime.saturday);
       }
       return (
         arm: [
@@ -3129,14 +3400,19 @@ class NotificationService {
         (
           id: _weeklyNumberedId,
           copy: numbered,
-          fireAt: tonight,
+          fireAt: sealsAt,
           repeatsWeekly: false,
         ),
         for (var k = 0; k < kWeeklyRepeatFridaysAhead; k++)
           (
             id: _weeklyAheadBase + k,
             copy: repeat,
-            fireAt: DateTime(now.year, now.month, now.day + 7 * (k + 1), 19),
+            fireAt: DateTime(
+              now.year,
+              now.month,
+              now.day + 1 + 7 * (k + 1),
+              kWeeklyNoteHour,
+            ),
             repeatsWeekly: false,
           ),
       ],
@@ -3216,117 +3492,17 @@ class NotificationService {
     return (done: done, pending: pending, pendingBuild: pendingBuild);
   }
 
-  // Quit check-ins get their own id range (and stale-tracking set, same
-  // pattern as _habitReminderHabitIds) — a quit habit can hold BOTH a cue
-  // reminder (_habitReminderId) and an evening check-in at once, so the two
-  // must never share notification ids.
+  // The RETIRED quit check-in band, 70000–70999. Nothing arms it any more:
+  // a quit habit's evening ask is a sentence inside the one evening note
+  // (see [scheduleEveningNote]). Kept as a named constant because a build
+  // that shipped before the merge left ids in this band armed on real
+  // phones, and [_cancelRetiredEveningIds] sweeps exactly this window.
   static const _quitCheckInBase = 70000;
 
   /// Kept clear of [_quitCheckInBase]'s 70000–70999 window. Both use a
   /// `base + hash % 1000` id, so overlapping bases means one feature can
   /// cancel the other's notification by coincidence.
   static const _foregroundRoomPushBase = 72000;
-  final Set<String> _quitCheckInHabitIds = {};
-  int _quitCheckInId(String habitId) =>
-      _quitCheckInBase + habitId.hashCode.abs() % 1000;
-
-  /// Schedules tonight's "how did today go?" check-in for each unresolved
-  /// quit habit — the flip side of [scheduleSmartReminders]'s morning-of
-  /// nudges. A quit habit's success is the *absence* of something, so
-  /// instead of only nagging at a cue time, the day gets settled in the
-  /// evening: On Track / Slipped action buttons resolve it straight from
-  /// the lock screen (see main.dart's _handleNotificationAction).
-  ///
-  /// Title is always the general "Evening check-in" — never the habit's own
-  /// name (that used to be the title, with the reflective "how did today
-  /// go?" question as the body; a bare habit name sitting alone above a
-  /// question about *the day* read like a mismatched, half-finished
-  /// notification, especially with more than one quit habit stacking up
-  /// several same-titled-differently notifications). The habit is still
-  /// named — right inside the body now, so tapping still makes it obvious
-  /// which one this is about, it just isn't doing double duty as the title.
-  ///
-  /// Fires at [NotificationSettings.streakRiskTime] — deliberately the
-  /// same user-configurable "evening reflection" moment as
-  /// [scheduleStreakRiskCheck] rather than a new setting of its own, so
-  /// Settings keeps one evening time to reason about. Respects quiet hours
-  /// and the master + habit-reminders toggles the same way habit reminders
-  /// do. Re-evaluated by every _recomputeNotifications pass: a habit
-  /// resolved during the day (affirmed or slipped) gets tonight's check-in
-  /// cancelled rather than asked again.
-  Future<void> scheduleQuitCheckIns(
-    List<QuitCheckInInput> habits,
-    NotificationSettings settings, {
-    required bool isAr,
-  }) async {
-    if (kIsWeb) return;
-    await init();
-
-    final nextIds = habits.map((h) => h.id).toSet();
-
-    Future<void> cancelAllTracked() async {
-      for (final id in _quitCheckInHabitIds) {
-        await _plugin.cancel(_quitCheckInId(id));
-      }
-      _quitCheckInHabitIds.clear();
-    }
-
-    if (!settings.masterEnabled || !settings.habitRemindersEnabled) {
-      await cancelAllTracked();
-      return;
-    }
-
-    final fireTime = _nextInstanceOf(
-      settings.streakRiskTime.hour,
-      settings.streakRiskTime.minute,
-    );
-    if (settings.quietHoursEnabled &&
-        isMinuteWithinQuietHours(
-          fireTime.hour * 60 + fireTime.minute,
-          settings.quietHoursStart,
-          settings.quietHoursEnd,
-        )) {
-      await cancelAllTracked();
-      return;
-    }
-
-    for (final habit in habits) {
-      if (habit.isResolvedToday) {
-        await _plugin.cancel(_quitCheckInId(habit.id));
-        continue;
-      }
-      await _plugin.zonedSchedule(
-        _quitCheckInId(habit.id),
-        isAr ? 'تسجيل المساء' : 'Evening check-in',
-        // Arabic phrasing chosen by the user himself (Bahraini) — «جريب»
-        // not «قريب», plain comma, no em-dash anywhere in user copy.
-        habit.isLimit
-            ? (isAr
-                ? '${habit.name} · اليوم جريب يخلص، بقيت ضمن الحد؟'
-                : "${habit.name} · Day's almost done. Still within your limit?")
-            : (isAr
-                ? '${habit.name} · اليوم جريب يخلص، شلون امورك؟'
-                : "${habit.name} · Day's almost done. How's it going?"),
-        fireTime,
-        _quitCheckInDetails(isAr),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        payload: habit.id,
-      );
-    }
-
-    // Same stale-schedule cleanup contract as scheduleSmartReminders: a
-    // quit habit deleted (or switched back to a build goal) since the last
-    // pass still has tonight's check-in sitting scheduled — cancel exactly
-    // those, then adopt the new id set.
-    for (final staleId in _quitCheckInHabitIds.difference(nextIds)) {
-      await _plugin.cancel(_quitCheckInId(staleId));
-    }
-    _quitCheckInHabitIds
-      ..clear()
-      ..addAll(nextIds);
-  }
 
   /// True when [minuteOfDay] (0–1439) falls inside the [start]–[end] quiet
   /// window, correctly handling a window that wraps past midnight (e.g.

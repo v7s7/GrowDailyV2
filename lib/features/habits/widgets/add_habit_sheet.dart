@@ -78,12 +78,20 @@ class AddHabitSheet extends ConsumerStatefulWidget {
   /// is no Plans tab, and the link is not drawn.
   final VoidCallback? onBrowsePlans;
 
+  /// Fires with the Build / Quit choice whenever it changes, and once on
+  /// mount. [AddHabitHub] listens so its own heading can follow: the switch
+  /// is inside this form, but the title that names what is being made sits
+  /// above it in the host, and it used to keep saying «إضافة عادة» through
+  /// both steps of building a quit goal.
+  final ValueChanged<GoalType>? onGoalTypeChanged;
+
   const AddHabitSheet({
     super.key,
     this.existing,
     this.embedded = false,
     this.onStepChanged,
     this.onBrowsePlans,
+    this.onGoalTypeChanged,
   });
 
   @override
@@ -643,6 +651,14 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // on the field instead.
     if (!widget.embedded) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+    }
+    // Tell the host what kind of goal this opens on. Only an edited habit
+    // can open on anything but Build, but the host's heading has to be right
+    // on the first frame, not only after the switch is touched.
+    if (widget.onGoalTypeChanged != null) {
+      final type = _goalType;
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => widget.onGoalTypeChanged?.call(type));
     }
   }
 
@@ -1375,7 +1391,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
             child: Text(
-              _isEditing ? s.editHabit : s.addGoalTitle,
+              // Standalone, this is the only heading there is, so it has to
+              // follow the switch too — see AddHabitHub's copy of this.
+              _isEditing
+                  ? s.editHabit
+                  : (_goalType == GoalType.quit
+                      ? s.hubTitleQuit
+                      : s.addGoalTitle),
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -1838,6 +1860,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   void _setGoalType(GoalType type) {
     if (type == _goalType) return;
     HapticFeedback.selectionClick();
+    widget.onGoalTypeChanged?.call(type);
     setState(() {
       _goalType = type;
       // A quit habit is kept or slipped once a day; there is no "three

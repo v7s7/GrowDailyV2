@@ -220,6 +220,19 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                 ),
               ],
             ),
+            // The exact count for this day, read fresh from Health (see
+            // StepsDayCard). "If he hold it" was how Aziz put checking an
+            // earlier day's steps on 2026-09-16, and this is the sheet a held
+            // square already opens. Gated like the board's own count: a day
+            // this habit does not run on has no walk to report.
+            if (widget.habit.stepGoal != null &&
+                widget.habit.isScheduledFor(widget.day)) ...[
+              const SizedBox(height: 16),
+              StepsDayCard(
+                day: widget.day,
+                goal: widget.habit.stepGoal!,
+              ),
+            ],
             const SizedBox(height: 18),
             if (isLocked) ...[
               Row(

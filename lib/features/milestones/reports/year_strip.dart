@@ -99,9 +99,18 @@ class YearStripPainter extends CustomPainter {
   /// the quieter of the two should be the one that holds nothing.
   final Color futureColor;
 
+  /// Days the person marked تخطّي. Separate from [doneDays] because a rest
+  /// is not a completion, and separate from empty because it is not nothing.
+  /// Defaults to empty so a caller that has no rest data behaves exactly as
+  /// this painter did before.
+  final Set<String> restDays;
+  final Color restColor;
+
   const YearStripPainter({
     required this.year,
     required this.doneDays,
+    this.restDays = const {},
+    this.restColor = const Color(0x00000000),
     required this.color,
     required this.today,
     required this.isRtl,
@@ -132,14 +141,22 @@ class YearStripPainter extends CustomPainter {
         final future = day.isAfter(todayDay);
         final locked =
             !future && lockedBefore != null && day.isBefore(lockedBefore!);
-        final done = !future && doneDays.contains(day.toDateKey());
+        final key = day.toDateKey();
+        final done = !future && doneDays.contains(key);
+        // A تخطّي used to fall through to emptyColor, i.e. a rest the person
+        // chose was pixel-identical to a day nothing happened on, and a year
+        // of deliberate rests read as a year of holes. It is not a completion
+        // either, so it gets neither: its own neutral, between the two.
+        final rested = !future && !done && restDays.contains(key);
         paint.color = future
             ? futureColor
             : locked
                 ? lockedColor
                 : done
                     ? color
-                    : emptyColor;
+                    : rested
+                        ? restColor
+                        : emptyColor;
         final drawColumn = isRtl ? columns - 1 - c : c;
         final rect = RRect.fromRectAndRadius(
           Rect.fromLTWH(
@@ -171,6 +188,8 @@ class YearStripPainter extends CustomPainter {
       // By contents, not identity: the day sets are rebuilt every build,
       // so identity comparison repainted every strip on any rebuild.
       !setEquals(old.doneDays, doneDays) ||
+      !setEquals(old.restDays, restDays) ||
+      old.restColor != restColor ||
       old.color != color ||
       old.lockedBefore != lockedBefore ||
       old.isRtl != isRtl;

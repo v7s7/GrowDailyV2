@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/habit_mirror.dart';
 import '../../../core/services/local_store_service.dart';
+import '../../../core/services/user_doc.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_model.dart';
@@ -195,7 +197,29 @@ class CatalogOverridesNotifier
   bool get isLoading => _isLoading;
   bool _isLoading = true;
 
+  /// Whether the load ended in the catch below rather than with a real
+  /// answer. [_isLoading] cannot say this: it is cleared on failure too, on
+  /// purpose (see the catch), so "settled" and "trustworthy" are different
+  /// questions. Anything that writes what it read back to the device has to
+  /// ask this one, or one offline boot gets saved as the truth.
+  bool loadFailed = false;
+
+  /// Whether [state] was filled from the device's copy before the read ran.
+  /// Paint signal only; [isLoading] still says whether the server answered.
+  bool hydratedFromMirror = false;
+
   CatalogOverridesNotifier(this._uid) : super(const {}) {
+    if (_uid != null) {
+      // Overrides are not decoration: habitListProvider layers them over the
+      // const template, so a preset someone set to 4x a week resolves as its
+      // catalog default without them. Hydrating them alongside the ids is
+      // what stops the mirrored board being subtly the wrong board.
+      final mirror = HabitMirror.snapshot;
+      if (mirror != null && mirror.uid == _uid) {
+        state = Map.of(_parse(mirror.catalogOverrides));
+        hydratedFromMirror = true;
+      }
+    }
     _load();
   }
 
@@ -213,26 +237,47 @@ class CatalogOverridesNotifier
     // assignment on `mounted`; a disposed loader has nobody left to inform.
     try {
       if (_uid != null) {
-        final snap = await _userRef.get();
-        final raw = snap.data()?[kCatalogOverridesKey];
+        // Shared with the three other notifiers that want a field from this
+        // same document on the same launch — see [UserDoc].
+        final data = await UserDoc.read(_uid);
+        final raw = data?[kCatalogOverridesKey];
         if (!mounted) return;
         _isLoading = false;
-        state = _parse(raw);
+        // Map.of, not the parsed map itself. An account with no overrides —
+        // the common case this file's own doc comment names — parses to
+        // `const {}`, which is IDENTICAL to the `const {}` this notifier was
+        // constructed with, so StateNotifier's !identical check suppresses
+        // the notification and nothing re-reads [isLoading]. The other two
+        // notifiers behind habitsStillLoadingProvider already force a fresh
+        // reference for exactly this reason; this one did not, and was saved
+        // only by never being the last of the three to settle.
+        state = Map.of(_parse(raw));
         return;
       }
       final box = await LocalStoreService.settingsBox();
       if (!mounted) return;
       _isLoading = false;
-      state = _parse(box.get(kCatalogOverridesKey));
+      state = Map.of(_parse(box.get(kCatalogOverridesKey)));
     } catch (_) {
       // Offline or a malformed doc: presets simply behave as their catalog
       // defaults until the next successful load. Never a crash on boot.
       if (!mounted) return;
       // Cleared even on failure: a read that threw has settled as much as it
       // ever will, and leaving this true would block room grading forever
-      // for anyone who booted offline once.
+      // for anyone who booted offline once. [loadFailed] is what carries the
+      // difference to anyone who cares.
       _isLoading = false;
-      state = const {};
+      loadFailed = true;
+      // Map.of(state), NOT an empty map: state may have been hydrated from
+      // the device's copy, and blanking it leaves every preset at its
+      // catalog default cadence, name, colour and reminder mode while
+      // habitsStillLoadingProvider already reads false — so the reminder
+      // pass, the alarm reap and room grading all act on the wrong habits.
+      // The two sibling notifiers already keep theirs on failure for this
+      // reason. A fresh reference is still required rather than leaving it
+      // untouched: this notifier can be the last of the three to settle, and
+      // an identical map notifies nobody.
+      state = Map.of(state);
     }
   }
 

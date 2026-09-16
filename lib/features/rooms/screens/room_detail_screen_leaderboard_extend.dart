@@ -93,16 +93,19 @@ Color roomStripCellFill({
   // is the absence of one, and drawing them the same is precisely the thing
   // the personal reports stopped doing.
   //
-  // GOLD, not emerald: the same tone the reports paint a rest with (see
-  // report_sections.dart's MatrixCellState.rest), so the two surfaces name
-  // the same act the same way. The emerald above is the STRUCTURAL rest,
-  // a day where nothing was owed at all, which is a different fact.
+  // NEUTRAL, not gold and not emerald, and the reason is what the day is
+  // worth rather than what looks nice. A declared rest earns nothing, so a
+  // reward colour overstated it; the emerald below is the STRUCTURAL rest,
+  // which is credited in full, so sharing that colour would have claimed
+  // credit this day never got. Neutral is the honest third thing: nothing
+  // earned, nothing lost. Same ink the Grid's own تخطّي square now uses, so
+  // one act still has one colour everywhere (see SquareState.skipped).
   //
   // The fill does not change what the day SCORES. A declared rest still
   // earns whatever creditFor says it earned, which is nothing. See
   // RoomParticipant.dailyRestedCount for why that wall exists.
   final tone = isDeclaredRest
-      ? GameColors.gold.withOpacity(0.16)
+      ? SquareState.skipped.fill(dark)
       : isRest
           ? roomStripRestTone()
           : isMissed

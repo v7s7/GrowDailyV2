@@ -272,6 +272,33 @@ void main() {
             'heading of its own to leave behind');
   });
 
+  testWidgets('[hub] the heading follows the switch to Quit, on both steps',
+      (tester) async {
+    // Aziz, 2026-09-16: building a quit goal, the sheet said «إضافة عادة»
+    // over «ما الذي تريد تقليله؟», and went on saying it after Continue.
+    final c = await boot(habits: [IslamicHabitCatalog.templates.first]);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(wrap(
+        c, const Locale('ar'), const AddHabitHub(initialTab: HubTab.addGoal)));
+    await tester.pumpAndSettle();
+
+    expect(find.text(ar.hubTitle), findsOneWidget, reason: 'opens on Build');
+
+    await tester.tap(find.text(ar.goalTypeQuitOption));
+    await tester.pumpAndSettle();
+    expect(find.text(ar.hubTitle), findsNothing,
+        reason: 'this is not a habit being added any more');
+    expect(find.text(ar.hubTitleQuit), findsNWidgets(2),
+        reason: 'the heading and the switch that set it, same words');
+
+    await toWhen(tester, ar);
+    expect(find.text(ar.hubTitle), findsNothing);
+    expect(find.text(ar.hubTitleQuit), findsOneWidget,
+        reason: 'step two: the switch is behind us, the heading is not');
+    expect(find.text(ar.timingQuitTitle), findsOneWidget,
+        reason: 'and the step asks the quit question under it');
+  });
+
   testWidgets('standalone, the sheet keeps the only heading it has',
       (tester) async {
     final c = await boot();

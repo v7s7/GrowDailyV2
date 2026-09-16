@@ -426,6 +426,144 @@ void main() {
     });
   });
 
+  // The whole evening in one banner. What matters here is the DECISION
+  // table: which of the two board-counting lines gets to speak, since the
+  // bug this replaced was both of them speaking, half an hour apart.
+  group('eveningNoteLine', () {
+    ReminderLine? line({
+      int done = 2,
+      int total = 5,
+      int streak = 7,
+      bool earned = false,
+      int? pendingBuild,
+      List<({String name, bool isLimit})> quit = const [],
+      int urgent = 0,
+      bool streakAsk = true,
+      bool isAr = true,
+    }) =>
+        eveningNoteLine(
+          done: done,
+          total: total,
+          streak: streak,
+          streakEarnedToday: earned,
+          pendingBuildHabitCount: pendingBuild ?? (total - done),
+          pendingQuit: quit,
+          urgentTasks: urgent,
+          variantIndex: 0,
+          isAr: isAr,
+          streakAskEnabled: streakAsk,
+        );
+
+    test('a live streak at risk speaks, and the board line stays quiet', () {
+      final e = line()!;
+      expect(e.title, 'سلسلتك ماشية ٧ أيام');
+      expect(e.body, '٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام.');
+      // The board numbers appear ONCE. On 2026-09-13 «٤ من ١١ خلّصت» went
+      // out at 20:00 and again at 20:33.
+      expect('٢ من ٥'.allMatches(e.body).length, 1);
+    });
+
+    test("once the point is earned, the board line takes over", () {
+      final e = line(earned: true)!;
+      expect(e.title, 'يومك ماشي عدل');
+      expect(e.body, contains('٢ من ٥ خلّصت'));
+      expect(e.body, isNot(contains('وتصير')));
+    });
+
+    test('no streak yet: the board line, never a hollow streak ask', () {
+      expect(line(streak: 0)!.title, 'يومك ماشي عدل');
+    });
+
+    // A quit habit is answered, not done, so it cannot close a streak's gap.
+    test('a gap the build habits left cannot cover falls to the board line',
+        () {
+      expect(line(pendingBuild: 0)!.title, 'يومك ماشي عدل');
+    });
+
+    test('the streak ask switched off leaves the note speaking, not silent',
+        () {
+      final e = line(streakAsk: false)!;
+      expect(e.title, 'يومك ماشي عدل');
+      expect(e.body, contains('٢ من ٥ خلّصت'));
+    });
+
+    test('a finished board with nothing else waiting says nothing at all', () {
+      expect(line(done: 5, earned: true, pendingBuild: 0), isNull);
+    });
+
+    test('a finished board still asks about an unanswered quit habit', () {
+      final e = line(
+        done: 5,
+        earned: true,
+        pendingBuild: 0,
+        quit: const [(name: 'تدخين', isLimit: false)],
+      )!;
+      expect(e.title, 'تسجيل المساء');
+      expect(e.body, '«تدخين»: التزمت اليوم؟');
+      expect(
+        e.body,
+        isNot(startsWith('و')),
+        reason: 'it opens the body here rather than trailing a board line',
+      );
+    });
+
+    // Measured on a device: two trailing sentences overflow the body and
+    // iOS cuts the second mid-word.
+    test('the tail is one sentence, and the quit ask outranks the tasks', () {
+      final both = line(
+        urgent: 5,
+        quit: const [
+          (name: 'قهوة', isLimit: true),
+          (name: 'تدخين', isLimit: false),
+        ],
+      )!;
+      expect(both.body, endsWith('وعندك عادتين تسجّلهن، التزام أو زلة.'));
+      expect(both.body, isNot(contains('مهام عاجلة')));
+      // With no quit habit waiting the tasks sentence has the tail.
+      expect(line(urgent: 5)!.body, endsWith('وعندك ٥ مهام عاجلة.'));
+      // Same rule on the board-line path.
+      final earned = line(
+        earned: true,
+        urgent: 5,
+        quit: const [(name: 'قهوة', isLimit: true)],
+      )!;
+      expect(earned.body, endsWith('و«قهوة»: بقيت ضمن الحد؟'));
+      expect(earned.body, isNot(contains('مهام عاجلة')));
+    });
+
+    test('quit habits trail whichever line spoke, named or counted', () {
+      expect(
+        line(quit: const [(name: 'قهوة', isLimit: true)])!.body,
+        endsWith('و«قهوة»: بقيت ضمن الحد؟'),
+      );
+      expect(
+        line(quit: const [
+          (name: 'قهوة', isLimit: true),
+          (name: 'تدخين', isLimit: false),
+        ])!
+            .body,
+        endsWith('وعندك عادتين تسجّلهن، التزام أو زلة.'),
+      );
+    });
+
+    // streakRiskCopy appends the urgent sentence itself; the board line does
+    // not, so it is added there and must never land twice.
+    test('urgent tasks are said once, on either path', () {
+      for (final earned in [true, false]) {
+        final body = line(earned: earned, urgent: 2)!.body;
+        expect(
+          'وعندك مهمتين عاجلتين.'.allMatches(body).length,
+          1,
+          reason: 'earned: $earned',
+        );
+      }
+    });
+
+    test('nothing due today is not an evening worth a banner', () {
+      expect(line(done: 0, total: 0, pendingBuild: 0), isNull);
+    });
+  });
+
   group('weeklyNoteCopy', () {
     test("names the week's best habit and praises its count", () {
       expect(
@@ -437,7 +575,7 @@ void main() {
         ),
         (
           title: 'أذكار الصباح',
-          body: '٥ أيام خضرا هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.',
+          body: '٥ أيام خضرا في أسبوعك 👏🏼 واليوم يبدأ أسبوع جديد.',
         ),
       );
       expect(
@@ -448,7 +586,7 @@ void main() {
           isAr: true,
         )!
             .body,
-        '٥ أيام التزام هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.',
+        '٥ أيام التزام في أسبوعك 👏🏼 واليوم يبدأ أسبوع جديد.',
       );
       expect(
         weeklyNoteCopy(
@@ -459,7 +597,7 @@ void main() {
         ),
         (
           title: 'Morning Adhkar',
-          body: 'Green 5 days this week 👏🏼 Tonight closes the week.',
+          body: 'Green 5 days in your week 👏🏼 A new week starts today.',
         ),
       );
       expect(
@@ -470,7 +608,7 @@ void main() {
           isAr: false,
         )!
             .body,
-        'Kept 6 days this week 👏🏼 Tonight closes the week.',
+        'Kept 6 days in your week 👏🏼 A new week starts today.',
       );
       expect(
         weeklyNoteCopy(habitName: 'x', greenDays: 3, isQuit: false, isAr: true)!
@@ -495,12 +633,12 @@ void main() {
   });
 
   group('weeklyRepeatCopy', () {
-    test('stays true on any Friday: a new week, and the longest run reached',
+    test('stays true on any Saturday: a new week, and the longest run reached',
         () {
       expect(
         weeklyRepeatCopy(longestStreak: 14, isAr: true),
         (
-          title: 'أسبوع جديد باجر',
+          title: 'أسبوع جديد بدأ',
           body: 'سبق ووصلت ١٤ يوم ورا بعض 👏🏼 ومربع واحد يفتح الأسبوع.',
         ),
       );
@@ -515,7 +653,7 @@ void main() {
       expect(
         weeklyRepeatCopy(longestStreak: 14, isAr: false),
         (
-          title: 'A new week tomorrow',
+          title: 'A new week starts',
           body: "You've reached 14 days in a row before 👏🏼 One square opens "
               'the week.',
         ),
@@ -569,6 +707,36 @@ void main() {
               isAr: isAr,
             );
             if (s != null) lines.addAll([s.title, s.body]);
+            // The merged evening note is the one banner an evening now, so
+            // every shape it can take is swept too — the quit sentence it
+            // absorbed included, which was never in this sweep while the
+            // check-in was its own notification.
+            for (final quit in [
+              const <({String name, bool isLimit})>[],
+              const [(name: 'تدخين', isLimit: false)],
+              const [(name: 'قهوة', isLimit: true)],
+              const [
+                (name: 'تدخين', isLimit: false),
+                (name: 'قهوة', isLimit: true),
+              ],
+            ]) {
+              for (final earned in [true, false]) {
+                for (var ev = 0; ev < 3; ev++) {
+                  final e = eveningNoteLine(
+                    done: done,
+                    total: 5,
+                    streak: streak,
+                    streakEarnedToday: earned,
+                    pendingBuildHabitCount: 5 - done,
+                    pendingQuit: quit,
+                    urgentTasks: urgent,
+                    variantIndex: ev,
+                    isAr: isAr,
+                  );
+                  if (e != null) lines.addAll([e.title, e.body]);
+                }
+              }
+            }
           }
         }
       }

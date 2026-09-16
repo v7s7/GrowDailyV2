@@ -654,11 +654,12 @@ class S {
   String welcomeBack(String name) =>
       isAr ? 'مرحبًا بعودتك، $name' : 'Welcome back, $name';
 
-  /// The name to greet a returning person by when there is none to use — a
-  /// guest, or a signed-in account with no email. The comeback card fell back
-  /// to the literal English "Warrior", which spliced an untranslated word into
-  /// the Arabic welcome line for every Arabic-locale guest.
-  String get comebackGuestName => isAr ? 'بطل' : 'Warrior';
+  /// The greeting when there is no name to use — a guest, or a signed-in
+  /// account with no email. It used to invent one ("Warrior" / «بطل»), which
+  /// both spliced an untranslated word into the Arabic line and addressed a
+  /// stranger by a title they never chose. Greeting them without a name says
+  /// the same thing and claims nothing.
+  String get welcomeBackNoName => isAr ? 'مرحبًا بعودتك' : 'Welcome back';
   String get comebackNoErase => isAr
       ? 'اليوم اللي فات ما يمحي تقدمك.'
       : "A missed day doesn't erase your progress.";
@@ -701,49 +702,28 @@ class S {
     return '$n يوم';
   }
 
-  /// Flavor title for a streak milestone (e.g. "3-Day Starter"). Gulf/Khaleeji
-  /// tone in Arabic — "النشامى" especially is a warm, distinctly Bahraini/Gulf
-  /// word for the brave/steadfast, rather than a flat literal translation.
-  String milestoneTitle(int milestone) {
-    if (!isAr) {
-      return switch (milestone) {
-        3 => '3-Day Starter',
-        7 => '7-Day Warrior',
-        14 => '2-Week Champion',
-        21 => '3-Week Steady',
-        30 => 'Month Master',
-        60 => '60-Day Devotee',
-        100 => 'Century Legend',
-        150 => '150-Day Rock',
-        200 => '200-Day Titan',
-        250 => '250-Day Voyager',
-        300 => '300-Day Legend',
-        365 => 'Full Year Legend',
-        _ => 'Streak Milestone',
-      };
-    }
-    return switch (milestone) {
-      3 => 'بداية النشامى',
-      7 => 'محارب الأسبوع',
-      14 => 'بطل الأسبوعين',
-      21 => 'ثابت الأسابيع',
-      30 => 'سيد الشهر',
-      60 => 'صاحب الهمّة',
-      100 => 'أسطورة المئة',
-      150 => 'صخرة الطريق',
-      200 => 'عملاق المئتين',
-      250 => 'فارس الطريق',
-      300 => 'أسطورة الثلاثمئة',
-      365 => 'أسطورة السنة',
-      _ => 'إنجاز السلسلة',
-    };
-  }
+  /// The streak overlay used to hand out a title for every threshold
+  /// (an English "7-Day Warrior" and an Arabic epithet to match) and then
+  /// crown the reader with it.
+  /// That register is gone on purpose: the app states what happened and what
+  /// is next, it does not name anyone a legend for keeping three days. These
+  /// two lines replace all twelve titles.
+  String get milestoneUnbroken =>
+      isAr ? 'سلسلتك ما انقطعت.' : 'Your streak is unbroken.';
 
-  String nowWarrior(String title) =>
-      isAr ? 'ما شاء الله! أنت الآن $title.' : 'You are now a $title.';
-  String get consistencyBuildsCharacter => isAr
-      ? 'الثبات يصنع الأبطال. كمّل المشوار.'
-      : 'Consistency builds character. Keep showing up.';
+  /// The next threshold on the ladder, so the overlay closes on a fact
+  /// instead of a compliment — the same choice the achievements screen makes
+  /// with [achievementsNextUp].
+  /// Arabic goes through [daysCount] for its plural rule; English says it
+  /// mid-sentence, so it does not borrow that getter's display-cased "Days".
+  String milestoneNextStop(int days) =>
+      isAr ? 'القادم: ${daysCount(days)}.' : 'Next up: $days days.';
+
+  /// The top of the ladder only. Mirrors [rankUpSummitLine]: say it is the
+  /// last one, do not decorate it.
+  String get milestoneLastStop =>
+      isAr ? 'ما بعدها محطة، هذي آخر وحدة.' : 'Nothing comes after this one.';
+
   // Arabic phrase leads, the "+N XP" token trails — reads more naturally in
   // an RTL sentence than opening with a Latin/number run.
   String milestoneBonusXp(int bonus) =>
@@ -1077,6 +1057,13 @@ class S {
 
   // ── Add Habit Hub (Plan / Add Goal tabs) ────────────────────────────────────
   String get hubTitle => isAr ? 'إضافة عادة' : 'Add a Habit';
+
+  /// The same heading once the form's switch is on Quit. The sheet used to
+  /// keep saying «إضافة عادة» through both steps of building a quit goal,
+  /// which is the opposite of what is being made. Same words as the switch
+  /// and the board header ([goalTypeQuitOption]) on purpose: one name for
+  /// this kind of goal everywhere it is named.
+  String get hubTitleQuit => isAr ? 'ترك أو تقليل' : 'Quit or Cut Down';
   /// "Ready-made plans", not bare "Plans". Sitting beside «إضافة هدف», a
   /// one-word «خطط» reads as a place to WRITE a plan, which is what the other
   /// tab already does. جاهزة says the work is already done for you, which is
@@ -1229,8 +1216,12 @@ class S {
 
   String get timingBuildTitle =>
       isAr ? 'متى وكيف ستتابع؟' : 'When and how often?';
+  /// The When step for a quit goal. It asked «ما الخطة الهادئة؟» / "What is
+  /// the calm plan?", which names nothing on the screen below it: what the
+  /// step actually collects is the days the commitment covers and the moment
+  /// the check-in asks «التزام أو زلة؟». So it asks that.
   String get timingQuitTitle =>
-      isAr ? 'ما الخطة الهادئة؟' : 'What is the calm plan?';
+      isAr ? 'متى نسألك عن يومك؟' : 'When do we check in?';
   String get whenQuestion => isAr ? 'متى؟' : 'When?';
   String get customTime => isAr ? 'وقت مخصص' : 'Custom time';
   String get customText => isAr ? 'نص مخصص' : 'Custom text';
@@ -4326,13 +4317,15 @@ class S {
       : "One reminder per habit, at its own cue, skipped automatically once you've done it for the day.";
   String get notifStreakRisk => isAr ? 'حماية السلسلة' : 'Streak protection';
   String get notifStreakRiskDesc => isAr
-      ? 'تنبيه مسائي، فقط عندما تكون سلسلة حقيقية على وشك الضياع.'
-      : 'An evening nudge, but only when a real streak is actually about to be lost.';
+      ? 'يضيف سلسلتك وما تحتاجه اليوم إلى تنبيه المساء. إشعار المساء واحد '
+          'دائمًا، مو أكثر.'
+      : "Adds your streak, and what it still needs today, to the evening "
+          'note. The evening is always one notification, never more.';
   String get notifMatrixNudge =>
       isAr ? 'ذكر المهام العاجلة' : 'Mention urgent tasks';
   String get notifMatrixNudgeDesc => isAr
-      ? 'يضيف مهامك العاجلة من "افعل أولاً" إلى تنبيه السلسلة. لا يُرسل كإشعار منفصل أبدًا.'
-      : 'Adds your open Do First tasks to the streak nudge, never a separate notification of its own.';
+      ? 'يضيف مهامك العاجلة من "افعل أولاً" إلى تنبيه المساء. لا يُرسل كإشعار منفصل أبدًا.'
+      : 'Adds your open Do First tasks to the evening note, never a separate notification of its own.';
   String get notifBundle =>
       isAr ? 'دمج التذكيرات المتقاربة' : 'Bundle close-together reminders';
   String get notifBundleDesc => isAr
@@ -4341,8 +4334,9 @@ class S {
 
   String get notifWeeklyDigest => isAr ? 'ملخص الأسبوع' : 'Weekly digest';
   String get notifWeeklyDigestDesc => isAr
-      ? 'مساء الجمعة، رسالة قصيرة عن أيامك الملوّنة هذا الأسبوع وسلسلتك الحالية.'
-      : 'A short Friday-evening note on the days you colored this week and your current streak.';
+      ? 'صباح السبت، بعد ما يخلص الأسبوع، رسالة قصيرة عن أيامك الملوّنة فيه.'
+      : 'A short Saturday-morning note, once the week has closed, on the days '
+          'you colored in it.';
 
   String get notifRoomActivity => isAr ? 'نشاط الغرف' : 'Room activity';
   String get notifRoomActivityDesc => isAr
@@ -4984,6 +4978,19 @@ class S {
     final fraction = progressFraction(steps, goal);
     return isAr ? '$fraction خطوة' : '$fraction steps';
   }
+
+  // ── The held square's steps card (StepsDayCard) ────────────────────────
+  // The big number is drawn on its own, so the unit is its own string.
+  String get stepsUnit => isAr ? 'خطوة' : 'steps';
+
+  /// [goal] arrives already formatted ("8,000"), in Latin digits.
+  String stepsGoalShort(String goal) => isAr ? 'الهدف $goal' : 'Goal $goal';
+
+  /// Where the number came from, named because the promise is that it is
+  /// the number that store shows for the same day.
+  String stepsSourceLine({required bool isHealthConnect}) => isHealthConnect
+      ? (isAr ? 'من Health Connect' : 'From Health Connect')
+      : (isAr ? 'من Apple Health' : 'From Apple Health');
 
   /// The second line under [stepsProgressLine] when the count is zero and
   /// the app cannot say why.

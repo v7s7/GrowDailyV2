@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -25,6 +27,7 @@ import '../../dashboard/widgets/reaction_overlays.dart';
 import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/widgets/habit_actions_sheet.dart';
+import '../../habits/models/habit_day_demand.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/notifiers/habit_order_notifier.dart';
@@ -32,10 +35,13 @@ import '../../habits/notifiers/habit_resume_notifier.dart';
 import '../../../core/services/health_steps_service.dart';
 import '../../habits/step_auto_complete.dart'
     show
+        refreshStepsForOlderWeek,
         stepFillFraction,
+        stepSquareCount,
         stepsByDayProvider,
         stepsFailureProvider,
         stepsTodayProvider;
+import '../../habits/widgets/steps_day_card.dart';
 import '../../habits/notifiers/newly_added_habit_provider.dart';
 import '../../habits/widgets/pause_until_sheet.dart';
 import '../../habits/models/weekly_quota_plan.dart';
@@ -869,7 +875,12 @@ class _GridScreenState extends ConsumerState<GridScreen> {
             // ActiveCatalogNotifier's own first read takes, right before
             // their actual list pops in and replaces it. See
             // habitsStillLoadingProvider's own doc comment.
-            if (habits.isEmpty && ref.watch(habitsStillLoadingProvider))
+            // The PAINT signal, not the correctness one: a board restored
+            // from the device counts as something to show, so a returning
+            // user sees their habits in the first frame instead of this
+            // spinner. habitsStillLoadingProvider still governs everything
+            // that decides anything — see habitsHydratedProvider.
+            if (habits.isEmpty && !ref.watch(habitsHydratedProvider))
               // Not `const` — GameColors.gold is a mutable `static Color`
               // (theme-preset system), not a compile-time constant. See
               // BUILD_LESSONS.md #6.

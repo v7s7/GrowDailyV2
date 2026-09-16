@@ -9,6 +9,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider;
+import '../../habits/models/habit_day_demand.dart';
 import '../../milestones/reports/habit_day_marks.dart';
 import '../../premium/notifiers/premium_notifier.dart'
     show canBrowseHistoryMonth, kFreeHistoryMonths;
@@ -102,6 +103,27 @@ class WeeklyGridState {
 
   SquareState squareFor(String habitId, DateTime day) =>
       states[day.toDateKey()]?[habitId] ?? SquareState.none;
+
+  /// This week's completed sessions, in the shape a flexible weekly quota
+  /// needs to know which of its days were load-bearing (see [habitOwesDay]),
+  /// or NULL when this state cannot speak for the current week — still
+  /// loading, or scrolled back to another one.
+  ///
+  /// Null is a real answer, not a failure: every live caller treats it as
+  /// "assume the habit is still owed", which is what the board did before
+  /// quotas were resolved at all. Reading an unloaded week instead would
+  /// report seven empty days and hand a quota three free rest days on the
+  /// strength of data that had not arrived, which is the one direction this
+  /// must never be wrong in.
+  GreenOnDay? get currentWeekGreen =>
+      isCurrentWeek ? greenForWeekOf(DateTime.now().effectiveDay) : null;
+
+  /// [currentWeekGreen] for any day: a reader for the week containing [day],
+  /// or null when this state does not hold that week loaded.
+  GreenOnDay? greenForWeekOf(DateTime day) =>
+      !isLoading && weekStart.isSameDayAs(startOfGridWeek(day))
+          ? (habitId, d) => squareFor(habitId, d).isGreen
+          : null;
 
   /// The flat-rate XP banked on this square, or zero if none ever was.
   int flatPaidFor(String habitId, DateTime day) =>
@@ -380,15 +402,23 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
         // dashboard_notifier_loading.dart already un-batched its own two
         // reads for exactly this reason; this is the same fix applied to the
         // seven the Grid does.
-        for (final day in state.days) {
-          try {
-            final snap = await _dayRef(day).get();
-            if (!snap.exists) continue;
-            _parseInto(snap.id, snap.data()!, states, notes, flatPaid);
-          } catch (_) {
-            // This one day is unreadable; the rest of the week still is.
-            continue;
-          }
+        // Seven independent reads still — that isolation is the whole point
+        // of the comment above — but issued together rather than one after
+        // another, so the board waits one round trip instead of seven. Each
+        // carries its own onError, so a day that throws yields null and the
+        // rest of the week is unaffected, exactly as the loop did. NOT a
+        // range query over the seven: that would batch them back into a
+        // single get() and bring the blanked-week bug straight back.
+        final snaps = await Future.wait([
+          for (final day in state.days)
+            _dayRef(day).get().then<DocumentSnapshot<Map<String, dynamic>>?>(
+                  (snap) => snap,
+                  onError: (Object _) => null,
+                ),
+        ]);
+        for (final snap in snaps) {
+          if (snap == null || !snap.exists) continue;
+          _parseInto(snap.id, snap.data()!, states, notes, flatPaid);
         }
       } else {
         for (final day in state.days) {
@@ -963,7 +993,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// Retroactively marks [day]'s square green for each quit habit in
   /// [habitIds] whose square is still untouched — the "silence means
   /// clean" half of the quit-habit evening check-in flow (see
-  /// NotificationService.scheduleQuitCheckIns for the other half). A quit
+  /// NotificationService.scheduleEveningNote for the other half). A quit
   /// habit's success is *not doing* something, so an unanswered day
   /// shouldn't quietly read as a hole in the record the way a build
   /// habit's genuinely does.
@@ -1104,8 +1134,15 @@ bool willCompleteAllSquaresOn(
   DateTime day,
 ) {
   final grid = ref.read(weeklyGridProvider);
-  final dayHabits =
-      ref.read(habitListProvider).where((h) => h.isScheduledFor(day)).toList();
+  // The day's answerable roster, not everything allowed on it: a flexible
+  // quota's rest day leaves the denominator (see boardHabitsOn), and the habit
+  // being marked right now stays in it whatever its week says.
+  final dayHabits = boardHabitsOn(
+    habits: ref.read(habitListProvider),
+    day: day,
+    isGreen: grid.greenForWeekOf(day),
+    alsoOwing: {habit.id},
+  );
   var total = 0;
   var credited = 0.0;
   var sawTarget = false;

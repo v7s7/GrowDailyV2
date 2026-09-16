@@ -1327,6 +1327,12 @@ class _HabitYearRow extends StatelessWidget {
                   painter: YearStripPainter(
                     year: year,
                     doneDays: stat.doneDays,
+                    restDays: {
+                      for (final entry in stat.marks.entries)
+                        if (markIsRest(entry.value)) entry.key,
+                    },
+                    restColor:
+                        SquareState.skipped.accent(gp.dark).withOpacity(0.35),
                     color: color,
                     today: today,
                     isRtl: isRtl,
@@ -1429,7 +1435,16 @@ class _DayRow extends StatelessWidget {
           habitColor.withOpacity(0.8),
         ),
       SquareState.failed => (Icons.cancel_rounded, GameColors.warning),
-      SquareState.skipped => (Icons.bedtime_rounded, GameColors.gold),
+      // The moon stays: this row prints the word «تخطّي» right beside it, and
+      // a glyph next to its own label can afford to be evocative in a way a
+      // 30pt board square cannot. The COLOUR moves to the neutral every other
+      // surface now uses, which also retires a real defect: raw gold measured
+      // 1.67:1 on the light card here, below even the non-text bar, and the
+      // derived ink tokens exist precisely so no accent is used as ink.
+      SquareState.skipped => (
+          Icons.bedtime_rounded,
+          SquareState.skipped.accent(gp.dark),
+        ),
       SquareState.none => (
           Icons.radio_button_unchecked,
           gp.textTert.withOpacity(0.6),

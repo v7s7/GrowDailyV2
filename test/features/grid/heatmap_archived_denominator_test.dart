@@ -24,6 +24,11 @@ import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 
 void main() {
+  // Every habit in this file is daily, so nothing here consults the quota
+  // reader heatmapScheduledOn now takes — see habit_day_demand_test.dart for
+  // the days a flexible weekly quota owes.
+  bool noGreen(String habitId, DateTime day) => false;
+
   IslamicHabitTemplate habit(
     String id, {
     required DateTime created,
@@ -52,7 +57,7 @@ void main() {
       habit('live', created: DateTime(2026, 1, 1)),
       habit('paused', created: DateTime(2026, 1, 1), archived: pauseDay),
     ];
-    expect(heatmapScheduledOn(habits, june), 2,
+    expect(heatmapScheduledOn(habits, june, noGreen), 2,
         reason: 'in June both habits were on the board, so a June day owed '
             'two — pausing one in August cannot change that');
   });
@@ -64,9 +69,9 @@ void main() {
     ];
     // The pause day ITSELF still counts. That is deliberate elsewhere in
     // the app too: archiving at 11pm must not retroactively excuse the day.
-    expect(heatmapScheduledOn(habits, pauseDay), 2,
+    expect(heatmapScheduledOn(habits, pauseDay, noGreen), 2,
         reason: 'the day you paused was still a day the habit was owed');
-    expect(heatmapScheduledOn(habits, afterPause), 1,
+    expect(heatmapScheduledOn(habits, afterPause, noGreen), 1,
         reason: 'after the pause only the live habit is owed');
   });
 
@@ -77,7 +82,7 @@ void main() {
       habit('live', created: DateTime(2026, 1, 1)),
       habit('paused', created: DateTime(2026, 1, 1), archived: pauseDay),
     ];
-    final planned = heatmapScheduledOn(habits, june);
+    final planned = heatmapScheduledOn(habits, june, noGreen);
     // dayFill's enum is private, so compare against the two references
     // rather than naming a value: a half day must paint like a half day,
     // not like a finished one.
@@ -89,9 +94,9 @@ void main() {
 
   test('a habit paused before a day was never owed on it', () {
     final habits = [habit('paused', created: june, archived: pauseDay)];
-    expect(heatmapScheduledOn(habits, DateTime(2026, 5, 1)), 0,
+    expect(heatmapScheduledOn(habits, DateTime(2026, 5, 1), noGreen), 0,
         reason: 'a day before the habit existed owes nothing');
-    expect(heatmapScheduledOn(habits, afterPause), 0);
+    expect(heatmapScheduledOn(habits, afterPause, noGreen), 0);
   });
 
   test('a day owing nothing is still distinguishable from a day owing one',

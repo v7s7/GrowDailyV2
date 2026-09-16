@@ -16,6 +16,7 @@ import '../../auth/notifiers/auth_notifier.dart';
 import '../models/undone_completion.dart';
 import '../../milestones/models/milestone_event.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/models/habit_day_demand.dart';
 import '../../habits/models/habit_schedule.dart';
 import '../../grid/models/square_state.dart';
 import '../../milestones/reports/habit_day_marks.dart';
@@ -37,6 +38,18 @@ final List<int> kStreakMilestones = GameConstants.streakBonuses.keys.toList();
 /// isn't a second, independently-editable copy of the same numbers.
 int milestoneXpBonus(int milestone) =>
     XpCalculator.streakMilestoneBonus(milestone);
+
+/// The next threshold above [milestone], or null at the top of the ladder.
+/// The milestone overlay closes on this number instead of on a flavor title,
+/// so it has to be derived from [kStreakMilestones] rather than written out
+/// a second time — a hand-written "next" is the copy that goes stale the day
+/// a threshold is added.
+int? nextStreakMilestone(int milestone) {
+  for (final m in kStreakMilestones) {
+    if (m > milestone) return m;
+  }
+  return null;
+}
 
 /// Every `catch (_) {}` below a Firestore batch/set write in this file
 /// calls this instead of silently discarding the error. Firestore's own
@@ -334,11 +347,6 @@ bool completionAnnouncesItself({
     lastCompleted: last,
   );
 }
-
-// Milestone flavor titles ("3-Day Starter", "بداية النشامى", ...) live in
-// S.milestoneTitle (app_strings.dart) since they're locale-dependent —
-// keeping them here would mean an English-only title bleeding into the
-// Arabic UI.
 
 /// A per-habit streak milestone just reached — carries enough context (which
 /// habit, by name) for the celebration dialog to reference it by name,

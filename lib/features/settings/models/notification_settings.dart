@@ -79,7 +79,7 @@ TimeOfDay _timeFromMap(Object? raw, TimeOfDay fallback) {
 /// time" philosophy the original NotificationService shipped with.
 class NotificationSettings {
   /// Top-level kill switch — off means every notification this app sends
-  /// (reminders, streak risk, celebrations, the plain daily reminder) stops,
+  /// (habit reminders, the evening note, celebrations) stops,
   /// full stop. Everything below only matters when this is true.
   final bool masterEnabled;
 
@@ -87,10 +87,16 @@ class NotificationSettings {
   /// clock time), with Mark Done/Snooze actions.
   final bool habitRemindersEnabled;
 
-  /// The evening "you're about to lose your streak" nudge — see
-  /// NotificationService.scheduleStreakRiskCheck. Only ever fires when a
-  /// streak is actually at risk (streak > 0 and something's still
-  /// unfinished today), never as a blind daily ping.
+  /// Whether the ONE evening notification carries the streak ask — «سوي
+  /// عادتين بس، وتصير ٨ أيام.» — see NotificationService
+  /// .scheduleEveningNote. Only ever said when a streak is actually at risk
+  /// (streak > 0 and enough build habits still unfinished today to close
+  /// the gap), never as a blind daily ping.
+  ///
+  /// It was its own notification until 2026-09-16, on its own clock
+  /// ([streakRiskTime]), and it counted the same board the daily reminder
+  /// had counted half an hour earlier. Off now means the evening note falls
+  /// through to the plain board line, not that the evening goes quiet.
   final bool streakRiskEnabled;
 
   /// Kept for stored-settings compatibility; no longer shown in Settings.
@@ -101,10 +107,10 @@ class NotificationSettings {
   /// habit (NotificationService.showRoomHabitAdded).
   final bool celebrationsEnabled;
 
-  /// Whether the streak-risk nudge also mentions a pending count of
-  /// DO-FIRST (urgent + important) Matrix tasks, when there are any. Adds a
-  /// line to that one notification rather than a separate ping of its own
-  /// — see NotificationService.scheduleStreakRiskCheck.
+  /// Whether the evening note also mentions a pending count of DO-FIRST
+  /// (urgent + important) Matrix tasks, when there are any. Adds a sentence
+  /// to that one notification rather than a ping of its own — see
+  /// NotificationService.scheduleEveningNote.
   final bool matrixNudgeEnabled;
 
   /// When two or more habit reminders land within the same few minutes,
@@ -148,8 +154,8 @@ class NotificationSettings {
   final TimeOfDay quietHoursStart;
   final TimeOfDay quietHoursEnd;
 
-  /// Quiet hours suppress the generic daily reminder and the streak-risk
-  /// nudge by default, but a prayer-linked habit reminder is exempt unless
+  /// Quiet hours suppress the evening note by default, but a prayer-linked
+  /// habit reminder is exempt unless
   /// this is explicitly turned on — because the entire point of "remind me
   /// after Fajr" is to be reminded near Fajr, which for most of the world
   /// falls well inside a typical nighttime quiet window. Flip this on only
@@ -166,8 +172,11 @@ class NotificationSettings {
   // truth. CustomHabitsNotifier._migrateLegacyPrayerOffset folds any saved
   // value into existing prayer habits once, so nobody's reminders moved.
 
-  /// Local clock time the streak-risk check runs at, if it's going to fire
-  /// at all that day (see [streakRiskEnabled]'s doc comment).
+  /// Local clock time the evening note goes out at, when no daily-reminder
+  /// time has been picked (ReminderTimeNotifier). It was the streak note's
+  /// own clock, and it stays the fallback so turning the daily reminder off
+  /// does not silently take the streak ask with it — see main.dart's
+  /// _recomputeNotifications.
   final TimeOfDay streakRiskTime;
 
   final NotificationLocation? location;

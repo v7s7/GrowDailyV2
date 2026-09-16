@@ -80,11 +80,12 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
         widget.participant.isStoodDownOn(key)) {
       return (dark ? Colors.white : Colors.black).withOpacity(0.07);
     }
-    // A deliberate تخطّي gets the same gold the strip and the personal
-    // reports give it, so one act has one colour everywhere. It does NOT
-    // change what the day scored, which is still nothing.
+    // A deliberate تخطّي gets the same NEUTRAL the strip and the Grid give
+    // it, so one act has one colour everywhere. Neutral because that is what
+    // it is worth: it earns nothing and is never counted against you, which
+    // is neither the reward a gold said nor the credit an emerald claims.
     if (widget.participant.isDeclaredRest(key)) {
-      return GameColors.gold.withOpacity(0.16);
+      return SquareState.skipped.fill(dark);
     }
     // A STRUCTURAL rest - the quota or a named-weekday schedule asked nothing
     // of them - gets the faint emerald the leaderboard strip already paints it

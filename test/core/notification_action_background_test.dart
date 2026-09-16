@@ -12,7 +12,7 @@
 // this whole path exists to avoid.
 //
 // It also pins the one rule for the two notes whose numbers a tap here makes
-// false (8000 and 9001): each is cleared only while the OS still holds it
+// false (1010 and 9001): each is cleared only while the OS still holds it
 // PENDING, because on iOS the plugin's cancel removes a delivered
 // notification as well, and a note already delivered was true when it came.
 // The mocked channel below therefore keeps a pending set, and a Done tapped
@@ -151,7 +151,7 @@ void main() {
 
     test('stands down every reminder slot of a habit now done for the day',
         () async {
-      pending.add(8000);
+      pending.add(1010);
       store['todayHabitsJson'] = todayList([
         {'id': 'fajr', 'name': 'الفجر', 'done': false, 'count': 0, 'perDay': 1},
       ]);
@@ -159,10 +159,10 @@ void main() {
           actionId: 'mark_done', habitId: 'fajr', now: DateTime(2026, 9, 6));
       // 12 slots, each with TODAY's reminder id and a snooze id: see
       // NotificationService.standDownHabitReminders. The one other cancel
-      // is the evening streak note (8000), pinned in its own tests below.
+      // is the evening streak note (1010), pinned in its own tests below.
       final slotCancels = [
         for (final c in cancels())
-          if (c.arguments != 8000) c.arguments as int,
+          if (c.arguments != 1010) c.arguments as int,
       ];
       expect(slotCancels.length, 24);
       final ids = slotCancels.toSet();
@@ -199,7 +199,7 @@ void main() {
       // Armed for 20:30 as «٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام.».
       // A habit finished here at 19:40 makes that count false and may earn
       // the point it asks for, and this engine cannot re-word the note.
-      pending.add(8000);
+      pending.add(1010);
       store['todayHabitsJson'] = todayList([
         {'id': 'maghrib', 'name': 'المغرب', 'done': false, 'count': 0, 'perDay': 1},
         {'id': 'isha', 'name': 'العشاء', 'done': false, 'count': 0, 'perDay': 1},
@@ -209,7 +209,7 @@ void main() {
         habitId: 'maghrib',
         now: DateTime(2026, 9, 11, 19, 40),
       );
-      expect(cancels().where((c) => c.arguments == 8000), hasLength(1));
+      expect(cancels().where((c) => c.arguments == 1010), hasLength(1));
     });
 
     test('leaves the evening note alone once it has been delivered', () async {
@@ -226,7 +226,7 @@ void main() {
         now: DateTime(2026, 9, 11, 22, 30),
       );
       expect(
-        cancels().where((c) => c.arguments == 8000),
+        cancels().where((c) => c.arguments == 1010),
         isEmpty,
         reason: 'delivered at 20:30, so nothing pending to clear',
       );
@@ -239,7 +239,7 @@ void main() {
 
     test('clears it for a quit habit kept clean and for a last round',
         () async {
-      pending.add(8000);
+      pending.add(1010);
       store['todayHabitsJson'] = todayList([
         {'id': 'coffee', 'name': 'قهوة', 'done': false, 'count': 0, 'perDay': 1},
         {'id': 'water', 'name': 'ماء', 'done': false, 'count': 2, 'perDay': 3},
@@ -249,9 +249,9 @@ void main() {
         habitId: 'coffee',
         now: DateTime(2026, 9, 11, 19),
       );
-      expect(cancels().where((c) => c.arguments == 8000), hasLength(1));
+      expect(cancels().where((c) => c.arguments == 1010), hasLength(1));
 
-      pending.add(8000);
+      pending.add(1010);
       notificationCalls.clear();
       await handleBackgroundNotificationAction(
         actionId: 'mark_done',
@@ -259,25 +259,25 @@ void main() {
         now: DateTime(2026, 9, 11, 19),
       );
       expect(
-        cancels().where((c) => c.arguments == 8000),
+        cancels().where((c) => c.arguments == 1010),
         hasLength(1),
         reason: 'the third of three finishes the habit for the day',
       );
     });
 
-    test("clears this Friday's numbered note on a finishing tap before 19:00",
+    test("clears the week's numbered note on a finishing tap on its Friday",
         () async {
-      // Armed this morning for 19:00 as «٥ أيام خضرا هذا الأسبوع 👏🏼 والليلة
-      // تختم الأسبوع.» under the habit with the most green days. A habit
-      // finished here can add a green day or overtake that habit, and this
-      // engine has no Grid to count with.
+      // Armed today for tomorrow morning as «٥ أيام خضرا في أسبوعك 👏🏼
+      // واليوم يبدأ أسبوع جديد.» under the habit with the most green days.
+      // A habit finished here can add a green day or overtake that habit,
+      // and this engine has no Grid to count with.
       expect(DateTime(2026, 9, 11).weekday, DateTime.friday);
       for (final (actionId, habitId) in [
         ('mark_done', 'maghrib'),
         ('quit_on_track', 'coffee'),
       ]) {
         notificationCalls.clear();
-        pending.addAll({8000, 9001});
+        pending.addAll({1010, 9001});
         store['todayHabitsJson'] = todayList([
           {'id': 'maghrib', 'name': 'المغرب', 'done': false, 'count': 0, 'perDay': 1},
           {'id': 'coffee', 'name': 'قهوة', 'done': false, 'count': 0, 'perDay': 1},
@@ -295,20 +295,20 @@ void main() {
       }
     });
 
-    test('leaves the Friday note from 19:00, on other days, and on a tap '
-        'that does not finish the habit', () async {
+    test("leaves the week's note on other days, and on a tap that does not "
+        'finish the habit', () async {
       for (final now in [
-        // Delivered at 19:00: clearing it would take it off the list.
-        DateTime(2026, 9, 11, 19),
-        DateTime(2026, 9, 11, 22, 30),
+        // Not a Friday: either the note has been delivered already or the
+        // week it is about has not started closing.
         DateTime(2026, 9, 10, 18),
         DateTime(2026, 9, 12, 9),
+        DateTime(2026, 9, 12, 20),
       ]) {
         notificationCalls.clear();
         // Listed as pending on purpose: what holds 9001 back at these
         // moments is the WINDOW, the note being about today, and not
         // whether the OS still has it.
-        pending.addAll({8000, 9001});
+        pending.addAll({1010, 9001});
         store['todayHabitsJson'] = todayList([
           {'id': 'fajr', 'name': 'الفجر', 'done': false, 'count': 0, 'perDay': 1},
         ]);
@@ -323,7 +323,7 @@ void main() {
           reason: '$now',
         );
         expect(
-          cancels().where((c) => c.arguments == 8000),
+          cancels().where((c) => c.arguments == 1010),
           hasLength(1),
           reason: 'the tap still finished the habit at $now',
         );
@@ -345,7 +345,8 @@ void main() {
       // A Friday whose week was not worth numbering: the claim-free repeat
       // (9000) is armed and 9001 never existed, so a finishing tap at 18:40
       // has nothing of the note's to stand down. Neither stand-down may
-      // reach for an id it does not own.
+      // reach for an id it does not own — 1010 (the evening note) and 9001
+      // are the only two they may touch.
       expect(DateTime(2026, 9, 11).weekday, DateTime.friday);
       pending.addAll({9000, 9002});
       store['todayHabitsJson'] = todayList([
@@ -358,7 +359,7 @@ void main() {
       );
       final touched = [
         for (final c in cancels())
-          if ((c.arguments as int) >= 8000) c.arguments as int,
+          if (c.arguments == 1010 || c.arguments == 9001) c.arguments as int,
       ];
       expect(touched, isEmpty, reason: '$touched');
       expect(pending, {9000, 9002});

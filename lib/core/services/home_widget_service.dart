@@ -79,16 +79,29 @@ class HomeWidgetService {
   /// [todayHabits] is today's scheduled habits with their current
   /// done-state — the large widget renders these as tappable rows (see the
   /// AppIntent in WIDGET_SETUP.md), so this needs real ids/names, not just
-  /// a count. [dailyGreenCounts] is DashboardState.dailyGreenCounts as-is —
-  /// the same rollup the Monthly Heatmap screen reads — windowed here to
-  /// the last 28 days for the widget's mini heatmap.
+  /// a count. It is everything ALLOWED today, deliberately wider than
+  /// [totalToday], which counts only what the day OWED (see
+  /// `_todayHabitStats`): a flexible weekly quota's rest day is still a day
+  /// you may train, so its row stays on the widget and stays tappable, and
+  /// carries `notDue` so the widget can draw it as not counted instead of as
+  /// outstanding. [dailyGreenCounts] is DashboardState.dailyGreenCounts
+  /// as-is — the same rollup the Monthly Heatmap screen reads — windowed here
+  /// to the last 28 days for the widget's mini heatmap.
   Future<void> updateWidgetData({
     required int streak,
     required int level,
     required int gold,
     required int completedToday,
     required int totalToday,
-    required List<({String id, String name, bool done, int count, int perDay})>
+    required List<
+            ({
+              String id,
+              String name,
+              bool done,
+              int count,
+              int perDay,
+              bool notDue,
+            })>
         todayHabits,
     required Map<String, int> dailyGreenCounts,
   }) async {
@@ -115,6 +128,12 @@ class HomeWidgetService {
                   // rules tolerate by treating a missing pair as one-a-day.
                   'count': h.count,
                   'perDay': h.perDay,
+                  // Whether the day asked for this habit at all. Unlike the
+                  // count pair above, the widget's own Mark Done button
+                  // PRESERVES this on its re-encode (TodayHabit carries it in
+                  // GrowDailyWidget.swift), so a rest-day row does not turn
+                  // back into an outstanding one the moment it is tapped.
+                  'notDue': h.notDue,
                 })
             .toList()),
       );

@@ -1051,15 +1051,27 @@ ReminderLine? streakRiskCopy({
   return (title: title, body: '$today$tasks');
 }
 
-/// Friday's numbered note for THIS week, Aziz's pick of 2026-09-11: the habit
-/// with the most green days as the title, and the count, praised, as the
-/// body: «٥ أيام خضرا هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.», with «التزام» in
-/// place of «خضرا» for a quit habit.
+/// The numbered note for the week that just SEALED, Aziz's pick of
+/// 2026-09-11: the habit with the most green days as the title, and the
+/// count, praised, as the body: «٥ أيام خضرا في أسبوعك 👏🏼 واليوم يبدأ
+/// أسبوع جديد.», with «التزام» in place of «خضرا» for a quit habit.
 ///
-/// It is only true of the week it counts, so the caller sends it once, on
-/// that Friday, and never as the weekly repeat: the repeat used to carry
-/// «هذا الأسبوع» with the numbers of whichever week last opened the app, and
-/// a phone left closed heard last week's count every Friday after.
+/// It does not name the week as «الأسبوع اللي فات»: «فات» is on the blame
+/// list this file's copy is swept against (daily_reminder_copy_test), and
+/// «واليوم يبدأ أسبوع جديد» already says which week is being counted.
+///
+/// It used to say «هذا الأسبوع» and «والليلة تختم الأسبوع», and it went out
+/// on Friday at 19:00 — while Friday was still being lived, and while
+/// Friday stayed payable until Saturday 10:00. So the count it named could
+/// still change after it was read, and the app's own weekly screens would
+/// then disagree with the banner in the person's hand. It goes out at the
+/// cutoff now (NotificationService.kWeeklyNoteHour), where the week is
+/// closed and the number cannot move, so the tense moved with it.
+///
+/// It is only ever true of the one week it counts, so the caller sends it
+/// once and never as the weekly repeat: the repeat used to carry «هذا
+/// الأسبوع» with the numbers of whichever week last opened the app, and a
+/// phone left closed heard last week's count every week after.
 /// Null below three green days, which is not a week to hold up.
 ReminderLine? weeklyNoteCopy({
   required String habitName,
@@ -1071,22 +1083,22 @@ ReminderLine? weeklyNoteCopy({
   if (!isAr) {
     return (
       title: habitName,
-      body: '${isQuit ? 'Kept' : 'Green'} $greenDays days this week 👏🏼 '
-          'Tonight closes the week.',
+      body: '${isQuit ? 'Kept' : 'Green'} $greenDays days in your week 👏🏼 '
+          'A new week starts today.',
     );
   }
   return (
     title: habitName,
     body: '${_countedDays(greenDays, true)} ${isQuit ? 'التزام' : 'خضرا'} '
-        'هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.',
+        'في أسبوعك 👏🏼 واليوم يبدأ أسبوع جديد.',
   );
 }
 
-/// The weekly repeat, which has to stay true on any Friday it fires, however
-/// long the phone stays closed: tomorrow is a new week, and the longest run
-/// ever reached cannot go down. «سبق ووصلت ١٤ يوم ورا بعض 👏🏼 ومربع واحد يفتح
-/// الأسبوع.», or just «مربع واحد يفتح الأسبوع.» when [longestStreak] is under
-/// three.
+/// The weekly repeat, which has to stay true on any Saturday morning it
+/// fires, however long the phone stays closed: a new week has just started,
+/// and the longest run ever reached cannot go down. «سبق ووصلت ١٤ يوم ورا
+/// بعض 👏🏼 ومربع واحد يفتح الأسبوع.», or just «مربع واحد يفتح الأسبوع.» when
+/// [longestStreak] is under three.
 ReminderLine weeklyRepeatCopy({
   required int longestStreak,
   required bool isAr,
@@ -1094,7 +1106,7 @@ ReminderLine weeklyRepeatCopy({
   final proud = longestStreak >= 3;
   if (!isAr) {
     return (
-      title: 'A new week tomorrow',
+      title: 'A new week starts',
       body: proud
           ? "You've reached $longestStreak days in a row before 👏🏼 "
               'One square opens the week.'
@@ -1102,7 +1114,7 @@ ReminderLine weeklyRepeatCopy({
     );
   }
   return (
-    title: 'أسبوع جديد باجر',
+    title: 'أسبوع جديد بدأ',
     body: proud
         ? 'سبق ووصلت ${_countedDays(longestStreak, true)} ورا بعض 👏🏼 '
             'ومربع واحد يفتح الأسبوع.'
@@ -1131,4 +1143,171 @@ String quitReminderBody({required bool isLimit, required bool isAr}) {
   return isLimit
       ? 'Within the limit so far? Kept or slipped.'
       : 'How is today so far? Kept or slipped.';
+}
+
+/// One quit habit's evening ask, as a sentence inside the evening note:
+/// «و«تدخين»: التزمت اليوم؟», or for a limit «و«قهوة»: بقيت ضمن الحد؟».
+///
+/// Named, because the note is now the only evening notification and a bare
+/// «التزمت؟» with three quit habits running says nothing about which.
+String _oneQuitSentence({
+  required String name,
+  required bool isLimit,
+  required bool isAr,
+  required bool lead,
+}) {
+  if (!isAr) {
+    final and = lead ? '' : 'And ';
+    return isLimit
+        ? '$and"$name": still within the limit?'
+        : '$and"$name": did you keep to it today?';
+  }
+  final and = lead ? '' : 'و';
+  return isLimit ? '$and«$name»: بقيت ضمن الحد؟' : '$and«$name»: التزمت اليوم؟';
+}
+
+/// The quit habits still unanswered tonight, as one sentence. One is named
+/// ([_oneQuitSentence]); several are counted, because naming four habits in
+/// a banner that already carries the day's board reads as a list, not a
+/// question, and the names are on Today one tap away.
+String quitEveningSentence({
+  required List<({String name, bool isLimit})> pending,
+  required bool isAr,
+  // Whether this sentence OPENS the body, rather than trailing a board line
+  // that is already there. It only changes the joining word, but the two
+  // readings are different sentences and string-trimming one into the other
+  // is the kind of surgery that breaks on a copy edit.
+  bool lead = false,
+}) {
+  if (pending.isEmpty) return '';
+  if (pending.length == 1) {
+    return _oneQuitSentence(
+      name: pending.first.name,
+      isLimit: pending.first.isLimit,
+      isAr: isAr,
+      lead: lead,
+    );
+  }
+  final n = pending.length;
+  if (!isAr) {
+    // Not "kept or slipped" here, though those are the two buttons' own
+    // words: "slip" is on the blame list this file's copy is swept against
+    // (daily_reminder_copy_test), and the evening note is the one banner
+    // that now carries this sentence into that sweep.
+    return lead
+        ? '$n habits to check in on.'
+        : 'And $n habits to check in on.';
+  }
+  final and = lead ? 'عندك' : 'وعندك';
+  return switch (n) {
+    2 => '$and عادتين تسجّلهن، التزام أو زلة.',
+    <= 10 => '$and ${arabicDigits(n)} عادات تسجّلهن، التزام أو زلة.',
+    _ => '$and ${arabicDigits(n)} عادة تسجّلها، التزام أو زلة.',
+  };
+}
+
+/// THE evening notification: one line for the whole evening, replacing the
+/// three that used to fire within half an hour of each other (the daily
+/// reminder, the streak note and one check-in per quit habit).
+///
+/// On 2026-09-13 a tester's lock screen carried «٤ من ١١ خلّصت، والباقي ٧
+/// عادات بس» at 20:00 and «٤ من ١١ خلّصت 👏🏼 سوي ٥ عادات بس» at 20:33: the
+/// same board, the same ask, counted twice, thirty-three minutes apart. The
+/// quit check-in made it worse by firing at the streak note's own minute,
+/// once per quit habit, so three quit habits meant four banners inside one
+/// minute.
+///
+/// What it says, most specific first — at most ONE of the first two, since
+/// both count the same board:
+///   1. the streak ask ([streakRiskCopy]) when a live streak still needs
+///      habits today: it carries the board numbers AND names what the streak
+///      turns into, so it strictly contains the daily reminder's sentence;
+///   2. otherwise the daily reminder's own line ([dailyReminderLine]).
+/// Then ONE of these, appended to whichever line spoke, never both: the
+/// quit habits still unanswered, else the urgent tasks. Two trailing
+/// sentences overflowed the body and iOS cut the second one mid-word, see
+/// the note on [tellTasks] in the code below.
+///
+/// Null when there is nothing true to say — the day is finished, or nothing
+/// was due, and no quit habit is waiting. A banner after a finished day is
+/// the purest form of "you did nothing", and that rule is why this returns
+/// null rather than reaching for a generic line.
+ReminderLine? eveningNoteLine({
+  required int done,
+  required int total,
+  required int streak,
+  required bool streakEarnedToday,
+  required int pendingBuildHabitCount,
+  required List<({String name, bool isLimit})> pendingQuit,
+  required int urgentTasks,
+  required int variantIndex,
+  required bool isAr,
+  // The streak ask has its own switch in Settings. Off means the note
+  // falls through to the plain board line below, never that the note goes
+  // quiet: what is left today is still true and still worth one banner.
+  bool streakAskEnabled = true,
+}) {
+  final quit = quitEveningSentence(pending: pendingQuit, isAr: isAr);
+  // ONE trailing sentence, never two.
+  //
+  // Measured on a simulator 2026-09-16 with a real board (11 habits, 5 Do
+  // First tasks, 2 quit habits): «٢ من ١١ خلّصت 👏🏼 سوي ٧ عادات بس، وتصير ٤
+  // أيام. وعندك ٥ مهام عاجلة. وعندك عادتين تسجّلهن،...» — iOS gave the body
+  // three lines and cut the third sentence mid-word. A sentence that is
+  // always cut off is not a sentence the notification carries.
+  //
+  // The quit ask outranks the urgent-tasks count when both are true: a quit
+  // habit's day is only settled by answering it, and the answer is a tap,
+  // while the task count is information. With no quit habit waiting, the
+  // tasks sentence has the tail to itself, which is the common case.
+  final tellTasks = quit.isEmpty && urgentTasks > 0;
+  // The streak ask, on the same gates it had as its own notification: a
+  // live streak, today's point not yet earned, and enough BUILD habits left
+  // to actually cover what it needs (a quit habit is not done but answered,
+  // so it cannot close a streak's gap).
+  final needed = habitsStillNeededForStreak(done: done, total: total);
+  final streakLine = streakAskEnabled &&
+          streak > 0 &&
+          !streakEarnedToday &&
+          needed > 0 &&
+          needed <= pendingBuildHabitCount
+      ? streakRiskCopy(
+          done: done,
+          total: total,
+          streak: streak,
+          // streakRiskCopy appends the tasks sentence itself, so the tail
+          // rule is applied by what it is given, not by trimming after.
+          urgentTasks: tellTasks ? urgentTasks : 0,
+          isAr: isAr,
+        )
+      : null;
+  if (streakLine != null) {
+    return (
+      title: streakLine.title,
+      body: quit.isEmpty ? streakLine.body : '${streakLine.body} $quit',
+    );
+  }
+  final daily = dailyReminderLine(
+    done: done,
+    total: total,
+    streak: streak,
+    variantIndex: variantIndex,
+    isAr: isAr,
+  );
+  if (daily != null) {
+    final tail = quit.isNotEmpty
+        ? ' $quit'
+        : tellTasks
+            ? ' ${_urgentTasksSentence(urgentTasks, isAr)}'
+            : '';
+    return (title: daily.title, body: '${daily.body}$tail');
+  }
+  // The board is finished (or was empty) and only quit habits are still
+  // open: they resolve by being answered, not by being done, so the day is
+  // not over for them. Their own title, since nothing else spoke.
+  if (quit.isEmpty) return null;
+  return (
+    title: isAr ? 'تسجيل المساء' : 'Evening check-in',
+    body: quitEveningSentence(pending: pendingQuit, isAr: isAr, lead: true),
+  );
 }

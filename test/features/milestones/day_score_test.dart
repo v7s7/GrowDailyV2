@@ -163,18 +163,45 @@ void main() {
     });
   });
 
-  group('a quota habit owes no particular day', () {
+  group('a quota habit owes the days its week made load-bearing', () {
     final quota = habit(
       id: 'q',
       frequencyType: HabitFrequencyType.weekly,
       frequencyTarget: 3,
     );
+    // The week wed falls in runs Sat 15 → Fri 21 August. With nothing done,
+    // a 3x week can afford to leave Sat/Sun/Mon/Tue blank; from Wednesday on,
+    // every remaining day is needed. See habitOwesDay.
+    final satSpare = DateTime(2026, 8, 15);
 
-    test('a blank day for a quota habit is not a miss', () {
-      // This is the bug missIsAttributable exists to forbid: a habit with a
-      // target of four, hit four times, was rendering four filled cells
-      // beside three "missed" outlines AND a PERFECT badge on one row.
+    test('a blank day the week could still afford is not a miss', () {
+      // The bug this forbids: a habit with a target of four, hit four times,
+      // rendering four filled cells beside three "missed" outlines AND a
+      // PERFECT badge on one row.
+      final score = scoreOf([quota], const {}, day: satSpare);
+      expect(score.owed, 0);
+      expect(score.rate, isNull);
+    });
+
+    test('a blank day that put the target out of reach IS a miss', () {
+      // The other half of the rule, and the reason this stopped being a
+      // blanket exemption: a week that genuinely fell short must name the
+      // days it fell short on, the same days the Grid paints red.
       final score = scoreOf([quota], const {});
+      expect(score.owed, 1);
+      expect(score.done, 0);
+      expect(score.rate, 0);
+    });
+
+    test('the target once banked buys the rest of the week', () {
+      // Sat, Sun and Mon done: Wednesday is earned, and owes nothing.
+      final score = scoreOf([quota], {
+        'q': {
+          satSpare: SquareState.complete,
+          DateTime(2026, 8, 16): SquareState.complete,
+          DateTime(2026, 8, 17): SquareState.complete,
+        },
+      });
       expect(score.owed, 0);
       expect(score.rate, isNull);
     });
@@ -368,13 +395,24 @@ void main() {
       expect(silent.length, 3);
     });
 
-    test('a quota habit is never listed as owing a particular day', () {
+    test('a quota habit is listed only on the days its week owed', () {
       final quota = habit(
         id: 'q',
         frequencyType: HabitFrequencyType.weekly,
         frequencyTarget: 3,
       );
-      expect(silentHabitsOn(habits: [quota], history: const {}, day: wed), isEmpty);
+      // Saturday: four days still to come, so nothing was owed on it.
+      expect(
+        silentHabitsOn(
+            habits: [quota], history: const {}, day: DateTime(2026, 8, 15)),
+        isEmpty,
+      );
+      // Wednesday: three days left for three sessions, so skipping it is
+      // what breaks the week. Itemised, exactly as the fraction counts it.
+      expect(
+        silentHabitsOn(habits: [quota], history: const {}, day: wed),
+        hasLength(1),
+      );
     });
 
     test('one row per habit even when its id arrives twice', () {

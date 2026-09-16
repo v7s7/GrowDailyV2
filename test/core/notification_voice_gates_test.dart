@@ -131,24 +131,28 @@ void main() {
           isAr: true,
         );
 
-    test('Friday before 19:00: the numbered copy once, for tonight only', () {
+    // 2026-09-11 is a Friday; the week it closes seals on Saturday the
+    // 12th at kDayCutoffHour, which is when the note goes out.
+    test('on Friday: the numbered copy once, for the sealing morning only',
+        () {
       final p = plan(DateTime(2026, 9, 11, 15));
       final numbered =
           p.arm.where((s) => s.copy.body == numberedBody).toList();
       expect(numbered, hasLength(1));
       expect(numbered.single.id, 9001);
       expect(numbered.single.copy.title, 'أذكار الصباح');
-      expect(numbered.single.fireAt, DateTime(2026, 9, 11, 19));
+      expect(numbered.single.fireAt, DateTime(2026, 9, 12, 10));
       expect(numbered.single.repeatsWeekly, isFalse);
-      // No weekly repeat beside it: iOS would fire that tonight as well.
+      // No weekly repeat beside it: iOS would fire that on the same
+      // Saturday as well.
       expect(p.arm.where((s) => s.repeatsWeekly), isEmpty);
       expect(p.cancel, [9000]);
-      // Next Friday still hears the claim-free copy, once, and only next
-      // Friday: each of these is a pending request against iOS's 64 on the
-      // one afternoon the fixed ids are at their widest, and what iOS does
-      // past 64 has not been measured (see kMaxPendingHabitSlots).
+      // The Saturday after still hears the claim-free copy, once, and only
+      // that one: each of these is a pending request against iOS's 64 on
+      // the one afternoon the fixed ids are at their widest, and what iOS
+      // does past 64 has not been measured (see kMaxPendingHabitSlots).
       final rest = p.arm.where((s) => s.copy.body != numberedBody).toList();
-      expect([for (final s in rest) s.fireAt], [DateTime(2026, 9, 18, 19)]);
+      expect([for (final s in rest) s.fireAt], [DateTime(2026, 9, 19, 10)]);
       expect([for (final s in rest) s.id], [9002]);
       for (final s in rest) {
         expect(s.copy, repeat);
@@ -157,11 +161,10 @@ void main() {
       expect(p.arm, hasLength(2), reason: 'two requests on a Friday, not five');
     });
 
-    test('after 19:00 and on every other day: only the claim-free repeat', () {
+    test('on every day that is not Friday: only the claim-free repeat', () {
       for (final now in [
-        DateTime(2026, 9, 11, 19, 1),
-        DateTime(2026, 9, 11, 22),
         DateTime(2026, 9, 12, 10),
+        DateTime(2026, 9, 12, 23),
         DateTime(2026, 9, 16, 8),
         DateTime(2026, 9, 17, 23),
       ]) {
@@ -171,20 +174,30 @@ void main() {
         expect(slot.id, 9000);
         expect(slot.repeatsWeekly, isTrue);
         expect(slot.copy, repeat);
-        expect(slot.fireAt, DateTime(2026, 9, 18, 19), reason: '$now');
-        // The numbered copy, delivered at 19:00, stays in the list.
+        expect(slot.fireAt, DateTime(2026, 9, 19, 10), reason: '$now');
+        // The numbered copy, delivered at 10:00, stays in the list.
         expect(p.cancel, isNot(contains(9001)), reason: '$now');
         expect(p.cancel, [9002],
             reason: 'exactly the ids this plan can have armed');
       }
-      // On a Thursday the repeat's next Friday is tomorrow.
+      // On a Thursday the repeat's next Saturday is the day after tomorrow.
       expect(
         plan(DateTime(2026, 9, 10, 20)).arm.single.fireAt,
-        DateTime(2026, 9, 11, 19),
+        DateTime(2026, 9, 12, 10),
       );
     });
 
-    test('Friday with no week worth numbering: the repeat, tonight', () {
+    // Saturday morning is the one window where the Grid has already rolled
+    // to the new week while the note about the old one is still waiting.
+    test('Saturday before the cutoff: nothing armed, nothing cleared', () {
+      for (final hour in [0, 7, 9]) {
+        final p = plan(DateTime(2026, 9, 12, hour), topHabit: null);
+        expect(p.arm, isEmpty, reason: '$hour');
+        expect(p.cancel, isEmpty, reason: '$hour');
+      }
+    });
+
+    test('Friday with no week worth numbering: the repeat, that morning', () {
       for (final topHabit in <WeekTopHabit?>[
         null,
         (name: 'أذكار الصباح', greenDays: 2, isQuit: false),
@@ -193,13 +206,13 @@ void main() {
         expect(p.arm, hasLength(1));
         expect(p.arm.single.id, 9000);
         expect(p.arm.single.copy, repeat);
-        expect(p.arm.single.fireAt, DateTime(2026, 9, 11, 19));
+        expect(p.arm.single.fireAt, DateTime(2026, 9, 12, 10));
         // A numbered copy armed earlier today, before an undo, is cleared.
         expect(p.cancel, contains(9001));
       }
     });
 
-    test('the numbered copy is never a repeat, and only for its own evening',
+    test('the numbered copy is never a repeat, and only for its own morning',
         () {
       // Every recompute hour across a fortnight.
       for (var h = 0; h < 24 * 14; h++) {
@@ -210,7 +223,7 @@ void main() {
           expect(now.weekday, DateTime.friday, reason: '$now');
           expect(
             s.fireAt,
-            DateTime(now.year, now.month, now.day, 19),
+            DateTime(now.year, now.month, now.day + 1, 10),
             reason: '$now',
           );
           expect(now.isBefore(s.fireAt), isTrue, reason: '$now');
@@ -218,10 +231,11 @@ void main() {
       }
     });
 
-    test('a Grid pinned to another week, and back: one copy for tonight', () {
+    test('a Grid pinned to another week, and back: one copy for the morning',
+        () {
       // A claim-free basis is a plan with no top habit, which is how a Grid
       // showing another week arms the note (see weeklyNoteBasis). What must
-      // never happen is two copies left armed for the same 19:00.
+      // never happen is two copies left armed for the same 10:00.
       final friday = DateTime(2026, 9, 11, 15);
       final armed = <int, WeeklyNoteSlot>{};
       void apply(({List<WeeklyNoteSlot> arm, List<int> cancel}) p) {
@@ -234,10 +248,11 @@ void main() {
       }
 
       // A weekly repeat fires at the next matching weekday and time, which
-      // on a Friday afternoon is tonight; a one-shot fires on its own date.
+      // on a Friday afternoon is tomorrow morning; a one-shot fires on its
+      // own date.
       Iterable<int> tonight() => [
             for (final s in armed.values)
-              if (s.repeatsWeekly || s.fireAt == DateTime(2026, 9, 11, 19))
+              if (s.repeatsWeekly || s.fireAt == DateTime(2026, 9, 12, 10))
                 s.id,
           ];
 
@@ -263,7 +278,7 @@ void main() {
         p.arm.first.copy,
         (
           title: 'ترك التدخين',
-          body: '٤ أيام التزام هذا الأسبوع 👏🏼 والليلة تختم الأسبوع.',
+          body: '٤ أيام التزام في أسبوعك 👏🏼 واليوم يبدأ أسبوع جديد.',
         ),
       );
     });

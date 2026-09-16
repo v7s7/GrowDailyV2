@@ -212,6 +212,26 @@ void main() {
         NotificationService.kMaxTaskReminderSlots);
   });
 
+  test(
+      'cancelHabitReminders clears every slot and depth in both systems, '
+      'so a deleted alarm-mode habit cannot keep ringing', () async {
+    alarmCalls.clear();
+    notificationCalls.clear();
+    await NotificationService.instance.cancelHabitReminders('habit-9');
+    // 12 possible reminder slots per habit (NotificationService's private
+    // _maxHabitReminderSlots) — not exposed for tests, so pinned here
+    // directly the same way this suite already pins kMaxTaskReminderSlots.
+    const maxHabitReminderSlots = 12;
+    // Every depth of every slot in both systems...
+    expect(cancelledAlarms().length,
+        maxHabitReminderSlots * NotificationService.kOccurrencesPerSlot);
+    // ...plus one snoozed-copy cancel per slot, notification-side only.
+    expect(
+        cancelledNotifications().length,
+        maxHabitReminderSlots * NotificationService.kOccurrencesPerSlot +
+            maxHabitReminderSlots);
+  });
+
   test('passes in flight together run whole, one after the other', () async {
     Future<void> schedule() => NotificationService.instance.scheduleTaskReminders(
           id: 'task-a',
@@ -288,5 +308,69 @@ void main() {
       reason: 'a habit alarm carries Stop only, so no tap on it records the '
           'habit',
     );
+  });
+
+  test(
+      'every pass reaps the near bands against what it just armed, so an '
+      'alarm whose habit is already gone stops ringing', () async {
+    HabitReminderInput habit(String id) => (
+          id: id,
+          name: id,
+          clockTimes: [TimeOfDay(hour: fireAt.hour, minute: fireAt.minute)],
+          clockOffsets: const [0],
+          remindersPerOccurrence: 1,
+          extraReminderOffsets: const [],
+          prayerKey: null,
+          streak: 0,
+          completedCount: 0,
+          dailyTarget: 1,
+          lastDoneDaysAgo: null,
+          timerSeconds: null,
+          reminderOffsetMinutes: 0,
+          ignoreQuietHours: true,
+          isQuit: false,
+          isLimit: false,
+          alarm: true,
+          scheduledWeekdays: const {1, 2, 3, 4, 5, 6, 7},
+          anchorLabel: null,
+          weekTarget: null,
+          weekDoneDays: null,
+        );
+    const settings = NotificationSettings(quietHoursEnabled: false);
+    await NotificationService.instance
+        .scheduleSmartReminders([habit('still-here')], settings, isAr: false);
+
+    final reaps = alarmCalls
+        .where((c) => c.method == 'reapOrphans')
+        .map((c) => c.arguments as Map)
+        .toList();
+    // A cancel can only name a habit the app still has. These two ranges are
+    // the only thing that reaches an alarm whose habit is already gone, so
+    // the pass has to sweep both of them, every time.
+    expect(
+      {for (final r in reaps) (r['lowId'] as int, r['highId'] as int)},
+      {(5000, 5999), (400000, 402999)},
+      reason: 'the depth-0 band and every depth armed ahead of it',
+    );
+    final armed = alarmSchedules().map((a) => a['id'] as int).toSet();
+    expect(armed, hasLength(NotificationService.kOccurrencesPerSlot));
+    for (final reap in reaps) {
+      expect(
+        (reap['keepIds'] as List).cast<int>().toSet(),
+        armed,
+        reason: 'what this pass armed a moment ago is exactly what survives '
+            'the reap — anything else in the band belongs to no habit',
+      );
+      // Spelled out because the whole point is that it cancels: a reap told
+      // to keep everything it can see would pass the check above and still
+      // leave a deleted habit ringing.
+      expect(
+        armed.where((id) =>
+            id >= (reap['lowId'] as int) && id <= (reap['highId'] as int)),
+        isNotEmpty,
+        reason: 'each band really does hold some of this habit\'s alarms, so '
+            'the keep set is load-bearing rather than vacuous',
+      );
+    }
   });
 }

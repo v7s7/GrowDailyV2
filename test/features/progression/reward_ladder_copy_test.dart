@@ -4,9 +4,9 @@
 // milestones were added to close the 264-day hole between day 101 and the
 // streak_365 medal, and one character was recovered from an asset that had
 // shipped unused since the character system landed. Neither change is
-// self-checking. A milestone with no title still renders, just generically,
-// and a character whose gate is dropped simply becomes free. A test is the
-// only thing that notices either.
+// self-checking. A milestone whose ladder link is wrong still renders, just
+// pointing at the wrong day, and a character whose gate is dropped simply
+// becomes free. A test is the only thing that notices either.
 import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
@@ -17,47 +17,48 @@ import 'package:grow_daily_v2/features/character/notifiers/character_notifier.da
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 
 void main() {
-  group('every streak milestone has real copy', () {
+  group('the streak milestone overlay closes on the next threshold', () {
     const ar = S(Locale('ar'));
     const en = S(Locale('en'));
 
-    // milestoneTitle ends in `_ => 'Streak Milestone'` / 'إنجاز السلسلة', so a
-    // threshold with no case of its own does not fail, it just quietly
-    // celebrates with a generic line. That is exactly the kind of miss that
-    // survives a release: the overlay looks fine, it just says nothing.
-    test('no threshold falls through to the generic title', () {
-      for (final m in kStreakMilestones) {
+    // This group used to guard twelve flavor titles, one per threshold
+    // ("7-Day Warrior" and an Arabic epithet to match), and the failure it
+    // caught was a new threshold landing with no title of its own. The
+    // titles are gone —
+    // the overlay states the streak and names the next threshold instead —
+    // so the copy is now derived from kStreakMilestones and cannot go
+    // missing. What can still break is the ladder's shape: a threshold
+    // pointing at a number that is not on the ladder, or the top pointing
+    // past itself into a milestone that does not exist.
+    test('each threshold points at the one after it', () {
+      for (var i = 0; i < kStreakMilestones.length - 1; i++) {
         expect(
-          en.milestoneTitle(m),
-          isNot('Streak Milestone'),
-          reason: 'streak $m has no English title of its own',
-        );
-        expect(
-          ar.milestoneTitle(m),
-          isNot('إنجاز السلسلة'),
-          reason: 'streak $m has no Arabic title of its own',
+          nextStreakMilestone(kStreakMilestones[i]),
+          kStreakMilestones[i + 1],
+          reason: 'streak ${kStreakMilestones[i]} points at the wrong next',
         );
       }
     });
 
-    test('a non-milestone day still gets the generic title', () {
-      // The fallback has to keep working: it is what any future threshold
-      // lands on before someone writes its copy.
-      expect(en.milestoneTitle(4), 'Streak Milestone');
-      expect(ar.milestoneTitle(4), 'إنجاز السلسلة');
+    test('the top of the ladder has nothing after it', () {
+      expect(nextStreakMilestone(kStreakMilestones.last), isNull);
+      // And a day past the top is still the top, not a crash or a wrap.
+      expect(nextStreakMilestone(kStreakMilestones.last + 500), isNull);
     });
 
-    test('every title is distinct, in both languages', () {
-      // Two thresholds sharing a title reads as a bug to the person who hits
-      // the second one and is told the same thing twice.
-      for (final s in [en, ar]) {
-        final titles = kStreakMilestones.map(s.milestoneTitle).toList();
-        expect(
-          titles.toSet().length,
-          titles.length,
-          reason: 'two milestones share a title',
-        );
-      }
+    test('a day before the first threshold still points at it', () {
+      expect(nextStreakMilestone(0), kStreakMilestones.first);
+    });
+
+    test('both closing lines name the day count in their own language', () {
+      // daysCount carries the Arabic plural rule (3 أيام / 14 يومًا), so the
+      // line has to go through it rather than interpolating a bare number.
+      expect(ar.milestoneNextStop(14), contains(ar.daysCount(14)));
+      expect(ar.milestoneNextStop(3), contains(ar.daysCount(3)),
+          reason: '3 أيام and 14 يومًا take different plural forms');
+      expect(en.milestoneNextStop(14), 'Next up: 14 days.');
+      expect(ar.milestoneLastStop, isNotEmpty);
+      expect(en.milestoneLastStop, isNotEmpty);
     });
   });
 

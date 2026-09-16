@@ -55,7 +55,7 @@ void main() {
     expect(find.text('Choose Your Plan'), findsOneWidget);
 
     // Expand the first starter plan (top of the list) and activate it.
-    await tester.tap(find.text('Morning Warrior'));
+    await tester.tap(find.text('Morning Routine'));
     await h.settle(tester);
     // The expanded plan's action sits below the sheet's initial viewport.
     // Invoke its real button callback directly; the plan list itself is
