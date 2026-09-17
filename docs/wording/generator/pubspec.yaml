@@ -1,0 +1,10 @@
+name: wording_generator
+description: Extracts every bilingual (Arabic and English) wording from the Grow Daily Dart sources into JSON rows.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  analyzer: 10.0.2

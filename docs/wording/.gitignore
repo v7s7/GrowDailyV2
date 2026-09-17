@@ -1,0 +1,3 @@
+# Excel and LibreOffice lock files while the workbook is open
+~$*
+.~lock.*

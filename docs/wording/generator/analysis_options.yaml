@@ -1,0 +1,5 @@
+# The wording extractor is a standalone Dart tool, not part of the Flutter
+# app, so it does not inherit the app's flutter_lints set from the repo root.
+linter:
+  rules:
+    - prefer_single_quotes
