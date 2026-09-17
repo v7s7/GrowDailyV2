@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../models/sign_in_methods.dart';
 import '../notifiers/auth_notifier.dart';
 
 /// Setting a new password from a reset link, inside the app.
@@ -171,8 +172,22 @@ class _SetNewPasswordScreenState extends ConsumerState<SetNewPasswordScreen> {
     final messenger = ScaffoldMessenger.maybeOf(context);
     Navigator.of(context).maybePop();
     messenger?.showSnackBar(SnackBar(
-      content: Text(widget.isAdd ? s.addPasswordDone : s.setPasswordDone),
+      content: Text(widget.isAdd
+          // The way in they still have, named: an Apple user was being told
+          // about Google before this.
+          ? s.addPasswordDone(_otherWayInName())
+          : s.setPasswordDone),
     ));
+  }
+
+  /// The provider this account still signs in with, named. Firebase swapped
+  /// the password for exactly one of them, so this is the button the person
+  /// should look for next time, and telling an Apple user about Google sends
+  /// them hunting for one that is not theirs.
+  String _otherWayInName() {
+    final methods = ref.read(signInMethodsProvider);
+    if (methods.hasApple) return 'Apple';
+    return 'Google';
   }
 
   @override

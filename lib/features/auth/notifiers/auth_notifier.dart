@@ -345,6 +345,89 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
     state = const AsyncData(null);
   }
 
+  /// Attaches Google or Apple to the account that is ALREADY signed in, so
+  /// that button lands on this account's data from then on.
+  ///
+  /// This is the cure for the duplicate account. Apple's Hide My Email hands
+  /// over a relay address that matches nothing, so tapping Apple on an
+  /// account made with an ordinary address creates a second, empty one and
+  /// the person's habits look gone. Linking from inside the account they are
+  /// already in is the only join Firebase offers, and it is permanent.
+  ///
+  /// Throws the provider's own [FirebaseAuthException] untouched, because
+  /// the codes carry the whole meaning: `credential-already-in-use` says
+  /// that Apple ID or Google account already opened an account here (the
+  /// empty one, usually), and `provider-already-linked` says it is already
+  /// attached and nothing is wrong. [SocialSignInCancelled] passes through
+  /// for the same reason it does in [signInWithSocial]: dismissing the
+  /// provider sheet is a decision, not a failure.
+  Future<void> connectProvider(SocialProvider provider) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'No signed-in account to attach a sign-in method to.',
+      );
+    }
+    final social = provider == SocialProvider.google
+        ? await SocialAuthService.instance.google()
+        : await SocialAuthService.instance.apple();
+    await user.linkWithCredential(social.credential);
+    AnalyticsService.instance
+        .track('auth_provider_connected', props: {'method': provider.name});
+    // The link is already permanent and currentUser already carries it, so
+    // this only pulls a fresh profile. Its failure must never be reported
+    // as a failed connect: the person cannot undo it from here, and telling
+    // them it did not work would send them to do it again.
+    try {
+      await user.reload();
+    } catch (_) {}
+  }
+
+  /// Takes one way in off the account, leaving every other one alone.
+  ///
+  /// Nothing in Firebase stops an account being stripped of its last
+  /// provider (`no-such-provider` only means the provider was not linked in
+  /// the first place), so the screen's own check is the whole protection:
+  /// it offers no Remove at all on the last way in, and re-reads the live
+  /// provider list after every change rather than trusting the list it was
+  /// built with.
+  ///
+  /// Removing the password writes the flag back to false deliberately: the
+  /// person did this themselves, and without it [_repairDroppedPassword]
+  /// would later announce a loss that nobody suffered.
+  Future<void> removeProvider(String providerId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'No signed-in account to remove a sign-in method from.',
+      );
+    }
+    await user.unlink(providerId);
+    if (providerId == passwordProviderId) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .set({'hasPassword': false}, SetOptions(merge: true));
+      } catch (_) {
+        // A Firestore hiccup must not turn a removal that worked into an
+        // error; the worst case is one stale offer to set a password.
+      }
+    }
+    AnalyticsService.instance
+        .track('auth_provider_removed', props: {'method': providerId});
+    // Last, and swallowed: the unlink has already committed. A throw here
+    // would leave the user doc saying the account still has a password,
+    // which _repairDroppedPassword reads as Firebase deleting one, and the
+    // person would be told their password was taken away on the next
+    // provider sign-in for a removal they performed themselves.
+    try {
+      await user.reload();
+    } catch (_) {}
+  }
+
   /// Puts a password onto the signed-in account, so it has two ways in
   /// again: the provider it just used, and an email/password pair.
   ///

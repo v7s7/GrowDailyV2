@@ -497,14 +497,79 @@ class S {
       : 'Signing in with Google or Apple removed the old password from this '
           'account. Set a new one and both ways in will work.';
   String get addPasswordLater => isAr ? 'لاحقًا' : 'Later';
-  String get addPasswordDone => isAr
-      ? 'تم. تقدر تدخل بالبريد وكلمة المرور أو بـ Google.'
-      : 'Done. You can sign in with your email and password, or with Google.';
+  /// Names the provider the person actually used. It said "or with Google"
+  /// to everyone until 2026-09-17, including Apple users, which sent them
+  /// looking for a button that is not theirs.
+  String addPasswordDone(String name) => isAr
+      ? 'تم. تقدر تدخل بالبريد وكلمة المرور، أو بـ $name.'
+      : 'Done. You can sign in with your email and password, or with $name.';
   // linkWithCredential's own refusals, both of which mean the account
   // already has a password: nothing is broken, so neither reads as an error.
   String get addPasswordAlready => isAr
       ? 'هذا الحساب عنده كلمة مرور أصلاً.'
       : 'This account already has a password.';
+
+  // ── How you sign in ──────────────────────────────────────────────────
+  // DRAFT wording, Aziz picks the final words.
+  //
+  // One page that lists every way into the signed-in account, because two
+  // things the app cannot prevent both end here. Firebase deletes the
+  // password of an unverified address the moment that address signs in with
+  // Google or Apple, and the one-time offer to set a new one is missed by
+  // anyone who taps Later. Apple's Hide My Email opens a SECOND, empty
+  // account, and connecting Apple from inside the real account is what makes
+  // the Apple button land on the real data from then on.
+  String get signInMethodsTitle => isAr ? 'طرق الدخول' : 'How you sign in';
+  String get signInMethodsIntro => isAr
+      ? 'هذي الطرق اللي تدخل فيها لهذا الحساب. أي طريقة تربطها توديك لنفس بياناتك.'
+      : 'These are the ways into this account. Any method you connect takes '
+          'you to the same data.';
+  String get signInMethodPassword =>
+      isAr ? 'بريد وكلمة مرور' : 'Email and password';
+  String get signInMethodConnect => isAr ? 'اربط' : 'Connect';
+  String get signInMethodRemove => isAr ? 'شيل' : 'Remove';
+  String get signInMethodSetPassword => isAr ? 'حط كلمة مرور' : 'Add a password';
+  String get signInMethodConnectHint => isAr
+      ? 'اربطه وتدخل بضغطة وحدة.'
+      : 'Connect it and you can sign in with one tap.';
+  String get signInMethodPasswordHint => isAr
+      ? 'حط كلمة مرور تقدر تدخل فيها بالبريد.'
+      : 'Set a password you can sign in with.';
+  /// Apple's relay address forwards mail but belongs to nobody we can reach,
+  /// so a reset link would never arrive and a password here would be a trap.
+  String get signInMethodPasswordHidden => isAr
+      ? 'كلمة المرور تحتاج بريد ظاهر. Apple خفى بريدك، فاربط Google بدالها.'
+      : 'A password needs a visible email address. Apple hid yours, so '
+          'connect Google instead.';
+  String get signInMethodOnlyWayIn =>
+      isAr ? 'طريقتك الوحيدة للدخول' : 'Your only way in';
+  String get signInMethodsFooter => isAr
+      ? 'لازم تترك لك طريقة وحدة على الأقل تدخل فيها.'
+      : 'You need to keep at least one way to sign in.';
+  String signInMethodRemoveTitle(String name) =>
+      isAr ? 'تشيل $name؟' : 'Remove $name?';
+  String get signInMethodRemoveBody => isAr
+      ? 'ما راح تقدر تدخل فيها بعدين، بس تقدر ترجع تربطها في أي وقت.'
+      : 'You will not be able to sign in with it after this, but you can '
+          'connect it again any time.';
+  String signInMethodConnected(String name) =>
+      isAr ? 'تم. تقدر تدخل بـ $name من الحين.' : 'Done. You can sign in with $name from now on.';
+  String signInMethodRemoved(String name) =>
+      isAr ? 'تم. شلنا $name.' : 'Done. $name removed.';
+  /// credential-already-in-use: this Apple ID or Google account already made
+  /// its own account here, which is exactly the empty duplicate this page
+  /// exists to end. The old account is untouched and still holds everything.
+  String signInMethodInUse(String name) => isAr
+      ? 'هذا الـ $name سبق وفتح له حساب ثاني هني، وما نقدر نجمع حسابين. إذا ذاك الحساب فاضي، طلّع نفسك وادخل فيه واحذفه، وبعدين ارجع اربط من هني. بياناتك في حسابك الحالي ما تتأثر.'
+      : 'That $name already opened its own account here, and two accounts '
+          'cannot be joined. If that one is empty, sign out, sign in to it, '
+          'delete it, then connect from here. Nothing in this account '
+          'changes.';
+  /// unlink's requires-recent-login: the session is too old for a change
+  /// this sensitive, and only signing in again refreshes it.
+  String get signInMethodRemoveStale => isAr
+      ? 'طلّع نفسك وادخل مرة ثانية، وبعدين شيلها.'
+      : 'Sign out and sign in again, then remove it.';
 
   // Auth errors
   String get errFillAll =>

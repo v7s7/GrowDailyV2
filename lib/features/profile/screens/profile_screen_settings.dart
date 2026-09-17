@@ -278,6 +278,23 @@ class _SettingsSection extends ConsumerWidget {
           _SettingsGroup(
             title: isAr ? 'الحساب' : 'Account',
             children: [
+              // Every way into this account, and the way back in when
+              // Firebase has quietly removed the password or Apple's hidden
+              // address has opened a second, empty account. See
+              // SignInMethodsScreen for why this is a standing row rather
+              // than a prompt that appears only when something is wrong.
+              // Same gate as Delete Account: a guest has no Firebase account
+              // for it to describe.
+              if (canDeleteAccount)
+                _SettingsRow(
+                  icon: Icons.vpn_key_rounded,
+                  label: s.signInMethodsTitle,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SignInMethodsScreen(),
+                    ),
+                  ),
+                ),
               _SettingsRow(
                 icon: Icons.logout_rounded,
                 label: s.signOut,

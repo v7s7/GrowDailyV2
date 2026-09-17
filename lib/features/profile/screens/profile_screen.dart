@@ -48,6 +48,7 @@ import '../widgets/delete_account_sheet.dart';
 import '../widgets/edit_name_sheet.dart';
 import '../widgets/stat_info_sheet.dart';
 import 'progress_hub_screen.dart';
+import 'sign_in_methods_screen.dart';
 import 'theme_preview_screen.dart';
 
 part 'profile_screen_hero_dashboard.dart';
