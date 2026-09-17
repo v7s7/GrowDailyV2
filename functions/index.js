@@ -70,8 +70,9 @@ const {
 } = require("./room_health");
 const {
   isProduction,
-  shouldApply,
-  targetsFor,
+  premiumFromCustomerInfo,
+  shouldWrite,
+  uidsToRefresh,
 } = require("./revenuecat_webhook");
 
 /**
@@ -79,6 +80,42 @@ const {
  * `firebase functions:secrets:set REVENUECAT_WEBHOOK_SECRET`.
  */
 const revenueCatWebhookSecret = defineSecret("REVENUECAT_WEBHOOK_SECRET");
+
+/**
+ * A RevenueCat SECRET API key (sk_, created for API v1), used only to read
+ * a customer's record back after a webhook. See uidsToRefresh in
+ * revenuecat_webhook.js for why the event alone cannot be trusted.
+ *
+ * Secret, not the public SDK key the apps ship: RevenueCat says secret keys
+ * are project-wide and belong on servers, and this one never leaves Secret
+ * Manager. It can also grant and delete, so it is never logged.
+ *
+ * DEPLOY ORDER MATTERS. The Firebase CLI resolves every declared secret
+ * before it picks which functions to deploy, so until this secret exists
+ * even `--only functions:notifyRoomFinish` stops at a masked prompt.
+ */
+const revenueCatApiKey = defineSecret("REVENUECAT_API_KEY");
+
+/**
+ * GET /v1/subscribers/{uid}: RevenueCat's own answer for this customer.
+ *
+ * No X-Platform header, as RevenueCat asks for informational reads, so this
+ * never moves the customer's last_seen. The timeout keeps one slow call
+ * well inside RevenueCat's 60 second delivery window; a throw becomes a 500
+ * and RevenueCat retries the whole event, which re-reading makes safe.
+ */
+async function fetchCustomerInfo(uid, apiKey) {
+  const url = "https://api.revenuecat.com/v1/subscribers/" +
+      encodeURIComponent(uid);
+  const res = await fetch(url, {
+    headers: {Authorization: `Bearer ${apiKey}`},
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    throw new Error(`RevenueCat GET subscribers answered ${res.status}`);
+  }
+  return res.json();
+}
 
 /**
  * Constant-time string compare, so a wrong Authorization header cannot be
@@ -933,24 +970,34 @@ exports.roomsHealthSweep = onSchedule(
  * and refuses everything else with 401. Without the secret configured the
  * function refuses every request rather than failing open.
  *
+ * WHAT IT WRITES. The event only names the accounts to look at; the
+ * verdict comes from re-reading each one's RevenueCat record
+ * (fetchCustomerInfo), because a webhook describes one product's
+ * transaction and Premium has two products behind it. See uidsToRefresh.
+ *
  * SETUP, and only Aziz can do it:
  *  1. `firebase functions:secrets:set REVENUECAT_WEBHOOK_SECRET` and paste a
  *     long random string.
- *  2. Deploy: `firebase deploy --only functions:revenueCatWebhook`.
- *  3. RevenueCat dashboard -> Project Settings -> Integrations -> Webhooks:
+ *  2. `firebase functions:secrets:set REVENUECAT_API_KEY` and paste a
+ *     RevenueCat secret API key created for API v1.
+ *  3. Deploy: `firebase deploy --only functions:revenueCatWebhook`.
+ *  4. RevenueCat dashboard -> Integrations (left menu) -> Webhooks:
  *     set the URL to the deployed https trigger and the Authorization
- *     header to the SAME string.
- * Until step 3 is done this endpoint is simply never called and nothing
+ *     header to the SAME string as step 1.
+ * Until step 4 is done this endpoint is simply never called and nothing
  * changes for anyone; the mobile apps are unaffected either way.
  */
 exports.revenueCatWebhook = onRequest(
-    {secrets: [revenueCatWebhookSecret]},
+    {secrets: [revenueCatWebhookSecret, revenueCatApiKey]},
     async (req, res) => {
       if (req.method !== "POST") {
         res.status(405).send("POST only");
         return;
       }
-      const expected = revenueCatWebhookSecret.value();
+      // Trimmed: a secret piped in from `openssl rand` is stored with its
+      // trailing newline, and Node strips whitespace from a received header,
+      // so an untrimmed compare would refuse every real delivery.
+      const expected = (revenueCatWebhookSecret.value() || "").trim();
       // Fail CLOSED. An unset secret must not mean "accept anything".
       if (!expected) {
         logger.error("revenueCatWebhook: secret not configured, refusing");
@@ -981,23 +1028,50 @@ exports.revenueCatWebhook = onRequest(
         return;
       }
 
-      const nowMs = Date.now();
-      // Usually one account, two on a TRANSFER: the one gaining the purchase
-      // and the one LOSING it, which has to be revoked or a single lifetime
-      // purchase mints a permanent Premium account on every transfer.
-      const targets = targetsFor(event, nowMs);
-      if (targets.length === 0) {
-        // Nothing to write: not the Premium entitlement, or an anonymous
-        // $RCAnonymousID that belongs to no account yet. The latter is not
-        // an error, the person simply has not signed in, and RevenueCat
-        // sends a TRANSFER to their real uid when they do.
+      // Usually one account. A TRANSFER names both the account gaining the
+      // purchase and the one LOSING it, and both are re-read: the loser has
+      // to be revoked or one lifetime purchase mints a Premium account on
+      // every transfer, and the gainer has to be granted, which the old
+      // per-event verdict never did because TRANSFER carries no entitlement.
+      const uids = uidsToRefresh(event);
+      if (uids.length === 0) {
+        // Nothing to write: only anonymous $RCAnonymousID ids, which belong
+        // to no account yet. Not an error. When that guest signs in,
+        // logIn MERGES the ids (an alias, and no webhook fires for it), so
+        // the account is only caught up by that customer's NEXT event,
+        // which lists the real uid in `aliases`. A lifetime bought as a
+        // guest has no next event: a known gap this endpoint cannot close.
         res.status(200).send("nothing to mirror");
+        return;
+      }
+      const apiKey = (revenueCatApiKey.value() || "").trim();
+      if (!apiKey) {
+        // 500, not 200: RevenueCat keeps retrying for about two and a half
+        // hours, which covers the gap if the key is set a little late.
+        logger.error("revenueCatWebhook: API key not configured, refusing");
+        res.status(500).send("not configured");
         return;
       }
 
       try {
-        for (const t of targets) {
-          const ref = db.collection("users").doc(t.uid);
+        for (const uid of uids) {
+          const ref = db.collection("users").doc(uid);
+          // Checked BEFORE calling RevenueCat, not only inside the
+          // transaction: GET /subscribers creates a customer that does not
+          // exist, so a deleted account would otherwise be re-created on
+          // RevenueCat's side just to be skipped here.
+          // eslint-disable-next-line no-await-in-loop
+          const existing = await ref.get();
+          if (!existing.exists) {
+            logger.info("revenueCatWebhook: no user doc, skipping", {
+              uid, type: event.type,
+            });
+            continue;
+          }
+          // eslint-disable-next-line no-await-in-loop
+          const info = await fetchCustomerInfo(uid, apiKey);
+          const verdict = premiumFromCustomerInfo(info, Date.now());
+          if (!verdict) throw new Error("unreadable RevenueCat customer info");
           // eslint-disable-next-line no-await-in-loop
           await db.runTransaction(async (tx) => {
             const snap = await tx.get(ref);
@@ -1005,32 +1079,28 @@ exports.revenueCatWebhook = onRequest(
             // was deleted (AuthNotifier.deleteAccount removes the doc) would
             // otherwise resurrect it as a ghost carrying nothing but an
             // entitlement, which then reads as a real account elsewhere.
-            if (!snap.exists) {
-              logger.info("revenueCatWebhook: no user doc, skipping", {
-                uid: t.uid, type: event.type,
-              });
-              return;
-            }
-            if (!shouldApply(event, snap.data())) {
-              logger.info("revenueCatWebhook: stale or duplicate event", {
-                uid: t.uid, id: event.id, type: event.type,
+            if (!snap.exists) return;
+            if (!shouldWrite(verdict.checkedAtMs, snap.data())) {
+              logger.info("revenueCatWebhook: older snapshot, skipping", {
+                uid, id: event.id, type: event.type,
               });
               return;
             }
             tx.set(ref, {
-              premiumActive: t.active,
-              premiumExpiresAtMs: t.expiresAtMs,
+              premiumActive: verdict.active,
+              premiumExpiresAtMs: verdict.expiresAtMs,
               premiumEventId: String(event.id || ""),
-              premiumEventMs: event.event_timestamp_ms,
+              premiumEventMs: verdict.checkedAtMs,
               premiumUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
             }, {merge: true});
           });
         }
       } catch (e) {
         // 500 so RevenueCat retries: losing an entitlement write is worse
-        // than processing the event twice, which shouldApply makes safe.
-        logger.error("revenueCatWebhook: write failed", e);
-        res.status(500).send("write failed");
+        // than processing the event twice, and a re-read is idempotent.
+        // Log the message only; the error never carries the API key.
+        logger.error("revenueCatWebhook: refresh failed", String(e));
+        res.status(500).send("refresh failed");
         return;
       }
       res.status(200).send("ok");

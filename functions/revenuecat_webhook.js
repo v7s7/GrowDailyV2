@@ -26,6 +26,15 @@
 const ENTITLEMENT_ID = "Grow Daily Premium";
 
 /**
+ * The products that grant [ENTITLEMENT_ID], for the one case the entitlement
+ * alone cannot answer (see [productionPurchaseVerdict]). The monthly is a
+ * PREFIX because RevenueCat's v1 record can key a Play subscription with its
+ * base plan appended ("growdaily_monthly:monthly-autorenew").
+ */
+const LIFETIME_PRODUCT_ID = "growdaily_lifetime";
+const MONTHLY_PRODUCT_PREFIX = "growdaily_monthly";
+
+/**
  * A RevenueCat app_user_id we are willing to write a mirror for.
  *
  * PurchaseService.logIn(uid) binds the App User ID to the Firebase uid, so a
@@ -66,131 +75,197 @@ function isProduction(event) {
   return event && event.environment === "PRODUCTION";
 }
 
-/**
- * Whether [event] says Premium is active, and until when.
- *
- * Read from `entitlement_ids` plus `expiration_at_ms` rather than from the
- * event TYPE, deliberately. Mapping types to a boolean means keeping a list
- * of every type RevenueCat has and every one it adds later, and getting a
- * single one wrong revokes a paying customer or pays a refunded one. The
- * two fields above are what the entitlement actually IS at the moment the
- * event fired, for every type.
- *
- * A lifetime purchase has no expiry: `expiration_at_ms` is null and the
- * entitlement stays active until a refund event says otherwise.
- *
- * CANCELLATION is deliberately NOT a revocation. Cancelling an
- * auto-renewing subscription means it will not renew; the person keeps
- * Premium until the period they already paid for runs out, which is exactly
- * what `expiration_at_ms` in the future encodes. Treating CANCELLATION as
- * "off" would cut short time someone has paid for.
- */
-function entitlementFrom(event, nowMs) {
-  const ids = Array.isArray(event.entitlement_ids) ? event.entitlement_ids :
-    (typeof event.entitlement_id === "string" ? [event.entitlement_id] : []);
-  const mentionsPremium = ids.includes(ENTITLEMENT_ID);
-  const type = String(event.type || "");
-
-  // A refund, a chargeback or a revoked family-share is an immediate off,
-  // whatever the expiry says: the money went back.
-  if (type === "REFUND" || type === "EXPIRATION") {
-    return {active: false, expiresAtMs: null};
-  }
-  // TRANSFER moves the purchase to a different App User ID. The event is
-  // delivered for the id LOSING it as well, and that person is no longer
-  // entitled. RevenueCat sends the loser's id in `transferred_from`.
-  if (type === "TRANSFER") {
-    const from = Array.isArray(event.transferred_from) ?
-      event.transferred_from : [];
-    if (from.includes(event.app_user_id)) {
-      return {active: false, expiresAtMs: null};
-    }
-  }
-  if (!mentionsPremium) return null; // Not about Premium, leave the mirror.
-
-  const expires = typeof event.expiration_at_ms === "number" ?
-    event.expiration_at_ms : null;
-  // null expiry = lifetime / non-expiring.
-  if (expires === null) return {active: true, expiresAtMs: null};
-  return {active: expires > nowMs, expiresAtMs: expires};
-}
 
 /**
- * Whether [event] should be applied over what is already stored.
+ * Every account whose mirror this event may have changed.
  *
- * RevenueCat retries a webhook until it gets a 2xx, so the SAME event can
- * arrive several times, and a retry of an OLD event can land AFTER a newer
- * one. Without this, a retried CANCELLATION could revoke Premium that a
- * later RENEWAL had already restored.
+ * WHY THE EVENT IS ONLY A DOORBELL. The mirror used to be computed from the
+ * event's own `type`, `entitlement_ids` and `expiration_at_ms`. Those fields
+ * describe ONE PRODUCT'S transaction, not the customer's entitlement, and
+ * Premium has two products behind it (growdaily_monthly and
+ * growdaily_lifetime). A lifetime owner whose old monthly ran out got an
+ * EXPIRATION for the monthly and was mirrored as free for good, and every
+ * RENEWAL or CANCELLATION of that monthly overwrote the lifetime's open
+ * expiry with a month-end date the web client then enforced. RevenueCat's
+ * own guidance is to call GET /subscribers after ANY webhook, because the
+ * customer record already folds every product, refund, transfer and grace
+ * period into one answer. So the event now says only WHO to re-read.
  *
- * `event_timestamp_ms` is RevenueCat's own ordering key. Equal timestamps
- * are allowed through only when the id differs, so a genuine duplicate is a
- * no-op while two distinct events stamped the same millisecond both apply.
+ * TRANSFER is the case that needs this most. Its real payload carries no
+ * `app_user_id`, no `entitlement_ids` and no expiry (only
+ * `transferred_from` / `transferred_to`), so the old per-event verdict could
+ * never grant the receiving account at all, and it revoked the losing
+ * account blindly even when that account still held a purchase from a
+ * different store account. Re-reading both sides gets both right.
+ *
+ * `original_app_user_id` and `aliases` are included because RevenueCat's
+ * docs say to look users up by both: a guest who bought before signing in
+ * is ONE RevenueCat customer under two ids, and `app_user_id` is only the
+ * last one seen. Every id here resolves to the same customer record, so
+ * re-reading each can only write the same answer RevenueCat gives the SDK.
+ * Anonymous ids fall out through [isRealUid], as before.
  */
-function shouldApply(event, stored) {
-  const ts = typeof event.event_timestamp_ms === "number" ?
-    event.event_timestamp_ms : null;
-  if (ts === null) return false; // Unorderable: refuse rather than guess.
-  if (!stored) return true;
-  const seenTs = typeof stored.premiumEventMs === "number" ?
-    stored.premiumEventMs : null;
-  if (seenTs === null) return true;
-  if (ts > seenTs) return true;
-  if (ts < seenTs) return false;
-  return stored.premiumEventId !== event.id;
-}
-
-/**
- * Every account this event changes, and what it changes them to.
- *
- * Usually one: the event's own app_user_id. A TRANSFER is the exception and
- * the reason this function exists at all. RevenueCat moves a purchase
- * between App User IDs and sends ONE event, whose app_user_id is the
- * account RECEIVING it; the account losing it is named only in
- * `transferred_from`. Writing just app_user_id therefore granted the new
- * account and left the old account's mirror reading true forever.
- *
- * That is not a stale-cache annoyance, it is free Premium at scale: buy
- * growdaily_lifetime once, sign in as a fresh account to move the purchase,
- * and repeat. Every account walked away permanently Premium on the web,
- * because nothing would ever write false to any of them again. The mobile
- * SDKs were never exposed to this, since RevenueCat itself only ever
- * reports the entitlement to whoever currently holds it.
- */
-function targetsFor(event, nowMs) {
-  const verdict = entitlementFrom(event, nowMs);
-  const out = [];
-  const from = Array.isArray(event.transferred_from) ?
-    event.transferred_from : [];
+function uidsToRefresh(event) {
+  const ids = [];
   if (String(event.type || "") === "TRANSFER") {
-    // Everyone who LOST it, whatever the entitlement now says.
-    for (const uid of from) {
-      if (isRealUid(uid)) out.push({uid, active: false, expiresAtMs: null});
+    for (const list of [event.transferred_from, event.transferred_to]) {
+      if (Array.isArray(list)) ids.push(...list);
     }
-    const to = Array.isArray(event.transferred_to) ? event.transferred_to : [];
-    const gainers = to.length ? to : [event.app_user_id];
-    if (verdict) {
-      for (const uid of gainers) {
-        if (isRealUid(uid) && !from.includes(uid)) {
-          out.push({uid, active: verdict.active,
-            expiresAtMs: verdict.expiresAtMs});
-        }
-      }
-    }
-    return out;
+  } else {
+    ids.push(event.app_user_id, event.original_app_user_id);
+    if (Array.isArray(event.aliases)) ids.push(...event.aliases);
   }
-  if (!verdict) return out;
-  if (!isRealUid(event.app_user_id)) return out;
-  out.push({uid: event.app_user_id, active: verdict.active,
-    expiresAtMs: verdict.expiresAtMs});
-  return out;
+  return [...new Set(ids.filter(isRealUid))];
+}
+
+/** An ISO 8601 string as epoch ms, or null when absent or unparseable. */
+function isoMs(value) {
+  if (typeof value !== "string") return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Whether the purchase RevenueCat says backs Premium is a sandbox one.
+ *
+ * The event gate ([isProduction]) is not enough on its own any more. By
+ * default RevenueCat lets sandbox purchases grant entitlements ("Sandbox
+ * Testing Access: Anybody"), and the customer record mixes sandbox and
+ * production purchases, so a TestFlight tester whose real uid also gets
+ * one production event would otherwise have a sandbox lifetime mirrored as
+ * permanent web Premium. That is exactly the hole isProduction was added to
+ * close, re-opened one level down.
+ *
+ * The entitlement names only the purchase with the furthest-out expiry, so
+ * this looks that product up. A lifetime counts as sandbox only when EVERY
+ * purchase of it is sandbox or refunded: one real, unrefunded purchase among
+ * test ones is real, and a refunded one backs nothing.
+ * A product that cannot be found is trusted, which keeps the old trust
+ * direction (RevenueCat's answer wins) rather than revoking on a lookup gap;
+ * RevenueCat documents that product_identifier can briefly be unavailable.
+ */
+function isSandboxBacked(subscriber, productId) {
+  if (typeof productId !== "string" || productId === "") return false;
+  const subs = subscriber.subscriptions || {};
+  const sub = subs[productId];
+  if (sub && typeof sub === "object") return sub.is_sandbox === true;
+  const nons = subscriber.non_subscriptions || {};
+  const non = nons[productId];
+  if (Array.isArray(non) && non.length > 0) {
+    return non.every((p) => p && (p.is_sandbox === true || !!p.refunded_at));
+  }
+  return false;
+}
+
+/**
+ * The verdict from the customer's PRODUCTION purchases alone, for when the
+ * purchase the entitlement names is a sandbox one.
+ *
+ * The entitlement reports only the purchase with the furthest-out expiry,
+ * and a sandbox lifetime's null expiry beats everything, so on its own it
+ * would hide a real paid purchase behind a test one: a TestFlight tester (or
+ * Aziz) who later pays for real would read free on web on every event
+ * (review, 2026-09-17). So look past it: any real, unrefunded lifetime is
+ * Premium with no expiry; otherwise the real monthly with the latest end
+ * (the later of expiry and grace) decides; otherwise free.
+ */
+function productionPurchaseVerdict(subscriber, nowMs, checkedAtMs) {
+  const off = {active: false, expiresAtMs: null, checkedAtMs};
+  const nons = subscriber.non_subscriptions || {};
+  const lifetime = nons[LIFETIME_PRODUCT_ID];
+  if (Array.isArray(lifetime) &&
+      lifetime.some((p) => p && p.is_sandbox !== true && !p.refunded_at)) {
+    return {active: true, expiresAtMs: null, checkedAtMs};
+  }
+  let end = null;
+  const subs = subscriber.subscriptions || {};
+  for (const [id, sub] of Object.entries(subs)) {
+    if (!id.startsWith(MONTHLY_PRODUCT_PREFIX)) continue;
+    if (!sub || typeof sub !== "object") continue;
+    if (sub.is_sandbox === true || sub.refunded_at) continue;
+    const expires = isoMs(sub.expires_date);
+    if (expires === null) continue;
+    const grace = isoMs(sub.grace_period_expires_date);
+    const subEnd = grace !== null && grace > expires ? grace : expires;
+    if (end === null || subEnd > end) end = subEnd;
+  }
+  if (end === null) return off;
+  return {active: end > nowMs, expiresAtMs: end, checkedAtMs};
+}
+
+/**
+ * The mirror's verdict from a GET /v1/subscribers response body.
+ *
+ * `subscriber.entitlements` lists expired entitlements too, and when several
+ * purchases grant one entitlement it reports the one with the furthest-out
+ * expiry. So a lifetime owner reads `expires_date: null` no matter what
+ * their old monthly did, and a refunded or transferred purchase simply
+ * stops being the answer. Nothing here looks at event types.
+ *
+ * Active means no expiry (lifetime), or the later of `expires_date` and
+ * `grace_period_expires_date` is still ahead. Grace counts because the SDK
+ * keeps Premium through a store's billing grace period; mirroring the
+ * period end instead would drop a web user while their phone still reads
+ * Premium.
+ * That later date is what gets stored, since the web client re-checks it.
+ *
+ * Returns null for a body it cannot read, so the caller answers 500 and
+ * RevenueCat retries, rather than writing "free" from a response it did not
+ * understand. `checkedAtMs` is RevenueCat's own `request_date_ms`, the
+ * instant the answer was true, used to order concurrent writes.
+ */
+function premiumFromCustomerInfo(body, nowMs) {
+  if (!body || typeof body !== "object") return null;
+  const subscriber = body.subscriber;
+  const checkedAtMs = body.request_date_ms;
+  if (!subscriber || typeof subscriber !== "object") return null;
+  if (typeof checkedAtMs !== "number") return null;
+  const off = {active: false, expiresAtMs: null, checkedAtMs};
+
+  const ents = subscriber.entitlements || {};
+  const ent = ents[ENTITLEMENT_ID];
+  if (!ent || typeof ent !== "object") return off;
+  if (isSandboxBacked(subscriber, ent.product_identifier)) {
+    return productionPurchaseVerdict(subscriber, nowMs, checkedAtMs);
+  }
+
+  if (ent.expires_date === null) {
+    return {active: true, expiresAtMs: null, checkedAtMs};
+  }
+  const expires = isoMs(ent.expires_date);
+  if (expires === null) return null; // Missing or garbled: refuse.
+  const grace = isoMs(ent.grace_period_expires_date);
+  const end = grace !== null && grace > expires ? grace : expires;
+  return {active: end > nowMs, expiresAtMs: end, checkedAtMs};
+}
+
+/**
+ * Whether a customer-record snapshot taken at [checkedAtMs] may overwrite
+ * what is stored.
+ *
+ * Re-reading makes a retried or out-of-order event harmless by itself: it
+ * fetches today's truth, not the truth of when it fired. What can still go
+ * wrong is two deliveries racing, where the one that READ first COMMITS
+ * last. Comparing RevenueCat's `request_date_ms` stops that older snapshot
+ * landing on a newer one. Equal instants are allowed through: both
+ * snapshots describe the same moment, so writing either is the same write.
+ *
+ * Stored in `premiumEventMs` so firestore.rules needs no change: that field
+ * is already server-only, and must stay so, because a client that wrote a
+ * far-future value would freeze its own mirror against any later refund.
+ */
+function shouldWrite(checkedAtMs, stored) {
+  if (typeof checkedAtMs !== "number") return false;
+  const seen = stored && typeof stored.premiumEventMs === "number" ?
+    stored.premiumEventMs : null;
+  return seen === null || checkedAtMs >= seen;
 }
 
 module.exports = {
   ENTITLEMENT_ID,
-  entitlementFrom,
   isProduction,
   isRealUid,
-  shouldApply,
-  targetsFor,
+  premiumFromCustomerInfo,
+  shouldWrite,
+  uidsToRefresh,
 };
