@@ -361,8 +361,17 @@ void main() {
         reason: 'the all-green row itself rendered no squares — the case '
             'under test never ran');
 
-    final sizes =
-        rows.expand((r) => r).map((r) => '${r.width}x${r.height}').toSet();
+    // Rounded to 0.01pt. The rects come from localToGlobal, so a square at
+    // one scroll offset can read 59.999999999999886 beside 60.0 purely from
+    // floating point; the regression this guards is a whole extra point.
+    // (It read exact until 2026-09-17 only because the table's scroll-to-
+    // today also scrolled the page to an offset where the sums came out
+    // round; see _GridTableState.initState.)
+    final sizes = rows
+        .expand((r) => r)
+        .map((r) =>
+            '${r.width.toStringAsFixed(2)}x${r.height.toStringAsFixed(2)}')
+        .toSet();
     expect(sizes, hasLength(1),
         reason: 'marked squares are a different size than empty ones — a '
             'celebration effect is adding layout (see the shimmer padding '

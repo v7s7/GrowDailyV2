@@ -53,13 +53,27 @@ class _GridTableState extends ConsumerState<_GridTable> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _todayKey.currentContext;
-      // Nothing to do if today isn't in this particular week (a past week
-      // has no "today" cell at all) or the table isn't scrolled in the
-      // first place (everything already fits) — ensureVisible is a safe
-      // no-op either way, it only acts when there's an actual scrollable
-      // ancestor and the target isn't already fully in view.
-      if (ctx != null && mounted) {
-        Scrollable.ensureVisible(ctx, alignment: 1);
+      // Scroll ONLY this table's own sideways scroller, and only when it
+      // has one (the week is wider than the screen, see build).
+      //
+      // This used to be Scrollable.ensureVisible(ctx, alignment: 1), on the
+      // belief that it was a no-op when the week fits. It is not: it walks
+      // EVERY scrolling ancestor, so with no sideways scroller it scrolled
+      // the page itself, putting today's header on the bottom edge. With a
+      // Build, Quit and Paused table each doing it in mount order, the last
+      // one won and the app opened at the very bottom of the Habits page
+      // (Aziz, 2026-09-17). ScrollPosition.ensureVisible moves one position
+      // and never walks up. The nearest Scrollable is the page's vertical
+      // list when the week fits, which the axis check skips; asking
+      // Scrollable.maybeOf for a horizontal axis instead would skip the page
+      // and find HomeShell's PageView.
+      final table = ctx == null ? null : Scrollable.maybeOf(ctx);
+      final target = ctx?.findRenderObject();
+      if (mounted &&
+          table != null &&
+          target != null &&
+          table.position.axis == Axis.horizontal) {
+        table.position.ensureVisible(target, alignment: 1);
       }
       // An older week's step squares carry the counts the log last saw, which
       // can be short of Health's (a day stops being read once its square is
