@@ -27,7 +27,10 @@ enum NavTab {
   rewards('rewards'),
   closet('closet'),
   nightReview('night_review'),
-  yearRecord('year_record');
+  yearRecord('year_record'),
+  // Added 2026-09-17 at Aziz's request: the full heatmap was only reachable
+  // from the footer card at the end of Life Timeline, and he uses it daily.
+  heatmap('heatmap');
 
   final String id;
   const NavTab(this.id);

@@ -4,6 +4,7 @@ import '../../core/l10n/app_strings.dart';
 import '../../core/providers/nav_layout_provider.dart';
 import '../../features/character/screens/character_closet_screen.dart';
 import '../../features/grid/screens/grid_screen.dart';
+import '../../features/grid/screens/monthly_heatmap_screen.dart';
 import '../../features/matrix/screens/matrix_screen.dart';
 import '../../features/milestones/screens/life_timeline_screen.dart';
 import '../../features/night_review/screens/night_review_screen.dart';
@@ -59,6 +60,8 @@ extension NavTabUi on NavTab {
         NavTab.closet => Icons.checkroom_rounded,
         NavTab.nightReview => Icons.bedtime_rounded,
         NavTab.yearRecord => Icons.timeline_rounded,
+        // The glyph on Life Timeline's "Open full Heatmap" card.
+        NavTab.heatmap => Icons.calendar_view_month_rounded,
       };
 
   /// The bar label: one short word where the screen title is two, because
@@ -76,6 +79,7 @@ extension NavTabUi on NavTab {
         NavTab.closet => s.navCloset,
         NavTab.nightReview => s.navNightReview,
         NavTab.yearRecord => s.navYearRecord,
+        NavTab.heatmap => s.navHeatmap,
       };
 
   /// The page HomeShell mounts for this tab, and the screen it pushes when
@@ -99,5 +103,9 @@ extension NavTabUi on NavTab {
         NavTab.closet => const CharacterClosetScreen(),
         NavTab.nightReview => const NightReviewScreen(),
         NavTab.yearRecord => const LifeTimelineScreen(),
+        // Checked as a root page 2026-09-17: nothing in
+        // monthly_heatmap_screen.dart pops the route, and its AppBar's
+        // implied back button has nothing to pop inside the shell.
+        NavTab.heatmap => const MonthlyHeatmapScreen(),
       };
 }
