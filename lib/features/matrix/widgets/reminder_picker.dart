@@ -23,13 +23,10 @@ import '../../../shared/widgets/overlay_notice.dart';
 import '../../../shared/widgets/reminder_style_choice.dart';
 import 'custom_offset_sheet.dart';
 
-// arabicDigits moved to core/l10n/reminder_copy.dart, so notification copy
-// can reach it without importing a widget file. Re-exported because this is
-// where profile_screen.dart and the offset sheet have always imported it
-// from, and it still belongs beside [ReminderRow], which is what it exists
-// for: a time rendered inside an Arabic run picks up Arabic-Indic digits
-// from the font, so a bare chip number next to it has to be converted by
-// hand or the two disagree on screen.
+// arabicDigits, kReminderOffsetPresets and reminderOffsetLabel live in
+// core/l10n/reminder_copy.dart, so notification copy can reach them without
+// importing a widget file. Re-exported for the tests that import them from
+// here (test/features/matrix/matrix_reminder_test.dart).
 export '../../../core/l10n/reminder_copy.dart'
     show arabicDigits, kReminderOffsetPresets, reminderOffsetLabel;
 

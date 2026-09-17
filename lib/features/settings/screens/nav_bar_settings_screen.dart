@@ -24,7 +24,7 @@ import '../../premium/screens/premium_screen.dart';
 /// already right by the time this screen is popped.
 ///
 /// Premium gate. Add, remove and reorder all go through [_Gate.edit],
-/// which lets Premium (or the new-install trial) through and sends
+/// which lets Premium (or a legacy trial still running) through and sends
 /// everyone else to the paywall, led by this benefit. Two things are
 /// deliberately NOT gated: opening the screen, so a free account sees what
 /// it would get rather than a locked row it cannot explain, and Reset, so

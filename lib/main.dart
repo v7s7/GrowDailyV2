@@ -339,10 +339,12 @@ Future<void> main() async {
     // Firestore field is not.
     final persistedPremium = await loadPersistedPremium();
     final persistedPremiumUid = await loadPersistedPremiumUid();
-    // Starts the new-install trial clock on the very first boot and reads
-    // it back on every later one — see loadOrStartTrial. Loaded here so
-    // premiumAccessProvider answers correctly from the first frame.
-    final trialStart = await loadOrStartTrial();
+    // A Premium trial this install already holds, if any. Read-only: new
+    // installs no longer get one (Aziz, 2026-09-17), and this never writes a
+    // start, so only installs that booted an older build carry one. Loaded
+    // here so premiumAccessProvider answers correctly from the first frame.
+    // See loadLegacyTrial and kTrialDays.
+    final legacyTrial = await loadLegacyTrial();
     final persistedThemeMode = await loadPersistedThemeMode();
     // Also applies the preset's colors to GameColors immediately, so the
     // very first frame already renders in the right preset.
@@ -378,7 +380,7 @@ Future<void> main() async {
               initial: persistedPremium,
               cachedUid: persistedPremiumUid,
             )),
-        trialStartProvider.overrideWithValue(trialStart),
+        legacyTrialProvider.overrideWithValue(legacyTrial),
         if (persistedThemeMode != null)
           themeModeProvider.overrideWith((ref) => ThemeModeNotifier(persistedThemeMode)),
         if (persistedThemePreset != null)
@@ -1544,6 +1546,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // kDayCutoffHour on resume, and only once a boundary has passed. See
       // refreshDayClockIfStale.
       refreshDayClockIfStale(ProviderScope.containerOf(context, listen: false));
+      // The same suspended-timer gap for a legacy Premium trial: its window
+      // can close while the app sleeps, and premiumAccessProvider's own
+      // re-check timer does not run then, so the gates would stay open
+      // until something else rebuilt them. Re-evaluating here re-locks them
+      // and writes the one-way ended latch. Skipped for every install with
+      // no trial left to change, which is nearly all of them, and a re-read
+      // that finds the same answer notifies nobody. See LegacyTrial.
+      if (ref.read(legacyTrialProvider).needsRecheck) {
+        ref.invalidate(premiumAccessProvider);
+      }
       // Reminders are armed a few occurrences ahead, not indefinitely (see
       // NotificationService's class doc comment) — re-running this on every
       // resume, not just on explicit state changes, is what refills the

@@ -33,8 +33,9 @@ Future<bool> loadPersistedNavBarHintSeen() async {
 /// is "past the first session": the Get Started card and the first-run
 /// offer have had their moment, and a person who has coloured a few squares
 /// is settled enough to be told about a Premium nicety instead of having
-/// it stacked onto day one. New installs carry the trial, so without this
-/// the hint would land on the very first launch of every install.
+/// it stacked onto day one. A day-one buyer is Premium from the first
+/// launch (and so, until 2026-09-17, was every new install, on the trial),
+/// so without this the hint would land on that very first launch.
 const int kNavBarHintAfterCompletions = 3;
 
 /// Pure, so the timing is a unit test rather than a device session.

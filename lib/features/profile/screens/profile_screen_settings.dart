@@ -115,7 +115,7 @@ class _SettingsSection extends ConsumerWidget {
                                 color: gp.textPrimary)),
                         const SizedBox(height: 2),
                         Text(
-                          isAr ? 'افتح كل الميزات' : 'Unlock every feature',
+                          isAr ? 'افتح كل ميزات بريميوم' : 'Unlock every Premium feature',
                           style: TextStyle(fontSize: 11, color: gp.textSec),
                         ),
                       ],

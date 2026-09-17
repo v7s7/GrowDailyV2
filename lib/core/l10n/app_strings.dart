@@ -310,7 +310,7 @@ class S {
       ? 'لا حاجة لحساب. ابدأ أولى انتصاراتك الآن.'
       : 'No account needed. Start your first win now.';
   String get guestLimitTitle =>
-      isAr ? 'وصلت لحد التجربة' : "You've hit the guest limit";
+      isAr ? 'وصلت لحد العادات كضيف' : "You've hit the guest limit";
   // "keep your progress synced" stays out of this line. The migration now
   // exists (GuestMigrationService), but it is OFFERED rather than
   // automatic, and it is offered after registration - so promising a sync
@@ -318,8 +318,8 @@ class S {
   // would still be describing something that has not happened. What does
   // carry the fact is [guestFreshStartWarning], shown alongside.
   String get guestLimitBody => isAr
-      ? 'التجربة كضيف تسمح بـ 3 عادات. أنشئ حسابًا مجانيًا لإضافة عدد غير محدود من العادات والمزامنة عبر أجهزتك.'
-      : 'Guest mode is capped at 3 habits. A free account removes the cap and syncs across your devices.';
+      ? 'كضيف تقدر تضيف 3 عادات. الحساب المجاني يرفع الحد لـ 10، وعاداتك تنتقل معك لأي جهاز.'
+      : 'Guest mode is capped at 3 habits. A free account raises that to 10 and syncs across your devices.';
   /// Rewritten when the reconnect offer shipped. This used to promise the
   /// opposite ("does not carry over"), which was true at the time and is
   /// now false in the one direction that matters: the offer is made right
@@ -847,7 +847,7 @@ class S {
   // ── Custom theme: the palette / hex / saved-colour controls ──────────
   // The sheet offers three ways to land on the same colour, so each label
   // has to say which ONE it is without a sentence of explanation.
-  // "Palette" is the 48 curated swatches, "Custom" is the free picker.
+  // "Palette" is the 27 curated swatches, "Custom" is the free picker.
   String get themeCustomTabPalette => isAr ? 'الجاهزة' : 'Palette';
   // 'مخصص' rather than 'حر'. Both translate "custom" in a dictionary, but
   // only one of them says it in an interface: حر carries "hot" and "free
@@ -868,7 +868,7 @@ class S {
   // a sample of the app rather than as decoration.
   String get themeCustomPreview => isAr ? 'اليوم' : 'Today';
   String get themeCustomPreviewHabit =>
-      isAr ? 'قراءة ١٠ صفحات' : 'Read 10 pages';
+      isAr ? 'قراءة 10 صفحات' : 'Read 10 pages';
   String get themeCustomPreviewAction => isAr ? 'إنجاز' : 'Complete';
 
 
@@ -1629,7 +1629,7 @@ class S {
   /// kMaxHabitOffsetMinutes. Says the ceiling rather than just refusing:
   /// a disabled button with no reason is a puzzle.
   String get habitOffsetTooLarge => isAr
-      ? 'أكثر شي ١٢ ساعة تقديم أو تأخير. غيّر الوقت نفسه إذا تبي أبعد من هذا.'
+      ? 'أكثر شي 12 ساعة تقديم أو تأخير. غيّر الوقت نفسه إذا تبي أبعد من هذا.'
       : 'Twelve hours is the most. Change the time itself for anything further.';
   String get customReminderAdd => isAr ? 'إضافة' : 'Add';
 
@@ -1698,7 +1698,7 @@ class S {
       isAr ? 'تذكيرات متعددة' : 'Stack your reminders';
   String get reminderGateBody => isAr
       ? 'أضف أكثر من تذكير لنفس المهمة: نبّهك الساعة 3:00 و3:30 و4:00 قبل اجتماع الساعة 5. المجاني يتيح تذكيرًا واحدًا لكل مهمة.'
-      : 'Add as many reminders to one task as you need: nudged at 3:00, 3:30 and 4:00 before a 5pm meeting. Free includes one reminder per task.';
+      : 'Add more than one reminder to the same task: nudged at 3:00, 3:30 and 4:00 before a 5pm meeting. Free includes one reminder per task.';
 
   /// The same gate, asked about a habit. Its own string rather than reusing
   /// the task one because the example has to be a habit's: a prayer-anchored
@@ -1706,7 +1706,7 @@ class S {
   /// opened from Add Habit reads as the wrong screen's copy.
   String get reminderGateHabitBody => isAr
       ? 'أضف أكثر من تذكير للعادة الوحدة: قبل المغرب بعشر دقايق، وفي وقتها، وبعدها بنص ساعة. المجاني يعطيك تذكير واحد لكل عادة.'
-      : 'Add as many reminders to one habit as you need: ten minutes before Maghrib, again on time, and again half an hour later. Free includes one reminder per habit.';
+      : 'Add more than one reminder to the same habit: ten minutes before Maghrib, again on time, and again half an hour later. Free includes one reminder per habit.';
 
   /// Add Habit's one worded route to the gate above, shown under the offset
   /// grid on the free tier. The chips there stay single-select for free, so
@@ -2041,6 +2041,9 @@ class S {
   String get navCloset => isAr ? 'الخزانة' : 'Closet';
   String get navNightReview => isAr ? 'المراجعة' : 'Review';
   String get navYearRecord => isAr ? 'سجل السنة' : 'Year Record';
+  // The Monthly Heatmap screen, titled «خريطة التقدّم» / "Progress Heatmap";
+  // the bar keeps the one noun.
+  String get navHeatmap => isAr ? 'الخريطة' : 'Heatmap';
 
   // ── Bottom bar customiser (Settings › Personalization, Premium) ──────────
   String get navBarSettingsTitle => isAr ? 'الشريط السفلي' : 'Bottom bar';
@@ -2770,8 +2773,8 @@ class S {
       ? 'املأ حياتك بالألوان، بلا حدود'
       : 'Fill your life with color, without limits';
   String get premiumSubhead => isAr
-      ? 'كل ما يقدّمه Grow Daily، بلا حدود.'
-      : 'Everything Grow Daily has to offer, without the limits.';
+      ? 'كل ميزات بريميوم، وبدون حدود الخطة المجانية.'
+      : 'Every Premium feature, and none of the free plan limits.';
   // This whole block was rewritten short and warm per user feedback that
   // the previous (accurate but spec-sheet-like) two-clause descriptions
   // read as "a lot of details." Every line below still maps to the exact
@@ -2801,22 +2804,26 @@ class S {
   String get premiumBenefitInsightsDesc => isAr
       ? 'صورة كاملة عن كل عادة تبنيها.'
       : 'A complete view of every habit you\'re building.';
-  // Renamed from premiumBenefitThemes* — this bullet now covers appearance
-  // broadly (themes today, character looks on the way) rather than just
-  // themes, per user request to fold a premium-characters mention into
-  // this bullet instead of giving it its own.
+  // Renamed from premiumBenefitThemes*. Covers the look: the custom theme
+  // first, the ready-made Premium themes second. Character looks carry no
+  // Premium gate, so they are not sold here.
   String get premiumBenefitAppearanceTitle =>
-      isAr ? 'ألوانك أنت' : 'Your own colours';
-  // Rewritten when the custom theme shipped. The old copy sold "9 exclusive
-  // themes", which was true and is now the SMALLER half of this benefit: a
-  // subscriber does not pick from nine looks any more, they build one from
-  // 48 colours, which is 2304 combinations. A number carries that; an
-  // adjective does not. The nine presets are still named, second, because
-  // "or pick a ready-made one" is a real answer for people who do not want
-  // to choose.
+      isAr ? 'سوّي مظهرك بنفسك' : 'Create your own theme';
+  // Picked by Aziz 2026-09-17: sold as a THEME, not colours, and «مظهر»
+  // because Settings already calls this «المظهر». What it describes, checked
+  // against the sheet (profile_screen_sheets.dart): the person picks exactly
+  // TWO colours, the main colour and the completed-square colour, from 27
+  // ready swatches, a free hue and shade picker, or any hex code, and
+  // ThemePreset.custom derives the rest of the theme (background, cards,
+  // text, light and dark) from those two, which is what "the whole theme
+  // follows" claims. No "any colour": every pick keeps its hue but very dark
+  // or near-white ones are nudged into a readable range (fitAccentColour).
+  // The old line said "48 colours", which no build ever had. The 9 is the
+  // Premium-only presets (ThemePresets.all has 11, two free). Latin digits,
+  // per the 2026-09-01 ruling.
   String get premiumBenefitAppearanceDesc => isAr
-      ? 'ابنِ مظهرك من ٤٨ لونًا، أو اختر واحدًا من ٩ جاهزة.'
-      : 'Build your own from 48 colours, or take one of 9 ready-made.';
+      ? 'اختر لونين والمظهر كله يتبعهم، أو خذ واحد من 9 مظاهر جاهزة.'
+      : 'Pick two colours and the whole theme follows, or take one of 9 ready-made themes.';
   // Real gate: kFreeTaskReminders = 1 (premium_notifier.dart), enforced by
   // ReminderPicker.canStack via showReminderLimitGate. This was the Tasks
   // page's main cap and the paywall never mentioned it — a free user first
@@ -2830,8 +2837,8 @@ class S {
   // Real gate: hasVoiceNoteAccess (voice_note_gate.dart), flat premium-only
   // check, no free tier.
   String get premiumBenefitVoiceDesc => isAr
-      ? 'سجّل تأملاتك بصوتك. لا حاجة للكتابة.'
-      : 'Speak your reflections. No typing required.';
+      ? 'سجّل ملاحظة صوتية لأي مهمة، بدون ما تكتب.'
+      : 'Record a voice note on any task. No typing needed.';
   // Real gate: NavBarSettingsScreen puts every add, remove and reorder
   // behind premiumAccessProvider. The bar itself, and Reset, stay free.
   String get premiumBenefitNavBarTitle =>
@@ -2839,13 +2846,26 @@ class S {
   String get premiumBenefitNavBarDesc => isAr
       ? 'حط الغرف أو التقدّم أو السبحة بضغطة وحدة، ورتّب التبويبات مثل ما تبي.'
       : 'Put Rooms, Progress or Tasbih one tap away, and order the tabs the way you like.';
-  String get premiumBenefitSupportTitle =>
-      isAr ? 'ادعم صانعًا مستقلًا' : 'Support an independent maker';
-  // No ad SDK exists anywhere in this codebase (verified by grep) —
-  // GrowDaily has never shown ads to anyone, free or Premium.
-  String get premiumBenefitSupportDesc => isAr
-      ? 'بلا إعلانات، ولا بيع بيانات، إلى الأبد.'
-      : 'No ads, no data selling, ever.';
+  // Replaced «ادعم صانعًا مستقلًا» / "No ads, no data selling, ever" on
+  // 2026-09-17, Aziz's pick. The old row sold two things EVERY user already
+  // has (no ad SDK exists in the codebase), which implied the free plan has
+  // ads, and a "support the maker" plea reads as a donation. A tip or
+  // "buy me a coffee" line has no compliant form on a paywall: an outside
+  // link is barred outside the US storefront and a tip is its own in-app
+  // purchase (guideline 3.1.1). This row is ongoing value instead (3.1.2(a)).
+  //
+  // A STANDING PROMISE, true only while it stays structurally true: every
+  // Premium feature sits behind the one entitlement (premiumAccessProvider)
+  // that both the monthly and the lifetime purchase unlock. Selling a
+  // separate paid add-on later, or keeping lifetime owners out of a new
+  // Premium feature, would make this line false. "Included" rather than
+  // "yours", because a monthly plan can lapse; "nothing extra to buy"
+  // rather than "no extra cost", which would read as a price freeze.
+  String get premiumBenefitFutureTitle =>
+      isAr ? 'ميزات بريميوم الجاية' : 'Premium features to come';
+  String get premiumBenefitFutureDesc => isAr
+      ? 'أي ميزة تنضاف لبريميوم بعدين، تجيك بدون ما تشتري شي زيادة.'
+      : 'Anything added to Premium later is included, with nothing extra to buy.';
   String get premiumMonthly => isAr ? 'شهري' : 'MONTHLY';
   String get premiumYearly => isAr ? 'سنوي' : 'YEARLY';
   String get premiumLifetime => isAr ? 'مدى الحياة' : 'LIFETIME';
@@ -2870,17 +2890,18 @@ class S {
           _ => 'أرخص من $months شهر اشتراك',
         }
       : 'Less than $months months of monthly';
-  /// The trial status line under the hero while the new-install trial is
-  /// open (see kTrialDays): says what is true right now and when it ends,
-  /// so the plans below read as "keep this", not "start this".
+  /// The trial status line under the hero while a legacy trial is open
+  /// (installs from before 2026-09-17 only; see kTrialDays): says what is
+  /// true right now and when it ends, so the plans below read as "keep
+  /// this", not "start this".
   String premiumTrialLine(int daysLeft) {
     if (!isAr) {
       return daysLeft == 1
-          ? "Everything is unlocked right now. Your free trial ends today."
+          ? "Everything is unlocked right now. Less than a day left in your free trial."
           : "Everything is unlocked right now. $daysLeft days left in your free trial.";
     }
     return switch (daysLeft) {
-      1 => 'كل شي مفتوح لك الحين. تجربتك المجانية تنتهي اليوم.',
+      1 => 'كل شي مفتوح لك الحين. باقي أقل من يوم من تجربتك المجانية.',
       2 => 'كل شي مفتوح لك الحين. باقي يومين من تجربتك المجانية.',
       <= 10 => 'كل شي مفتوح لك الحين. باقي $daysLeft أيام من تجربتك المجانية.',
       _ => 'كل شي مفتوح لك الحين. باقي $daysLeft يوم من تجربتك المجانية.',
@@ -2949,8 +2970,13 @@ class S {
   // Split per plan, because the two products make genuinely different
   // promises. Arabic stays impersonal, with no second-person verb.
   String get premiumFinePrintMonthly => isAr
-      ? 'اشتراك يتجدد تلقائيًا. تُخصم القيمة من حساب Apple عند التأكيد، ويتجدد ما لم يُلغَ قبل ٢٤ ساعة من نهاية المدة. الإدارة والإلغاء من إعدادات حساب Apple.'
+      ? 'اشتراك يتجدد تلقائيًا. تُخصم القيمة من حساب Apple عند التأكيد، ويتجدد ما لم يُلغَ قبل 24 ساعة من نهاية المدة. الإدارة والإلغاء من إعدادات حساب Apple.'
       : 'Auto-renewing subscription. Your Apple ID is charged at confirmation, and it renews unless cancelled at least 24 hours before the end of the period. Manage or cancel it in your Apple ID settings.';
+  // The same disclosure for Android, which buys through Google Play. Play
+  // has no 24-hour cancellation rule, so that clause is not carried over.
+  String get premiumFinePrintMonthlyPlay => isAr
+      ? 'اشتراك يتجدد تلقائيًا. تُخصم القيمة من حساب Google Play عند التأكيد، ويتجدد ما لم يُلغَ قبل نهاية المدة. الإدارة والإلغاء من اشتراكات Google Play.'
+      : 'Auto-renewing subscription. Your Google Play account is charged at confirmation, and it renews unless cancelled before the end of the period. Manage or cancel it in your Google Play subscriptions.';
   String get premiumFinePrintLifetime => isAr
       ? 'دفعة واحدة. لا يتجدد ولا يُخصم منك مرة أخرى.'
       : 'One time purchase. It does not renew and you are not charged again.';
@@ -3812,7 +3838,7 @@ class S {
   // held against them unlinked after RoomModel.kNewSlotGraceDays - so the
   // banner says when, instead of only asking. Draft wording; Aziz picks it.
   String get roomNewHabitBannerBody => isAr
-      ? 'اربطها بإحدى عاداتك وتبدأ تنحسب لك من اليوم. بعد ٣ أيام تنحسب في الغرفة سواء ربطتها أو لا.'
+      ? 'اربطها بإحدى عاداتك وتبدأ تنحسب لك من اليوم. بعد 3 أيام تنحسب في الغرفة سواء ربطتها أو لا.'
       : 'Link it to one of your habits and it counts for you from today. After 3 days it counts in the room whether you linked it or not.';
   String get roomNewHabitBannerAction => isAr ? 'ربط الآن' : 'Link now';
   String get roomResolveHabitsSheetTitle =>

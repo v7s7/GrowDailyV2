@@ -351,12 +351,12 @@ class _Sample {
   String get tasksTitle => ar ? 'المهام' : 'Tasks';
   String get profileTitle => ar ? 'الملف الشخصي' : 'Profile';
 
-  String get squares => ar ? '٣ مربّعات ملوّنة' : '3 squares filled';
-  String get squaresSub => ar ? 'كسبت ٣ مربّعات اليوم' : 'You filled 3 today';
-  String get todaySub => ar ? '٣ من ٥ عادات' : '3 of 5 habits';
-  String get streak => ar ? 'سلسلة ٨ أيام' : '8 day streak';
+  String get squares => ar ? '3 مربّعات ملوّنة' : '3 squares filled';
+  String get squaresSub => ar ? 'كسبت 3 مربّعات اليوم' : 'You filled 3 today';
+  String get todaySub => ar ? '3 من 5 عادات' : '3 of 5 habits';
+  String get streak => ar ? 'سلسلة 8 أيام' : '8 day streak';
   String get name => ar ? 'عبدالعزيز' : 'Abdulaziz';
-  String get level => ar ? 'المستوى ١٢' : 'Level 12';
+  String get level => ar ? 'المستوى 12' : 'Level 12';
 
   List<String> get habits => ar
       ? const ['صلاة الفجر', 'أذكار الصباح', 'تمرين', 'قراءة', 'شرب الماء']
@@ -369,7 +369,7 @@ class _Sample {
   List<String> get weekdays =>
       ar ? const ['س', 'ح', 'ن', 'ث', 'ر', 'خ', 'ج'] : const ['S', 'S', 'M', 'T', 'W', 'T', 'F'];
 
-  List<String> get stats => ar ? const ['٧٢٩٦', '١٦١٦', '١٠٦'] : const ['7296', '1616', '106'];
+  List<String> get stats => const ['7296', '1616', '106'];
 
   /// Four, matching the four link rows the profile mock draws. Kept in step
   /// deliberately: a three-item list against a four-row loop is what crashed

@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -102,13 +103,16 @@ class PremiumScreen extends ConsumerStatefulWidget {
 }
 
 class _PremiumScreenState extends ConsumerState<PremiumScreen> {
-  // Annual is the plan this paywall leads with: pre-selected AND listed
-  // first, so the badge, the selection and the card order all agree.
-  // It used to be lifetime. That sold a single payment well but left the
-  // ladder with no middle rung and no recurring revenue, and a zero-review
-  // app opening with its most expensive ask suppresses the whole funnel.
-  // Lifetime is still offered, just not the default ask.
-  _PlanKind _selected = _PlanKind.annual;
+  // Lifetime, because lifetime is the plan this paywall leads with: listed
+  // first, badged, and pre-selected. Aziz kept it first, and no annual
+  // product exists in either store, so [_leadPlanFor] resolves to lifetime
+  // and _loadOffering replaces this with exactly that value. This used to
+  // start on annual, from a plan to lead with annual that was never
+  // carried out, which named a product nobody sells until the offering
+  // arrived. Nothing showed it (the fine print and the Buy button wait for
+  // the offering), but the starting value should say what the screen does.
+  // If an annual product is ever added, _leadPlanFor picks it at runtime.
+  _PlanKind _selected = _PlanKind.lifetime;
   bool _loadingOffering = true;
   Offering? _offering;
   bool _isPurchasing = false;
@@ -165,13 +169,12 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     };
   }
 
-  /// Days left in the new-install trial, zero when there is none. Read
-  /// fresh on every build (cheap date math) so the banner counts down.
-  int get _trialDaysLeft {
-    final start = ref.read(trialStartProvider);
-    if (start == null) return 0;
-    return trialDaysLeft(start: start, now: DateTime.now());
-  }
+  /// Days left in a legacy trial, zero when there is none, which is every
+  /// install since new-install trials ended (see kTrialDays). Read fresh on
+  /// every build (cheap date math) so the banner counts down, and through
+  /// LegacyTrial so an ended, implausible or closed trial shows no line.
+  int get _trialDaysLeft =>
+      ref.read(legacyTrialProvider).daysLeftAt(ref.read(trialClockProvider)());
 
   /// How many months of the monthly plan the lifetime price equals, rounded
   /// UP so the sentence "less than N months" stays literally true. Null
@@ -498,12 +501,13 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               ),
               const SizedBox(height: 22),
 
-              // The new-install trial status, while it is running. Placed
-              // between the hero and the benefits so the list below reads
-              // as "what you keep", not "what you would get". Reads the
-              // REAL entitlement deliberately: a trial user must still see
-              // plans and prices, which is the whole reason gates read
-              // premiumAccessProvider and this screen does not.
+              // A legacy trial's status, while it is running (installs from
+              // before 2026-09-17 only; see kTrialDays). Placed between the
+              // hero and the benefits so the list below reads as "what you
+              // keep", not "what you would get". Reads the REAL entitlement
+              // deliberately: a trial user must still see plans and prices,
+              // which is the whole reason gates read premiumAccessProvider
+              // and this screen does not.
               if (!isPremium && _trialDaysLeft > 0) ...[
                 Container(
                   padding:
@@ -714,7 +718,10 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   // monthly share it and only lifetime differs.
                   _selected == _PlanKind.lifetime
                       ? s.premiumFinePrintLifetime
-                      : s.premiumFinePrintMonthly,
+                      // Android buys through Google Play, not an Apple ID.
+                      : defaultTargetPlatform == TargetPlatform.android
+                          ? s.premiumFinePrintMonthlyPlay
+                          : s.premiumFinePrintMonthly,
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: gp.textTert, height: 1.35),
                 ),
@@ -785,11 +792,11 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   // string's doc comment in app_strings.dart for exactly which file/check
   // backs it. Copy was rewritten shorter and warmer per user feedback
   // (previous two-clause descriptions read as "a lot of details"). The
-  // appearance bullet (was "themes") now also carries a brief, honestly
-  // future-tense mention of premium-exclusive character looks — folded
-  // into this bullet rather than given its own, per user direction. Still
-  // deliberately doesn't include a "Family grids" bullet: that one has no
-  // user-directed exception and remains unbuilt with no mention anywhere.
+  // last bullet is the one promise rather than a gate: Premium features
+  // added later come with it (see premiumBenefitFutureDesc for what keeps
+  // that true). Still deliberately doesn't include a "Family grids" bullet:
+  // that one has no user-directed exception and remains unbuilt with no
+  // mention anywhere.
   /// The benefit the user came for, first. Everything else keeps its order,
   /// so the list still reads as a considered sequence rather than a shuffle.
   List<(IconData, String, String)> _orderedBenefits(S s) {
@@ -845,9 +852,10 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           s.premiumBenefitNavBarDesc,
         ),
         (
-          Icons.favorite_rounded,
-          s.premiumBenefitSupportTitle,
-          s.premiumBenefitSupportDesc,
+          // A heart read as charity; this row sells what comes next.
+          Icons.auto_awesome_rounded,
+          s.premiumBenefitFutureTitle,
+          s.premiumBenefitFutureDesc,
         ),
       ];
 }
@@ -861,7 +869,7 @@ class _BenefitRow extends StatelessWidget {
 
   /// The colour benefit shows colour. This paywall sells a visual product and
   /// had none on it: seven identical tinted squares and seven lines of text.
-  /// A strip of the real palette says what "48 colours" means faster than the
+  /// A strip of the real palette says "make your own theme" faster than the
   /// sentence above it can.
   bool get _showsPalette => icon == Icons.palette_rounded;
 

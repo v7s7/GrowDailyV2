@@ -205,19 +205,19 @@ const List<FaqEntry> kFaqEntries = [
     questionEn: 'Can I change the tabs in the bottom bar?',
     questionAr: 'أقدر أغيّر الشريط السفلي؟',
     answerEn:
-        'Yes, with Premium. Go to Settings, then Bottom bar, or press and hold the bar itself. Add up to 5 tabs like Rooms, Progress or Tasbih, drag them into the order you like, or remove Tasks. Habits and Profile always stay. If Premium ends, the bar stays the way you left it, and Reset to default is always available.',
+        'Yes, with Premium. Go to Settings, then Bottom bar, or press and hold the bar itself. The bar holds up to 5 tabs, and Habits and Profile always stay. Add tabs like Rooms, Progress or Tasbih, drag them into the order you like, or remove Tasks. If Premium ends, the bar stays the way you left it, and Reset to default is always available.',
     answerAr:
-        'نعم، مع بريميوم. روح للإعدادات ثم الشريط السفلي، أو اضغط مطولًا على الشريط نفسه. أضف لحد 5 تبويبات مثل الغرف أو التقدّم أو السبحة، ورتّبها مثل ما تبي، أو احذف المهام. العادات وملفي دائمًا موجودين. وإذا انتهى بريميوم، الشريط يبقى مثل ما تركته، واسترجاع الافتراضي متاح دائمًا.',
+        'نعم، مع بريميوم. روح للإعدادات ثم الشريط السفلي، أو اضغط مطولًا على الشريط نفسه. الشريط ياخذ لحد 5 تبويبات، والعادات وملفي دائمًا موجودين. أضف تبويبات مثل الغرف أو التقدّم أو السبحة، ورتّبها مثل ما تبي، أو احذف المهام. وإذا انتهى بريميوم، الشريط يبقى مثل ما تركته، واسترجاع الافتراضي متاح دائمًا.',
     group: FaqGroup.features,
   ),
   FaqEntry(
     questionEn: 'What\'s the difference between a guest, a free account, '
         'and Premium?',
-    questionAr: 'ما الفرق بين الضيف والحساب المجاني والاشتراك المميز؟',
+    questionAr: 'ما الفرق بين الضيف والحساب المجاني وبريميوم؟',
     answerEn:
-        'As a guest you can try the app with up to 3 habits, but everything stays on this one device. A free account raises that to 10 habits and backs up your progress. Premium removes the habit limit entirely and unlocks your full history, deeper insights, extra themes, and voice notes.',
+        'A guest can add up to 3 habits, and everything stays on this one device. A free account raises that to 10 habits and backs up your progress. Premium removes the habit limit and adds your full history, a complete view of every habit, your own theme plus 9 ready-made themes, more than one reminder per habit or task, voice notes on tasks, and your own bottom bar.',
     answerAr:
-        'كضيف يمكنك تجربة التطبيق بـ 3 عادات، لكن كل شيء يبقى على هذا الجهاز فقط. الحساب المجاني يرفع الحد إلى 10 عادات ويحفظ نسخة من تقدّمك. الاشتراك المميز يزيل حد العادات تمامًا ويفتح سجلّك الكامل، رؤى أعمق، سمات إضافية، وملاحظات صوتية.',
+        'كضيف تقدر تضيف لحد 3 عادات، وكل شي يبقى على هذا الجهاز. الحساب المجاني يرفع الحد لـ 10 عادات ويحفظ نسخة من تقدّمك. بريميوم يلغي حد العادات، ويفتح لك سجلّك الكامل، وصورة كاملة عن كل عادة، ومظهر تسويه بنفسك مع 9 مظاهر جاهزة، وأكثر من تذكير للعادة أو المهمة، وملاحظات صوتية للمهام، وشريط سفلي على كيفك.',
     group: FaqGroup.account,
   ),
   FaqEntry(

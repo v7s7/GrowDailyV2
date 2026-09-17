@@ -9,82 +9,326 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/purchase_service.dart';
 
-/// How long a brand-new install gets every Premium feature for free.
+/// How long the old app-side Premium trial lasts, counted from the moment
+/// an install first booted a build that had it.
 ///
-/// This is an APP-SIDE trial, not a StoreKit intro offer, because the plan
-/// this app leads with is the lifetime purchase and Apple only attaches
-/// free trials to auto-renewing subscriptions. The mechanics lean on a
-/// property the gates already have: access ending never deletes anything
-/// (reminders keep firing, voice notes stay playable, over-cap habits are
-/// kept — only ADDING re-gates), so letting the trial lapse is exactly as
-/// safe as letting a subscription lapse.
+/// ── No new trials ─────────────────────────────────────────────────────────
+/// Aziz, 2026-09-17: new installs no longer get one. An install that already
+/// holds [_kTrialStartKey] keeps exactly the days it had left, nothing is cut
+/// short and nothing is deleted; an install without that key never gains
+/// it, because nothing writes it any more (see [loadLegacyTrial]). The
+/// reasons, so it does not come back in the same shape:
+///
+///  1. It unlocked paid features outside In-App Purchase, which guideline
+///     3.1.1 does not allow. Apple sanctions two timed trials: an
+///     introductory offer set up in App Store Connect on an auto-renewing
+///     subscription (3.1.2(a)), and a free Tier 0 "XX-day Trial"
+///     non-consumable, which 3.1.1 describes for apps that sell WITHOUT
+///     subscriptions. This app sells growdaily_monthly, so its route is the
+///     first one: a free week on the monthly plan (see below). This comment
+///     used to say Apple only attaches trials to subscriptions, which is why
+///     the trial had been built app-side.
+///  2. It started silently, with nothing telling anyone a clock was
+///     running, and while it ran every contextual upsell stayed hidden. That
+///     is part of why build 70 was rejected under 2.1(b): the reviewer could
+///     not find the purchases.
+///  3. It lived on the device, so a reinstall or each new web browser
+///     started it over, and a clock set back reopened it.
+///
+/// A store trial (a free week on the monthly subscription) was deferred, not
+/// ruled out; that waits for data.
+///
+/// What still holds for the trials left running: access ending never deletes
+/// anything (reminders keep firing, voice notes stay playable, over-cap
+/// habits are kept, only ADDING re-gates), so a legacy trial lapsing is
+/// exactly as safe as a subscription lapsing.
 const int kTrialDays = 7;
 
-/// Hive key for the trial's start moment. Written once, on the first boot
-/// that looks for it, and never moved: reinstalling resets it (device-local
-/// like every other boot setting here), which is an accepted cost — the
-/// alternative, anchoring it server-side, would put a date in Firestore
-/// that the client could also just rewrite.
+/// Hive key for a legacy trial's start moment. Read, never written: the
+/// builds that had the trial stamped DateTime.now() here on their first
+/// boot, and since 2026-09-17 nothing stamps it at all (see [kTrialDays]).
+/// The name is unchanged so installs that already hold it keep their days.
+///
+/// The value is a LOCAL wall-clock ISO string with no offset, which matters
+/// for [kTrialFutureTolerance]: after a trip west, a recent stamp reads as
+/// later than the local clock.
 const _kTrialStartKey = 'premium_trial_start_v1';
 
+/// Hive key for the one-way "this install's legacy trial is over" latch.
+///
+/// Written the first time the app sees the window closed (see
+/// [LegacyTrial.observe]) and read at boot. Once written, the trial never
+/// reopens whatever the clock says afterwards. Without it the window was
+/// only date math against a clock the user controls, so setting the date
+/// back a week reopened every Premium gate. Never cleared.
+///
+/// It can only latch what the app has seen, and only [kTrialLatchGrace]
+/// after the end; the accepted gaps are listed there.
+const _kTrialEndedKey = 'premium_trial_ended_v1';
+
+/// How long after a legacy trial's window closes before [_kTrialEndedKey]
+/// is written.
+///
+/// Access closes at the end itself; only the LATCH waits. The stored start
+/// is a local wall-clock time with no offset (see [_kTrialStartKey]), so a
+/// trip east, or a clock nudged forward and back, makes the window look
+/// closed hours before it really is. Latching at that moment would take
+/// those hours away for good. A day covers any time zone move (at most 26
+/// hours apart), and rollback protection still holds for anyone the app sees
+/// a day past the end.
+///
+/// The accepted gaps, for a trial nobody new can get: the latch only records
+/// an end the app has seen a day after it, and setting the clock back while
+/// the window is still open extends it, as it always did.
+const Duration kTrialLatchGrace = Duration(days: 1);
+
+/// How far ahead of the clock a stored trial start may sit and still count.
+///
+/// A start later than now can only come from a clock that was wrong when it
+/// was stamped, or is wrong now. Taken at face value, a stamp from a device
+/// whose date was set years ahead on first boot would read as a trial with
+/// years left once the date was put right, and the days-left line would say
+/// so. Ten minutes absorbs an ordinary correction, such as a network time
+/// sync landing just after boot.
+///
+/// A stamp past this is IGNORED, not ended: it opens nothing while it is
+/// ahead of the clock, and it does not write [_kTrialEndedKey], because no
+/// window was ever seen to close. The honest case this protects is a trip
+/// west. The stamp carries no offset (see [_kTrialStartKey]), so a trial
+/// started in Bahrain in the last few hours reads as hours ahead of a New
+/// York clock, and it has to come back once the clock catches up, not be
+/// lost. The rule is re-applied on every evaluation rather than once at
+/// boot for the same reason.
+const Duration kTrialFutureTolerance = Duration(minutes: 10);
+
+/// The longest [premiumAccessProvider] waits before looking at a legacy
+/// trial again.
+///
+/// Its timer used to be armed for the exact end of the window. With
+/// [kTrialFutureTolerance] no plausible window ends more than about seven
+/// days out, but the timer should not depend on that: browsers fire a
+/// setTimeout longer than about 24.8 days at once, and a timer that fires at
+/// once and re-arms itself is a loop. Capped, the worst case is one cheap
+/// re-read every few hours, and a re-read that finds the same answer
+/// notifies nobody (a Provider only notifies when its value changes).
+const Duration kTrialRecheckCap = Duration(hours: 3);
+
 /// Whether the free-features trial window is still open. Pure so the
-/// window math is unit-testable without Riverpod or clocks — same shape as
-/// [canBrowseHistoryMonth].
+/// window math is unit-testable without Riverpod or clocks, same shape as
+/// [canBrowseHistoryMonth]. Only the window: whether a stored start should
+/// be believed at all is [legacyTrialIsOpen]'s question.
 bool trialIsActive({required DateTime start, required DateTime now}) =>
     now.isBefore(start.add(const Duration(days: kTrialDays)));
 
 /// Whole days of trial remaining, for the paywall's status line. Counts a
 /// partial day as a day (someone 6.5 days in has "1 day left", not zero).
+///
+/// Never more than [kTrialDays]: a start inside [kTrialFutureTolerance] of
+/// the clock would otherwise round up to an eighth day on a seven-day trial.
 int trialDaysLeft({required DateTime start, required DateTime now}) {
   final end = start.add(const Duration(days: kTrialDays));
   if (!now.isBefore(end)) return 0;
-  return (end.difference(now).inSeconds / Duration.secondsPerDay).ceil();
+  final days = (end.difference(now).inSeconds / Duration.secondsPerDay).ceil();
+  return days > kTrialDays ? kTrialDays : days;
 }
 
-/// Reads the stored trial start, stamping "now" the first time nothing is
-/// stored — every install's clock starts on its first boot under a build
-/// that has the trial. Called once from main.dart's boot sequence beside
-/// [loadPersistedPremium]; a broken box answers null, which simply means
-/// "no trial", never a crash.
-Future<DateTime?> loadOrStartTrial() async {
-  try {
-    final box = await LocalStoreService.settingsBox();
-    final raw = box.get(_kTrialStartKey);
-    if (raw is String) return DateTime.tryParse(raw);
-    final now = DateTime.now();
-    await box.put(_kTrialStartKey, now.toIso8601String());
-    return now;
-  } catch (_) {
-    return null;
+/// Whether a stored trial start is believable at [now]: not later than the
+/// clock by more than [kTrialFutureTolerance]. Pure, see that constant for
+/// why a later stamp is ignored rather than ended.
+bool trialStartIsPlausible({required DateTime start, required DateTime now}) =>
+    !start.isAfter(now.add(kTrialFutureTolerance));
+
+/// Whether a legacy trial grants Premium features at [now]: a stored
+/// [start], the ended latch not written, a plausible stamp, and an open
+/// window. Pure; [LegacyTrial.isOpenAt] is this with the stored values.
+bool legacyTrialIsOpen({
+  required DateTime? start,
+  required bool ended,
+  required DateTime now,
+}) {
+  if (start == null || ended) return false;
+  if (!trialStartIsPlausible(start: start, now: now)) return false;
+  return trialIsActive(start: start, now: now);
+}
+
+/// Whether [now] is the moment to write the ended latch: a plausible stored
+/// start whose window closed at least [kTrialLatchGrace] ago, with the latch
+/// not yet written.
+///
+/// A missing start never latches (there was no trial), and neither does an
+/// implausible one (no window was seen to close; see
+/// [kTrialFutureTolerance]). Pure, so "latches once, and only on a real
+/// close" is a unit test.
+bool legacyTrialShouldLatchEnded({
+  required DateTime? start,
+  required bool ended,
+  required DateTime now,
+}) {
+  if (start == null || ended) return false;
+  if (!trialStartIsPlausible(start: start, now: now)) return false;
+  final latchAt =
+      start.add(const Duration(days: kTrialDays)).add(kTrialLatchGrace);
+  return !now.isBefore(latchAt);
+}
+
+/// How long [premiumAccessProvider] waits before re-evaluating a legacy
+/// trial that started at [start]: one second past the end of the window
+/// while it is open, or one second past the latch moment
+/// ([kTrialLatchGrace]) once it has closed, but never longer than
+/// [kTrialRecheckCap] and never shorter than a second. Aiming at the latch
+/// once closed is what keeps the grace day from re-arming every second.
+///
+/// The one-second floor is the other half of the loop guard: a zero or
+/// negative wait (a window already closed, a clock that jumped) would
+/// re-arm on the next tick forever. Pure so both bounds are unit tests.
+Duration trialRecheckDelay({required DateTime start, required DateTime now}) {
+  const floor = Duration(seconds: 1);
+  final end = start.add(const Duration(days: kTrialDays));
+  final target = now.isBefore(end) ? end : end.add(kTrialLatchGrace);
+  final wait = target.difference(now) + floor;
+  if (wait > kTrialRecheckCap) return kTrialRecheckCap;
+  if (wait < floor) return floor;
+  return wait;
+}
+
+/// A legacy trial as this install holds it: the stored start, if any, and
+/// whether the one-way ended latch ([_kTrialEndedKey]) has been written.
+///
+/// A plain object rather than provider state on purpose. The latch is set
+/// from INSIDE [premiumAccessProvider]'s build, the one place that sees the
+/// window close, and Riverpod forbids a provider changing another
+/// provider's state while it builds. Nothing needs to rebuild when the
+/// latch is set anyway: the evaluation that sets it already answers
+/// "closed".
+class LegacyTrial {
+  LegacyTrial({this.start, bool ended = false}) : _ended = ended;
+
+  /// The stored start, or null for an install that never had a trial,
+  /// which is every install since 2026-09-17.
+  final DateTime? start;
+
+  bool _ended;
+
+  /// Whether the ended latch is set, in memory or on disk.
+  bool get ended => _ended;
+
+  /// Whether the passage of time can still change this trial's answer.
+  /// False for nearly every install (no start, or already latched), which is
+  /// what keeps main.dart's resume hook and the access provider's timer free
+  /// for them.
+  bool get needsRecheck => start != null && !_ended;
+
+  /// See [legacyTrialIsOpen].
+  bool isOpenAt(DateTime now) =>
+      legacyTrialIsOpen(start: start, ended: _ended, now: now);
+
+  /// Days left for the paywall's status line, zero whenever the trial is
+  /// not open at [now] (no start, latched, implausible, or over).
+  int daysLeftAt(DateTime now) =>
+      isOpenAt(now) ? trialDaysLeft(start: start!, now: now) : 0;
+
+  /// Sets the ended latch if [now] shows the window closed and it is not set
+  /// yet (see [legacyTrialShouldLatchEnded]). Returns whether it latched on
+  /// this call.
+  ///
+  /// Latching records `legacy_trial_ended` once, with whether the install
+  /// held a real entitlement at that moment ([entitled]), which is the only
+  /// conversion signal the old trial can still give. Once per install: the
+  /// in-memory flag guards this process and the Hive flag guards every later
+  /// launch. A failed write can let it record again on a later launch, which
+  /// costs one duplicate event and never access.
+  bool observe(DateTime now, {required bool entitled}) {
+    if (!legacyTrialShouldLatchEnded(start: start, ended: _ended, now: now)) {
+      return false;
+    }
+    _ended = true;
+    AnalyticsService.instance
+        .track('legacy_trial_ended', props: {'entitled': entitled});
+    unawaited(_persistEnded());
+    return true;
+  }
+
+  /// Fire and forget, `await`ed inside the try for the same reason as
+  /// [PremiumNotifier]'s own cache write: opening a Hive box can fail
+  /// synchronously or through its future, and this runs inside a provider
+  /// build, where an escaping throw would take the gate down with it. The
+  /// in-memory latch above already answers "closed" either way.
+  Future<void> _persistEnded() async {
+    try {
+      final box = await LocalStoreService.settingsBox();
+      await box.put(_kTrialEndedKey, true);
+    } catch (_) {
+      // Nothing to do: this process stays latched, and the next launch
+      // sees the same closed window and latches again.
+    }
   }
 }
 
-/// The trial's start moment for this install, seeded at boot (see
-/// main.dart's overrides). Null when storage was unreadable or the app is
-/// running somewhere the boot seed doesn't run — both simply mean no trial.
-final trialStartProvider = Provider<DateTime?>((_) => null);
+/// Reads a legacy trial from disk: the stored start and the ended latch.
+/// Read-only, and that is the whole change: it used to be loadOrStartTrial,
+/// which stamped "now" whenever nothing was stored, so every install's
+/// clock started on its first boot. It never writes a start now, so an
+/// install without one stays without one (see [kTrialDays]).
+///
+/// Returns the start whenever it parses, even one ahead of the clock:
+/// plausibility is judged at each evaluation instead (see
+/// [kTrialFutureTolerance] for the trip that makes a boot-time verdict
+/// wrong). Called once from main.dart's boot sequence beside
+/// [loadPersistedPremium]; a broken box answers "no trial", never a crash.
+Future<LegacyTrial> loadLegacyTrial() async {
+  try {
+    final box = await LocalStoreService.settingsBox();
+    final raw = box.get(_kTrialStartKey);
+    return LegacyTrial(
+      start: raw is String ? DateTime.tryParse(raw) : null,
+      ended: box.get(_kTrialEndedKey) == true,
+    );
+  } catch (_) {
+    return LegacyTrial();
+  }
+}
 
-/// Whether Premium FEATURES are open right now: a real entitlement, or an
-/// active new-install trial.
+/// This install's legacy trial, seeded at boot (see main.dart's overrides).
+/// The default is no trial, which is also what every new install reads and
+/// what a test that never seeds it gets.
+final legacyTrialProvider = Provider<LegacyTrial>((_) => LegacyTrial());
+
+/// Where [premiumAccessProvider] reads the time: DateTime.now, and only a
+/// test overrides it, so a clock set back after the window closed can be
+/// driven without a real week passing.
+final trialClockProvider = Provider<DateTime Function()>((_) => DateTime.now);
+
+/// Whether Premium FEATURES are open right now: a real entitlement, or a
+/// legacy trial still inside its window (installs from before 2026-09-17
+/// only; see [kTrialDays]).
 ///
 /// Every feature gate reads THIS, not [premiumProvider]. The distinction
 /// matters in exactly one place: the paywall, which must keep reading the
-/// real entitlement so a trial user still sees plans and prices (and a
-/// trial-days-left line) instead of "Premium is active".
+/// real entitlement so a legacy trial holder still sees plans and prices
+/// (and a trial-days-left line) instead of "Premium is active".
 ///
-/// Self-invalidates when the trial window closes mid-session, so gates
-/// re-lock without waiting for a restart.
+/// Re-evaluates itself on a timer while a legacy trial can still change
+/// (see [trialRecheckDelay]), so gates re-lock mid-session without waiting
+/// for a restart; main.dart also invalidates it on resume, because that
+/// timer does not run while the app is suspended. Every evaluation also
+/// offers the trial the chance to latch ended ([LegacyTrial.observe]),
+/// including for an entitled install, so a buyer's old window still closes
+/// for good and still records whether it converted.
 final premiumAccessProvider = Provider<bool>((ref) {
-  if (ref.watch(premiumProvider)) return true;
-  final start = ref.watch(trialStartProvider);
-  if (start == null) return false;
-  final now = DateTime.now();
-  if (!trialIsActive(start: start, now: now)) return false;
-  final untilEnd =
-      start.add(const Duration(days: kTrialDays)).difference(now);
-  final timer = Timer(untilEnd + const Duration(seconds: 1), ref.invalidateSelf);
-  ref.onDispose(timer.cancel);
-  return true;
+  final entitled = ref.watch(premiumProvider);
+  final trial = ref.watch(legacyTrialProvider);
+  if (!trial.needsRecheck) return entitled;
+  final now = ref.watch(trialClockProvider)();
+  trial.observe(now, entitled: entitled);
+  final open = trial.isOpenAt(now);
+  if (trial.needsRecheck) {
+    final timer = Timer(
+      trialRecheckDelay(start: trial.start!, now: now),
+      ref.invalidateSelf,
+    );
+    ref.onDispose(timer.cancel);
+  }
+  return entitled || open;
 });
 
 /// Free-tier limits. Guests keep their existing 3-habit trial; signed-in

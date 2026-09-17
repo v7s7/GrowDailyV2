@@ -553,7 +553,7 @@ class _CustomThemeSheetState extends ConsumerState<_CustomThemeSheet> {
   /// Which of the two roles every control below is currently setting.
   int _role = 0;
 
-  /// False shows the 48 curated swatches, true the free hue/shade picker.
+  /// False shows the 27 curated swatches, true the free hue/shade picker.
   ///
   /// Starts on the palette on purpose. It is the faster path, it is the one
   /// that was already here, and a user who only wants "a nice green" should
@@ -1708,8 +1708,8 @@ class _ThemeSectionLabel extends StatelessWidget {
 /// these", and it is a far better advert than a lock icon and a name.
 ///
 /// The strip ends in a dashed "#" tile, which is the entire change this card
-/// needed once a hex field existed: these 48, plus anything. The card used to
-/// close on a combination count (48 squared, spelled out), and that number
+/// needed once a hex field existed: these 27, plus anything. The card used to
+/// close on a combination count (the swatches squared, spelled out), and that number
 /// was exactly right until the moment a user could type a colour that is not
 /// in the table. A precise wrong number in a paid pitch is worse than no
 /// number, so it was replaced rather than recalculated: the honest new figure
@@ -1735,10 +1735,9 @@ class _CustomThemeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    // Arabic-Indic when the rest of the card is: "٤٨ لونًا" beside a Western
-    // "48" in the same card is the kind of mix that reads as a bug.
-    final count = kCustomSwatchesFlat.length;
-    final readyMade = s.isAr ? arabicDigits(count) : '$count';
+    // Latin digits in both languages, the rule for anything on screen
+    // (Aziz, 2026-09-01): «27 جاهز، أو أي رمز لون».
+    final readyMade = '${kCustomSwatchesFlat.length}';
     return GestureDetector(
       onTap: onTap,
       child: Container(

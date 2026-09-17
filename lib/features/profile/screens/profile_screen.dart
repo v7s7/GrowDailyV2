@@ -31,7 +31,6 @@ import '../../../features/character/widgets/character_avatar.dart';
 import '../../../features/character/widgets/prestige_mark.dart';
 import '../../habits/widgets/habit_color_picker.dart'
     show argbToHsv, hsvToArgb;
-import '../../matrix/widgets/reminder_picker.dart' show arabicDigits;
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
 import '../../../features/grid/widgets/weekly_recap_card.dart';
