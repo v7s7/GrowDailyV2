@@ -52,14 +52,15 @@ void main() {
       expect(westernDate(d, 'MMM d', 'en'), 'Aug 16');
     });
 
-    test('documents what intl actually returns for the locales this app '
-        'ships', () {
-      // Pinned deliberately, because the obvious assumption is wrong and
-      // cost a wrong diagnosis once already: plain 'ar' carries no
-      // Arabic-Indic symbol data, so DateFormat returns ASCII and
-      // westernDate is a no-op on it. Only the country-qualified locales do.
-      // If this ever flips, westernDate starts doing real work and the
-      // call sites that skipped it need revisiting.
+    test('documents what intl returns before the delegates load', () {
+      // intl's own 'ar' data is ASCII; only the country-qualified locales
+      // carry Arabic-Indic digits. That is ALL this pins, and it misled a
+      // diagnosis once: the running app does not keep this data.
+      // GlobalMaterialLocalizations.delegate replaces it with
+      // flutter_localizations' 'ar' symbols, which print «١٦», so in the
+      // app westernDate does real work on every Arabic date. That half is
+      // pinned in western_digits_delegate_test.dart, a separate file
+      // because the replacement is process-wide.
       expect(DateFormat('d', 'ar').format(d), '16');
       expect(arabicIndic.hasMatch(DateFormat('d', 'ar_EG').format(d)), isTrue);
     });

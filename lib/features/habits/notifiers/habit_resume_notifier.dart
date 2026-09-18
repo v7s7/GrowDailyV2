@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 
 /// A return date as a person would say it: "الثلاثاء 6 أكتوبر", plus the
@@ -11,14 +12,17 @@ import '../../auth/notifiers/auth_notifier.dart';
 /// Presets land on the start of a day and say nothing about time, because
 /// "أسبوع" does not mean "in a week at 00:00" to anybody; only a custom pick
 /// has a meaningful hour to show.
+///
+/// Both halves go through westernDate / toWesternDigits: in the app the raw
+/// patterns drew «الثلاثاء ٦ أكتوبر، ١٠:٠٠ ص».
 String formatResumeDate(DateTime at, bool isAr, {bool withTime = false}) {
   final locale = isAr ? 'ar' : 'en';
-  final day = DateFormat('EEEE d MMMM', locale).format(at);
+  final day = westernDate(at, 'EEEE d MMMM', locale);
   if (!withTime) return day;
   // The separator follows the language, not the date: an Arabic comma spliced
   // into an English date ("Tuesday 6 October، 10:00 AM") reads as a typo.
   final comma = isAr ? '،' : ',';
-  return '$day$comma ${DateFormat.jm(locale).format(at)}';
+  return '$day$comma ${toWesternDigits(DateFormat.jm(locale).format(at))}';
 }
 
 /// When paused habits are due to come back on their own.

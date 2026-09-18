@@ -211,8 +211,15 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                           color: gp.textPrimary,
                         ),
                       ),
+                      // weekdayDateLabel, not DateFormat('EEEE, MMM d'): in
+                      // Arabic that pattern put the month first, kept the
+                      // Latin comma and drew «الجمعة, سبتمبر ١٨».
                       Text(
-                        DateFormat('EEEE, MMM d', locale).format(widget.day),
+                        weekdayDateLabel(
+                          widget.day,
+                          isAr: isAr,
+                          locale: locale,
+                        ),
                         style: TextStyle(fontSize: 12, color: gp.textSec),
                       ),
                     ],

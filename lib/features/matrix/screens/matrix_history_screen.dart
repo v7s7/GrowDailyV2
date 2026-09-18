@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/calendar_month_scaffold.dart';
 import '../../../shared/widgets/safe_wrap_text.dart';
 import '../models/matrix_task.dart';
@@ -217,10 +218,15 @@ class _MatrixHistoryScreenState extends ConsumerState<MatrixHistoryScreen> {
                         child: Row(
                           children: [
                             Text(
+                              // weekdayDateLabel: the raw 'EEEE, MMM d'
+                              // drew «الجمعة, سبتمبر ١٨» in Arabic.
                               _selectedDate == today
                                   ? s.navToday
-                                  : DateFormat('EEEE, MMM d', locale)
-                                      .format(_selectedDate!),
+                                  : weekdayDateLabel(
+                                      _selectedDate!,
+                                      isAr: isAr,
+                                      locale: locale,
+                                    ),
                               style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w800,
@@ -567,9 +573,10 @@ class _HistoryRow extends ConsumerWidget {
     final locale = Localizations.localeOf(context).languageCode;
     // Just the time-of-day — the date itself is already implied by which
     // calendar day is selected above, so repeating it here would be noise.
+    // westernDate, or Arabic reads «٩:٠٥ م» here.
     final completedLabel = task.completedAt == null
         ? ''
-        : DateFormat('h:mm a', locale).format(task.completedAt!);
+        : westernDate(task.completedAt!, 'h:mm a', locale);
 
     return Dismissible(
       key: ValueKey(task.id),

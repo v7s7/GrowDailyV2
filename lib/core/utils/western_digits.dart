@@ -14,13 +14,24 @@ import 'package:intl/intl.dart';
 ///    _normalizeDigits, reminder_picker's normalizeArabicDigits); they all
 ///    delegate here now.
 ///
-///  * **Display.** Dates that went through `DateFormat` have been observed
-///    rendering Arabic-Indic digits in the running app while every other
-///    number on the same screen — counters, fractions, stat tiles, Grid's
-///    day labels, all built with plain interpolation — stays ASCII. (Not
-///    intl picking digits for the locale: `DateFormat('d', 'ar')` returns
-///    the ASCII "3" in a plain test process; only 'ar_EG' and friends carry
-///    Arabic-Indic symbol data. The substitution happens nearer the glyphs.)
+///  * **Display.** In the running app every `DateFormat` under 'ar' prints
+///    Arabic-Indic digits, while every other number on the same screen
+///    (counters, fractions, stat tiles, Grid's day labels, all plain
+///    interpolation) stays ASCII. The digits come from
+///    `GlobalMaterialLocalizations.delegate`: on its first load it writes
+///    flutter_localizations' own date symbols into intl's global table,
+///    over whatever `initializeDateFormatting` put there, and that
+///    package's 'ar' symbols carry the Arabic-Indic zero digit. So once
+///    MaterialApp has built, `DateFormat('d', 'ar')` returns «٣» for the
+///    rest of the process. A plain test that never pumps those delegates
+///    keeps intl's own 'ar' data, whose zero is ASCII, which is why unit
+///    tests print "3" and never caught it; reproduce under the delegates
+///    (test/core/western_digits_delegate_test.dart). `NumberFormat` is not
+///    affected, since only the date symbols are replaced. Flutter's own
+///    pickers are, wherever they format a date rather than a plain number:
+///    the Cupertino time wheel's hours and minutes, and the Material date
+///    picker's header and month title, still print Arabic-Indic digits,
+///    and nothing in this file reaches them.
 ///    [westernDate] pushes formatted dates through here so a composed date
 ///    keeps its locale-correct month and weekday *names* and still agrees
 ///    with the numbers printed next to it.
@@ -29,13 +40,15 @@ const String _arabicIndicDigits = '٠١٢٣٤٥٦٧٨٩';
 /// A date formatted with [pattern] under [locale], with its digits
 /// normalised to ASCII — Arabic month and weekday names, Western numbers.
 ///
-/// A belt-and-braces wrapper: for the `ar` locale this app ships,
-/// `DateFormat` already returns ASCII digits, so this is usually a no-op.
-/// It exists because the *rendered* result has not always matched what
-/// `DateFormat` returns (see the note above), and a composed date sitting
-/// beside a plain interpolated number needs to agree with it. Cheap enough
-/// to apply unconditionally; [toWesternDigits] returns the original string
-/// untouched when there's nothing to convert.
+/// Not a no-op in the app: under the delegates main.dart installs,
+/// `DateFormat` prints Arabic-Indic digits for 'ar' (see the note above).
+/// It only looks like one in a plain test process, which never loads those
+/// symbols. Cheap enough to apply unconditionally; [toWesternDigits]
+/// returns the original string untouched when there's nothing to convert.
+///
+/// It fixes the digits only. A pattern such as 'MMM d' still puts the month
+/// first in Arabic, so Arabic wants a day-first pattern ('d MMMM'), or
+/// [weekdayDateLabel] when the weekday leads.
 String westernDate(DateTime date, String pattern, String locale) =>
     toWesternDigits(DateFormat(pattern, locale).format(date));
 

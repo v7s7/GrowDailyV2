@@ -52,17 +52,19 @@ library;
 // about it, and the two disagreeing about whether that is "ساعة" or "١ س"
 // or "60 دقيقة" reads as two different reminders.
 
-/// Western digits → Arabic-Indic codepoints, for labels that have to do this
-/// by hand.
+/// Western digits → Arabic-Indic codepoints, for notification copy.
 ///
-/// The reason is font shaping, not number formatting. intl produces ASCII
-/// either way: `DateFormat('h:mm a', 'ar')` returns the string "9:20 م". But
-/// a number rendered *inside* an Arabic run ("اليوم · 9:20 ص") gets Arabic
-/// contextual digit substitution applied by the font, and the user sees
-/// ٩:٢٠. A chip label like a bare "15" has no Arabic context, so the same
-/// font leaves it Western — two identical ASCII strings, two different glyph
-/// sets on screen, side by side. So matching the row means matching what's
-/// *rendered*, hence the explicit conversion.
+/// Notifications keep Arabic-Indic digits, Aziz's choice for that copy
+/// alone; anything drawn in the app uses Latin ones. The phrases built here
+/// that also label chips on screen ([reminderOffsetLabel],
+/// [countedOffsetPhrase]) are passed through toWesternDigits by their
+/// in-app callers.
+///
+/// This note used to say intl returns ASCII for 'ar' and the font swapped
+/// the digits inside an Arabic run. Not so: the app's localization
+/// delegates make `DateFormat('h:mm a', 'ar')` itself return «٩:٢٠ م» (see
+/// western_digits.dart), which is why the task rows drew ٩:٢٠ and these
+/// chips were converted to match them.
 String arabicDigits(int n) => n
     .toString()
     .split('')

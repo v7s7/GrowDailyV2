@@ -142,6 +142,9 @@ class _RoomHeaderCard extends StatelessWidget {
         : room.isEnded
             ? s.roomEnded
             : s.roomDaysLeft(room.daysRemaining);
+    // westernDate: the raw pattern drew «بدأت ١٨ سبتمبر».
+    final startLabel =
+        westernDate(room.startDate, 'd MMMM', s.isAr ? 'ar' : 'en');
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -196,10 +199,8 @@ class _RoomHeaderCard extends StatelessWidget {
               const SizedBox(width: 5),
               Text(
                 DateTime.now().startOfDay.isBefore(room.startDate)
-                    ? s.roomStartsOn(DateFormat('d MMMM', s.isAr ? 'ar' : 'en')
-                        .format(room.startDate))
-                    : s.roomStartedOn(DateFormat('d MMMM', s.isAr ? 'ar' : 'en')
-                        .format(room.startDate)),
+                    ? s.roomStartsOn(startLabel)
+                    : s.roomStartedOn(startLabel),
                 style: TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w600,

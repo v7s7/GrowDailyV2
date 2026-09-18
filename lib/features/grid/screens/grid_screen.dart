@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/utils/bidi_fraction.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../../onboarding/notifiers/guide_chain.dart';

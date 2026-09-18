@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/l10n/reminder_copy.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import 'reminder_picker.dart' show normalizeArabicDigits, formatReminderMoment;
 
@@ -519,7 +520,11 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
                   children: [
                     for (final o in sorted)
                       _AddedChip(
-                        label: formatOffsetVerbose(o, widget.isAr, s),
+                        // Latin digits, like the time beside it. The shared
+                        // phrase keeps Arabic-Indic ones for notifications.
+                        label: toWesternDigits(
+                          formatOffsetVerbose(o, widget.isAr, s),
+                        ),
                         // Day/date, not just a clock time: with day-scale
                         // offsets two rows can share a time and differ only
                         // by date, and "10:31 AM" twice explains nothing.

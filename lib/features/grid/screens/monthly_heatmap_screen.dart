@@ -1360,7 +1360,10 @@ class _HeatDayDetailSheet extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final locale = Localizations.localeOf(context).languageCode;
-    final dateLabel = DateFormat('EEEE, MMM d', locale).format(day);
+    // weekdayDateLabel, not DateFormat('EEEE, MMM d'), which drew
+    // «الجمعة, سبتمبر ١٨» here: month first, a Latin comma, Arabic-Indic
+    // digits.
+    final dateLabel = weekdayDateLabel(day, isAr: s.isAr, locale: locale);
     final uid = ref.watch(authStateProvider).asData?.value?.uid;
     // allHabitsEverProvider so an archived (not hard-deleted) habit still
     // resolves to its real name here instead of falling all the way back

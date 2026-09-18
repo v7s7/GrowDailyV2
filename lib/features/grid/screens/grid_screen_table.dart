@@ -686,7 +686,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   // that can never respond.
                   semanticLabel: [
                     habit.localName(isAr),
-                    DateFormat('EEEE d MMMM', isAr ? 'ar' : 'en').format(day),
+                    westernDate(day, 'EEEE d MMMM', isAr ? 'ar' : 'en'),
                     _effectiveSquare(habit, day, doneToday).localLabel(isAr),
                     // "2 / 4" for a counted habit's today square. The number
                     // is drawn inside the square, where a screen reader cannot
@@ -1010,10 +1010,13 @@ class _GridTableState extends ConsumerState<_GridTable> {
         habitName: habit.localName(S.of(context).isAr),
         xp: 0,
         gold: 0,
-        pastDayLabel: DateFormat(
+        // westernDate: the raw pattern drew «الجمعة ١٨ سبتمبر» in this
+        // dialog, Arabic-Indic digits in an app that prints Latin ones.
+        pastDayLabel: westernDate(
+          day,
           'EEEE d MMMM',
           S.of(context).isAr ? 'ar' : 'en',
-        ).format(day),
+        ),
       );
       if (!confirmed || !context.mounted) return;
     }

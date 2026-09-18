@@ -9,7 +9,6 @@ import 'package:flutter/cupertino.dart'
         CupertinoThemeData;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
@@ -48,17 +47,21 @@ export '../../../core/l10n/reminder_copy.dart'
 /// same "which day, what time" phrasing, and a day-scale offset makes the
 /// day half load-bearing — two reminders 48 hours apart otherwise render as
 /// the identical clock time.
+///
+/// Through westernDate, like every date and time in this file: in the app
+/// the raw patterns drew «سبتمبر ١٨ · ٩:٠٥ م», month first and in
+/// Arabic-Indic digits. Arabic puts the day before the month.
 String formatReminderMoment(DateTime dt, bool isAr, {DateTime? now}) {
   final today = now ?? DateTime.now();
   final locale = isAr ? 'ar' : 'en';
-  final time = DateFormat('h:mm a', locale).format(dt);
+  final time = westernDate(dt, 'h:mm a', locale);
   if (dt.isSameDayAs(today)) {
     return isAr ? 'اليوم · $time' : 'Today · $time';
   }
   if (dt.isSameDayAs(today.add(const Duration(days: 1)))) {
     return isAr ? 'غدًا · $time' : 'Tomorrow · $time';
   }
-  final date = DateFormat('MMM d', locale).format(dt);
+  final date = westernDate(dt, isAr ? 'd MMMM' : 'MMM d', locale);
   return '$date · $time';
 }
 
@@ -243,7 +246,7 @@ String formatReminderDay(DateTime day, bool isAr, {DateTime? now}) {
   if (day.isSameDayAs(today.add(const Duration(days: 1)))) {
     return isAr ? 'غدًا' : 'Tomorrow';
   }
-  return DateFormat('EEEE، d MMMM', isAr ? 'ar' : 'en').format(day);
+  return westernDate(day, 'EEEE، d MMMM', isAr ? 'ar' : 'en');
 }
 
 /// The time half of [pickReminderMoment]: an hour / minute / AM-PM wheel in
@@ -392,9 +395,7 @@ class _ReminderTimeSheetState extends State<_ReminderTimeSheet> {
           if (floor != null) ...[
             const SizedBox(height: 4),
             Text(
-              s.matrixReminderEarliest(
-                DateFormat('h:mm a', locale).format(floor),
-              ),
+              s.matrixReminderEarliest(westernDate(floor, 'h:mm a', locale)),
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12.5,
@@ -658,8 +659,12 @@ class _ReminderPickerState extends State<ReminderPicker> {
   /// No direction word: [_unlistedOffsets] only ever yields offsets matching
   /// the selected tab, so every chip on screen already shares the قبل/بعد
   /// above them — printing it on each one would just repeat the tab.
-  String _unlistedLabel(S s, int offset) =>
-      formatOffsetVerbose(offset, widget.isAr, s, withDirection: false);
+  ///
+  /// Latin digits on screen; the shared phrase keeps Arabic-Indic ones for
+  /// the notification copy.
+  String _unlistedLabel(S s, int offset) => toWesternDigits(
+        formatOffsetVerbose(offset, widget.isAr, s, withDirection: false),
+      );
 
   /// Whether an offset would still land in the future. An offset that has
   /// already elapsed can be previewed and stored but will never be
@@ -860,7 +865,9 @@ class _ReminderPickerState extends State<ReminderPicker> {
               _OffsetChip(
                 selected: widget.offsets.contains(_signed(m)),
                 reachable: _isReachable(_signed(m)),
-                label: reminderOffsetLabel(m, widget.isAr),
+                // Latin, like the preview line under the grid; the shared
+                // label keeps Arabic-Indic digits for notifications.
+                label: toWesternDigits(reminderOffsetLabel(m, widget.isAr)),
                 semanticsLabel: formatOffsetVerbose(_signed(m), widget.isAr, s),
                 color: widget.color,
                 onTap: () => _toggle(m),

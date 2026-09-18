@@ -64,15 +64,19 @@ class _CountdownBox extends StatelessWidget {
 /// Matrix's own reminder copy specifically, and three duplicated lines
 /// here keeps this screen free to word a room's start moment differently
 /// later without touching an unrelated feature's test-pinned helper.
+///
+/// Through westernDate: the raw patterns drew «الجمعة, سبتمبر ١٨ · ٩:٠٥ م»,
+/// month first, a Latin comma and Arabic-Indic digits. Arabic has no short
+/// weekday or month names, so its pattern spells both out.
 String _formatScheduledMoment(DateTime dt, bool isAr) {
   final now = DateTime.now();
   final locale = isAr ? 'ar' : 'en';
-  final time = DateFormat('h:mm a', locale).format(dt);
+  final time = westernDate(dt, 'h:mm a', locale);
   if (dt.isSameDayAs(now)) return isAr ? 'اليوم · $time' : 'Today · $time';
   if (dt.isSameDayAs(now.add(const Duration(days: 1)))) {
     return isAr ? 'غدًا · $time' : 'Tomorrow · $time';
   }
-  final date = DateFormat('EEE, MMM d', locale).format(dt);
+  final date = westernDate(dt, isAr ? 'EEEE، d MMMM' : 'EEE, MMM d', locale);
   return '$date · $time';
 }
 

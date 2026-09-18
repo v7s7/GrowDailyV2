@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../models/milestone_event.dart';
 import '../notifiers/milestone_notifier.dart';
@@ -199,7 +199,7 @@ class _JourneyHeaderCard extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     s.journeyMemberSince(
-                      DateFormat('MMMM yyyy', locale).format(createdAt),
+                      westernDate(createdAt, 'MMMM yyyy', locale),
                       daysSince,
                     ),
                     style: TextStyle(fontSize: 12, color: gp.textSec),
@@ -222,8 +222,10 @@ class _MonthHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    // westernDate on every date this screen prints: the raw patterns drew
+    // «سبتمبر ٢٠٢٦» and «الجمعة, سبتمبر ١٨» here.
     return Text(
-      DateFormat('MMMM yyyy', locale).format(month).toUpperCase(),
+      westernDate(month, 'MMMM yyyy', locale).toUpperCase(),
       style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
@@ -288,8 +290,14 @@ class _MilestoneRow extends StatelessWidget {
                       color: gp.textPrimary),
                 ),
                 const SizedBox(height: 2),
+                // Arabic takes the day before the month and its own comma;
+                // English keeps its full month name.
                 Text(
-                  DateFormat('EEEE, MMMM d', locale).format(event.occurredAt),
+                  westernDate(
+                    event.occurredAt,
+                    isAr ? 'EEEE، d MMMM' : 'EEEE, MMMM d',
+                    locale,
+                  ),
                   style: TextStyle(fontSize: 11.5, color: gp.textTert),
                 ),
               ],
