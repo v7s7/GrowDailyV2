@@ -136,6 +136,63 @@ test("a closed day whose squares say done but whose count is zero is " +
   assert.ok(out.every((u) => u.held === false), "no write times, so nothing is held");
 });
 
+test("a habit the weekly quota already bought is not an undercount", () => {
+  // Hoor on ELQVF8, 2026-09-09 to 09-11: her 4x-a-week تمرين had banked all
+  // four sessions by the 8th, so her own device marked it REST on the days
+  // after, and a green square there earns nothing in the app. Reporting it
+  // printed a set_room_day command that would have paid her for a day the
+  // room never asked for.
+  const out = undercountedDays({
+    days: ["2026-09-09", "2026-09-10", "2026-09-11"],
+    countingIds: ["tamreen", "witr", "quran"],
+    squaresByDay: {
+      "2026-09-09": {tamreen: "complete", witr: "complete", quran: "complete"},
+      "2026-09-10": {tamreen: "complete", witr: "complete", quran: "complete"},
+      "2026-09-11": {tamreen: "complete", witr: "complete"},
+    },
+    part: {
+      dailyDoneCount: {"2026-09-09": 2, "2026-09-10": 2, "2026-09-11": 1},
+      dailyHabitMarks: {
+        "2026-09-09": {tamreen: "r", witr: "d", quran: "d"},
+        "2026-09-10": {tamreen: "r", witr: "d", quran: "d"},
+        "2026-09-11": {tamreen: "r", witr: "d", quran: "m"},
+      },
+    },
+  });
+  assert.deepStrictEqual(out, [], "every one of those days is already paid");
+});
+
+test("a rest mark excuses only its own habit, on its own day", () => {
+  // The same member, with one habit rested and another genuinely missing
+  // from the stored count: the day is still short by the second one.
+  const out = undercountedDays({
+    days: ["2026-09-09"],
+    countingIds: ["tamreen", "witr", "quran"],
+    squaresByDay: {
+      "2026-09-09": {tamreen: "complete", witr: "complete", quran: "complete"},
+    },
+    part: {
+      dailyDoneCount: {"2026-09-09": 1},
+      dailyHabitMarks: {"2026-09-09": {tamreen: "r", witr: "d", quran: "d"}},
+    },
+  });
+  assert.deepStrictEqual(
+      out.map((u) => ({day: u.day, real: u.real, stored: u.stored})),
+      [{day: "2026-09-09", real: 2, stored: 1}]);
+});
+
+test("a member whose device never wrote marks is checked as before", () => {
+  const out = undercountedDays({
+    days: ["2026-09-03"],
+    countingIds: ["a", "b"],
+    squaresByDay: {"2026-09-03": {a: "complete", b: "complete"}},
+    part: {dailyDoneCount: {"2026-09-03": 0}},
+  });
+  assert.deepStrictEqual(
+      out.map((u) => ({day: u.day, real: u.real, stored: u.stored})),
+      [{day: "2026-09-03", real: 2, stored: 0}]);
+});
+
 test("a day whose count already matches, or exceeds, is not reported",
     () => {
       const out = undercountedDays({

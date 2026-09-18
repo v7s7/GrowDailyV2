@@ -68,6 +68,7 @@ Color roomStripCellFill({
   required Color backdrop,
   bool isDeclaredRest = false,
   bool isStoodDown = false,
+  bool isPending = false,
 }) {
   // Checked before everything else, because a day the member's whole plan was
   // paused is not any of the other four states and must not borrow their
@@ -85,6 +86,25 @@ Color roomStripCellFill({
   if (isStoodDown) {
     return Color.alphaBlend(
       (dark ? Colors.white : Colors.black).withOpacity(0.07),
+      backdrop,
+    );
+  }
+  // Today, still open, with nothing recorded on it yet: the one day the row
+  // draws but does not count. RoomParticipant.dayIsCountableAt keeps such a
+  // day out of BOTH sides until the member records something or it settles
+  // at the cutoff, which is what let the row read "9.8 of 17" beside a strip
+  // of 18 squares. An empty square said nothing about that, because a
+  // settled empty day looks identical. Half the stand-down wash, so it reads
+  // as "not yet" rather than as an outcome: it is never a miss (_missIsFinal
+  // refuses to cross out an open day), never a rest, and it can only be
+  // reached at zero credit, since any credit at all makes the day count.
+  //
+  // Guarded on credit as well as the flag: the two can only disagree if a
+  // caller ever passes a pending day that has earned something, and in that
+  // case what it earned is the truer thing to draw.
+  if (isPending && credit <= 0) {
+    return Color.alphaBlend(
+      (dark ? Colors.white : Colors.black).withOpacity(0.035),
       backdrop,
     );
   }
@@ -1167,6 +1187,11 @@ class RoomStrip extends StatelessWidget {
     // only start after the room's own start, so this is theoretical), and a
     // paused today keeps the gold border: the marker says where, the dash
     // says what.
+    // Drawn, but not in this member's own numbers yet. Same question the
+    // denominator asks, asked once here so the squares and the printed
+    // fraction can never disagree.
+    final isPending =
+        !isStoodDown && !participant.dayIsCountableAt(key, DateTime.now());
     final isStart = markStart && index == 0;
     // isRealToday, not isToday: purely the "today" marker — see
     // DateTimeGameExt.isRealToday's doc comment.
@@ -1194,6 +1219,7 @@ class RoomStrip extends StatelessWidget {
           isMissed: isMissed,
           isDeclaredRest: isDeclaredRest,
           isStoodDown: isStoodDown,
+          isPending: isPending,
           dark: dark,
           backdrop: backdrop,
         ),

@@ -2202,6 +2202,11 @@ class RoomsController {
       frequencyType: habit.frequencyType,
       frequencyTarget: habit.frequencyTarget,
       addedAt: DateTime.now(),
+      // The day every member will grade this slot from, stamped once, here,
+      // on the leader's phone. startOfDay rather than effectiveDay: before
+      // the 10:00 cutoff effectiveDay still names yesterday, and a habit
+      // cannot start counting on a day that ended before it existed.
+      addedDay: DateTime.now().startOfDay.toDateKey(),
     );
     await _rooms.doc(room.code).set(
       {
@@ -3536,18 +3541,19 @@ class RoomsController {
     // date, and forced the slot to count across the room's whole history with
     // nothing behind it. habitExistedOn had already drawn the line correctly;
     // the repair overrode it. Stamping the truth here is what disarms it.
+    // ONE implementation, RoomModel.slotJoinedPlanKey, rather than a copy:
+    // the sync and the read-time fallback have to answer with the same byte
+    // or a written key and an absent key mean different things about the
+    // same day. Never earlier than the room itself, and deliberately NOT
+    // clamped at the other end: a slot stamped after the last day there is
+    // to grade counts for nothing, which is the right answer for one added
+    // to a room that has already ended, and the honest one for a device
+    // clock running fast.
     String planFloorFor(String id) {
       if (room.habitMode != RoomHabitMode.shared) return startKey;
       final i = rawIds.indexOf(id);
       if (i < 0 || i >= room.sharedHabits.length) return startKey;
-      final added = room.sharedHabits[i].addedAt;
-      if (added == null) return startKey;
-      final key = DateTime(added.year, added.month, added.day).toDateKey();
-      // Never earlier than the room itself. Deliberately NOT clamped at the
-      // other end: a slot stamped after the last day there is to grade counts
-      // for nothing, which is the right answer for one added to a room that
-      // has already ended, and the honest one for a device clock running fast.
-      return key.compareTo(startKey) > 0 ? key : startKey;
+      return room.slotJoinedPlanKey(i);
     }
 
     final effectiveRules = <String, List<RoomHabitRule>>{...mineNow.habitRules};
@@ -3606,7 +3612,25 @@ class RoomsController {
       // _slotIsPhantomOn reads this same `from`), so nothing in the past
       // moves in either direction. A same-day link is still from the same
       // day, which is Aziz's "if all accept, no need to wait".
-      final seedFrom = todayKey.compareTo(floor) > 0 ? todayKey : floor;
+      // THE DAY THE SLOT JOINED THE PLAN, for everybody, whenever they get
+      // round to linking it. Aziz, 2026-09-18: "from the admin adding habit,
+      // it start count for all, no after, no before, but a notification for
+      // user so they can enter the app and see the habit."
+      //
+      // It used to be the LINK day (max of today and the floor), which gave
+      // one shared habit a different calendar per member: on ELQVF8 the same
+      // قراءة القرآن counted from 09-08 for one member and 09-09 for the
+      // other, so the same day asked one of them for 3 habits and the other
+      // for 2. Linking late now owns the days since the addition, which is
+      // the point: they were the room's days, and nothing can be earned back
+      // in them (the Grid refuses to pay a square painted after its day
+      // closed). Before the addition day nothing moves, so no finished day
+      // is ever re-scored.
+      //
+      // The cadence question the old comment raised is answered by the floor
+      // itself: a habit's own weekdays and weekly target only govern days at
+      // or after the slot joined the plan, never the room's earlier history.
+      final seedFrom = floor;
       effectiveRules[id] = [
         RoomHabitRule(
           from: seedFrom,

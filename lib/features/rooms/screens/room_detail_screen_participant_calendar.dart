@@ -101,6 +101,14 @@ class _ParticipantCalendarSheetState extends State<_ParticipantCalendarSheet> {
     if (widget.participant.isRestDay(key)) {
       return roomStripRestTone();
     }
+    // Still open, nothing recorded: the day is drawn but is in neither side
+    // of this member's fraction yet (RoomParticipant.dayIsCountableAt), and
+    // _statusFor already says so in words with roomCalendarStillOpen. Same
+    // faint wash the strip uses, so the sheet and the row agree about the
+    // one day that is not counted yet.
+    if (!widget.participant.dayIsCountableAt(key, DateTime.now())) {
+      return (dark ? Colors.white : Colors.black).withOpacity(0.035);
+    }
     return heatColor(
       heatmapLevelFor(widget.participant.creditFor(key)),
       dark,

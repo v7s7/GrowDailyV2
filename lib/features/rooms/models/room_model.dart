@@ -204,7 +204,26 @@ class RoomHabitTemplate {
   /// their own joinedAt. A newly-added slot follows that identical,
   /// already-shipped precedent rather than inventing a second, different
   /// rule just for itself.
+  ///
+  /// CORRECTION, 2026-09-10: it DOES gate the math now, through
+  /// [slotJoinedPlanKey] and the rule seed in syncLinkedHabitsProgress.
+  /// Read [addedDay] rather than this instant for anything that names a day.
   final DateTime? addedAt;
+
+  /// The calendar day this entry joined the plan, stamped ONCE by the
+  /// leader's device and read as-is by everybody else.
+  ///
+  /// [addedAt] is an instant, and every phone keys it in its own timezone:
+  /// ELQVF8's قراءة القرآن was added at 2026-09-08T21:48Z, which keys as
+  /// 09-08 on a UTC phone and 09-09 on a Bahrain one, so one shared habit
+  /// was graded on two different calendars. Aziz, 2026-09-18: "from the
+  /// admin adding habit, it start count for all, no after, no before". One
+  /// day, stamped once, is the only shape that can mean that.
+  ///
+  /// Null on every slot stamped before this field existed, and on every slot
+  /// a room was created with (those start with the room). Readers fall back
+  /// to keying [addedAt] locally, which is what shipped before.
+  final String? addedDay;
 
   const RoomHabitTemplate({
     required this.name,
@@ -213,6 +232,7 @@ class RoomHabitTemplate {
     required this.frequencyType,
     required this.frequencyTarget,
     this.addedAt,
+    this.addedDay,
     this.removedAt,
   });
 
@@ -223,6 +243,7 @@ class RoomHabitTemplate {
         'frequencyType': frequencyType.toJson(),
         'frequencyTarget': frequencyTarget,
         if (addedAt != null) 'addedAt': Timestamp.fromDate(addedAt!),
+        if (addedDay != null) 'addedDay': addedDay,
         if (removedAt != null) 'removedAt': Timestamp.fromDate(removedAt!),
       };
 
@@ -236,6 +257,7 @@ class RoomHabitTemplate {
         ),
         frequencyTarget: d['frequencyTarget'] as int? ?? 1,
         addedAt: (d['addedAt'] as Timestamp?)?.toDate(),
+        addedDay: d['addedDay'] as String?,
         removedAt: (d['removedAt'] as Timestamp?)?.toDate(),
       );
 
@@ -307,7 +329,16 @@ class RoomModel {
   /// counts for a member from the day THEY link it (RoomHabitRule.from). This
   /// only ever governs the member who has not linked it yet: three days with
   /// a banner and a push before the room's plan is held against them.
-  static const int kNewSlotGraceDays = 3;
+  ///
+  /// ZERO since 2026-09-18, on Aziz's rule: "from the admin adding habit, it
+  /// start count for all, no after, no before, but a notification for user
+  /// so they can enter the app and see the habit". At 3 it paid people for
+  /// ignoring the room: a member who linked the new habit was graded on it
+  /// from day one while a member who never opened the app got three free
+  /// days. The push (notifyRoomHabitAdded) and the in-app banner are what
+  /// carry the news now. Kept as a constant, and read through
+  /// [slotAsksFromKey], so restoring a grace is one number.
+  static const int kNewSlotGraceDays = 0;
 
   /// The share of the room's elapsed days a member must have been PRESENT
   /// for before they can hold a place (see RoomLeaderboard.holdsPlaceIn).
@@ -337,6 +368,14 @@ class RoomModel {
   String slotJoinedPlanKey(int i) {
     final startKey = startDate.toDateKey();
     if (i < 0 || i >= sharedHabits.length) return startKey;
+    // The leader's own stamp first: every member has to read the same day
+    // for the same slot, and an instant keyed on each phone does not (see
+    // RoomHabitTemplate.addedDay). The fallback keeps every slot stamped
+    // before that field behaving exactly as it did.
+    final stamped = sharedHabits[i].addedDay;
+    if (stamped != null && stamped.isNotEmpty) {
+      return stamped.compareTo(startKey) > 0 ? stamped : startKey;
+    }
     final added = sharedHabits[i].addedAt;
     if (added == null) return startKey;
     final key = DateTime(added.year, added.month, added.day).toDateKey();
@@ -350,11 +389,12 @@ class RoomModel {
   String slotAsksFromKey(int i) {
     final startKey = startDate.toDateKey();
     if (i < 0 || i >= sharedHabits.length) return startKey;
-    final added = sharedHabits[i].addedAt;
-    if (added == null) return startKey;
+    final joined = slotJoinedPlanKey(i);
+    if (kNewSlotGraceDays == 0) return joined;
+    final day = DateTime.tryParse(joined);
+    if (day == null) return joined;
     final asks =
-        DateTime(added.year, added.month, added.day + kNewSlotGraceDays)
-            .toDateKey();
+        DateTime(day.year, day.month, day.day + kNewSlotGraceDays).toDateKey();
     return asks.compareTo(startKey) > 0 ? asks : startKey;
   }
 

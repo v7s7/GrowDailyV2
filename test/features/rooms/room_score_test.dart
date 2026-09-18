@@ -28,13 +28,15 @@ RoomHabitRule _r(String from) => RoomHabitRule(
       frequencyTarget: 1,
     );
 
-RoomHabitTemplate _t(String name, {DateTime? addedAt, DateTime? removedAt}) =>
+RoomHabitTemplate _t(String name,
+        {DateTime? addedAt, String? addedDay, DateTime? removedAt}) =>
     RoomHabitTemplate(
       name: name,
       category: HabitCategory.faith,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
       addedAt: addedAt,
+      addedDay: addedDay,
       removedAt: removedAt,
     );
 
@@ -264,17 +266,39 @@ void main() {
       _t('c', addedAt: DateTime(2026, 7, 9)),
     ]);
 
-    test('is asked of an unlinked member only after the grace', () {
+    test('is asked of an unlinked member from the day it was added', () {
+      // Aziz, 2026-09-18: "it start count for all, no after, no before".
+      // The three-day grace used to pay people for ignoring the room: a
+      // member who linked was graded from day one, a member who never
+      // opened the app got three days free. The push and the banner carry
+      // the news now.
       final p = _p(uid: 'a', linked: const [_h1, _h2], done: _everyDay(2));
       expect(room.slotJoinedPlanKey(2), '2026-07-09');
-      expect(room.slotAsksFromKey(2), '2026-07-12',
-          reason: '${RoomModel.kNewSlotGraceDays} days of grace');
+      expect(room.slotAsksFromKey(2), '2026-07-09',
+          reason: 'no grace: ${RoomModel.kNewSlotGraceDays} days');
       expect(p.phantomSlotsOn(room, '2026-07-08'), 0);
-      expect(p.phantomSlotsOn(room, '2026-07-11'), 0);
+      expect(p.phantomSlotsOn(room, '2026-07-09'), 1);
       expect(p.phantomSlotsOn(room, '2026-07-12'), 1);
       expect(p.roomCreditFor(room, '2026-07-08'), 1.0,
           reason: 'before the slot existed, two of two is a full day');
+      expect(p.roomCreditFor(room, '2026-07-09'), closeTo(2 / 3, 1e-9));
       expect(p.roomCreditFor(room, '2026-07-12'), closeTo(2 / 3, 1e-9));
+    });
+
+    test('the slot names ONE day for everybody, whatever the reader keys', () {
+      // The instant 2026-07-09T21:48Z is 07-09 on a UTC phone and 07-10 in
+      // Bahrain, which is exactly how one shared habit came to be graded on
+      // two calendars in ELQVF8. The leader's stamp wins.
+      final stamped = _room(slots: [
+        _t('a'),
+        _t('b'),
+        _t('c',
+            addedAt: DateTime.utc(2026, 7, 9, 21, 48), addedDay: '2026-07-10'),
+      ]);
+      expect(stamped.slotJoinedPlanKey(2), '2026-07-10');
+      expect(stamped.slotAsksFromKey(2), '2026-07-10');
+      expect(room.slotJoinedPlanKey(2), '2026-07-09',
+          reason: 'a slot stamped before addedDay existed reads as it always did');
     });
 
     test('counts for a member who linked it from the day they did', () {
@@ -296,8 +320,9 @@ void main() {
       expect(p.roomProgressRatio(room), 1.0);
     });
 
-    test('an original slot has no grace: everyone chose it on joining', () {
+    test('an original slot counts from the room start', () {
       expect(room.slotAsksFromKey(0), '2026-07-01');
+      expect(room.slotJoinedPlanKey(0), '2026-07-01');
     });
 
     test('linking late keeps the phantom until the day you linked', () {
@@ -325,10 +350,11 @@ void main() {
           ],
         },
       );
-      expect(p.phantomSlotsOn(room, '2026-07-11'), 0,
-          reason: 'inside the grace nobody is asked');
-      expect(p.phantomSlotsOn(room, '2026-07-12'), 1,
-          reason: 'from the grace day until the link, a phantom');
+      expect(p.phantomSlotsOn(room, '2026-07-08'), 0,
+          reason: 'before the slot joined the plan nobody is asked');
+      expect(p.phantomSlotsOn(room, '2026-07-09'), 1,
+          reason: 'from the day it was added until the link, a phantom');
+      expect(p.phantomSlotsOn(room, '2026-07-12'), 1);
       expect(p.phantomSlotsOn(room, '2026-07-19'), 1);
       expect(p.phantomSlotsOn(room, '2026-07-20'), 0,
           reason: 'from the link day the habit itself is graded');

@@ -30,6 +30,9 @@
  */
 
 const GREEN = new Set(["complete", "bonus"]); // SquareState.isGreen
+// RoomHabitMark.rest.code: the habit was in the plan that day but its own
+// schedule asked nothing of it (room_model.dart, enum RoomHabitMark).
+const REST_MARK = "r";
 const DECLINED = "__declined__";
 
 // lib/core/extensions/datetime_ext.dart's kDayCutoffHour: a day stays open
@@ -256,6 +259,16 @@ function undercountedDays({days, countingIds, squaresByDay, part,
     return floor;
   };
   const floors = new Map(countingIds.map((id) => [id, floorOf(id)]));
+  // What the member's own device decided each habit was worth that day.
+  // A habit marked REST was not in the day's denominator: a day off its
+  // named weekdays, or a session past a weekly quota the member had
+  // already banked. Its square can be green and earn nothing, exactly as
+  // the app grades it.
+  const marks = part.dailyHabitMarks || {};
+  const restedOn = (day, id) => {
+    const forDay = marks[day];
+    return !!forDay && String(forDay[id]) === REST_MARK;
+  };
   const out = [];
   for (const day of days) {
     if (stood.has(day)) continue;
@@ -265,6 +278,12 @@ function undercountedDays({days, countingIds, squaresByDay, part,
     const real = countingIds.filter((id) => {
       const floor = floors.get(id);
       if (floor !== null && floor !== undefined && day < floor) return false;
+      // The whole-day rest test above only catches a day where EVERY habit
+      // rested. A single habit resting inside a working day is the common
+      // case for a weekly quota, and counting its green square as owed was
+      // reporting a shortfall that does not exist and printing a repair
+      // command that would have paid for a day the room never asked for.
+      if (restedOn(day, id)) return false;
       return GREEN.has(String(squares[id]));
     }).length;
     const stored = done[day] || 0;

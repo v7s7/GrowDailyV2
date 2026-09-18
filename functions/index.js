@@ -633,13 +633,13 @@ exports.notifyRoomFinish = onCall(async (request) => {
 const HABIT_ADDED_MESSAGES = {
   en: (habitName, roomName) => ({
     title: `New habit in "${roomName}"`,
-    body: `"${habitName}" was added to the plan. Link it on your side and ` +
-      "it counts for you from today \u{1F331}",
+    body: `"${habitName}" was added to the plan and counts for everyone ` +
+      "from today. Link it on your side \u{1F331}",
   }),
   ar: (habitName, roomName) => ({
     title: `عادة جديدة في "${roomName}"`,
-    body: `انضافت «${habitName}» للخطة. اربطها من عندك وتبدأ تنحسب لك ` +
-      "من اليوم \u{1F331}",
+    body: `انضافت «${habitName}» للخطة وصارت تنحسب للكل من اليوم. ` +
+      "اربطها من عندك \u{1F331}",
   }),
 };
 

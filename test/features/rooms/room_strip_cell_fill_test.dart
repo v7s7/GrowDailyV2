@@ -31,6 +31,7 @@ void main() {
     bool isRest = false,
     bool isMissed = false,
     bool isStoodDown = false,
+    bool isPending = false,
     Color backdrop = card,
   }) =>
       roomStripCellFill(
@@ -38,6 +39,7 @@ void main() {
         isRest: isRest,
         isMissed: isMissed,
         isStoodDown: isStoodDown,
+        isPending: isPending,
         dark: true,
         backdrop: backdrop,
       );
@@ -52,6 +54,7 @@ void main() {
     expect(fill(0, isRest: true).alpha, 255);
     expect(fill(0, isMissed: true).alpha, 255);
     expect(fill(0, isStoodDown: true).alpha, 255);
+    expect(fill(0, isPending: true).alpha, 255);
   });
 
   group('a stood-down day', () {
@@ -148,6 +151,33 @@ void main() {
         reason: 'credit $c',
       );
     }
+  });
+
+  group('a day that is not counted yet', () {
+    // Today, still open, with nothing recorded on it. It is drawn in the
+    // strip but sits in neither side of the member's fraction, which is how
+    // a row came to read "9.8 of 17" beside 18 squares
+    // (RoomParticipant.dayIsCountableAt). An empty square could not say
+    // that: a settled empty day looks the same.
+    test('is not a miss, a rest, a stand-down, or an empty settled day', () {
+      final pending = fill(0, isPending: true);
+      expect(pending, isNot(fill(0)), reason: 'not an empty settled day');
+      expect(pending, isNot(fill(0, isMissed: true)));
+      expect(pending, isNot(fill(0, isRest: true)));
+      expect(pending, isNot(fill(0, isStoodDown: true)));
+    });
+
+    test('a day with any credit is never pending, whatever the flag says', () {
+      // The flag can only be true at zero credit, since recording anything
+      // makes the day count. Belt and braces: if it ever arrives true on a
+      // day with credit, the credit wins rather than the day going blank.
+      expect(fill(0.5, isPending: true), isNot(fill(0, isPending: true)));
+    });
+
+    test('a stood-down day keeps its own tone', () {
+      expect(fill(0, isStoodDown: true, isPending: true),
+          fill(0, isStoodDown: true));
+    });
   });
 
   test('your own gold-tinted row blends against its own card', () {

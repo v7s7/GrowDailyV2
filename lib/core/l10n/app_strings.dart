@@ -3899,12 +3899,13 @@ class S {
   String roomNewHabitBannerTitle(String habitName) => isAr
       ? 'أضاف القائد عادة جديدة: $habitName'
       : 'Your leader added a new habit: $habitName';
-  // The slot starts counting for the member the day they link it, and is
-  // held against them unlinked after RoomModel.kNewSlotGraceDays - so the
-  // banner says when, instead of only asking. Draft wording; Aziz picks it.
+  // Since 2026-09-18 the slot counts for EVERY member from the day the
+  // leader added it, linked or not (RoomModel.kNewSlotGraceDays is 0), so
+  // the banner says that rather than promising three free days it no longer
+  // gives. Draft wording; Aziz picks it.
   String get roomNewHabitBannerBody => isAr
-      ? 'اربطها بإحدى عاداتك وتبدأ تنحسب لك من اليوم. بعد 3 أيام تنحسب في الغرفة سواء ربطتها أو لا.'
-      : 'Link it to one of your habits and it counts for you from today. After 3 days it counts in the room whether you linked it or not.';
+      ? 'صارت تنحسب للكل من يوم ما انضافت. اربطها بإحدى عاداتك عشان تتحسب لك.'
+      : 'It counts for everyone from the day it was added. Link it to one of your habits so it counts for you.';
   String get roomNewHabitBannerAction => isAr ? 'ربط الآن' : 'Link now';
   String get roomResolveHabitsSheetTitle =>
       isAr ? 'عادة جديدة في الخطة' : 'New habit in the plan';

@@ -50,13 +50,15 @@ RoomHabitRule _rule(String from) => RoomHabitRule(
       frequencyTarget: 1,
     );
 
-RoomHabitTemplate _template(String name, {DateTime? addedAt}) =>
+RoomHabitTemplate _template(String name,
+        {DateTime? addedAt, String? addedDay}) =>
     RoomHabitTemplate(
       name: name,
       category: HabitCategory.faith,
       frequencyType: HabitFrequencyType.daily,
       frequencyTarget: 1,
       addedAt: addedAt,
+      addedDay: addedDay,
     );
 
 RoomModel _room({bool withThirdSlot = true}) => RoomModel(
@@ -450,6 +452,103 @@ void main() {
       final restored =
           RoomHabitTemplate.fromMap(_room().sharedHabits[2].toFirestore());
       expect(restored.addedAt, DateTime(2026, 9, 9));
+    });
+
+    test('the stamped day survives the round trip and wins the read', () {
+      // An instant is keyed by whichever phone reads it. The stamp is not.
+      final slot = _template('قراءة القرآن',
+          addedAt: DateTime.utc(2026, 9, 8, 21, 48), addedDay: '2026-09-09');
+      final restored = RoomHabitTemplate.fromMap(slot.toFirestore());
+      expect(restored.addedDay, '2026-09-09');
+      expect(restored.addedAt, DateTime.utc(2026, 9, 8, 21, 48).toLocal());
+    });
+  });
+
+  group('a shared habit counts from the day it was added, for everybody', () {
+    // Aziz, 2026-09-18, about ELQVF8: "i am the leader and i added quran, so
+    // it should not count or see the old data for her, from the admin adding
+    // habit, it start count for all, no after, no before, but a notification
+    // for user so they can enter the app and see the habit."
+    final room = RoomModel(
+      code: 'ELQVF8',
+      name: 'Being Better',
+      createdBy: 'leader-uid',
+      createdByName: 'Aziz',
+      createdAt: DateTime(2026, 9, 1),
+      habitMode: RoomHabitMode.shared,
+      duration: RoomDuration.fixed,
+      startDate: DateTime(2026, 9, 1),
+      endDate: DateTime(2026, 9, 30),
+      sharedHabits: [
+        _template('صلاة الوتر'),
+        _template('تمرين'),
+        _template('قراءة القرآن',
+            addedAt: DateTime.utc(2026, 9, 8, 21, 48), addedDay: _added),
+      ],
+    );
+
+    test('the room names one day for the slot, whoever is reading', () {
+      expect(room.slotJoinedPlanKey(2), _added);
+      expect(room.slotAsksFromKey(2), _added,
+          reason: 'no grace since 2026-09-18');
+    });
+
+    test('a member who never links is asked from that day, not three later',
+        () {
+      final p = _member(
+        linked: const [_h1, _h2],
+        rules: {
+          _h1: [_rule(_start)],
+          _h2: [_rule(_start)],
+        },
+      );
+      expect(p.phantomSlotsOn(room, '2026-09-08'), 0);
+      expect(p.phantomSlotsOn(room, _added), 1);
+      expect(p.phantomSlotsOn(room, '2026-09-11'), 1);
+    });
+
+    test('a member who links four days late owns those four days', () {
+      // Their rule is stamped with the slot's day, so the days between the
+      // addition and the link are asked of them and score zero. Nothing
+      // before the addition moves, which is what keeps finished days safe.
+      final late = _member(
+        linked: const [_h1, _h2, _hNew],
+        rules: {
+          _h1: [_rule(_start)],
+          _h2: [_rule(_start)],
+          _hNew: [_rule(_added)],
+        },
+        done: {
+          '2026-09-08': 2,
+          _added: 2,
+          '2026-09-13': 3,
+        },
+      );
+      expect(late.slotOpenBy(_hNew, '2026-09-08'), isFalse);
+      expect(late.slotOpenBy(_hNew, _added), isTrue);
+      expect(late.countedHabitCountOn('2026-09-08'), 2,
+          reason: 'the day before the addition still asks for two');
+      expect(late.countedHabitCountOn(_added), 3);
+      expect(late.creditFor('2026-09-08'), 1.0,
+          reason: 'a finished day before the addition keeps its full credit');
+      expect(late.creditFor(_added), closeTo(2 / 3, 1e-9));
+      expect(late.creditFor('2026-09-13'), 1.0);
+    });
+
+    test('both members read the same day for the same habit', () {
+      final rules = {
+        _h1: [_rule(_start)],
+        _h2: [_rule(_start)],
+        _hNew: [_rule(room.slotJoinedPlanKey(2))],
+      };
+      final a = _member(linked: const [_h1, _h2, _hNew], rules: rules);
+      final b = _member(linked: const [_h1, _h2, _hNew], rules: rules);
+      for (final day in ['2026-09-08', _added, '2026-09-10']) {
+        expect(a.countedHabitCountOn(day), b.countedHabitCountOn(day),
+            reason: 'one plan, one calendar, on $day');
+      }
+      expect(a.countedHabitCountOn('2026-09-08'), 2);
+      expect(a.countedHabitCountOn(_added), 3);
     });
   });
 }
