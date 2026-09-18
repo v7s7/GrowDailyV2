@@ -1319,6 +1319,13 @@ class S {
   String get alarmPermissionDenied => isAr
       ? 'المنبّه يحتاج إذن. فعّله من إعدادات الجهاز.'
       : 'Alarms need permission. Turn it on in Settings.';
+  // Under the switch on an iPhone older than iOS 26, once «منبّه» is
+  // tapped: no app can ring a real alarm there, and an update is the way to
+  // it. The fact alone, Aziz's pick of three on 2026-09-18 (the others
+  // added where to update, or opened on the action).
+  String get alarmNeedsNewerIos => isAr
+      ? 'المنبّه يحتاج iOS 26 أو أحدث.'
+      : 'Alarms need iOS 26 or later.';
   String get leadAtTime => isAr ? 'في الوقت' : 'On time';
   String get leadCustomOption => isAr ? 'مخصص' : 'Custom';
   String get leadCustomMinutesHint => isAr ? 'دقائق' : 'Minutes';
@@ -1736,11 +1743,6 @@ class S {
   /// more. Never drawn as text.
   String get habitReminderRemove => isAr ? 'احذف التذكير' : 'Remove reminder';
 
-  // Heading over the list of everything currently set, each row removable.
-  String get customReminderAdded =>
-      isAr ? 'التذكيرات المضافة' : 'Added reminders';
-  String get customReminderEmpty =>
-      isAr ? 'لم تضف أي تذكير بعد' : 'No extra reminders yet';
   String get customReminderAlreadyAdded =>
       isAr ? 'هذا التذكير مضاف بالفعل' : 'That reminder is already added';
   // Unit selector. Plural forms, since the selector names the unit rather

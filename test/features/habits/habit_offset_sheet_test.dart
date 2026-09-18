@@ -13,7 +13,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
+import 'package:grow_daily_v2/core/l10n/reminder_copy.dart' show ReminderUnit;
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
+import 'package:grow_daily_v2/core/utils/typed_offset.dart';
 import 'package:grow_daily_v2/features/habits/widgets/habit_offset_sheet.dart';
 import 'package:grow_daily_v2/shared/widgets/choice_chip_grid.dart';
 
@@ -295,6 +297,69 @@ void main() {
         findsNothing,
         reason: 'no time to resolve a shift against',
       );
+    });
+  });
+
+  // The field took whole numbers only, on a keypad with no point, so a
+  // 4.5-hour reminder had to be worked out in minutes, and Aziz's came out
+  // as 260, ten short (2026-09-18).
+  group('a fraction of an hour', () {
+    testWidgets('4.5 under ساعات saves four and a half hours before',
+        (tester) async {
+      final result = await open(tester, current: null);
+
+      await tester.enterText(find.byType(TextField), '4.5');
+      await tapText(tester, ar.unitHours);
+
+      // Fajr at 4:03 less four and a half hours is 11:33 the night before.
+      expect(find.textContaining('11:33'), findsOneWidget);
+      expect(button(tester).onPressed, isNotNull);
+      await tester.tap(find.byType(FilledButton));
+      await tester.pumpAndSettle();
+      expect(result(), -270);
+    });
+
+    testWidgets('the keypad offers a point', (tester) async {
+      await open(tester, current: null);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).keyboardType,
+        const TextInputType.numberWithOptions(decimal: true),
+      );
+    });
+
+    // The row says «قبل ٤ ساعات ونص», so the field it opens says 4.5 under
+    // ساعات, not 270 under دقائق.
+    testWidgets('a 4.5-hour reminder reopens as 4.5 under ساعات',
+        (tester) async {
+      await open(tester, current: -270, editing: true);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '4.5',
+      );
+      expect(chip(tester, ar.unitHours).selected, isTrue);
+      expect(chip(tester, ar.unitMinutes).selected, isFalse);
+    });
+
+    testWidgets('an amount that is not a quarter-hour stays in minutes',
+        (tester) async {
+      await open(tester, current: -80, editing: true);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '80',
+      );
+      expect(chip(tester, ar.unitMinutes).selected, isTrue);
+    });
+
+    test('what it reopens on reads back as the same minutes', () {
+      for (final minutes in [75, 90, 105, 150, 270, 690]) {
+        final text = quarterHoursText(minutes);
+        expect(text, isNotNull, reason: '$minutes');
+        expect(typedOffsetMinutes(text!, ReminderUnit.hours), minutes,
+            reason: '$minutes reopened as "$text"');
+      }
+      for (final minutes in [45, 60, 80, 120, 720]) {
+        expect(quarterHoursText(minutes), isNull, reason: '$minutes');
+      }
     });
   });
 }

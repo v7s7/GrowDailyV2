@@ -385,6 +385,8 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     if (!granted) {
       showOverlayNotice(context, S.of(context).alarmPermissionDenied,
           icon: Icons.alarm_off_rounded);
+      // Greys «منبّه» now rather than at the next return to the app.
+      ref.invalidate(alarmChoiceProvider);
       return;
     }
     setState(() => _alarm = true);
@@ -605,10 +607,8 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                         onToggleOffset: _toggleOffset,
                         onLocked: () => showReminderLimitGate(context, ref),
                         alarm: _alarm,
-                        alarmChoiceAvailable: ref
-                                .watch(alarmChoiceAvailableProvider)
-                                .value ==
-                            true,
+                        alarmChoice: ref.watch(alarmChoiceProvider).value ??
+                            AlarmChoice.hidden,
                         onAlarmChanged: _setAlarm,
                       ),
                     ),

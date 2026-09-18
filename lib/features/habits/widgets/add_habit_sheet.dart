@@ -3163,18 +3163,20 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// under the section that decides WHEN. Two cells, notification first
   /// because it is the default and the only thing the app did before alarms
   /// existed, and a one-line hint that says what the other cell buys. Drawn
-  /// only where an alarm can exist at all (alarmChoiceAvailableProvider);
-  /// everywhere else the sheet looks exactly as it did.
+  /// wherever an alarm exists or an iOS update would bring it
+  /// (alarmChoiceProvider); on an older iPhone the alarm cell is grey and
+  /// says what it needs instead of switching. Where neither holds, such as
+  /// the web, it is not drawn and the sheet looks exactly as it did.
   Widget _reminderStyleRow(S s) {
-    if (ref.watch(alarmChoiceAvailableProvider).value != true) {
-      return const SizedBox.shrink();
-    }
+    final choice = ref.watch(alarmChoiceProvider).value ?? AlarmChoice.hidden;
+    if (choice == AlarmChoice.hidden) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 14),
       child: ReminderStyleChoice(
         alarm: _alarm,
         accent: GameColors.gold,
         onChanged: _setAlarm,
+        alarmChoice: choice,
       ),
     );
   }
@@ -3192,6 +3194,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     if (!granted) {
       showOverlayNotice(context, S.of(context).alarmPermissionDenied,
           icon: Icons.alarm_off_rounded);
+      // Greys «منبّه» now rather than at the next return to the app.
+      ref.invalidate(alarmChoiceProvider);
       return;
     }
     setState(() => _alarm = true);

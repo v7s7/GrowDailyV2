@@ -117,10 +117,11 @@ void main() {
     expect(_arabicIndicText, findsNothing);
   });
 
-  testWidgets('the custom offset sheet lists each reminder with its time',
+  // The sheet adds one reminder and closes (2026-09-18), so its own list of
+  // reminders is gone; the moment a typed value lands on is its one date.
+  testWidgets('the custom offset sheet dates the moment it will add',
       (tester) async {
-    // Wider than a phone: the test font draws every glyph a full em wide,
-    // so an added chip that fits on a device overflows a 402pt test view.
+    // Wider than a phone: the test font draws every glyph a full em wide.
     tester.view.physicalSize = const Size(600 * 3, 874 * 3);
     await tester.pumpWidget(app(Builder(
       builder: (context) => TextButton(
@@ -142,9 +143,12 @@ void main() {
     )));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+    // 20 rather than 15: the task already has 15 before, which the sheet
+    // answers with "already added" in place of a moment.
+    await tester.enterText(find.byType(TextField), '20');
+    await tester.pumpAndSettle();
 
-    expect(find.text('قبل 15 دقيقة'), findsOneWidget);
-    expect(find.text('${day.day} ${month()} · 4:45 م'), findsOneWidget);
+    expect(find.text('${day.day} ${month()} · 4:40 م'), findsOneWidget);
     expect(_arabicIndicText, findsNothing);
   });
 

@@ -668,9 +668,16 @@ void main() {
     test('picks the largest unit that divides, abbreviated', () {
       expect(formatOffsetCompact(-60, false, en), '1h before');
       expect(formatOffsetCompact(-1440, false, en), '1d before');
-      // 90 doesn't divide into hours, so it stays in minutes rather than
-      // becoming "1.5h".
-      expect(formatOffsetCompact(-90, false, en), '90m before');
+      // Past an hour and not whole hours: hours and the rest, as the
+      // verbose form says it.
+      expect(formatOffsetCompact(-90, false, en), '1h 30m before');
+    });
+
+    test('Arabic says hours and the rest, only shorter', () {
+      expect(formatOffsetCompact(-90, true, ar), 'قبل ساعة ونص');
+      expect(formatOffsetCompact(-270, true, ar), 'قبل ٤ س ونص');
+      expect(formatOffsetCompact(-80, true, ar), 'قبل ساعة و٢٠ د');
+      expect(formatOffsetCompact(135, true, ar), 'بعد ساعتين وربع');
     });
 
     test('Arabic keeps its natural noun for one and two', () {
@@ -683,7 +690,7 @@ void main() {
     test('agrees with formatOffsetVerbose about the unit', () {
       // Both go through splitOffsetUnit, so a chip reading "1h before" can
       // never sit above a list row reading "60 minutes before".
-      for (final o in [-2880, -1440, -120, -90, -60, -15, 15, 30]) {
+      for (final o in [-2880, -1440, -120, -60, -15, 15, 30]) {
         final (compactValue, compactUnit) = splitOffsetUnit(o.abs());
         expect(
           formatOffsetVerbose(o, false, en),
@@ -734,10 +741,14 @@ void main() {
       expect(formatOffsetVerbose(-45, false, en), '45 minutes before');
     });
 
-    test('a value that does not divide stays in minutes', () {
-      // 90 could be "1.5 hours", but a fraction is harder to scan and
-      // impossible to type back into a whole-number field.
-      expect(formatOffsetVerbose(-90, false, en), '90 minutes before');
+    test('past an hour, a value that does not divide is hours and the rest',
+        () {
+      // Not "1.5 hours", which is harder to scan, and no longer "90
+      // minutes", which is not how anyone says it (2026-09-18).
+      expect(formatOffsetVerbose(-90, false, en), '1 hour 30 minutes before');
+      expect(formatOffsetVerbose(-90, true, ar), 'قبل ساعة ونص');
+      expect(formatOffsetCompact(-90, false, en), '1h 30m before',
+          reason: 'the chip and the row name it the same way');
     });
 
     test('sign picks the direction word', () {

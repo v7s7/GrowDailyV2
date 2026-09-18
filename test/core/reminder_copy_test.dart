@@ -46,9 +46,38 @@ void main() {
       expect(countedOffsetPhrase(60, false), '1 hour');
       expect(countedOffsetPhrase(120, false), '2 hours');
       expect(countedOffsetPhrase(1440, false), '1 day');
-      // Not evenly divisible, so it stays in minutes rather than becoming
-      // "1.5 hours" — see splitOffsetUnit.
-      expect(countedOffsetPhrase(90, false), '90 minutes');
+      // Past an hour and not whole hours: hours and the rest, never a
+      // fraction ("1.5 hours") and no longer all minutes ("90 minutes").
+      expect(countedOffsetPhrase(90, false), '1 hour 30 minutes');
+      expect(countedOffsetPhrase(61, false), '1 hour 1 minute');
+      expect(countedOffsetPhrase(270, false), '4 hours 30 minutes');
+    });
+
+    // A 4.5-hour reminder used to read «٢٧٠ دقيقة» (Aziz, 2026-09-18).
+    test('Arabic says hours and the rest the way it is said', () {
+      expect(countedOffsetPhrase(270, true), '٤ ساعات ونص');
+      expect(countedOffsetPhrase(90, true), 'ساعة ونص');
+      expect(countedOffsetPhrase(150, true), 'ساعتين ونص');
+      expect(countedOffsetPhrase(75, true), 'ساعة وربع');
+      expect(countedOffsetPhrase(105, true), 'ساعة و٤٥ دقيقة');
+      expect(countedOffsetPhrase(80, true), 'ساعة و٢٠ دقيقة');
+      expect(countedOffsetPhrase(65, true), 'ساعة و٥ دقائق');
+      expect(countedOffsetPhrase(62, true), 'ساعة ودقيقتين');
+      expect(countedOffsetPhrase(61, true), 'ساعة ودقيقة');
+      expect(countedOffsetPhrase(690, true), '١١ ساعة ونص');
+    });
+
+    test('«نص» only ever halves an hour, even past a day', () {
+      expect(countedOffsetPhrase(1470, true), '٢٤ ساعة ونص',
+          reason: '«يوم ونص» would read as a day and a half');
+      expect(countedOffsetPhrase(1440, true), 'يوم');
+    });
+
+    test('whole hours and anything up to an hour read as before', () {
+      expect(countedOffsetPhrase(60, true), 'ساعة');
+      expect(countedOffsetPhrase(240, true), '٤ ساعات');
+      expect(countedOffsetPhrase(45, true), '٤٥ دقيقة');
+      expect(countedOffsetPhrase(30, true), '٣٠ دقيقة');
     });
 
     test('Arabic counts singular, dual, plural, then back to singular', () {
@@ -77,6 +106,17 @@ void main() {
   });
 
   group('taskReminderTitle', () {
+    test('four and a half hours early is said in hours', () {
+      expect(
+        taskReminderTitle(offsetMinutes: -270, isAr: true),
+        'باقي ٤ ساعات ونص على مهمتك',
+      );
+      expect(
+        taskReminderTitle(offsetMinutes: -270, isAr: false),
+        '4 hours 30 minutes until your task',
+      );
+    });
+
     test('an hour early counts down instead of claiming the time has come',
         () {
       // The reported case, verbatim: an 8:25 appointment reminded at 7:25.

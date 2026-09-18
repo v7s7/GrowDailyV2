@@ -84,9 +84,10 @@ enum ReminderUnit {
 }
 
 /// Largest unit that divides [magnitude] evenly, and how many of it. 120 →
-/// (2, hours), 1440 → (1, days), 90 → (90, minutes) — a value that doesn't
-/// divide stays in minutes rather than becoming "1.5 hours", which would be
-/// both harder to scan and impossible to type back in.
+/// (2, hours), 1440 → (1, days), 90 → (90, minutes): a value that doesn't
+/// divide stays in minutes here. Past an hour that is no longer how it is
+/// SAID: [countedOffsetPhrase] reads 90 as «ساعة ونص». This split is for
+/// the unit an amount is counted, and typed, in.
 ///
 /// Shared by every offset phrasing in the app (the picker's
 /// `formatOffsetVerbose` / `formatOffsetCompact` and [countedOffsetPhrase]
@@ -108,7 +109,19 @@ enum ReminderUnit {
 /// in this app puts it in — either after a preposition ("قبل ساعتين") or in
 /// the Gulf spoken register the notification copy uses, which does not
 /// inflect it at all.
+///
+/// Past an hour, a shift that is not whole hours is said the way people say
+/// it, hours and the rest: «٤ ساعات ونص», «ساعة وربع», «ساعتين و٢٠ دقيقة»,
+/// "4 hours 30 minutes". It used to stay in minutes, «٢٧٠ دقيقة», partly
+/// because a fraction could not be typed back in; the custom fields take
+/// one since 2026-09-18, and Aziz asked for the better reading.
 String countedOffsetPhrase(int magnitude, bool isAr) {
+  final rest = magnitude % ReminderUnit.hours.inMinutes;
+  if (magnitude > ReminderUnit.hours.inMinutes && rest != 0) {
+    final (hours, words) =
+        _hoursAndRest(magnitude ~/ ReminderUnit.hours.inMinutes, rest, isAr);
+    return isAr ? '$hours و$words' : '$hours $words';
+  }
   final (value, unit) = splitOffsetUnit(magnitude);
   if (!isAr) {
     const names = {
@@ -271,6 +284,34 @@ String habitStreakLine(
     '$counted ورا بعض، واليوم يخليها $next.',
     '$counted ورا بعض وماشية عدل، واليوم يخليها $next.',
   ], variantIndex);
+}
+
+/// [hours] whole hours and [rest] minutes (1 to 59) of one shift, as its two
+/// halves: «٤ ساعات» and «نص», or "4 hours" and "30 minutes". The caller
+/// joins them, with «و» in Arabic.
+///
+/// Half and quarter are words, «نص» and «ربع», because that is how they are
+/// said; any other rest is counted in minutes. The hours stay hours even
+/// past a day, so «نص» can only ever mean half an HOUR: 24 hours and 30
+/// minutes is «٢٤ ساعة ونص», never «يوم ونص», which would read as a day
+/// and a half.
+(String, String) _hoursAndRest(int hours, int rest, bool isAr) {
+  if (!isAr) {
+    String count(int n, String noun) => '$n ${n == 1 ? noun : '${noun}s'}';
+    return (count(hours, 'hour'), count(rest, 'minute'));
+  }
+  final hoursWords = switch (hours) {
+    1 => 'ساعة',
+    2 => 'ساعتين',
+    <= 10 => '${arabicDigits(hours)} ساعات',
+    _ => '${arabicDigits(hours)} ساعة',
+  };
+  final restWords = switch (rest) {
+    30 => 'نص',
+    15 => 'ربع',
+    _ => countedOffsetPhrase(rest, true),
+  };
+  return (hoursWords, restWords);
 }
 
 /// How many of today's target are still owed, counted the way a repetition

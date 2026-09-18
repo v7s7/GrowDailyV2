@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/l10n/reminder_copy.dart';
+import '../../../core/providers/alarm_choice_provider.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
@@ -566,12 +567,13 @@ class ReminderPicker extends StatefulWidget {
   final VoidCallback onLocked;
 
   /// Whether this task's reminders ring as an alarm (MatrixTask.alarm), and
-  /// whether the device can offer that at all (alarmChoiceAvailableProvider,
-  /// read by the sheet). When it cannot, the choice is simply not drawn: a
-  /// notification is the only thing there is, and the picker looks exactly
-  /// as it did before alarms existed.
+  /// what the device can offer (alarmChoiceProvider, read by the sheet). On
+  /// an iPhone older than iOS 26 the choice is drawn, with the alarm cell
+  /// grey and saying what it needs; where there is nothing to offer or say,
+  /// it is not drawn, and the picker looks exactly as it did before alarms
+  /// existed.
   final bool alarm;
-  final bool alarmChoiceAvailable;
+  final AlarmChoice alarmChoice;
 
   /// The person picked the other style. The sheet owns the permission ask
   /// that "alarm" needs, so this only reports the wish.
@@ -589,7 +591,7 @@ class ReminderPicker extends StatefulWidget {
     required this.onToggleOffset,
     required this.onLocked,
     this.alarm = false,
-    this.alarmChoiceAvailable = false,
+    this.alarmChoice = AlarmChoice.hidden,
     this.onAlarmChanged = _ignoreAlarmChange,
   });
 
@@ -662,9 +664,25 @@ class _ReminderPickerState extends State<ReminderPicker> {
   ///
   /// Latin digits on screen; the shared phrase keeps Arabic-Indic ones for
   /// the notification copy.
-  String _unlistedLabel(S s, int offset) => toWesternDigits(
-        formatOffsetVerbose(offset, widget.isAr, s, withDirection: false),
-      );
+  ///
+  /// Hours with counted minutes are too long for a chip in full: «12 ساعة
+  /// و45 دقيقة» was cut to «12 ساعة و45…» on the phone. Those take the
+  /// chip form, «12 س و45 د», as does every hours-and-minutes value in
+  /// English ("4h 30m"). Arabic half and quarter hours are short enough to
+  /// say in full, «4 ساعات ونص». The chip's screen-reader label is always
+  /// the full phrase.
+  String _unlistedLabel(S s, int offset) {
+    final magnitude = offset.abs();
+    final rest = magnitude % 60;
+    final chipForm = magnitude > 60 &&
+        rest != 0 &&
+        (!widget.isAr || (rest != 30 && rest != 15));
+    return toWesternDigits(
+      chipForm
+          ? formatOffsetMagnitude(offset, widget.isAr, s)
+          : formatOffsetVerbose(offset, widget.isAr, s, withDirection: false),
+    );
+  }
 
   /// Whether an offset would still land in the future. An offset that has
   /// already elapsed can be previewed and stored but will never be
@@ -885,9 +903,10 @@ class _ReminderPickerState extends State<ReminderPicker> {
                 },
               ),
             // The custom cell opens a sheet rather than being an inline
-            // field: entering a value needs a number *and* a unit *and* a
-            // way to review what's already there, which is three controls
-            // more than this row can hold on a phone.
+            // field: entering a value needs a direction *and* a number
+            // *and* a unit, three controls more than this row can hold on
+            // a phone. It adds one reminder and closes; what it added
+            // shows up here as its own chip.
             PlainChoiceChip(
               selected: false,
               label: s.leadCustomOption,
@@ -896,7 +915,7 @@ class _ReminderPickerState extends State<ReminderPicker> {
             ),
           ],
         ),
-        if (widget.alarmChoiceAvailable)
+        if (widget.alarmChoice != AlarmChoice.hidden)
           Padding(
             padding: const EdgeInsets.only(top: 14),
             // Notification or alarm, the same switch the habit sheet shows
@@ -906,6 +925,7 @@ class _ReminderPickerState extends State<ReminderPicker> {
               alarm: widget.alarm,
               accent: widget.color,
               onChanged: widget.onAlarmChanged,
+              alarmChoice: widget.alarmChoice,
             ),
           ),
         if (_notice != null)

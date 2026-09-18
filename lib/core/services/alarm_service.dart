@@ -98,18 +98,23 @@ class AlarmService {
     }
   }
 
+  /// The system's alarm permission as the bridge names it: "authorized",
+  /// "denied" or "notDetermined". Null where there are no real alarms or
+  /// the bridge did not answer. Asked fresh each time, like [isAuthorized].
+  Future<String?> authorizationState() async {
+    if (!await isSupported()) return null;
+    try {
+      return await _channel.invokeMethod<String>('authorizationState');
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Supported and granted, which is the only state [schedule] can succeed
   /// in. The person can withdraw the grant in Settings at any time, so this
   /// is asked again on every schedule rather than cached.
-  Future<bool> isAuthorized() async {
-    if (!await isSupported()) return false;
-    try {
-      return await _channel.invokeMethod<String>('authorizationState') ==
-          'authorized';
-    } catch (_) {
-      return false;
-    }
-  }
+  Future<bool> isAuthorized() async =>
+      await authorizationState() == 'authorized';
 
   /// Shows the system alarm permission sheet the first time, and answers
   /// the stored decision after that. True when alarms may be scheduled.

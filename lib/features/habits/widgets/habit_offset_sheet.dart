@@ -5,6 +5,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/l10n/reminder_copy.dart'
     show countedOffsetPhrase, kReminderOffsetPresets, reminderOffsetLabel;
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/typed_offset.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import '../../matrix/widgets/custom_offset_sheet.dart'
@@ -115,6 +116,20 @@ String habitReminderSentence(int offset, S s, {String? prayer}) {
       : s.habitReminderAfterPrayer(prayer, amount);
 }
 
+/// [magnitude] minutes as decimal hours, «4.5» for 270, when it is a
+/// quarter-hour past a whole hour: the amounts the row says in words
+/// («ساعة وربع», «٤ ساعات ونص», «ساعة و٤٥ دقيقة»), which the field can
+/// take back since it reads a point. Null for anything else, which the
+/// field shows as it always did: whole hours as hours, the rest in minutes.
+String? quarterHoursText(int magnitude) {
+  const hour = 60;
+  if (magnitude <= hour || magnitude % hour == 0 || magnitude % 15 != 0) {
+    return null;
+  }
+  // 270 / 60 is 4.5 exactly, and a quarter is always 2 decimals at most.
+  return (magnitude / hour).toString();
+}
+
 class _HabitOffsetSheet extends StatefulWidget {
   final int? current;
   final TimeOfDay? anchor;
@@ -152,20 +167,25 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
     // one being added) takes the lean Add Habit passes (see leanAfter).
     _isAfter = current > 0 || (current == 0 && widget.leanAfter);
     final (value, unit) = splitOffsetUnit(current.abs());
+    // A quarter-hour past an hour comes back as the hours it was typed in,
+    // «4.5» under Hours for a row that says «٤ ساعات ونص», not 270 Minutes.
+    final hoursText = quarterHoursText(current.abs());
     // Minutes on a fresh sheet. splitOffsetUnit(0) answers DAYS — zero divides
     // evenly by everything, so the largest unit wins — which would open the
     // most common case (a few minutes early) on the wrong unit and quietly
     // multiply whatever was typed by sixty.
     _unit = current == 0
         ? ReminderUnit.minutes
-        : unit == ReminderUnit.days
+        : hoursText != null || unit == ReminderUnit.days
             ? ReminderUnit.hours
             : unit;
     // A preset value is a chip below, so the field starts empty for it and
     // only a hand-typed value comes back into the field.
     final typed = current != 0 &&
         !(widget.presets && kReminderOffsetPresets.contains(current.abs()));
-    _ctrl = TextEditingController(text: typed ? '$value' : '');
+    _ctrl = TextEditingController(
+      text: typed ? hoursText ?? '$value' : '',
+    );
     _ctrl.addListener(() => setState(() {}));
   }
 
@@ -202,18 +222,17 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
       final lit = _litPreset;
       return lit == null || lit == 0 ? null : _signed(lit);
     }
-    final raw = int.tryParse(_ctrl.text.trim());
-    if (raw == null || raw <= 0) return null;
-    final minutes = raw * _unit.inMinutes;
-    if (minutes > kMaxHabitOffsetMinutes) return null;
+    // A fraction counts, "4.5" under Hours is 270, and so do Arabic-Indic
+    // digits, which this field used to read as nothing at all.
+    final minutes = typedOffsetMinutes(_ctrl.text, _unit);
+    if (minutes == null || minutes > kMaxHabitOffsetMinutes) return null;
     return _isAfter ? minutes : -minutes;
   }
 
   /// Why the current entry cannot be used, or null when it can.
   String? _blocked(S s) {
-    final raw = int.tryParse(_ctrl.text.trim());
-    if (raw == null || raw <= 0) return null;
-    if (raw * _unit.inMinutes > kMaxHabitOffsetMinutes) {
+    final minutes = typedOffsetMinutes(_ctrl.text, _unit);
+    if (minutes != null && minutes > kMaxHabitOffsetMinutes) {
       return s.habitOffsetTooLarge;
     }
     return null;
@@ -373,7 +392,9 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                 // With chips above, the keyboard waits for a tap on the
                 // field instead of covering the chips as the sheet opens.
                 autofocus: !widget.presets,
-                keyboardType: TextInputType.number,
+                // With a point, so 4.5 hours can be typed as it is said.
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _confirm(),
                 textAlign: TextAlign.center,

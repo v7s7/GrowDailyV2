@@ -4,9 +4,9 @@ import 'package:flutter/services.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/l10n/reminder_copy.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../core/utils/western_digits.dart';
+import '../../../core/utils/typed_offset.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
-import 'reminder_picker.dart' show normalizeArabicDigits, formatReminderMoment;
+import 'reminder_picker.dart' show formatReminderMoment;
 
 // ReminderUnit and splitOffsetUnit moved to core/l10n/reminder_copy.dart,
 // where the notification copy can reach them without importing a widget
@@ -115,7 +115,27 @@ String formatOffsetMagnitude(int signedMinutes, bool isAr, S s) {
 
 /// Shared by [formatOffsetCompact] and [formatOffsetMagnitude] so a chip and
 /// the list row under it can never name the same offset two ways.
+///
+/// Past an hour a shift that is not whole hours is hours and the rest, as
+/// countedOffsetPhrase says it, only shorter: «ساعة ونص», «٤ س ونص»,
+/// «ساعتين و٢٠ د», "4h 30m".
 String _magnitudeCompact(int magnitude, bool isAr) {
+  final rest = magnitude % ReminderUnit.hours.inMinutes;
+  if (magnitude > ReminderUnit.hours.inMinutes && rest != 0) {
+    final hours = magnitude ~/ ReminderUnit.hours.inMinutes;
+    if (!isAr) return '${hours}h ${rest}m';
+    final hoursShort = switch (hours) {
+      1 => 'ساعة',
+      2 => 'ساعتين',
+      _ => '${arabicDigits(hours)} س',
+    };
+    final restShort = switch (rest) {
+      30 => 'نص',
+      15 => 'ربع',
+      _ => '${arabicDigits(rest)} د',
+    };
+    return '$hoursShort و$restShort';
+  }
   final (value, unit) = splitOffsetUnit(magnitude);
   if (!isAr) {
     const abbr = {
@@ -139,8 +159,15 @@ String _magnitudeCompact(int magnitude, bool isAr) {
   };
 }
 
-/// Enter a reminder offset in whatever unit suits it, add as many as you
-/// like, and remove any of them — without leaving the task sheet.
+/// One custom reminder per opening: a direction, a number in whatever unit
+/// suits it, the moment it lands on, and a single «إضافة» that adds it and
+/// closes. Swiping it away adds nothing.
+///
+/// It used to stay open for more, with its own list of every reminder and a
+/// «تم» under «إضافة». Two buttons on one page was risky (Aziz, 2026-09-18):
+/// type 4.5, tap «تم», and the reminder was silently never added. The list
+/// was also the task sheet's twice over, since every typed reminder already
+/// shows there as its own chip, and a tap on that chip removes it.
 ///
 /// A sheet rather than more controls inline: entering a value needs a
 /// number *and* a unit *and* a direction, which is three controls competing
@@ -148,9 +175,8 @@ String _magnitudeCompact(int magnitude, bool isAr) {
 /// contextual detail without losing the screen behind it — and it keeps the
 /// grid behind at nine uniform cells.
 ///
-/// [offsets] is the task's live set; every add/remove is applied through
-/// [onToggle] immediately rather than batched behind a Save, so dismissing
-/// the sheet can never lose work and there's no "are you sure" to answer.
+/// [offsets] is the task's live set, read for the rules (already added, the
+/// cap); the one reminder added here is applied through [onToggle].
 Future<void> showCustomOffsetSheet(
   BuildContext context, {
   required DateTime anchor,
@@ -231,7 +257,7 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
   final _ctrl = TextEditingController();
 
   late bool _isAfter = widget.initialIsAfter;
-  late Set<int> _offsets = Set.of(widget.initialOffsets);
+  late final Set<int> _offsets = Set.of(widget.initialOffsets);
   ReminderUnit _unit = ReminderUnit.minutes;
 
   @override
@@ -247,17 +273,12 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
     super.dispose();
   }
 
-  int? get _typedValue {
-    final parsed = int.tryParse(normalizeArabicDigits(_ctrl.text).trim());
-    return (parsed == null || parsed <= 0) ? null : parsed;
-  }
-
   /// The signed minutes the current entry would produce, or null if nothing
-  /// usable is typed.
+  /// usable is typed. A fraction counts: "4.5" under Hours is 270, through
+  /// the same rule Add Habit's offset sheet reads (typedOffsetMinutes).
   int? get _pendingOffset {
-    final value = _typedValue;
-    if (value == null) return null;
-    final magnitude = value * _unit.inMinutes;
+    final magnitude = typedOffsetMinutes(_ctrl.text, _unit);
+    if (magnitude == null) return null;
     return _isAfter ? magnitude : -magnitude;
   }
 
@@ -293,19 +314,9 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
     if (_blockReason(s) != null) return;
     HapticFeedback.selectionClick();
     widget.onToggle(offset);
-    setState(() {
-      _offsets = {..._offsets, offset};
-      _ctrl.clear();
-    });
-    FocusScope.of(context).unfocus();
-  }
-
-  void _remove(int offset) {
-    HapticFeedback.lightImpact();
-    // Removal is never gated — see ReminderPicker._toggle for why an
-    // entitlement lapse must not strand a stack the user can't trim.
-    widget.onToggle(offset);
-    setState(() => _offsets = {..._offsets}..remove(offset));
+    // Done the moment it is added: the task sheet behind shows the new
+    // reminder as a chip, which is also where it is taken off again.
+    Navigator.pop(context);
   }
 
   @override
@@ -319,7 +330,6 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
     // front, and disabling Add to match, means the rule is visible before
     // it's hit rather than silently enforced after.
     final blocked = _blockReason(s);
-    final sorted = _offsets.toList()..sort();
 
     return Padding(
       // Lifts the sheet clear of the keyboard, which is up the whole time
@@ -397,7 +407,9 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
                 selectionWidthStyle: GameTextStyles.selectionWidthStyle,
                 controller: _ctrl,
                 autofocus: true,
-                keyboardType: TextInputType.number,
+                // With a point, so 4.5 hours can be typed as it is said.
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _add(s),
                 textAlign: TextAlign.center,
@@ -495,133 +507,9 @@ class _CustomOffsetSheetState extends State<_CustomOffsetSheet> {
                 ),
                 child: Text(s.customReminderAdd),
               ),
-              const SizedBox(height: 18),
-              Text(
-                s.customReminderAdded,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: gp.textTert,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (sorted.isEmpty)
-                Text(
-                  s.customReminderEmpty,
-                  style: TextStyle(fontSize: 12.5, color: gp.textTert),
-                )
-              else
-                // Every offset the task carries, not just the ones added
-                // here — this is the one place all of them are listed, so
-                // it's also the place to remove any of them.
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final o in sorted)
-                      _AddedChip(
-                        // Latin digits, like the time beside it. The shared
-                        // phrase keeps Arabic-Indic ones for notifications.
-                        label: toWesternDigits(
-                          formatOffsetVerbose(o, widget.isAr, s),
-                        ),
-                        // Day/date, not just a clock time: with day-scale
-                        // offsets two rows can share a time and differ only
-                        // by date, and "10:31 AM" twice explains nothing.
-                        time: formatReminderMoment(
-                          widget.anchor.add(Duration(minutes: o)),
-                          widget.isAr,
-                        ),
-                        color: widget.color,
-                        onRemove: () => _remove(o),
-                      ),
-                  ],
-                ),
-              const SizedBox(height: 16),
-              // Filled, not a bare text button: it's the way out of a modal
-              // that has no other dismiss control beyond a swipe, so it
-              // should read as a real button rather than a label.
-              FilledButton(
-                onPressed: () => Navigator.pop(context),
-                style: FilledButton.styleFrom(
-                  backgroundColor: widget.color,
-                  foregroundColor: _onFill(widget.color),
-                  minimumSize: const Size(double.infinity, 48),
-                ),
-                child: Text(s.matrixDone),
-              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// An added offset: what it means in words, the clock time it lands on, and
-/// an × to drop it. The trailing remove icon is the input-chip convention —
-/// anything a user added, they must be able to take back from the same
-/// place.
-class _AddedChip extends StatelessWidget {
-  final String label;
-  final String time;
-  final Color color;
-  final VoidCallback onRemove;
-
-  const _AddedChip({
-    required this.label,
-    required this.time,
-    required this.color,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Container(
-      padding: const EdgeInsetsDirectional.only(
-        start: 12,
-        end: 6,
-        top: 7,
-        bottom: 7,
-      ),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-        border: Border.all(color: color.withOpacity(0.45)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            time,
-            style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              color: gp.textSec,
-            ),
-          ),
-          const SizedBox(width: 2),
-          GestureDetector(
-            onTap: onRemove,
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              // Padding, not a bigger icon: keeps the tap target at the 44pt
-              // guidance without making the × visually shout.
-              padding: const EdgeInsets.all(6),
-              child: Icon(Icons.close_rounded, size: 14, color: gp.textTert),
-            ),
-          ),
-        ],
       ),
     );
   }
