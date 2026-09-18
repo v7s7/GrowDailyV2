@@ -91,6 +91,45 @@ int scheduledGap({
   return scheduledDaysStrictlyBetween(last, day, weekdays) + 1;
 }
 
+/// [scheduledDaysStrictlyBetween] for a habit whose schedule may have changed
+/// in between: each day asks [runsOn] (IslamicHabitTemplate.runsOn), the
+/// schedule as it stood on THAT day, instead of one weekday set for the whole
+/// stretch.
+///
+/// Aziz, 2026-09-18: a Monday-and-Thursday habit done on Monday and made
+/// daily on Wednesday. Measured by today's schedule, the Tuesday between read
+/// as a missed daily day and the streak restarted the moment Wednesday was
+/// ticked, though Tuesday had been a rest day when it happened. Same shape
+/// the other way: a daily habit moved to Monday and Thursday still missed its
+/// old Tuesday.
+int runDaysStrictlyBetween(
+  DateTime from,
+  DateTime to,
+  bool Function(DateTime day) runsOn,
+) {
+  final span = calendarDaysBetween(from, to);
+  if (span <= 1) return 0;
+  var count = 0;
+  for (var i = 1; i < span; i++) {
+    if (runsOn(dayPlus(from, i))) count++;
+  }
+  return count;
+}
+
+/// [scheduledGap] for a habit whose schedule may have changed in between;
+/// see [runDaysStrictlyBetween]. For a habit that runs every day this is the
+/// calendar difference, zero and negative included, exactly as
+/// [scheduledGap] gives it.
+int scheduledGapBy({
+  required DateTime last,
+  required DateTime day,
+  required bool Function(DateTime day) runsOn,
+}) {
+  final calendar = calendarDaysBetween(last, day);
+  if (calendar <= 0) return calendar;
+  return runDaysStrictlyBetween(last, day, runsOn) + 1;
+}
+
 /// What a flexible weekly quota ("N times a week, any days") can honestly
 /// say about itself on [fireDay], the day a reminder will land on.
 ///

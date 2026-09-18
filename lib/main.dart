@@ -17,6 +17,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/game_constants.dart';
 import 'core/extensions/datetime_ext.dart';
 import 'core/l10n/app_strings.dart';
+import 'core/l10n/wording_edits.dart';
 import 'core/providers/app_guide_provider.dart';
 import 'core/providers/day_clock_provider.dart';
 import 'core/providers/get_started_checklist_provider.dart';
@@ -86,6 +87,7 @@ import 'features/grid/notifiers/weekly_grid_notifier.dart'
         willCompleteAllSquaresOn;
 import 'features/grid/screens/grid_journal_screen.dart';
 import 'features/grid/screens/monthly_heatmap_screen.dart';
+import 'features/grid/widgets/weekly_recap_card.dart' show weeklyNoteTapRoute;
 import 'features/matrix/models/matrix_task.dart' show MatrixQuadrant;
 import 'features/matrix/notifiers/matrix_notifier.dart'
     show MatrixState, isMatrixQuickAddLink, matrixProvider;
@@ -182,6 +184,11 @@ Future<void> main() async {
     // a server round trip. currentUser is restored by the initializeApp
     // above, so this is the real uid, not a guess.
     await HabitMirror.load(FirebaseAuth.instance.currentUser?.uid);
+    // The admin's wording edits: this device's last copy now, so the first
+    // frame already shows them, then the live document for as long as the
+    // app runs (see wording_edits.dart).
+    await WordingEditsStore.loadCached();
+    WordingEditsStore.listen(firestore: await wordingEmulatorFirestore());
 
     // Crash reporting: three layers, matching Firebase's own documented
     // Flutter setup, since no single one of them catches everything on its
@@ -1049,10 +1056,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _showAutoResumed(String name) {
     final ctx = _messengerContext;
     if (ctx == null) return;
+    final s = S.edited(ref.read(localeProvider), WordingEditsStore.current);
     ScaffoldMessenger.of(ctx).showOne(
       SnackBar(
-        content:
-            Text(S(ref.read(localeProvider)).autoResumedConfirmation(name)),
+        content: Text(s.autoResumedConfirmation(name)),
         behavior: SnackBarBehavior.floating,
         dismissDirection: DismissDirection.down,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -1063,10 +1070,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _showAutoResumeBlocked(String name) {
     final ctx = _messengerContext;
     if (ctx == null) return;
+    final s = S.edited(ref.read(localeProvider), WordingEditsStore.current);
     ScaffoldMessenger.of(ctx).showOne(
       SnackBar(
-        content:
-            Text(S(ref.read(localeProvider)).autoResumeBlockedByLimit(name)),
+        content: Text(s.autoResumeBlockedByLimit(name)),
         duration: const Duration(seconds: 6),
         behavior: SnackBarBehavior.floating,
         dismissDirection: DismissDirection.down,
@@ -1323,6 +1330,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         streak: dash.habitStreak(
           habit.id,
           scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+          runsOn: habit.runsOn,
         ),
         // The raw count, not the done bool: a habit counted twice a day with
         // one logged is neither "done" nor "untouched", and the scheduler
@@ -1374,8 +1382,17 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                   },
       ));
     }
-    NotificationService.instance
-        .scheduleSmartReminders(reminders, settings, isAr: isAr);
+    NotificationService.instance.scheduleSmartReminders(
+      reminders,
+      settings,
+      isAr: isAr,
+      // A habit whose schedule changed judges the days since it was last
+      // done by the schedule each of them had (see reminderFactsAtFireDay).
+      runsOnById: {
+        for (final habit in upcomingHabits)
+          if (habit.pastCadences.isNotEmpty) habit.id: habit.runsOn,
+      },
+    );
 
     // "Do First" = urgent + important, the one Matrix quadrant that's a
     // reasonable proxy for "actually time-sensitive" without the app having
@@ -2320,6 +2337,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 habitId: habit.id,
                 day: actionDay,
                 scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+                runsOn: habit.runsOn,
                 // 2x while a linked room is live — see roomBoostedReward.
                 xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
                 goldReward:
@@ -2378,8 +2396,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// Routes a notification's plain body tap to where its action lives: a
   /// daily reminder, streak-risk nudge, habit reminder or quit check-in all
   /// open the Grid — the app's home, where the habit's own row and squares
-  /// are; a Matrix task reminder opens the Tasks tab. Anything unrecognized
-  /// just opens the app, same as before.
+  /// are; a Matrix task reminder opens the Tasks tab; the week's numbered
+  /// note opens Profile while the recap card of the week it counts is
+  /// showing (weeklyNoteTapRoute). Anything unrecognized just opens the
+  /// app, same as before.
   ///
   /// These used to open `/dashboard`, the standalone Today screen. That
   /// screen was reachable by no other route in the entire app — not a tab,
@@ -2389,7 +2409,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   Future<void> _handleNotificationBodyTap(String? payload) async {
     if (payload == null || payload.isEmpty) return;
     final String route;
-    if (payload == NotificationService.openTodayPayload ||
+    if (payload == NotificationService.openWeeklyRecapPayload) {
+      route = weeklyNoteTapRoute(DateTime.now());
+    } else if (payload == NotificationService.openTodayPayload ||
         _resolveHabit(payload) != null) {
       route = '/grid';
     } else {
@@ -2521,11 +2543,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // (see _WebPhoneFrame); a no-op everywhere else, and on narrow
         // windows.
         child: _WebPhoneFrame(
-          child: Stack(
-            children: [
-              if (child != null) child,
-              const GlobalVoiceNotePlayerOverlay(),
-            ],
+          // The admin's wording edits, above every route, dialog and sheet
+          // and the voice-note overlay alike, so a saved edit repaints all of
+          // them at once (see wording_edits.dart).
+          child: WordingEditsHost(
+            child: Stack(
+              children: [
+                if (child != null) child,
+                const GlobalVoiceNotePlayerOverlay(),
+              ],
+            ),
           ),
         ),
       ),

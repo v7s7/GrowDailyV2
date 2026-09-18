@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' show Color;
 import 'package:uuid/uuid.dart';
 
+import '../models/habit_cadence.dart';
 import '../models/habit_model.dart';
 
 /// Immutable template from the pre-saved Islamic catalog.
@@ -160,6 +161,23 @@ class IslamicHabitTemplate {
   /// carries it in memory only (see the copy helpers below).
   final int? suggestedStepGoal;
 
+  /// Every schedule this habit ran on before its current one, oldest first,
+  /// each with the last day it governed. Empty for a habit whose schedule has
+  /// never changed, which is almost every habit, and for every habit edited
+  /// before this field existed (nothing recorded when those changed, so their
+  /// whole past reads by the current schedule, exactly as it always did).
+  ///
+  /// This is what lets a past day be judged by the schedule it actually had:
+  /// a Monday-and-Thursday habit made daily keeps its old rest days as rest
+  /// days. Read it through [cadenceOn] and [runsOn], never by hand. See
+  /// habit_cadence.dart for the whole rule, and pastCadencesAfterChange for
+  /// how an edit adds to it.
+  ///
+  /// Carried by every copy helper below. A helper that dropped it would
+  /// silently hand the habit's whole past its current schedule again, and
+  /// unarchive's full `set` would then erase it from the server too.
+  final List<PastCadence> pastCadences;
+
   const IslamicHabitTemplate({
     required this.id,
     required this.name,
@@ -189,6 +207,7 @@ class IslamicHabitTemplate {
     this.archivedAt,
     this.stepGoal,
     this.suggestedStepGoal,
+    this.pastCadences = const [],
   });
 
   /// This habit's own icon color, or null to fall back to the category/
@@ -271,6 +290,11 @@ class IslamicHabitTemplate {
         if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
         if (archivedAt != null) 'archivedAt': archivedAt!.toIso8601String(),
         if (stepGoal != null) 'stepGoal': stepGoal,
+        // Plain date keys and ints, so Hive (guests, the launch mirror) can
+        // hold it as well as Firestore. Omitted while empty, so no stored
+        // habit is rewritten by its arrival.
+        if (pastCadences.isNotEmpty)
+          'scheduleHistory': pastCadencesToRaw(pastCadences),
       };
 
   factory IslamicHabitTemplate.fromMap(String id, Map<String, dynamic> d) =>
@@ -340,6 +364,7 @@ class IslamicHabitTemplate {
         createdAt: DateTime.tryParse(d['createdAt'] as String? ?? ''),
         archivedAt: DateTime.tryParse(d['archivedAt'] as String? ?? ''),
         stepGoal: d['stepGoal'] as int?,
+        pastCadences: parsePastCadences(d['scheduleHistory']),
       );
 
   /// Reads [reminderOffsetMinutes], transparently migrating any habit still
@@ -405,6 +430,35 @@ class IslamicHabitTemplate {
   int get effectiveDailyTarget =>
       frequencyType == HabitFrequencyType.weekly ? 1 : frequencyTarget;
 
+  /// The schedule this habit runs on now: the one every question about
+  /// today and the days ahead asks (reminders, today's board, the Add Habit
+  /// sheet).
+  HabitCadence get cadence => HabitCadence(
+        frequencyType: frequencyType,
+        frequencyTarget: frequencyTarget,
+        scheduledWeekdays: scheduledWeekdays,
+      );
+
+  /// The schedule this habit ran on on [day]: the one every question about a
+  /// PAST day has to ask, or a schedule changed today rewrites every day
+  /// behind it. [cadence] itself for a habit that never changed, and for any
+  /// day on or after its last change. See [pastCadences].
+  HabitCadence cadenceOn(DateTime day) =>
+      cadenceOnDay(pastCadences, cadence, day);
+
+  /// Whether the schedule in force on [day] lets that weekday be one of this
+  /// habit's days, without asking whether the habit was alive then: the
+  /// weekday half of [isScheduledFor]. What a per-habit gap counts (see
+  /// habit_schedule.dart), where the birth and archive bounds have their own
+  /// rules.
+  bool runsOn(DateTime day) {
+    if (pastCadences.isEmpty) {
+      return scheduledWeekdays.isEmpty ||
+          scheduledWeekdays.contains(day.weekday);
+    }
+    return cadenceOn(day).runsOnWeekday(day);
+  }
+
   bool isScheduledFor(DateTime day) {
     final born = createdAt;
     if (born != null &&
@@ -416,7 +470,9 @@ class IslamicHabitTemplate {
         day.isAfter(DateTime(died.year, died.month, died.day))) {
       return false;
     }
-    return scheduledWeekdays.isEmpty || scheduledWeekdays.contains(day.weekday);
+    // The weekdays in force on THAT day, not today's: a Monday-and-Thursday
+    // habit made daily this week was still off on last week's Tuesday.
+    return runsOn(day);
   }
 
   /// A full copy with [createdAt] swapped in — how habitListProvider
@@ -450,6 +506,7 @@ class IslamicHabitTemplate {
         createdAt: date,
         stepGoal: stepGoal,
         suggestedStepGoal: suggestedStepGoal,
+        pastCadences: pastCadences,
       );
 
   /// A full copy with [reminderOffsetMinutes] swapped in, everything else
@@ -489,6 +546,7 @@ class IslamicHabitTemplate {
         archivedAt: archivedAt,
         stepGoal: stepGoal,
         suggestedStepGoal: suggestedStepGoal,
+        pastCadences: pastCadences,
       );
 
   /// A full copy with both [createdAt] and [archivedAt] swapped in — how
@@ -527,6 +585,7 @@ class IslamicHabitTemplate {
         archivedAt: archivedAt,
         stepGoal: stepGoal,
         suggestedStepGoal: suggestedStepGoal,
+        pastCadences: pastCadences,
       );
 
   /// Locale-aware display name — mirrors [HabitPlan.localName]. Falls back

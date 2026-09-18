@@ -7,6 +7,7 @@ import '../../../core/services/local_store_service.dart';
 import '../../../core/services/user_doc.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../catalog/islamic_habit_catalog.dart';
+import '../models/habit_cadence.dart';
 import '../models/habit_model.dart';
 
 /// One person's changes to one preset habit.
@@ -57,6 +58,16 @@ class CatalogHabitOverride {
   /// stay a suggestion.
   final int? stepGoal;
 
+  /// The schedules this person ran the preset on before its current one (see
+  /// IslamicHabitTemplate.pastCadences). Empty when it has never changed.
+  ///
+  /// Not an override of anything the catalog ships: a preset has no history
+  /// of its own, so this is always this person's. Which is also why it keeps
+  /// the entry alive on its own. Editing a preset back to its catalog
+  /// schedule empties every other field, and dropping the entry then would
+  /// hand every day before that edit the catalog's schedule again.
+  final List<PastCadence> pastCadences;
+
   const CatalogHabitOverride({
     this.name,
     this.cueAfter,
@@ -69,6 +80,7 @@ class CatalogHabitOverride {
     this.alarm,
     this.iconColorHex,
     this.stepGoal,
+    this.pastCadences = const [],
   });
 
   bool get isEmpty =>
@@ -82,7 +94,8 @@ class CatalogHabitOverride {
       ignoreQuietHours == null &&
       alarm == null &&
       iconColorHex == null &&
-      stepGoal == null;
+      stepGoal == null &&
+      pastCadences.isEmpty;
 
   /// Lays this override over [t]. Anything null here keeps the catalog's own
   /// value.
@@ -127,6 +140,7 @@ class CatalogHabitOverride {
         // a linked preset would offer the generic default instead of the
         // number this habit is actually about.
         suggestedStepGoal: t.suggestedStepGoal,
+        pastCadences: pastCadences,
       );
 
   Map<String, dynamic> toMap() => {
@@ -145,6 +159,8 @@ class CatalogHabitOverride {
         if (alarm != null) 'alarm': alarm,
         if (iconColorHex != null) 'iconColorHex': iconColorHex,
         if (stepGoal != null) 'stepGoal': stepGoal,
+        if (pastCadences.isNotEmpty)
+          'scheduleHistory': pastCadencesToRaw(pastCadences),
       };
 
   factory CatalogHabitOverride.fromMap(Map<String, dynamic> d) =>
@@ -171,6 +187,7 @@ class CatalogHabitOverride {
         alarm: d['alarm'] as bool?,
         iconColorHex: d['iconColorHex'] as String?,
         stepGoal: (d['stepGoal'] as num?)?.toInt(),
+        pastCadences: parsePastCadences(d['scheduleHistory']),
       );
 }
 
@@ -323,7 +340,18 @@ class CatalogOverridesNotifier
       if (_uid != null) {
         // Whole map as one nested field, never dotted 'field.key' paths —
         // see BUILD_LESSONS.md #10.
-        await _userRef.set({kCatalogOverridesKey: raw}, SetOptions(merge: true));
+        //
+        // mergeFields, not merge: true. A merge-set merges a nested map leaf
+        // by leaf, so a key this map no longer has was never removed on the
+        // server: a preset edited back to its catalog schedule dropped its
+        // frequency fields here and got them back on the next launch, still
+        // on the schedule it had been moved off. Naming the one field
+        // replaces that field whole and leaves every other field of the
+        // user document alone, which is what this write always meant.
+        await _userRef.set(
+          {kCatalogOverridesKey: raw},
+          SetOptions(mergeFields: [kCatalogOverridesKey]),
+        );
         return;
       }
       final box = await LocalStoreService.settingsBox();

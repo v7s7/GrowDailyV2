@@ -90,6 +90,34 @@ test('a completed-then-un-marked habit reads as taken back, not as done', () => 
   assert.equal(chips.filter((c) => c.tone === 'done').length, 0);
 });
 
+test('every habit chip also names its habit, state and time for the feed to draw', () => {
+  // The Activity feed draws a habit as a short pill from these fields and
+  // keeps the sentence as its tooltip; without them it would have to read
+  // the sentence apart again.
+  const chips = chipsFor({
+    habitCompletions: { [QURAN]: 1 },
+    completedAtMinutes: { [QURAN]: 432 },
+    squareStates: { [QURAN]: 'complete', [GYM]: 'complete' },
+  }, [QURAN, GYM, WATER]);
+  const byState = Object.fromEntries(chips.filter((c) => c.state).map((c) => [c.state, c]));
+  assert.deepStrictEqual(
+    [byState.done.habit, byState.done.at],
+    [chips.find((c) => c.tone === 'done').habit, '07:12'],
+  );
+  assert.match(byState.done.habit, /Quran/);
+  assert.match(byState.grid_only.habit, /Gym/);
+  assert.match(byState.missed.habit, /Water/, 'a closed day says missed');
+  // The day's own notes carry no state: they are not habits.
+  assert.ok(chips.filter((c) => !c.state).every((c) => !c.habit));
+});
+
+test('on a day still open, an untouched habit is "open", never "missed"', () => {
+  const today = new Date(Date.now() + 180 * 60000).toISOString().slice(0, 10);
+  const chips = chipsFor({ habitCompletions: { [QURAN]: 1 } }, [QURAN, GYM], today, 180);
+  const gym = chips.find((c) => c.habit && /Gym/.test(c.habit));
+  assert.strictEqual(gym.state, 'open');
+});
+
 test('what they did comes before what they did not', () => {
   const chips = chipsFor({
     habitCompletions: { [GYM]: 1 },

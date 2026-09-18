@@ -13,6 +13,7 @@ import '../../auth/notifiers/auth_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
+import '../models/habit_cadence.dart';
 import '../models/habit_cue.dart';
 import '../models/habit_model.dart';
 import 'catalog_overrides_notifier.dart';
@@ -484,6 +485,22 @@ class CustomHabitsNotifier
         : null;
     final effectiveIconColorHex =
         clearIconColor ? null : (iconColorHex ?? existing.iconColorHex);
+    final effectiveWeekdays = scheduledWeekdays ?? existing.scheduledWeekdays;
+    // A schedule change starts TODAY. Every earlier day keeps the schedule it
+    // had, so a Monday-and-Thursday habit made daily does not turn weeks of
+    // rest days into misses behind it (Aziz, 2026-09-18). A save that leaves
+    // the schedule alone records nothing. See pastCadencesAfterChange.
+    final pastCadences = pastCadencesAfterChange(
+      past: existing.pastCadences,
+      current: existing.cadence,
+      next: HabitCadence(
+        frequencyType: frequencyType,
+        frequencyTarget: frequencyTarget,
+        scheduledWeekdays: effectiveWeekdays,
+      ),
+      bornOn: existing.createdAt,
+      today: DateTime.now().effectiveDay,
+    );
     final updated = IslamicHabitTemplate(
       id: id,
       name: name,
@@ -499,7 +516,7 @@ class CustomHabitsNotifier
       // flexible/no-days on every single edit. add() above never had this
       // bug (it does pass scheduledWeekdays through); only editing an
       // already-created habit hit it.
-      scheduledWeekdays: scheduledWeekdays ?? existing.scheduledWeekdays,
+      scheduledWeekdays: effectiveWeekdays,
       goalType: effectiveGoalType,
       reductionType: effectiveReductionType,
       limitAmount: effectiveLimitAmount,
@@ -519,6 +536,7 @@ class CustomHabitsNotifier
       stepGoal: clearStepGoal ? null : (stepGoal ?? existing.stepGoal),
       // Editing a habit never changes when it was born.
       createdAt: existing.createdAt,
+      pastCadences: pastCadences,
     );
     state = [
       for (final h in state) h.id == id ? updated : h,
@@ -800,6 +818,16 @@ final allHabitsEverProvider = Provider<List<IslamicHabitTemplate>>((ref) {
   final activatedAt = catalogNotifier.activatedAt;
   final catalogArchivedAt = catalogNotifier.catalogArchivedAt;
   final stintHistory = catalogNotifier.catalogStintHistory;
+  // The person's own version of each preset, exactly as habitListProvider
+  // layers it: their weekdays, their weekly target, and the schedules they ran
+  // it on before (IslamicHabitTemplate.pastCadences). Without it every history
+  // surface judged an edited preset by the CATALOG's schedule, so a preset
+  // someone had moved to Monday and Thursday still read five misses a week on
+  // the progress map, in Insights and in the recap, while the Grid above them
+  // painted those days as rest.
+  final overrides = ref.watch(catalogOverridesProvider);
+  IslamicHabitTemplate asTheirs(IslamicHabitTemplate t) =>
+      overrides[t.id]?.applyTo(t) ?? t;
   final everActivatedIds = {
     ...activeIds,
     ...activatedAt.keys,
@@ -833,7 +861,7 @@ final allHabitsEverProvider = Provider<List<IslamicHabitTemplate>>((ref) {
         // stint to describe, and the loop below already re-adds every
         // genuine closed stint from stintHistory on its own.
         if (activeIds.contains(t.id) || catalogArchivedAt[t.id] != null)
-          t.withDates(
+          asTheirs(t).withDates(
             createdAt: activatedAt[t.id],
             archivedAt: catalogArchivedAt[t.id],
           ),
@@ -841,7 +869,7 @@ final allHabitsEverProvider = Provider<List<IslamicHabitTemplate>>((ref) {
         // doc comment for why a repeatedly toggled habit needs more than
         // just the one window above to keep its whole history alive.
         for (final stint in stintHistory[t.id] ?? const [])
-          t.withDates(createdAt: stint.$1, archivedAt: stint.$2),
+          asTheirs(t).withDates(createdAt: stint.$1, archivedAt: stint.$2),
       ],
   ];
 

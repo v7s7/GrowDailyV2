@@ -482,17 +482,17 @@ class _StatCell extends StatelessWidget {
 
 // ─── Dashboard (today's nudges) ────────────────────────────────────────────
 
-/// The streak-at-risk banner, night-review prompt, and Friday recap card
+/// The streak-at-risk banner, night-review prompt, and weekly recap card
 /// used to sit above the grid on the Grid screen, pushing the habit squares
 /// — the whole point of that screen — below the fold. They live here now
 /// instead: Grid stays laser-focused on the squares, and Profile becomes
 /// the place for "how's my week going" nudges.
 ///
-/// Each child below still gates its own visibility exactly as it did on
-/// Grid (evening hour, unsaved review, Friday + non-zero week). This
-/// wrapper re-checks those same conditions so the "OVERVIEW" header itself
-/// never renders over an empty column on a day none of them have anything
-/// to say — which, by design, is most days.
+/// Each child below still gates its own visibility (evening hour, unsaved
+/// review, the sealed week's Saturday + non-zero week). This wrapper
+/// re-checks those same conditions so the "OVERVIEW" header itself never
+/// renders over an empty column on a day none of them have anything to
+/// say — which, by design, is most days.
 class _DashboardSection extends ConsumerWidget {
   const _DashboardSection();
 
@@ -502,7 +502,6 @@ class _DashboardSection extends ConsumerWidget {
     final grid = ref.watch(weeklyGridProvider);
     final habits = ref.watch(habitListProvider);
     final review = ref.watch(nightReviewProvider);
-    final today = DateTime.now().effectiveDay;
     // Through to the 10 AM cutoff rather than stopping at midnight - see
     // isDayClosing. Gates both the streak-risk card and the night
     // review prompt below, and both belong to the day that is still
@@ -516,22 +515,22 @@ class _DashboardSection extends ConsumerWidget {
         !dash.streakEarnedToday;
     final showNightReview = !review.isLoading && !review.saved && isEvening;
 
-    // Mirrors WeeklyRecapCard's own zero-data gate exactly, so this section
-    // never shows a header over a recap card that would silently render
-    // nothing (e.g. a brand-new user's very first Friday).
-    final showRecap = () {
-      if (today.weekday != DateTime.friday || habits.isEmpty) return false;
-      final recap = computeWeeklyRecap(
-        dailyGreenCounts: dash.dailyGreenCounts,
-        weekStart: startOfGridWeek(today),
-        // Only the two totals are read here, and neither takes a clock.
-        now: null,
-      );
-      return recap.thisWeekTotal != 0 || recap.lastWeekTotal != 0;
-    }();
+    // The card's own gate (recapWeekToShow: its Saturday window and its
+    // zero-data check), so this section never shows a header over a recap
+    // card that would silently render nothing (e.g. a brand-new user's very
+    // first Saturday). On the card's own clock, so the two cannot disagree
+    // across 10:00, and so this section rebuilds at 10:00 on a Saturday
+    // when the card appears rather than whenever something else happens to
+    // rebuild it.
+    final recapWeek = recapWeekToShow(
+      now: ref.watch(dayClockProvider),
+      hasHabits: habits.isNotEmpty,
+      dailyGreenCounts: dash.dailyGreenCounts,
+    );
+    final showRecap = recapWeek != null;
 
     // The reconnect offer is part of this gate, not just part of the
-    // Column below. Every other card here is an evening/Friday nudge that
+    // Column below. Every other card here is an evening/Saturday nudge that
     // a brand-new account never qualifies for, so the section as a whole
     // used to collapse to nothing on exactly the account the offer exists
     // for: freshly registered, guest data still on the device, all three

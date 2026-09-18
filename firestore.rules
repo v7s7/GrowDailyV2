@@ -319,6 +319,26 @@ service cloud.firestore {
                 && request.resource.data.note.size() <= 500));
     }
 
+    // Wording edits (lib/core/l10n/wording_edits.dart): one document with
+    // the admin's edits to the app's text, laid over the built-in wording on
+    // every device.
+    //
+    // Read with no sign-in on purpose. Guests have no Firebase account at
+    // all, and they read the same screens; every word in the document ships
+    // inside the app anyway, so there is nothing here to protect by hiding
+    // it. `get` on this one path only: no `list`, no other document under
+    // /wording.
+    //
+    // Nobody writes it from a client. The only writer is the admin tool's
+    // Wording page (scripts/admin_lookup), which goes through the Admin SDK
+    // and bypasses these rules, so no phone can ever change what every other
+    // phone reads. Its history (/wording_log) and its record of the built-in
+    // text each edit replaced (/wording_admin) are admin-only and fall to the
+    // deny-all below.
+    match /wording/live {
+      allow get: if true;
+    }
+
     // Everything else is denied by default.
     match /{document=**} {
       allow read, write: if false;

@@ -9,10 +9,9 @@ import '../../../core/utils/western_digits.dart';
 import '../../grid/models/covered_day.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
-import '../../habits/models/habit_model.dart'
-    show GoalType, HabitFrequencyType;
-import '../../habits/models/weekly_quota_plan.dart'
-    show DayDemand, weeklyQuotaDemand;
+import '../../habits/models/habit_day_demand.dart' show quotaDemandForRow;
+import '../../habits/models/habit_model.dart' show GoalType;
+import '../../habits/models/weekly_quota_plan.dart' show DayDemand;
 import 'report_period.dart';
 
 /// The ‹ label › stepper every tab of the reports hub carries.
@@ -622,8 +621,10 @@ MatrixCellState cellStateFor({
     // midnight, hours before the app stops accepting a mark for it.
     // isSettledAt is the test every report percentage uses too, so a grey
     // cell and the number beside it always agree about which days count.
+    // Asked of the schedule the habit had ON [day] (missIsAttributableOn), so
+    // a habit made daily this week does not turn last week's rest into a miss.
     SquareState.none =>
-      missIsAttributable(stat.habit) &&
+      missIsAttributableOn(stat.habit, day) &&
               stat.habit.isScheduledFor(day) &&
               day.isSettledAt(now ?? DateTime.now())
           ? MatrixCellState.missed
@@ -650,21 +651,14 @@ List<MatrixCellState> weekCellStates({
 }) {
   // A flexible quota's covered days can only be told with the whole week
   // in hand: which days were spare or already earned depends on what was
-  // done before them. Same arithmetic the Grid row uses (weeklyQuotaDemand),
-  // so the report and the board never disagree about a day.
-  final habit = stat.habit;
-  final quota = habit.frequencyType == HabitFrequencyType.weekly &&
-      habit.scheduledWeekdays.isEmpty;
-  final demand = quota
-      ? weeklyQuotaDemand(
-          dayCount: weekDays.length,
-          doneDays: {
-            for (var i = 0; i < weekDays.length; i++)
-              if (stat.markOn(weekDays[i]).isGreen) i,
-          },
-          target: habit.frequencyTarget,
-        )
-      : null;
+  // done before them. Same arithmetic the Grid row uses (quotaDemandForRow),
+  // so the report and the board never disagree about a day, day by day by
+  // the schedule the habit had on it.
+  final demand = quotaDemandForRow(
+    habit: stat.habit,
+    days: weekDays,
+    isGreenAt: (i) => stat.markOn(weekDays[i]).isGreen,
+  );
   return [
     for (var i = 0; i < weekDays.length; i++)
       cellStateFor(

@@ -276,6 +276,40 @@ function displayWeekStartKey(key) {
 }
 
 /**
+ * The habit as its schedule stood on [dayKey]: [habitData] with its three
+ * schedule fields swapped for the period of `scheduleHistory` that covers
+ * the day, or [habitData] itself when no period does.
+ *
+ * IslamicHabitTemplate.cadenceOn in the app (habit_cadence.dart). Since
+ * 2026-09-18 a habit keeps the schedules it ran on before its current one,
+ * each with the last day it governed (`until`, inclusive, oldest first), so
+ * a Monday-and-Thursday habit made daily keeps its old Tuesdays as rest
+ * days (Aziz: "it should still for the previous days that is spec days").
+ * Everything below that judges ONE day of a habit takes the habit through
+ * here first, or this page would grade a changed habit's past by its
+ * present, which is the bug the app just stopped making.
+ */
+function habitAsOf(habitData, dayKey) {
+  const h = habitData || {};
+  const history = Array.isArray(h.scheduleHistory) ? h.scheduleHistory : [];
+  if (history.length === 0 || !dayKey) return h;
+  const periods = history
+    .filter((p) => p && typeof p.until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.until))
+    .slice()
+    .sort((a, b) => (a.until < b.until ? -1 : a.until > b.until ? 1 : 0));
+  const period = periods.find((p) => dayKey <= p.until);
+  if (!period) return h;
+  return {
+    ...h,
+    frequencyType: typeof period.frequencyType === 'string' ? period.frequencyType : 'daily',
+    frequencyTarget: Number(period.frequencyTarget) || 1,
+    scheduledWeekdays: Array.isArray(period.scheduledWeekdays)
+      ? period.scheduledWeekdays.map(Number).filter((n) => n >= 1 && n <= 7)
+      : [],
+  };
+}
+
+/**
  * A FLEXIBLE weekly quota ("N times a week, any days"), which is the only
  * cadence whose empty square is ambiguous.
  *
@@ -419,13 +453,16 @@ function scoreDay({ habits, dayData, dayKey, nowLocalMs, todayKey }) {
 
   for (const h of list) {
     const mark = dayMark(dayData, h.id);
-    const due = missIsAttributable(h.data) && habitScheduledOn(h.data, dayKey);
+    // The schedule the habit had ON this day (see habitAsOf), for every test
+    // below: owed, the quota's demand, and whether an empty square is rest.
+    const asOf = habitAsOf(h.data, dayKey);
+    const due = missIsAttributable(asOf) && habitScheduledOn(asOf, dayKey);
     // The demand rule only ever needs THIS day's week, and the caller may
     // supply a week-aware lookup; without one a quota day can still be
     // resolved from the day document alone, which is enough to tell an
     // `earned` day from an `owed` one whenever the week's marks are present.
     const demand = quotaDemandOn({
-      habitData: h.data,
+      habitData: asOf,
       dayKey,
       isGreenOn: h.isGreenOn || isGreenOn(h.id),
     });
@@ -443,7 +480,7 @@ function scoreDay({ habits, dayData, dayKey, nowLocalMs, todayKey }) {
     // telling the app that day was owed.
     const counts = earned > 0 || mark === 'failed' || due;
     if (!counts) {
-      if (isCoveredDay({ habitData: h.data, dayKey, todayKey: today, square: mark, demand })) {
+      if (isCoveredDay({ habitData: asOf, dayKey, todayKey: today, square: mark, demand })) {
         covered++;
       }
       rows.push({ habitId: h.id, mark, due, demand, counts: false, rested: false });
@@ -805,6 +842,7 @@ module.exports = {
   weeklyQuotaDemand,
   demandIsRest,
   displayWeekStartKey,
+  habitAsOf,
   isFlexibleQuota,
   missIsAttributable,
   quotaDemandOn,

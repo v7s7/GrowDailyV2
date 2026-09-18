@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/l10n/daily_quotes.dart';
+import '../../../core/l10n/wording_edits.dart';
 import '../../../core/theme/game_theme.dart';
 
 /// The day's line, above the board.
@@ -23,9 +24,14 @@ class DailyQuoteLine extends StatelessWidget {
     final gp = context.gp;
     final s = S.of(context);
     // effectiveDay, not the raw clock: the line turns over with the app's own
-    // day (10am) like the board underneath it, so someone up at 2am is not
-    // handed tomorrow's quote above today's still-open squares.
-    final quote = quoteForDay(DateTime.now().effectiveDay);
+    // day, like the board underneath it.
+    //
+    // The rotation is the admin's when one has been saved, read through
+    // WordingScope so a save on the Wording page repaints this line at once.
+    final quote = quoteForDay(
+      DateTime.now().effectiveDay,
+      from: WordingScope.of(context).quotes,
+    );
 
     // One line and nothing under it. A credit used to sit here for some
     // quotes; Aziz removed it (2026-09-06), see DailyQuote's own comment.

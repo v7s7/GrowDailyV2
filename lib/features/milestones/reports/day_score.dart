@@ -16,18 +16,21 @@
 /// and the year strip already use, so the four surfaces cannot drift.
 ///
 /// ── What "owed" means, and what it cannot mean ─────────────────────────
-/// The denominator is a PRESENT-TENSE RECONSTRUCTION, not a record. The app
-/// keeps no schedule history on the personal side: `frequencyType`,
-/// `frequencyTarget` and `scheduledWeekdays` are flat current-value fields
-/// with no effective-from date, so changing a habit from "Mon and Thu" to
-/// "Mon, Wed, Fri" today retroactively moves every past Wednesday into the
-/// denominator and every past Thursday out of it. [IslamicHabitTemplate
-/// .isScheduledFor] is date-aware about EXISTENCE only (createdAt bounds
-/// the start, archivedAt the end), which is what keeps a habit out of the
-/// denominator on days before it was created. Rooms already solved the full
-/// problem with a dated rule list (RoomHabitRule.from, ruleFor), and nothing
-/// equivalent exists here; it could only ever be built forward from the day
-/// it ships.
+/// The denominator asks each day the schedule the habit had ON that day.
+/// Since 2026-09-18 a habit keeps the schedules it ran on before its current
+/// one ([IslamicHabitTemplate.pastCadences], each with the last day it
+/// governed), and [IslamicHabitTemplate.isScheduledFor] reads them, so
+/// changing a habit from "Mon and Thu" to "Mon, Wed, Fri" today no longer
+/// moves a single past Wednesday into the denominator or a past Thursday out
+/// of it. The same dated idea rooms already had (RoomHabitRule.from,
+/// ruleFor), kept on the habit itself.
+///
+/// The record only runs forward from the day it shipped: a schedule changed
+/// before then was never written down, so that habit's earlier days still
+/// read by its current schedule until its old one is stamped in by hand.
+/// Existence is bounded as before, createdAt at the start and archivedAt at
+/// the end, which is what keeps a habit out of the denominator on days
+/// before it was created.
 ///
 /// A HARD-DELETED habit is gone from allHabitsEverProvider entirely, so its
 /// past days leave both sides of the ratio. That is deliberate and long

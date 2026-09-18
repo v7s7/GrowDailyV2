@@ -1,0 +1,164 @@
+/* The Overview: tiles, charts and panels on the dashboard's first view.
+   Colours come only from the roles in lib/shell.js (THEME_STYLES) and
+   lib/render.js (BASE_STYLES), so both themes follow from one switch. */
+
+:root {
+  --ord-1: #1c5cab; --ord-2: #3987e5; --ord-3: #86b6ef;
+}
+:root:not([data-theme="light"]) {
+  /* On a dark panel the lightest step is the loudest, so the most recent
+     bucket takes it. Validated as an ordinal ramp (--ordinal) on both. */
+  --ord-1: #86b6ef; --ord-2: #3987e5; --ord-3: #1c5cab;
+}
+
+/* ---- Tiles --------------------------------------------------------------- */
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.kpi {
+  position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 118px;
+  padding: 14px 16px 12px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.kpi-label { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--text-sec); }
+.kpi-label svg { color: var(--text-tert); }
+.kpi-value { margin-top: 8px; font-size: 30px; font-weight: 700; line-height: 1.05; letter-spacing: -0.8px; color: var(--text); }
+.kpi-value .of { font-size: 14px; font-weight: 600; letter-spacing: 0; color: var(--text-tert); margin-inline-start: 4px; }
+.kpi-foot { margin-top: auto; padding-top: 8px; }
+.kpi-sub { font-size: 11.5px; line-height: 1.35; color: var(--text-tert); min-width: 0; }
+/* The trend sits beside the number it explains, top right, so the line of
+   context underneath gets the tile's whole width. */
+.kpi-spark { position: absolute; top: 46px; inset-inline-end: 14px; display: block; }
+.delta { font-weight: 650; }
+.delta.up { color: var(--success); }
+.delta.down { color: var(--danger); }
+.kpi.live .kpi-value { display: flex; align-items: center; gap: 10px; }
+.kpi .live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
+.meter { height: 6px; margin-top: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.meter > i { display: block; height: 100%; border-radius: inherit; background: var(--series-1); }
+
+/* ---- Panels -------------------------------------------------------------- */
+/* Two tall lists (the newest actions, today's board) each run down two
+   rows, with the shorter panels stacked beside them, so no column ends in a
+   dark gap. Panels in a row share its height. */
+.ov-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-flow: row dense; gap: 12px; align-items: stretch; }
+.tall { grid-row: span 2; }
+.panel {
+  display: flex; flex-direction: column; min-width: 0;
+  padding: 14px 16px 12px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.span-4 { grid-column: span 4; }
+.span-6 { grid-column: span 6; }
+.span-8 { grid-column: span 8; }
+.span-12 { grid-column: span 12; }
+.panel-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.panel-title { font-size: 13.5px; font-weight: 650; color: var(--text); letter-spacing: -0.1px; }
+.panel-sub { font-size: 11.5px; color: var(--text-tert); margin-top: 1px; }
+.panel-tools { margin-inline-start: auto; display: flex; gap: 4px; flex: 0 0 auto; }
+.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--bg-sunken); border: 1px solid var(--border); }
+.seg button { padding: 3px 9px; border: 0; border-radius: 6px; background: none; color: var(--text-tert); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.seg button.on { background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-sm); }
+.panel-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border-soft); font-size: 11.5px; color: var(--text-tert); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.panel-foot .link { color: var(--accent); background: none; border: 0; padding: 0; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.panel-foot .link:hover { color: var(--accent-hover); }
+
+/* A chart's box includes its axis band, so the card never grows a scrollbar
+   of its own (data-viz anti-pattern: a height that excludes the x-axis). */
+.chart { height: 268px; width: 100%; }
+.chart.short { height: 200px; }
+.chart-table { max-height: 232px; overflow: auto; }
+.chart-table table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart-table th { position: sticky; top: 0; text-align: end; padding: 5px 8px; background: var(--surface); color: var(--text-tert); font-weight: 600; border-bottom: 1px solid var(--border); }
+.chart-table th:first-child, .chart-table td:first-child { text-align: start; }
+.chart-table td { padding: 4px 8px; text-align: end; color: var(--text-sec); border-bottom: 1px solid var(--border-soft); }
+.chart-note { font-size: 11.5px; color: var(--text-tert); margin-top: 6px; }
+
+/* The chart tooltip: value first and loud, the name after it, keyed by a
+   short stroke of the series colour rather than a filled box. */
+.gd-tip { min-width: 150px; font-family: var(--sans); }
+.gd-tip-head { font-size: 11.5px; font-weight: 650; color: var(--text-sec); margin-bottom: 6px; }
+.gd-tip-row { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.7; }
+.gd-tip-key { width: 12px; height: 3px; border-radius: 2px; flex: 0 0 auto; }
+.gd-tip-val { font-weight: 700; color: var(--text); min-width: 22px; font-variant-numeric: tabular-nums; }
+.gd-tip-name { color: var(--text-sec); }
+.gd-tip-total { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-tert); }
+
+/* ---- Lists inside panels ------------------------------------------------- */
+.mini-list { display: flex; flex-direction: column; }
+.mini-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 6px;
+  border: 0; border-bottom: 1px solid var(--border-soft); border-radius: 0;
+  background: none; color: var(--text); font: inherit; text-align: start; cursor: pointer;
+}
+.mini-row:last-child { border-bottom: 0; }
+.mini-row:hover { background: var(--surface-2); border-radius: var(--r-sm); }
+.mini-main { flex: 1 1 auto; min-width: 0; }
+/* isolate, not plaintext: an Arabic name keeps its own direction but lines
+   up with the English names around it instead of jumping to the far edge. */
+.mini-name { display: block; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: isolate; text-align: start; }
+.mini-what { display: block; font-size: 11.5px; color: var(--text-tert); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: isolate; text-align: start; }
+.mini-when { flex: 0 0 auto; font-size: 11px; color: var(--text-tert); font-variant-numeric: tabular-nums; }
+.mini-empty { padding: 22px 6px; text-align: center; font-size: 12.5px; color: var(--text-tert); }
+.rank { width: 18px; flex: 0 0 auto; text-align: center; font-size: 11px; font-weight: 700; color: var(--text-tert); font-variant-numeric: tabular-nums; }
+.streak { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; font-size: 12.5px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.streak svg { color: var(--warn); }
+.board-bar { flex: 0 0 38%; display: flex; align-items: center; gap: 8px; }
+.board-bar .meter { flex: 1; margin-top: 0; }
+.board-bar .num { flex: 0 0 auto; min-width: 34px; text-align: end; font-size: 11.5px; font-weight: 650; color: var(--text-sec); font-variant-numeric: tabular-nums; }
+.board-bar .meter.full > i { background: var(--success); }
+
+/* How recently accounts were active: one bar of four ordered parts, each
+   named with its count underneath (never colour alone). */
+.stack-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--surface-2); gap: 2px; }
+.stack-bar > i { display: block; height: 100%; min-width: 3px; }
+.legend-list { margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.legend-list li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-sec); }
+.legend-list .sw { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.legend-list .ct { margin-inline-start: auto; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.legend-list .pc { width: 38px; text-align: end; color: var(--text-tert); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+/* Holding the last render while a refresh loads: no skeleton, no jump. */
+.ov-grid.refreshing, .kpis.refreshing { opacity: 0.55; transition: opacity 0.15s ease; }
+
+@media (max-width: 1360px) {
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) {
+  .span-4, .span-6, .span-8 { grid-column: span 12; }
+  .tall { grid-row: auto; }
+}
+@media (max-width: 640px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-value { font-size: 26px; }
+}
+
+/* ---- Activity: a logged day at a glance ----------------------------------
+   The day as a date, the count as a number, each disagreement as a flag,
+   each habit as a short pill whose mark and tint carry its state (the full
+   sentence is its tooltip). Tints are the meaning roles, never a series
+   colour: green done, amber on the Grid only, violet un-marked, red missed. */
+.ev-title { font-weight: 650; color: var(--text); }
+.ev-prog { margin-inline-start: 6px; font-size: 12px; color: var(--text-sec); }
+.ev-prog b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ev-prog.full b { color: var(--success); }
+.ev-flag { display: inline-block; margin-inline-start: 4px; padding: 0 7px; border: 1px solid; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 18px; vertical-align: 1px; }
+.ev-flag.f-open { color: var(--text-tert); border-color: var(--border); background: var(--surface-2); }
+.ev-flag.f-warn { color: var(--warn); border-color: var(--warn-line); background: var(--warn-soft); }
+.ev-flag.f-undo { color: var(--undo); border-color: var(--undo-line); background: var(--undo-soft); }
+
+.hp { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 2px 8px; border: 1px solid transparent; border-radius: 7px; background: var(--surface-2); color: var(--text-sec); font-size: 12px; line-height: 18px; }
+.hp-mark { flex: 0 0 auto; font-size: 11px; font-weight: 700; }
+.hp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-at { flex: 0 0 auto; font-size: 10.5px; color: var(--text-tert); font-variant-numeric: tabular-nums; }
+.hp.done { background: var(--success-soft); color: var(--text); }
+.hp.done .hp-mark { color: var(--success); }
+.hp.grid_only { background: var(--warn-soft); border-color: var(--warn-line); color: var(--text); }
+.hp.grid_only .hp-mark { color: var(--warn); }
+.hp.undone { background: var(--undo-soft); border-color: var(--undo-line); color: var(--text); }
+.hp.undone .hp-mark { color: var(--undo); }
+.hp.missed { border-color: var(--danger-line); }
+.hp.missed .hp-mark { color: var(--danger); }
+.hp.marked { border-color: var(--border); }
+.hp.more { background: none; border-color: var(--border); color: var(--text-tert); }
+.ev-notyet { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px; margin-top: 6px; font-size: 12px; color: var(--text-tert); }
+.ev-notyet .lbl { margin-inline-end: 2px; font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.5px; }
+.ev-notyet .sep { color: var(--border-strong); }

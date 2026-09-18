@@ -57,10 +57,19 @@ export 'weekly_quota_plan.dart' show DayDemand;
 /// stored as weekly too, and is told apart only by [scheduledWeekdays] being
 /// set. A target below 1 is not a quota either: it can never be reached, so
 /// [weeklyQuotaDemand]'s clamp would invent an obligation nobody set.
+///
+/// The habit as it stands NOW. A question about a past day asks
+/// [isFlexibleQuotaOn] instead: a habit that was four times a week last month
+/// and is daily today still owed last month by the week.
 bool isFlexibleQuota(IslamicHabitTemplate habit) =>
     habit.frequencyType == HabitFrequencyType.weekly &&
     habit.scheduledWeekdays.isEmpty &&
     habit.frequencyTarget > 0;
+
+/// [isFlexibleQuota] for the schedule [habit] had on [day] (see
+/// IslamicHabitTemplate.cadenceOn).
+bool isFlexibleQuotaOn(IslamicHabitTemplate habit, DateTime day) =>
+    habit.cadenceOn(day).isFlexibleQuota;
 
 /// Reads whether one habit's square on one day counts as a completed session.
 ///
@@ -71,18 +80,28 @@ bool isFlexibleQuota(IslamicHabitTemplate habit) =>
 typedef GreenOnDay = bool Function(String habitId, DateTime day);
 
 /// What the Saturday week containing [day] asked of [habit], day by day,
-/// index 0 being that Saturday. Null for anything that is not a flexible
-/// quota — those cadences are answered by the weekday list alone.
+/// index 0 being that Saturday. Null when [day]'s own schedule was not a
+/// flexible quota — those cadences are answered by the weekday list alone.
 ///
 /// Always a full seven days: a quota is a promise about a week, and clamping
 /// the window (to a month's edge, say) would quietly lower the target and
 /// call owed days spare.
+///
+/// Worked out with the target in force on [day]. In the week a schedule
+/// changed in, the week's other days may belong to a different schedule, so
+/// only [day]'s own entry is an answer, which is the only one [quotaDemandOn]
+/// reads. Every session of the week still counts toward the target, the ones
+/// logged under the old schedule included: "four times this week" means this
+/// week. And because [weeklyQuotaDemand] is day-local, a day's verdict never
+/// depends on what came after it, so the old schedule's days of a week cut
+/// short by a change are judged exactly as they were before it.
 List<DayDemand>? quotaDemandForWeekOf({
   required IslamicHabitTemplate habit,
   required DateTime day,
   required GreenOnDay isGreen,
 }) {
-  if (!isFlexibleQuota(habit)) return null;
+  final cadence = habit.cadenceOn(day);
+  if (!cadence.isFlexibleQuota) return null;
   final start = day.startOfDisplayWeek;
   return weeklyQuotaDemand(
     dayCount: 7,
@@ -91,8 +110,48 @@ List<DayDemand>? quotaDemandForWeekOf({
         if (isGreen(habit.id, DateTime(start.year, start.month, start.day + i)))
           i,
     },
-    target: habit.frequencyTarget,
+    target: cadence.frequencyTarget,
   );
+}
+
+/// [quotaDemandOn] for every day of one row at once, index for index with
+/// [days]: the Grid's week row and the reports' week matrix, which hold the
+/// row's squares already and read them through [isGreenAt].
+///
+/// Null as a whole when no day of the row was on a flexible quota, which is
+/// every daily and specific-days habit, so they render exactly as before. A
+/// day whose own schedule was not a quota gets a null entry: the row of the
+/// week a habit went from four a week to daily is quota days, then daily ones.
+///
+/// [days] is a whole display week, Saturday first, as both callers pass it;
+/// each quota day is resolved over the whole row with its own target, the
+/// same day-local arithmetic [quotaDemandForWeekOf] does.
+List<DayDemand?>? quotaDemandForRow({
+  required IslamicHabitTemplate habit,
+  required List<DateTime> days,
+  required bool Function(int index) isGreenAt,
+}) {
+  List<DayDemand?>? out;
+  Set<int>? done;
+  final byTarget = <int, List<DayDemand>>{};
+  for (var i = 0; i < days.length; i++) {
+    final cadence = habit.cadenceOn(days[i]);
+    if (!cadence.isFlexibleQuota) continue;
+    done ??= {
+      for (var j = 0; j < days.length; j++)
+        if (isGreenAt(j)) j,
+    };
+    final week = byTarget.putIfAbsent(
+      cadence.frequencyTarget,
+      () => weeklyQuotaDemand(
+        dayCount: days.length,
+        doneDays: done!,
+        target: cadence.frequencyTarget,
+      ),
+    );
+    (out ??= List<DayDemand?>.filled(days.length, null))[i] = week[i];
+  }
+  return out;
 }
 
 /// [quotaDemandForWeekOf] narrowed to [day] itself. Null for non-quota habits.

@@ -74,6 +74,12 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     /// The habit's own weekdays (empty = every day), so its streak gap is
     /// measured on days it actually runs. See scheduledGap.
     Set<int> scheduledWeekdays = const {},
+    /// The habit's schedule as it stood on each day
+    /// (IslamicHabitTemplate.runsOn). Wins over [scheduledWeekdays] when
+    /// given, and every screen gives it: one weekday set for the whole gap
+    /// reads the days before a schedule change by the schedule after it.
+    /// See scheduledGapBy.
+    bool Function(DateTime day)? runsOn,
   }) async {
     // Refuse to record anything while the signed-in load failed. Everything
     // this method persists — level, currentLevelXp, cumulativeXp, gold,
@@ -219,13 +225,21 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       // its streak never rose past 1 and its milestones never paid. For an
       // every-day habit this is exactly the calendar difference it always
       // was. See scheduledGap.
+      // Each day between by the schedule it had then, when the caller knows
+      // it: a habit made daily on Wednesday still rested last Tuesday.
       final gap = last == null
           ? null
-          : scheduledGap(
-              last: DashboardNotifier._dateOnly(last),
-              day: markDay,
-              weekdays: scheduledWeekdays,
-            );
+          : runsOn != null
+              ? scheduledGapBy(
+                  last: DashboardNotifier._dateOnly(last),
+                  day: markDay,
+                  runsOn: runsOn,
+                )
+              : scheduledGap(
+                  last: DashboardNotifier._dateOnly(last),
+                  day: markDay,
+                  weekdays: scheduledWeekdays,
+                );
       final prevStreak = state.habitStreakCounts[habitId] ?? 0;
       // Only a completion on the very next day the habit runs continues the
       // streak; a gap of 2+, or no prior completion at all, restarts it at

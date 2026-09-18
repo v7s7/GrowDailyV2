@@ -2,16 +2,20 @@
 /**
  * GrowDaily admin lookup tool (live server).
  *
- * Start it once, then open the printed URL. The home page is a dashboard:
- * what happened across every account just now, who was doing it, and how
- * far back you want to look. Clicking anything opens that account's full
- * report, where the first tab is a single day (today by default) that you
- * can step backwards through. lookup_user.js (the CLI script) still exists
- * for saving one specific report as a standalone file; this is for browsing
- * without knowing who you're looking for in advance.
+ * Start it once, then open the printed URL. Every page sits in one
+ * control-room frame (lib/shell.js): a sidebar, a top bar with Cmd+K to
+ * find any account, and a dark theme with a light one a click away. The
+ * home page has three views of one scan: Overview (tiles, charts and live
+ * panels, lib/overview.js and static/overview.js), Activity (what happened,
+ * newest first) and Accounts (who exists and how each is doing). Clicking
+ * anyone opens their full report, where the first tab is a single day
+ * (today by default) that you can step backwards through. lookup_user.js
+ * (the CLI script) still saves one report as a standalone file.
  *
  * Same one-time setup as lookup_user.js (see that file's own comment):
- * `npm install`, then a service-account.json key in this folder.
+ * `npm install` (it also brings the chart library, Apache ECharts, and the
+ * Lucide icons, both served from node_modules so the tool works offline),
+ * then a service-account.json key in this folder.
  *
  * Usage:
  *   node server.js
@@ -49,9 +53,44 @@ const {
 } = require('./lib/fetchAccount');
 const { buildReportBody, pageShell, escapeHtml, BASE_STYLES } = require('./lib/render');
 const { scanActivity, scanDay } = require('./lib/activity');
+const { buildOverview } = require('./lib/overview');
+const { THEME_STYLES, SHELL_STYLES, SHELL_HEAD, icon, sidebar, topBar } = require('./lib/shell');
 
 const PORT = process.env.PORT || 4127;
 const app = express();
+
+// The project this tool reads (and, on the Wording page, writes), named in
+// the sidebar on every page so it is never a guess which data is on screen.
+const PROJECT_ID = require(KEY_PATH).project_id || '';
+
+// The icons the Overview draws in the browser (static/overview.js), handed
+// over as JSON so the client never needs node_modules. Inlined into the
+// page; "</" is escaped so no icon can close the script element early.
+const OVERVIEW_ICONS_JSON = JSON.stringify(Object.fromEntries(
+  ['radio', 'activity', 'calendar-days', 'square-check-big', 'user-plus', 'users', 'flame']
+    .map((name) => [name, icon(name, 14)]),
+)).replace(/<\//g, '<\\/');
+
+// ---- The browser-side files of the control room ----
+//
+// Named one by one rather than served as a folder: the admin tool's folder
+// also holds the service-account key, and nothing here should ever be able
+// to hand out a file it was not written to hand out.
+const STATIC_FILES = {
+  'shell.js': 'application/javascript',
+  'overview.js': 'application/javascript',
+  'control-room.css': 'text/css',
+};
+app.get('/static/:file', (req, res) => {
+  const type = STATIC_FILES[req.params.file];
+  if (!type) return res.status(404).end();
+  res.type(type).sendFile(path.join(__dirname, 'static', req.params.file));
+});
+// Apache ECharts, from node_modules (npm install), so the charts work with
+// the laptop offline.
+app.get('/vendor/echarts.min.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'node_modules', 'echarts', 'dist', 'echarts.min.js'));
+});
 
 /**
  * True only for a date that actually exists.
@@ -98,16 +137,12 @@ app.get('/', (req, res) => {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<title>GrowDaily — Admin Lookup</title>
+<title>Control room · GrowDaily Admin</title>
+${SHELL_HEAD}
+<link rel="stylesheet" href="/static/control-room.css">
 <style>${BASE_STYLES}
-  body { max-width: 1180px; padding-top: 34px; }
-
-  /* The title block. A page title, the one line that says what this data is
-     and when it was read, and the single control that changes that. */
-  .lockup { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s4); margin-bottom: var(--s6); flex-wrap: wrap; }
-  .lockup h1 { font-size: 27px; margin: 0; letter-spacing: -0.7px; }
-  .lockup p { color: var(--text-tert); font-size: 12.5px; margin: var(--s2) 0 0; }
-  .lockup .right { display: flex; align-items: center; gap: var(--s3); }
+${THEME_STYLES}
+${SHELL_STYLES}
 
   /* One search bar with everything that narrows the list, on one surface.
      The date inputs are given the same treatment as the search field rather
@@ -172,9 +207,11 @@ app.get('/', (req, res) => {
   .view { display: none; }
   .view.active { display: block; }
 
-  .warn { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s3) var(--s4); border: 1px solid #e0847a; background: var(--danger-soft); color: var(--danger); border-radius: var(--r-md); font-size: 12.5px; margin-bottom: var(--s4); }
-  .warn b { font-weight: 700; }
-  .warn button { margin-inline-start: auto; flex: 0 0 auto; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: var(--r-pill); padding: 2px var(--s3); font-size: 11px; cursor: pointer; font-family: inherit; }
+  /* scan-warn, not warn: a bare .warn also dressed every chip whose tone is
+     warn (.chip-d.warn) as this full-width banner. */
+  .scan-warn { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s3) var(--s4); border: 1px solid var(--danger-line); background: var(--danger-soft); color: var(--danger); border-radius: var(--r-md); font-size: 12.5px; margin-bottom: var(--s4); }
+  .scan-warn b { font-weight: 700; }
+  .scan-warn button { margin-inline-start: auto; flex: 0 0 auto; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: var(--r-pill); padding: 2px var(--s3); font-size: 11px; cursor: pointer; font-family: inherit; }
   .warn-list { font-family: var(--mono); font-size: 10.5px; margin-top: var(--s2); white-space: pre-wrap; }
 
   /* What the feed does NOT contain. Without this, the last row reads as the
@@ -289,27 +326,29 @@ app.get('/', (req, res) => {
   .rcard-sub { display: block; font-size: 11px; color: var(--text-tert); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
-<body>
-  <div class="lockup">
-    <div>
-      <h1>GrowDaily — Admin Lookup</h1>
-      <p id="scanNote">Loading every account…</p>
-    </div>
-    <div class="right">
-      <button class="btn primary" id="refresh" title="Re-read every account from Firestore right now">⟳ Refresh</button>
-    </div>
-  </div>
+<body class="app-body">
+<div class="app">
+  ${sidebar({ active: 'overview', inPageViews: true, projectId: PROJECT_ID })}
+  <div class="app-main">
+  ${topBar({
+    title: 'Overview',
+    titleId: 'viewTitle',
+    sub: 'Loading every account…',
+    subId: 'scanNote',
+    actions: '<button class="btn primary" id="refresh" title="Re-read every account from Firestore right now">' + icon('refresh-cw', 14) + ' Refresh</button>',
+  })}
+  <div class="app-content">
+  <div class="scan-warn" id="scanWarn" hidden></div>
 
-  <div class="live-strip" id="liveStrip"></div>
-  <div class="warn" id="scanWarn" hidden></div>
-
-  <div class="view-tabs">
-    <button class="view-tab active" data-view="activity">Activity <span class="vt-count" id="cntActivity"></span></button>
-    <button class="view-tab" data-view="accounts">Accounts <span class="vt-count" id="cntAccounts"></span></button>
+  <!-- ============ OVERVIEW ============ -->
+  <!-- Drawn by static/overview.js from DATA.overview (lib/overview.js). -->
+  <div class="view active" id="viewOverview">
+    <div class="kpis" id="liveStrip"></div>
+    <div class="ov-grid" id="ovGrid"></div>
   </div>
 
   <!-- ============ ACTIVITY ============ -->
-  <div class="view active" id="viewActivity">
+  <div class="view" id="viewActivity">
     <div class="filter-bar">
       <input id="qA" type="search" placeholder="Search a person, a habit, a task, a day…" autofocus>
       <div class="filter-group">
@@ -384,10 +423,17 @@ app.get('/', (req, res) => {
       </table>
     </div>
   </div>
+  </div><!-- .app-content -->
+  </div><!-- .app-main -->
+</div><!-- .app -->
 
   <div class="scrim" id="scrim" hidden></div>
   <aside class="drawer" id="drawer" hidden aria-label="Account quick look" tabindex="-1"></aside>
 
+<script type="application/json" id="gdIcons">${OVERVIEW_ICONS_JSON}</script>
+<script src="/vendor/echarts.min.js"></script>
+<script src="/static/shell.js"></script>
+<script src="/static/overview.js"></script>
 <script>
 (function () {
   // ---- Everything the page knows, loaded once from /api/dashboard ----
@@ -536,16 +582,17 @@ app.get('/', (req, res) => {
         ? '<p class="muted">Nothing recorded for this account.</p>'
         : '<div class="dw-tl">' + mine.map(function (e) {
             var fresh = (Date.now() - e.at) <= onlineMs;
-            var chips = (e.details || []).slice(0, 5).map(function (c) {
+            var isDay = e.type === 'habits' && e.stats;
+            var chips = isDay ? '' : (e.details || []).slice(0, 5).map(function (c) {
               return '<span class="chip-d ' + esc(c.tone || 'plain') + '">' + esc(c.text) + '</span>';
             }).join('');
             return '<div class="dw-ev' + (fresh ? ' fresh' : '') + '" data-day="'
               + esc(e.dayKey || dayKeyOf(e.at)) + '">'
               + '<div class="dw-ev-top"><span class="dw-ev-what">'
-              + (EV_ICON[e.type] || '•') + ' ' + esc(e.title) + '</span>'
+              + (EV_ICON[e.type] || '•') + ' ' + (isDay ? whatHtml(e) : esc(e.title)) + '</span>'
               + '<span class="dw-ev-when">' + clockOf(e.at) + ' · ' + ago(e.at) + '</span></div>'
-              + (e.sub ? '<div class="dw-ev-sub">' + esc(e.sub) + '</div>' : '')
-              + (chips ? '<div class="ev-chips">' + chips + '</div>' : '')
+              + (!isDay && e.sub ? '<div class="dw-ev-sub">' + esc(e.sub) + '</div>' : '')
+              + (isDay ? dayStripHtml(e, 5, null) : (chips ? '<div class="ev-chips">' + chips + '</div>' : ''))
               + '</div>';
           }).join('') + '</div>')
       + '<div class="dw-hint"><kbd>↑</kbd> <kbd>↓</kbd> next account · <kbd>Enter</kbd> full report · <kbd>Esc</kbd> close</div>'
@@ -669,43 +716,54 @@ app.get('/', (req, res) => {
     else if (e.key === 'Enter') { e.preventDefault(); goTo(drawerUid); }
   });
 
-  // ---- View tabs ----
-  var currentView = 'activity';
-  Array.prototype.forEach.call(document.querySelectorAll('.view-tab'), function (t) {
-    t.addEventListener('click', function () {
-      currentView = t.getAttribute('data-view');
-      Array.prototype.forEach.call(document.querySelectorAll('.view-tab'), function (o) {
-        o.classList.toggle('active', o === t);
-      });
-      $('viewActivity').classList.toggle('active', currentView === 'activity');
-      $('viewAccounts').classList.toggle('active', currentView === 'accounts');
+  // ---- Views ----
+  // Three views of one scan, switched from the sidebar. The address bar
+  // carries the view (#overview, #activity, #accounts), so a link from
+  // another page, or a reload, lands where it pointed.
+  var VIEW_TITLES = { overview: 'Overview', activity: 'Activity', accounts: 'Accounts' };
+  var currentView = 'overview';
+  function showView(v) {
+    if (!VIEW_TITLES[v]) v = 'overview';
+    currentView = v;
+    Array.prototype.forEach.call(document.querySelectorAll('.view-tab'), function (o) {
+      o.classList.toggle('active', o.getAttribute('data-view') === v);
     });
+    $('viewOverview').classList.toggle('active', v === 'overview');
+    $('viewActivity').classList.toggle('active', v === 'activity');
+    $('viewAccounts').classList.toggle('active', v === 'accounts');
+    $('viewTitle').textContent = VIEW_TITLES[v];
+    if (location.hash !== '#' + v) history.replaceState(null, '', '#' + v);
+    // A chart drawn while its view was hidden measured nothing; now it can.
+    if (v === 'overview' && window.GDOverview) window.GDOverview.resize();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.view-tab'), function (t) {
+    t.addEventListener('click', function () { showView(t.getAttribute('data-view')); });
   });
+  window.addEventListener('hashchange', function () {
+    var v = location.hash.slice(1);
+    if (VIEW_TITLES[v] && v !== currentView) showView(v);
+  });
+  showView(location.hash.slice(1));
 
-  // ================= LIVE STRIP =================
+  // ================= LIVE =================
+  // Who is on the app right now: the top bar's live pill and the rail of
+  // people above the Activity feed. The Overview's tiles are drawn by
+  // static/overview.js from the server's numbers (renderAll).
   function renderLive() {
     var now = Date.now();
     var onlineMs = DATA.onlineWindowMinutes * 60000;
-    var online = [], today = [], week = [];
+    var online = [];
     DATA.accounts.forEach(function (a) {
       if (!a.lastActiveAt) return;
-      var t = new Date(a.lastActiveAt).getTime();
-      if (now - t <= onlineMs) online.push(a);
-      if (dayKeyOf(t) === dayKeyOf(now)) today.push(a);
-      if (now - t <= 7 * 86400000) week.push(a);
+      if (now - new Date(a.lastActiveAt).getTime() <= onlineMs) online.push(a);
     });
     online.sort(function (a, b) { return new Date(b.lastActiveAt) - new Date(a.lastActiveAt); });
 
-    var card = function (v, label, hot, dot) {
-      return '<div class="live-card' + (hot ? ' hot' : '') + '">'
-        + '<div class="live-value">' + (dot ? '<span class="live-dot"></span>' : '') + v + '</div>'
-        + '<div class="live-label">' + label + '</div></div>';
-    };
-    $('liveStrip').innerHTML =
-      card(online.length, 'On the app now', online.length > 0, online.length > 0)
-      + card(today.length, 'Active today')
-      + card(week.length, 'Active this week')
-      + card(DATA.accounts.length, 'Accounts total');
+    if (window.GDShell) {
+      window.GDShell.setLive(online.length
+        ? online.length + ' on the app now'
+        : 'Scanned ' + ago(new Date(DATA.scannedAt).getTime()), online.length > 0);
+    }
 
     $('onlineRail').innerHTML = online.length === 0 ? '' : online.map(function (a) {
       var label = a.displayName || a.email || a.uid.slice(0, 8);
@@ -825,8 +883,91 @@ app.get('/', (req, res) => {
       { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   }
 
+  // ---- A logged day, readable at a glance ----
+  // It used to be one grey sentence ("Logged their day (2026-09-16) · 7 of 8
+  // done · 2 marked on the Grid only (no completion) · ...") and a chip per
+  // habit, each spelling out its own state in full: a day with eight habits
+  // was a wall of text. Now the day reads as a date, the count as a number,
+  // each disagreement as a small flag, and each habit as a short pill whose
+  // mark and colour carry its state. Habits not touched yet on a day that is
+  // still open are the commonest and say the least, so they share one quiet
+  // line. Every pill keeps the server's full sentence as its tooltip, and
+  // the sentence still backs search.
+  var PILL_MARK = { done: '✓', grid_only: '!', undone: '↩', missed: '✕' };
+
+  function shortDayOf(key) {
+    var p = String(key || '').split('-');
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    if (isNaN(d.getTime())) return key;
+    return d.toLocaleDateString(UI_LOCALE, { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+
+  function whatHtml(e) {
+    if (e.type !== 'habits' || !e.stats) {
+      return esc(e.title) + (e.sub ? ' <span class="ev-sub">· ' + esc(e.sub) + '</span>' : '');
+    }
+    var s = e.stats;
+    var parts = ['<span class="ev-title">Logged ' + esc(shortDayOf(e.dayKey)) + '</span>'];
+    if (s.owed > 0) {
+      parts.push('<span class="ev-prog' + (s.credit >= s.owed ? ' full' : '') + '"><b>'
+        + esc(String(s.credit)) + '</b> of ' + s.owed + ' done</span>');
+    } else if (s.done > 0) {
+      parts.push('<span class="ev-prog"><b>' + s.done + '</b> done</span>');
+    } else {
+      parts.push('<span class="ev-sub">nothing marked</span>');
+    }
+    if (s.open) parts.push('<span class="ev-flag f-open">day still open</span>');
+    if (s.gridOnly) parts.push('<span class="ev-flag f-warn">' + s.gridOnly + ' on the Grid only</span>');
+    if (s.undone) parts.push('<span class="ev-flag f-undo">' + s.undone + ' un-marked</span>');
+    return parts.join(' ');
+  }
+
+  function pillHtml(c) {
+    var mark = c.state === 'marked' ? (c.emoji || '') : (PILL_MARK[c.state] || '');
+    var times = c.state === 'done' && c.times ? ' ×' + c.times : '';
+    return '<span class="hp ' + esc(c.state) + '" title="' + esc(c.text) + '">'
+      + (mark ? '<span class="hp-mark">' + esc(mark) + '</span>' : '')
+      + '<span class="hp-name bidi">' + esc(c.habit) + esc(times) + '</span>'
+      + (c.state === 'done' && c.at ? '<span class="hp-at">' + esc(c.at) + '</span>' : '')
+      + '</span>';
+  }
+
+  /** [cap] pills, then a "+ N more" (a button when [key] lets it expand). */
+  function dayStripHtml(e, cap, key) {
+    var said = [], notYet = [], other = [];
+    (e.details || []).forEach(function (c) {
+      if (!c.state) other.push(c);
+      else if (c.state === 'open') notYet.push(c);
+      else said.push(c);
+    });
+    var open = key ? !!expandedRows[key] : false;
+    var shown = open ? said.length : Math.min(said.length, cap);
+    var out = [];
+    for (var i = 0; i < shown; i++) out.push(pillHtml(said[i]));
+    if (said.length > shown) {
+      out.push(key
+        ? '<button class="chip-d more" data-expand="' + esc(key) + '">+ ' + (said.length - shown) + ' more</button>'
+        : '<span class="hp more">+ ' + (said.length - shown) + '</span>');
+    } else if (key && open && said.length > cap) {
+      out.push('<button class="chip-d more" data-expand="' + esc(key) + '">Show less</button>');
+    }
+    other.forEach(function (c) {
+      out.push('<span class="chip-d ' + esc(c.tone || 'plain') + '">' + esc(c.text) + '</span>');
+    });
+    var html = out.length ? '<div class="ev-chips">' + out.join('') + '</div>' : '';
+    if (notYet.length) {
+      html += '<div class="ev-notyet"><span class="lbl">Not yet</span>'
+        + notYet.map(function (c) {
+          return '<span class="bidi" title="' + esc(c.text) + '">' + esc(c.habit) + '</span>';
+        }).join('<span class="sep">·</span>')
+        + '</div>';
+    }
+    return html;
+  }
+
   function chipsHtml(e, key) {
     if (!showDetails || !e.details || e.details.length === 0) return '';
+    if (e.type === 'habits' && e.stats) return dayStripHtml(e, CHIP_CAP, key);
     var open = !!expandedRows[key];
     var shown = open ? e.details.length : Math.min(e.details.length, CHIP_CAP);
     var out = [];
@@ -933,8 +1074,7 @@ app.get('/', (req, res) => {
         + '<div class="ev-main"><div class="ev-who">' + avatarFor(e.uid, e.who)
         + '<span class="bidi">' + esc(e.who) + '</span>'
         + (e.email && e.email !== e.who ? '<span class="ev-mail bidi">' + esc(e.email) + '</span>' : '')
-        + '</div><div class="ev-what">' + esc(e.title)
-        + (e.sub ? ' <span class="ev-sub">· ' + esc(e.sub) + '</span>' : '') + '</div>'
+        + '</div><div class="ev-what">' + whatHtml(e) + '</div>'
         + chipsHtml(e, key)
         + '</div></div>');
     });
@@ -1301,6 +1441,8 @@ app.get('/', (req, res) => {
     $('cntActivity').textContent = DATA.events.length;
     $('cntAccounts').textContent = DATA.accounts.length;
     renderWarn(); renderHorizon();
+    if (window.GDOverview) window.GDOverview.render(DATA);
+    if (window.GDShell) window.GDShell.provideAccounts(DATA.accounts);
     renderLive(); renderFeed(); updateArrows(); renderUsers();
   }
   function load(refresh) {
@@ -1308,28 +1450,41 @@ app.get('/', (req, res) => {
       ? 'Re-reading every account…'
       : 'Reading every account…';
     $('statusA').textContent = 'Loading…';
+    // A refresh keeps the last picture on screen, dimmed, rather than
+    // blanking it: no skeleton, no jump.
+    if (window.GDOverview) window.GDOverview.setRefreshing(true);
+    if (window.GDShell) window.GDShell.setLive(refresh ? 'Refreshing…' : 'Connecting…', false);
     fetch('/api/dashboard' + (refresh ? '?refresh=1' : ''))
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (d.error) throw new Error(d.error);
         DATA = d;
-        $('scanNote').textContent = DATA.accounts.length + ' accounts scanned in '
-          + (DATA.durationMs / 1000).toFixed(1) + 's · '
+        $('scanNote').textContent = DATA.accounts.length + ' accounts · scanned '
           + new Date(DATA.scannedAt).toLocaleTimeString(UI_LOCALE)
-          + ' · "on the app now" means a write in the last '
-          + DATA.onlineWindowMinutes + ' min';
+          + ' in ' + (DATA.durationMs / 1000).toFixed(1) + 's';
         renderAll();
       })
       .catch(function (e) {
         $('scanNote').textContent = 'Scan failed: ' + e.message;
         $('statusA').textContent = 'Failed to load. Check the terminal running server.js.';
+        if (window.GDOverview) window.GDOverview.setRefreshing(false);
+        if (window.GDShell) window.GDShell.setLive('Scan failed', false);
       });
   }
   $('refresh').addEventListener('click', function () { load(true); });
 
+  // The Overview's panels open the same quick look as every other row, and
+  // switch views the same way the sidebar does.
+  window.GDDashboard = { openDrawer: openDrawer, showView: showView };
+
   // Relative times go stale while the page sits open, and a dashboard whose
   // "just now" is forty minutes old is worse than one with no clock at all.
-  setInterval(function () { if (DATA.events.length) { renderLive(); renderFeed(); } }, 60000);
+  setInterval(function () {
+    if (DATA.events.length) {
+      renderLive(); renderFeed();
+      if (window.GDOverview) window.GDOverview.tick();
+    }
+  }, 60000);
 
   load(false);
 })();
@@ -1341,7 +1496,10 @@ app.get('/', (req, res) => {
 // ---- Dashboard data: one whole-project scan (see lib/activity.js) ----
 app.get('/api/dashboard', async (req, res) => {
   try {
-    res.json(await scanActivity(req.query.refresh === '1'));
+    const scan = await scanActivity(req.query.refresh === '1');
+    // The Overview's numbers, from this same scan (lib/overview.js), so the
+    // tiles, the charts and the two lists below them always agree.
+    res.json({ ...scan, overview: buildOverview(scan, Date.now()) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1423,13 +1581,124 @@ app.get('/report/:uid', async (req, res) => {
     const { uid, authRecord } = await resolveAccount(rawUid);
     const report = await loadAccountReport(uid, authRecord, day);
     const { title, nav, header, stats, body } = buildReportBody(report);
-    res.type('html').send(pageShell({ title, nav, header, stats, body, backHref: '/', uid }));
+    res.type('html').send(pageShell({ title, nav, header, stats, body, backHref: '/', uid, projectId: PROJECT_ID }));
   } catch (e) {
     res.type('html').send(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${BASE_STYLES}</style></head><body>
       <a class="back-link" href="/">← Back to the dashboard</a>
       <h1>Couldn't load that account</h1>
       <p class="muted">${escapeHtml(e.message)}</p>
     </body></html>`);
+  }
+});
+
+// ---- Wording: the app's text, edited without a release ----
+//
+// The one page in this tool that writes, and it writes wording only, never
+// an account: wording/live (what every app lays over its built-in text),
+// plus its History and the record of what each edit replaced. The rules and
+// the transactions are in lib/wording.js; the page is lib/wording_page.js
+// and the two plain scripts in wording/. Every write route goes through
+// localWriteOnly first, see isLocalWrite for why loopback alone is not
+// enough for a route that changes what every phone reads.
+const wording = require('./lib/wording');
+const { renderWordingPage } = require('./lib/wording_page');
+
+const WORDING_PROJECT_ID = PROJECT_ID;
+const wordingJson = express.json({ limit: '1mb' });
+
+function localWriteOnly(req, res, next) {
+  if (wording.isLocalWrite(req.headers, PORT)) return next();
+  res.status(403).json({ ok: false, error: 'Writes are only accepted from this tool\'s own page.' });
+}
+
+function wordingError(res, e) {
+  if (e instanceof wording.WordingInputError) {
+    return res.status(e.status).json({ ok: false, error: e.message });
+  }
+  console.error(`[wording] ${e.stack || e.message}`);
+  res.status(500).json({ ok: false, error: e.message });
+}
+
+// Whether phones can read the edits (the rule that opens wording/live is
+// deployed). Asked at most once a minute: it is a network round trip to
+// Firestore, and the answer only changes when someone deploys.
+let phonesCheck = { at: 0, value: 'unknown' };
+async function phonesCanReadCached() {
+  if (Date.now() - phonesCheck.at > 60 * 1000 || phonesCheck.value !== 'open') {
+    phonesCheck = { at: Date.now(), value: await wording.phonesCanRead(WORDING_PROJECT_ID) };
+  }
+  return phonesCheck.value;
+}
+
+app.get('/wording', (req, res) => {
+  res.type('html').send(renderWordingPage({ projectId: PROJECT_ID }));
+});
+
+app.get('/wording/app.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'wording', 'app.js'));
+});
+
+app.get('/wording/rules.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'wording', 'rules.js'));
+});
+
+app.get('/api/wording', async (req, res) => {
+  try {
+    const [{ catalog, note }, stored, phones] = await Promise.all([
+      wording.currentCatalog(),
+      wording.readWording(admin.firestore()),
+      phonesCanReadCached(),
+    ]);
+    if (!catalog) return res.status(500).json({ error: note || 'The list of strings is missing.' });
+    res.json({ catalog, catalogNote: note, ...stored, phones, today: wording.todayKey() });
+  } catch (e) {
+    wordingError(res, e);
+  }
+});
+
+app.post('/api/wording/string', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { catalog } = await wording.currentCatalog();
+    const key = String((req.body && req.body.key) || '');
+    const entry = catalog && catalog.strings.find((s) => s.key === key);
+    const result = await wording.saveStringEdits(db, admin.firestore.FieldValue, {
+      entry,
+      changes: req.body && req.body.changes,
+    });
+    res.status(result.ok ? 200 : 400).json({ ...result, wording: await wording.readWording(db) });
+  } catch (e) {
+    wordingError(res, e);
+  }
+});
+
+app.post('/api/wording/quotes', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { catalog } = await wording.currentCatalog();
+    if (!catalog) throw new wording.WordingInputError('The list of strings is missing.', 500);
+    const items = req.body && Object.prototype.hasOwnProperty.call(req.body, 'items') ? req.body.items : undefined;
+    if (items === undefined) throw new wording.WordingInputError('Nothing to save.');
+    const result = await wording.saveQuotes(db, admin.firestore.FieldValue, {
+      items,
+      builtIn: catalog.quotes,
+      builtInFnv: catalog.sources.dailyQuotes.fnv1a,
+    });
+    res.status(result.ok ? 200 : 400).json({ ...result, wording: await wording.readWording(db) });
+  } catch (e) {
+    wordingError(res, e);
+  }
+});
+
+app.post('/api/wording/undo', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { catalog } = await wording.currentCatalog();
+    const catalogByKey = new Map(((catalog && catalog.strings) || []).map((s) => [s.key, s]));
+    await wording.undoChange(db, admin.firestore.FieldValue, { id: req.body && req.body.id, catalogByKey });
+    res.json({ ok: true, wording: await wording.readWording(db) });
+  } catch (e) {
+    wordingError(res, e);
   }
 });
 

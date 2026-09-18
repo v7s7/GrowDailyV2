@@ -220,7 +220,7 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     final silent = [
       for (final stat in splitArchived(stats).active)
         if (!stat.marks.containsKey(key) &&
-            missIsAttributable(stat.habit) &&
+            missIsAttributableOn(stat.habit, day) &&
             stat.habit.isScheduledFor(day))
           stat,
     ];

@@ -58,6 +58,10 @@ app.*.map.json
 scripts/admin_lookup/service-account.json
 scripts/admin_lookup/reports/
 scripts/admin_lookup/node_modules/
+# The Wording page's list of every string, rebuilt by the tool itself from
+# app_strings.dart whenever that file changes (gen_wording_edits.dart
+# --catalog-only), so a committed copy would only ever show up as modified.
+scripts/admin_lookup/wording/catalog.json
 
 # Cloud Functions (functions/) — installed fresh by `npm install` before
 # every deploy, same reasoning as scripts/admin_lookup/node_modules/ above.

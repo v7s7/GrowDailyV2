@@ -348,8 +348,18 @@ function habitScheduledOnParts(habitData, parts) {
     const diedUtc = Date.UTC(died.getFullYear(), died.getMonth(), died.getDate());
     if (dayUtc > diedUtc) return false;
   }
-  const weekdays = Array.isArray(habitData.scheduledWeekdays) ? habitData.scheduledWeekdays : [];
+  // The weekdays the habit had ON that day (DayRules.habitAsOf), not today's:
+  // a habit made daily this week still rested on last week's off-days.
+  const asOf = DayRules.habitAsOf(habitData, partsKey(parts));
+  const weekdays = Array.isArray(asOf.scheduledWeekdays) ? asOf.scheduledWeekdays : [];
   return weekdays.length === 0 || weekdays.includes(parts.weekday);
+}
+
+// A parts object's day key. effectiveTodayParts and dayKeyParts both carry
+// one; built here for any caller whose parts do not.
+function partsKey(parts) {
+  if (parts && typeof parts.key === 'string') return parts.key;
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
 }
 
 // The same three tests as habitScheduledOnParts, but reporting WHICH one
@@ -368,7 +378,8 @@ function whyNotScheduled(habitData, parts) {
     const diedUtc = Date.UTC(died.getFullYear(), died.getMonth(), died.getDate());
     if (dayUtc > diedUtc) return `archived ${fmtDate(died)}`;
   }
-  const weekdays = Array.isArray(habitData.scheduledWeekdays) ? habitData.scheduledWeekdays : [];
+  const asOf = DayRules.habitAsOf(habitData, partsKey(parts));
+  const weekdays = Array.isArray(asOf.scheduledWeekdays) ? asOf.scheduledWeekdays : [];
   if (weekdays.length && !weekdays.includes(parts.weekday)) {
     const names = weekdays.slice().sort((a, b) => a - b).map((d) => WEEKDAY_ABBR[d] || d).join(', ');
     return `not due that day, ${names} only`;
@@ -1050,9 +1061,23 @@ function renderHabitDetail(data, ctx) {
     ? `<span class="color-dot" style="background:${swatchColor}"></span>`
     : '';
 
+  // The schedules it ran on before this one (scheduleHistory, oldest first,
+  // each with the last day it governed): the days before a change are judged
+  // by them, so a ledger that disagrees with the Frequency row above is
+  // usually explained right here.
+  const history = (Array.isArray(data.scheduleHistory) ? data.scheduleHistory : [])
+    .filter((p) => p && typeof p.until === 'string')
+    .map((p) => {
+      const pDays = Array.isArray(p.scheduledWeekdays) && p.scheduledWeekdays.length
+        ? p.scheduledWeekdays.map((d) => WEEKDAY_ABBR[d] || d).join(', ')
+        : (p.frequencyType === 'weekly' ? `${p.frequencyTarget || 1}× per week` : 'every day');
+      return `${escapeHtml(pDays)} <span class="muted">until ${escapeHtml(p.until)}</span>`;
+    });
+
   const rows = [
     detailRow('Category', `<span class="emo">${cat.emoji}</span>${escapeHtml(cat.label)}`),
     detailRow('Frequency', escapeHtml(freq) + (days ? ` <span class="muted">(${escapeHtml(days)})</span>` : '')),
+    history.length ? detailRow('Before', history.join('<br>')) : '',
     detailRow('Goal', escapeHtml(goal)),
     data.cueAfter ? detailRow('Cue', `After ${escapeHtml(data.cueAfter)}`) : '',
     data.hasTimer ? detailRow('Timer', `${Math.round((data.timerDurationSeconds || 0) / 60)} min`) : '',
@@ -2000,8 +2025,12 @@ const BASE_STYLES = `
      so the tool still reads as the same product with the lights off, and
      every accent lifted a few steps because a colour that carries on paper
      disappears on ink. */
+  /* :not([data-theme="light"]): the live tool has a theme switch (see
+     lib/shell.js), and an explicit light choice must beat the machine's
+     dark setting. With no attribute, as in a saved report, this is the
+     plain OS-following rule it always was. */
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
       color-scheme: dark;
 
       --bg: #14130f;
@@ -2617,7 +2646,8 @@ const BASE_STYLES = `
      a run of rows gets an anchor the eye can come back to after scrolling,
      which a line of text alone never gave it. */
   .avatar { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: 0; color: var(--surface); text-transform: uppercase; unicode-bidi: isolate; }
-  @media (prefers-color-scheme: dark) { .avatar { color: var(--bg); } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .avatar { color: var(--bg); } }
+  :root[data-theme="dark"] .avatar { color: var(--bg); }
 
   /* A row is a timeline entry, not a table row: the clock time runs down its
      own column, because "4h ago" printed four times in a row says nothing
@@ -2991,7 +3021,15 @@ const REPORT_SCRIPT = `
 // Wraps a report's {title, nav, header, body} into a full HTML document.
 // `backHref`, when given (server.js's live view, never lookup_user.js's
 // standalone file), adds a small "back to search" link up top.
-function pageShell({ title, nav, header, stats, body, backHref, uid }) {
+/**
+ * The account report page. Live (the server passes [backHref]) it sits in
+ * the control room's frame (lib/shell.js): sidebar, top bar, theme switch,
+ * Cmd+K. Saved to a file by lookup_user.js (no [backHref]) it stays the
+ * plain page it always was, because every link in the frame would be dead
+ * in a file opened from disk.
+ */
+function pageShell({ title, nav, header, stats, body, backHref, uid, projectId = '' }) {
+  if (backHref) return framedReport({ title, nav, header, stats, body, uid, projectId });
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3029,6 +3067,64 @@ function pageShell({ title, nav, header, stats, body, backHref, uid }) {
   ${backHref ? '' : `<p class="generated">Snapshot taken ${new Date().toLocaleString()}. This is a saved file, not a live view.</p>`}
 
 <script>${REPORT_SCRIPT}</script>
+</body>
+</html>`;
+}
+
+/**
+ * The live report inside the frame. The frame's own top bar scrolls away
+ * here (it is not sticky on this page) so the report's bar, with the account,
+ * its search and its tabs, is the one that pins, exactly as before: the day
+ * stepper's sticky offset (--topbar-h, measured by REPORT_SCRIPT) still
+ * measures the only bar at the top.
+ */
+function framedReport({ title, nav, header, stats, body, uid, projectId }) {
+  // Required here rather than at the top: lib/shell.js reads icons from
+  // node_modules, which the saved-file path above never needs.
+  const { THEME_STYLES, SHELL_STYLES, SHELL_HEAD, sidebar, topBar } = require('./shell');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<title>${escapeHtml(title)} · GrowDaily Admin</title>
+${SHELL_HEAD}
+<style>${BASE_STYLES}
+${THEME_STYLES}
+${SHELL_STYLES}
+  .report-page .app-top { position: static; }
+  .report-content { max-width: 1180px; }
+  .report-content > .topbar { margin-top: 0; }
+</style>
+</head>
+<body class="app-body report-page"${uid ? ` data-uid="${escapeHtml(uid)}"` : ''}>
+<div class="app">
+  ${sidebar({ active: 'accounts', projectId })}
+  <div class="app-main">
+    ${topBar({ title: 'Account', sub: escapeHtml(title), live: false })}
+    <div class="app-content report-content">
+      <div class="topbar">
+        <a class="back-link" href="/#accounts">← All accounts</a>
+        ${header}
+        <div class="toolbar-row">
+          <input id="search" type="search" placeholder="Search this account…">
+          <span id="searchCount"></span>
+        </div>
+        <div class="toc-wrap"><nav class="toc">${nav}</nav></div>
+      </div>
+
+      ${stats || ''}
+
+      ${body}
+    </div>
+  </div>
+</div>
+
+<script>${REPORT_SCRIPT}</script>
+<script src="/static/shell.js"></script>
 </body>
 </html>`;
 }

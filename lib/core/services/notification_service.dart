@@ -462,6 +462,13 @@ class NotificationService {
   /// snake_case catalog ids, never colon-prefixed.
   static const openTodayPayload = 'open:today';
 
+  /// Body-tap payload for the week's numbered note (the one-shot armed at
+  /// [_weeklyNumberedId]): it is about the week that has just sealed, and
+  /// Profile shows that week's recap card from the instant it goes out, so
+  /// the tap lands there (see weeklyNoteTapRoute). Same colon-prefixed shape
+  /// as [openTodayPayload], for the same reason.
+  static const openWeeklyRecapPayload = 'open:weekly-recap';
+
   bool _initialized = false;
 
   // A response that arrived before `onAction` was wired up — either a cold
@@ -1644,6 +1651,14 @@ class NotificationService {
     // day as closed, which is how every caller read it before. Required,
     // though nullable, so the scheduler cannot drop it and still compile.
     required DateTime? fireTime,
+    // The habit's schedule as it stood on each day
+    // (IslamicHabitTemplate.runsOn), for a habit whose schedule changed.
+    // Wins over [scheduledWeekdays] for the days since the last completion,
+    // which may lie before the change: a Monday-and-Thursday habit made daily
+    // on Wednesday still rested on Tuesday, and a daily one moved to Monday
+    // and Thursday still missed it. Null for every habit that never changed,
+    // whose weekdays are the whole answer.
+    bool Function(DateTime day)? runsOn,
   }) {
     final daysAhead = calendarDaysBetween(today, fireDay);
     final lastDone =
@@ -1680,11 +1695,13 @@ class NotificationService {
         : dayBefore;
     final missed = lastDone == null
         ? 0
-        : scheduledDaysStrictlyBetween(
-            lastDone,
-            judgedUntil,
-            scheduledWeekdays,
-          );
+        : runsOn != null
+            ? runDaysStrictlyBetween(lastDone, judgedUntil, runsOn)
+            : scheduledDaysStrictlyBetween(
+                lastDone,
+                judgedUntil,
+                scheduledWeekdays,
+              );
     // The STREAK is not promised across that open day, though. Ticking the
     // fire day before the open day restarts the streak at 1 (completeHabit
     // measures a scheduledGap of 2, and nextHabitStreak maps it to 1), and
@@ -1695,7 +1712,9 @@ class NotificationService {
     // same reason.
     final unfinishedBefore = lastDone == null
         ? 0
-        : scheduledDaysStrictlyBetween(lastDone, fireDay, scheduledWeekdays);
+        : runsOn != null
+            ? runDaysStrictlyBetween(lastDone, fireDay, runsOn)
+            : scheduledDaysStrictlyBetween(lastDone, fireDay, scheduledWeekdays);
     return (
       streak: unfinishedBefore > 0 ? 0 : streak,
       completedCount: basedCompleted,
@@ -2124,6 +2143,12 @@ class NotificationService {
     List<HabitReminderInput> habits,
     NotificationSettings settings, {
     required bool isAr,
+    // habitId -> IslamicHabitTemplate.runsOn, for the habits whose schedule
+    // has changed (the rest need nothing: their weekdays already answer every
+    // day). Read by the wording only, see reminderFactsAtFireDay's runsOn.
+    // Beside the records rather than in them because a record field has no
+    // default, and every place that builds one would have to spell it out.
+    Map<String, bool Function(DateTime day)> runsOnById = const {},
   }) {
     if (kIsWeb) return Future.value();
     final token = ++_sweepToken;
@@ -2132,11 +2157,17 @@ class NotificationService {
       // habit list and settings, and its own pass is queued behind this
       // one. Running this one as well would only repeat the work.
       if (token != _sweepToken) return;
+      // Set inside the serial lane, so a pass never reads another pass's.
+      _runsOnById = runsOnById;
       await _sweepHabitReminders(habits, settings, isAr: isAr);
     });
   }
 
   int _sweepToken = 0;
+
+  /// The current pass's schedules for the habits that changed schedule; see
+  /// scheduleSmartReminders.
+  Map<String, bool Function(DateTime day)> _runsOnById = const {};
 
   Future<void> _sweepHabitReminders(
     List<HabitReminderInput> habits,
@@ -2770,6 +2801,7 @@ class NotificationService {
         scheduledWeekdays: r.scheduledWeekdays,
         weekTarget: r.weekTarget,
         weekDoneDays: r.weekDoneDays,
+        runsOn: _runsOnById[r.id],
       );
 
   /// One bundle member as [habitBundleBody] reads it: its moment, and the
@@ -3199,10 +3231,14 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents:
             slot.repeatsWeekly ? DateTimeComponents.dayOfWeekAndTime : null,
-        // Body-tap routing: the week's story lives on the Grid, on Today
-        // (see main.dart's _handleNotificationBodyTap). No dedicated Insights
-        // deep link exists yet; Insights is one tap from Today.
-        payload: openTodayPayload,
+        // Body-tap routing (main.dart's _handleNotificationBodyTap). The
+        // numbered copy counts the week that has just sealed, and opens
+        // Profile, where that week's recap card appears at the same instant
+        // (recapWeekStartAt). The claim-free copy asks for a square, so it
+        // opens the Grid.
+        payload: slot.id == _weeklyNumberedId
+            ? openWeeklyRecapPayload
+            : openTodayPayload,
       );
     }
     final armed = [

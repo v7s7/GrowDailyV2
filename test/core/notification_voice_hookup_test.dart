@@ -625,11 +625,19 @@ void main() {
         isFalse,
         reason: "a repeat would say this week's count every week after",
       );
+      expect(
+        numbered['payload'],
+        NotificationService.openWeeklyRecapPayload,
+        reason: "a tap opens Profile, where that week's recap card appears "
+            'at the same instant',
+      );
 
       for (var k = 0; k < NotificationService.kWeeklyRepeatFridaysAhead; k++) {
         final ahead = armedUnder(9002 + k).single;
         expect(ahead['title'], repeat.title);
         expect(ahead['body'], repeat.body);
+        expect(ahead['payload'], NotificationService.openTodayPayload,
+            reason: 'the claim-free copy asks for a square');
         expect(
           firesAt(ahead),
           DateTime(friday.year, friday.month, friday.day + 1 + 7 * (k + 1), 10),
@@ -664,6 +672,7 @@ void main() {
 
       final weekly = armedUnder(9000).single;
       expect(weekly['title'], 'أسبوع جديد بدأ');
+      expect(weekly['payload'], NotificationService.openTodayPayload);
       expect(
         weekly['body'],
         'سبق ووصلت ١٤ يوم ورا بعض 👏🏼 ومربع واحد يفتح الأسبوع.',

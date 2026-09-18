@@ -30,6 +30,7 @@ import '../catalog/goal_suggestions.dart';
 import '../catalog/habit_plans.dart' show activeCatalogProvider;
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/catalog_overrides_notifier.dart';
+import '../models/habit_cadence.dart';
 import '../models/habit_cue.dart';
 import '../models/habit_reminder_stack.dart';
 import '../models/habit_model.dart';
@@ -979,6 +980,27 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       // they stay the catalog's, and the sheet hides them for presets.
       final catalogDefault = IslamicHabitCatalog.findById(existing.id)!;
       final editedName = _nameCtrl.text.trim();
+      final pickedWeekdays = _selectedWeekdays.toList()..sort();
+      // A schedule change starts today and leaves every earlier day on the
+      // schedule it had, exactly as CustomHabitsNotifier.update records it
+      // for a habit of their own. Measured against the preset as this person
+      // has it at the moment of saving (their override already applied), not
+      // as it was when the sheet opened.
+      final live = ref.read(habitListProvider).firstWhere(
+            (h) => h.id == existing.id,
+            orElse: () => existing,
+          );
+      final pastCadences = pastCadencesAfterChange(
+        past: live.pastCadences,
+        current: live.cadence,
+        next: HabitCadence(
+          frequencyType: freqType,
+          frequencyTarget: _freqTarget,
+          scheduledWeekdays: pickedWeekdays,
+        ),
+        bornOn: live.createdAt,
+        today: DateTime.now().effectiveDay,
+      );
       ref.read(catalogOverridesProvider.notifier).setOverride(
             existing.id,
             CatalogHabitOverride(
@@ -996,10 +1018,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                   ? null
                   : _freqTarget,
               scheduledWeekdays: _sameWeekdays(
-                      _selectedWeekdays.toList()..sort(),
-                      catalogDefault.scheduledWeekdays)
+                      pickedWeekdays, catalogDefault.scheduledWeekdays)
                   ? null
-                  : (_selectedWeekdays.toList()..sort()),
+                  : pickedWeekdays,
               reminderOffsetMinutes: _effectiveReminderOffset ==
                       catalogDefault.reminderOffsetMinutes
                   ? null
@@ -1026,6 +1047,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               iconColorHex: _iconColorHex == catalogDefault.iconColorHex
                   ? null
                   : _iconColorHex,
+              // Never "equal to the catalog": a preset has no history of its
+              // own, so this is always kept, and it keeps the entry alive
+              // after an edit back to the catalog's schedule.
+              pastCadences: pastCadences,
             ),
           );
     } else if (existing != null) {

@@ -651,6 +651,7 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
         await ref.read(dashboardProvider.notifier).completeHabit(
               habitId: habit.id,
               scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+              runsOn: habit.runsOn,
               xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
               goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
               frequencyTarget: perDay,

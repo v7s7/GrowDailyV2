@@ -293,18 +293,15 @@ class _GridTableState extends ConsumerState<_GridTable> {
     //
     // Deliberately NOT frequencyType == weekly alone: "Specific Days" is also
     // stored as weekly, distinguished only by scheduledWeekdays being set.
-    final isFlexibleQuota = habit.frequencyType == HabitFrequencyType.weekly &&
-        habit.scheduledWeekdays.isEmpty;
-    final demand = isFlexibleQuota
-        ? weeklyQuotaDemand(
-            dayCount: days.length,
-            doneDays: {
-              for (var i = 0; i < days.length; i++)
-                if (widget.state.squareFor(habit.id, days[i]).isGreen) i,
-            },
-            target: habit.frequencyTarget,
-          )
-        : null;
+    //
+    // Day by day, by the schedule the habit had ON that day (see
+    // quotaDemandForRow): a week it changed in is part quota, part not, and
+    // a past week keeps the target it was set against.
+    final demand = quotaDemandForRow(
+      habit: habit,
+      days: days,
+      isGreenAt: (i) => widget.state.squareFor(habit.id, days[i]).isGreen,
+    );
 
     // The row that was JUST created announces itself — see
     // newlyAddedHabitIdProvider for why. Wrapping only the matching row
@@ -325,7 +322,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
       IslamicHabitTemplate habit, List<DateTime> days, double cell,
       double rowHeight, double habitCol,
       {GlobalKey? todayCellKey,
-      List<DayDemand>? demand,
+      List<DayDemand?>? demand,
       required bool selected}) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
@@ -1105,6 +1102,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 day: day,
                 habitId: habit.id,
                 scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+                runsOn: habit.runsOn,
                 // 2x while a linked room is live — see roomBoostedReward.
                 xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
                 goldReward:
@@ -1190,6 +1188,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
             day: day,
             habitId: habit.id,
             scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+            runsOn: habit.runsOn,
             xpReward: xpReward,
             goldReward: goldReward,
             frequencyTarget: target,
@@ -1280,6 +1279,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
           day: day,
           habitId: habit.id,
           scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+          runsOn: habit.runsOn,
           xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
           goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
           frequencyTarget: target,

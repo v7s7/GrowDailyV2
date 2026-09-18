@@ -18,6 +18,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../auth/notifiers/guest_reconnect_provider.dart';
 import '../../auth/widgets/reconnect_guest_sheet.dart';
 import '../../../core/providers/app_guide_provider.dart';
+import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/theme/theme_preset.dart';
@@ -148,7 +149,7 @@ class ProfileScreen extends ConsumerWidget {
           // case; when it did fail, this is the only thing on the whole
           // screen that says so.
           const SliverToBoxAdapter(child: _LoadFailedBanner()),
-          // Streak-at-risk, night-review prompt, and the Friday recap card —
+          // Streak-at-risk, night-review prompt, and the Saturday recap card —
           // relocated here from the Grid screen so Grid can lead with the
           // habit squares themselves. Renders nothing (zero height, no
           // header) on a quiet morning with nothing to say.

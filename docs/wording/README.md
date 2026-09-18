@@ -14,6 +14,7 @@ An Excel inventory of every piece of wording a person can read in Grow Daily, in
 | `generator/extract_native.py` | Reads `ios/` (Info.plist, InfoPlist.strings, Swift), `android/`, `functions/` (room push copy), `public/` and `web/`. |
 | `generator/map_usage.py` | Finds where each wording is used and names the screen: a text search for the `S` members of `app_strings.dart` and the top-level copy of `reminder_copy.dart` and `daily_quotes.dart`, and, for everything else, the text itself followed along the analyzer's flows to the widgets that draw it. |
 | `generator/build_workbook.py` | Joins the JSON into the workbook, then reopens the file and checks it. |
+| `generator/bin/gen_wording_edits.dart` | Not part of the workbook: builds the layer that lets the app's wording be edited without a release. See "Editing the wording without a release" below. |
 | `generator/.cache/` | Intermediate JSON. Ignored by git, safe to delete. |
 
 ## The workbook
@@ -96,6 +97,27 @@ What each step writes, and how long it took on the machine that built the curren
 | `build_workbook.py` | `../GrowDaily-Wording.xlsx` and `.cache/workbook_summary.json` | about 4 s | `--inputs <dir>` reads the JSON from another folder, `--out <file>` writes elsewhere. |
 
 `build_workbook.py` exits non-zero if its own check of the saved workbook fails. The check covers the row counts of every sheet, the headers, autofilters and frozen panes, every row's Arabic and English against the source rows, ids with no spaces or parentheses, formulas, cell alignment, and an em dash anywhere in the workbook or in any text file under `docs/wording` (the generator's code and its `.cache` JSON included).
+
+## Editing the wording without a release
+
+The workbook reads the wording. Since 2026-09-18 the app's own strings can also be changed without a build: Aziz edits them on the Wording page of the admin tool (`scripts/admin_lookup`, `npm start`, then the Wording button), and every open app shows the new text within seconds.
+
+How it fits together:
+
+- The built-in text stays where it is, in `lib/core/l10n/app_strings.dart` and `daily_quotes.dart`. An edit is laid over it, never copied into it.
+- The edits live in one Firestore document, `wording/live`: `strings.ar` and `strings.en` (edited text by S member name) and `quotes` (the whole daily rotation, when one has been saved). Anyone can read it, no client can write it (`firestore.rules`); only the admin tool writes, through the Admin SDK. `wording_log` keeps every change for History and Undo, and `wording_admin/state` keeps the built-in text each edit replaced.
+- The app reads it in `lib/core/l10n/wording_edits.dart`: this device's saved copy at boot, then a live listener. `S.of(context)` lays the edits over the built-in text, so every screen that shows a string repaints when one is saved.
+- `generator/bin/gen_wording_edits.dart` writes `lib/core/l10n/app_strings_edited.g.dart`, a part of `app_strings.dart` that overrides every editable string by name, and the admin tool's catalog (`scripts/admin_lookup/wording/catalog.json`, gitignored, which the tool rebuilds itself when `app_strings.dart` changes).
+
+Which strings can be edited: an S member whose whole body is `isAr ? '...' : '...'`, with any values it fills in written as `{parts}`, the same notation as this workbook. That is 1,251 of the 1,307 strings in S. The other 56 pick between several wordings in code (one day, two days, three days; a state; a case), so they stay built-in only rather than being flattened into one sentence. Text outside S (the in-screen strings of other files, reminders, the FAQ, iOS and Android system strings, the server's push copy) is not editable yet.
+
+After adding, removing or renaming a string in S, or changing a method's parameters, rerun:
+
+```sh
+cd /Users/aysha/Documents/GrowDailyV2/docs/wording/generator && dart run bin/gen_wording_edits.dart
+```
+
+Until then a new string is simply not editable (and `test/core/wording_edits_test.dart` fails, naming it), while a removed, renamed or re-parameterised one stops the build at the stale line of `app_strings_edited.g.dart`. `--check` exits 1 when the generated part is out of date, without writing anything.
 
 ## Rules the tools keep
 

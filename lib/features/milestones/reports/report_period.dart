@@ -4,6 +4,8 @@ import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../grid/models/square_state.dart';
 import '../../habits/models/habit_model.dart' show HabitFrequencyType;
+import '../../habits/models/weekly_quota_plan.dart'
+    show DayDemand, weeklyQuotaDemand;
 import '../../premium/notifiers/premium_notifier.dart'
     show canBrowseHistoryMonth, kFreeHistoryMonths;
 import 'habit_day_marks.dart';
@@ -217,6 +219,13 @@ bool missIsAttributable(IslamicHabitTemplate habit) =>
         habit.scheduledWeekdays.isEmpty &&
         habit.frequencyTarget > 0);
 
+/// [missIsAttributable] for the schedule [habit] had on [day] (see
+/// IslamicHabitTemplate.cadenceOn), which is what every question about one
+/// day has to ask: a habit that was four times a week until Tuesday and is
+/// daily since owes Tuesday by the day and the Monday before it by the week.
+bool missIsAttributableOn(IslamicHabitTemplate habit, DateTime day) =>
+    !habit.cadenceOn(day).isFlexibleQuota;
+
 int expectedCompletions({
   required IslamicHabitTemplate habit,
   required List<DateTime> days,
@@ -225,6 +234,12 @@ int expectedCompletions({
   /// The habit's recorded marks, by dateKey. Read only when [now] is given,
   /// to tell an answered open day (done, or فشل) from one still in progress.
   Map<String, SquareState> marks = const {},
+
+  /// Every mark the habit has, inside the window or not; [marks] when null.
+  /// Read only for the week its schedule changed in, whose quota days are
+  /// judged against the whole Saturday week's sessions (see "The week a
+  /// schedule changed in" below).
+  Map<String, SquareState>? allMarks,
 
   /// The wall clock. Null keeps the older reading, in which every elapsed
   /// day counts from the moment it begins; see "still open" below.
@@ -237,7 +252,6 @@ int expectedCompletions({
   DateTime? windowEnd,
 }) {
   if (days.isEmpty) return 0;
-  final quotaOnly = !missIsAttributable(habit);
   // ── Still open ───────────────────────────────────────────────────────
   // Aziz, 2026-09-11, on a monthly card reading «2 يوم 18%» at 05:19: the
   // 11th, still open, was already counted as a miss. A day stays markable
@@ -252,17 +266,20 @@ int expectedCompletions({
         now,
         answered: (marks[day.toDateKey()] ?? SquareState.none).answersDay,
       );
-  if (!quotaOnly) {
-    var count = 0;
-    for (final day in days) {
-      // A day marked تخطّي leaves the denominator entirely. This one line is
-      // the arithmetic finally agreeing with the app's own position that a
-      // rest day is not a missed day: before it, choosing to rest lowered
-      // your percentage exactly as much as forgetting would have.
-      if (restDays.contains(day.toDateKey())) continue;
-      if (habit.isScheduledFor(day) && settled(day)) count++;
-    }
-    return count;
+  // ── By the day ───────────────────────────────────────────────────────
+  // Every day whose own schedule was daily or specific days. Each day asks
+  // the schedule it had (isScheduledFor reads IslamicHabitTemplate.
+  // pastCadences), so a Monday-and-Thursday habit made daily this week keeps
+  // last week's Tuesday out of the count, where it always was.
+  var count = 0;
+  for (final day in days) {
+    if (!missIsAttributableOn(habit, day)) continue;
+    // A day marked تخطّي leaves the denominator entirely. This one line is
+    // the arithmetic finally agreeing with the app's own position that a
+    // rest day is not a missed day: before it, choosing to rest lowered
+    // your percentage exactly as much as forgetting would have.
+    if (restDays.contains(day.toDateKey())) continue;
+    if (habit.isScheduledFor(day) && settled(day)) count++;
   }
   // Quota habits are counted per Saturday-anchored week: a week the habit
   // was alive for only two days can never owe three completions, so the
@@ -294,23 +311,94 @@ int expectedCompletions({
   // Saturday-to-Friday week could still fit on the days outside the window.
   // That clamp predates the open-day rule, and the reachability claim above
   // holds only for a week the window contains whole.
-  final walk = <DateTime>[...days];
+  final walk = <DateTime>[
+    for (final day in days)
+      if (!missIsAttributableOn(habit, day)) day,
+  ];
   if (now != null && windowEnd != null) {
     final last = days.last;
     for (var d = DateTime(last.year, last.month, last.day + 1);
         !d.isAfter(windowEnd);
         d = DateTime(d.year, d.month, d.day + 1)) {
-      walk.add(d);
+      if (!missIsAttributableOn(habit, d)) walk.add(d);
     }
   }
+  if (walk.isEmpty) return count;
+
+  // ── The week a schedule changed in ───────────────────────────────────
+  // The whole-week count below assumes the week ran on ONE quota from
+  // Saturday to Friday. A week the schedule changed in did not: four a week
+  // until Tuesday and daily after it, say. Its daily days are already counted
+  // above, and its quota days are judged one by one with the day-local rule
+  // the Grid paints them by (weeklyQuotaDemand, each day with the target it
+  // had): a day owes once skipping it put the week out of reach, and every
+  // session of the week counts toward the target, the ones logged under the
+  // other schedule included. Squeezing the target into the three quota days
+  // instead, the way a habit born mid-week is clamped, would have made all
+  // three owed, for a week nobody had fallen behind in. A habit that never
+  // changed schedule has no such week and skips all of this.
+  final changedWeeks = <String>{};
+  if (habit.pastCadences.isNotEmpty) {
+    final seen = <String>{};
+    for (final day in walk) {
+      final start = startOfGridWeek(day);
+      if (!seen.add(start.toDateKey())) continue;
+      final first = habit.cadenceOn(start);
+      for (var i = 1; i < 7; i++) {
+        final other = habit.cadenceOn(
+          DateTime(start.year, start.month, start.day + i),
+        );
+        if (!other.sameAs(first)) {
+          changedWeeks.add(start.toDateKey());
+          break;
+        }
+      }
+    }
+  }
+  var dayByDay = 0;
+  final weekMarks = allMarks ?? marks;
+  for (final day in walk) {
+    final start = startOfGridWeek(day);
+    if (!changedWeeks.contains(start.toDateKey())) continue;
+    final dayKey = day.toDateKey();
+    if (restDays.contains(dayKey)) continue;
+    if (!habit.isScheduledFor(day) || !settled(day)) continue;
+    if (markIsDone(marks[dayKey] ?? SquareState.none)) {
+      dayByDay++;
+      continue;
+    }
+    final index = DateTime.utc(day.year, day.month, day.day)
+        .difference(DateTime.utc(start.year, start.month, start.day))
+        .inDays;
+    final demand = weeklyQuotaDemand(
+      dayCount: 7,
+      doneDays: {
+        for (var i = 0; i < 7; i++)
+          if (markIsDone(weekMarks[DateTime(
+                      start.year, start.month, start.day + i)
+                  .toDateKey()] ??
+              SquareState.none))
+            i,
+      },
+      target: habit.cadenceOn(day).frequencyTarget,
+    )[index];
+    if (demand == DayDemand.owed) dayByDay++;
+  }
+
   final alivePerWeek = <String, int>{};
   final finishedPerWeek = <String, int>{};
   final stillOpenPerWeek = <String, int>{};
+  final targetPerWeek = <String, int>{};
   for (final day in walk) {
     final dayKey = day.toDateKey();
     if (restDays.contains(dayKey)) continue;
     if (!habit.isScheduledFor(day)) continue;
     final key = startOfGridWeek(day).toDateKey();
+    if (changedWeeks.contains(key)) continue;
+    // One quota the whole week, so any of its days names the target: the
+    // habit's own for a week before any change, the one it had then for a
+    // week after one.
+    targetPerWeek[key] ??= habit.cadenceOn(day).frequencyTarget;
     alivePerWeek[key] = (alivePerWeek[key] ?? 0) + 1;
     if (!settled(day)) {
       stillOpenPerWeek[key] = (stillOpenPerWeek[key] ?? 0) + 1;
@@ -321,14 +409,14 @@ int expectedCompletions({
   var total = 0;
   for (final entry in alivePerWeek.entries) {
     final alive = entry.value;
-    final target =
-        alive < habit.frequencyTarget ? alive : habit.frequencyTarget;
+    final weekTarget = targetPerWeek[entry.key]!;
+    final target = alive < weekTarget ? alive : weekTarget;
     final finished = finishedPerWeek[entry.key] ?? 0;
     final cannotFit = target - (stillOpenPerWeek[entry.key] ?? 0);
     final owed = finished > cannotFit ? finished : cannotFit;
     total += owed < target ? owed : target;
   }
-  return total;
+  return count + dayByDay + total;
 }
 
 /// One habit's record across one report window.
@@ -480,6 +568,7 @@ List<HabitPeriodStat> computeHabitPeriodStats({
       days: days,
       restDays: restDays,
       marks: marks,
+      allMarks: all,
       now: now,
       windowEnd: windowEnd,
     );

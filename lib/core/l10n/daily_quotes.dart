@@ -118,9 +118,16 @@ const List<DailyQuote> kDailyQuotes = [
   ),
   // The longest line in the rotation, and deliberately not trimmed: the
   // sentence only works because the second half mirrors the first.
+  //
+  // The failure half used to be «أخطاء في التقدير تكررها كل يوم», a word
+  // for word "errors in judgment" that Aziz could not follow (2026-09-18:
+  // "the fail part is not clear, make it powerful"). «أعذار بسيطة» is what
+  // those errors are in a habit tracker, the small excuse repeated daily,
+  // and it mirrors «أشياء بسيطة» in the first half. The English stays
+  // Rohn's own words.
   // Source: Jim Rohn (جيم رون). Not shown on screen.
   DailyQuote(
-    ar: 'النجاح أشياء بسيطة تلتزم بها كل يوم، والفشل أخطاء في التقدير تكررها كل يوم.',
+    ar: 'النجاح أشياء بسيطة تلتزم بها كل يوم، والفشل أعذار بسيطة تكررها كل يوم.',
     en: 'Success is a few simple disciplines practiced every day; while failure is simply a few errors in judgment repeated every day.',
   ),
   DailyQuote(
@@ -250,16 +257,23 @@ const List<DailyQuote> kDailyQuotes = [
 /// same quote across releases and devices.
 final DateTime _rotationEpoch = DateTime.utc(2026, 1, 1);
 
-/// The quote for [day].
+/// The quote for [day], taken from [from] when the admin tool has saved a
+/// rotation of its own (WordingEdits.quotes, see wording_edits.dart) and
+/// from [kDailyQuotes] otherwise.
 ///
 /// [day] is an app day, not a raw clock reading, so callers pass
-/// `DateTime.now().effectiveDay` (see DateTimeGameExt.effectiveDay). That is
-/// what makes the line change at the app's 10 AM cutoff along with everything
-/// else, rather than at midnight, so somebody up at 2am still sees the line
-/// that belongs to the day they are still living.
-DailyQuote quoteForDay(DateTime day) => kDailyQuotes[_indexForDay(day)];
+/// `DateTime.now().effectiveDay` (see DateTimeGameExt.effectiveDay), and the
+/// line changes when the app's own day does, along with the board under it.
+///
+/// A saved rotation of a different length re-maps every date, so saving one
+/// can change today's line. That is the admin's call to make, and the Wording
+/// page says which line each date will show before anything is saved.
+DailyQuote quoteForDay(DateTime day, {List<DailyQuote>? from}) {
+  final quotes = from == null || from.isEmpty ? kDailyQuotes : from;
+  return quotes[_indexForDay(day, quotes.length)];
+}
 
-int _indexForDay(DateTime day) {
+int _indexForDay(DateTime day, int length) {
   // Compared in UTC so a daylight-saving shift cannot make a day 23 or 25
   // hours long and round the difference to the wrong number of days. Bahrain
   // does not observe DST, but an account travelling does, and a quote that
@@ -269,5 +283,5 @@ int _indexForDay(DateTime day) {
       .inDays;
   // Dart's % is non-negative for a positive divisor, so dates before the
   // epoch wrap to the end of the list rather than throwing.
-  return days % kDailyQuotes.length;
+  return days % length;
 }

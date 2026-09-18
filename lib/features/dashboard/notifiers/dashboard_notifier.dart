@@ -819,9 +819,15 @@ class DashboardState {
   /// a streak across a still-open day, the habit detail sheet and the
   /// reminder builder read the older rule, which never shows more than a tap
   /// on today keeps. Pinned in habit_streak_staleness_test.dart.
+  ///
+  /// [runsOn], when given, is the habit's schedule as it stood on each day
+  /// (IslamicHabitTemplate.runsOn) and wins over [scheduledWeekdays], so a
+  /// schedule changed since the last completion cannot re-read the days
+  /// before it. The same rule completeHabit's gap follows.
   int habitStreak(
     String habitId, {
     Set<int> scheduledWeekdays = const {},
+    bool Function(DateTime day)? runsOn,
     DateTime? now,
   }) {
     final lastKey = habitLastCompletedDate[habitId];
@@ -833,11 +839,13 @@ class DashboardState {
     final yesterday = dayPlus(today, -1);
     final until =
         now == null || yesterday.isSettledAt(clock) ? today : yesterday;
-    final missed = scheduledDaysStrictlyBetween(
-      last,
-      until,
-      scheduledWeekdays,
-    );
+    final missed = runsOn != null
+        ? runDaysStrictlyBetween(last, until, runsOn)
+        : scheduledDaysStrictlyBetween(
+            last,
+            until,
+            scheduledWeekdays,
+          );
     return missed == 0 ? (habitStreakCounts[habitId] ?? 0) : 0;
   }
 

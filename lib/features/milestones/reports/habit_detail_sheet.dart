@@ -226,6 +226,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     final streak = dash.habitStreak(
       habit.id,
       scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+      runsOn: habit.runsOn,
     );
     final best = dash.habitLongestStreaks[habit.id] ?? 0;
 

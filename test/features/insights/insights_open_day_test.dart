@@ -88,7 +88,11 @@ void main() {
 
     testWidgets('prints a placeholder for a weekday that owed nothing',
         (tester) async {
-      // A Monday-and-Thursday habit that slips on Thursdays.
+      // The wave is the account-wide "strongest day" spread and a daily
+      // habit's own (a Monday-and-Thursday habit's sheet draws its own two
+      // days instead, see insight_own_record_test.dart). It still meets
+      // weekdays nothing was owed on: here an account whose only habits run
+      // on Mondays and Thursdays.
       final pattern = HabitPattern('mt')
         ..scheduled = 8
         ..completed = 3
@@ -96,7 +100,7 @@ void main() {
         ..completedByWeekday.addAll({DateTime.monday: 3});
       final result = InsightsResult(
         patterns: {'mt': pattern},
-        strongestWeekday: null,
+        strongestWeekday: DateTime.monday,
         overallScheduledByWeekday: const {
           DateTime.monday: 4,
           DateTime.thursday: 4,
@@ -117,11 +121,11 @@ void main() {
               onPressed: () => showInsightDetailSheet(
                 context,
                 headline: (
-                  Icons.trending_down_rounded,
-                  Colors.red,
-                  'mt slips on Thursdays',
-                  'mt',
-                  DateTime.thursday,
+                  Icons.emoji_events_rounded,
+                  Colors.amber,
+                  'Strongest day: Monday',
+                  null,
+                  DateTime.monday,
                 ),
                 result: result,
                 habits: const [],
@@ -139,7 +143,7 @@ void main() {
       expect(find.text('0%'), findsOneWidget,
           reason: 'Thursday, owed four times and missed four');
       expect(find.text('–'), findsNWidgets(5),
-          reason: 'the five weekdays this habit never runs on');
+          reason: 'the five weekdays nothing was owed on');
     });
   });
 

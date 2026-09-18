@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
+import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/features/grid/models/covered_day.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
@@ -197,9 +198,11 @@ void main() {
   });
 
   group('the recap on a Friday morning', () {
-    // Aziz, 2026-09-11: a day still open is not a day missed. The recap shows
-    // on Friday, and on Friday morning Thursday is still open until
-    // kDayCutoffHour, and Friday itself until the morning after.
+    // Aziz, 2026-09-11: a day still open is not a day missed. The recap
+    // showed on Friday then, and on Friday morning Thursday is still open
+    // until kDayCutoffHour, and Friday itself until the morning after. The
+    // card now waits for the week to seal (see 'the week the recap shows'
+    // below), but these functions still answer any clock they are handed.
     final week = [for (var i = 0; i < 7; i++) DateTime(2026, 9, 5 + i)];
     final beforeCutoff = DateTime(2026, 9, 11, kDayCutoffHour - 1, 59);
     final atCutoff = DateTime(2026, 9, 11, kDayCutoffHour);
@@ -689,6 +692,176 @@ void main() {
         isEmpty,
         reason: '${failures.length} failures',
       );
+    });
+  });
+
+  group('the week the recap shows', () {
+    // Aziz, 2026-09-18: the card showed all Friday, "and user can still
+    // change it by doing friday tasks". It shows once the week has sealed:
+    // Saturday from the cutoff, when Friday stops being payable, to the end
+    // of that Saturday.
+    final sealedWeek = DateTime(2026, 9, 12);
+    DateTime sat(int hour, [int minute = 0, int second = 0]) =>
+        DateTime(2026, 9, 19, hour, minute, second);
+
+    test('the calendar these tests rest on', () {
+      expect(sealedWeek.weekday, DateTime.saturday);
+      expect(DateTime(2026, 9, 18).weekday, DateTime.friday);
+      expect(sat(0).weekday, DateTime.saturday);
+    });
+
+    test('never on the Friday the week is still being lived', () {
+      for (final hour in [0, 9, 10, 12, 19, 23]) {
+        expect(recapWeekStartAt(DateTime(2026, 9, 18, hour)), isNull,
+            reason: 'Friday $hour:00');
+      }
+      expect(recapWeekStartAt(DateTime(2026, 9, 18, 23, 59, 59)), isNull);
+    });
+
+    test('not on Saturday before the cutoff: Friday is still payable', () {
+      expect(recapWeekStartAt(sat(0)), isNull);
+      expect(recapWeekStartAt(sat(kDayCutoffHour - 1, 59, 59)), isNull);
+      expect(DateTime(2026, 9, 18).isOpenDayAt(sat(kDayCutoffHour - 1, 59)),
+          isTrue,
+          reason: 'the reason it waits');
+    });
+
+    test('Saturday from the cutoff to midnight: the week that just sealed', () {
+      expect(recapWeekStartAt(sat(kDayCutoffHour)), sealedWeek);
+      expect(recapWeekStartAt(sat(15, 30)), sealedWeek);
+      expect(recapWeekStartAt(sat(23, 59, 59)), sealedWeek);
+    });
+
+    test('gone from Sunday, and absent every other day', () {
+      expect(recapWeekStartAt(DateTime(2026, 9, 20)), isNull);
+      expect(recapWeekStartAt(DateTime(2026, 9, 20, kDayCutoffHour)), isNull);
+      for (var d = 20; d <= 25; d++) {
+        expect(recapWeekStartAt(DateTime(2026, 9, d, 12)), isNull,
+            reason: 'September $d');
+      }
+    });
+
+    test('it appears at the instant the week\'s note goes out', () {
+      expect(recapWeekStartAt(sat(NotificationService.kWeeklyNoteHour)),
+          sealedWeek);
+      expect(
+        recapWeekStartAt(
+            sat(NotificationService.kWeeklyNoteHour - 1, 59, 59)),
+        isNull,
+      );
+    });
+
+    test('every day of the week it shows has closed', () {
+      final start = recapWeekStartAt(sat(kDayCutoffHour))!;
+      expect(startOfGridWeek(start), start, reason: 'a whole grid week');
+      for (var i = 0; i < 7; i++) {
+        final day = DateTime(start.year, start.month, start.day + i);
+        expect(day.isSettledAt(sat(kDayCutoffHour)), isTrue,
+            reason: '$day');
+      }
+      expect(DateTime(start.year, start.month, start.day + 6).weekday,
+          DateTime.friday);
+    });
+
+    test("the note's tap lands on the card while it shows, else the Grid",
+        () {
+      expect(weeklyNoteTapRoute(sat(kDayCutoffHour)), '/profile');
+      expect(weeklyNoteTapRoute(sat(23, 59)), '/profile');
+      expect(weeklyNoteTapRoute(sat(kDayCutoffHour - 1, 59)), '/grid');
+      expect(weeklyNoteTapRoute(DateTime(2026, 9, 20, 8)), '/grid');
+      expect(weeklyNoteTapRoute(DateTime(2026, 9, 18, 20)), '/grid');
+    });
+  });
+
+  group('recapWeekToShow, the gate the card and its Profile header share', () {
+    final saturday = DateTime(2026, 9, 19, kDayCutoffHour);
+    Map<String, int> greens(Map<int, int> byDayOfSeptember) => {
+          for (final e in byDayOfSeptember.entries)
+            DateTime(2026, 9, e.key).toDateKey(): e.value,
+        };
+    DateTime? show(DateTime now, Map<String, int> counts,
+            {bool hasHabits = true}) =>
+        recapWeekToShow(
+          now: now,
+          hasHabits: hasHabits,
+          dailyGreenCounts: counts,
+        );
+
+    test('the sealed week, when it or the week before has something', () {
+      expect(show(saturday, greens({14: 3})), DateTime(2026, 9, 12));
+      expect(show(saturday, greens({7: 2})), DateTime(2026, 9, 12),
+          reason: 'a quiet week after an active one still gets its card');
+    });
+
+    test('nothing outside the window, whatever the counts', () {
+      expect(show(DateTime(2026, 9, 18, 20), greens({14: 3})), isNull);
+      expect(show(DateTime(2026, 9, 19, 9, 59), greens({14: 3})), isNull);
+    });
+
+    test('nothing with no habits', () {
+      expect(show(saturday, greens({14: 3}), hasHabits: false), isNull);
+    });
+
+    test('nothing for two silent weeks, however busy the new Saturday', () {
+      expect(show(saturday, greens({19: 6, 4: 9})), isNull,
+          reason: 'the 19th is the new week, the 4th the week before last');
+    });
+  });
+
+  group('readRecapWeek', () {
+    final start = DateTime(2026, 9, 12);
+    final days = [for (var d = 12; d <= 18; d++) DateTime(2026, 9, d)];
+
+    test('the Grid on this very week is used as it is, with no reads',
+        () async {
+      final live = {
+        DateTime(2026, 9, 14).toDateKey(): {'gym': SquareState.complete},
+      };
+      var reads = 0;
+      final week = await readRecapWeek(
+        weekStart: start,
+        live: live,
+        readDay: (_) async {
+          reads++;
+          return const {};
+        },
+      );
+      expect(reads, 0);
+      expect(week!.days, days);
+      expect(week.squareFor('gym', DateTime(2026, 9, 14)),
+          SquareState.complete);
+      expect(week.squareFor('gym', DateTime(2026, 9, 15)), SquareState.none);
+    });
+
+    test('otherwise each of the seven days is read once', () async {
+      final asked = <DateTime>[];
+      final week = await readRecapWeek(
+        weekStart: start,
+        live: null,
+        readDay: (day) async {
+          asked.add(day);
+          return {
+            'gym': day.day.isEven ? SquareState.complete : SquareState.skipped,
+          };
+        },
+      );
+      expect(asked..sort(), days);
+      expect(week!.days, days);
+      expect(week.squareFor('gym', DateTime(2026, 9, 12)),
+          SquareState.complete);
+      expect(week.squareFor('gym', DateTime(2026, 9, 13)),
+          SquareState.skipped);
+      expect(week.squareFor('other', DateTime(2026, 9, 13)),
+          SquareState.none);
+    });
+
+    test('one unreadable day and the week is not guessed at', () async {
+      final week = await readRecapWeek(
+        weekStart: start,
+        live: null,
+        readDay: (day) async => day.day == 16 ? null : const {},
+      );
+      expect(week, isNull);
     });
   });
 }

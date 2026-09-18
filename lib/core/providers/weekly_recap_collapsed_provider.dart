@@ -4,7 +4,7 @@ import '../services/local_store_service.dart';
 
 // ─── "Fold the weekly recap away" ──────────────────────────────────────────
 //
-// The Friday recap card is the tallest thing on Profile by a wide margin —
+// The weekly recap card is the tallest thing on Profile by a wide margin —
 // header, three stats, an encouragement line, a per-habit row for every habit
 // you own, and four trend bars. On a full week that is most of a screen, and
 // it lands on the one tab people open to check a number and leave.
@@ -24,7 +24,7 @@ import '../services/local_store_service.dart';
 
 const _kWeeklyRecapCollapsedKey = 'weekly_recap_collapsed_v1';
 
-/// Whether the Friday recap card is folded to its header.
+/// Whether the weekly recap card is folded to its header.
 ///
 /// Seeded at boot from [loadPersistedWeeklyRecapCollapsed] (see main.dart) so
 /// the first frame already knows, rather than rendering expanded and then

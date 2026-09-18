@@ -176,10 +176,20 @@ function milestoneHeadline(type, data) {
 // undo, note, quote, plain). The stylesheet decides how each one looks, so
 // re-theming the feed never involves editing this file.
 
-/** A chip, or null when there was nothing to say - callers filter those out. */
-function chip(text, tone) {
+/**
+ * A chip, or null when there was nothing to say - callers filter those out.
+ *
+ * [extra] adds fields the feed can draw without reading the sentence apart:
+ * a habit's chip carries `habit` (its label), `state` (done, grid_only,
+ * undone, marked, open, missed) and `at` (the time, when it has one). The
+ * text stays the whole sentence, which the feed shows as the pill's tooltip.
+ */
+function chip(text, tone, extra) {
   const t = String(text == null ? '' : text).trim();
-  return t ? { text: t, tone: tone || 'plain' } : null;
+  if (!t) return null;
+  const out = { text: t, tone: tone || 'plain' };
+  if (extra) Object.assign(out, extra);
+  return out;
 }
 
 const WEEKDAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -288,20 +298,24 @@ function dailyDetails(data, sum, habitCtx, dayKey, tzOffsetMinutes) {
       case 'completed': {
         const times = r.count > 1 ? ` \u00d7${r.count}` : '';
         const of = r.target > 1 ? ` of ${r.target}` : '';
-        out.push(chip(`\u2705 ${name}${times}${of}${at ? ` \u00b7 ${at}` : ''}`, 'done'));
+        out.push(chip(`\u2705 ${name}${times}${of}${at ? ` \u00b7 ${at}` : ''}`, 'done',
+          { habit: name, state: 'done', at, times: r.count > 1 ? r.count : 0, of: r.target > 1 ? r.target : 0 }));
         break;
       }
       case 'grid_only':
         // The disagreement from the Grid-square trap: a Room counts this,
         // the ledger paid nothing for it.
-        out.push(chip(`\ud83d\udfe9 ${name} \u00b7 Grid square only, no completion`, 'warn'));
+        out.push(chip(`\ud83d\udfe9 ${name} \u00b7 Grid square only, no completion`, 'warn',
+          { habit: name, state: 'grid_only', at: '' }));
         break;
       case 'undone':
-        out.push(chip(`\u21a9\ufe0f ${name} \u00b7 completed${at ? ` ${at}` : ''}, then un-marked`, 'undo'));
+        out.push(chip(`\u21a9\ufe0f ${name} \u00b7 completed${at ? ` ${at}` : ''}, then un-marked`, 'undo',
+          { habit: name, state: 'undone', at }));
         break;
       case 'marked': {
         const meta = SQUARE_META[r.square] || SQUARE_META.none;
-        out.push(chip(`${meta.emoji} ${name} \u00b7 ${meta.label}`, 'note'));
+        out.push(chip(`${meta.emoji} ${name} \u00b7 ${meta.label}`, 'note',
+          { habit: name, state: 'marked', at: '', mark: meta.label, emoji: meta.emoji }));
         break;
       }
       default:
@@ -311,8 +325,9 @@ function dailyDetails(data, sum, habitCtx, dayKey, tzOffsetMinutes) {
         // morning, carried four of these drawn as misses while his phone
         // showed the day unfinished. See DateTimeGameExt.isSettledAt.
         out.push(dayIsOpen
-          ? chip(`\u2b1c ${name} \u00b7 not marked yet, the day is still open`, 'note')
-          : chip(`\u2b1c ${name} \u00b7 not marked`, 'miss'));
+          ? chip(`\u2b1c ${name} \u00b7 not marked yet, the day is still open`, 'note',
+            { habit: name, state: 'open', at: '' })
+          : chip(`\u2b1c ${name} \u00b7 not marked`, 'miss', { habit: name, state: 'missed', at: '' }));
     }
   }
 
@@ -432,10 +447,10 @@ async function scanOneAccount(uid, profile, authRow) {
   const who = displayName || email || uid;
   const tzOffsetMinutes = profile && profile.tzOffsetMinutes;
   const events = [];
-  const push = (at, type, title, sub, dayKey, details) => {
+  const push = (at, type, title, sub, dayKey, details, stats) => {
     const d = toJsDate(at);
     if (!d) return;
-    events.push({
+    const event = {
       at: d.getTime(),
       uid,
       who,
@@ -447,7 +462,13 @@ async function scanOneAccount(uid, profile, authRow) {
       // Always an array, never undefined: the feed maps over this on every
       // row, and one event missing the key would take the whole render down.
       details: details || [],
-    });
+    };
+    // A logged day's counts as numbers (credit, owed, open, done, gridOnly,
+    // undone, marked), so the feed can draw "7 / 8" and two small flags
+    // instead of re-reading the sentence in [sub], which stays for search
+    // and for every older reader of this payload.
+    if (stats) event.stats = stats;
+    events.push(event);
   };
 
   const receiptsByKey = readUndoneReceipts(profile);
@@ -504,7 +525,16 @@ async function scanOneAccount(uid, profile, authRow) {
     if (d.dailyReflection) bits.push('wrote a reflection');
     push(d.lastUpdated, 'habits', `Logged their day (${doc.id})`,
       bits.length ? bits.join(' · ') : 'nothing marked', doc.id,
-      dailyDetails(d, sum, habitCtx, doc.id, tzOffsetMinutes));
+      dailyDetails(d, sum, habitCtx, doc.id, tzOffsetMinutes),
+      {
+        credit: Math.round(credit * 100) / 100,
+        owed,
+        open: !!score.isOpen,
+        done: score.done,
+        gridOnly: sum.gridOnly,
+        undone: sum.undone,
+        marked: sum.marked,
+      });
   }
 
   // Un-marking has no timestamp of its own anywhere - the UndoneCompletion

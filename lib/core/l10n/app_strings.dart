@@ -10,6 +10,13 @@ import '../extensions/datetime_ext.dart';
 import '../services/local_store_service.dart';
 import '../utils/bidi_fraction.dart';
 import '../../features/grid/models/square_state.dart';
+import 'wording_edits.dart';
+
+// Generated: the admin's wording edits laid over every editable string in S.
+// Rebuild it after adding, removing or renaming a string here, or changing a
+// method's parameters: cd docs/wording/generator && dart run
+// bin/gen_wording_edits.dart (see wording_edits.dart for the whole design).
+part 'app_strings_edited.g.dart';
 
 // ─── Locale provider ──────────────────────────────────────────────────────────
 
@@ -223,8 +230,20 @@ class S {
   final Locale locale;
   const S(this.locale);
 
-  static S of(BuildContext context) {
-    return S(Localizations.localeOf(context));
+  /// The strings for [context]'s language, with the admin's wording edits
+  /// laid over them. Reading the edits through [WordingScope] is what makes
+  /// every widget that shows a string rebuild when an edit is saved.
+  static S of(BuildContext context) =>
+      S.edited(Localizations.localeOf(context), WordingScope.of(context));
+
+  /// The strings for [locale] with [edits] laid over the built-in text: an
+  /// edited string returns its edit, every other string is unchanged. Plain
+  /// [S] when that language has no edits, which is the usual case and costs
+  /// nothing. For code with no BuildContext, pass
+  /// `WordingEditsStore.current`.
+  static S edited(Locale locale, WordingEdits edits) {
+    final table = edits.stringsFor(locale.languageCode);
+    return table.isEmpty ? S(locale) : _EditedS(locale, table);
   }
 
   bool get isAr => locale.languageCode == 'ar';
@@ -860,7 +879,7 @@ class S {
       isAr ? 'عرض كل الملاحظات' : 'View all Habit Notes';
   // Home for the evening/weekly nudges relocated off the Grid screen (see
   // ProfileScreen's _DashboardSection) — streak-at-risk, night-review
-  // prompt, and the Friday recap card all now live under this header.
+  // prompt, and the Saturday recap card all now live under this header.
   String get profileDashboardSection => isAr ? 'نظرة عامة' : 'OVERVIEW';
   String get settings => isAr ? 'الإعدادات' : 'SETTINGS';
 
@@ -2564,26 +2583,32 @@ class S {
   String get perfectDayMsg => isAr
       ? 'يوم كامل! كل عاداتك خضرا اليوم.'
       : 'Perfect day! Every habit green today.';
-  // ── Weekly recap (Friday card on the Grid) ────────────────────────────────
+  // ── Weekly recap (Saturday card on Profile) ───────────────────────────────
+  // The card shows once its week has sealed, Saturday from 10:00 (see
+  // recapWeekStartAt), so the week it counts is the one that has just ended,
+  // and «الأسبوع الماضي» would read as that week itself. Aziz's pick,
+  // 2026-09-18: «أسبوعك» for the week and «الأسبوع اللي قبله» for the one
+  // before it, the same words in every line that compares the two.
   String get weeklyRecapTitle => isAr ? 'حصاد الأسبوع' : 'Weekly recap';
-  String get weeklyRecapThisWeek => isAr ? 'هالأسبوع' : 'This week';
-  String get weeklyRecapLastWeek => isAr ? 'الأسبوع الماضي' : 'Last week';
+  String get weeklyRecapThisWeek => isAr ? 'أسبوعك' : 'Your week';
+  String get weeklyRecapLastWeek =>
+      isAr ? 'الأسبوع اللي قبله' : 'The week before';
   String weeklyRecapNeedsLove(String name) =>
       isAr ? 'تحتاج شوية اهتمام: $name' : 'Needs a little love: $name';
   String get weeklyRecapUp => isAr
-      ? 'أقوى من الأسبوع الماضي. استمر.'
-      : 'Stronger than last week. Keep it going.';
+      ? 'أقوى من الأسبوع اللي قبله. استمر.'
+      : 'Stronger than the week before. Keep it going.';
   String get weeklyRecapSame => isAr
       ? 'ثابت على مستواك، والثبات ذهب.'
-      : 'Steady as last week. Consistency is gold.';
+      : 'Steady as the week before. Consistency is gold.';
   String get weeklyRecapDown => isAr
-      ? 'أسبوع أهدى من الأسبوع قبله. القادم لك.'
+      ? 'أسبوع أهدى من الأسبوع اللي قبله. القادم لك.'
       : 'A quieter week. The next one is yours.';
   String get weeklyRecapFirst => isAr
       ? 'أول أسبوع مسجل لك. بداية حلوة.'
       : 'Your first recorded week. A sweet start.';
   String get weeklyRecapPerHabit =>
-      isAr ? 'عاداتك هالأسبوع' : 'Your habits this week';
+      isAr ? 'عاداتك في الأسبوع' : 'Your habits across the week';
   String get weeklyRecapTrend => isAr ? 'آخر 4 أسابيع' : 'Last 4 weeks';
   String get weeklyRecapPremiumTeaser => isAr
       ? 'تفاصيل أعمق لكل عادة، مع Premium'
@@ -2631,10 +2656,65 @@ class S {
       ? 'شوف تفاصيل كل عاداتك، مع Premium'
       : 'See the full breakdown for every habit, with Premium';
   // ── Habit Insights detail sheet (tap any headline card) ────────────────────
-  String insightDetailRate(int completed, int scheduled) =>
-      isAr ? '$completed من $scheduled يوم' : '$completed of $scheduled days';
+  /// «أيام» after 3 to 10 and «يوم» after the rest, the rule [daysCount]
+  /// keeps. One «يوم» after every number printed «9 من 9 يوم» under a habit
+  /// owed nine days. From 11 up it stays the spoken «يوم» this line has
+  /// always used, not [daysCount]'s «يومًا».
+  String insightDetailRate(int completed, int scheduled) {
+    if (!isAr) return '$completed of $scheduled days';
+    final mod100 = scheduled % 100;
+    final days = mod100 >= 3 && mod100 <= 10 ? 'أيام' : 'يوم';
+    return '$completed من $scheduled $days';
+  }
   String get insightDetailByDay =>
       isAr ? 'حسب أيام الأسبوع' : 'By day of the week';
+
+  /// Over a specific-days habit's record on its weekday sheet: one row per
+  /// day it runs on, one square per week. Replaces [insightDetailByDay]
+  /// there, which drew all seven weekdays for a Monday and Thursday habit,
+  /// five dashes and two lone dots (Aziz, 2026-09-18). Draft wording; Aziz
+  /// picks it.
+  String get insightDetailOwnDays =>
+      isAr ? 'أيامها، أسبوع بأسبوع' : 'Its days, week by week';
+
+  /// Over a weekly quota's week bars. Draft wording; Aziz picks it.
+  String get insightDetailByWeek => isAr ? 'أسبوع بأسبوع' : 'Week by week';
+
+  /// A record row's count, «6 من 8». No noun: the weekday at the start of
+  /// the row already says what is being counted.
+  String insightCountOf(int done, int total) =>
+      isAr ? '$done من $total' : '$done of $total';
+
+  /// A weekly quota's card, the quota's own version of [insightWeekdayMiss].
+  /// A quota asks for a count each week and for no day in particular, so the
+  /// thing that slips is the week, never a weekday (see InsightCadence).
+  /// Impersonal and unpunctuated like the cards above. Draft wording; Aziz
+  /// picks it.
+  String insightQuotaWeeks(String habit, int met, int weeks) => isAr
+      ? '"$habit" وصلت هدفها ${_metOfWeeks(met, weeks)}'
+      : '"$habit" hit its weekly target $met of $weeks '
+          '${weeks == 1 ? 'week' : 'weeks'}';
+
+  /// Beside the big average on a quota's sheet, «2.6» then «من 4 بالأسبوع،
+  /// بالمعدل». Worded so no noun follows the decimal, which Arabic has no
+  /// comfortable agreement for.
+  String insightQuotaAverage(int target) => isAr
+      ? 'من $target بالأسبوع، بالمعدل'
+      : 'of $target a week, on average';
+
+  String get insightTipQuotaWeeks => isAr
+      ? 'جرّب تحدد أيامها من بداية الأسبوع.'
+      : 'Try picking its days at the start of the week.';
+
+  /// «2 من 7 أسابيع»: the noun agrees with the total the way
+  /// [timesPerDayPhrase] agrees with its count, the dual standing in for the
+  /// numeral at two.
+  String _metOfWeeks(int met, int weeks) {
+    if (weeks == 1) return '$met من أسبوع';
+    if (weeks == 2) return '$met من أسبوعين';
+    return '$met من $weeks ${weeks <= 10 ? 'أسابيع' : 'أسبوع'}';
+  }
+
   String get insightDetailCompare =>
       isAr ? 'بالمقارنة مع عاداتك الأخرى' : 'Compared to your other habits';
   String get insightTipMostConsistent => isAr
@@ -2661,12 +2741,18 @@ class S {
   String insightPerfectRecord(int n) => isAr
       ? 'ما فوّتّ ولا يوم: $n من $n.'
       : 'You didn\'t miss a single day: $n for $n.';
-  String insightMostConsistentCompare(String habit, int points) => isAr
-      ? 'متقدم بـ$points نقطة عن أقرب عادة لك، "$habit".'
-      : '$points points ahead of your next closest habit, "$habit".';
-  String insightNeedsPushCompare(String habit, int points) => isAr
-      ? 'أقل بـ$points نقطة من أثبت عاداتك، "$habit".'
-      : '$points points behind your most consistent habit, "$habit".';
+  // Both rates, never their difference. These used to say «أقل بـ73 نقطة»
+  // and "73 points behind": percentage points, but نقطة is the word this app
+  // pays XP in («استلم جائزتك: 50 نقطة»), so it read as 73 XP, and it was
+  // only the two bars under the sentence subtracted. [mine] and [theirs] are
+  // the whole percents those bars print, so the sentence and the bars agree.
+  String insightMostConsistentCompare(String habit, int mine, int theirs) =>
+      isAr
+          ? '$mine% مقابل $theirs% في أقرب عادة لها، "$habit".'
+          : '$mine% vs $theirs% for your next closest habit, "$habit".';
+  String insightNeedsPushCompare(String habit, int mine, int theirs) => isAr
+      ? '$mine% مقابل $theirs% في أثبت عاداتك، "$habit".'
+      : '$mine% vs $theirs% for your most consistent habit, "$habit".';
   String get insightOnlyHabitTracked => isAr
       ? 'عادتك الوحيدة اللي عندها بيانات كافية لي الحين.'
       : 'Your only habit with enough data to compare yet.';

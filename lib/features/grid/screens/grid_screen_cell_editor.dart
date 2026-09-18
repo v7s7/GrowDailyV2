@@ -710,6 +710,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
               day: day,
               habitId: habit.id,
               scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+              runsOn: habit.runsOn,
               // 2x while a linked room is live — see roomBoostedReward.
               xpReward: xpReward,
               goldReward: goldReward,

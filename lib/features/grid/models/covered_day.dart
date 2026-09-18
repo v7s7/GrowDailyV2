@@ -33,6 +33,11 @@ import 'square_state.dart';
 /// record and stays what it is. Today's `spare` day is not covered either,
 /// because it is still open, which is the one meaning the plain square is
 /// left with.
+///
+/// Each day is judged by the schedule the habit had on it (see
+/// IslamicHabitTemplate.cadenceOn), and [demand] is that day's own entry
+/// (see quotaDemandForRow), so a changed schedule never repaints the days
+/// before the change.
 bool isCoveredDay({
   required IslamicHabitTemplate habit,
   required DateTime day,
@@ -52,8 +57,12 @@ bool isCoveredDay({
   if (died != null && d.isAfter(DateTime(died.year, died.month, died.day))) {
     return false;
   }
-  if (habit.scheduledWeekdays.isNotEmpty) {
-    return !habit.scheduledWeekdays.contains(d.weekday);
+  // The weekdays the habit had ON that day: a Monday-and-Thursday habit made
+  // daily today keeps its old Tuesdays as rest days, and a daily one moved to
+  // Monday and Thursday does not have its old blank Tuesdays excused.
+  final weekdays = habit.cadenceOn(d).scheduledWeekdays;
+  if (weekdays.isNotEmpty) {
+    return !weekdays.contains(d.weekday);
   }
   if (demand == null) return false;
   if (demand == DayDemand.earned) return true;

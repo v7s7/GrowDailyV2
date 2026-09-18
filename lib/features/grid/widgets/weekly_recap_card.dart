@@ -39,12 +39,14 @@ class WeeklyRecapData {
   /// still open (DateTimeGameExt.isSettledAt) takes its partner from last
   /// week at most at its own count, the rule periodDelta applies on the
   /// report's week tab (Aziz, 2026-09-11: a day still open is not a miss).
-  /// The card only shows on Friday, all of Friday is still open, and so is
-  /// Thursday until kDayCutoffHour. Compared in full, a Friday morning read
-  /// as «أسبوع أهدى» before the week had had its chance, while the report
-  /// showed the same week level. An open day can still raise the change,
-  /// never lower it. The two totals stay plain totals: each is a fact about
-  /// its own week.
+  /// Written when the card showed on Friday, with all of Friday still open
+  /// and Thursday too until kDayCutoffHour: compared in full, a Friday
+  /// morning read as «أسبوع أهدى» before the week had had its chance. The
+  /// card now waits for the week to seal ([recapWeekStartAt]), where every
+  /// day has closed and this changes nothing; it stays so the arithmetic is
+  /// right at any clock it is handed. An open day can still raise the
+  /// change, never lower it. The two totals stay plain totals: each is a
+  /// fact about its own week.
   final int delta;
 
   const WeeklyRecapData({
@@ -121,10 +123,11 @@ List<int> weeklyTotals({
 /// a scheduled day that is neither green nor skipped is a miss, and a future
 /// day never counts. The one change is that a day counts only once it is
 /// SETTLED at [now] (DateTimeGameExt.isSettledAt): an explicit فشل at once,
-/// a blank or جزئي day once it closes. The card shows on Friday, and on
-/// Friday morning both Thursday (open until kDayCutoffHour) and Friday
-/// itself were counted as misses before anyone could have finished them
-/// (Aziz, 2026-09-11). A day that has closed counts exactly as before.
+/// a blank or جزئي day once it closes. When the card showed on Friday, a
+/// Friday morning counted both Thursday (open until kDayCutoffHour) and
+/// Friday itself as misses before anyone could have finished them (Aziz,
+/// 2026-09-11). A day that has closed counts exactly as before, and the
+/// sealed week the card now recaps holds nothing else.
 ///
 /// Pure, over [squareFor], so it can be asserted without a Grid; see
 /// test/features/grid/weekly_recap_test.dart.
@@ -239,64 +242,188 @@ enum RecapDot {
 String recapRowCount({required int done, required int scheduled}) =>
     scheduled <= 0 ? '–' : '$done/$scheduled';
 
-/// The Friday "حصاد الأسبوع" card on the Grid — the grid week runs Sat→Fri,
-/// so its last day doubles as the natural reflection moment (and the Gulf
-/// weekend). Renders nothing at all on any other day, or when there's
-/// nothing to recap yet, so it costs the layout nothing 6 days out of 7.
+/// The first day of the week the recap card shows at [now], or null while
+/// it is not showing.
 ///
-/// Everything on it comes from state that's already in memory
-/// (dailyGreenCounts + the loaded current week's squares): total greens vs
-/// last week with a delta chip, the week's best day, the habit that got
-/// missed the most (only when it actually needs the attention), and one
-/// calm line of encouragement picked by how the week compares.
+/// The card recaps a week once it has SEALED: from the instant its last day
+/// closes (DateTimeGameExt.closesAt, [kDayCutoffHour] on the first day of
+/// the next grid week) to the end of that day. With the grid week running
+/// Saturday to Friday, that is Saturday from 10:00 until midnight, the same
+/// instant the week's notification goes out at
+/// (NotificationService.kWeeklyNoteHour), so the banner and the card name
+/// one number and it can no longer move under either.
+///
+/// It used to show all of Friday, on a week still being lived. Aziz,
+/// 2026-09-18: "it appears in friday, and user can still change it by doing
+/// friday tasks". Saturday midnight would not have fixed that: Friday stays
+/// payable until the cutoff.
+DateTime? recapWeekStartAt(DateTime now) {
+  final today = now.effectiveDay;
+  if (!startOfGridWeek(today).isSameDayAs(today)) return null;
+  final lastDay = DateTime(today.year, today.month, today.day - 1);
+  if (now.isBefore(lastDay.closesAt)) return null;
+  return DateTime(today.year, today.month, today.day - 7);
+}
+
+/// The week the recap card shows at [now], or null when it renders nothing:
+/// outside its window ([recapWeekStartAt]), with no habits, or when that
+/// week and the one before it are both empty. Two silent weeks in a row =
+/// nothing to say; a recap of zeros would only rub it in, and the regular
+/// empty-state/nudge surfaces handle that.
+///
+/// The card asks this before it builds, and Profile's section asks it
+/// before putting its header over the card, so the header never sits over
+/// a card that renders nothing. It used to be two copies of one gate kept
+/// in step by a comment.
+DateTime? recapWeekToShow({
+  required DateTime now,
+  required bool hasHabits,
+  required Map<String, int> dailyGreenCounts,
+}) {
+  final weekStart = recapWeekStartAt(now);
+  if (weekStart == null || !hasHabits) return null;
+  final recap = computeWeeklyRecap(
+    dailyGreenCounts: dailyGreenCounts,
+    weekStart: weekStart,
+    // Only the two totals are read here, and neither takes a clock.
+    now: null,
+  );
+  if (recap.thisWeekTotal == 0 && recap.lastWeekTotal == 0) return null;
+  return weekStart;
+}
+
+/// Where a tap on the week's numbered note lands at [now]
+/// (NotificationService.openWeeklyRecapPayload): Profile while the card for
+/// the week it counts is showing, which starts the instant the note goes
+/// out, and the Grid once that card has gone, rather than a Profile with
+/// nothing on it about the week the note was about.
+String weeklyNoteTapRoute(DateTime now) =>
+    recapWeekStartAt(now) == null ? '/grid' : '/profile';
+
+/// The squares of the week a recap is showing: its seven days, first day
+/// first, and every habit's square on each. What the per-habit rows and the
+/// needs-attention line read; see [recapWeekProvider].
+class RecapWeek {
+  final List<DateTime> days;
+
+  /// dateKey to (habitId to square), the shape WeeklyGridState.states holds.
+  final Map<String, Map<String, SquareState>> states;
+
+  const RecapWeek({required this.days, required this.states});
+
+  SquareState squareFor(String habitId, DateTime day) =>
+      states[day.toDateKey()]?[habitId] ?? SquareState.none;
+}
+
+/// The sealed week starting [weekStart], for [recapWeekProvider].
+///
+/// [live] is the Grid's own squares when it is showing this very week
+/// (scrolled back to it): current to the last tap, a square painted on a
+/// closed day included, and free. Otherwise each day is read from the store
+/// through [readDay] (WeeklyGridNotifier.storedSquaresFor), the way the
+/// Grid reads its own week: seven documents, each on its own.
+///
+/// Null when any day could not be read. An unreadable day is not an empty
+/// one (see storedSquaresFor), and the rows and the needs-attention line
+/// would draw it as missed, so both wait rather than guess.
+Future<RecapWeek?> readRecapWeek({
+  required DateTime weekStart,
+  required Map<String, Map<String, SquareState>>? live,
+  required Future<Map<String, SquareState>?> Function(DateTime day) readDay,
+}) async {
+  final days = [
+    for (var i = 0; i < 7; i++)
+      DateTime(weekStart.year, weekStart.month, weekStart.day + i),
+  ];
+  if (live != null) return RecapWeek(days: days, states: live);
+  final read = await Future.wait(days.map(readDay));
+  if (read.contains(null)) return null;
+  return RecapWeek(
+    days: days,
+    states: {
+      for (var i = 0; i < days.length; i++) days[i].toDateKey(): read[i]!,
+    },
+  );
+}
+
+/// The sealed week that starts on [weekStart], as [readRecapWeek] reads it.
+///
+/// The card shows once its week has sealed, and by then the Grid has rolled
+/// on to the new week, so the sealed one is no longer in memory. Watched
+/// only while the card is showing, so its reads happen on a Saturday with
+/// Profile open; autoDispose, so the next visit reads again rather than
+/// keep a week someone has since painted a square on.
+final recapWeekProvider =
+    FutureProvider.autoDispose.family<RecapWeek?, DateTime>((ref, weekStart) {
+  // Selected, so a tap on the week the Grid is showing (the new one, as a
+  // rule) re-runs nothing here.
+  final live = ref.watch(weeklyGridProvider.select((grid) =>
+      grid.weekStart.isSameDayAs(weekStart) && !grid.isLoading
+          ? grid.states
+          : null));
+  return readRecapWeek(
+    weekStart: weekStart,
+    live: live,
+    readDay: ref.watch(weeklyGridProvider.notifier).storedSquaresFor,
+  );
+});
+
+/// The "حصاد الأسبوع" card on Profile, for the week that has just sealed
+/// (see [recapWeekStartAt]: Saturday from kDayCutoffHour to midnight).
+/// Renders nothing at all outside that window, or when there's nothing to
+/// recap, so it costs the layout nothing the rest of the week.
+///
+/// Total greens against the week before with a delta chip, the week's best
+/// day, the habit that got missed the most (only when it actually needs the
+/// attention), and one calm line of encouragement picked by how the week
+/// compares. The totals, the best day and the trend come from
+/// dailyGreenCounts, already in memory; the per-habit rows and the
+/// needs-attention line read the sealed week's squares ([recapWeekProvider]).
 class WeeklyRecapCard extends ConsumerWidget {
   const WeeklyRecapCard({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Re-read at midnight and at kDayCutoffHour, so the misses and counts
-    // below take a day in when it closes. See dayClockProvider.
+    // Re-read at midnight and at kDayCutoffHour, the two instants the card
+    // can go or appear at. See dayClockProvider.
     final now = ref.watch(dayClockProvider);
-    final today = now.effectiveDay;
-    if (today.weekday != DateTime.friday) return const SizedBox.shrink();
+    // Nothing else is watched outside the window.
+    if (recapWeekStartAt(now) == null) return const SizedBox.shrink();
 
     // allHabitsEverProvider: the "most missed" scan below walks the whole
-    // visible week day by day, so a habit archived partway through it
+    // sealed week day by day, so a habit archived partway through it
     // should still count for the days before it was archived, not vanish
     // from the tally the instant it's gone from the active list.
     final habits = ref.watch(allHabitsEverProvider);
-    if (habits.isEmpty) return const SizedBox.shrink();
-
     final counts = ref.watch(dashboardProvider).dailyGreenCounts;
-    final weekStart = startOfGridWeek(today);
+    final weekStart = recapWeekToShow(
+      now: now,
+      hasHabits: habits.isNotEmpty,
+      dailyGreenCounts: counts,
+    );
+    if (weekStart == null) return const SizedBox.shrink();
     final recap = computeWeeklyRecap(
       dailyGreenCounts: counts,
       weekStart: weekStart,
       now: now,
     );
-    // Two silent weeks in a row = nothing to say; a recap of zeros would
-    // only rub it in. The regular empty-state/nudge surfaces handle that.
-    if (recap.thisWeekTotal == 0 && recap.lastWeekTotal == 0) {
-      return const SizedBox.shrink();
-    }
 
     final gp = context.gp;
     final s = S.of(context);
     final locale = Localizations.localeOf(context).languageCode;
     final collapsed = ref.watch(weeklyRecapCollapsedProvider);
 
-    // The habit most missed this week — from the already-loaded visible
-    // week, and only when the grid is actually showing the current week
-    // (browsing a past week mustn't misattribute its squares to "this
-    // week"). Skipped squares don't count as misses: a deliberate skip is
-    // a decision, not a slip. Shown only at 2+ misses — one miss is life.
-    final grid = ref.watch(weeklyGridProvider);
+    // The habit most missed in the sealed week, from that week's own
+    // squares, so absent until they have been read. Skipped squares don't
+    // count as misses: a deliberate skip is a decision, not a slip. Shown
+    // only at 2+ misses, one miss is life.
+    final week = ref.watch(recapWeekProvider(weekStart)).valueOrNull;
     String? mostMissedName;
-    if (grid.isCurrentWeek && !grid.isLoading) {
+    if (week != null) {
       mostMissedName = mostMissedHabitThisWeek(
         habits: habits,
-        days: grid.days,
-        squareFor: grid.squareFor,
+        days: week.days,
+        squareFor: week.squareFor,
         now: now,
       )?.localName(s.isAr);
     }
@@ -405,7 +532,7 @@ class WeeklyRecapCard extends ConsumerWidget {
                       encouragement: encouragement,
                       mostMissedName: mostMissedName,
                       habits: habits,
-                      grid: grid,
+                      week: week,
                       counts: counts,
                       weekStart: weekStart,
                       now: now,
@@ -430,7 +557,9 @@ class _RecapBody extends ConsumerWidget {
   final String encouragement;
   final String? mostMissedName;
   final List<IslamicHabitTemplate> habits;
-  final WeeklyGridState grid;
+
+  /// The sealed week's squares, null until read (see [recapWeekProvider]).
+  final RecapWeek? week;
   final Map<String, int> counts;
   final DateTime weekStart;
   final DateTime now;
@@ -443,7 +572,7 @@ class _RecapBody extends ConsumerWidget {
     required this.encouragement,
     required this.mostMissedName,
     required this.habits,
-    required this.grid,
+    required this.week,
     required this.counts,
     required this.weekStart,
     required this.now,
@@ -534,7 +663,7 @@ class _RecapBody extends ConsumerWidget {
             // glass is tappable, and the whole stack routes to /premium.
             _RecapDepth(
               habits: habits,
-              grid: grid,
+              week: week,
               counts: counts,
               weekStart: weekStart,
               now: now,
@@ -554,14 +683,14 @@ class _RecapBody extends ConsumerWidget {
 /// anywhere on it goes to the paywall.
 class _RecapDepth extends ConsumerWidget {
   final List<IslamicHabitTemplate> habits;
-  final WeeklyGridState grid;
+  final RecapWeek? week;
   final Map<String, int> counts;
   final DateTime weekStart;
   final DateTime now;
 
   const _RecapDepth({
     required this.habits,
-    required this.grid,
+    required this.week,
     required this.counts,
     required this.weekStart,
     required this.now,
@@ -572,11 +701,13 @@ class _RecapDepth extends ConsumerWidget {
     final gp = context.gp;
     final s = S.of(context);
     final isPremium = ref.watch(premiumAccessProvider);
+    // A local, so it promotes inside the guard below.
+    final week = this.week;
 
     final depth = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (grid.isCurrentWeek && !grid.isLoading) ...[
+        if (week != null) ...[
           const SizedBox(height: 12),
           Container(height: 0.5, color: gp.border),
           const SizedBox(height: 10),
@@ -592,12 +723,14 @@ class _RecapDepth extends ConsumerWidget {
           // Skip a habit that's both gone (archived) AND had nothing real to
           // show this week — the shape a mistake/test habit leaves behind. A
           // currently-active habit always shows, even at 0/7: that's a real
-          // miss worth seeing. See _weekDoneCount's own doc comment.
+          // miss worth seeing. See _weekDoneCount's own doc comment. And
+          // skip one added after the week ended (see _addedAfter).
           for (final h in habits)
-            if (h.archivedAt == null || _weekDoneCount(h, grid, now) > 0)
+            if (!_addedAfter(h, week) &&
+                (h.archivedAt == null || _weekDoneCount(h, week, now) > 0))
               _HabitWeekRow(
                 habit: h,
-                grid: grid,
+                week: week,
                 now: now,
                 isAr: s.isAr,
               ),
@@ -692,22 +825,32 @@ class _RecapDepth extends ConsumerWidget {
   }
 }
 
-/// How many of [habit]'s scheduled, non-future days in [grid] are actually
-/// green: its real completions this week. Used to decide whether an
+/// How many of [habit]'s scheduled, non-future days in [week] are actually
+/// green: its real completions that week. Used to decide whether an
 /// archived habit is worth a row at all (see the filter above), and read
 /// off the same [habitWeekRow] the row itself draws, so the filter and the
 /// row's own count cannot disagree.
 int _weekDoneCount(
   IslamicHabitTemplate habit,
-  WeeklyGridState grid,
+  RecapWeek week,
   DateTime now,
 ) =>
     habitWeekRow(
       habit: habit,
-      days: grid.days,
-      squareOn: (day) => grid.squareFor(habit.id, day),
+      days: week.days,
+      squareOn: (day) => week.squareFor(habit.id, day),
       now: now,
     ).done;
+
+/// Whether [habit] was added after [week]'s last day. The card shows on the
+/// Saturday after the week, and a habit made that morning belongs to the
+/// new week: a row of seven quiet dots and '–' for it would say nothing
+/// about this one.
+bool _addedAfter(IslamicHabitTemplate habit, RecapWeek week) {
+  final born = habit.createdAt;
+  return born != null &&
+      DateTime(born.year, born.month, born.day).isAfter(week.days.last);
+}
 
 /// One habit's week at a glance inside the Premium recap: name, seven day
 /// dots in grid-week order (green done, red slipped, gray skipped, hollow
@@ -715,12 +858,12 @@ int _weekDoneCount(
 /// count. The arithmetic is [habitWeekRow]; this only paints it.
 class _HabitWeekRow extends StatelessWidget {
   final IslamicHabitTemplate habit;
-  final WeeklyGridState grid;
+  final RecapWeek week;
   final DateTime now;
   final bool isAr;
   const _HabitWeekRow({
     required this.habit,
-    required this.grid,
+    required this.week,
     required this.now,
     required this.isAr,
   });
@@ -730,8 +873,8 @@ class _HabitWeekRow extends StatelessWidget {
     final gp = context.gp;
     final row = habitWeekRow(
       habit: habit,
-      days: grid.days,
-      squareOn: (day) => grid.squareFor(habit.id, day),
+      days: week.days,
+      squareOn: (day) => week.squareFor(habit.id, day),
       now: now,
     );
     final dots = <Widget>[];
@@ -793,14 +936,14 @@ class _HabitWeekRow extends StatelessWidget {
   }
 }
 
-/// Four bars, oldest to newest, current week in gold — enough to see
+/// Four bars, oldest to newest, the recapped week in gold — enough to see
 /// direction without pretending to be a chart screen. Each bar sits on a
 /// dim full-height track so a quiet week still reads as "a bar with
 /// little in it" rather than a stray sliver floating with nothing to
 /// anchor it against, and every column is [Expanded] so the whole row
 /// fills exactly the width it's given instead of drifting to one side
-/// with fixed-width bars. The current week gets both its usual gold color
-/// and an explicit "This week" tag underneath — the color alone was easy
+/// with fixed-width bars. The recapped week gets both its usual gold color
+/// and an explicit «أسبوعك» tag underneath — the color alone was easy
 /// to miss.
 class _TrendBars extends StatelessWidget {
   final List<int> totals;

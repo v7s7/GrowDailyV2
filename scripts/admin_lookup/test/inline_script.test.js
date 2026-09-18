@@ -33,9 +33,13 @@ const { BASE_STYLES, pageShell, REPORT_SCRIPT } = require('../lib/render');
 /** Every <script>…</script> body in a document. */
 function scriptBodies(html) {
   const out = [];
-  const re = /<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g;
+  const re = /<script(\s[^>]*)?>([\s\S]*?)<\/script>/g;
   let m;
-  while ((m = re.exec(html)) !== null) out.push(m[1]);
+  while ((m = re.exec(html)) !== null) {
+    // A data block (the Overview's icons) is JSON, not a program.
+    if (/type="application\/json"/.test(m[1] || '')) continue;
+    out.push(m[2]);
+  }
   return out;
 }
 
@@ -88,10 +92,16 @@ function renderDashboardHtml() {
   // false alarm the first time this test ran. Running the literal through vm
   // applies exactly the escape handling Node applies at request time, so
   // what is checked here is what the browser receives.
+  // The page also draws the control-room frame (lib/shell.js); its pieces
+  // are passed in by the same names server.js uses.
+  const shell = require('../lib/shell');
   const build = new vm.Script(
-    '(function (BASE_STYLES) { return `' + template + '`; })',
+    '(function (BASE_STYLES, THEME_STYLES, SHELL_STYLES, SHELL_HEAD, sidebar, topBar, icon, PROJECT_ID, OVERVIEW_ICONS_JSON) { return `'
+      + template + '`; })',
     { filename: 'dashboard-template' });
-  return build.runInNewContext()(BASE_STYLES);
+  return build.runInNewContext()(
+    BASE_STYLES, shell.THEME_STYLES, shell.SHELL_STYLES, shell.SHELL_HEAD,
+    shell.sidebar, shell.topBar, shell.icon, 'test-project', '{}');
 }
 
 test('the dashboard page emits parseable browser JavaScript', () => {
@@ -150,8 +160,41 @@ test('the dashboard markup keeps the hooks its script binds to', () => {
     'dayStat', 'feed', 'horizon', 'qU', 'fromDate', 'toDate', 'quickRanges',
     'onlyActive', 'clearU', 'statusU', 'rows', 'refresh', 'scanNote',
     'drawer', 'scrim',
+    // The control-room frame and the Overview.
+    'viewOverview', 'ovGrid', 'viewTitle', 'livePill', 'livePillText', 'themeToggle', 'cmdkOpen', 'gdIcons',
   ];
   for (const id of required) {
     assert.ok(html.includes(`id="${id}"`), `dashboard markup is missing #${id}`);
   }
+});
+
+test('the control room\'s browser files parse', () => {
+  for (const file of ['shell.js', 'overview.js']) {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'static', file), 'utf8');
+    assertParses(source, 'static/' + file);
+  }
+  const css = fs.readFileSync(path.join(__dirname, '..', 'static', 'control-room.css'), 'utf8');
+  assert.strictEqual((css.match(/\{/g) || []).length, (css.match(/\}/g) || []).length, 'control-room.css braces are unbalanced');
+});
+
+test('the dashboard loads the frame\'s scripts before its own', () => {
+  const html = renderDashboardHtml();
+  const at = (s) => html.indexOf(s);
+  assert.ok(at('/vendor/echarts.min.js') > 0, 'no chart library');
+  assert.ok(at('/static/shell.js') > at('/vendor/echarts.min.js'));
+  assert.ok(at('/static/overview.js') > at('/static/shell.js'));
+  // The page's own inline script comes last: it calls GDOverview and GDShell.
+  assert.ok(html.lastIndexOf('<script>') > at('/static/overview.js'));
+});
+
+test('the live report sits in the frame, the saved one does not', () => {
+  const live = pageShell({
+    title: 't', nav: '', header: '<div class="idline"></div>', stats: '', body: '<section id="today"></section>',
+    backHref: '/', uid: 'abc123', projectId: 'p',
+  });
+  assert.ok(live.includes('class="side"'), 'live report has no sidebar');
+  assert.ok(live.includes('/static/shell.js'));
+  scriptBodies(live).forEach((body, i) => assertParses(body, `framed report script #${i + 1}`));
+  const saved = pageShell({ title: 't', nav: '', header: '', stats: '', body: '' });
+  assert.ok(!saved.includes('class="side"'), 'a saved file would carry dead links');
 });
