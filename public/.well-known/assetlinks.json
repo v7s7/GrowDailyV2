@@ -5,6 +5,8 @@
       "namespace": "android_app",
       "package_name": "com.growdaily.v2",
       "sha256_cert_fingerprints": [
+        "0E:84:48:98:03:9E:43:69:BD:BC:FD:2C:C6:57:07:9C:0B:AD:73:F9:BA:D2:0A:D3:47:15:1D:9C:F9:1B:5A:51",
+        "A3:95:0F:6F:7A:DD:37:D9:6C:78:79:83:89:72:B8:67:52:4A:46:DC:99:32:E0:44:D3:39:8B:C8:6D:49:98:AB",
         "D0:13:13:2F:C4:D5:85:02:47:9A:75:94:DB:AF:D6:36:8C:27:D0:06:33:29:4B:20:36:DA:F4:55:7B:04:83:94"
       ]
     }

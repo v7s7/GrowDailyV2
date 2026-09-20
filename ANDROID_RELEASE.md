@@ -306,24 +306,33 @@ own three:
    that host as `application/json` (the header is in `firebase.json`).
 3. `roomJoinUrl()` — what the app actually builds.
 
-### The fingerprint list is INCOMPLETE until Play App Signing is added
-
-`assetlinks.json` currently lists ONE SHA-256: the upload keystore's
-(`D0:13:13:...:83:94`, read from `~/growdaily-upload.jks`). That is the key
-this machine signs with, and it is NOT the key users install.
+### The fingerprint list: three keys, and why each one stays
 
 Play App Signing re-signs every artifact with Google's own key, so the
-certificate on a Play-installed build is different, verification fails
-against a file that does not list it, and the link silently goes back to
-opening the browser. Nothing errors; the app is just never offered.
+certificate on a Play-installed build is not the one this machine signs
+with. Verification fails against a file that does not list the installed
+certificate, and the link silently goes back to opening the browser.
+Nothing errors; the app is just never offered. Until 2026-09-19 the file
+listed only the upload key, so no Play install ever verified.
 
-**Get it from Play Console → the app → Setup → App integrity → App signing
-key certificate → SHA-256 certificate fingerprint**, and add it as a second
-entry in the `sha256_cert_fingerprints` array. Both fingerprints should stay:
-the upload one keeps locally-signed release builds working, the Play one is
-what real users need.
+`assetlinks.json` lists, in order:
 
-Then `firebase deploy --only hosting`, and check with
+1. `0E:84:48:...:5A:51`: the Play app signing key IN USE (Play Console →
+   Protected with Play → App signing → App signing key → Classical key →
+   SHA-256). Play upgraded the app to a quantum-ready key, which is why a
+   second Play key exists at all.
+2. `A3:95:0F:...:98:AB`: the PREVIOUS Play app signing key (same page →
+   Previous app signing keys, first used 2026-08-31). Installs made before
+   the upgrade can still carry it, and it is the key Play's own "Digital
+   Asset Links JSON" snippet on that page still prints.
+3. `D0:13:13:...:83:94`: the upload keystore (`~/growdaily-upload.jks`),
+   which keeps locally-signed release builds working.
+
+Never drop an entry: listing an extra key costs nothing, missing the one a
+phone has costs every invite on that phone. If Play Console ever shows a new
+key, add it here as well.
+
+Then `firebase deploy --only hosting:site`, and check with
 
     curl -sI https://grow-daily-339ef.web.app/.well-known/assetlinks.json
 
