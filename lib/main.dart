@@ -22,7 +22,10 @@ import 'core/providers/app_guide_provider.dart';
 import 'core/providers/day_clock_provider.dart';
 import 'core/providers/get_started_checklist_provider.dart';
 import 'core/providers/home_tab_provider.dart'
-    show requestedHomeTabProvider, requestedMatrixQuickAddProvider;
+    show
+        requestedHomeTabInstantProvider,
+        requestedHomeTabProvider,
+        requestedMatrixQuickAddProvider;
 import 'core/providers/nav_badges_setting_provider.dart';
 import 'core/providers/nav_bar_hint_provider.dart';
 import 'core/providers/nav_layout_provider.dart';
@@ -86,7 +89,9 @@ import 'features/grid/notifiers/weekly_grid_notifier.dart'
         weeklyGridProvider,
         willCompleteAllSquaresOn;
 import 'features/grid/screens/grid_journal_screen.dart';
-import 'features/grid/screens/monthly_heatmap_screen.dart';
+import 'features/milestones/reports/period_report_section.dart'
+    show RecordTab;
+import 'features/milestones/reports/record_screen.dart';
 import 'features/grid/widgets/weekly_recap_card.dart' show weeklyNoteTapRoute;
 import 'features/matrix/models/matrix_task.dart' show MatrixQuadrant;
 import 'features/matrix/notifiers/matrix_notifier.dart'
@@ -437,6 +442,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   ProviderSubscription<DashboardState>? _widgetSub;
   ProviderSubscription<NotificationSettings>? _notificationSettingsSub;
   ProviderSubscription<WeeklyGridState>? _gridSub;
+  ProviderSubscription<DateTime>? _dayTurnSub;
 
   /// Two subscriptions, because the streak gap can only be judged once the
   /// dashboard AND the habit list have both settled and either may land
@@ -844,6 +850,21 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       _maybeAutoCleanQuitYesterday();
     }, fireImmediately: true);
 
+    // The day turning over with the app open: the same reload of today's
+    // board that resume runs (see didChangeAppLifecycleState), the moment
+    // the day clock re-reads itself at midnight. Without it the dashboard
+    // kept yesterday's completions as today's until the next resume, and a
+    // tap wrote them into the new day. See dayClockTurnedDay. The two
+    // listeners above then redo the widget, the badge and the reminders
+    // from the fresh day, and a booked return due today resumes.
+    _dayTurnSub = ref.listenManual<DateTime>(dayClockProvider,
+        (previous, next) {
+      if (!dayClockTurnedDay(previous: previous, next: next)) return;
+      ref.read(dashboardProvider.notifier).refresh();
+      ref.read(weeklyGridProvider.notifier).refresh();
+      _maybeAutoResumeDueHabits().ignore();
+    });
+
     // Keeps the widget's opt-in Room Race face current — see
     // rooms_notifier.dart's myRoomRaceSnapshotProvider for how "the one
     // room" to show and its ranking get picked. fireImmediately so a cold
@@ -919,6 +940,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             // coming. See MatrixTask.lastReminderAt.
             isLate: t.lastReminderAt != null &&
                 !t.lastReminderAt!.isAfter(now),
+            // The time the user picked, not the earliest nudge. The Lock
+            // Screen sorts by it (MatrixLockScreenOrder.swift): today's
+            // times first, a task dated for another day below the rest.
+            dueAt: t.reminderAnchorAt,
           ),
       ]);
       // The evening streak note states how many Do First tasks are open
@@ -946,7 +971,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// in-app board itself reads top to bottom — see [_matrixWidgetSub]. A
   /// widget only has room for a handful of rows, so this decides which open
   /// tasks are worth those rows when there are more open tasks than space
-  /// to show them.
+  /// to show them. The Lock Screen widget sorts by each task's time first
+  /// and falls back on this order only where the time leaves a tie (see
+  /// ios/GrowDailyWidget/MatrixLockScreenOrder.swift).
   int _matrixQuadrantRank(MatrixQuadrant q) => switch (q) {
         MatrixQuadrant.doFirst => 0,
         MatrixQuadrant.schedule => 1,
@@ -2065,8 +2092,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       return;
     }
     if (isMatrixQuickAddLink(uri)) {
-      ref.read(requestedHomeTabProvider.notifier).state = NavTab.matrix;
-      ref.read(requestedMatrixQuickAddProvider.notifier).state = true;
+      _openFromOutside(uri, NavTab.matrix, quickAdd: true);
       return;
     }
     final resetCode = parsePasswordResetLink(uri);
@@ -2074,24 +2100,81 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       _openPasswordReset(resetCode);
       return;
     }
-    // A Lock Screen / Control Center control. Deliberately last and
-    // deliberately forgiving: an id this build does not know (a control left
-    // on the lock screen after the tab it pointed at was removed) opens the
-    // app on its usual tab rather than doing nothing, which is the difference
-    // between a stale control feeling slow and feeling broken.
+    // A Lock Screen / Control Center control, or a Lock Screen widget.
+    // Deliberately last and deliberately forgiving: an id this build does
+    // not know (a control left on the lock screen after the tab it pointed
+    // at was removed) opens the app on its usual tab rather than doing
+    // nothing, which is the difference between a stale control feeling slow
+    // and feeling broken. The Add Task control is the same link plus a flag.
     final tabId = parseOpenTabLink(uri);
     if (tabId != null) {
-      final tab = NavTab.byId(tabId);
-      if (tab != null) {
-        ref.read(requestedHomeTabProvider.notifier).state = tab;
+      final handled = _openFromOutside(
+        uri,
+        NavTab.byId(tabId),
+        quickAdd: openTabLinkWantsAdd(uri),
+      );
+      if (handled) {
+        // A control hands its link over as https (ios/Runner/ControlIntents
+        // .swift), a Lock Screen widget as growdaily://, so the two can be
+        // told apart in the numbers.
+        AnalyticsService.instance.track('control_opened', props: {
+          'tab': tabId,
+          'via': uri.scheme == 'https' ? 'control' : 'widget',
+        });
       }
-      // The Add Task control. Same link shape as the other two plus a flag,
-      // so all three share one AASA component.
-      if (openTabLinkWantsAdd(uri)) {
-        ref.read(requestedMatrixQuickAddProvider.notifier).state = true;
-      }
-      AnalyticsService.instance.track('control_opened', props: {'tab': tabId});
     }
+  }
+
+  /// The last "open this page" link acted on, and when. See
+  /// [isRepeatOpenLink] for the second copy of a launch link.
+  String? _lastOpenLink;
+  DateTime? _lastOpenLinkAt;
+
+  /// A link from outside the app asking for one page: a Lock Screen control,
+  /// a Lock Screen widget, or the Matrix widget's "+". Returns false when it
+  /// is the same link as a moment ago and was dropped.
+  ///
+  /// Asking HomeShell for the tab was all this used to do, and a control
+  /// still opened the app somewhere other than the page it named (Aziz,
+  /// 2026-09-21). Three gaps, each one enough on its own:
+  ///  1. Anything open on top stayed on top. The request turns HomeShell's
+  ///     page, and a room, a sheet or any screen pushed over the shell kept
+  ///     covering it, so the switch happened out of sight. Everything above
+  ///     the first route is closed first.
+  ///  2. A cold start asked before HomeShell existed, and its listener only
+  ///     hears changes made after it registers. HomeShell now reads a
+  ///     waiting request when it is built (its initState).
+  ///  3. A request left unread still held its value, and setting a provider
+  ///     to the value it holds is not a change, so the next tap on the same
+  ///     control was not heard either. Cleared, then set, it always is.
+  ///
+  /// Lands without the page-turn animation: the app is coming up from the
+  /// Lock Screen or the background, and the page should simply be there.
+  bool _openFromOutside(Uri uri, NavTab? tab, {bool quickAdd = false}) {
+    final now = DateTime.now();
+    final link = uri.toString();
+    if (isRepeatOpenLink(
+      link: link,
+      now: now,
+      lastLink: _lastOpenLink,
+      lastAt: _lastOpenLinkAt,
+    )) {
+      return false;
+    }
+    _lastOpenLink = link;
+    _lastOpenLinkAt = now;
+    // Null on a cold start, before the first frame: nothing is open then.
+    _navKey.currentState?.popUntil((route) => route.isFirst);
+    if (tab != null) {
+      ref.read(requestedHomeTabInstantProvider.notifier).state = true;
+      ref.read(requestedHomeTabProvider.notifier).state = null;
+      ref.read(requestedHomeTabProvider.notifier).state = tab;
+    }
+    if (quickAdd) {
+      ref.read(requestedMatrixQuickAddProvider.notifier).state = false;
+      ref.read(requestedMatrixQuickAddProvider.notifier).state = true;
+    }
+    return true;
   }
 
   /// The code from a reset link, held only until there is a Navigator to
@@ -2469,6 +2552,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _widgetSub?.close();
     _notificationSettingsSub?.close();
     _gridSub?.close();
+    _dayTurnSub?.close();
     _authSub?.close();
     _passwordDroppedSub?.close();
     _roomRaceSub?.close();
@@ -2559,7 +2643,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       initialRoute: '/',
       routes: {
         '/': (_) => const _AuthGate(),
-        '/heatmap': (_) => const MonthlyHeatmapScreen(),
+        // The map now lives on سجلّي's «الكل» tab (2026-09-21).
+        '/heatmap': (_) => const RecordScreen(initialTab: RecordTab.all),
         '/night-review': (_) => const NightReviewScreen(),
         '/tasbih': (_) => const TasbihScreen(),
         '/grid-journal': (_) => const GridJournalScreen(),

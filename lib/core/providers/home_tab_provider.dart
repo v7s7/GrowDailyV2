@@ -19,6 +19,12 @@ import 'nav_layout_provider.dart' show NavTab;
 ///
 /// A plain StateProvider since there's only ever one thing to communicate
 /// (which tab to show), not a queue of them.
+///
+/// Can be set before HomeShell exists: a Lock Screen control or widget that
+/// cold-starts the app asks from main.dart's _openFromOutside while the
+/// sign-in gate is still up. HomeShell reads a waiting request when it is
+/// built (its initState), because its listener only hears changes made
+/// after it registers.
 final requestedHomeTabProvider = StateProvider<NavTab?>((ref) => null);
 
 /// Set alongside [requestedHomeTabProvider] when the request is arriving
@@ -32,6 +38,11 @@ final requestedHomeTabProvider = StateProvider<NavTab?>((ref) => null);
 /// revealing the destination tab already settled. Reset by HomeShell's
 /// listener right after reading it, same one-shot pattern as
 /// [requestedHomeTabProvider] itself.
+///
+/// Also set by main.dart's _openFromOutside for links from outside the app
+/// (Lock Screen controls and widgets, the Matrix widget's "+"): the app is
+/// coming up from the Lock Screen or the background, and whatever was open
+/// on top is being closed in the same moment.
 final requestedHomeTabInstantProvider = StateProvider<bool>((ref) => false);
 
 /// Set alongside [requestedHomeTabProvider] (NavTab.matrix) when something outside

@@ -385,6 +385,24 @@ class _ProfileLinksSection extends ConsumerWidget {
     // RoomsHubScreen's own gate), so this stays 0 and the badge below just
     // never shows for them rather than needing a separate guest branch here.
     final roomCount = ref.watch(myRoomCodesProvider).valueOrNull?.length ?? 0;
+    // The last two weeks for the سجلّي row, oldest first, coloured by the
+    // map's rule from the map's own inputs; no note index, since the strip
+    // draws no notes.
+    final inputs = watchHeatmapInputs(ref, withNotes: false);
+    final today = inputs.now.effectiveDay;
+    final recent = <Color>[
+      for (var back = 13; back >= 0; back--)
+        recordDayColor(
+          count: inputs.counts[
+                  DateTime(today.year, today.month, today.day - back)
+                      .toDateKey()] ??
+              0,
+          day: DateTime(today.year, today.month, today.day - back),
+          habits: inputs.habits,
+          isGreen: inputs.isGreen,
+          dark: gp.dark,
+        ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -468,63 +486,22 @@ class _ProfileLinksSection extends ConsumerWidget {
                 ),
               ),
               Container(height: 0.5, color: gp.divider),
-              // التقارير: the أسبوعي / شهري / سنوي report, which replaced
-              // the two rows that used to sit at the bottom of this card
-              // ("قصة الشهر" and "سجل السنة"). It is deliberately NOT part
-              // of التقدّم above: that screen holds lifetime medals and a
-              // lifetime category share, which do not move when you step a
-              // period, and stacking them under the period tabs made them
-              // read as part of whichever month was on screen.
-              InkWell(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ReportsScreen()),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
-                  child: Row(
-                    children: [
-                      Icon(Icons.insert_chart_outlined_rounded,
-                          size: 20, color: gp.textSec),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(s.reportsTitle,
-                            style: TextStyle(
-                                fontSize: 15,
-                                color: gp.textPrimary,
-                                fontWeight: FontWeight.w500)),
-                      ),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 18, color: gp.textTert),
-                    ],
-                  ),
-                ),
-              ),
-              Container(height: 0.5, color: gp.divider),
-              // خط الحياة الزمني: the whole record, year by year, with the
-              // milestones earned in each. Wired back up deliberately, and
-              // only after it stopped being a duplicate: the reason its door
-              // was removed in the first place was that it "re-rendered the
-              // Progress Heatmap's own day-square grid" (see the note above),
-              // and the two things it now leads with - when the record
-              // STARTS, and every year side by side - are the two things no
-              // other screen in the app says. التقدّم answers "where am I
-              // now", التقارير answers "how was this week/month/year", and
-              // this answers "how far have I come".
+              // سجلّي: the whole record in one place (2026-09-21). It replaced
+              // three rows that sat here, التقارير, خط الحياة الزمني and خريطة
+              // التقدّم, which Aziz called "like 4 dashboards": each drew the
+              // same squares at a different zoom, so "this month", "this
+              // year" and "my total" each had two or three homes, and two of
+              // the totals disagreed. See RecordScreen.
               //
-              // Sits third rather than last so the three data rows stay
-              // together and الغرف (people, not numbers) keeps the bottom.
+              // The row carries the last two weeks as small squares: a glimpse
+              // of the map where people already look, which is what the map
+              // needed after Aziz called it "powerful, but it's hidden".
               InkWell(
                 onTap: () {
                   HapticFeedback.selectionClick();
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (_) => const LifeTimelineScreen()),
+                    MaterialPageRoute(builder: (_) => const RecordScreen()),
                   );
                 },
                 child: Padding(
@@ -532,16 +509,18 @@ class _ProfileLinksSection extends ConsumerWidget {
                       horizontal: 16, vertical: 14),
                   child: Row(
                     children: [
-                      Icon(Icons.timeline_rounded,
+                      Icon(Icons.calendar_view_month_rounded,
                           size: 20, color: gp.textSec),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(s.lifeTimelineTitle,
+                        child: Text(s.recordTitle,
                             style: TextStyle(
                                 fontSize: 15,
                                 color: gp.textPrimary,
                                 fontWeight: FontWeight.w500)),
                       ),
+                      RecordRecentStrip(colors: recent),
+                      const SizedBox(width: 8),
                       Icon(Icons.chevron_right_rounded,
                           size: 18, color: gp.textTert),
                     ],
@@ -632,6 +611,11 @@ class _ProfileLinksSection extends ConsumerWidget {
     );
   }
 }
+
+/// The links card on its own, for the same reason as
+/// [profileStatsRowForTest].
+@visibleForTesting
+Widget profileLinksForTest() => const _ProfileLinksSection();
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 

@@ -15,8 +15,9 @@ import '../../core/utils/western_digits.dart';
 import '../auth/notifiers/auth_notifier.dart';
 import '../grid/models/square_state.dart';
 import '../habits/catalog/islamic_habit_catalog.dart';
-import '../habits/notifiers/custom_habits_notifier.dart';
 import '../premium/notifiers/premium_notifier.dart';
+import '../milestones/reports/record_lifetime.dart'
+    show habitsWithKnownStartProvider;
 import 'insight_engine.dart';
 
 const int _insightsDaysWindow = 56; // 8 full grid weeks
@@ -261,7 +262,10 @@ class _InsightsBody extends ConsumerWidget {
     // rollup, and best/worst pick the instant it's archived. This also
     // means habitDisplayName below can resolve an archived habit's real
     // name instead of falling all the way back to "Deleted habit".
-    final habits = ref.watch(allHabitsEverProvider);
+    // Each with a known start (see habitsWithKnownStartProvider): a preset
+    // with no saved start date otherwise counts as missed on every day of the
+    // window before it began, and this screen's rates disagreed with سجلّي.
+    final habits = ref.watch(habitsWithKnownStartProvider);
     final isPremium = ref.watch(premiumAccessProvider);
     // Re-read at midnight and at kDayCutoffHour, so a screen left open
     // across 10:00 takes yesterday in when it closes. See dayClockProvider.

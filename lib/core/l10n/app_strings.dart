@@ -4843,6 +4843,17 @@ class S {
   String get reportsMonthly => isAr ? 'شهري' : 'Monthly';
   String get reportsYearly => isAr ? 'سنوي' : 'Yearly';
 
+  /// سجلّي: the one record page that replaced التقارير, خط الحياة الزمني and
+  /// the separate map (2026-09-21). Working name from the design canvas;
+  /// Aziz picks the final words.
+  String get recordTitle => isAr ? 'سجلّي' : 'My record';
+
+  /// Its four tabs are zoom levels of the same record, smallest first.
+  String get recordTabWeek => isAr ? 'أسبوع' : 'Week';
+  String get recordTabMonth => isAr ? 'شهر' : 'Month';
+  String get recordTabYear => isAr ? 'سنة' : 'Year';
+  String get recordTabAll => isAr ? 'الكل' : 'All';
+
   /// The four numbers under every tab's grid.
   ///
   /// "نسبة الإنجاز" is measured against what the habits actually owed (see

@@ -534,6 +534,64 @@ class HabitPeriodStat {
 /// nothing in the window are dropped: an archived habit that predates the
 /// month is noise, while a live habit with an empty row is a commitment
 /// worth seeing.
+/// A habit with a start date the record can count from.
+///
+/// A preset switched on before switch-on days were kept has no `createdAt`,
+/// and [IslamicHabitTemplate.isScheduledFor] reads a habit with no start as
+/// alive forever: owed, and missed, on every day of any window. So «سنة»
+/// counted such a habit from 1 January, months before it was ever done,
+/// while «الكل» counted it from the record's first square, and one record
+/// read 28% on one tab and 52% on the other (Aziz's account, 2026-09-21;
+/// الصدقة ولو بالقليل is one of these presets).
+///
+/// So a habit with no known start begins on the first day it recorded
+/// anything, and one that has recorded nothing begins [today], claiming no
+/// past at all. The squares already followed this rule (cellStatesByWeek);
+/// every rate now does too, since every rate is counted through
+/// [computeHabitPeriodStats], and Insights applies it to its own list.
+///
+/// For counting only. isScheduledFor itself is left alone, because streaks,
+/// reminders and rooms read it too.
+IslamicHabitTemplate habitWithKnownStart(
+  IslamicHabitTemplate habit,
+  Map<String, SquareState> allMarks, {
+  required DateTime today,
+}) {
+  if (habit.createdAt != null) return habit;
+  String? firstKey;
+  for (final key in allMarks.keys) {
+    if (firstKey == null || key.compareTo(firstKey) < 0) firstKey = key;
+  }
+  // withDates, not withCreatedAt: the latter drops archivedAt, and an
+  // archived habit's days after it was put away would then read as alive.
+  return habit.withDates(
+    createdAt: (firstKey == null ? null : DateTime.tryParse(firstKey)) ??
+        DateTime(today.year, today.month, today.day),
+    archivedAt: habit.archivedAt,
+  );
+}
+
+/// Where the whole record begins: the earlier of its first square and the
+/// first day any habit was owed, so «الكل» counts every habit from its own
+/// start exactly as a year does, and the two agree on a record that fits in
+/// one year. Habits here must already have a known start (see
+/// [habitWithKnownStart]); null for a record with neither.
+DateTime? recordStartOf(
+  Iterable<IslamicHabitTemplate> habits,
+  DateTime? firstMark,
+) {
+  DateTime? start = firstMark == null
+      ? null
+      : DateTime(firstMark.year, firstMark.month, firstMark.day);
+  for (final h in habits) {
+    final born = h.createdAt;
+    if (born == null) continue;
+    final day = DateTime(born.year, born.month, born.day);
+    if (start == null || day.isBefore(start)) start = day;
+  }
+  return start;
+}
+
 List<HabitPeriodStat> computeHabitPeriodStats({
   required List<IslamicHabitTemplate> habits,
   required Map<String, Map<String, SquareState>> history,
@@ -551,8 +609,15 @@ List<HabitPeriodStat> computeHabitPeriodStats({
 }) {
   final windowKeys = {for (final d in days) d.toDateKey()};
   final out = <HabitPeriodStat>[];
-  for (final habit in habits) {
-    final all = history[habit.id] ?? const <String, SquareState>{};
+  // The day a habit that has recorded nothing is said to begin (see
+  // habitWithKnownStart): the live day when there is a clock, else the
+  // window's end.
+  final today = now?.effectiveDay ??
+      windowEnd ??
+      (days.isEmpty ? DateTime.now().effectiveDay : days.last);
+  for (final raw in habits) {
+    final all = history[raw.id] ?? const <String, SquareState>{};
+    final habit = habitWithKnownStart(raw, all, today: today);
     final marks = <String, SquareState>{
       for (final entry in all.entries)
         if (windowKeys.contains(entry.key)) entry.key: entry.value,

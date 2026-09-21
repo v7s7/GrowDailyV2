@@ -151,8 +151,9 @@ class LifeTimelineScreen extends ConsumerWidget {
       body: ListView.builder(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        // +1 for the lifetime header that now sits under the subtitle.
-        itemCount: 2 + years.length + (isPremium ? 1 : 2),
+        // Subtitle, lifetime header and the full-map entry, then the years,
+        // then (free accounts only) the upgrade card.
+        itemCount: 3 + years.length + (isPremium ? 0 : 1),
         itemBuilder: (context, index) {
           if (index == 1) {
             return Padding(
@@ -175,7 +176,19 @@ class LifeTimelineScreen extends ConsumerWidget {
               ),
             );
           }
-          final yearIndex = index - 2;
+          // The full activity map, right under the lifetime header. It used
+          // to be the last row on the page, below every year, so on any
+          // account old enough to have a few years it was the one thing
+          // nobody scrolled far enough to find (Aziz, 2026-09-21: "it's
+          // powerful, but it's hidden ... it is lovely to see"). Each year's
+          // day grid below opens it as well.
+          if (index == 2) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: _OpenFullMapRow(onTap: () => _openFullMap(context)),
+            );
+          }
+          final yearIndex = index - 3;
           if (yearIndex < years.length) {
             final year = years[yearIndex];
             return Padding(
@@ -189,52 +202,12 @@ class LifeTimelineScreen extends ConsumerWidget {
                     milestones.where((e) => e.occurredAt.year == year).toList(),
                 today: today,
                 dark: dark,
-              ),
-            );
-          }
-          final footerIndex = yearIndex - years.length;
-          if (footerIndex == 0) {
-            return Container(
-              margin: const EdgeInsets.only(top: 4, bottom: 16),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const MonthlyHeatmapScreen()),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: gp.surface,
-                    borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-                    border: Border.all(color: gp.border, width: 0.5),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.calendar_view_month_rounded,
-                          size: 18, color: gp.textSec),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          s.lifeTimelineOpenHeatmap,
-                          style: TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                              color: gp.textPrimary),
-                        ),
-                      ),
-                      Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
-                    ],
-                  ),
-                ),
+                onOpenMap: () => _openFullMap(context),
               ),
             );
           }
           // Only reachable when !isPremium (itemCount only reserves this
-          // second footer slot in that case).
+          // last slot in that case).
           return InkWell(
             // Tappable now, and it answers with the shared demo sheet rather
             // than nothing at all. Every other locked-history surface in the
@@ -268,6 +241,14 @@ class LifeTimelineScreen extends ConsumerWidget {
           );
         },
       ),
+    );
+  }
+
+  static void _openFullMap(BuildContext context) {
+    HapticFeedback.selectionClick();
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MonthlyHeatmapScreen()),
     );
   }
 
@@ -432,6 +413,10 @@ class _YearSection extends StatelessWidget {
   final DateTime today;
   final bool dark;
 
+  /// Opens the full activity map. A tap anywhere on the year's day grid
+  /// does, except on a muted square, which keeps raising the demo sheet.
+  final VoidCallback onOpenMap;
+
   const _YearSection({
     required this.year,
     required this.lockedBefore,
@@ -440,6 +425,7 @@ class _YearSection extends StatelessWidget {
     required this.milestonesThisYear,
     required this.today,
     required this.dark,
+    required this.onOpenMap,
   });
 
   @override
@@ -519,13 +505,23 @@ class _YearSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Wrap(spacing: 3, runSpacing: 3, children: cells),
+          // The whole grid opens the full map: it is the same record at a
+          // glance, so tapping it to look closer is the obvious move. A
+          // muted square's own tap sits deeper and still wins, raising the
+          // demo sheet as before.
+          Semantics(
+            button: true,
+            label: s.lifeTimelineOpenHeatmap,
+            child: GestureDetector(
+              onTap: onOpenMap,
+              behavior: HitTestBehavior.opaque,
+              child: Wrap(spacing: 3, runSpacing: 3, children: cells),
+            ),
+          ),
           if (tally.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
+            MilestoneTallyRows(
+              chips: [
                 for (final entry in tally.entries)
                   MilestoneTallyChip(
                     icon: entry.key.icon,
@@ -537,6 +533,54 @@ class _YearSection extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// The way into the full activity map, under the lifetime header.
+///
+/// The icon wears the map's own colour, so the row reads as a door to the
+/// grid below it rather than one more settings line.
+class _OpenFullMapRow extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _OpenFullMapRow({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Material(
+      color: gp.surface,
+      borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+            border: Border.all(color: gp.border, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.calendar_view_month_rounded,
+                  size: 18, color: heatColor(4, gp.dark)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  s.lifeTimelineOpenHeatmap,
+                  style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textPrimary),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
+            ],
+          ),
+        ),
       ),
     );
   }

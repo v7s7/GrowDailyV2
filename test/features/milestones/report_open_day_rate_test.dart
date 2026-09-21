@@ -39,7 +39,11 @@ void main() {
         hasTimer: false,
         xpReward: 10,
         goldReward: 1,
-        createdAt: createdAt,
+        // Alive all year unless a test says otherwise. Every window here is
+        // in 2026, so this is exactly what a missing start used to mean; it
+        // has to be stated now that a habit with no saved start begins at its
+        // first square (habitWithKnownStart, 2026-09-21).
+        createdAt: createdAt ?? DateTime(2026),
       );
 
   String sep(int day) => DateTime(2026, 9, day).toDateKey();
@@ -62,15 +66,26 @@ void main() {
     expect(DateTime(2026, 9, 11).weekday, DateTime.friday);
   });
 
-  final adhkar = habit('adhkar');
+  // Started before September, as they were on his account, so every day of
+  // the month is theirs to owe. Stated rather than left out: a habit with no
+  // saved start now begins at its first square (habitWithKnownStart,
+  // 2026-09-21), which would start أذكار الصباح on the 3rd.
+  final august = DateTime(2026, 8);
+  final adhkar = habit('adhkar', createdAt: august);
   final sadaqa = habit(
     'sadaqa',
     type: HabitFrequencyType.weekly,
     target: 2,
     weekdays: const [DateTime.monday, DateTime.thursday],
+    createdAt: august,
   );
   final quran = habit('quran', createdAt: DateTime(2026, 9, 9));
-  final training = habit('training', type: HabitFrequencyType.weekly, target: 4);
+  final training = habit(
+    'training',
+    type: HabitFrequencyType.weekly,
+    target: 4,
+    createdAt: august,
+  );
 
   Map<String, Map<String, SquareState>> septemberHistory({
     Map<String, SquareState> adhkarExtra = const {},

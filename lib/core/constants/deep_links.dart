@@ -83,11 +83,13 @@ const String resetPath = '/reset';
 
 /// Path for a plain "open the app here" link: `growdaily://open?tab=grid`.
 ///
-/// What the iOS Lock Screen / Control Center controls use (see
-/// ios/GrowDailyWidget/GrowDailyControls.swift). One parameterised link
-/// rather than a path per page, because the destinations are exactly
-/// [NavTab]'s ids and a second list of names that has to agree with that
-/// enum is a list that will eventually disagree with it.
+/// What the iOS Lock Screen / Control Center controls hand to the app (see
+/// ios/Runner/ControlIntents.swift) and what a tap on a Lock Screen widget
+/// opens (lockScreenOpenURL in ios/GrowDailyWidget/GrowDailyWidget.swift).
+/// One parameterised link rather than a path per page, because the
+/// destinations are exactly [NavTab]'s ids and a second list of names that
+/// has to agree with that enum is a list that will eventually disagree with
+/// it.
 const String openPath = '/open';
 
 /// The tab id from an "open the app here" link, or null.
@@ -119,20 +121,50 @@ String? parseOpenTabLink(Uri uri) {
 bool openTabLinkWantsAdd(Uri uri) =>
     parseOpenTabLink(uri) != null && uri.queryParameters['add'] == '1';
 
-/// The link a control taps. Kept here so the Swift side has one spelling to
-/// copy and the test can assert the round trip.
+/// The link a control hands to the app. Kept here so the Swift side has one
+/// spelling to copy and the test can assert the round trip.
 ///
-/// **https, not growdaily://.** A ControlWidget's OpenURLIntent REFUSES a
-/// custom scheme: it accepts a universal link only. Build 69 shipped with
-/// `growdaily://open?tab=...` and the controls appeared on the Lock Screen
-/// and did nothing at all when tapped (Aziz, 2026-09-10). The custom-scheme
-/// form is still parsed on the way in, because public/open/index.html falls
-/// back to it when the AASA handshake has not happened.
+/// **https, not growdaily://.** Build 69 opened `growdaily://open?tab=...`
+/// through OpenURLIntent, which accepts a universal link only, so builds
+/// from 70 sent this https form instead. Neither worked, for reasons the
+/// URL could not fix: the controls' intents existed only in the widget
+/// extension, where Apple will not open the app from them (see
+/// ios/Runner/ControlIntents.swift), and the app dropped the request on a
+/// cold start or behind a page left open (main.dart's _openFromOutside).
+/// The app's own copies now hand this link straight to app_links, and the
+/// https spelling stays because the analytics use the scheme to tell a
+/// control from a Lock Screen widget. The custom-scheme form is still
+/// parsed on the way in: the widgets use it, and public/open/index.html
+/// falls back to it.
 Uri openTabUrl(String tabId, {bool quickAdd = false}) => Uri.https(
       linkHost,
       openPath,
       {'tab': tabId, if (quickAdd) 'add': '1'},
     );
+
+/// How long the same "open this page" link counts as one arrival.
+const Duration kRepeatOpenLinkWindow = Duration(seconds: 2);
+
+/// Whether [link] is the same "open this page" link handled [lastAt], close
+/// enough in time to be the same arrival rather than a new tap.
+///
+/// app_links hands the link that launched the app over twice: once when
+/// main.dart asks for the launch link, and again on the stream it listens to
+/// right after (the plugin replays its launch link to a new listener). When
+/// the home screen is already up by then, the second copy would run the
+/// whole request again: the page pushed a second time, the Add Task sheet
+/// closed and reopened. Two seconds is far longer than that replay and far
+/// shorter than anyone tapping a control, locking the phone and tapping it
+/// again.
+bool isRepeatOpenLink({
+  required String link,
+  required DateTime now,
+  required String? lastLink,
+  required DateTime? lastAt,
+}) =>
+    lastLink == link &&
+    lastAt != null &&
+    now.difference(lastAt) < kRepeatOpenLinkWindow;
 
 /// Parses a password-reset link into its Firebase `oobCode`, or null.
 ///

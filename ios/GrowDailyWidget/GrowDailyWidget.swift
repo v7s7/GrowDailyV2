@@ -741,6 +741,21 @@ struct GrowDailyWidget: Widget {
 // system's own tint on a locked device, not really where you want someone
 // trying to tap fiddly buttons.
 
+/// Where a tap on a Lock Screen widget lands: the page that widget is about.
+/// Each of the three Lock Screen widgets (streak, Room Race, tasks) is one
+/// tap target as a whole and used to carry no link, so a tap opened the app
+/// wherever it had last been left; Aziz asked on 2026-09-21 for each to
+/// open its own page. Same link shape as the Lock Screen controls
+/// (deep_links.dart's parseOpenTabLink), resolved by main.dart's
+/// _handleDeepLink, which also closes anything left open on top first. The
+/// tab ids are NavTab's, which test/core/open_tab_link_test.dart pins.
+///
+/// growdaily:// is right here: iOS hands a widget's own link straight to its
+/// app, with no universal link or web association involved.
+func lockScreenOpenURL(tab: String) -> URL {
+    URL(string: "growdaily://open?tab=\(tab)")!
+}
+
 struct GrowDailyCircularView: View {
     var entry: GrowDailyEntry
 
@@ -785,12 +800,15 @@ struct GrowDailyLockScreenView: View {
     var entry: GrowDailyEntry
 
     var body: some View {
-        switch family {
-        case .accessoryRectangular:
-            GrowDailyRectangularView(entry: entry)
-        default:
-            GrowDailyCircularView(entry: entry)
+        Group {
+            switch family {
+            case .accessoryRectangular:
+                GrowDailyRectangularView(entry: entry)
+            default:
+                GrowDailyCircularView(entry: entry)
+            }
         }
+        .widgetURL(lockScreenOpenURL(tab: "grid"))
     }
 }
 
@@ -1496,12 +1514,17 @@ struct RoomRaceLockScreenView: View {
     var entry: RoomRaceEntry
 
     var body: some View {
-        switch family {
-        case .accessoryRectangular:
-            RoomRaceRectangularView(entry: entry)
-        default:
-            RoomRaceCircularView(entry: entry)
+        Group {
+            switch family {
+            case .accessoryRectangular:
+                RoomRaceRectangularView(entry: entry)
+            default:
+                RoomRaceCircularView(entry: entry)
+            }
         }
+        // The rooms page, not the one room: the entry does not carry the
+        // room's code. With no room at all this is where joining starts.
+        .widgetURL(lockScreenOpenURL(tab: "rooms"))
     }
 }
 
@@ -1556,20 +1579,32 @@ struct WidgetMatrixTask: Codable, Identifiable {
     /// DateTime.now()). Drives a small red marker next to the quadrant dot
     /// below — a flag only, it never changes row order.
     var isLate: Bool
+    /// The moment the user picked for this task (MatrixTask.reminderAnchorAt),
+    /// in milliseconds since 1970, or nil when it has no reminder. The Lock
+    /// Screen orders by it, see MatrixLockScreenOrder.swift.
+    ///
+    /// Stored as the raw number rather than a Date so it survives
+    /// MarkTaskDoneIntent's write-back unchanged: the synthesized encoder
+    /// writes a Date as seconds since 2001 under its own key, and the next
+    /// read would have found no `dueAtMs` and lost the time.
+    var dueAtMs: Double?
 
-    init(id: String, title: String, quadrant: String, isDone: Bool, isFav: Bool, isLate: Bool) {
+    var dueAt: Date? { dueAtMs.map { Date(timeIntervalSince1970: $0 / 1000) } }
+
+    init(id: String, title: String, quadrant: String, isDone: Bool, isFav: Bool, isLate: Bool, dueAtMs: Double? = nil) {
         self.id = id
         self.title = title
         self.quadrant = quadrant
         self.isDone = isDone
         self.isFav = isFav
         self.isLate = isLate
+        self.dueAtMs = dueAtMs
     }
 
     // Custom decode so a `matrixTasksJson` blob written by an older app
-    // build (before isLate existed) still decodes instead of failing the
-    // whole array — same "just missing the new bit" tolerance worth having
-    // for any field added after this widget already shipped.
+    // build (before isLate or dueAtMs existed) still decodes instead of
+    // failing the whole array — same "just missing the new bit" tolerance
+    // worth having for any field added after this widget already shipped.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -1578,6 +1613,7 @@ struct WidgetMatrixTask: Codable, Identifiable {
         isDone = try c.decode(Bool.self, forKey: .isDone)
         isFav = try c.decode(Bool.self, forKey: .isFav)
         isLate = try c.decodeIfPresent(Bool.self, forKey: .isLate) ?? false
+        dueAtMs = try c.decodeIfPresent(Double.self, forKey: .dueAtMs)
     }
 }
 
@@ -1633,30 +1669,49 @@ struct MatrixProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<MatrixEntry>) -> Void) {
-        let entry = loadEntry()
+        let now = Date()
         // Same fallback-only cadence as GrowDailyProvider/RoomRaceProvider —
         // the real refresh trigger is HomeWidgetService.updateMatrixWidgetData
         // firing from main.dart's _matrixWidgetSub whenever the board changes.
-        let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
-        completion(Timeline(entries: [entry], policy: .after(next)))
+        let next = Calendar.current.date(byAdding: .hour, value: 1, to: now)!
+        // Plus a second entry at midnight. The Lock Screen's order depends on
+        // the day (MatrixLockScreenOrder.swift): at 00:00 yesterday's timed
+        // tasks drop down and tomorrow's become today's, while the board
+        // itself has not changed, so the app has nothing to write. The hourly
+        // reload above is a request iOS rations, and a phone left on the
+        // nightstand can go hours without one; an entry is drawn at its own
+        // date regardless.
+        let calendar = lockScreenCalendar
+        let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
+        completion(Timeline(entries: [loadEntry(at: now), loadEntry(at: midnight)], policy: .after(next)))
     }
 
-    private func loadEntry() -> MatrixEntry {
+    private func loadEntry(at date: Date = Date()) -> MatrixEntry {
         let defaults = UserDefaults(suiteName: appGroupId)
         let tasks = readJSON("matrixTasksJson", from: defaults, as: [WidgetMatrixTask].self) ?? []
-        // The count is only meaningful on the day it was written — after
-        // midnight a stale count would sit in today's denominator until
-        // the app next foregrounds. The hourly timeline refresh makes
-        // this self-heal shortly after the day turns.
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: Date())
+        // The count is only meaningful on the day it was written: after
+        // midnight a stale count would sit in today's denominator until the
+        // app next foregrounds. Judged on the entry's own date, so the
+        // midnight entry starts the new day at zero.
         let stamp = defaults?.string(forKey: "matrixDoneTodayDate")
-        let doneToday = stamp == today
+        let doneToday = stamp == matrixDayKey(date)
             ? (defaults?.integer(forKey: "matrixDoneTodayCount") ?? 0)
             : 0
-        return MatrixEntry(date: Date(), tasks: tasks, doneToday: doneToday)
+        return MatrixEntry(date: date, tasks: tasks, doneToday: doneToday)
     }
+}
+
+/// [date]'s day as the app writes `matrixDoneTodayDate`
+/// (LocalStoreService.dateKey): Gregorian, Latin digits, "2026-09-21".
+///
+/// Built by hand rather than by a DateFormatter, because a formatter takes
+/// the phone's locale and calendar. On an Arabic iPhone it wrote
+/// «٢٠٢٦-٠٩-٢١», and on one set to the Hijri calendar a 1448 date, and
+/// neither ever matched the app's key: every task finished in the app was
+/// read as another day's, and the Lock Screen ring never filled.
+private func matrixDayKey(_ date: Date) -> String {
+    let day = lockScreenCalendar.dateComponents([.year, .month, .day], from: date)
+    return String(format: "%04ld-%02ld-%02ld", day.year ?? 0, day.month ?? 0, day.day ?? 0)
 }
 
 /// Backs the checkmark on each task row. Exact same division of labor as
@@ -1976,11 +2031,13 @@ struct GrowDailyMatrixWidget: Widget {
 // A fifth widget kind, opt-in from the gallery like Room Race and the
 // Matrix Home Screen widget above it — reuses that exact same
 // MatrixProvider/MatrixEntry (matrixTasksJson already carries every open
-// task, already sorted by quadrant priority — see main.dart's
-// _matrixWidgetSub), just a different face on the same data: the
-// *starred* (WidgetMatrixTask.isFav, mirrors MatrixTask.isFav's gold star
-// toggle on the Tasks screen) tasks, falling back to the full list when
-// nothing is starred — see MatrixEntry.lockScreenTasks below for why.
+// task, sorted by quadrant priority — see main.dart's _matrixWidgetSub),
+// just a different face on the same data: the *starred*
+// (WidgetMatrixTask.isFav, mirrors MatrixTask.isFav's gold star toggle on
+// the Tasks screen) tasks, falling back to the full list when nothing is
+// starred — see MatrixEntry.lockScreenTasks below for why. Unlike the Home
+// Screen face it re-sorts that list by each task's time first, see
+// MatrixLockScreenOrder.swift.
 // Display-only, same reasoning as GrowDailyLockScreenWidget's own
 // doc comment above (Lock Screen isn't where you want someone tapping
 // fiddly buttons) — unlike the Home Screen Matrix widget's real
@@ -1996,20 +2053,21 @@ struct GrowDailyMatrixWidget: Widget {
 // that just says "No starred task" to everyone who hasn't found that
 // toggle is dead space on their Lock Screen. So: star something and this
 // respects it exactly as before (starred-only, that's the whole point of
-// starring); star nothing and it quietly falls back to the same
-// priority-sorted task list every other Matrix widget shows, so it's
-// useful out of the box either way.
+// starring); star nothing and it quietly falls back to every open task
+// on the board, so it's useful out of the box either way.
 //
-// entry.tasks is already open-only and quadrant-sorted from the Dart side
-// (see main.dart's _matrixWidgetSub), so "open tasks first" needs nothing
-// extra here — the only done tasks that can appear are ones
-// MarkTaskDoneIntent just marked locally, which its own sort already sinks
-// to the bottom.
+// entry.tasks is open-only from the Dart side (see main.dart's
+// _matrixWidgetSub); the only done tasks that can appear are ones
+// MarkTaskDoneIntent just marked locally, and inLockScreenOrder keeps
+// those at the bottom.
 extension MatrixEntry {
-    /// Starred tasks when there are any, otherwise every open task.
+    /// Starred tasks when there are any, otherwise every open task, in the
+    /// Lock Screen's order (MatrixLockScreenOrder.swift). Judged on the
+    /// entry's own date, not the clock at drawing time: iOS draws entries
+    /// ahead of time, and the midnight entry has to sort as the new day.
     var lockScreenTasks: [WidgetMatrixTask] {
         let starred = tasks.filter { $0.isFav }
-        return starred.isEmpty ? tasks : starred
+        return (starred.isEmpty ? tasks : starred).inLockScreenOrder(on: date)
     }
 
     /// True when [lockScreenTasks] is the fallback list rather than a real
@@ -2187,12 +2245,15 @@ struct MatrixLockScreenView: View {
     var entry: MatrixEntry
 
     var body: some View {
-        switch family {
-        case .accessoryRectangular:
-            MatrixLockScreenRectangularView(entry: entry)
-        default:
-            MatrixLockScreenCircularView(entry: entry)
+        Group {
+            switch family {
+            case .accessoryRectangular:
+                MatrixLockScreenRectangularView(entry: entry)
+            default:
+                MatrixLockScreenCircularView(entry: entry)
+            }
         }
+        .widgetURL(lockScreenOpenURL(tab: "matrix"))
     }
 }
 

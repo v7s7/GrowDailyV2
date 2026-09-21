@@ -35,19 +35,59 @@ class MilestoneTallyChip extends StatelessWidget {
   final int count;
   final String label;
 
+  /// Take the whole width it is given, content centred, and shrink the
+  /// content only if it could not otherwise fit. Set by [MilestoneTallyRows],
+  /// which hands every chip in a row the same width.
+  final bool fill;
+
   const MilestoneTallyChip({
     super.key,
     required this.icon,
     required this.color,
     required this.count,
     required this.label,
+    this.fill = false,
   });
+
+  MilestoneTallyChip _filled() => MilestoneTallyChip(
+        key: key,
+        icon: icon,
+        color: color,
+        count: count,
+        label: label,
+        fill: true,
+      );
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 6),
+        Text(
+          toWesternDigits('$count'),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: gp.textPrimary,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: gp.textSec,
+          ),
+        ),
+      ],
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      alignment: fill ? Alignment.center : null,
       decoration: BoxDecoration(
         // A RELATIVE tint rather than a named surface: these chips sit on
         // gp.surface inside a Life Timeline year card and on a different
@@ -60,30 +100,61 @@ class MilestoneTallyChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
         border: Border.all(color: gp.border, width: 0.5),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 6),
-          Text(
-            toWesternDigits('$count'),
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: gp.textPrimary,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: gp.textSec,
-            ),
+      child: fill
+          ? FittedBox(fit: BoxFit.scaleDown, child: content)
+          : content,
+    );
+  }
+}
+
+/// Milestone chips as full, even rows: every chip in a row the same width,
+/// and no row left half empty.
+///
+/// A plain Wrap sized each chip to its own words, so "6 يوم مثالي", "6
+/// ارتقاء مستوى" and "1 إنجاز سلسلة" came out three different widths, and a
+/// fourth dropped onto a line of its own (Aziz, 2026-09-21: "make it fit and
+/// clean size and not random sizes"). The two-column grid before the Wrap
+/// had the opposite fault: an odd count left a ragged half-empty row. So the
+/// chips are dealt into as few rows as hold three each, spread evenly (three
+/// make one row, four make two and two, five make three and two), and every
+/// row is shared out equally across the full width. A lone chip keeps its
+/// own size: stretched across a whole card it would read as a button.
+class MilestoneTallyRows extends StatelessWidget {
+  final List<MilestoneTallyChip> chips;
+
+  const MilestoneTallyRows({super.key, required this.chips});
+
+  static const double _gap = 8;
+  static const int _mostPerRow = 3;
+
+  @override
+  Widget build(BuildContext context) {
+    if (chips.isEmpty) return const SizedBox.shrink();
+    if (chips.length == 1) {
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: chips.single,
+      );
+    }
+    final rowCount = (chips.length / _mostPerRow).ceil();
+    final perRow = (chips.length / rowCount).ceil();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var start = 0; start < chips.length; start += perRow) ...[
+          if (start > 0) const SizedBox(height: _gap),
+          Row(
+            children: [
+              for (var i = start;
+                  i < chips.length && i < start + perRow;
+                  i++) ...[
+                if (i > start) const SizedBox(width: _gap),
+                Expanded(child: chips[i]._filled()),
+              ],
+            ],
           ),
         ],
-      ),
+      ],
     );
   }
 }

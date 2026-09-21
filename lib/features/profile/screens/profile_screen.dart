@@ -34,6 +34,8 @@ import '../../habits/widgets/habit_color_picker.dart'
     show argbToHsv, hsvToArgb;
 import '../../../features/dashboard/notifiers/dashboard_notifier.dart';
 import '../../../features/grid/notifiers/weekly_grid_notifier.dart';
+import '../../../features/grid/screens/monthly_heatmap_screen.dart'
+    show watchHeatmapInputs;
 import '../../../features/grid/widgets/weekly_recap_card.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/language/widgets/language_option_card.dart';
@@ -43,8 +45,10 @@ import '../../../features/premium/screens/premium_screen.dart';
 import '../../../features/rooms/notifiers/rooms_notifier.dart';
 import '../../../features/rooms/screens/rooms_hub_screen.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
-import '../../milestones/reports/reports_screen.dart';
-import '../../milestones/screens/life_timeline_screen.dart';
+import '../../milestones/reports/record_lifetime.dart';
+import '../../milestones/reports/record_screen.dart';
+import '../../milestones/reports/record_views.dart'
+    show RecordRecentStrip, recordDayColor;
 import '../widgets/delete_account_sheet.dart';
 import '../widgets/edit_name_sheet.dart';
 import '../widgets/stat_info_sheet.dart';
@@ -141,7 +145,11 @@ class ProfileScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-              child: _StatsRow(state: state),
+              child: _StatsRow(
+                state: state,
+                recordTotal:
+                    ref.watch(recordLifetimeProvider)?.summary.totalDone,
+              ),
             ).animate(delay: 100.ms).fadeIn(duration: 400.ms),
           ),
           // Directly under the numbers it explains. Renders nothing unless

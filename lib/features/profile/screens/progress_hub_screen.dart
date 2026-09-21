@@ -40,6 +40,8 @@ import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/segmented_tabs.dart';
 import 'achievements_screen.dart';
 import 'progress_day_chart.dart';
+import '../../milestones/reports/record_lifetime.dart'
+    show habitsWithKnownStartProvider;
 
 // ─── The day sheet's raw day document ────────────────────────────────────
 // The CHART no longer reads these at all; it scores off the habit_history
@@ -1394,8 +1396,9 @@ class _InsightsPreviewSection extends ConsumerWidget {
     // them allHabitsEverProvider for the reason documented at
     // insights_screen.dart:179-187. Feeding the active list here meant the
     // preview and the screen it previews disagreed the moment anyone
-    // archived or toggled off a habit.
-    final habits = ref.watch(allHabitsEverProvider);
+    // archived or toggled off a habit. With known starts for the same
+    // reason as the screen it previews (see habitsWithKnownStartProvider).
+    final habits = ref.watch(habitsWithKnownStartProvider);
     final isPremium = ref.watch(premiumAccessProvider);
     // The same clock InsightsScreen reads, so the preview and the screen
     // take yesterday in at the same instant. See dayClockProvider.

@@ -96,11 +96,20 @@ class _HomeShellState extends ConsumerState<HomeShell>
   void initState() {
     super.initState();
     _tabs = ref.read(navLayoutProvider);
+    // A tab asked for before this shell existed wins over [initialTab]: a
+    // Lock Screen control or widget that cold-started the app, or a link
+    // that arrived while sign-in or onboarding was still showing. The
+    // listener in build only hears requests made AFTER it registers, so this
+    // one used to sit unread: the app opened on Habits whatever was tapped
+    // (Aziz, 2026-09-21), and the next tap asking for the same tab was not a
+    // change either. Read here, consumed after the first frame below.
+    final requested = ref.read(requestedHomeTabProvider);
+    final target = requested ?? widget.initialTab;
     // A requested tab that is not in the bar (a stale '/matrix' route after
     // Tasks was removed from it, say) opens the shell on home and pushes
     // the requested screen on top after the first frame, so the caller
     // still gets the screen it asked for.
-    final initial = _tabs.indexOf(widget.initialTab);
+    final initial = _tabs.indexOf(target);
     _index = initial < 0 ? 0 : initial;
     _controller = PageController(initialPage: _index);
     // For the steps auto-complete's app-resume trigger below.
@@ -110,7 +119,14 @@ class _HomeShellState extends ConsumerState<HomeShell>
     // so check once after the first frame too.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (initial < 0) _push(widget.initialTab);
+      // After the first frame because a provider cannot be written while
+      // widgets build. Only if it is still the request this shell opened
+      // on: a newer one has already been through the listener.
+      if (requested != null && ref.read(requestedHomeTabProvider) == requested) {
+        ref.read(requestedHomeTabProvider.notifier).state = null;
+        ref.read(requestedHomeTabInstantProvider.notifier).state = false;
+      }
+      if (initial < 0) _push(target);
       unawaited(_maybePromptNewSharedHabits());
       unawaited(runStepAutoComplete(ref));
     });

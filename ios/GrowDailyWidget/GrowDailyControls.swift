@@ -19,58 +19,28 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-// MARK: - Where a control can go
-
-/// The destinations, spelled exactly as NavTab's ids in
-/// lib/core/providers/nav_layout_provider.dart. The Dart side resolves the
-/// id with NavTab.byId and falls back to the usual tab when it does not
-/// recognise one, so a control left on the lock screen after a tab is
-/// renamed opens the app rather than doing nothing.
-private enum ControlDestination: String {
-    case habits = "grid"
-    case tasks = "matrix"
-}
-
-/// The host that owns the universal links, matching `linkHost` in
-/// lib/core/constants/deep_links.dart.
-private let linkHost = "grow-daily-339ef.web.app"
-
-/// A UNIVERSAL link, not growdaily://.
-///
-/// This is the whole bug of build 69. A ControlWidget's OpenURLIntent
-/// REFUSES a custom scheme — it accepts an https universal link only — so
-/// the three controls appeared on the Lock Screen and did nothing when
-/// tapped ("the locked buttom are here but its not opening", Aziz,
-/// 2026-09-10). Nothing in the build, the analyzer or the descriptor log
-/// could show it: registration succeeded, only the action was inert.
-///
-/// Requires /open* in public/.well-known/apple-app-site-association AND
-/// that file to be DEPLOYED, or iOS has no association to honour and hands
-/// the URL to Safari. public/open/index.html is the safety net for exactly
-/// that case: it bounces to growdaily://open, which does work from a
-/// browser.
-private func openURL(tab: String, quickAdd: Bool = false) -> URL {
-    var c = URLComponents()
-    c.scheme = "https"
-    c.host = linkHost
-    c.path = "/open"
-    c.queryItems = [URLQueryItem(name: "tab", value: tab)]
-    if quickAdd { c.queryItems?.append(URLQueryItem(name: "add", value: "1")) }
-    return c.url!
-}
-
 // MARK: - Intents
-
-/// Each intent declares its own `perform()`, deliberately, rather than
-/// inheriting one from a shared protocol extension. App Intents builds its
-/// metadata from the concrete type, and a `perform()` supplied by a protocol
-/// default is a way to end up registered but inert.
-///
-/// Going out through a URL rather than navigating from Swift is also
-/// deliberate: it lands in main.dart's _handleDeepLink, which is already the
-/// single place every link in this app is resolved, so a control cannot
-/// drift from what a shared link, a widget tap or a notification action
-/// would do.
+//
+// The extension's copies. The APP's copies, in ios/Runner/ControlIntents
+// .swift, are the ones that run: same names, titles and signature, matched
+// by type name, and iOS brings the app forward and runs its copy there. This
+// copy exists so a control in this extension can name its action; its
+// perform() never runs, because openAppWhenRun "generates an error if the
+// app intent runs in an app extension" (Apple, AppIntent.openAppWhenRun).
+//
+// That is what was wrong from build 69 on. These intents lived here ONLY,
+// so the app had no copy for iOS to open it with, and a tap did not reach
+// the page it named ("the locked buttom are here but its not opening",
+// Aziz, 2026-09-10; "they still dont send to task, or to habit", 2026-09-21).
+// The switch from growdaily:// to a universal link in between did not
+// address this, and the app's copies no longer go out through a URL at all.
+//
+// Each intent declares its own `perform()`, deliberately, rather than
+// inheriting one from a shared protocol extension. App Intents builds its
+// metadata from the concrete type, and a `perform()` supplied by a protocol
+// default is a way to end up registered but inert. Keep these in step with
+// the app's copies, the way the alarm intents are kept in step between
+// AlarmKitBridge.swift and GrowDailyAlarmLiveActivity.swift.
 
 @available(iOS 18.0, *)
 struct OpenGrowDailyHabitsIntent: AppIntent {
@@ -78,8 +48,8 @@ struct OpenGrowDailyHabitsIntent: AppIntent {
     static var description = IntentDescription("Opens Grow Daily on your habit board.")
     static var openAppWhenRun: Bool { true }
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(openURL(tab: ControlDestination.habits.rawValue)))
+    func perform() async throws -> some IntentResult {
+        .result()
     }
 }
 
@@ -89,8 +59,8 @@ struct OpenGrowDailyTasksIntent: AppIntent {
     static var description = IntentDescription("Opens Grow Daily on your tasks.")
     static var openAppWhenRun: Bool { true }
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(openURL(tab: ControlDestination.tasks.rawValue)))
+    func perform() async throws -> some IntentResult {
+        .result()
     }
 }
 
@@ -100,12 +70,8 @@ struct AddGrowDailyTaskIntent: AppIntent {
     static var description = IntentDescription("Opens Grow Daily with a new task ready to type.")
     static var openAppWhenRun: Bool { true }
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(
-            opensIntent: OpenURLIntent(
-                openURL(tab: ControlDestination.tasks.rawValue, quickAdd: true)
-            )
-        )
+    func perform() async throws -> some IntentResult {
+        .result()
     }
 }
 

@@ -442,7 +442,13 @@ void main() {
       final sixPm = fridayAhead(18);
       await recompute(earned: true, now: sixPm);
       final note = armedUnder(1010).single;
-      expect(note['title'], 'يومك ماشي عدل');
+      // The board line has three wordings and the day picks one
+      // (_seedOfDay), and fridayAhead moves with the calendar, so the test
+      // pinned to one title failed in the weeks the seed chose another.
+      expect(
+        note['title'],
+        anyOf('يومك ماشي عدل', 'ما شاء الله، شوي ويكتمل يومك'),
+      );
       expect(
         note['body'],
         contains('٢ من ٥ خلّصت'),

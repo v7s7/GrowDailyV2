@@ -96,147 +96,15 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
     final s = S.of(context);
     final dark = gp.dark;
     final isPremium = ref.watch(premiumAccessProvider);
-    // The mirror is the truth; the rollup is only a stand-in for the one
-    // frame before it resolves, so the grid does not flash empty.
-    final dash = ref.watch(dashboardProvider);
-    // A day's green count only means something next to how many habits the
-    // user actually tracks — 2 greens is a perfect day at 2 habits but a
-    // quiet one at 8. Color by percentage of that day's scheduled habit
-    // list, not the raw count, so a 100% day is always the deepest green
-    // regardless of how many habits someone keeps.
-    //
-    // allHabitsEverProvider, not habitListProvider: this screen renders
-    // months of past days, and habitListProvider only ever holds what's
-    // active *today*. Reading that here would mean deleting a habit
-    // silently rewrites every past month's percentages the instant it's
-    // removed — the denominator would shrink to today's habit count while
-    // dailyGreenCounts (the numerator) stays a frozen historical rollup,
-    // so the two would stop agreeing. allHabitsEverProvider keeps an
-    // archived habit counted for exactly the days it was really active,
-    // and NO archived filter here is what lets it do that: `_dayCell` asks
-    // `isScheduledFor(day)` per day, which already stops at `archivedAt`,
-    // so a paused habit leaves the denominator on the day it was paused
-    // and not one day earlier.
-    //
-    // ── Why the filter that used to sit here is gone ────────────────────
-    //
-    // It excluded every archived habit from the DENOMINATOR across all of
-    // history while the numerator below kept their completions. That is
-    // precisely the asymmetry this file's own comment called out as the
-    // thing to avoid ("counting an archived habit's completions while
-    // dropping it from the denominator would let a day exceed 100%"), and
-    // it arrived by accident: the two halves were decided months apart,
-    // and the second one silently broke the first one's invariant.
-    //
-    // The cost was not one bad day, it was the whole record. Pausing a
-    // habit re-coloured every day it had ever been active, right back to
-    // its creation: a June day where only that habit was logged went from
-    // 1 of 2 (level 2) to 1 of 1 (level 4, deepest green). The map was
-    // quietly rewriting the past to be better than it was, which is the
-    // one thing a record must not do.
-    //
-    // What the filter was FOR, and what that costs now: `archivedAt`
-    // records the day you got round to tidying up, not the day you
-    // stopped, so the trailing days between really stopping and formally
-    // pausing now count as misses again. On a real account, habit
-    // 07eb2b82 carried archivedAt 2026-08-19 and drags 18 August down to
-    // 5 of 6. That is a real cost and it is the honest one: those days are
-    // days the habit was still on the board and was not done, and it is
-    // bounded by the lag rather than unbounded across history. If it ever
-    // needs softening, the shape is a small trailing grace window before
-    // `archivedAt` — never a filter over all of time.
-    //
-    // This also settles a cross-screen disagreement: Life Timeline and the
-    // yearly report already grade archived habits per day this way, and
-    // the heatmap reading 82 against the report's 83 for the same window
-    // was this filter, one archived habit apart.
-    final habits = ref.watch(allHabitsEverProvider).toList();
-
-    // The self-refreshing day clock, re-read at midnight and at
-    // kDayCutoffHour, so a cell and the day sheet behind it take a day in
-    // the moment it closes, even with this screen left open. See
-    // dayClockProvider.
-    final now = ref.watch(dayClockProvider);
-    final grid = ref.watch(weeklyGridProvider);
-    // Today is resolved from LIVE state, never from a rollup. See
-    // [_todayDoneCount] — dailyGreenCounts does not reliably hold today.
-    final todayDone = _todayDoneCount(
-      habits,
-      dash.completions,
-      grid,
-      now.effectiveDay,
-    );
-    final todayKey = now.effectiveDay.toDateKey();
-    // The mirror is the truth for settled days; the rollup is only a
-    // stand-in for the one frame before it resolves.
-    //
-    // BOTH sides now count every habit that still exists, archived or not:
-    // the numerator here through `countedIds`, the denominator through
-    // `isScheduledFor` in `_dayCell`. Removing the archived filter closed
-    // the gap where a paused habit's completions were counted while its
-    // days were not owed.
-    //
-    // Precisely, because a later reader should not over-trust this: the two
-    // sides are not windowed the same way. `countedIds` is a flat set, so
-    // the numerator credits any day the mirror holds for a surviving id,
-    // while only the denominator is windowed per day. A day can therefore
-    // still read done > planned if a habit's active window is lost (a
-    // legacy preset reactivated without a recorded stint), and `dayFill`
-    // clamps rather than asserting. The change makes overflow strictly
-    // rarer — it only ever adds to the denominator — but does not make it
-    // impossible, so keep the clamp.
-    //
-    // Filtering the NUMERATOR to match instead was tried and is worse: it
-    // blanked out most of July while the month badge above it still said
-    // 133 squares, the same screen telling two different stories. Archived
-    // is not deleted, and the archived habit's green days really happened.
-    //
-    // [derivedDayCounts]' doc comment explains at length why habits the user
-    // THREW AWAY must stop marking their past: orphaned ids from a rebuilt
-    // habit list were painting glowing perfect days. Archiving is a
-    // different act, and the reports hub and Year Record both keep archived
-    // history rather than dropping it.
-    final countedIds = {for (final h in ref.watch(allHabitsEverProvider)) h.id};
-    final counts = ref.watch(habitYearHistoryProvider).maybeWhen(
-          data: (mirror) => {
-            ...derivedDayCounts(mirror, countedIds),
-            todayKey: todayDone,
-          },
-          orElse: () => {...dash.dailyGreenCounts, todayKey: todayDone},
-        );
-    // Which sessions a flexible weekly quota banked, day by day — the input
-    // [heatmapScheduledOn] needs to tell a quota's rest days from the days it
-    // genuinely owed. The Grid is layered over the mirror for the week it has
-    // loaded, the same freshness problem [_todayDoneCount] solves for the
-    // numerator, and greenFromMirror unions the two rather than letting a
-    // half-loaded Grid blank a week.
-    final isGreen = greenFromMirror(
-      ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
-      live: (id, day) => grid.weekStart == startOfGridWeek(day)
-          ? grid.squareFor(id, day)
-          : null,
-    );
-
-    // The days still open that already hold a فشل, which settles its day at
-    // once. See heatmapFailedOpenDays.
-    final failedOpenDays = heatmapFailedOpenDays(
-      mirror: ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
-      habitIds: countedIds,
-      now: now,
-      liveToday: grid.weekStart == startOfGridWeek(now.effectiveDay)
-          ? (id) => grid.squareFor(id, now.effectiveDay)
-          : null,
-    );
-
-    // One document, covering every month section on this screen. The list
-    // below builds all its sections eagerly, so reading ground truth per
-    // month would mean dozens of range queries on every open. While it loads,
-    // or if it cannot be read, the screen is exactly what it is today:
-    // correct, minus the corner marks. See noteIndexProvider.
-    final noteDays = ref.watch(noteIndexProvider).maybeWhen(
-          data: (m) => m,
-          orElse: () => const <String, Set<int>>{},
-        );
+    // Everything the months are drawn from, read the one way every screen
+    // that draws a month like this one reads it. See [watchHeatmapInputs].
+    final inputs = watchHeatmapInputs(ref);
+    final habits = inputs.habits;
+    final now = inputs.now;
+    final counts = inputs.counts;
+    final isGreen = inputs.isGreen;
+    final failedOpenDays = inputs.failedOpenDays;
+    final noteDays = inputs.noteDays;
 
     final today = now.effectiveDay;
     final currentMonth = DateTime(today.year, today.month, 1);
@@ -333,7 +201,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
                     for (var i = 0; i < ordered.length; i++)
                       Padding(
                         padding: const EdgeInsets.only(top: 14),
-                        child: _MonthSection(
+                        child: HeatmapMonthSection(
                           key: _keyFor(ordered[i]),
                           month: ordered[i],
                           counts: counts,
@@ -506,15 +374,21 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
   /// partial, slipped, skipped, missed) plus any note written from the
   /// Grid's long-press palette. Replaces the old one-line snackbar, which
   /// could only say "N squares" with no answer to "which ones, and why?".
-  void _showDayInfo(BuildContext context, DateTime day, int count) {
-    HapticFeedback.selectionClick();
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => _HeatDayDetailSheet(day: day),
-    );
-  }
+  void _showDayInfo(BuildContext context, DateTime day, int count) =>
+      showHeatmapDayDetail(context, day);
+}
+
+/// The map's day sheet, for any screen that draws a month the map's way
+/// (سجلّي's «شهر» tab draws [HeatmapMonthSection] and opens this same sheet,
+/// so a day reads the same wherever it is tapped).
+void showHeatmapDayDetail(BuildContext context, DateTime day) {
+  HapticFeedback.selectionClick();
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (_) => _HeatDayDetailSheet(day: day),
+  );
 }
 
 /// Buckets a day's green count by what fraction of the user's current habit
@@ -556,6 +430,182 @@ int _todayDoneCount(
     if (byCount || bySquare) done++;
   }
   return done;
+}
+
+/// What [watchHeatmapInputs] returns: everything a month of the map is
+/// drawn from.
+typedef HeatmapInputs = ({
+  Map<String, int> counts,
+  List<IslamicHabitTemplate> habits,
+  GreenOnDay isGreen,
+  Set<String> failedOpenDays,
+  Map<String, Set<int>> noteDays,
+  DateTime now,
+});
+
+/// Everything a month of the map is drawn from, read exactly the way the
+/// map reads it.
+///
+/// Lifted out of [MonthlyHeatmapScreen]'s build when سجلّي's «شهر» tab
+/// began drawing the same month ([HeatmapMonthSection]) above its report:
+/// a month drawn from a second copy of these rules would sooner or later
+/// colour a day differently from the map. Every reason below was written
+/// for the map and holds for every caller.
+///
+/// [withNotes] false skips the note index for a caller that draws no note
+/// corners (سجلّي's year and «الكل» views); noteDays is then empty.
+HeatmapInputs watchHeatmapInputs(WidgetRef ref, {bool withNotes = true}) {
+  // The mirror is the truth; the rollup is only a stand-in for the one
+  // frame before it resolves, so the grid does not flash empty.
+  final dash = ref.watch(dashboardProvider);
+  // A day's green count only means something next to how many habits the
+  // user actually tracks — 2 greens is a perfect day at 2 habits but a
+  // quiet one at 8. Color by percentage of that day's scheduled habit
+  // list, not the raw count, so a 100% day is always the deepest green
+  // regardless of how many habits someone keeps.
+  //
+  // allHabitsEverProvider, not habitListProvider: this screen renders
+  // months of past days, and habitListProvider only ever holds what's
+  // active *today*. Reading that here would mean deleting a habit
+  // silently rewrites every past month's percentages the instant it's
+  // removed — the denominator would shrink to today's habit count while
+  // dailyGreenCounts (the numerator) stays a frozen historical rollup,
+  // so the two would stop agreeing. allHabitsEverProvider keeps an
+  // archived habit counted for exactly the days it was really active,
+  // and NO archived filter here is what lets it do that: `_dayCell` asks
+  // `isScheduledFor(day)` per day, which already stops at `archivedAt`,
+  // so a paused habit leaves the denominator on the day it was paused
+  // and not one day earlier.
+  //
+  // ── Why the filter that used to sit here is gone ────────────────────
+  //
+  // It excluded every archived habit from the DENOMINATOR across all of
+  // history while the numerator below kept their completions. That is
+  // precisely the asymmetry this file's own comment called out as the
+  // thing to avoid ("counting an archived habit's completions while
+  // dropping it from the denominator would let a day exceed 100%"), and
+  // it arrived by accident: the two halves were decided months apart,
+  // and the second one silently broke the first one's invariant.
+  //
+  // The cost was not one bad day, it was the whole record. Pausing a
+  // habit re-coloured every day it had ever been active, right back to
+  // its creation: a June day where only that habit was logged went from
+  // 1 of 2 (level 2) to 1 of 1 (level 4, deepest green). The map was
+  // quietly rewriting the past to be better than it was, which is the
+  // one thing a record must not do.
+  //
+  // What the filter was FOR, and what that costs now: `archivedAt`
+  // records the day you got round to tidying up, not the day you
+  // stopped, so the trailing days between really stopping and formally
+  // pausing now count as misses again. On a real account, habit
+  // 07eb2b82 carried archivedAt 2026-08-19 and drags 18 August down to
+  // 5 of 6. That is a real cost and it is the honest one: those days are
+  // days the habit was still on the board and was not done, and it is
+  // bounded by the lag rather than unbounded across history. If it ever
+  // needs softening, the shape is a small trailing grace window before
+  // `archivedAt` — never a filter over all of time.
+  //
+  // This also settles a cross-screen disagreement: Life Timeline and the
+  // yearly report already grade archived habits per day this way, and
+  // the heatmap reading 82 against the report's 83 for the same window
+  // was this filter, one archived habit apart.
+  final habits = ref.watch(allHabitsEverProvider).toList();
+
+  // The self-refreshing day clock, re-read at midnight and at
+  // kDayCutoffHour, so a cell and the day sheet behind it take a day in
+  // the moment it closes, even with this screen left open. See
+  // dayClockProvider.
+  final now = ref.watch(dayClockProvider);
+  final grid = ref.watch(weeklyGridProvider);
+  // Today is resolved from LIVE state, never from a rollup. See
+  // [_todayDoneCount] — dailyGreenCounts does not reliably hold today.
+  final todayDone = _todayDoneCount(
+    habits,
+    dash.completions,
+    grid,
+    now.effectiveDay,
+  );
+  final todayKey = now.effectiveDay.toDateKey();
+  // The mirror is the truth for settled days; the rollup is only a
+  // stand-in for the one frame before it resolves.
+  //
+  // BOTH sides now count every habit that still exists, archived or not:
+  // the numerator here through `countedIds`, the denominator through
+  // `isScheduledFor` in `_dayCell`. Removing the archived filter closed
+  // the gap where a paused habit's completions were counted while its
+  // days were not owed.
+  //
+  // Precisely, because a later reader should not over-trust this: the two
+  // sides are not windowed the same way. `countedIds` is a flat set, so
+  // the numerator credits any day the mirror holds for a surviving id,
+  // while only the denominator is windowed per day. A day can therefore
+  // still read done > planned if a habit's active window is lost (a
+  // legacy preset reactivated without a recorded stint), and `dayFill`
+  // clamps rather than asserting. The change makes overflow strictly
+  // rarer — it only ever adds to the denominator — but does not make it
+  // impossible, so keep the clamp.
+  //
+  // Filtering the NUMERATOR to match instead was tried and is worse: it
+  // blanked out most of July while the month badge above it still said
+  // 133 squares, the same screen telling two different stories. Archived
+  // is not deleted, and the archived habit's green days really happened.
+  //
+  // [derivedDayCounts]' doc comment explains at length why habits the user
+  // THREW AWAY must stop marking their past: orphaned ids from a rebuilt
+  // habit list were painting glowing perfect days. Archiving is a
+  // different act, and the reports hub and Year Record both keep archived
+  // history rather than dropping it.
+  final countedIds = {for (final h in ref.watch(allHabitsEverProvider)) h.id};
+  final counts = ref.watch(habitYearHistoryProvider).maybeWhen(
+        data: (mirror) => {
+          ...derivedDayCounts(mirror, countedIds),
+          todayKey: todayDone,
+        },
+        orElse: () => {...dash.dailyGreenCounts, todayKey: todayDone},
+      );
+  // Which sessions a flexible weekly quota banked, day by day — the input
+  // [heatmapScheduledOn] needs to tell a quota's rest days from the days it
+  // genuinely owed. The Grid is layered over the mirror for the week it has
+  // loaded, the same freshness problem [_todayDoneCount] solves for the
+  // numerator, and greenFromMirror unions the two rather than letting a
+  // half-loaded Grid blank a week.
+  final isGreen = greenFromMirror(
+    ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
+    live: (id, day) => grid.weekStart == startOfGridWeek(day)
+        ? grid.squareFor(id, day)
+        : null,
+  );
+
+  // The days still open that already hold a فشل, which settles its day at
+  // once. See heatmapFailedOpenDays.
+  final failedOpenDays = heatmapFailedOpenDays(
+    mirror: ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
+    habitIds: countedIds,
+    now: now,
+    liveToday: grid.weekStart == startOfGridWeek(now.effectiveDay)
+        ? (id) => grid.squareFor(id, now.effectiveDay)
+        : null,
+  );
+
+  // One document, covering every month section on this screen. The list
+  // below builds all its sections eagerly, so reading ground truth per
+  // month would mean dozens of range queries on every open. While it loads,
+  // or if it cannot be read, the screen is exactly what it is today:
+  // correct, minus the corner marks. See noteIndexProvider.
+  final noteDays = !withNotes
+      ? const <String, Set<int>>{}
+      : ref.watch(noteIndexProvider).maybeWhen(
+            data: (m) => m,
+            orElse: () => const <String, Set<int>>{},
+          );
+  return (
+    counts: counts,
+    habits: habits,
+    isGreen: isGreen,
+    failedOpenDays: failedOpenDays,
+    noteDays: noteDays,
+    now: now,
+  );
 }
 
 /// How many habits were finished on each day, counting ONLY habits that
@@ -634,7 +684,7 @@ Color heatColor(int level, bool dark) {
 
 // ─── One month's section: header + weekday row + true calendar grid ─────────
 
-class _MonthSection extends StatelessWidget {
+class HeatmapMonthSection extends StatelessWidget {
   final DateTime month;
   final Map<String, int> counts;
   final List<IslamicHabitTemplate> habits;
@@ -654,12 +704,17 @@ class _MonthSection extends StatelessWidget {
   final void Function(DateTime day, int count) onTapDay;
 
   /// Opens the month picker. Every section's header calls the same one.
-  final VoidCallback onTapMonth;
+  final VoidCallback? onTapMonth;
+
+  /// Whether to draw the month's own title row. Off in سجلّي's «شهر» tab,
+  /// whose period line directly above already names the month and carries
+  /// its own picker.
+  final bool showHeader;
 
   /// Days of THIS month that carry writing, from the note index.
   final Set<int> noteDays;
 
-  const _MonthSection({
+  const HeatmapMonthSection({
     super.key,
     required this.month,
     required this.counts,
@@ -671,7 +726,8 @@ class _MonthSection extends StatelessWidget {
     required this.dark,
     required this.noteDays,
     required this.onTapDay,
-    required this.onTapMonth,
+    this.onTapMonth,
+    this.showHeader = true,
   });
 
   @override
@@ -732,6 +788,7 @@ class _MonthSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (showHeader) ...[
           Row(
             children: [
               Expanded(
@@ -790,6 +847,7 @@ class _MonthSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
+          ],
           // THE GRID IS LTR even though the app is RTL, and only the grid:
           // the month title and its badge above stay RTL with the rest of
           // the screen.
@@ -817,6 +875,12 @@ class _MonthSection extends StatelessWidget {
                   crossAxisCount: 7,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
+                  // Explicit: a GridView left without padding takes the
+                  // screen's safe-area inset as its own, which the map
+                  // screen's SafeArea happened to absorb and سجلّي's «شهر»
+                  // tab did not, so the month there grew an empty band the
+                  // height of the home indicator under its last week.
+                  padding: EdgeInsets.zero,
                   mainAxisSpacing: 4,
                   crossAxisSpacing: 4,
                   children: [
@@ -1614,24 +1678,30 @@ class _StatTile extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: gp.textPrimary,
-                height: 1,
-                letterSpacing: -0.5,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: gp.textPrimary,
+                  height: 1,
+                  letterSpacing: -0.5,
+                ),
               ),
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 4),
+            // Same fix as the Profile's stat tiles (2026-09-21): 9pt in the
+            // tertiary grey was under 4:1 on either card, and the tracking
+            // pulled the Arabic letters apart. These labels have no
+            // capitals, so no tracking in either language.
             Text(
               label,
               style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: gp.textTert,
-                letterSpacing: 0.6,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: gp.textSec,
               ),
               textAlign: TextAlign.center,
             ),

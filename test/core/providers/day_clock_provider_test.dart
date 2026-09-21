@@ -242,4 +242,54 @@ void main() {
       expect(container.read(dayClockProvider), fri(11, 59));
     });
   });
+
+  // What main.dart asks before reloading today's board with the app open.
+  // An app left open across midnight kept yesterday's completions as
+  // today's (2026-09-22 00:05), and a tap wrote them into the new day.
+  group('dayClockTurnedDay, the reload with the app open', () {
+    test('midnight turns the day; 10:00 and the first read do not', () {
+      expect(dayClockTurnedDay(previous: fri(23, 59), next: satMidnight),
+          isTrue);
+      expect(
+          dayClockTurnedDay(previous: fri(0), next: fri(kDayCutoffHour)),
+          isFalse,
+          reason: 'yesterday closes at 10:00, today is still today');
+      expect(dayClockTurnedDay(previous: null, next: fri(12)), isFalse,
+          reason: 'the first read has no old board to replace');
+      expect(dayClockTurnedDay(previous: fri(12), next: DateTime(2026, 9, 10, 12)),
+          isTrue,
+          reason: 'a clock moved back a day is another day too');
+    });
+
+    testWidgets('the provider\'s own midnight re-read is what triggers it',
+        (tester) async {
+      // The same listener main.dart holds, on fake time: open at 23:59:30,
+      // left open through midnight and through 10:00.
+      var wall = fri(23, 59).add(const Duration(seconds: 30));
+      final container = ProviderContainer(
+        overrides: [dayClockSourceProvider.overrideWithValue(() => wall)],
+      );
+      final reloads = <DateTime>[];
+      final sub = container.listen<DateTime>(dayClockProvider, (previous, next) {
+        if (dayClockTurnedDay(previous: previous, next: next)) {
+          reloads.add(next.effectiveDay);
+        }
+      }, fireImmediately: true);
+      Future<void> advance(Duration by) async {
+        wall = wall.add(by);
+        await tester.pump(by);
+      }
+
+      expect(reloads, isEmpty, reason: 'opening the app is not a new day');
+      await advance(const Duration(seconds: 31));
+      expect(reloads, [DateTime(2026, 9, 12)],
+          reason: 'one reload, a second after midnight');
+      await advance(DateTime(2026, 9, 12, kDayCutoffHour, 0, 2).difference(wall));
+      expect(reloads, hasLength(1),
+          reason: 'the 10:00 re-read closes Friday but keeps Saturday');
+
+      sub.close();
+      container.dispose();
+    });
+  });
 }

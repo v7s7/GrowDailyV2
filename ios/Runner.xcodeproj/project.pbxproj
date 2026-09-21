@@ -15,6 +15,7 @@
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		7A1A0002A1A1A1A1A1A1A1A2 /* AlarmKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1A0001A1A1A1A1A1A1A1A1 /* AlarmKitBridge.swift */; };
 		7A1A0004A1A1A1A1A1A1A1A4 /* HealthStepsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1A0003A1A1A1A1A1A1A1A3 /* HealthStepsBridge.swift */; };
+		7A1A0006A1A1A1A1A1A1A1A6 /* ControlIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1A0005A1A1A1A1A1A1A1A5 /* ControlIntents.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		A1B2C3D40003INFOPLISTSTRINGS /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40004INFOPLISTVARIANT /* InfoPlist.strings */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
@@ -82,6 +83,7 @@
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		7A1A0001A1A1A1A1A1A1A1A1 /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmKitBridge.swift; sourceTree = "<group>"; };
 		7A1A0003A1A1A1A1A1A1A1A3 /* HealthStepsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStepsBridge.swift; sourceTree = "<group>"; };
+		7A1A0005A1A1A1A1A1A1A1A5 /* ControlIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlIntents.swift; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		7DD54861EAF4B1B7718E5A06 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		90F0C15A3A945C21D375C356 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
@@ -219,6 +221,7 @@
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				7A1A0001A1A1A1A1A1A1A1A1 /* AlarmKitBridge.swift */,
 				7A1A0003A1A1A1A1A1A1A1A3 /* HealthStepsBridge.swift */,
+				7A1A0005A1A1A1A1A1A1A1A5 /* ControlIntents.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -540,6 +543,7 @@
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				7A1A0002A1A1A1A1A1A1A1A2 /* AlarmKitBridge.swift in Sources */,
 				7A1A0004A1A1A1A1A1A1A1A4 /* HealthStepsBridge.swift in Sources */,
+				7A1A0006A1A1A1A1A1A1A1A6 /* ControlIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

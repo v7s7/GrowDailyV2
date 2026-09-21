@@ -335,7 +335,15 @@ class _RingPainter extends CustomPainter {
 
 class _StatsRow extends StatelessWidget {
   final DashboardState state;
-  const _StatsRow({required this.state});
+
+  /// Green squares on the whole record, from [recordLifetimeProvider]: the
+  /// same count سجلّي shows, so «المجموع» and the record can no longer
+  /// disagree (it read 244 here against 216 there until 2026-09-21; the
+  /// stored counter this replaced is only moved by the check-off button, so
+  /// squares set from the Grid never reached it and a deleted habit's old
+  /// completions never left it). Null until the record has loaded.
+  final int? recordTotal;
+  const _StatsRow({required this.state, this.recordTotal});
 
   @override
   Widget build(BuildContext context) {
@@ -376,7 +384,9 @@ class _StatsRow extends StatelessWidget {
         _StatCell(
             icon: Icons.check_circle_rounded,
             color: context.gp.iconSuccess,
-            value: fig(state.totalCompletions),
+            value: recordTotal == null
+                ? _kStatPlaceholder
+                : fig(recordTotal!),
             label: s.total,
             infoTitle: s.statInfoTotalTitle,
             infoDescription: s.statInfoTotalDesc),
@@ -400,6 +410,12 @@ class _StatsRow extends StatelessWidget {
     );
   }
 }
+
+/// The stat row on its own. The Profile screen reaches for FirebaseAuth, so
+/// a test cannot pump the whole page to measure these tiles.
+@visibleForTesting
+Widget profileStatsRowForTest(DashboardState state, {int? recordTotal}) =>
+    _StatsRow(state: state, recordTotal: recordTotal);
 
 /// Stands in for any progression figure that has not loaded yet.
 ///
@@ -431,6 +447,7 @@ class _StatCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final s = S.of(context);
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
@@ -443,7 +460,8 @@ class _StatCell extends StatelessWidget {
           description: infoDescription,
         ),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          // The side room keeps a number off the tile's edge.
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
           decoration: BoxDecoration(
             color: gp.surface,
             borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
@@ -454,23 +472,41 @@ class _StatCell extends StatelessWidget {
             children: [
               Icon(icon, size: 16, color: color),
               const SizedBox(height: 6),
-              Text(
-                value,
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: gp.textPrimary,
-                    height: 1,
-                    letterSpacing: -0.5),
+              // Shrinks rather than breaks. Five tiles leave about 60pt
+              // each, and a total of 100000 or more (XP gets there) does not
+              // fit at 20pt, so it used to break over two lines, "12819"
+              // above "0". Anything that fits is drawn exactly as before.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                      height: 1,
+                      letterSpacing: -0.5),
+                ),
               ),
-              const SizedBox(height: 3),
-              Text(
-                label,
-                style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w600,
-                    color: gp.textTert,
-                    letterSpacing: 1.2),
+              const SizedBox(height: 4),
+              // These were 8pt, in the tertiary grey (under 4:1 on the dark
+              // card, 2.3:1 on the light one), and tracked 1.2 for the
+              // English capitals, which in Arabic pulls the letters of
+              // «السلسلة» and «مجموع XP» apart. Now the size and grey the
+              // lifetime figures on خط الحياة الزمني use, tracked only where
+              // there are capitals. The FittedBox is a safety net for the
+              // longest English label on the narrowest phone; every Arabic
+              // label fits at full size.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                      fontSize: s.isAr ? 11 : 10,
+                      fontWeight: FontWeight.w500,
+                      color: gp.textSec,
+                      letterSpacing: s.isAr ? 0 : 0.8),
+                ),
               ),
             ],
           ),

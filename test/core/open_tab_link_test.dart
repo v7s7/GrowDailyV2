@@ -47,13 +47,22 @@ void main() {
   });
 
   group('the ids the Swift side hard-codes', () {
-    // ControlDestination in ios/GrowDailyWidget/GrowDailyControls.swift
-    // spells these two by hand, because an extension cannot read the Dart
-    // enum. If either is ever renamed, this fails here rather than shipping
-    // a control that opens the app on the wrong page.
-    test('grid and matrix are both real tabs', () {
+    // ControlDestination in ios/Runner/ControlIntents.swift spells grid and
+    // matrix by hand, and the Lock Screen widgets' lockScreenOpenURL calls in
+    // ios/GrowDailyWidget/GrowDailyWidget.swift spell grid, matrix and
+    // rooms, because Swift cannot read the Dart enum. If any is ever
+    // renamed, this fails here rather than shipping a control or a widget
+    // that opens the app on the wrong page.
+    test('grid, matrix and rooms are all real tabs', () {
       expect(NavTab.byId('grid'), NavTab.grid);
       expect(NavTab.byId('matrix'), NavTab.matrix);
+      expect(NavTab.byId('rooms'), NavTab.rooms);
+    });
+
+    test('the widget spelling, growdaily://open?tab=, resolves', () {
+      for (final id in ['grid', 'matrix', 'rooms']) {
+        expect(parseOpenTabLink(Uri.parse('growdaily://open?tab=$id')), id);
+      }
     });
 
     test('every tab id survives the round trip', () {
@@ -66,10 +75,11 @@ void main() {
       }
     });
 
-    test('the built link is https, because a control refuses a custom scheme',
-        () {
-      // The whole bug of build 69: OpenURLIntent in a ControlWidget accepts
-      // a universal link only, so growdaily://open did nothing when tapped.
+    test('the built link is https, the spelling a control hands over', () {
+      // ControlIntents.swift builds this same https link and hands it to the
+      // app directly. It was https because OpenURLIntent in a ControlWidget
+      // accepts a universal link only; the scheme also tells the analytics
+      // a control apart from a Lock Screen widget, which sends growdaily://.
       final url = openTabUrl('grid');
       expect(url.scheme, 'https');
       expect(url.host, linkHost);
@@ -103,6 +113,68 @@ void main() {
       expect(parseOpenTabLink(Uri.parse('growdaily://open?tab=focus')),
           'focus');
       expect(NavTab.byId('focus'), isNull);
+    });
+  });
+
+  group('isRepeatOpenLink', () {
+    // app_links hands the link that launched the app over twice: once as the
+    // launch link, then again to the stream main.dart listens to next.
+    final at = DateTime(2026, 9, 21, 9, 0, 0);
+    final tasks = openTabUrl('matrix').toString();
+
+    test('the replayed copy a moment later is a repeat', () {
+      expect(
+        isRepeatOpenLink(
+          link: tasks,
+          now: at.add(const Duration(milliseconds: 300)),
+          lastLink: tasks,
+          lastAt: at,
+        ),
+        isTrue,
+      );
+    });
+
+    test('the first link ever is not', () {
+      expect(
+        isRepeatOpenLink(link: tasks, now: at, lastLink: null, lastAt: null),
+        isFalse,
+      );
+    });
+
+    test('another page asked for straight after is not', () {
+      expect(
+        isRepeatOpenLink(
+          link: openTabUrl('grid').toString(),
+          now: at.add(const Duration(milliseconds: 300)),
+          lastLink: tasks,
+          lastAt: at,
+        ),
+        isFalse,
+      );
+    });
+
+    test('Add Task after Tasks is not, though both open Tasks', () {
+      expect(
+        isRepeatOpenLink(
+          link: openTabUrl('matrix', quickAdd: true).toString(),
+          now: at.add(const Duration(milliseconds: 300)),
+          lastLink: tasks,
+          lastAt: at,
+        ),
+        isFalse,
+      );
+    });
+
+    test('the same control tapped again later is heard', () {
+      expect(
+        isRepeatOpenLink(
+          link: tasks,
+          now: at.add(kRepeatOpenLinkWindow),
+          lastLink: tasks,
+          lastAt: at,
+        ),
+        isFalse,
+      );
     });
   });
 }

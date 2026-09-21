@@ -240,8 +240,10 @@ void main() {
   group('a جزئي on a day still open', () {
     // أذكار الصباح in September, greens on the 3rd and the 7th as in
     // report_open_day_rate_test.dart, with Thursday the 10th marked جزئي.
-    // 05:19 on Friday the 11th is the clock of Aziz's screenshot.
-    final adhkar = habit('adhkar');
+    // 05:19 on Friday the 11th is the clock of Aziz's screenshot. Started in
+    // August, so all of September is its to owe (a habit with no saved start
+    // would begin at its first square, the 3rd; see habitWithKnownStart).
+    final adhkar = habit('adhkar', createdAt: DateTime(2026, 8));
     final history = {
       'adhkar': {
         sep(3): SquareState.complete,
@@ -378,9 +380,17 @@ void main() {
   group('a quota habit over its target, exactly as before', () {
     // A closed week, 1 to 7 August, read at 10:00 on the 8th. three: three
     // times a week, any three. daily: owed every day, and left blank.
+    // Both started in July, so the whole week is theirs to owe: «daily» has
+    // no squares at all, and with no saved start it would claim no past (see
+    // habitWithKnownStart).
     final habits = [
-      habit('three', type: HabitFrequencyType.weekly, target: 3),
-      habit('daily'),
+      habit(
+        'three',
+        type: HabitFrequencyType.weekly,
+        target: 3,
+        createdAt: DateTime(2026, 7),
+      ),
+      habit('daily', createdAt: DateTime(2026, 7)),
     ];
     final week = reportWindow(ReportScope.week, DateTime(2026, 8, 7));
     final now = DateTime(2026, 8, 8, kDayCutoffHour);

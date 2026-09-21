@@ -20,7 +20,14 @@ import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../grid/models/square_state.dart';
+import '../../grid/notifiers/note_index_notifier.dart' show monthKeyOf;
 import '../../grid/notifiers/weekly_grid_notifier.dart' show weeklyGridProvider;
+import '../../grid/screens/monthly_heatmap_screen.dart'
+    show
+        HeatmapInputs,
+        HeatmapMonthSection,
+        showHeatmapDayDetail,
+        watchHeatmapInputs;
 import '../models/milestone_event.dart';
 import '../notifiers/habit_history_notifier.dart';
 import '../notifiers/milestone_notifier.dart';
@@ -28,9 +35,18 @@ import 'monthly_story_math.dart'
     show MonthlyStoryData, computeMonthlyStory, earliestStoryMonth;
 import 'habit_day_marks.dart';
 import 'habit_detail_sheet.dart';
+import 'record_lifetime.dart';
+import 'record_views.dart';
 import 'report_period.dart';
 import 'report_sections.dart';
-import 'year_strip.dart' show YearStripPainter, yearStripDayAt;
+import 'year_strip.dart'
+    show YearStripPainter, YearStripPalette, yearStripDayAt;
+
+/// The four tabs of سجلّي, in tab order: the three report grains, smallest
+/// first, then the whole record. They are zoom levels of one record: a year
+/// card on «الكل» opens «سنة», a month there opens «شهر», a day opens the
+/// map's day sheet.
+enum RecordTab { week, month, year, all }
 
 /// The أسبوعي / شهري / سنوي report, and the whole of what used to be two
 /// separate destinations.
@@ -48,7 +64,14 @@ import 'year_strip.dart' show YearStripPainter, yearStripDayAt;
 /// the whole account) for per-habit day presence. Stepping a period or
 /// switching a tab costs no reads at all.
 class PeriodReportSection extends ConsumerStatefulWidget {
-  const PeriodReportSection({super.key});
+  /// The tab to open on. Null opens the week, this section's default from
+  /// before سجلّي, which the tests that mount it directly rely on.
+  final RecordTab? initialTab;
+
+  /// Told about every tab change, so the page can remember the last one.
+  final ValueChanged<RecordTab>? onTabChanged;
+
+  const PeriodReportSection({super.key, this.initialTab, this.onTabChanged});
 
   @override
   ConsumerState<PeriodReportSection> createState() =>
@@ -57,6 +80,11 @@ class PeriodReportSection extends ConsumerStatefulWidget {
 
 class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
   ReportScope _scope = ReportScope.week;
+
+  /// True on «الكل», where [_scope] only remembers the grain to go back to.
+  bool _all = false;
+
+  RecordTab get _tab => _all ? RecordTab.all : RecordTab.values[_scope.index];
 
   /// Any day inside the period being viewed. [reportWindow] normalises it
   /// per scope, so switching tabs keeps you in the same stretch of time
@@ -99,6 +127,9 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     // the period the report opens on and the days it counts come from one
     // clock, and a test can pin both.
     _anchor = ref.read(dayClockProvider).effectiveDay;
+    final initial = widget.initialTab ?? RecordTab.week;
+    _all = initial == RecordTab.all;
+    if (!_all) _scope = ReportScope.values[initial.index];
   }
 
   /// Switching grain has to re-ask whether the anchor is still allowed.
@@ -115,6 +146,7 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     required bool isPremium,
   }) {
     setState(() {
+      _all = false;
       _scope = scope;
       _moveDirection = 0;
       if (!reportPeriodUnlocked(
@@ -129,6 +161,11 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
         _anchor = freeHistoryFloor(today);
       }
     });
+    widget.onTabChanged?.call(RecordTab.values[scope.index]);
+    _backToTop();
+  }
+
+  void _backToTop() {
     if (!_scroll.hasClients || _scroll.offset <= 0) return;
     // Animated rather than jumped: a report that teleports gives no sense
     // of having moved, and the distance travelled is what tells someone
@@ -138,6 +175,69 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
       duration: GameMotion.relaxed,
       curve: Curves.easeOutCubic,
     );
+  }
+
+  /// «الكل»: every year of the record. The grain behind it is kept, so the
+  /// other tabs come back where they were.
+  void _showWholeRecord() {
+    setState(() {
+      _all = true;
+      _moveDirection = 0;
+    });
+    widget.onTabChanged?.call(RecordTab.all);
+    _backToTop();
+  }
+
+  /// The day a drill anchors on inside the [year] or [month] it opens.
+  ///
+  /// The anchor is also where the OTHER tabs open, so it matters beyond the
+  /// period drawn: anchored on 1 January, the current year's «شهر» tab
+  /// opened an empty January rather than this month. So: the place already
+  /// held when it lies inside the period, today when the period holds
+  /// today, otherwise a past year's last day (its latest month on «شهر») or
+  /// a month's first day.
+  DateTime _landingIn({int? year, DateTime? month, required DateTime today}) {
+    if (year != null) {
+      if (_anchor.year == year) return _anchor;
+      if (year == today.year) return today;
+      return DateTime(year, 12, 31);
+    }
+    final m = month!;
+    if (_anchor.year == m.year && _anchor.month == m.month) return _anchor;
+    if (today.year == m.year && today.month == m.month) return today;
+    return DateTime(m.year, m.month);
+  }
+
+  /// One zoom level down, onto the period that was tapped: a year card on
+  /// «الكل» opens that year, a small month on «سنة» opens that month.
+  ///
+  /// A walled month answers with the demo sheet and stays put, as stepping
+  /// back into it would. [_setScope]'s pull-forward is right for a tab tap,
+  /// which names no period, and wrong here, where the tap named one: landing
+  /// on a different month than the one touched would read as a mis-tap.
+  void _drillTo(
+    ReportScope scope,
+    DateTime anchor, {
+    required DateTime today,
+    required bool isPremium,
+  }) {
+    if (!reportPeriodUnlocked(
+      scope: scope,
+      anchor: anchor,
+      now: today,
+      isPremium: isPremium,
+    )) {
+      showHistoryDemoGate(context);
+      return;
+    }
+    setState(() {
+      _all = false;
+      _scope = scope;
+      _anchor = anchor;
+      _moveDirection = 0;
+    });
+    widget.onTabChanged?.call(RecordTab.values[scope.index]);
+    _backToTop();
   }
 
   /// Steps the period by [delta] windows, refusing to cross the free floor.
@@ -399,19 +499,61 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     // out of reach makes switching period a scroll-to-top-first chore. It
     // also keeps the label answering "which month am I reading" at every
     // scroll position, which is the question a long grid keeps raising.
+    // What the month, year and «الكل» views draw with, read the map's way
+    // (see watchHeatmapInputs). Not read on the week, which draws none of
+    // them; the note index only where note corners are drawn.
+    final inputs = _all || _scope != ReportScope.week
+        ? watchHeatmapInputs(
+            ref,
+            withNotes: !_all && _scope == ReportScope.month,
+          )
+        : null;
+    final lifetime = _all ? ref.watch(recordLifetimeProvider) : null;
+    // Where the record begins (see recordStartOf): «منذ» names it, «الكل»
+    // counts from it, and a year's small months open from it.
+    final recordStart = recordStartOf(
+      [
+        for (final h in habits)
+          habitWithKnownStart(h, history[h.id] ?? const {}, today: today),
+      ],
+      earliestData,
+    );
+    final since = recordStart ?? dash.accountCreatedAt;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SegmentedTabs(
-          labels: [s.reportsWeekly, s.reportsMonthly, s.reportsYearly],
-          selected: _scope.index,
-          onChanged: (i) => _setScope(
-            ReportScope.values[i],
-            today: today,
-            isPremium: isPremium,
-          ),
+          labels: [
+            s.recordTabWeek,
+            s.recordTabMonth,
+            s.recordTabYear,
+            s.recordTabAll,
+          ],
+          selected: _tab.index,
+          onChanged: (i) => i == RecordTab.all.index
+              ? _showWholeRecord()
+              : _setScope(
+                  ReportScope.values[i],
+                  today: today,
+                  isPremium: isPremium,
+                ),
         ),
         const SizedBox(height: 2),
+        if (_all)
+          // Where the record begins, in the place the other tabs name their
+          // period. A plain line, not a control. It opened a month list once,
+          // picked months landing on «شهر», and Aziz asked why choosing here
+          // sent him there (2026-09-21): the same-looking label changes the
+          // period IN PLACE on every other tab, so here it moved him off the
+          // tab he was on. A month is reached the way everything on «الكل»
+          // is reached, by tapping into it: its year, then the month.
+          RecordSinceHeader(
+            label: since == null
+                ? s.recordTabAll
+                : s.lifeTimelineSince(westernDate(since, 'MMMM yyyy', locale)),
+          )
+        else
         ReportPeriodHeader(
           label: _periodLabel(locale),
           canGoBack: canGoBack,
@@ -444,6 +586,8 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
           // opposite periods in the two locales.
           child: GestureDetector(
             onHorizontalDragEnd: (details) {
+              // «الكل» has no period to step: it is every period.
+              if (_all) return;
               final velocity = details.primaryVelocity ?? 0;
               // Below this, a slightly diagonal vertical scroll would
               // start teleporting people through months.
@@ -461,7 +605,8 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
                 _ReportTransition(
                   // A new key per period AND per grain, so stepping August
                   // to July animates and a rebuild from new data does not.
-                  bodyKey: ValueKey('${_scope.name}|${window.start}'),
+                  bodyKey: ValueKey(
+                      _all ? 'all' : '${_scope.name}|${window.start}'),
                   direction: _moveDirection,
                   isRtl: isRtl,
                   // Order matters, and it is the same trap the old Monthly
@@ -479,20 +624,31 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
                         )
                       : dash.loadFailed || historyAsync.hasError
                           ? _ReportLoadFailed(s: s)
-                          : _body(
-                              history: history,
-                              earliestData: earliestData,
-                              habits: habits,
-                              days: days,
-                              window: window,
-                              dash: dash,
-                              today: today,
-                              now: now,
-                              locale: locale,
-                              isRtl: isRtl,
-                              lockedBefore: lockedBefore,
-                              s: s,
-                            ),
+                          : _all
+                              ? _allBody(
+                                  lifetime: lifetime,
+                                  inputs: inputs!,
+                                  today: today,
+                                  isPremium: isPremium,
+                                  locale: locale,
+                                  s: s,
+                                )
+                              : _body(
+                                  history: history,
+                                  earliestData: earliestData,
+                                  habits: habits,
+                                  days: days,
+                                  window: window,
+                                  dash: dash,
+                                  today: today,
+                                  now: now,
+                                  locale: locale,
+                                  isRtl: isRtl,
+                                  lockedBefore: lockedBefore,
+                                  recordStart: recordStart,
+                                  inputs: inputs,
+                                  s: s,
+                                ),
                 ),
               ],
             ),
@@ -631,6 +787,13 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     required String locale,
     required bool isRtl,
     required DateTime? lockedBefore,
+
+    /// Where the record begins (see recordStartOf).
+    required DateTime? recordStart,
+
+    /// The map's inputs, for the month's calendar and the year's twelve
+    /// months drawn above those tabs. Null on the week, which draws neither.
+    required HeatmapInputs? inputs,
     required S s,
   }) {
     // Two views of the same period, and the split is the whole point.
@@ -726,6 +889,7 @@ void tapDay(DateTime day) => _showDay(
         ),
       ReportScope.month => _monthBody(
           stats: stats,
+          history: history,
           summary: summary,
           dayCounts: dayCounts,
           days: visibleDays,
@@ -736,10 +900,12 @@ void tapDay(DateTime day) => _showDay(
           locale: locale,
           lockedBefore: lockedBefore,
           onTapDay: tapDay,
+          inputs: inputs!,
           s: s,
         ),
       ReportScope.year => _yearBody(
           stats: stats,
+          history: history,
           summary: summary,
           dayCounts: dayCounts,
           days: visibleDays,
@@ -750,9 +916,114 @@ void tapDay(DateTime day) => _showDay(
           locale: locale,
           isRtl: isRtl,
           lockedBefore: lockedBefore,
+          recordStart: recordStart,
+          inputs: inputs!,
           s: s,
         ),
     };
+  }
+
+  /// «الكل»: every year of the record, newest first, each a card that opens
+  /// it on «سنة», then the lifetime numbers once.
+  ///
+  /// The numbers are lifetime for every account; what Premium buys here is
+  /// the colour of the older squares, as it was on خط الحياة الزمني. They
+  /// come from [recordLifetimeProvider], which the Profile's «المجموع» tile
+  /// reads too, so the two can never disagree again.
+  Widget _allBody({
+    required RecordLifetime? lifetime,
+    required HeatmapInputs inputs,
+    required DateTime today,
+    required bool isPremium,
+    required String locale,
+    required S s,
+  }) {
+    final first = lifetime?.start;
+    if (lifetime == null || first == null) {
+      return _ReportEmpty(text: s.reportsEmptyYear);
+    }
+    final milestones =
+        ref.watch(milestoneEventsProvider).valueOrNull ?? const [];
+    // The same twenty-year ceiling خط الحياة الزمني kept, so a corrupt
+    // first date cannot build a century of cards.
+    final oldest = first.year > today.year - 19 ? first.year : today.year - 19;
+    final years = [for (var y = today.year; y >= oldest; y--) y];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final year in years) ...[
+          RecordYearCard(
+            year: year,
+            total: lifetime.totalIn(year),
+            colors: _yearColors(year, inputs, first, today),
+            today: today,
+            lockedBefore: historyFloorFor(
+              windowStart: DateTime(year),
+              today: today,
+              isPremium: isPremium,
+            ),
+            chips: _yearChips(year, milestones),
+            onTap: () => _drillTo(
+              ReportScope.year,
+              _landingIn(year: year, today: today),
+              today: today,
+              isPremium: isPremium,
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        const SizedBox(height: 4),
+        ReportHeaderCard(summary: lifetime.summary, locale: locale),
+      ],
+    );
+  }
+
+  /// Every lived day of [year] in the record, coloured by the map's rule.
+  Map<String, Color> _yearColors(
+    int year,
+    HeatmapInputs inputs,
+    DateTime first,
+    DateTime today,
+  ) {
+    final dark = context.gp.dark;
+    final start = first.year == year
+        ? DateTime(first.year, first.month, first.day)
+        : DateTime(year);
+    final lastOfYear = DateTime(year, 12, 31);
+    final todayDay = DateTime(today.year, today.month, today.day);
+    final end = todayDay.isBefore(lastOfYear) ? todayDay : lastOfYear;
+    final out = <String, Color>{};
+    for (var d = start;
+        !d.isAfter(end);
+        d = DateTime(d.year, d.month, d.day + 1)) {
+      final key = d.toDateKey();
+      out[key] = recordDayColor(
+        count: inputs.counts[key] ?? 0,
+        day: d,
+        habits: inputs.habits,
+        isGreen: inputs.isGreen,
+        dark: dark,
+      );
+    }
+    return out;
+  }
+
+  /// The year's milestones as chips, tallied by type as خط الحياة الزمني
+  /// tallied them.
+  List<MilestoneTallyChip> _yearChips(int year, List<MilestoneEvent> events) {
+    final dark = context.gp.dark;
+    final isAr = S.of(context).isAr;
+    final tally =
+        tallyMilestonesByType(events.where((e) => e.occurredAt.year == year));
+    return [
+      for (final entry in tally.entries)
+        MilestoneTallyChip(
+          icon: entry.key.icon,
+          color: entry.key.color(dark),
+          count: entry.value,
+          label: entry.key.localizedName(isAr),
+        ),
+    ];
   }
 
   Widget _weekBody({
@@ -812,6 +1083,10 @@ void tapDay(DateTime day) => _showDay(
 
   Widget _monthBody({
     required List<HabitPeriodStat> stats,
+
+    /// Every habit's full record, for judging a month's first week with the
+    /// sessions done before it began (see [cellStatesByWeek]).
+    required Map<String, Map<String, SquareState>> history,
     required PeriodSummary summary,
     required int? delta,
     required Map<String, int> dayCounts,
@@ -826,6 +1101,7 @@ void tapDay(DateTime day) => _showDay(
     required String locale,
     required DateTime? lockedBefore,
     required void Function(DateTime) onTapDay,
+    required HeatmapInputs inputs,
     required S s,
   }) {
     final month = DateTime(_anchor.year, _anchor.month);
@@ -847,6 +1123,26 @@ void tapDay(DateTime day) => _showDay(
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // The month itself first, drawn by the map's own widget from the
+        // map's own inputs, so it is the map's month to the pixel: where a
+        // search for one day ends, a tap from its square to the map's day
+        // sheet. The period line above already names the month, so the
+        // section's own title row is left out.
+        HeatmapMonthSection(
+          month: month,
+          counts: inputs.counts,
+          habits: inputs.habits,
+          isGreen: inputs.isGreen,
+          today: today,
+          now: now,
+          failedOpenDays: inputs.failedOpenDays,
+          dark: context.gp.dark,
+          noteDays: inputs.noteDays[monthKeyOf(month.toDateKey())] ??
+              const <int>{},
+          onTapDay: (day, _) => showHeatmapDayDetail(context, day),
+          showHeader: false,
+        ),
+        const SizedBox(height: 14),
         ReportHeaderCard(
           summary: summary,
           locale: locale,
@@ -864,6 +1160,7 @@ void tapDay(DateTime day) => _showDay(
         const SizedBox(height: 8),
         _monthCards(
           stats: split.active,
+          history: history,
           month: month,
           today: today,
           now: now,
@@ -883,6 +1180,7 @@ void tapDay(DateTime day) => _showDay(
               const SizedBox(height: 4),
               _monthCards(
                 stats: split.archived,
+                history: history,
                 month: month,
                 today: today,
                 now: now,
@@ -899,6 +1197,7 @@ void tapDay(DateTime day) => _showDay(
 
   Widget _monthCards({
     required List<HabitPeriodStat> stats,
+    required Map<String, Map<String, SquareState>> history,
     required DateTime month,
     required DateTime today,
     required DateTime now,
@@ -924,12 +1223,16 @@ void tapDay(DateTime day) => _showDay(
               onTapDay: onTapDay,
               muted: muted,
               onTapHabit: () => _openHabit(stat.habit),
+              allMarks: history[stat.habit.id],
             ),
         ],
       );
 
   Widget _yearBody({
     required List<HabitPeriodStat> stats,
+
+    /// See [_monthBody]'s identical parameter.
+    required Map<String, Map<String, SquareState>> history,
     required PeriodSummary summary,
     required int? delta,
     required Map<String, int> dayCounts,
@@ -943,6 +1246,8 @@ void tapDay(DateTime day) => _showDay(
     required String locale,
     required bool isRtl,
     required DateTime? lockedBefore,
+    required DateTime? recordStart,
+    required HeatmapInputs inputs,
     required S s,
   }) {
     final year = _anchor.year;
@@ -956,6 +1261,24 @@ void tapDay(DateTime day) => _showDay(
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // The year's twelve months first: the picture of the year, and the
+        // way into any one month of it.
+        YearMonthsGrid(
+          year: year,
+          counts: inputs.counts,
+          habits: inputs.habits,
+          isGreen: inputs.isGreen,
+          today: today,
+          firstMark: recordStart,
+          lockedBefore: lockedBefore,
+          onTapMonth: (month) => _drillTo(
+            ReportScope.month,
+            _landingIn(month: month, today: today),
+            today: today,
+            isPremium: ref.read(premiumAccessProvider),
+          ),
+        ),
+        const SizedBox(height: 14),
         ReportHeaderCard(summary: summary, locale: locale, delta: delta),
         const SizedBox(height: 10),
         ..._rhythm(
@@ -969,8 +1292,10 @@ void tapDay(DateTime day) => _showDay(
         for (final st in active) ...[
           _HabitYearRow(
             stat: st,
+            allMarks: history[st.habit.id],
             year: year,
             today: today,
+            now: now,
             isRtl: isRtl,
             lockedBefore: lockedBefore,
             muted: false,
@@ -985,8 +1310,10 @@ void tapDay(DateTime day) => _showDay(
               for (final st in archived) ...[
                 _HabitYearRow(
                   stat: st,
+                  allMarks: history[st.habit.id],
                   year: year,
                   today: today,
+                  now: now,
                   isRtl: isRtl,
                   lockedBefore: lockedBefore,
                   muted: true,
@@ -1150,11 +1477,11 @@ class _SectionLabel extends StatelessWidget {
 
 /// The month's milestones as chips for [ReportHeaderCard].
 ///
-/// A wrapping chip row rather than the old two-column card grid, which
-/// reserved a whole card per milestone type and left a ragged half-empty
-/// row whenever the count was odd. Chips wrap: one milestone takes one
-/// line, six take two.
-List<Widget> milestoneChips(BuildContext context, MonthlyStoryData story) {
+/// Chips rather than the old two-column card grid, which reserved a whole
+/// card per milestone type and left a ragged half-empty row whenever the
+/// count was odd. [MilestoneTallyRows] lays them out as full, even rows.
+List<MilestoneTallyChip> milestoneChips(
+    BuildContext context, MonthlyStoryData story) {
   final s = S.of(context);
   final entries = <(IconData, Color, int, String)>[
     if (story.levelUps > 0)
@@ -1206,8 +1533,16 @@ List<Widget> milestoneChips(BuildContext context, MonthlyStoryData story) {
 /// disagree about where a day sits.
 class _HabitYearRow extends StatelessWidget {
   final HabitPeriodStat stat;
+
+  /// The habit's full record, so the year's first week is judged with the
+  /// sessions done in the last days of the year before (see
+  /// cellStatesByWeek). Null reads only [stat]'s own year.
+  final Map<String, SquareState>? allMarks;
   final int year;
   final DateTime today;
+
+  /// The wall clock the still-open test reads (see cellStateFor).
+  final DateTime now;
   final bool isRtl;
   final DateTime? lockedBefore;
   final bool muted;
@@ -1215,8 +1550,10 @@ class _HabitYearRow extends StatelessWidget {
 
   const _HabitYearRow({
     required this.stat,
+    required this.allMarks,
     required this.year,
     required this.today,
+    required this.now,
     required this.isRtl,
     required this.lockedBefore,
     required this.muted,
@@ -1326,27 +1663,24 @@ class _HabitYearRow extends StatelessWidget {
                   size: Size(constraints.maxWidth, height),
                   painter: YearStripPainter(
                     year: year,
-                    doneDays: stat.doneDays,
-                    restDays: {
-                      for (final entry in stat.marks.entries)
-                        if (markIsRest(entry.value)) entry.key,
-                    },
-                    restColor:
-                        SquareState.skipped.accent(gp.dark).withOpacity(0.35),
-                    color: color,
+                    // Every day judged as the weekly matrix and the month
+                    // cards judge it, so a rest day reads as one here too.
+                    states: cellStatesByWeek(
+                      habit: stat.habit,
+                      marks: allMarks ?? stat.marks,
+                      days: [
+                        for (var d = DateTime(year);
+                            d.year == year;
+                            d = DateTime(d.year, d.month, d.day + 1))
+                          d,
+                      ],
+                      today: today,
+                      now: now,
+                    ),
+                    palette: YearStripPalette.of(color: color, dark: gp.dark),
                     today: today,
                     isRtl: isRtl,
                     lockedBefore: lockedBefore,
-                    emptyColor: gp.dark
-                        ? Colors.white.withOpacity(0.06)
-                        : Colors.black.withOpacity(0.06),
-                    lockedColor: gp.dark
-                        ? Colors.white.withOpacity(0.03)
-                        : Colors.black.withOpacity(0.03),
-                    // Quieter than locked: see YearStripPainter.futureColor.
-                    futureColor: gp.dark
-                        ? Colors.white.withOpacity(0.015)
-                        : Colors.black.withOpacity(0.015),
                   ),
                 ),
               );

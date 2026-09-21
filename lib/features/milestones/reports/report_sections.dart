@@ -6,9 +6,12 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/bidi_fraction.dart';
 import '../../../core/utils/western_digits.dart';
+import '../../../shared/widgets/milestone_tally_chip.dart';
 import '../../grid/models/covered_day.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
+import '../../habits/catalog/islamic_habit_catalog.dart'
+    show IslamicHabitTemplate;
 import '../../habits/models/habit_day_demand.dart' show quotaDemandForRow;
 import '../../habits/models/habit_model.dart' show GoalType;
 import '../../habits/models/weekly_quota_plan.dart' show DayDemand;
@@ -140,8 +143,9 @@ class ReportHeaderCard extends StatelessWidget {
   final int? delta;
 
   /// Milestone chips, already built by the caller. Empty for the tabs that
-  /// do not have a milestone log to draw on.
-  final List<Widget> chips;
+  /// do not have a milestone log to draw on. Laid out as even rows, the same
+  /// as on every Life Timeline year (see [MilestoneTallyRows]).
+  final List<MilestoneTallyChip> chips;
 
   const ReportHeaderCard({
     super.key,
@@ -222,7 +226,7 @@ class ReportHeaderCard extends StatelessWidget {
           ),
           if (chips.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Wrap(spacing: 6, runSpacing: 6, children: chips),
+            MilestoneTallyRows(chips: chips),
           ],
           const SizedBox(height: 14),
           Container(height: 0.5, color: gp.divider),
@@ -671,6 +675,69 @@ List<MatrixCellState> weekCellStates({
   ];
 }
 
+/// Every day of [days] for one habit, each resolved inside its own Saturday
+/// to Friday week by [weekCellStates], keyed by dateKey.
+///
+/// For the grids that are not a week: the month cards, the habit sheet's
+/// calendar and the year strips. They used to ask [cellStateFor] one day at a
+/// time, and a day on its own cannot say whether a flexible quota owed it:
+/// that turns on what was done earlier in the same week. So a four-a-week
+/// habit's rest days came back "not due" there while the weekly matrix, which
+/// always had the week, painted them covered, and the year strip, which knew
+/// only done and تخطّي, drew them exactly like the days that were owed and
+/// missed (Aziz, 2026-09-21: "make the rest days or the not owed days have
+/// some diff than the miss days").
+///
+/// [marks] should reach beyond [days] when the caller has more: the first
+/// week of a month or a year starts in the one before, and a session done
+/// there still counts toward that week. Read without it, those days are
+/// blank, which can only make a rest day look owed, never the reverse.
+///
+/// A habit with no known start is judged from the first day it recorded
+/// anything. That is a preset switched on before switch-on days were kept
+/// (see the stint history in habit_plans.dart), and every rule here reads a
+/// habit without a start as alive forever: its off-days back to January
+/// came out as rest days, months before it was ever done (Aziz's الصدقة ولو
+/// بالقليل on the سنوي tab, 2026-09-21). One that has recorded nothing
+/// starts today, so it claims no past at all.
+Map<String, MatrixCellState> cellStatesByWeek({
+  required IslamicHabitTemplate habit,
+  required Map<String, SquareState> marks,
+  required Iterable<DateTime> days,
+  required DateTime today,
+  required DateTime? now,
+}) {
+  // The one rule every rate counts with too (see habitWithKnownStart), so a
+  // day is never owed in a percentage while its square reads as rest.
+  final started = habitWithKnownStart(habit, marks, today: today);
+  final stat = HabitPeriodStat(habit: started, marks: marks, expected: 0);
+  final wanted = {for (final d in days) d.toDateKey()};
+  final weekStarts = <String, DateTime>{
+    for (final d in days)
+      startOfGridWeek(d).toDateKey(): startOfGridWeek(d),
+  };
+  final out = <String, MatrixCellState>{};
+  for (final start in weekStarts.values) {
+    // Constructed, never .add(Duration(days:)), so a DST shift cannot fold
+    // two days into one (see yearStripDay).
+    final week = [
+      for (var i = 0; i < 7; i++)
+        DateTime(start.year, start.month, start.day + i),
+    ];
+    final states = weekCellStates(
+      stat: stat,
+      weekDays: week,
+      today: today,
+      now: now,
+    );
+    for (var i = 0; i < 7; i++) {
+      final key = week[i].toDateKey();
+      if (wanted.contains(key)) out[key] = states[i];
+    }
+  }
+  return out;
+}
+
 /// The habit x weekday grid: the أسبوعي tab's centrepiece.
 ///
 /// Read-only by design. The Grid screen IS this same matrix as a control
@@ -1085,6 +1152,11 @@ class HabitMonthCard extends StatelessWidget {
   /// Tapping the card's title opens that habit's own page.
   final VoidCallback? onTapHabit;
 
+  /// Every mark the habit has, beyond this month too, so the first week's
+  /// days are judged with the sessions done before the month began (see
+  /// [cellStatesByWeek]). Null reads only [stat]'s own month.
+  final Map<String, SquareState>? allMarks;
+
   const HabitMonthCard({
     super.key,
     required this.stat,
@@ -1095,6 +1167,7 @@ class HabitMonthCard extends StatelessWidget {
     this.onTapDay,
     this.muted = false,
     this.onTapHabit,
+    this.allMarks,
   });
 
   @override
@@ -1105,6 +1178,13 @@ class HabitMonthCard extends StatelessWidget {
     final color = muted ? base.withOpacity(0.55) : base;
     final cells = monthGridCells(month);
     final todayDay = DateTime(today.year, today.month, today.day);
+    final states = cellStatesByWeek(
+      habit: stat.habit,
+      marks: allMarks ?? stat.marks,
+      days: cells.whereType<DateTime>(),
+      today: todayDay,
+      now: now,
+    );
 
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
@@ -1151,6 +1231,12 @@ class HabitMonthCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 2),
               child: Row(
+                // Left to right in Arabic too, like the map's month (see
+                // HeatmapMonthSection in monthly_heatmap_screen.dart): Saturday
+                // in the leftmost column and the days running the way their
+                // digits read. Aziz, 2026-09-21: "the one in map is the
+                // correct style".
+                textDirection: TextDirection.ltr,
                 children: [
                   for (var col = 0; col < 7; col++)
                     Expanded(
@@ -1159,12 +1245,8 @@ class HabitMonthCard extends StatelessWidget {
                         state: () {
                           final day = cells[row * 7 + col];
                           if (day == null) return MatrixCellState.notDue;
-                          return cellStateFor(
-                            stat: stat,
-                            day: day,
-                            today: todayDay,
-                            now: now,
-                          );
+                          return states[day.toDateKey()] ??
+                              MatrixCellState.notDue;
                         }(),
                         color: color,
                         today: todayDay,
@@ -1277,8 +1359,11 @@ class _MonthDayCell extends StatelessWidget {
           border = GameColors.warning.withOpacity(0.7);
           text = gp.warningInk;
         case MatrixCellState.rest:
-          fill = GameColors.gold.withOpacity(0.16);
-          text = gp.goldInk;
+          // The Grid's own تخطّي grey, never gold: a rest earns nothing, and
+          // gold is the reward colour (Aziz's ruling, 2026-09-16; the weekly
+          // matrix already paints it this way).
+          fill = SquareState.skipped.fill(gp.dark);
+          text = gp.textPrimary;
         case MatrixCellState.missed:
           fill = gp.dark
               ? Colors.white.withOpacity(0.075)

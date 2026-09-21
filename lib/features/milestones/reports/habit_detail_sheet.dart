@@ -206,7 +206,13 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
       windowEnd: DateTime(_month.year, _month.month + 1, 0),
     ).firstOrNull;
 
-    final total = dash.habitTotalCompletions[habit.id] ?? marks.length;
+    // The habit's green days on the record, counted from the record itself,
+    // the way سجلّي counts everything (see recordLifetimeProvider). This read
+    // habitTotalCompletions, a stored counter only the check-off button
+    // moves, and it drifted from the squares the same way the Profile total
+    // did: الصدقة ولو بالقليل said «11 يوم» here beside «15 يوم» on its own
+    // year row (Aziz's account, 2026-09-21).
+    final total = marks.values.where(markIsDone).length;
     // habitStreak, NOT habitStreakCounts. That map is the raw persisted
     // counter and it only ever changes when the habit is COMPLETED, so a
     // habit abandoned three weeks ago goes on reporting the streak it died
@@ -347,7 +353,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
             const SizedBox(height: 10),
             _MonthCalendar(
               month: _month,
-              stat: stat,
+              marks: marks,
               habit: habit,
               color: color,
               today: today,
@@ -408,17 +414,23 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                     size: Size(constraints.maxWidth, height),
                     painter: YearStripPainter(
                       year: _month.year,
-                      doneDays: {
-                        for (final entry in marks.entries)
-                          if (markIsDone(entry.value)) entry.key,
-                      },
-                      restDays: {
-                        for (final entry in marks.entries)
-                          if (markIsRest(entry.value)) entry.key,
-                      },
-                      restColor: SquareState.skipped.accent(gp.dark)
-                          .withOpacity(0.35),
-                      color: color,
+                      // The same states the calendar above and the reports'
+                      // own year rows paint, so a rest day reads as one on
+                      // all three.
+                      states: cellStatesByWeek(
+                        habit: habit,
+                        marks: marks,
+                        days: [
+                          for (var d = DateTime(_month.year);
+                              d.year == _month.year;
+                              d = DateTime(d.year, d.month, d.day + 1))
+                            d,
+                        ],
+                        today: today,
+                        now: now,
+                      ),
+                      palette:
+                          YearStripPalette.of(color: color, dark: gp.dark),
                       // The REAL calendar day for the ring, matching every
                       // other strip in the app: this is a calendar, and
                       // before 10am the ring belongs on the date the phone's
@@ -426,16 +438,6 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                       today: DateTime.now(),
                       isRtl: isRtl,
                       lockedBefore: stripLockedBefore,
-                      emptyColor: gp.dark
-                          ? Colors.white.withOpacity(0.06)
-                          : Colors.black.withOpacity(0.06),
-                      lockedColor: gp.dark
-                          ? Colors.white.withOpacity(0.03)
-                          : Colors.black.withOpacity(0.03),
-                      // Quieter than locked: see YearStripPainter.futureColor.
-                      futureColor: gp.dark
-                          ? Colors.white.withOpacity(0.015)
-                          : Colors.black.withOpacity(0.015),
                     ),
                   ),
                 );
@@ -601,7 +603,10 @@ class _MonthHeader extends StatelessWidget {
 /// because this sheet is about ONE habit and has the whole width to spend.
 class _MonthCalendar extends StatelessWidget {
   final DateTime month;
-  final HabitPeriodStat? stat;
+
+  /// Every mark the habit has, so each day is judged inside its whole week,
+  /// the first week's days before the month included (see cellStatesByWeek).
+  final Map<String, SquareState> marks;
   final IslamicHabitTemplate habit;
   final Color color;
   final DateTime today;
@@ -614,7 +619,7 @@ class _MonthCalendar extends StatelessWidget {
 
   const _MonthCalendar({
     required this.month,
-    required this.stat,
+    required this.marks,
     required this.habit,
     required this.color,
     required this.today,
@@ -629,13 +634,26 @@ class _MonthCalendar extends StatelessWidget {
     final gp = context.gp;
     final cells = monthGridCells(month);
     final todayDay = DateTime(today.year, today.month, today.day);
-    // A stat is absent only when the habit owed nothing and recorded nothing
-    // that month. Every day then resolves as not due, which is the truth.
-    final resolved = stat;
+    // By whole weeks, as the weekly matrix and the month cards resolve them:
+    // a four-a-week habit's rest days are only known with the week in hand,
+    // and asked one day at a time they came back "not due".
+    final states = cellStatesByWeek(
+      habit: habit,
+      marks: marks,
+      days: cells.whereType<DateTime>(),
+      today: todayDay,
+      now: now,
+    );
 
+    // Both rows run left to right in Arabic too, like the map's month (see
+    // HeatmapMonthSection in monthly_heatmap_screen.dart): Saturday in the
+    // leftmost column, the days running the way their digits read, and the
+    // weekday letters over the same columns as their days. Aziz,
+    // 2026-09-21: "the one in map is the correct style".
     return Column(
       children: [
         Row(
+          textDirection: TextDirection.ltr,
           children: [
             for (var i = 0; i < 7; i++)
               Expanded(
@@ -665,6 +683,7 @@ class _MonthCalendar extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Row(
+              textDirection: TextDirection.ltr,
               children: [
                 for (var col = 0; col < 7; col++)
                   Expanded(
@@ -673,13 +692,8 @@ class _MonthCalendar extends StatelessWidget {
                       state: () {
                         final day = cells[row * 7 + col];
                         if (day == null) return MatrixCellState.notDue;
-                        if (resolved == null) return MatrixCellState.notDue;
-                        return cellStateFor(
-                          stat: resolved,
-                          day: day,
-                          today: todayDay,
-                          now: now,
-                        );
+                        return states[day.toDateKey()] ??
+                            MatrixCellState.notDue;
                       }(),
                       color: color,
                       today: todayDay,
@@ -746,8 +760,10 @@ class _DayCell extends StatelessWidget {
         border = GameColors.warning.withOpacity(0.7);
         text = gp.warningInk;
       case MatrixCellState.rest:
-        fill = GameColors.gold.withOpacity(0.16);
-        text = gp.goldInk;
+        // The Grid's own تخطّي grey, never gold: a rest earns nothing, and
+        // gold is the reward colour (Aziz's ruling, 2026-09-16).
+        fill = SquareState.skipped.fill(gp.dark);
+        text = gp.textPrimary;
       case MatrixCellState.missed:
         fill = gp.dark
             ? Colors.white.withOpacity(0.075)

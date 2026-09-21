@@ -102,3 +102,21 @@ bool refreshDayClockIfStale(ProviderContainer container) {
   if (stale) container.invalidate(dayClockProvider);
   return stale;
 }
+
+/// Whether a re-read of [dayClockProvider] from [previous] to [next] moved
+/// the app onto another day (effectiveDay), which is what main.dart asks
+/// before reloading today's board with the app still open.
+///
+/// The dashboard and the Grid load TODAY once and then only follow this
+/// app's own taps; resume was their only other reload. So an app left open
+/// across midnight kept the old day's board. A report laid yesterday's
+/// ticks over the new day (Aziz's account, 2026-09-22 00:05: الصدقة ولو
+/// بالقليل and أذكار الصباح read done on the 22nd, the two habits done on
+/// the 21st), and the next tap wrote them into the new day's record too,
+/// because completeHabit builds that day's map from state.completions.
+///
+/// Only a change of day counts. The 10:00 re-read closes yesterday but
+/// keeps today, and today's board is still the right one then. A null
+/// [previous] is the first read, which has nothing old to replace.
+bool dayClockTurnedDay({required DateTime? previous, required DateTime next}) =>
+    previous != null && previous.effectiveDay != next.effectiveDay;

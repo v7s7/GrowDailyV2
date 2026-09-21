@@ -4,9 +4,10 @@ import '../../core/l10n/app_strings.dart';
 import '../../core/providers/nav_layout_provider.dart';
 import '../../features/character/screens/character_closet_screen.dart';
 import '../../features/grid/screens/grid_screen.dart';
-import '../../features/grid/screens/monthly_heatmap_screen.dart';
 import '../../features/matrix/screens/matrix_screen.dart';
-import '../../features/milestones/screens/life_timeline_screen.dart';
+import '../../features/milestones/reports/period_report_section.dart'
+    show RecordTab;
+import '../../features/milestones/reports/record_screen.dart';
 import '../../features/night_review/screens/night_review_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/profile/screens/progress_hub_screen.dart';
@@ -102,10 +103,11 @@ extension NavTabUi on NavTab {
         NavTab.rewards => const CustomRewardsScreen(),
         NavTab.closet => const CharacterClosetScreen(),
         NavTab.nightReview => const NightReviewScreen(),
-        NavTab.yearRecord => const LifeTimelineScreen(),
-        // Checked as a root page 2026-09-17: nothing in
-        // monthly_heatmap_screen.dart pops the route, and its AppBar's
-        // implied back button has nothing to pop inside the shell.
-        NavTab.heatmap => const MonthlyHeatmapScreen(),
+        // Both record pins open سجلّي, which replaced خط الحياة الزمني and
+        // the map (2026-09-21), each on the zoom the pin was named for, so a
+        // bottom bar someone already arranged keeps working. RecordScreen
+        // never pops its own route, so it is safe as a root page.
+        NavTab.yearRecord => const RecordScreen(initialTab: RecordTab.year),
+        NavTab.heatmap => const RecordScreen(initialTab: RecordTab.all),
       };
 }

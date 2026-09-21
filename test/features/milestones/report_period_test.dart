@@ -457,7 +457,9 @@ void main() {
 
     test('keeps a live habit with an empty row', () {
       final stats = computeHabitPeriodStats(
-        habits: [habit()],
+        // Live since July: with no saved start and no squares it would claim
+        // no past at all (see the next test).
+        habits: [habit(createdAt: DateTime(2026, 7))],
         history: const {},
         days: daysOf(DateTime(2026, 8, 1), 10),
         now: null,
@@ -465,6 +467,21 @@ void main() {
       );
       expect(stats.single.doneCount, 0);
       expect(stats.single.expected, 10);
+    });
+
+    test('a habit with no saved start and no squares owes no past', () {
+      // A preset switched on before switch-on days were kept, never done:
+      // nothing says when it began, so it is not charged for days it may not
+      // have existed on (habitWithKnownStart). It still owes from today.
+      final stats = computeHabitPeriodStats(
+        habits: [habit()],
+        history: const {},
+        days: daysOf(DateTime(2026, 8, 1), 10),
+        now: DateTime(2026, 8, 20, 12),
+        windowEnd: DateTime(2026, 8, 10),
+      );
+      expect(stats, isEmpty,
+          reason: 'it began after this window, so it was never in it');
     });
   });
 

@@ -465,6 +465,12 @@ class HomeWidgetService {
   /// `DateTime.now()`. Tasks with no reminder set are never late — there's
   /// nothing to be late against, and a task whose stack is only partly
   /// elapsed isn't late either until its *last* reminder has passed.
+  ///
+  /// [dueAt] is the moment the user picked ([MatrixTask.reminderAnchorAt]),
+  /// null without a reminder. Sent as a moment rather than as a finished
+  /// order: the Lock Screen sorts by it on its own side
+  /// (MatrixLockScreenOrder.swift), because which of these are today's
+  /// changes at midnight, when the app is usually not running to say so.
   Future<void> updateMatrixWidgetData(
     List<
             ({
@@ -474,6 +480,7 @@ class HomeWidgetService {
               bool isDone,
               bool isFav,
               bool isLate,
+              DateTime? dueAt,
             })>
         tasks, {
     // Written as its own key rather than folded into the list: every list
@@ -506,6 +513,8 @@ class HomeWidgetService {
                   'isDone': t.isDone,
                   'isFav': t.isFav,
                   'isLate': t.isLate,
+                  if (t.dueAt != null)
+                    'dueAtMs': t.dueAt!.millisecondsSinceEpoch,
                 })
             .toList()),
       );
