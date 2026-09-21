@@ -23,6 +23,9 @@
 // because Dhuhr forces it.
 const int kDayCutoffHour = 10;
 
+/// See [DateTimeGameExt.isEveningNudgeHour].
+const int kEveningNudgeCutoffHour = 4;
+
 extension DateTimeGameExt on DateTime {
   /// Returns 'YYYY-MM-DD' key used as Firestore document IDs for daily logs.
   ///
@@ -229,6 +232,30 @@ extension DateTimeGameExt on DateTime {
   /// is yesterday's, still savable in its grace window. Both are real, and
   /// both deserve the same warning.
   bool get isDayClosing => hour >= 18 || hour < kDayCutoffHour;
+
+  /// The window for the app's PROACTIVE evening banners — the night-review
+  /// prompt and the streak-at-risk banner — narrower than [isDayClosing] on
+  /// purpose, and deliberately NOT tied to either one's own real deadline.
+  ///
+  /// Both banners used to share isDayClosing's window (through
+  /// [kDayCutoffHour], i.e. until 09:59). For the night-review prompt that
+  /// was on the reasoning that NightReviewNotifier keys tonight's entry by
+  /// effectiveDay, so the review offered at 1am is still tonight's; for the
+  /// streak banner it was "someone only awake at 9am still has time to save
+  /// it." Both are still true — but Aziz, 2026-09-21, after seeing both
+  /// banners well into the morning: a household waking for Fajr and easing
+  /// into the day does not want either "how was your day" or an urgent
+  /// streak warning competing for attention, even though the underlying
+  /// deadline (10am) has not moved and neither banner needed correcting on
+  /// what it is warning ABOUT.
+  ///
+  /// Only each banner's own visibility narrows. The night review itself
+  /// still keys by effectiveDay and stays reachable at any hour from the
+  /// Grid header's moon icon (see _NightReviewPromptCard's doc comment),
+  /// and the streak can still genuinely be saved up to [kDayCutoffHour] —
+  /// this only stops the PROACTIVE nudge about either one once the morning
+  /// is underway.
+  bool get isEveningNudgeHour => hour >= 18 || hour < kEveningNudgeCutoffHour;
 }
 
 /// The earliest day still open for marking at [now]: yesterday while the

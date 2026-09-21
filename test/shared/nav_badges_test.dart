@@ -7,6 +7,7 @@
 // Review dot have their rules here, beside the hint's timing.
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/core/providers/nav_bar_hint_provider.dart';
 import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
 import 'package:grow_daily_v2/features/matrix/screens/matrix_screen.dart';
@@ -81,6 +82,18 @@ void main() {
       // start while the entry loads would be noise.
       expect(nightReviewPending(const NightReviewState(), DateTime(2026, 9, 6, 21)),
           isFalse);
+    });
+
+    test('stops well before isDayClosing does, past kEveningNudgeCutoffHour',
+        () {
+      expect(
+          nightReviewPending(
+              open, DateTime(2026, 9, 6, kEveningNudgeCutoffHour - 1, 59)),
+          isTrue);
+      expect(
+          nightReviewPending(open, DateTime(2026, 9, 6, kEveningNudgeCutoffHour)),
+          isFalse,
+          reason: 'the dot and the card (isEveningNudgeHour) must agree here');
     });
   });
 

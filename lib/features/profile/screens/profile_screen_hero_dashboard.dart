@@ -538,11 +538,12 @@ class _DashboardSection extends ConsumerWidget {
     final grid = ref.watch(weeklyGridProvider);
     final habits = ref.watch(habitListProvider);
     final review = ref.watch(nightReviewProvider);
-    // Through to the 10 AM cutoff rather than stopping at midnight - see
-    // isDayClosing. Gates both the streak-risk card and the night
-    // review prompt below, and both belong to the day that is still
-    // running at 1am, and still running at 9am.
-    final isEvening = DateTime.now().isDayClosing;
+    // Both proactive evening banners share this window - see
+    // isEveningNudgeHour's own doc comment for why it is narrower than the
+    // streak's actual save-deadline (isDayClosing/kDayCutoffHour, 10am):
+    // the streak can still genuinely be saved until then, this only stops
+    // the unprompted NUDGE about it once the morning is underway.
+    final isEvening = DateTime.now().isEveningNudgeHour;
 
     final showStreak = isEvening &&
         dash.streak > 0 &&

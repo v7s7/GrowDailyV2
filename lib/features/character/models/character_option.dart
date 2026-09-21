@@ -1,4 +1,5 @@
 import 'accessory.dart';
+import 'cosmetic_overrides.dart';
 
 /// Which of the two character sets a [CharacterOption] belongs to — purely
 /// a catalog grouping so the closet screen can show "male" and "female"
@@ -42,7 +43,11 @@ class CharacterOption {
     this.unlock,
   });
 
-  String name(bool isAr) => isAr ? nameAr : nameEn;
+  String name(bool isAr) {
+    final edited = CosmeticOverridesStore.current.characterName(id, isAr);
+    if (edited != null) return edited;
+    return isAr ? nameAr : nameEn;
+  }
 }
 
 /// Static catalog of every character — three male, three female. Ids and

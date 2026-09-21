@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/deep_links.dart';
+import '../../../core/l10n/app_strings.dart' show localeProvider;
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/habit_mirror.dart';
 import '../../../core/services/local_store_service.dart';
@@ -146,7 +147,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
         // Links, which Google shut down, and the App Link already does the
         // opening.
         actionCodeSettings: ActionCodeSettings(
-          url: 'https://$linkHost$resetPath',
+          url: resetActionUrl(_ref.read(localeProvider).languageCode),
           handleCodeInApp: false,
         ),
       );

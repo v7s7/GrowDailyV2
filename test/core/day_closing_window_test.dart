@@ -1,7 +1,7 @@
 // The closing stretch of an effective day, which is what "your streak is
-// on the line" and the night-review prompt are gated on.
+// on the line" is gated on.
 //
-// The bug this pins: both used `hour >= 18`, which stops being true at
+// The bug this pins: it used `hour >= 18`, which stops being true at
 // midnight. The app's day does not end at midnight, it ends at
 // kDayCutoffHour, so the small hours lost the warning during the exact
 // hours the cutoff was invented to protect. Someone up at 1am still had
@@ -13,6 +13,12 @@
 // that hardcodes the hour fails on the next move for no reason, and
 // worse, a test that hardcodes it and passes proves nothing about the
 // wrapping.
+//
+// The night-review prompt and the streak-at-risk banner both used to share
+// this exact window for their own on-screen display, but no longer do -
+// see isEveningNudgeHour's own tests below for why the DEADLINE this file
+// pins stayed put while the proactive banners about it now stop several
+// hours earlier.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 
@@ -73,5 +79,45 @@ void main() {
     expect(lateMorning.effectiveDay, DateTime(2026, 8, 20),
         reason: 'the board itself has moved on to Thursday');
     expect(lateMorning.isDayClosing, isTrue);
+  });
+
+  group('isEveningNudgeHour — the proactive evening banners, narrower', () {
+    // Reported live, twice: first the night-review prompt, then the
+    // streak-at-risk banner, both still showing up well into the morning,
+    // riding isDayClosing's 10am streak-save DEADLINE for what was really a
+    // question of proactive-banner DISPLAY. The deadline did not move for
+    // either one - a streak can still genuinely be saved until 10am, and
+    // the review still keys by effectiveDay - only the unprompted nudge
+    // about either one now stops earlier.
+    test('the window opens at 6pm, same as isDayClosing', () {
+      expect(at(17).isEveningNudgeHour, isFalse);
+      expect(at(18).isEveningNudgeHour, isTrue);
+      expect(at(23).isEveningNudgeHour, isTrue);
+    });
+
+    test('midnight does not close it, same as isDayClosing', () {
+      expect(at(0).isEveningNudgeHour, isTrue);
+      expect(at(kEveningNudgeCutoffHour - 1).isEveningNudgeHour, isTrue);
+    });
+
+    test('it closes at its OWN cutoff, well before isDayClosing does', () {
+      expect(at(kEveningNudgeCutoffHour).isEveningNudgeHour, isFalse);
+      expect(at(kEveningNudgeCutoffHour + 1).isEveningNudgeHour, isFalse);
+    });
+
+    test('the two windows genuinely diverge between the two cutoffs', () {
+      // The exact stretch both live reports were about: still within
+      // isDayClosing's streak-save grace (the DEADLINE), but the day is
+      // well underway and neither proactive banner belongs on screen
+      // anymore.
+      for (var h = kEveningNudgeCutoffHour; h < kDayCutoffHour; h++) {
+        expect(at(h).isDayClosing, isTrue,
+            reason: 'hour $h: yesterday'
+                "'s streak can still genuinely be saved");
+        expect(at(h).isEveningNudgeHour, isFalse,
+            reason: 'hour $h: but neither banner should be asking about it '
+                'unprompted');
+      }
+    });
   });
 }

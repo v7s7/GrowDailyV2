@@ -7,10 +7,19 @@
 // habit someone half did is the purest form of nearly succeeding, and it was
 // worth exactly nothing here.
 //
-// WHAT THIS DELIBERATELY IS NOT: a new way to EARN a streak. A جزئي square
-// never calls completeHabit, so this predicate only ever runs while a real
-// completion is landing. A day made entirely of half-done squares earns
-// nothing, and the last group here pins that.
+// WHAT THIS PREDICATE ITSELF IS NOT: a new way to EARN a streak. A جزئي
+// square never calls completeHabit, so willCompleteAllHabitsToday only ever
+// runs while a real completion is landing. A day made entirely of half-done
+// squares earns nothing through IT, and the last group here pins that — the
+// same 0.5-per-square arithmetic that makes it structurally impossible, not
+// a separate guard.
+//
+// That does NOT mean a جزئي can never earn the day any more: see
+// willCrossStreakThresholdOnPartial (weekly_grid_notifier.dart) and
+// DashboardNotifier.earnStreakFromPartialCredit, which retroactively pay a
+// day that finishes on its LAST جزئي square instead of its last green one —
+// a gap this file predates. Those still cannot be earned from جزئي squares
+// alone, for exactly the arithmetic reason proven below.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 

@@ -274,6 +274,16 @@ abstract final class GameColors {
   static const Color tierPlatinumShine = Color(0xFFDCEEF9);
   static const Color tierPlatinumDeep = Color(0xFF44606F);
 
+  /// The Level Prestige ladder's 'resolute' rung only (level 15, added
+  /// 2026-09-21) — not one of the four AchievementTier medal colours above,
+  /// which the ladder's first four rungs already borrow in full (bronze,
+  /// silver, platinum, gold — see PrestigeCatalog's own comment on why
+  /// 'steadfast'/'radiant' swapped gold and platinum). Matches the 'Brass'
+  /// metal prestige_mark.dart's kPrestigeMarks gives this same rung's medal
+  /// (onDark there — this token clears deltaE 20 against every other rank,
+  /// the same test the medal's own colour is held to).
+  static const Color tierBrass = Color(0xFFB5A642);
+
   // On-surface ink per tier, per mode — see the `Ink` note above. The dark
   // values are the metals lightened enough to clear 7:1 on a dark card; the
   // light values are darkened enough to clear 4.5:1 on a white one. Read

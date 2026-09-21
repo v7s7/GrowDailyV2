@@ -21,7 +21,7 @@ int roomsWaitingToday(Iterable<({bool isLive, double todayCredit})> rooms) =>
 /// the same "not yet saved" rule as Profile's _NightReviewPromptCard, so
 /// the dot and the card never disagree about whether tonight is done.
 bool nightReviewPending(NightReviewState review, DateTime now) =>
-    !review.isLoading && !review.saved && now.isDayClosing;
+    !review.isLoading && !review.saved && now.isEveningNudgeHour;
 
 /// The bottom bar's badges, keyed by tab. Tabs not in the map draw none.
 ///

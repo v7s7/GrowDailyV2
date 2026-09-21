@@ -81,6 +81,18 @@ const String legacyScheme = 'growdaily';
 /// a browser gets when the app is not installed).
 const String resetPath = '/reset';
 
+/// The reset link Firebase's password-reset email points at, carrying the
+/// language the PAGE should open in.
+///
+/// Firebase's own email body already follows the device's language (see
+/// AuthNotifier.sendPasswordReset's setLanguageCode call), but that says
+/// nothing about the page this link opens: public/reset/index.html reads
+/// its own `?lang=` and falls back to Arabic when it is absent. Without
+/// this, an English speaker got an English email and then an Arabic page
+/// the moment they tapped its link.
+String resetActionUrl(String languageCode) =>
+    Uri.https(linkHost, resetPath, {'lang': languageCode}).toString();
+
 /// Path for a plain "open the app here" link: `growdaily://open?tab=grid`.
 ///
 /// What the iOS Lock Screen / Control Center controls hand to the app (see

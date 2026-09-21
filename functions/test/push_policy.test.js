@@ -15,6 +15,7 @@ const {
   isQuietAtLocalMinute,
   isQuietHoursNow,
   localMinutes,
+  msUntilQuietHoursEnd,
   pushKindFor,
 } = require("../push_policy");
 
@@ -118,6 +119,39 @@ test("a refused claim leaves the stored counts exactly as they were", () => {
   const r = claimQuota(q, "2026-09-05", "info");
   assert.equal(r.allowed, false);
   assert.deepEqual(r.next, q);
+});
+
+test("a held push waits exactly until the default window's 07:00", () => {
+  // 04:30 local, default 22:00-07:00 window: 2h30m left.
+  assert.equal(
+      msUntilQuietHoursEnd(undefined, 0, Date.UTC(2026, 8, 5, 4, 30)),
+      (2 * 60 + 30) * 60 * 1000);
+  // 23:00 local: 8 hours left, crossing midnight.
+  assert.equal(
+      msUntilQuietHoursEnd(undefined, 0, Date.UTC(2026, 8, 5, 23, 0)),
+      8 * 60 * 60 * 1000);
+});
+
+test("a held push uses the recipient's own offset, not the server's", () => {
+  // 01:00 UTC is 04:00 in Bahrain (+180): 3 hours left until 07:00.
+  assert.equal(
+      msUntilQuietHoursEnd(undefined, 180, Date.UTC(2026, 8, 5, 1, 0)),
+      3 * 60 * 60 * 1000);
+});
+
+test("right at the boundary minute waits a full day, never zero", () => {
+  const afternoon =
+    {quietHoursEnabled: true, quietHoursStart: "13:0", quietHoursEnd: "14:0"};
+  assert.equal(
+      msUntilQuietHoursEnd(afternoon, 0, Date.UTC(2026, 8, 5, 14, 0)),
+      24 * 60 * 60 * 1000);
+});
+
+test("a malformed end time waits a full day rather than never or now", () => {
+  const bad = {quietHoursEnabled: true, quietHoursStart: "22:0",
+    quietHoursEnd: "late"};
+  assert.equal(msUntilQuietHoursEnd(bad, 0, Date.UTC(2026, 8, 5, 4)),
+      24 * 60 * 60 * 1000);
 });
 
 test("an unknown kind is charged to the heads-up slot", () => {

@@ -471,6 +471,25 @@ const SQUARE_META = {
   none: { emoji: '⬜', label: 'empty', cell: 'empty' },
 };
 
+// The kSquareSource* constants (square_audit.dart), mirrored into
+// squareSources[habitId] by WeeklyGridNotifier._persistSquare since this was
+// added - a sibling to squareStates, not a field on it (see that write's own
+// comment). A square colored before this shipped has no entry here at all,
+// which is exactly the "not recorded" case below, not a wrong answer read as
+// "tap". 'unknown' (the default a caller that never names its source gets)
+// is deliberately omitted: showing it would look like an answer.
+const SOURCE_META = {
+  tap: 'tapped',
+  'tap-undo': 'cleared by a tap',
+  palette: 'set from the long-press palette',
+  steps: 'completed by steps',
+  'steps-catchup': 'completed by steps, filled in after the fact',
+  'habit-mirror': 'mirrored from a Today completion',
+  notification: 'completed from a notification action',
+  'quit-autoclean': 'auto-cleaned (quit habit over its limit)',
+  tasbih: 'completed from Tasbih',
+};
+
 // SquareState.isGreen (square_state.dart) - complete||bonus, nothing else.
 // This is the exact test a Room's sync applies, so it is the exact test for
 // "will this square score somewhere the person can see".
@@ -706,7 +725,7 @@ function renderDayTally({ scheduled, paid, roomCounted, why, calm }) {
  * tool has never shown at all.
  */
 function renderRecordLedger(rows, opts) {
-  const { habitCtx, mirrorFor, notesFor, roomsFor } = opts || {};
+  const { habitCtx, mirrorFor, notesFor, sourceFor, roomsFor } = opts || {};
   if (!rows.length) return '<p class="muted">Nothing recorded on this day.</p>';
 
   const cell = (value, cls) => value === null || value === undefined || value === ''
@@ -741,6 +760,8 @@ function renderRecordLedger(rows, opts) {
     }
     const note = notesFor && notesFor(r.habitId);
     if (note) subs.push(['', `Their note: <span class="lg-note">${escapeHtml(note)}</span>`]);
+    const source = sourceFor && sourceFor(r.habitId);
+    if (source) subs.push(['', `How: ${escapeHtml(source)}`]);
 
     const span = subs.map(([tone, html]) =>
       `<tr class="lg-sub${tone ? ' ' + tone : ''}"><td></td><td colspan="4">${html}</td></tr>`).join('');
@@ -1081,6 +1102,14 @@ function renderHabitDetail(data, ctx) {
     detailRow('Goal', escapeHtml(goal)),
     data.cueAfter ? detailRow('Cue', `After ${escapeHtml(data.cueAfter)}`) : '',
     data.hasTimer ? detailRow('Timer', `${Math.round((data.timerDurationSeconds || 0) / 60)} min`) : '',
+    // Only the GOAL lives here (IslamicHabitTemplate.toFirestore); the day's
+    // actual step count never reaches Firestore at all - it stays on the
+    // device (see health_steps_service.dart), so there is nothing per-day to
+    // show here. What a day's square says about steps, if anything, is the
+    // "How: completed by steps" line on that day's own ledger row instead.
+    typeof data.stepGoal === 'number'
+      ? detailRow('Step-linked', `${data.stepGoal.toLocaleString()} steps/day`)
+      : '',
     renderRewardRow(data, ctx && ctx.boostedRooms),
     detailRow('Created', fmtDate(data.createdAt) || '<span class="muted">not recorded</span>'),
     data.archivedAt ? detailRow('Archived', fmtDate(data.archivedAt)) : '',
@@ -1325,6 +1354,11 @@ function renderDailyDetail(id, data, ctx) {
       const notes = data.squareNotes;
       return notes && typeof notes === 'object' && typeof notes[habitId] === 'string'
         ? notes[habitId] : '';
+    },
+    sourceFor: (habitId) => {
+      const sources = data.squareSources;
+      const raw = sources && typeof sources === 'object' ? sources[habitId] : null;
+      return typeof raw === 'string' ? SOURCE_META[raw] || '' : '';
     },
   });
 

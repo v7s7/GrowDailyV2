@@ -820,6 +820,14 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
       _dayRef(day).set(
         {
           'squareStates': {habitId: value.toJson()},
+          // A sibling map, not a field on squareStates itself: every
+          // existing reader of squareStates (the Grid, the heatmap, Rooms,
+          // this doc's own toJson/fromJson round trip) keeps reading a bare
+          // enum string, unchanged. This is purely additive — admin_lookup
+          // is its only reader today (see renderRecordLedger's sourceFor) —
+          // so a square colored before this shipped simply has no entry
+          // here, not a wrong one.
+          'squareSources': {habitId: source},
           'lastUpdated': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
@@ -1162,6 +1170,56 @@ bool willCompleteAllSquaresOn(
   }
   // Same guard as willCompleteAllHabitsToday: a day with nothing scheduled is
   // a day off, not a completed one.
+  if (total == 0 || !sawTarget) return false;
+  return credited / total >= kStreakDayCompletionThreshold;
+}
+
+/// The جزئي twin of [willCompleteAllSquaresOn]: "does marking [habit] جزئي
+/// (rather than complete) cross [kStreakDayCompletionThreshold]?" — the
+/// question a palette pick of yellow needs answered, exactly as a palette
+/// pick of green needs [willCompleteAllSquaresOn].
+///
+/// [habit] is credited HALF, not the full point [willCompleteAllSquaresOn]
+/// gives its own target — a جزئي is half the work everywhere else in this
+/// app, and crediting it in full here would let marking one habit half-done
+/// finish the day on its own.
+///
+/// No separate guard is needed against a day made entirely of جزئي squares
+/// (the "day made entirely of half-done squares" case
+/// [DashboardState.streakEarnedToday] says must never qualify on its own):
+/// every square here is worth at most 0.5, so a day with no green or blue
+/// square anywhere can never average above 0.5, and
+/// [kStreakDayCompletionThreshold] is 0.8. The arithmetic already refuses
+/// it.
+bool willCrossStreakThresholdOnPartial(
+  WidgetRef ref,
+  IslamicHabitTemplate habit,
+  DateTime day,
+) {
+  final grid = ref.read(weeklyGridProvider);
+  final dayHabits = boardHabitsOn(
+    habits: ref.read(habitListProvider),
+    day: day,
+    isGreen: grid.greenForWeekOf(day),
+    alsoOwing: {habit.id},
+  );
+  var total = 0;
+  var credited = 0.0;
+  var sawTarget = false;
+  for (final h in dayHabits) {
+    total++;
+    if (h.id == habit.id) {
+      sawTarget = true;
+      credited += 0.5;
+      continue;
+    }
+    final square = grid.squareFor(h.id, day);
+    if (square.isGreen) {
+      credited += 1;
+    } else if (square == SquareState.partial) {
+      credited += 0.5;
+    }
+  }
   if (total == 0 || !sawTarget) return false;
   return credited / total >= kStreakDayCompletionThreshold;
 }

@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -41,12 +40,17 @@ class ComebackCard extends ConsumerWidget {
     if (!state.showComebackBonus) return const SizedBox.shrink();
     final gp = context.gp;
     final s = S.of(context);
-    final user = FirebaseAuth.instance.currentUser;
+    // The name the person chose, exactly as Profile reads it. This used to
+    // split the email and show `alkubaisi1818` to someone who had renamed
+    // themselves months earlier: the greeting is the one line in the app
+    // that says their name back to them, so it has to be the name they set.
+    //
     // No invented name when there is none: a guest session used to be
     // greeted as "Warrior" / «بطل», which both spliced an English word into
-    // the Arabic line and handed a stranger a title. The greeting simply
-    // drops the name instead.
-    final name = user?.email?.split('@').first;
+    // the Arabic line and handed a stranger a title. The greeting drops the
+    // name instead, so the email fallback is deliberately NOT used here.
+    final saved = state.displayName.trim();
+    final name = saved.isNotEmpty ? saved : null;
     // A banked freeze turns this from "here is a consolation bonus" into a
     // real choice, so the two layouts differ in more than a button.
     final canRestore = state.streakFreezes > 0 && state.previousStreak > 0;

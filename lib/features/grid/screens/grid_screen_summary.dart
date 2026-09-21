@@ -657,21 +657,24 @@ class _SummaryCard extends StatelessWidget {
   final List<IslamicHabitTemplate> habits;
   final WeeklyGridState state;
 
-  /// XP actually paid out today, handed in by the caller from
-  /// DashboardState.earnedXpOn — see the construction site in
-  /// grid_screen.dart for why this replaced the flat per-state sum.
-  final int xpToday;
-
   /// Today's step count as runStepAutoComplete last read it, or null on an
   /// account with no linked walking habit (and before the first read of the
   /// session). Feeds [_stepPartials] so a walk in progress moves the
   /// percentage instead of counting for nothing until the goal lands.
   final int? stepsToday;
+
+  /// `DashboardState.completions` — today's tap count for every habit
+  /// counted more than once a day (a "2x" habit), and nothing else. Feeds
+  /// [_countedHabitPartials] so a habit sitting at 1 of 2 moves the ring the
+  /// same way _GridTable._effectiveSquare already paints its square: half
+  /// filled, not empty.
+  final Map<String, int> todayCounts;
+
   const _SummaryCard({
     required this.habits,
     required this.state,
-    required this.xpToday,
     required this.stepsToday,
+    required this.todayCounts,
   });
 
   /// Part-done credit for walking habits linked to the step count: the real
@@ -692,45 +695,130 @@ class _SummaryCard extends StatelessWidget {
     };
   }
 
+  /// Part-done credit for a habit counted more than once a day, still short
+  /// of today's count: 1 of 2 أذكار reps is worth 0.5 here, the same real
+  /// fraction _GridTable._effectiveSquare paints as a half-filled square.
+  ///
+  /// Without this, a "2x" habit sitting at 1 of 2 kept the ring at exactly
+  /// the same percentage as 0 of 2 — the square on the board said "half
+  /// done" while the card next to it insisted nothing had happened, because
+  /// _handleSquareTap only writes a stored SquareState once the FULL count
+  /// lands (see _completeSquareToday); the count in between lives only in
+  /// DashboardState.completions; and todayCompletionRatio reads the stored
+  /// state, not that count.
+  ///
+  /// Only a square still sitting on [SquareState.none] today: an explicit
+  /// جزئي/failed/bonus/skipped mark already outranks the count on the board
+  /// itself (see _effectiveSquare), and a green square is already a whole
+  /// unit through its own state, so re-deriving either here would double
+  /// count or overrule a deliberate mark.
+  Map<String, double> _countedHabitPartials() {
+    final today = DateTime.now().effectiveDay;
+    final todayRow = state.days.any((d) => d.isSameDayAs(today))
+        ? state.states[today.toDateKey()]
+        : null;
+    return {
+      for (final habit in habits)
+        if (habit.effectiveDailyTarget > 1 &&
+            (todayCounts[habit.id] ?? 0) > 0 &&
+            (todayCounts[habit.id] ?? 0) < habit.effectiveDailyTarget &&
+            (todayRow?[habit.id] ?? SquareState.none) == SquareState.none)
+          habit.id: (todayCounts[habit.id] ?? 0) / habit.effectiveDailyTarget,
+    };
+  }
+
+  /// Widens [board] with a resting quota habit's own hand-marked جزئي — but
+  /// only for the ring's PERCENTAGE, never for what counts as owed.
+  ///
+  /// A quota habit that isn't load-bearing today stays off [board] (see
+  /// boardHabitsOn) even when its square carries a جزئي: a half session
+  /// never banks toward the weekly target (see habitOwesDay), so the day
+  /// genuinely wasn't required. But the effort was real, and today's own
+  /// ring is the one safe place to show it. The board already lets a FULL
+  /// extra session in on a rest day, because adding a whole unit to both
+  /// sides of a ratio can only ever raise it (weeklyQuotaDemand's `done`
+  /// override); a 0.5 session carries no such guarantee on its own, so each
+  /// candidate is checked one at a time against the ratio so far, and only
+  /// kept when it does not pull the day back down.
+  ///
+  /// Deliberately a SEPARATE list from [board]: folding these into the
+  /// count Aziz sees in "N of M" or into [greensToday]/perfectDay would mean
+  /// a bonus half-effort on something never asked for could block the
+  /// "Perfect day" trophy on a day every REQUIRED habit was finished.
+  List<String> _widenForRestingPartials(
+    List<String> board,
+    Map<String, SquareState>? todayRow,
+    Map<String, double> partialUnits,
+  ) {
+    if (todayRow == null) return board;
+    final onBoard = board.toSet();
+    final candidates = habits.where((h) =>
+        !onBoard.contains(h.id) && todayRow[h.id] == SquareState.partial);
+    var widened = board;
+    var ratioSoFar =
+        state.todayCompletionRatio(widened, partialUnits: partialUnits);
+    for (final habit in candidates) {
+      final tryWidened = [...widened, habit.id];
+      final tryRatio =
+          state.todayCompletionRatio(tryWidened, partialUnits: partialUnits);
+      if (tryRatio >= ratioSoFar) {
+        widened = tryWidened;
+        ratioSoFar = tryRatio;
+      }
+    }
+    return widened;
+  }
+
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
     final today = DateTime.now().effectiveDay;
     final habitIds = habits.map((h) => h.id).toList();
+    final todayRow = state.days.any((d) => d.isSameDayAs(today))
+        ? state.states[today.toDateKey()]
+        : null;
     // What today is answerable for, not merely what is allowed today: a
     // flexible quota's rest day leaves the ring's denominator (see
     // boardHabitsOn), so a 4x-a-week habit stops holding the day at 3 of 4 on
-    // days its own week never asked for.
+    // days its own week never asked for. Everything BELOW that reads as
+    // "owed" — greensToday, owedTodayCount, perfectDay — stays on this exact
+    // list, never the widened one.
     final scheduledTodayIds = boardHabitsOn(
       habits: habits,
       day: today,
       isGreen: state.currentWeekGreen,
     ).map((h) => h.id).toList();
     final greens = state.greenSquares(habitIds);
+    final partialUnits = {..._stepPartials(), ..._countedHabitPartials()};
     final ratio = state.todayCompletionRatio(
-      scheduledTodayIds,
-      partialUnits: _stepPartials(),
+      _widenForRestingPartials(scheduledTodayIds, todayRow, partialUnits),
+      partialUnits: partialUnits,
     );
-
-    // What today actually paid out (see xpToday's doc comment). Past-day
-    // marks still contribute nothing: setSquare's anti-backdating guard
-    // means they never pay, so they never reach this counter either.
-    final points = xpToday;
-
-    final greensToday = () {
-      if (!state.days.any((d) => d.isSameDayAs(today))) return 0;
-      final row = state.states[today.toDateKey()];
-      if (row == null) return 0;
-      return scheduledTodayIds
-          .where((id) => (row[id] ?? SquareState.none).isGreen)
-          .length;
-    }();
-    final perfectDay = scheduledTodayIds.isNotEmpty &&
-        greensToday >= scheduledTodayIds.length;
+    final greensToday = todayRow == null
+        ? 0
+        : scheduledTodayIds
+            .where((id) => (todayRow[id] ?? SquareState.none).isGreen)
+            .length;
+    // What today still ASKS for. A تخطّي square leaves the day entirely,
+    // exactly as it leaves todayCompletionRatio's denominator: without this
+    // the ring could read 100% (the rest excluded) while the line beside it
+    // said "7 of 8", and the card would be arguing with itself.
+    final owedTodayCount = todayRow == null
+        ? scheduledTodayIds.length
+        : scheduledTodayIds
+            .where((id) =>
+                (todayRow[id] ?? SquareState.none) != SquareState.skipped)
+            .length;
+    final perfectDay = owedTodayCount > 0 && greensToday >= owedTodayCount;
 
     final card = Container(
-      padding: const EdgeInsets.all(18),
+      // Tighter vertically than horizontally on purpose: the ring grew to
+      // 106 and the card's height is what pushes the board down the screen.
+      // At the old even 18 the squares below dropped off a 402x874 phone
+      // entirely, which grid_square_alignment_test caught by finding no
+      // squares at all. 12 buys that height back and leaves the ring big.
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -748,64 +836,75 @@ class _SummaryCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _RingStat(ratio: ratio),
+          _RingStat(ratio: ratio, perfectDay: perfectDay),
           const SizedBox(width: 18),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // TODAY leads. The card used to headline the WEEK's filled
+                // squares while today's figure was the smallest, faintest
+                // text on it, even though the ring beside it is today and
+                // today is the only thing anyone can act on. The big number
+                // and its label beside it are the same idiom as before, just
+                // pointed at the number that matters.
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    // Count up to the current total so each new green square
-                    // visibly ticks the score.
+                    // Counts up so finishing a habit visibly ticks it over.
                     TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: greens.toDouble()),
+                      tween: Tween(begin: 0, end: greensToday.toDouble()),
                       duration: const Duration(milliseconds: 600),
                       curve: Curves.easeOutCubic,
                       builder: (_, v, __) => Text(
                         '${v.round()}',
                         style: TextStyle(
-                          fontSize: 40,
+                          fontSize: 34,
                           fontWeight: FontWeight.w900,
-                          color: context.gp.emeraldInk,
+                          color: perfectDay
+                              ? context.gp.emeraldInk
+                              : gp.textPrimary,
                           height: 1,
-                          letterSpacing: -1.5,
+                          letterSpacing: -1.2,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        // Agrees with the number it sits beside — Arabic
-                        // takes the singular at 1, the dual at 2, the plural
-                        // at 3–10 and the accusative singular at 11+, so a
-                        // fixed plural read "1 مربّعات ملوّنة" on the app's
-                        // main screen. English is unaffected.
-                        s.gridGreenSquaresCount(greens),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: gp.textSec,
+                    const SizedBox(width: 7),
+                    // Flexible, or the label takes its natural width and the
+                    // row overflows: at 1.4x system font on a 360pt screen
+                    // this was 4px over, which header_action_row_fit_test
+                    // catches. The number never shrinks, the label does.
+                    Flexible(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Text(
+                          owedTodayCount == 0
+                              ? s.gridTapHint
+                              : s.gridOfHabitsToday(owedTodayCount),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: gp.textSec,
+                          ),
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 5),
+                // The week, and the one celebration this card is allowed.
                 AnimatedSwitcher(
                   duration: GameMotion.relaxed,
                   child: Text(
                     perfectDay
                         ? s.gridPerfectDay
-                        : greensToday > 0
-                            ? s.gridGreensToday(greensToday)
-                            : s.gridTapHint,
-                    key: ValueKey(
-                      '$perfectDay-$greensToday-${(ratio * 100).round()}',
-                    ),
+                        : s.gridGreenSquaresThisWeek(greens),
+                    key: ValueKey('$perfectDay-$greens'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
                       color: perfectDay ? context.gp.emeraldInk : gp.textTert,
@@ -813,39 +912,6 @@ class _SummaryCard extends StatelessWidget {
                           perfectDay ? FontWeight.w700 : FontWeight.w400,
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                // Flexible, not bare children: these two stats sit beside the
-                // summary card's big number, so the width left for them is
-                // already narrow, and both carry a translated label whose
-                // length isn't ours to control. On a 402pt iPhone this Row
-                // overflowed by 24px — the yellow-and-black stripe on the
-                // app's main screen in debug, and silently clipped text in
-                // release. The gap shrinks before the content does, and each
-                // stat gets to ellipsize its own label rather than push its
-                // neighbour off the card. Reproduced by
-                // grid_square_alignment_test's phone-width group, which is
-                // the only place the narrow branch is exercised at all.
-                Row(
-                  children: [
-                    Flexible(
-                      child: _MiniStat(
-                        icon: Icons.bolt_rounded,
-                        value: '$points',
-                        label: s.gridPoints,
-                        color: GameColors.gold,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: _MiniStat(
-                        icon: Icons.percent_rounded,
-                        value: '${(ratio * 100).round()}%',
-                        label: s.gridComplete,
-                        color: context.gp.iconXp,
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
@@ -885,88 +951,167 @@ class _SummaryCard extends StatelessWidget {
 
 class _RingStat extends StatelessWidget {
   final double ratio;
-  const _RingStat({required this.ratio});
+  // Not `ratio >= 1.0`: todayCompletionRatio reads a day with nothing owed
+  // (every habit skipped or resting on its quota) as 1.0 too, "a finished
+  // day, not an empty one" by that function's own doc comment. A trophy is a
+  // claim of achievement, not of being off the hook, so it needs the SAME
+  // owedTodayCount > 0 guard the card's border and "Perfect day" text
+  // already use — otherwise a fully rested day showed a gold trophy next to
+  // a "0" and a plain tap hint, which is not what this ring is for.
+  final bool perfectDay;
+  const _RingStat({required this.ratio, required this.perfectDay});
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    return SizedBox(
-      width: 64,
-      height: 64,
+    final done = perfectDay;
+    // 110, not 64: the ring is the card's one piece of visual weight, and at
+    // 64 it read as a small badge with "50%" crammed against the arc.
+    final ring = SizedBox(
+      width: 90,
+      height: 90,
       child: Stack(
         alignment: Alignment.center,
         children: [
           SizedBox(
-            width: 64,
-            height: 64,
+            width: 90,
+            height: 90,
             child: TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: ratio.clamp(0.0, 1.0)),
               duration: const Duration(milliseconds: 700),
               curve: Curves.easeOutCubic,
-              builder: (_, v, __) => CircularProgressIndicator(
-                value: v,
-                strokeWidth: 6,
-                backgroundColor: gp.surfaceHL,
-                valueColor:
-                    AlwaysStoppedAnimation(GameColors.emerald),
-                strokeCap: StrokeCap.round,
+              builder: (_, v, __) => Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Stack gives non-positioned children loose constraints,
+                  // so without this SizedBox the indicator ignored the
+                  // 120x120 box around it and drew at Flutter's own default
+                  // (36), floating tiny in the middle of the reserved space.
+                  SizedBox(
+                    width: 90,
+                    height: 90,
+                    child: CircularProgressIndicator(
+                      value: v,
+                      // Thin band, wide well: the ring is a frame for the
+                      // number, not the subject. At 6 on a 110pt circle the
+                      // well is 98pt across, so the percentage can be big and
+                      // still sit nowhere near the arc.
+                      strokeWidth: 6,
+                      // The unfilled part has to be visible or the ring
+                      // stops reading as a ring: surfaceHL is a dark-grey
+                      // token that all but disappears on this card's green
+                      // wash, leaving a bare arc floating in space.
+                      backgroundColor: GameColors.emerald.withOpacity(0.18),
+                      valueColor: AlwaysStoppedAnimation(GameColors.emerald),
+                      strokeCap: StrokeCap.round,
+                    ),
+                  ),
+                  // The day's percentage, inside the ring that draws it.
+                  // It used to sit outside as a stat with a percent ICON
+                  // beside a percent SIGN, which read "%50%". Here there is
+                  // one of each, in the place the eye already goes, and the
+                  // number counts up with the arc rather than snapping.
+                  //
+                  // A finished day gets the cup instead: "100%" next to a
+                  // full ring says nothing the ring has not already said.
+                  if (perfectDay)
+                    Icon(
+                      Icons.emoji_events_rounded,
+                      color: GameColors.gold,
+                      size: 46,
+                    )
+                        .animate()
+                        .scaleXY(
+                          begin: 0.4,
+                          end: 1,
+                          duration: 650.ms,
+                          curve: Curves.elasticOut,
+                        )
+                        .fadeIn(duration: 220.ms)
+                  else
+                    // The number carries the meaning and the sign only
+                    // qualifies it, so they are not the same size. At one
+                    // size "100%" either crowds the arc or forces the digits
+                    // down; this keeps the digits big and the clearance.
+                    // A percentage is one number expression, so it reads
+                    // left to right in both languages. Without this the
+                    // Arabic direction put the sign first and the ring read
+                    // "%50". Aliased because package:intl exports its own
+                    // TextDirection, which shadows the widget one.
+                    Directionality(
+                      textDirection: ui.TextDirection.ltr,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            '${(v * 100).round()}',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                              color: context.gp.emeraldInk,
+                              letterSpacing: -0.5,
+                              // Tabular figures: the number counts up inside a
+                              // fixed circle, and proportional digits made it
+                              // shuffle on every frame.
+                              fontFeatures: const [
+                                FontFeature.tabularFigures()
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '%',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: context.gp.emeraldInk.withOpacity(0.75),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
-          Icon(
-            ratio >= 1.0
-                ? Icons.emoji_events_rounded
-                : Icons.grid_view_rounded,
-            color: context.gp.emeraldInk,
-            size: 24,
           ),
         ],
       ),
     );
-  }
-}
 
-class _MiniStat extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final Color color;
-  const _MiniStat(
-      {required this.icon,
-      required this.value,
-      required this.label,
-      required this.color});
+    // An unfinished day is just a ring: nothing on the app's home screen
+    // should be moving for no reason.
+    if (!done) return ring;
 
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    // mainAxisSize.min so a Flexible parent can hand this exactly the width it
-    // needs and no more; the icon and the value are never allowed to shrink
-    // (a clipped number is worse than a clipped word), so only the label is
-    // Flexible and only the label ellipsizes.
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 5),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            color: gp.textPrimary,
+    // The moment the day closes. One pop, one sweep, and a glow that stays
+    // while the day is finished — flutter_animate, the package the rest of
+    // the app already celebrates with, rather than a second animation
+    // library for one card. Deliberately NOT looping: a permanent animation
+    // on the home screen stops reading as a reward and starts reading as a
+    // spinner.
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: GameColors.gold.withOpacity(0.32),
+            blurRadius: 26,
+            spreadRadius: 1,
           ),
-        ),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 11, color: gp.textTert),
-          ),
-        ),
-      ],
-    );
+        ],
+      ),
+      child: ring,
+    )
+        .animate(onPlay: (c) => c.forward(from: 0))
+        .scaleXY(
+          begin: 0.85,
+          end: 1,
+          duration: 520.ms,
+          curve: Curves.easeOutBack,
+        )
+        .shimmer(
+          duration: 1200.ms,
+          color: GameColors.gold.withOpacity(0.55),
+        );
   }
 }

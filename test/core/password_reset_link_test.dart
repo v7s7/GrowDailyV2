@@ -84,4 +84,24 @@ void main() {
       );
     });
   });
+
+  group('resetActionUrl', () {
+    // public/reset/index.html defaults to Arabic when ?lang= is absent, so
+    // the link Firebase emails out has to carry the language explicitly or
+    // an English speaker who gets an English email lands on an Arabic page
+    // the moment they tap it (Aziz, 2026-09-21).
+    test('carries the language the page should open in', () {
+      expect(resetActionUrl('en'),
+          'https://grow-daily-339ef.web.app/reset?lang=en');
+      expect(resetActionUrl('ar'),
+          'https://grow-daily-339ef.web.app/reset?lang=ar');
+    });
+
+    test('still parses back out as a password-reset link', () {
+      final uri = Uri.parse(resetActionUrl('en'));
+      expect(parsePasswordResetLink(uri.replace(
+        queryParameters: {...uri.queryParameters, 'oobCode': 'ABC123'},
+      )), 'ABC123');
+    });
+  });
 }

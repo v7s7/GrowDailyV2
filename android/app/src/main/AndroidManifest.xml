@@ -15,13 +15,62 @@
 
     <!-- flutter_local_notifications: reminders are scheduled in the future,
          so they must survive a reboot (RECEIVE_BOOT_COMPLETED) and be able
-         to buzz (VIBRATE). No SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM here on
-         purpose: every zonedSchedule call in notification_service.dart uses
-         AndroidScheduleMode.inexactAllowWhileIdle, which needs no exact-alarm
-         permission and avoids Play's restricted-permission declaration form
-         entirely. -->
+         to buzz (VIBRATE). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <!-- EXACT ALARMS. These two are what make a reminder arrive at the
+         minute the person picked.
+
+         This file used to say the opposite — that no exact-alarm permission
+         was declared on purpose, because every zonedSchedule call used
+         AndroidScheduleMode.inexactAllowWhileIdle and that avoided Play's
+         restricted-permission form. The cost of that was never measured
+         until it was, on an API 33 device running the release APK. Every
+         single armed reminder came out of `adb shell dumpsys alarm` like
+         this:
+
+           tag=*walarm*:com.growdaily.v2/com.dexterous...ScheduledNotificationReceiver
+           type=RTC_WAKEUP origWhen=2026-09-21 20:30:00.000 window=+1h0m0s0ms
+           whenElapsed=+1d7h20m51s477ms  maxWhenElapsed=+1d8h20m51s477ms
+
+         maxWhenElapsed is exactly one hour past whenElapsed: Android was
+         free to deliver a 20:30 reminder any time before 21:30, and the
+         same dump shows the system's own exact alarms with window=0 and the
+         two times identical. Android documents it plainly — from Android 12
+         a setAndAllowWhileIdle alarm is "invoked within one hour of the
+         trigger time". Doze was never the problem; forcing deep idle left
+         these alarms with no device_idle deferral at all, because
+         allowWhileIdle does work.
+         The hour of slack was the problem, and to someone who set a
+         reminder for 7:00 and saw nothing by 7:20 it is indistinguishable
+         from the app being broken. That is exactly what the first Android
+         testers reported.
+
+         USE_EXACT_ALARM (API 33+) is granted at INSTALL, cannot be revoked,
+         and raises no runtime prompt, so an update alone fixes every
+         reminder. Play restricts it to apps whose core, user-facing job is
+         a thing happening at a chosen time — "alarm clocks, calendars or
+         reminder" apps. This app's entire promise is a reminder at a
+         prayer-relative or clock time, plus a per-habit «منبّه» mode that
+         is a literal alarm, so the listing and the permission say the same
+         thing. That is the test Play applies, and it is worth re-reading
+         the store listing against this line before any release that
+         changes it.
+
+         SCHEDULE_EXACT_ALARM carries maxSdkVersion="32" deliberately. Below
+         API 31 no permission is needed at all; on 31-32 this one is
+         pre-granted; from 33 USE_EXACT_ALARM takes over. Capping it at 32
+         is what keeps the app out of Play's declaration form, which only
+         concerns SCHEDULE_EXACT_ALARM on 33+. On 31-32 it IS revocable
+         ("Alarms & reminders" in system settings), and a revoked one makes
+         the plugin throw exact_alarms_not_permitted and arm NOTHING — see
+         NotificationService._zonedSchedule, which catches exactly that and
+         retries inexact, because an hour-late reminder still beats none. -->
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
     <!-- geolocator, for the prayer-time auto-detect path
          (DeviceLocationService). Foreground only: there is no

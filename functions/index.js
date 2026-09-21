@@ -52,15 +52,22 @@
 
 const {onCall, HttpsError, onRequest} =
     require("firebase-functions/v2/https");
+const {onTaskDispatched} = require("firebase-functions/v2/tasks");
 const {defineSecret} = require("firebase-functions/params");
 const crypto = require("crypto");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
+const {getFunctions} = require("firebase-admin/functions");
 const {isRoomPausedOn, roomEventFor} = require("./room_events");
 const {lastOneCounts, lastOneMessageFor} = require("./room_messages");
-const {claimQuota, isQuietHoursNow, pushKindFor} = require("./push_policy");
+const {
+  claimQuota,
+  isQuietHoursNow,
+  msUntilQuietHoursEnd,
+  pushKindFor,
+} = require("./push_policy");
 const {
   clipSpansToPast,
   closedDaysToCheck,
@@ -323,30 +330,168 @@ function localDayKey(tzOffsetMinutes) {
   return local.toISOString().slice(0, 10);
 }
 
+/**
+ * @return {Promise<{eligible: boolean, locale: string, tzOffsetMinutes:
+ *     (number|undefined), reason: (string|undefined), settings:
+ *     (object|undefined)}>} `reason` is only set when ineligible, and is
+ *     "muted" | "master-off" | "room-off" | "no-user" | "quiet-hours".
+ *     `settings` and `tzOffsetMinutes` come back on the "quiet-hours"
+ *     reason too (not just when eligible) — the only reason a caller ever
+ *     needs them for an ineligible person, to schedule deferRoomPush.
+ */
 async function isEligible(otherUid, participantData) {
   if (participantData.notificationsMuted === true) {
-    return {eligible: false, locale: "en"};
+    return {eligible: false, locale: "en", reason: "muted"};
   }
   const userSnap = await db.collection("users").doc(otherUid).get();
-  if (!userSnap.exists) return {eligible: false, locale: "en"};
+  if (!userSnap.exists) {
+    return {eligible: false, locale: "en", reason: "no-user"};
+  }
   const user = userSnap.data() || {};
   const settings = user.notificationSettings;
   const locale = user.locale === "ar" ? "ar" : "en";
 
   if (settings && settings.masterEnabled === false) {
-    return {eligible: false, locale};
+    return {eligible: false, locale, reason: "master-off"};
   }
   if (settings && settings.roomActivityEnabled === false) {
-    return {eligible: false, locale};
+    return {eligible: false, locale, reason: "room-off"};
   }
   if (isQuietHoursNow(settings, user.tzOffsetMinutes)) {
-    return {eligible: false, locale};
+    // Not dropped: see deferRoomPush. Only THIS reason carries settings
+    // and the offset back on the ineligible path, because only this
+    // reason is ever retried rather than simply skipped.
+    return {
+      eligible: false, locale, reason: "quiet-hours",
+      settings, tzOffsetMinutes: user.tzOffsetMinutes,
+    };
   }
   // The daily cap is claimed by the CALLER, after it has confirmed this
   // person actually has a device to receive on. Claiming it here would
   // spend a slot on an undeliverable push.
   return {eligible: true, locale, tzOffsetMinutes: user.tzOffsetMinutes};
 }
+
+/**
+ * Queues one held push for the exact minute quiet hours end for [otherUid],
+ * instead of dropping it the way every other ineligible reason is dropped.
+ *
+ * Deliberately a single scheduled Cloud Task, not a periodic sweep polling
+ * "is anyone's quiet hours over yet" every few minutes forever: that would
+ * cost something (however small) around the clock whether or not a push is
+ * ever actually waiting, and would need re-tuning as the number of rooms
+ * grows. One task per held push costs nothing when nothing is held, which
+ * is true most of every day. See msUntilQuietHoursEnd's own doc comment.
+ *
+ * A 2-minute buffer on top of the computed delay: Cloud Tasks' own
+ * scheduling has second-level jitter, and firing even one minute early
+ * would land back inside the window it was meant to wait out, and
+ * deliverDeferredRoomPush does not re-queue a still-quiet miss - see its
+ * own comment for why one retry is the promise, not an indefinite chase.
+ *
+ * Failure here must not throw into the caller's send loop - a lost defer
+ * costs exactly one push, the same cost claimPushSlot already accepts for
+ * the same reason (see its own comment).
+ * @param {object} p
+ * @param {string} p.otherUid Recipient.
+ * @param {string} p.roomCode
+ * @param {string} p.kind A KIND_CAPS key ("info"/"nudge"/"celebrate").
+ * @param {string} p.title
+ * @param {string} p.body
+ * @param {object} p.data Extra FCM data payload fields (roomCode/type/etc).
+ * @param {object|undefined} p.settings Their mirrored notificationSettings.
+ * @param {number} p.tzOffsetMinutes Their device's UTC offset.
+ * @return {Promise<void>}
+ */
+async function deferRoomPush(p) {
+  const BUFFER_MS = 2 * 60 * 1000;
+  const delayMs =
+    msUntilQuietHoursEnd(p.settings, p.tzOffsetMinutes) + BUFFER_MS;
+  try {
+    const queue = getFunctions().taskQueue("deliverDeferredRoomPush");
+    await queue.enqueue(
+        {
+          otherUid: p.otherUid,
+          roomCode: p.roomCode,
+          kind: p.kind,
+          title: p.title,
+          body: p.body,
+          data: p.data,
+        },
+        {scheduleDelaySeconds: Math.round(delayMs / 1000)},
+    );
+  } catch (err) {
+    logger.warn("defer room push failed",
+        {otherUid: p.otherUid, roomCode: p.roomCode, err: String(err)});
+  }
+}
+
+/**
+ * The redelivery half of deferRoomPush, dispatched by Cloud Tasks at the
+ * exact moment it was told the recipient's quiet hours would be over.
+ *
+ * Re-checks everything from scratch rather than trusting the moment it was
+ * queued - settings can change in the hours between, a token can go stale,
+ * the person can leave the room, and a fresh isEligible call is the exact
+ * same truth the immediate send path already uses, so this can never drift
+ * from it. If they are STILL quiet (their window changed after this was
+ * scheduled) or ineligible for any other reason by now, this drops the
+ * push rather than re-queuing it: one retry is the promise this makes, not
+ * an indefinite chase of a moving target.
+ *
+ * maxAttempts: 1 - a delivery failure here (a transient FCM error, say)
+ * is the same one-push cost every other skip in this file already accepts,
+ * not worth Cloud Tasks' own retry-with-backoff machinery for.
+ */
+exports.deliverDeferredRoomPush = onTaskDispatched(
+    {retryConfig: {maxAttempts: 1}, rateLimits: {maxConcurrentDispatches: 6}},
+    async (req) => {
+      const {otherUid, roomCode, kind, title, body, data} = req.data || {};
+      if (!otherUid || !roomCode || !title || !body) return;
+
+      const participantSnap = await db.collection("rooms").doc(roomCode)
+          .collection("participants").doc(otherUid).get();
+      if (!participantSnap.exists) return;
+      const participant = participantSnap.data() || {};
+      if (participant.leftAt) return;
+
+      const {eligible, tzOffsetMinutes} =
+        await isEligible(otherUid, participant);
+      if (!eligible) {
+        logger.info("deferred room push still not eligible",
+            {otherUid, roomCode});
+        return;
+      }
+
+      const tokensSnap = await db.collection("users").doc(otherUid)
+          .collection("fcmTokens").get();
+      if (tokensSnap.empty) return;
+      if (!await claimPushSlot(
+          otherUid, localDayKey(tzOffsetMinutes), kind)) {
+        return;
+      }
+
+      const sends = tokensSnap.docs.map((tokenDoc) => admin.messaging().send({
+        token: tokenDoc.id,
+        notification: {title, body},
+        data: data || {},
+        apns: {payload: {aps: {sound: "default"}}},
+      }).catch((err) => {
+        const code = err && err.code;
+        if (
+          code === "messaging/registration-token-not-registered" ||
+          code === "messaging/invalid-registration-token"
+        ) {
+          return tokenDoc.ref.delete().catch(() => {});
+        }
+        logger.warn("deferred room push send failed", {code, uid: otherUid});
+        return null;
+      }));
+      await Promise.all(sends);
+      logger.info("deliverDeferredRoomPush",
+          {roomCode, otherUid, sent: sends.length});
+    },
+);
 
 /**
  * Whether the last person standing gets the playful wording rather than
@@ -514,37 +659,24 @@ exports.notifyRoomFinish = onCall(async (request) => {
   const sends = [];
   // Why a recipient was skipped, counted so the log can answer "why did
   // nobody get this" without anyone's phone in hand. No names, uids or
-  // tokens: counts only.
-  const skipped = {ineligible: 0, noToken: 0, capped: 0};
+  // tokens: counts only. "deferred" is not a loss - see deferRoomPush.
+  const skipped = {ineligible: 0, deferred: 0, noToken: 0, capped: 0};
   for (const doc of recipients) {
     const other = doc.data() || {};
-    const {eligible, locale, tzOffsetMinutes} =
+    const {eligible, locale, reason, settings, tzOffsetMinutes} =
       await isEligible(doc.id, other);
-    if (!eligible) {
+    if (!eligible && reason !== "quiet-hours") {
       skipped.ineligible++;
       continue;
     }
 
-    const tokensSnap = await db
-        .collection("users").doc(doc.id)
-        .collection("fcmTokens").get();
-    // Checked BEFORE the daily slot is claimed. A person with no registered
-    // device cannot receive anything, so spending one of their three daily
-    // slots on an undeliverable push would silently exhaust the quota of
-    // exactly the people who are already getting nothing.
-    if (tokensSnap.empty) {
-      skipped.noToken++;
-      continue;
-    }
-    if (!await claimPushSlot(
-        doc.id, localDayKey(tzOffsetMinutes), pushKindFor(event))) {
-      skipped.capped++;
-      continue;
-    }
-
-    // Only event B has a playful variant, and only for the single person
-    // it goes to. Any condition failing falls back to the neutral wording,
-    // which stays the default for everyone.
+    // Message content is computed for BOTH the send-now and the
+    // quiet-hours-defer path, using exactly the same inputs either way, so
+    // a deferred push says the same thing an on-time one would have.
+    // wantsNudge's own "not late in their evening" gate is a courtesy on
+    // TOP of quiet hours, not a substitute for it - evaluating it now (at
+    // the moment of the finish, not at redelivery) is what keeps a nudge
+    // from turning into a reprimand for a day already re-timed.
     const wantsNudge = event === "lastOne" &&
       // Room size for the policy is the members IN the room, not every
       // document: a departed member's record is kept (RoomParticipant.leftAt)
@@ -573,6 +705,33 @@ exports.notifyRoomFinish = onCall(async (request) => {
       message = messageFor[locale](finisherName, roomName, finisherGender);
     }
     const {title, body} = message;
+
+    if (!eligible) {
+      await deferRoomPush({
+        otherUid: doc.id, roomCode, kind: pushKindFor(event), title, body,
+        data: {roomCode, type: "roomFinish", event}, settings,
+        tzOffsetMinutes,
+      });
+      skipped.deferred++;
+      continue;
+    }
+
+    const tokensSnap = await db
+        .collection("users").doc(doc.id)
+        .collection("fcmTokens").get();
+    // Checked BEFORE the daily slot is claimed. A person with no registered
+    // device cannot receive anything, so spending one of their three daily
+    // slots on an undeliverable push would silently exhaust the quota of
+    // exactly the people who are already getting nothing.
+    if (tokensSnap.empty) {
+      skipped.noToken++;
+      continue;
+    }
+    if (!await claimPushSlot(
+        doc.id, localDayKey(tzOffsetMinutes), pushKindFor(event))) {
+      skipped.capped++;
+      continue;
+    }
     for (const tokenDoc of tokensSnap.docs) {
       sends.push(
           admin.messaging().send({
@@ -714,15 +873,28 @@ exports.notifyRoomHabitAdded = onCall(async (request) => {
       (d) => d.id !== uid && !(d.data() || {}).leftAt);
 
   const sends = [];
-  const skipped = {ineligible: 0, noToken: 0, capped: 0};
+  // "deferred" is not a loss - see deferRoomPush.
+  const skipped = {ineligible: 0, deferred: 0, noToken: 0, capped: 0};
   for (const doc of recipients) {
     const other = doc.data() || {};
-    const {eligible, locale, tzOffsetMinutes} =
+    const {eligible, locale, reason, settings, tzOffsetMinutes} =
       await isEligible(doc.id, other);
-    if (!eligible) {
+    if (!eligible && reason !== "quiet-hours") {
       skipped.ineligible++;
       continue;
     }
+    const table = HABIT_ADDED_MESSAGES[locale] || HABIT_ADDED_MESSAGES.en;
+    const {title, body} = table(habitName, roomName);
+
+    if (!eligible) {
+      await deferRoomPush({
+        otherUid: doc.id, roomCode, kind: "info", title, body,
+        data: {roomCode, type: "roomHabitAdded"}, settings, tzOffsetMinutes,
+      });
+      skipped.deferred++;
+      continue;
+    }
+
     const tokensSnap = await db
         .collection("users").doc(doc.id)
         .collection("fcmTokens").get();
@@ -735,8 +907,6 @@ exports.notifyRoomHabitAdded = onCall(async (request) => {
       skipped.capped++;
       continue;
     }
-    const table = HABIT_ADDED_MESSAGES[locale] || HABIT_ADDED_MESSAGES.en;
-    const {title, body} = table(habitName, roomName);
     for (const tokenDoc of tokensSnap.docs) {
       sends.push(
           admin.messaging().send({

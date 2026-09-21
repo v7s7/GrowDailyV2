@@ -607,6 +607,8 @@ const List<String> kEditableWordingKeys = [
   'gridWeekFilled',
   'gridPerfectDay',
   'gridGreensToday',
+  'gridOfHabitsToday',
+  'gridGreenSquaresThisWeek',
   'gridTapHint',
   'tasbihTitle',
   'tasbihTapHint',
@@ -1212,6 +1214,11 @@ const List<String> kEditableWordingKeys = [
   'reportsWeekly',
   'reportsMonthly',
   'reportsYearly',
+  'recordTitle',
+  'recordTabWeek',
+  'recordTabMonth',
+  'recordTabYear',
+  'recordTabAll',
   'reportsRate',
   'reportsTotalDone',
   'reportsLongestRun',
@@ -4106,6 +4113,42 @@ class _EditedS extends S {
                 },
         ) ??
         super.gridGreensToday(n);
+  }
+
+  @override
+  String gridOfHabitsToday(int total) {
+    final wordingEdit = _edits['gridOfHabitsToday'];
+    if (wordingEdit == null) return super.gridOfHabitsToday(total);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'total': () => '$total',
+                }
+              : <String, String Function()>{
+                  'total': () => '$total',
+                },
+        ) ??
+        super.gridOfHabitsToday(total);
+  }
+
+  @override
+  String gridGreenSquaresThisWeek(int n) {
+    final wordingEdit = _edits['gridGreenSquaresThisWeek'];
+    if (wordingEdit == null) return super.gridGreenSquaresThisWeek(n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'n': () => '$n',
+                  'gridGreenSquaresCount(n)': () => '${gridGreenSquaresCount(n)}',
+                }
+              : <String, String Function()>{
+                  'n': () => '$n',
+                  'gridGreenSquaresCount(n)': () => '${gridGreenSquaresCount(n)}',
+                },
+        ) ??
+        super.gridGreenSquaresThisWeek(n);
   }
 
   @override
@@ -7280,6 +7323,21 @@ class _EditedS extends S {
 
   @override
   String get reportsYearly => plainWording(_edits['reportsYearly']) ?? super.reportsYearly;
+
+  @override
+  String get recordTitle => plainWording(_edits['recordTitle']) ?? super.recordTitle;
+
+  @override
+  String get recordTabWeek => plainWording(_edits['recordTabWeek']) ?? super.recordTabWeek;
+
+  @override
+  String get recordTabMonth => plainWording(_edits['recordTabMonth']) ?? super.recordTabMonth;
+
+  @override
+  String get recordTabYear => plainWording(_edits['recordTabYear']) ?? super.recordTabYear;
+
+  @override
+  String get recordTabAll => plainWording(_edits['recordTabAll']) ?? super.recordTabAll;
 
   @override
   String get reportsRate => plainWording(_edits['reportsRate']) ?? super.reportsRate;

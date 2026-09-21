@@ -339,6 +339,23 @@ service cloud.firestore {
       allow get: if true;
     }
 
+    // Achievement text edits (achievement_overrides.dart): the same idea as
+    // wording/live just above, sized for the 24 achievements' names and
+    // descriptions instead of the whole app's text. Same reasoning: public
+    // read (every word ships inside the app anyway), no client write (the
+    // admin tool's Achievements page is the only writer, through the Admin
+    // SDK, which bypasses these rules).
+    match /achievement_overrides/live {
+      allow get: if true;
+    }
+
+    // The closet's text edits (cosmetic_overrides.dart): character and
+    // accessory names/descriptions, same reasoning as the two documents
+    // just above.
+    match /cosmetic_overrides/live {
+      allow get: if true;
+    }
+
     // Everything else is denied by default.
     match /{document=**} {
       allow read, write: if false;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../achievements/models/achievement_model.dart' show AchievementRarity;
+import 'cosmetic_overrides.dart';
 
 /// The six accessory slots a character can wear. Each category has exactly
 /// one hand-anchor placement (see CharacterAvatar), so every accessory in a
@@ -13,23 +14,27 @@ enum AccessoryCategory {
   lantern,
   notebook;
 
-  String label(bool isAr) => isAr
-      ? switch (this) {
-          misbah => 'مسباح',
-          umbrella => 'مظلة',
-          frame => 'إطار',
-          badge => 'شارة',
-          lantern => 'فانوس',
-          notebook => 'دفتر',
-        }
-      : switch (this) {
-          misbah => 'Tasbih',
-          umbrella => 'Umbrella',
-          frame => 'Frame',
-          badge => 'Badge',
-          lantern => 'Lantern',
-          notebook => 'Notebook',
-        };
+  String label(bool isAr) {
+    final edited = CosmeticOverridesStore.current.categoryLabel(name, isAr);
+    if (edited != null) return edited;
+    return isAr
+        ? switch (this) {
+            misbah => 'مسباح',
+            umbrella => 'مظلة',
+            frame => 'إطار',
+            badge => 'شارة',
+            lantern => 'فانوس',
+            notebook => 'دفتر',
+          }
+        : switch (this) {
+            misbah => 'Tasbih',
+            umbrella => 'Umbrella',
+            frame => 'Frame',
+            badge => 'Badge',
+            lantern => 'Lantern',
+            notebook => 'Notebook',
+          };
+  }
 
   IconData get icon => switch (this) {
         misbah => Icons.fiber_manual_record_outlined,
@@ -163,8 +168,17 @@ class Accessory {
     this.unlock,
   });
 
-  String name(bool isAr) => isAr ? nameAr : nameEn;
-  String description(bool isAr) => isAr ? descriptionAr : descriptionEn;
+  String name(bool isAr) {
+    final edited = CosmeticOverridesStore.current.accessoryName(id, isAr);
+    if (edited != null) return edited;
+    return isAr ? nameAr : nameEn;
+  }
+
+  String description(bool isAr) {
+    final edited = CosmeticOverridesStore.current.accessoryDescription(id, isAr);
+    if (edited != null) return edited;
+    return isAr ? descriptionAr : descriptionEn;
+  }
 }
 
 /// Static catalog — 12 accessories across the 6 categories, ported from the

@@ -26,6 +26,7 @@ part 'dashboard_notifier_loading.dart';
 part 'dashboard_notifier_complete_habit.dart';
 part 'dashboard_notifier_uncomplete_habit.dart';
 part 'dashboard_notifier_grid_rewards.dart';
+part 'dashboard_notifier_streak_from_partial.dart';
 
 
 /// Streak-day thresholds that trigger a milestone celebration, derived from
@@ -976,20 +977,24 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
   /// Gold paid on reaching a level that opens nothing else.
   ///
-  /// These twelve are the exact complement, inside levels 2 to 25, of every
+  /// These eleven are the exact complement, inside levels 2 to 25, of every
   /// level that already awards something: characters at 8, 10, 12, 14, 16,
   /// 18, 20, 21, 23, 24, 25; accessories at 5, 8, 10, 20; prestige ranks at
-  /// 1, 5, 10, 20; level medals at 10 and 25. What was left was twelve
+  /// 1, 5, 10, 15, 20; level medals at 10 and 25. What was left was eleven
   /// level-ups that arrived with nothing attached, which is the drought this
   /// fills.
   ///
-  /// 390 gold over an account's life, and modest on purpose: gold is the
+  /// Level 15 dropped out of this map 2026-09-21, the day a prestige rank
+  /// was added there (see PrestigeCatalog) — it now opens something else,
+  /// same as every other level this map excludes.
+  ///
+  /// 350 gold over an account's life, and modest on purpose: gold is the
   /// oversupplied currency, and the largest single grant sits below the 50
   /// that the level_10 medal already pays so a grant never outshines a medal.
   static const Map<int, int> levelUpGoldGrants = {
     2: 20, 3: 20, 4: 20,
     6: 30, 7: 30, 9: 30,
-    11: 40, 13: 40, 15: 40, 17: 40, 19: 40, 22: 40,
+    11: 40, 13: 40, 17: 40, 19: 40, 22: 40,
   };
 
   /// Price and level gate of each purchasable slot, in ONE map so the two can

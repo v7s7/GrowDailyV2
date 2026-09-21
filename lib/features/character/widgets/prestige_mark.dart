@@ -169,8 +169,31 @@ const Map<String, PrestigeMarkSpec> kPrestigeMarks = {
     highlightLight: Color(0xFFC29233),
     shadowLight: Color(0xFF5C4104),
   ),
-  'radiant': PrestigeMarkSpec(
+  // Inserted 2026-09-21, between 'steadfast' (rank 3, outer ring 3/4 closed)
+  // and 'radiant' (outer ring fully closed) — see PrestigeCatalog's own
+  // comment on why this rung exists. outerSweep sits at the exact midpoint
+  // of the two neighbours (270 and 360), and outerStroke likewise (8.4 and
+  // 9.1) — that alone is enough for prestigeMarkInkCoverage to land strictly
+  // between them, so nothing about ranks 1-3 or radiant-onward needed to
+  // move. Every rank from 'radiant' down was renumbered by one; none of
+  // their geometry or colour changed.
+  'resolute': PrestigeMarkSpec(
     rank: 4,
+    metal: 'Brass',
+    outerSweep: 315,
+    outerStroke: 8.75,
+    innerSweep: 0,
+    innerStroke: 0.0,
+    solid: false,
+    onDark: Color(0xFFB5A642),
+    highlightDark: Color(0xFFE8DE9E),
+    shadowDark: Color(0xFF6B5F1E),
+    onLight: Color(0xFF6B5F1E),
+    highlightLight: Color(0xFF8F8134),
+    shadowLight: Color(0xFF3A3210),
+  ),
+  'radiant': PrestigeMarkSpec(
+    rank: 5,
     metal: 'Platinum',
     outerSweep: 360,
     outerStroke: 9.1,
@@ -185,7 +208,7 @@ const Map<String, PrestigeMarkSpec> kPrestigeMarks = {
     shadowLight: Color(0xFF06483E),
   ),
   'luminous': PrestigeMarkSpec(
-    rank: 5,
+    rank: 6,
     metal: 'Diamond',
     outerSweep: 360,
     outerStroke: 9.8,
@@ -200,7 +223,7 @@ const Map<String, PrestigeMarkSpec> kPrestigeMarks = {
     shadowLight: Color(0xFF08475A),
   ),
   'exalted': PrestigeMarkSpec(
-    rank: 6,
+    rank: 7,
     metal: 'Master',
     outerSweep: 360,
     outerStroke: 10.5,
@@ -215,7 +238,7 @@ const Map<String, PrestigeMarkSpec> kPrestigeMarks = {
     shadowLight: Color(0xFF47207A),
   ),
   'venerable': PrestigeMarkSpec(
-    rank: 7,
+    rank: 8,
     metal: 'Grandmaster',
     outerSweep: 360,
     outerStroke: 11.2,
@@ -230,7 +253,7 @@ const Map<String, PrestigeMarkSpec> kPrestigeMarks = {
     shadowLight: Color(0xFF700825),
   ),
   'eternal_light': PrestigeMarkSpec(
-    rank: 8,
+    rank: 9,
     metal: 'Champion',
     outerSweep: 360,
     outerStroke: 11.9,

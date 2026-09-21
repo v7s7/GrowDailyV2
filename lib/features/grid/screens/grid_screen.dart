@@ -1,4 +1,7 @@
 import 'dart:async';
+// TextDirection only: package:intl below exports a class of the same name,
+// which shadows the one every Flutter widget actually takes.
+import 'dart:ui' as ui show TextDirection;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -906,13 +909,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                   child: _SummaryCard(
                     habits: habits,
                     state: grid,
-                    // What today actually PAID, from the same counter the
-                    // daily cap spends against — boosted, per-habit
-                    // rewards included. The card used to sum the squares'
-                    // flat per-state values, which showed 10 while the
-                    // un-mark dialog truthfully offered 40 back.
-                    xpToday: ref.watch(dashboardProvider.select((d) =>
-                        d.earnedXpOn(DateTime.now().effectiveDay.toDateKey()))),
+                    todayCounts: ref.watch(dashboardProvider).completions,
                     // A walk in progress: the card turns this into part-done
                     // credit for any habit linked to the step count, so the
                     // percentage moves with the walk instead of sitting at

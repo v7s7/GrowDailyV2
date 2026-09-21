@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'achievement_overrides.dart';
+
 /// Shared rarity scale — still used by AccessoryModel (character/models/
 /// accessory.dart) for shop-item rarity, which is why this enum itself
 /// isn't going anywhere even though [AchievementModel] no longer reads it
@@ -125,11 +127,36 @@ class AchievementModel {
     this.targetCategory,
   });
 
-  String localName(bool isAr) =>
-      isAr && nameAr.trim().isNotEmpty ? nameAr : name;
+  /// The admin tool's edit for this achievement's name, when there is one —
+  /// see achievement_overrides.dart. Checked before the built-in [name]/
+  /// [nameAr] in both [localName] and anywhere else that needs to know
+  /// whether this achievement has been edited (the admin page's own diff
+  /// view, say).
+  String? get _editedName =>
+      AchievementOverridesStore.current.name(id, false);
+  String? get _editedNameAr => AchievementOverridesStore.current.name(id, true);
+  String? get _editedDescription =>
+      AchievementOverridesStore.current.description(id, false);
+  String? get _editedDescriptionAr =>
+      AchievementOverridesStore.current.description(id, true);
 
-  String localDescription(bool isAr) =>
-      isAr && descriptionAr.trim().isNotEmpty ? descriptionAr : description;
+  String localName(bool isAr) {
+    if (isAr) {
+      final edited = _editedNameAr;
+      if (edited != null) return edited;
+      return nameAr.trim().isNotEmpty ? nameAr : name;
+    }
+    return _editedName ?? name;
+  }
+
+  String localDescription(bool isAr) {
+    if (isAr) {
+      final edited = _editedDescriptionAr;
+      if (edited != null) return edited;
+      return descriptionAr.trim().isNotEmpty ? descriptionAr : description;
+    }
+    return _editedDescription ?? description;
+  }
 }
 
 /// One achievement chain's shared identity — the icon and title shown once
@@ -148,7 +175,11 @@ class AchievementFamily {
     required this.icon,
   });
 
-  String localTitle(bool isAr) => isAr ? titleAr : title;
+  String localTitle(bool isAr) {
+    final edited = AchievementOverridesStore.current.familyTitle(id, isAr);
+    if (edited != null) return edited;
+    return isAr ? titleAr : title;
+  }
 }
 
 /// Static catalog — evaluated client-side against UserAccount state.

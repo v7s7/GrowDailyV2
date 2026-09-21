@@ -333,11 +333,18 @@ function buildDaySection(raw, dateKey) {
   // habits leave both sides, a weekly quota's spare day is not a miss, a
   // counted habit is done only at its target, and a جزئي is half.
   //
-  // And an OPEN day is not judged at all. Aziz read his own 2026-09-11 at
-  // 02:11 the next morning and this tab said "5 of 9" with four habits drawn
-  // as missed, while his phone showed the day still in progress: a day stays
-  // markable until kDayCutoffHour, so until then only the ANSWERED habits
-  // may be counted. See DateTimeGameExt.isSettledAt.
+  // And an OPEN day never draws an untouched habit as MISSED - that part of
+  // Aziz's 2026-09-11 report still holds; a day stays markable until
+  // kDayCutoffHour, so an unanswered habit is "not yet", never a red miss,
+  // until the day actually closes. See habitRows/summarizeHabitDay below,
+  // which is what decides each habit's own colour and is untouched by this.
+  //
+  // The COUNT, though, is always the true owed/credit, settled or not - see
+  // scanActivity's identical fix (activity.js) and its comment. The two
+  // concerns are separate: refusing to call an open habit "missed" is about
+  // one habit's own colour; showing "4 of 4" while six more of that day's
+  // habits sit un-marked is about the headline number lying about the day
+  // as a whole. 2026-09-21: "what is 4 of 4? my habit is not 4."
   const score = DayRules.scoreDay({
     habits: habitDocs.map((d) => ({ id: d.id, data: d.data() })),
     dayData,
@@ -345,8 +352,8 @@ function buildDaySection(raw, dateKey) {
     nowLocalMs: DayRules.localNowMs(Date.now(), tz),
     todayKey: todayParts.key,
   });
-  const credit = score.isOpen ? score.settledCredit : score.credit;
-  const owed = score.isOpen ? score.settledOwed : score.owed;
+  const credit = score.credit;
+  const owed = score.owed;
   const done = score.done;
   const total = owed;
 

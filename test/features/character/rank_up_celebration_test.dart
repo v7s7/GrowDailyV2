@@ -41,7 +41,7 @@ void main() {
     test('a crossing is exactly a change of highest unlocked tier', () {
       final thresholds = PrestigeCatalog.tiers.map((t) => t.minLevel).toList();
       // Seeker is minLevel 1 and every account starts there, so it is never
-      // crossed INTO. Seven moments exist in a lifetime, not eight.
+      // crossed INTO. Eight moments exist in a lifetime, not nine.
       final crossings = <int>[];
       for (var level = 2; level <= 100; level++) {
         final was = PrestigeCatalog.highestFor(level - 1);
@@ -49,7 +49,7 @@ void main() {
         if (was.id != now.id) crossings.add(level);
       }
       expect(crossings, thresholds.where((l) => l > 1).toList());
-      expect(crossings.length, 7);
+      expect(crossings.length, 8);
     });
 
     test('an ordinary level up is not a crossing', () {
@@ -113,7 +113,7 @@ void main() {
         tester.widget<PrestigeMark>(find.byType(PrestigeMark).first).spec;
 
     testWidgets('opens on the mark the person already had', (tester) async {
-      await pumpCrossing(tester, 3, 4); // Steadfast into Accomplished
+      await pumpCrossing(tester, 3, 4); // Persistent into Steadfast
       final shown = renderedSpec(tester);
       final old = prestigeMarkFor(PrestigeCatalog.tiers[3])!;
       expect(shown.outerSweep, old.outerSweep);
@@ -153,7 +153,7 @@ void main() {
     });
 
     testWidgets('nothing glows behind the mark', (tester) async {
-      await pumpCrossing(tester, 6, 7); // into the summit, the loudest moment
+      await pumpCrossing(tester, 7, 8); // into the summit, the loudest moment
       await tester.pumpAndSettle();
       // Every Container in the moment, checked for the two ways a halo gets
       // in: a BoxShadow, or a radial gradient.
@@ -183,7 +183,7 @@ void main() {
 
     testWidgets('the summit says there is nothing above it', (tester) async {
       final s = S(const Locale('ar'));
-      await pumpCrossing(tester, 6, 7);
+      await pumpCrossing(tester, 7, 8);
       await tester.pumpAndSettle();
       expect(find.text(s.rankUpSummitLine), findsOneWidget);
       expect(find.textContaining(s.rankUpMarkGrew), findsNothing,
@@ -192,7 +192,7 @@ void main() {
 
     testWidgets('every other rung points at the next one', (tester) async {
       final s = S(const Locale('ar'));
-      await pumpCrossing(tester, 3, 4);
+      await pumpCrossing(tester, 4, 5);
       await tester.pumpAndSettle();
       // Accomplished is minLevel 35; Distinguished is 50.
       expect(find.textContaining(s.rankUpNextAtLevel(50)), findsOneWidget);
@@ -205,7 +205,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(s.rankUpEyebrow), findsOneWidget);
       expect(find.text(PrestigeCatalog.tiers[4].title(true)), findsOneWidget);
-      expect(find.text(s.rankUpLadderPosition(5, 8)), findsOneWidget);
+      expect(find.text(s.rankUpLadderPosition(5, 9)), findsOneWidget);
     });
   });
 }

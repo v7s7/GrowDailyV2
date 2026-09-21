@@ -1,8 +1,9 @@
 // Gold paid for reaching a level that opens nothing else.
 //
-// Twelve levels between 2 and 25 awarded nothing at all: every other rung in
+// Eleven levels between 2 and 25 award nothing at all: every other rung in
 // that range opens a character, an accessory, a prestige rank or a medal.
-// These fill that drought.
+// These fill that drought. (Level 15 used to be one of the eleven too, until
+// a prestige rank landed there 2026-09-21 - see PrestigeCatalog.)
 //
 // The whole design rests on one property: levelGrantPaidThrough is a
 // MONOTONE HIGH-WATER MARK, not a counter. Every payment covers the span
@@ -27,10 +28,12 @@ import '../../helpers/wait_until.dart';
 void main() {
   group('the grant map', () {
     test('it covers only levels that award nothing else', () {
-      // Levels 5, 8, 10, 12, 14, 16, 18, 20, 21, 23, 24, 25 all open a
+      // Levels 5, 8, 10, 12, 14, 15, 16, 18, 20, 21, 23, 24, 25 all open a
       // character, an accessory, a prestige rank or a medal. A grant there
       // would be paying twice for one level-up.
-      const alreadyOccupied = [1, 5, 8, 10, 12, 14, 16, 18, 20, 21, 23, 24, 25];
+      const alreadyOccupied = [
+        1, 5, 8, 10, 12, 14, 15, 16, 18, 20, 21, 23, 24, 25,
+      ];
       for (final l in alreadyOccupied) {
         expect(
           DashboardNotifier.levelUpGoldGrants.containsKey(l),

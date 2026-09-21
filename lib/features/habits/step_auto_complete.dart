@@ -660,6 +660,11 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
                 todayHabits: todayHabits,
                 habitId: habit.id,
                 frequencyTarget: perDay,
+                // As on Today and the Grid: a half square is 0.5 of a habit,
+                // and a step auto-complete that closes the day must not
+                // score it as zero.
+                halfDoneHabitIds:
+                    ref.read(weeklyGridProvider).halfDoneTodayIds(),
               ),
               scheduledHabitCount: todayHabits.length,
               category: habit.category.name,

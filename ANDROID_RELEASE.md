@@ -74,6 +74,34 @@ Standalone SDK tools do not read gradle.properties. When running `sdkmanager`,
 export JAVA_TOOL_OPTIONS="-Duser.language=en -Duser.country=US"
 ```
 
+## Exact alarms: a permission Play reviews against the listing
+
+The manifest declares `USE_EXACT_ALARM` (API 33+, granted at install, not
+revocable) and `SCHEDULE_EXACT_ALARM` capped at `maxSdkVersion="32"`. The long
+comment beside them in `AndroidManifest.xml` has the measurement that forced
+the change: with the previous inexact scheduling, `adb shell dumpsys alarm`
+gave every reminder `window=+1h0m0s0ms`, so Android was free to deliver a 20:30
+reminder any time before 21:30.
+
+Two things to re-check before any release that touches the store listing:
+
+- **Play judges `USE_EXACT_ALARM` against what the listing promises.** It is
+  restricted to apps whose core, user-facing job is a thing happening at a time
+  the person chose: alarm clocks, calendars, reminder apps. Grow Daily
+  qualifies on prayer-relative and clock reminders plus the per-habit «منبّه»
+  alarm mode, but the **en-US and ar descriptions have to say so plainly**. If
+  a rewrite ever buries reminders, this permission becomes the weak point of
+  the submission, and a rejection here blocks the whole release.
+- The `maxSdkVersion="32"` cap on `SCHEDULE_EXACT_ALARM` is what keeps the app
+  out of Play's restricted-permission declaration form, which only applies to
+  that permission on API 33+. Do not remove the cap to "be safe": it has the
+  opposite effect.
+
+On API 31-32 the person can still revoke "Alarms & reminders" in system
+settings. The plugin then throws `exact_alarms_not_permitted` and arms nothing,
+so `NotificationService._zonedSchedule` catches exactly that code and retries
+inexact, on the grounds that an hour-late reminder beats no reminder.
+
 ## What is intentionally not here yet
 
 - **In-app purchases.** `PurchaseService._androidApiKey` is empty, so the

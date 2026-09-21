@@ -817,8 +817,10 @@ extension DashboardNotifierLoading on DashboardNotifier {
   // ── Streak helper ────────────────────────────────────────────
 
   /// Advances the day-streak by one and reports any milestone crossed.
-  /// The only caller is [completeHabit], at the exact moment today's
-  /// habits first reach 100% — see [DashboardState.streakEarnedToday].
+  /// Called from [completeHabit], at the exact moment today's scheduled
+  /// habits first cross [kStreakDayCompletionThreshold], and from
+  /// [earnStreakFromPartialCredit] when a جزئي mark is what crosses it
+  /// instead — see [DashboardState.streakEarnedToday].
   ({int streak, int longestStreak, int? milestone, int milestoneBonusXp})
       _computeStreakBump() {
     final newStreak = state.streak + 1;

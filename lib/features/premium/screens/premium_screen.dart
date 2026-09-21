@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+    show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -419,7 +419,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                 : s.premiumLifetimeBreakEven(_breakEvenMonths!),
           ),
       };
-      return _PlanCard(
+      return PremiumPlanCard(
         label: label,
         price: pkg.storeProduct.priceString,
         period: period,
@@ -934,7 +934,12 @@ class _BenefitRow extends StatelessWidget {
   }
 }
 
-class _PlanCard extends StatelessWidget {
+/// One plan row: the name on the reading side, the price hard against
+/// the far edge. Public only so a widget test can measure that edge
+/// directly, in both text directions; nothing outside this file builds
+/// one.
+@visibleForTesting
+class PremiumPlanCard extends StatelessWidget {
   final String label;
   final String price;
   final String period;
@@ -948,7 +953,7 @@ class _PlanCard extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _PlanCard({
+  const PremiumPlanCard({
     required this.label,
     required this.price,
     required this.period,
@@ -1037,31 +1042,40 @@ class _PlanCard extends StatelessWidget {
             // Flexible, not a bare Column: a non-flex Row child takes
             // unbounded width, so a long price string ("SAR 129.99") would
             // overflow the card rather than squeeze the label beside it.
+            //
+            // The Align is what pins the price to the card's far edge. Without
+            // it the Row hands this child a share of the free space and then
+            // paints it at the START of that share, so a short price like
+            // "$4.99" floats mid-card with dead space beyond it, and the two
+            // plan cards' prices do not line up with each other.
             Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    price,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      color: gp.textPrimary,
-                      letterSpacing: -0.8,
-                      height: 1,
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      price,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: gp.textPrimary,
+                        letterSpacing: -0.8,
+                        height: 1,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    period,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: gp.textTert),
-                  ),
-                ],
+                    const SizedBox(height: 3),
+                    Text(
+                      period,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: gp.textTert),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

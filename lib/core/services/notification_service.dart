@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Color, TimeOfDay;
-import 'package:flutter/services.dart' show MethodChannel;
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -738,7 +738,18 @@ class NotificationService {
     AlarmService.instance.onForegroundAlarm = showForegroundAlarm;
 
     _initialized = true;
-    debugPrint('[NotificationService] Ready');
+    // Says, in one line on any real phone, whether this device will honour
+    // the exact alarms every reminder now asks for (see [_androidMode]).
+    // Worth a line at startup rather than only the per-slot refusal in
+    // [_zonedSchedule]: "no refusal logged" is not the same evidence as
+    // "exact alarms are on", and the whole reason the hour of slack went
+    // unnoticed for so long is that nothing ever said which mode was in
+    // force. Null on iOS and below Android 12, where the question does not
+    // arise and exactness is simply available.
+    final exact = await androidChannels?.canScheduleExactNotifications();
+    debugPrint('[NotificationService] Ready'
+        '${exact == null ? '' : ', exact alarms: ${exact ? 'yes' : 'NO, '
+            'reminders may arrive up to an hour late'}'}');
   }
 
   /// Shows the reminder behind alarm slot [slotId] as an immediate
@@ -939,6 +950,94 @@ class NotificationService {
     if (await checkSystemPermission() == true) return true;
     await openSystemNotificationSettings();
     return false;
+  }
+
+  /// How every reminder in this file is armed on Android.
+  ///
+  /// This was [AndroidScheduleMode.inexactAllowWhileIdle], which reads like a
+  /// considerate choice and is not one. Measured on an API 33 device with the
+  /// release APK, every armed reminder came back out of `dumpsys alarm` like
+  /// this:
+  ///
+  ///   type=RTC_WAKEUP origWhen=2026-09-21 20:30:00.000 window=+1h0m0s0ms
+  ///   whenElapsed=+1d7h20m51s477ms  maxWhenElapsed=+1d8h20m51s477ms
+  ///
+  /// `maxWhenElapsed` exactly an hour past `whenElapsed` — the system was free
+  /// to deliver a 20:30 reminder any time before 21:30. Android's own
+  /// documentation says the same in words: from Android 12 a
+  /// setAndAllowWhileIdle alarm is "invoked within one hour of the trigger
+  /// time". An hour of slack on a reminder someone set for a specific minute
+  /// is not a late reminder, it is a reminder they stop believing in, and it
+  /// is what the first Android testers reported as turning notifications on
+  /// and getting nothing.
+  ///
+  /// Exactness costs a manifest permission, which is why it was avoided:
+  /// SCHEDULE_EXACT_ALARM drags in Play's restricted-permission form.
+  /// USE_EXACT_ALARM does not — it is granted at install on API 33+, cannot
+  /// be revoked, and Play allows it for the reminder apps whose core promise
+  /// is a thing happening at a time the person chose. Below 33 the manifest
+  /// falls back to SCHEDULE_EXACT_ALARM (maxSdkVersion 32), which IS
+  /// revocable, which is what [_zonedSchedule] catches.
+  static const _androidMode = AndroidScheduleMode.exactAllowWhileIdle;
+
+  /// The mode for a slot the person chose to ring as an alarm (منبّه).
+  ///
+  /// Android has no AlarmKit — [AlarmService] is iOS only, so its schedule()
+  /// simply returns false here and the slot lands back on a notification.
+  /// [AndroidScheduleMode.alarmClock] is the nearest true equivalent: the
+  /// system treats a setAlarmClock entry as a user-visible alarm, shows the
+  /// alarm icon in the status bar, and exempts it from Doze and battery
+  /// saver both. A habit someone wakes up for is exactly the case the mode
+  /// exists for.
+  static AndroidScheduleMode _modeFor({required bool alarm}) =>
+      alarm ? AndroidScheduleMode.alarmClock : _androidMode;
+
+  /// [_plugin.zonedSchedule] with this file's one Android mode and the one
+  /// fallback that matters.
+  ///
+  /// Every caller passed the same `uiLocalNotificationDateInterpretation`, so
+  /// it lives here rather than seven times over.
+  ///
+  /// The catch is only reachable on Android 12 (API 31-32), where the
+  /// manifest asks for SCHEDULE_EXACT_ALARM: it is pre-granted there, but the
+  /// person can switch "Alarms & reminders" back off. The plugin's
+  /// checkCanScheduleExactAlarms then throws
+  /// PlatformException('exact_alarms_not_permitted') and the reminder is
+  /// never armed at all — silently, which is the exact failure shape this
+  /// file keeps having to design against (see the receivers in
+  /// AndroidManifest.xml, and [checkSystemPermission]'s incident). A
+  /// reminder that can be an hour late still beats one that never comes, so
+  /// that case retries inexact.
+  Future<void> _zonedSchedule(
+    int id,
+    String? title,
+    String? body,
+    tz.TZDateTime when,
+    NotificationDetails details, {
+    bool alarm = false,
+    DateTimeComponents? matchDateTimeComponents,
+    String? payload,
+  }) async {
+    Future<void> arm(AndroidScheduleMode mode) => _plugin.zonedSchedule(
+          id,
+          title,
+          body,
+          when,
+          details,
+          androidScheduleMode: mode,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: matchDateTimeComponents,
+          payload: payload,
+        );
+    try {
+      await arm(_modeFor(alarm: alarm));
+    } on PlatformException catch (e) {
+      if (e.code != 'exact_alarms_not_permitted') rethrow;
+      debugPrint('[NotificationService] #$id: exact alarms refused, '
+          'falling back to inexact (up to an hour late)');
+      await arm(AndroidScheduleMode.inexactAllowWhileIdle);
+    }
   }
 
   NotificationDetails get _details => const NotificationDetails(
@@ -1256,15 +1355,12 @@ class NotificationService {
       final soleQuit = pendingQuit.length == 1
           ? quitHabits.firstWhere((h) => !h.isResolvedToday)
           : null;
-      await _plugin.zonedSchedule(
+      await _zonedSchedule(
         _dailyTonightId,
         tonight.title,
         tonight.body,
         next,
         soleQuit != null ? _quitCheckInDetails(isAr) : _details,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
         // Body-tap routing: land on Today, where the habits this reminder
         // is about actually live, see main.dart's _handleNotificationBodyTap.
         payload: soleQuit != null ? soleQuit.id : openTodayPayload,
@@ -1290,15 +1386,12 @@ class NotificationService {
         continue;
       }
       final fallback = dailyFallbackLine(weekday, isAr);
-      await _plugin.zonedSchedule(
+      await _zonedSchedule(
         id,
         fallback.title,
         fallback.body,
         _nextInstanceOfWeekday(weekday, hour, minute),
         _details,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
         payload: openTodayPayload,
       );
@@ -2758,7 +2851,7 @@ class NotificationService {
     }
     // A slot that was an alarm on an earlier pass and is a notification now.
     await AlarmService.instance.cancel(slotId);
-    await _plugin.zonedSchedule(
+    await _zonedSchedule(
       slotId,
       r.name,
       body,
@@ -2770,9 +2863,7 @@ class NotificationService {
               timeSensitive: r.timeSensitive || r.alarm,
               alarmStyle: r.alarm,
             ),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
+      alarm: r.alarm,
       payload: r.id,
     );
     return true;
@@ -3006,15 +3097,12 @@ class NotificationService {
       );
       debugPrint('[NotificationService] bundle of ${group.length} at '
           '${group.first.fireTime}: $title / $body');
-      await _plugin.zonedSchedule(
+      await _zonedSchedule(
         bundleId,
         title,
         body,
         group.first.fireTime,
         _bundleDetails(timeSensitive: group.any((r) => r.timeSensitive)),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
       );
       // Whole-habit cancellation stays banished from this branch — the
       // per-member cancel above touches only the exact slots bundled HERE.
@@ -3220,15 +3308,12 @@ class NotificationService {
     await _cancelIfPending({...plan.cancel});
     for (final slot in plan.arm) {
       final at = slot.fireAt;
-      await _plugin.zonedSchedule(
+      await _zonedSchedule(
         slot.id,
         slot.copy.title,
         slot.copy.body,
         tz.TZDateTime(tz.local, at.year, at.month, at.day, at.hour, at.minute),
         _details,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents:
             slot.repeatsWeekly ? DateTimeComponents.dayOfWeekAndTime : null,
         // Body-tap routing (main.dart's _handleNotificationBodyTap). The
@@ -3624,15 +3709,12 @@ class NotificationService {
     required bool isAr,
   }) async {
     await init();
-    await _plugin.zonedSchedule(
+    await _zonedSchedule(
       _snoozeId(habitId),
       habitName,
       snoozedReminderBody(isAr),
       tz.TZDateTime.now(tz.local).add(const Duration(hours: 1)),
       _habitReminderDetails(isAr),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
       payload: habitId,
     );
     debugPrint('[NotificationService] Snoozed reminder for $habitId');
@@ -3795,15 +3877,13 @@ class NotificationService {
         continue;
       }
       await AlarmService.instance.cancel(slotId);
-      await _plugin.zonedSchedule(
+      await _zonedSchedule(
         slotId,
         title,
         taskTitle,
         tz.TZDateTime.from(wanted[i], tz.local),
         _taskReminderDetails(alarmStyle: alarm),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
+        alarm: alarm,
         payload: id,
       );
     }

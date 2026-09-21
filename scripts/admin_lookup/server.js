@@ -1702,6 +1702,99 @@ app.post('/api/wording/undo', localWriteOnly, wordingJson, async (req, res) => {
   }
 });
 
+// ---- Achievements: every medal's name and description, edited without a
+// release. Same shape as Wording just above (write route behind
+// localWriteOnly, whole-document replace inside a transaction), sized for
+// 24 static records instead of the whole app's text — see
+// lib/achievements_admin.js's own doc comment for what is deliberately
+// smaller here (no History/Undo log; every field shows its built-in text
+// beside it instead, so reverting is always a click away).
+const achievementsAdmin = require('./lib/achievements_admin');
+const { renderAchievementsPage } = require('./lib/achievements_page');
+const achievementsJson = express.json({ limit: '256kb' });
+
+function achievementsError(res, e) {
+  if (e instanceof achievementsAdmin.AchievementsInputError) {
+    return res.status(e.status).json({ ok: false, error: e.message });
+  }
+  console.error(`[achievements] ${e.stack || e.message}`);
+  res.status(500).json({ ok: false, error: e.message });
+}
+
+app.get('/achievements', (req, res) => {
+  res.type('html').send(renderAchievementsPage({ projectId: PROJECT_ID }));
+});
+
+app.get('/achievements/app.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'achievements', 'app.js'));
+});
+
+app.get('/api/achievements', async (req, res) => {
+  try {
+    const data = await achievementsAdmin.readAchievements(admin.firestore());
+    res.json({ ok: true, ...data });
+  } catch (e) {
+    achievementsError(res, e);
+  }
+});
+
+app.post('/api/achievements/field', localWriteOnly, achievementsJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { kind, id, field, text } = req.body || {};
+    const result = await achievementsAdmin.saveField(db, admin.firestore.FieldValue, {
+      kind,
+      id,
+      field,
+      rawText: text,
+    });
+    const fresh = await achievementsAdmin.readAchievements(db);
+    res.json({ ...result, ...fresh });
+  } catch (e) {
+    achievementsError(res, e);
+  }
+});
+
+// The closet: character and accessory names/descriptions, same shape again
+// — see lib/cosmetics_admin.js. Served from the SAME page as Achievements
+// (achievements/app.js fetches both), so there is one place to go for every
+// piece of catalog text, not three.
+const cosmeticsAdmin = require('./lib/cosmetics_admin');
+
+function cosmeticsError(res, e) {
+  if (e instanceof cosmeticsAdmin.CosmeticsInputError) {
+    return res.status(e.status).json({ ok: false, error: e.message });
+  }
+  console.error(`[cosmetics] ${e.stack || e.message}`);
+  res.status(500).json({ ok: false, error: e.message });
+}
+
+app.get('/api/cosmetics', async (req, res) => {
+  try {
+    const data = await cosmeticsAdmin.readCosmetics(admin.firestore());
+    res.json({ ok: true, ...data });
+  } catch (e) {
+    cosmeticsError(res, e);
+  }
+});
+
+app.post('/api/cosmetics/field', localWriteOnly, achievementsJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { kind, id, field, text } = req.body || {};
+    const result = await cosmeticsAdmin.saveField(db, admin.firestore.FieldValue, {
+      kind,
+      id,
+      field,
+      rawText: text,
+    });
+    const fresh = await cosmeticsAdmin.readCosmetics(db);
+    res.json({ ...result, ...fresh });
+  } catch (e) {
+    cosmeticsError(res, e);
+  }
+});
+
 // 127.0.0.1, NOT the default.
 //
 // `app.listen(port)` with no host binds to 0.0.0.0, so this was listening on

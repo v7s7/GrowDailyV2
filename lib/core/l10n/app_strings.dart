@@ -1867,9 +1867,14 @@ class S {
   // Was 'مملوك', which is the word used for a possessed person. 'لديك'
   // is the ordinary register for "you have this".
   String get closetOwned => isAr ? 'لديك' : 'Owned';
-  String get closetEquipped => isAr ? 'مرتدى' : 'Equipped';
-  String get closetEquip => isAr ? 'ارتداء' : 'Equip';
-  String get closetUnequip => isAr ? 'خلع' : 'Remove';
+  // Was 'مرتدى', with 'ارتداء' and 'خلع' on the sheet's button. Unvocalised,
+  // مرتدى opens with مرتد, and only the badge is worn: the tasbihs, umbrellas,
+  // lantern and notebook are held, the frame goes around. Aziz picked these
+  // 2026-09-21. The chip's ها is القطعة, the word this screen already uses;
+  // the button pair are verbal nouns, so they fit every item's gender.
+  String get closetEquipped => isAr ? 'تستخدمها' : 'Equipped';
+  String get closetEquip => isAr ? 'استخدام' : 'Equip';
+  String get closetUnequip => isAr ? 'إزالة' : 'Remove';
   String get closetBuy => isAr ? 'شراء' : 'Buy';
   String get closetBuyConfirmTitle =>
       isAr ? 'شراء هذه القطعة؟' : 'Buy this item?';
@@ -2279,7 +2284,7 @@ class S {
 
   // ── Rank up ──────────────────────────────────────────────────────────────
   //
-  // The prestige ladder's unlock moment. Seven of these exist in a lifetime
+  // The prestige ladder's unlock moment. Eight of these exist in a lifetime
   // (Seeker is minLevel 1, so nobody crosses into it), which is why the copy
   // is short: it is read once and never again.
   String get rankUpEyebrow => isAr ? 'رتبة جديدة' : 'RANK UP';
@@ -2363,6 +2368,25 @@ class S {
       : 'Perfect day: every square is filled!';
   String gridGreensToday(int n) =>
       isAr ? 'كسبت $n مربّعًا اليوم' : 'You earned $n squares today';
+
+  /// Today in the one shape a person can act on: how many of today's habits
+  /// are finished, out of how many the day actually asked for. It replaced a
+  /// pair of stats that said neither thing well — an XP number, which belongs
+  /// on the profile and answers nothing about today, and a percentage that
+  /// carried a percent ICON beside a percent SIGN, so the card read "%50%".
+  ///
+  /// The tail only: the count itself is the card's big number, so this is
+  /// what sits beside it, the way [gridGreenSquaresCount] sits beside the
+  /// week's total.
+  String gridOfHabitsToday(int total) =>
+      isAr ? 'من $total عادات اليوم' : 'of $total habits today';
+
+  /// The week's filled squares, demoted to the line under today's count: it
+  /// is context, not the thing to act on, and the card used to lead with it
+  /// while today's figure was the faintest text on the card.
+  String gridGreenSquaresThisWeek(int n) => isAr
+      ? '$n ${gridGreenSquaresCount(n)} هذا الأسبوع'
+      : '$n ${gridGreenSquaresCount(n)} this week';
   /// The only place the app ever mentions the long-press, and until now it
   /// advertised colours only, so the note field behind it was a feature
   /// nobody was told about.

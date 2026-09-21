@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/game_theme.dart';
+import 'cosmetic_overrides.dart';
 
 /// One rung of the Level Prestige ladder — a title plus a matching visual
 /// treatment (banner tint + nameplate accent), unlocked purely by
@@ -37,7 +38,11 @@ class PrestigeTier {
     required this.icon,
   });
 
-  String title(bool isAr) => isAr ? titleAr : titleEn;
+  String title(bool isAr) {
+    final edited = CosmeticOverridesStore.current.prestigeTitle(id, isAr);
+    if (edited != null) return edited;
+    return isAr ? titleAr : titleEn;
+  }
 }
 
 /// Static catalog, evaluated client-side against [DashboardState.level] —
@@ -87,6 +92,28 @@ abstract final class PrestigeCatalog {
       titleAr: 'المجتهد',
       color: GameColors.tierPlatinum,
       icon: Icons.wb_sunny_outlined,
+    ),
+    // Added 2026-09-21 (Aziz: "stuck between 10 and 20, nothing in the
+    // middle") — the gap from 'steadfast' (level 10) to what was then the
+    // next rung (level 20) was the ladder's own widest jump this early:
+    // every earlier gap was 4-5 levels, then this one alone doubled to 10.
+    // Bisecting it is a milestone-spacing fix, not an XP-curve one — the
+    // curve is quadratic by design (later levels cost more on purpose) and
+    // the level 10-to-20 stretch is proportionate to how much it should
+    // cost; it just had no name to mark its midpoint. See
+    // prestige_mark.dart's kPrestigeMarks for the matching medal, inserted
+    // between the same two neighbours in the ring geometry.
+    //
+    // Title editable from the admin tool (achievements page's Prestige
+    // Ranks section) without a release — see cosmetic_overrides.dart. What
+    // is picked here is a reasonable starting point, not a final answer.
+    PrestigeTier(
+      id: 'resolute',
+      minLevel: 15,
+      titleEn: 'Persistent',
+      titleAr: 'المثابر',
+      color: GameColors.tierBrass,
+      icon: Icons.trending_up_rounded,
     ),
     // Renamed from 'Radiant'/'المشرق' - not one of the 99 Names itself, but
     // light/glow imagery sits close enough to An-Nur that the whole ladder

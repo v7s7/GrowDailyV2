@@ -272,6 +272,10 @@
     MAX_QUOTE_LENGTH,
     MONTH_WITHOUT_REPEATS,
     ROTATION_EPOCH,
+    // Exported so a second page that checks short, non-interpolated text
+    // against the same house style (the Achievements page's names and
+    // descriptions) does not need its own copy of these four rules.
+    ARABIC_STYLE,
     normalizeText,
     partsIn,
     checkStringEdit,

@@ -214,6 +214,11 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
                 todayHabits: todayHabits,
                 habitId: habit.id,
                 frequencyTarget: perDay,
+                // A جزئي square is half a habit on every other surface, so
+                // finishing the day from Tasbih has to read it too, or the
+                // same day scores lower here than on the Grid.
+                halfDoneHabitIds:
+                    ref.read(weeklyGridProvider).halfDoneTodayIds(),
               ),
               scheduledHabitCount: todayHabits.length,
               category: habit.category.name,

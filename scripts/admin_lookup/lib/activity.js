@@ -501,18 +501,27 @@ async function scanOneAccount(uid, profile, authRow) {
     const sum = summarizeHabitDay(d, scheduledIds, receiptsByKey, doc.id);
     const bits = [];
     // Scored the app's way (DayRules.scoreDay), not greens over habits
-    // scheduled: a deleted habit's square used to inflate the numerator, a
-    // quota's spare day used to sit in the denominator, and an OPEN day was
-    // judged at all, which it must not be. On an open day only the answered
-    // habits count, which is what the phone shows.
+    // scheduled: a deleted habit's square used to inflate the numerator, and
+    // a quota's spare day used to sit in the denominator.
+    //
+    // The denominator is the TRUE count of everything due today, marked or
+    // not - score.owed/score.credit, never the settled-only pair. This used
+    // to swap in settledOwed/settledCredit on an open day, on the theory
+    // that an untouched habit should not count against someone who still
+    // has hours left. What it actually did was read "4 of 4 done" on a day
+    // with 6 more habits sitting in the "Not yet" list right below it -
+    // Aziz, 2026-09-21: "what is 4 of 4? my habit is not 4". A ratio that
+    // silently drops its own unfinished items from both sides is worse than
+    // an honest 4 of 10, and it never once matched what "Not yet" was
+    // already showing two lines down.
     const score = DayRules.scoreDay({
       habits: habitDocs.map((h) => ({ id: h.id, data: h.data() })),
       dayData: d,
       dayKey: doc.id,
       nowLocalMs: DayRules.localNowMs(Date.now(), tzOffsetMinutes),
     });
-    const credit = score.isOpen ? score.settledCredit : score.credit;
-    const owed = score.isOpen ? score.settledOwed : score.owed;
+    const credit = score.credit;
+    const owed = score.owed;
     if (owed > 0) {
       bits.push(`${Math.round(credit * 100) / 100} of ${owed} done` +
         (score.isOpen ? ', day still open' : ''));
@@ -845,12 +854,16 @@ async function scanDay(dateKey) {
     return {
       uid,
       done: score.done,
-      credit: score.isOpen ? score.settledCredit : score.credit,
+      credit: score.credit,
       open: score.isOpen,
       completed: sum.done,
       gridOnly: sum.gridOnly,
       undone: sum.undone,
-      scheduled: score.isOpen ? score.settledOwed : score.owed,
+      // The true count of everything due that day, not the settled-only
+      // pair - see scanActivity's identical fix and its comment for why:
+      // "4/4" on an open day with six more habits still due read as a
+      // finished day when it very much was not one.
+      scheduled: score.owed,
       mood: data && data.mood ? data.mood : '',
       nightReviewDone: !!(data && data.nightReviewDone),
       reflection: (data && data.dailyReflection) || '',

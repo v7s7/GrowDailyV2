@@ -122,6 +122,41 @@ function isQuietHoursNow(settings, tzOffsetMinutes, nowMs = Date.now()) {
   return isQuietAtLocalMinute(settings, localMinutes(tzOffsetMinutes, nowMs));
 }
 
+/**
+ * Milliseconds from [nowMs] until this person's quiet hours next end, in
+ * THEIR local time — how long a held push should wait before it is worth
+ * retrying.
+ *
+ * Quiet hours used to mean "never told," not "not right now": a push
+ * suppressed here used to be dropped for good (see index.js's
+ * notifyRoomFinish doc comment on the room-goes-silent cost). Scheduling
+ * redelivery for the exact minute the window ends is the fix — no polling,
+ * no periodic sweep re-checking everyone every few minutes forever whether
+ * or not anything is actually waiting; one Cloud Task per held push, timed
+ * once.
+ *
+ * Only meaningful to call on someone who is CURRENTLY quiet (see
+ * isQuietHoursNow) — a caller that got here anyway (window disabled, or
+ * malformed start/end) gets a full day back rather than zero or a negative
+ * number, so nothing is ever scheduled in the past or for right now.
+ * @param {object|undefined} settings Their mirrored notificationSettings.
+ * @param {number} tzOffsetMinutes Their device's UTC offset.
+ * @param {number} [nowMs] The moment; defaults to now.
+ * @return {number} Milliseconds until quiet hours end, 60000..86400000.
+ */
+function msUntilQuietHoursEnd(settings, tzOffsetMinutes, nowMs = Date.now()) {
+  const s = settings || DEFAULT_QUIET_SETTINGS;
+  const endMin = toMinutes(s.quietHoursEnd);
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  if (endMin === null) return DAY_MS;
+  const nowLocalMin = localMinutes(tzOffsetMinutes, nowMs);
+  const deltaMin = ((endMin - nowLocalMin) % 1440 + 1440) % 1440;
+  // 0 means "this very minute is the boundary" - a caller asking that is
+  // either racing the clock or the window is zero-width; either way, a full
+  // day is the safe answer, never zero.
+  return (deltaMin === 0 ? 1440 : deltaMin) * 60 * 1000;
+}
+
 /** Which kind each push is, per rule 2 above. */
 const PUSH_KIND = Object.freeze({
   firstToday: "info",
@@ -177,5 +212,6 @@ module.exports = {
   isQuietAtLocalMinute,
   isQuietHoursNow,
   localMinutes,
+  msUntilQuietHoursEnd,
   pushKindFor,
 };

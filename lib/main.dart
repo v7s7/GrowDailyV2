@@ -49,6 +49,8 @@ import 'core/services/purchase_service.dart';
 import 'core/theme/game_theme.dart';
 import 'core/services/habit_mirror.dart';
 import 'core/services/local_store_service.dart';
+import 'features/achievements/models/achievement_overrides.dart';
+import 'features/character/models/cosmetic_overrides.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/notifiers/guest_reconnect_provider.dart';
 import 'features/auth/widgets/guest_reconnect_prompt.dart';
@@ -194,6 +196,15 @@ Future<void> main() async {
     // app runs (see wording_edits.dart).
     await WordingEditsStore.loadCached();
     WordingEditsStore.listen(firestore: await wordingEmulatorFirestore());
+    // The admin's achievement-text edits, same idea as wording above but
+    // for the 24 achievements' names and descriptions — see
+    // achievement_overrides.dart.
+    await AchievementOverridesStore.loadCached();
+    AchievementOverridesStore.listen();
+    // Same idea again, for the closet: 16 character names and 12
+    // accessories' names/descriptions — see cosmetic_overrides.dart.
+    await CosmeticOverridesStore.loadCached();
+    CosmeticOverridesStore.listen();
 
     // Crash reporting: three layers, matching Firebase's own documented
     // Flutter setup, since no single one of them catches everything on its
@@ -2436,6 +2447,14 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                         todayHabits: todayHabits,
                         habitId: habit.id,
                         frequencyTarget: habit.effectiveDailyTarget,
+                        // The same جزئي squares the Grid credits. Finishing
+                        // the day from Today used to judge it without them,
+                        // so a day carrying a half square was scored lower
+                        // here than on the Grid, and a day that was over the
+                        // threshold on one screen lost its streak on the
+                        // other. The half is worth 0.5 wherever it is read.
+                        halfDoneHabitIds:
+                            ref.read(weeklyGridProvider).halfDoneTodayIds(),
                       )
                     : willCompleteAllSquaresOn(ref, habit, actionDay),
                 // Scales the daily earn ceiling with the roster, see

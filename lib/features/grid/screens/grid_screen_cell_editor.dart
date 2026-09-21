@@ -782,6 +782,19 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     ref.read(weeklyGridProvider.notifier).setSquare(habit.id, day, picked,
         source: kSquareSourcePalette);
     syncRoomToday(ref, habit.id, day);
+
+    // A جزئي pick can be the tap that finally crosses the streak threshold,
+    // exactly as a مكتمل pick can — see willCrossStreakThresholdOnPartial's
+    // doc comment for why that predicate (not a completion) is the right
+    // question for this square, and earnStreakFromPartialCredit's for why
+    // it pays the same as completeHabit would have.
+    if (isSyncable &&
+        picked == SquareState.partial &&
+        willCrossStreakThresholdOnPartial(ref, habit, day)) {
+      ref.read(dashboardProvider.notifier).earnStreakFromPartialCredit(
+            day: day.isToday ? null : day,
+          );
+    }
   }
 }
 
